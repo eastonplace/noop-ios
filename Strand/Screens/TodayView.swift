@@ -1382,13 +1382,16 @@ struct TodayView: View {
         f.dateFormat = "yyyy-MM-dd"
         return f
     }()
-    /// "d MMM" for a stored `yyyy-MM-dd` day key, used by the carried-over Charge caption (#543). Falls
-    /// back to the raw key if it can't be parsed so the caption is never empty.
-    private static func lastChargeDateFmt(_ dayKey: String) -> String {
+    /// "d MMM" for a stored `yyyy-MM-dd` day key, used by the carried-over Charge caption (#543) and the
+    /// "Stale · …" / "Last scored · …" detail. A day outside the current year carries its year ("Dec 30, 2025"),
+    /// so an old carry never reads as this year's. Falls back to the raw key if it can't be parsed so the
+    /// caption is never empty.
+    private static func lastChargeDateFmt(_ dayKey: String, now: Date = Date()) -> String {
         guard let date = dayKeyParser.date(from: dayKey) else { return dayKey }
         let f = DateFormatter()
         f.locale = Locale.current
-        f.setLocalizedDateFormatFromTemplate("dMMM")
+        let sameYear = Calendar.current.isDate(date, equalTo: now, toGranularity: .year)
+        f.setLocalizedDateFormatFromTemplate(sameYear ? "dMMM" : "dMMMy")
         return f.string(from: date)
     }
 

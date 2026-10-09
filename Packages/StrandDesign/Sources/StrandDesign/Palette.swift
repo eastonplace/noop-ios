@@ -65,6 +65,8 @@ public enum StrandPalette {
     public static let surfaceInset = inset
     public static let hairline = Color(hex: "#FFFFFF14")
     public static let hairlineStrong = Color(hex: "#FFFFFF2E")
+    /// The quiet capsule behind a small chip (`WidgetChip`): a 6% white wash.
+    public static let chipFill = Color.white.opacity(0.06)
 
     // MARK: Text
 

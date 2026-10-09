@@ -7,7 +7,8 @@ import StrandDesign
 /// simulator screenshot cannot scroll). Contains synthetic data only.
 ///
 /// Sections: `tints`, `surfaces`, `cards`, `rows`, `flat`, `card`, `coach-a` ... `coach-d`, plus the shared
-/// app components `overline`, `stat-tile`, `chart-card` and `score-pill`.
+/// app components `overline`, `stat-tile`, `chart-card` and `score-pill`, and `eyebrow-long` (long headers that
+/// must wrap, for the German / accessibility-size check).
 /// `flat` and `card` show the same content composed on the canvas and inside a `WidgetCard`.
 /// The Today restyle sections `today-hero`, `today-heart`, `today-stress` and `today-health` render the
 /// REAL Today components (full device width, Today's 16pt gutter, the app canvas) with the demo-seed values.
@@ -15,6 +16,7 @@ import StrandDesign
 /// compared exactly (`xcrun simctl launch --console ...`).
 struct WidgetGalleryView: View {
     private let section: String?
+    @Environment(\.dynamicTypeSize) private var systemTypeSize
 
     init() {
         let arguments = CommandLine.arguments
@@ -42,6 +44,24 @@ struct WidgetGalleryView: View {
         }
         .background(StrandPalette.appCanvas.ignoresSafeArea())
         .preferredColorScheme(.dark)
+        .environment(\.dynamicTypeSize, typeSizeOverride ?? systemTypeSize)
+    }
+
+    /// `--noop-gallery-type-size ax3` (or `ax1` ... `ax5`, `xxxl`) renders the screenful at that Dynamic Type size, so
+    /// the accessibility-size layouts can be captured without changing the simulator's own setting.
+    private var typeSizeOverride: DynamicTypeSize? {
+        let arguments = CommandLine.arguments
+        guard let index = arguments.firstIndex(of: "--noop-gallery-type-size"),
+              arguments.indices.contains(index + 1) else { return nil }
+        switch arguments[index + 1].lowercased() {
+        case "ax1": return .accessibility1
+        case "ax2": return .accessibility2
+        case "ax3": return .accessibility3
+        case "ax4": return .accessibility4
+        case "ax5": return .accessibility5
+        case "xxxl": return .xxxLarge
+        default: return nil
+        }
     }
 
     private func shows(_ name: String) -> Bool { section == nil || section == name }
@@ -63,6 +83,7 @@ struct WidgetGalleryView: View {
         if shows("coach-c") { coachStack(Array(samples.training.suffix(2))) }
         if shows("coach-d") { coachStack(samples.coverage) }
         if shows("overline") { overlinePage }
+        if shows("eyebrow-long") { eyebrowLongPage }
         if shows("stat-tile") { statTilePage }
         if shows("chart-card") { chartCardPage }
         if shows("score-pill") { scorePillPage }
@@ -271,6 +292,23 @@ extension WidgetGalleryView {
                         .galleryMeasured("overline-eyebrow-\(title)")
                 }
             }
+        }
+    }
+
+    // MARK: Long headers
+
+    /// Long titles beside a date or a stale pill, the way a German or accessibility-size header reads: they wrap
+    /// to a second line instead of truncating.
+    var eyebrowLongPage: some View {
+        VStack(alignment: .leading, spacing: NoopMetrics.space4) {
+            caption("SectionHeader with a long title and a trailing date, then the record pill")
+            SectionHeader("Heart rate variability and resting heart rate", trailing: "Wed 7 → Thu 8 Oct")
+                .galleryMeasured("eyebrow-long-header")
+            SectionHeader("Sleep", trailing: "Oct 8")
+            SectionEyebrow(title: "Heart rate variability and resting heart rate", systemImage: "waveform.path.ecg",
+                           tint: .hrv, trailing: .record(date: "Dec 30, 2025", isStale: true))
+            SectionEyebrow(title: "Stress", systemImage: "bolt.heart", tint: .stress,
+                           trailing: .record(date: "Oct 5", isStale: true))
         }
     }
 

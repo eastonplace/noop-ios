@@ -19,12 +19,14 @@ struct EyebrowPulseIcon: View {
     @State private var breathing = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    private var isPulsing: Bool { pulses && !reduceMotion }
+
     var body: some View {
         Image(systemName: systemName)
             .font(StrandFont.caption)
             .foregroundStyle(color)
             .background {
-                if pulses && !reduceMotion {
+                if isPulsing {
                     Image(systemName: systemName)
                         .font(StrandFont.caption)
                         .foregroundStyle(color.opacity(0.4))
@@ -32,13 +34,26 @@ struct EyebrowPulseIcon: View {
                         .opacity(breathing ? 0 : 0.8)
                 }
             }
-            .onAppear {
-                guard pulses, !reduceMotion else { return }
-                withAnimation(.easeOut(duration: max(period, 0.5)).repeatForever(autoreverses: false)) {
-                    breathing = true
-                }
-            }
+            // Driven by the state, not by appearance: a Live HR card that appeared before its first sample starts
+            // pulsing when the sample arrives, Reduce Motion turning off restarts it, and a new period takes effect.
+            .onAppear(perform: restart)
+            .onChangeCompat(of: isPulsing) { _ in restart() }
+            .onChangeCompat(of: period) { _ in restart() }
             .accessibilityHidden(true)
+    }
+
+    /// Settles the ghost without animation, then (when pulsing) starts the repeating swell on the next turn so the
+    /// ghost, which is inserted in this same update, animates from its resting state rather than appearing swollen.
+    private func restart() {
+        var settle = Transaction()
+        settle.disablesAnimations = true
+        withTransaction(settle) { breathing = false }
+        guard isPulsing else { return }
+        let duration = max(period, 0.5)
+        Task { @MainActor in
+            await Task.yield()
+            withAnimation(.easeOut(duration: duration).repeatForever(autoreverses: false)) { breathing = true }
+        }
     }
 }
 
@@ -88,6 +103,7 @@ public struct WidgetChip: View {
             if let systemImage {
                 Image(systemName: systemImage)
                     .font(.system(size: 10, weight: .semibold))
+                    .accessibilityHidden(true)
             }
             if let title {
                 Text(title, bundle: bundle)
@@ -98,13 +114,14 @@ public struct WidgetChip: View {
             if showsChevron {
                 Image(systemName: "chevron.right")
                     .font(.system(size: 10, weight: .semibold))
+                    .accessibilityHidden(true)
             }
         }
         .frame(minHeight: title == nil && systemImage != nil ? lineHeight : nil)
         .foregroundStyle(StrandPalette.textSecondary)
         .padding(.horizontal, 8)
         .padding(.vertical, 3)
-        .background(Capsule(style: .continuous).fill(Color.white.opacity(0.06)))
+        .background(Capsule(style: .continuous).fill(StrandPalette.chipFill))
         .overlay(Capsule(style: .continuous).stroke(StrandPalette.hairline, lineWidth: 1))
         .padding(.vertical, overhangs ? -2 : 0)
     }

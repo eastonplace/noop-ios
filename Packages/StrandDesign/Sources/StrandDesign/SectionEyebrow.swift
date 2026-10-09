@@ -7,10 +7,10 @@ public enum EyebrowTrailing {
     case none
     /// Secondary text, usually the record's date.
     case text(String)
-    /// A status pill (no leading dot).
-    case pill(String, tone: StrandTone)
+    /// A status pill (no leading dot). The title is looked up in the app's string table, like `StatePill`'s.
+    case pill(LocalizedStringKey, tone: StrandTone)
     /// A status pill followed by secondary text (for example "Stale" then a date).
-    case pillAndText(String, tone: StrandTone, text: String)
+    case pillAndText(LocalizedStringKey, tone: StrandTone, text: String)
     /// Any view you need.
     case custom(AnyView)
 
@@ -35,6 +35,7 @@ public struct SectionEyebrow: View {
     public var trailing: EyebrowTrailing
     /// A trailing chevron, for a header that is itself a tap target.
     public var showsChevron: Bool
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     public init(
         title: String,
@@ -65,20 +66,52 @@ public struct SectionEyebrow: View {
         self.showsChevron = showsChevron
     }
 
+    /// One row at ordinary sizes. The title wraps to a second line before it truncates (a long German title with a
+    /// date beside it) and the trailing date or pill keeps its full width, so a record's date is never the thing
+    /// that gives way. At accessibility sizes the trailing item drops under the title so both wrap freely.
+    /// A title that fits on one line lays out exactly as it always did.
     public var body: some View {
-        HStack(spacing: NoopMetrics.space2) {
-            if let systemImage {
-                Image(systemName: systemImage).font(StrandFont.caption).foregroundStyle(tint.accent)
+        if typeSize.isAccessibilitySize {
+            VStack(alignment: .leading, spacing: NoopMetrics.space1) {
+                HStack(spacing: NoopMetrics.space2) {
+                    leadingSymbol
+                    titleText.strandOverline().accessibilityAddTraits(.isHeader)
+                    Spacer(minLength: NoopMetrics.space2)
+                    chevron
+                }
+                if hasTrailing {
+                    HStack(spacing: NoopMetrics.space2) { trailingView }
+                }
             }
-            titleText.strandOverline().lineLimit(1).accessibilityAddTraits(.isHeader)
-            Spacer(minLength: NoopMetrics.space2)
-            trailingView
-            if showsChevron {
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(StrandPalette.textTertiary)
-                    .accessibilityHidden(true)
+        } else {
+            HStack(spacing: NoopMetrics.space2) {
+                leadingSymbol
+                titleText.strandOverline().lineLimit(2).layoutPriority(1).accessibilityAddTraits(.isHeader)
+                Spacer(minLength: NoopMetrics.space2)
+                trailingView
+                chevron
             }
+        }
+    }
+
+    private var hasTrailing: Bool {
+        if case .none = trailing { return false }
+        return true
+    }
+
+    @ViewBuilder private var leadingSymbol: some View {
+        if let systemImage {
+            Image(systemName: systemImage).font(StrandFont.caption).foregroundStyle(tint.accent)
+                .accessibilityHidden(true)
+        }
+    }
+
+    @ViewBuilder private var chevron: some View {
+        if showsChevron {
+            Image(systemName: "chevron.right")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(StrandPalette.textTertiary)
+                .accessibilityHidden(true)
         }
     }
 
@@ -89,17 +122,26 @@ public struct SectionEyebrow: View {
         case .text(let text):
             trailingText(text)
         case .pill(let title, let tone):
-            StatePill(LocalizedStringKey(title), tone: tone, showsDot: false)
+            pill(title, tone: tone)
         case .pillAndText(let title, let tone, let text):
-            StatePill(LocalizedStringKey(title), tone: tone, showsDot: false)
+            pill(title, tone: tone)
             trailingText(text)
         case .custom(let view):
             view
         }
     }
 
+    /// The pill keeps its natural size (it is one short word) and wins the width over the title.
+    private func pill(_ title: LocalizedStringKey, tone: StrandTone) -> some View {
+        StatePill(title, tone: tone, showsDot: false).fixedSize().layoutPriority(2)
+    }
+
+    /// One line at ordinary sizes, wins the width over the title; wraps at accessibility sizes.
     private func trailingText(_ text: String) -> some View {
-        Text(text).font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary).lineLimit(1)
+        Text(text).font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
+            .lineLimit(typeSize.isAccessibilitySize ? nil : 2)
+            .multilineTextAlignment(.trailing)
+            .layoutPriority(2)
     }
 }
 
@@ -181,6 +223,7 @@ public struct MetricValueRow: View {
         HStack(alignment: .firstTextBaseline, spacing: NoopMetrics.space2) {
             Image(systemName: systemImage).font(StrandFont.caption).foregroundStyle(tint.accent)
                 .frame(width: WidgetMetrics.metricIconWidth)
+                .accessibilityHidden(true)
             Text(label).font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary).lineLimit(1)
             Spacer(minLength: NoopMetrics.space1)
             HStack(alignment: .firstTextBaseline, spacing: 2) {
