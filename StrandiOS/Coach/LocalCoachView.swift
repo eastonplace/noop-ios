@@ -366,16 +366,11 @@ struct LocalCoachView: View {
             CoachRow(
                 systemImage: "figure.strengthtraining.traditional", tint: .workout,
                 title: Text(LocalizedStringKey(coach.plan?.title ?? "Turn intention into a plan")),
-                subtitle: Text(LocalizedStringKey(planEntrySubtitle))
+                subtitle: Text(CoachPlanText.entrySubtitle(sessions: coach.plan?.days.count,
+                                                           saved: coach.plan?.saved ?? false))
             )
         }
         .buttonStyle(.plain)
-    }
-
-    private var planEntrySubtitle: String {
-        guard let plan = coach.plan else { return "Build, review and save your next workout." }
-        return plan.saved ? "\(plan.days.count) sessions · Saved to your workouts"
-            : "\(plan.days.count) sessions · Ready for your review"
     }
 
     private var briefSection: some View {

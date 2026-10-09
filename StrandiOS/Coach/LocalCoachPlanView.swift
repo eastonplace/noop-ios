@@ -73,8 +73,7 @@ struct LocalCoachPlanView: View {
 
     /// The plan as one summary: its state, title and summary, three facts and the actions that move it forward.
     private func planHeader(_ plan: LocalCoachPlan) -> some View {
-        let minutes = plan.days.map(\.minutes)
-        let perSession = minutes.isEmpty ? nil : Int((Double(minutes.reduce(0, +)) / Double(minutes.count)).rounded())
+        let perSession = CoachPlanText.minutesPerSession(plan.days.map(\.minutes))
         let exercises = plan.days.reduce(0) { $0 + $1.exercises.count }
         return CoachSection(plan.saved ? "Saved to your workouts" : "Built for your review",
                             systemImage: plan.saved ? "checkmark.circle.fill" : "calendar.badge.plus",

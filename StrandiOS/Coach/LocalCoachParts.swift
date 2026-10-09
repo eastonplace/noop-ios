@@ -508,6 +508,22 @@ struct CoachMetricStrip: View {
     }
 }
 
+// MARK: Plan wording
+
+/// The plan's few pure sentences and figures, kept out of the views so they can be tested.
+enum CoachPlanText {
+    /// The Overview's plan entry line. The count is a plural in every language; with no plan it is the invitation.
+    static func entrySubtitle(sessions: Int?, saved: Bool) -> LocalizedStringResource {
+        guard let sessions else { return "Build, review and save your next workout." }
+        return saved ? "\(sessions) sessions · Saved to your workouts" : "\(sessions) sessions · Ready for your review"
+    }
+
+    /// Whole minutes per session, averaged over the plan's days; nil when there are none.
+    static func minutesPerSession(_ minutes: [Int]) -> Int? {
+        minutes.isEmpty ? nil : Int((Double(minutes.reduce(0, +)) / Double(minutes.count)).rounded())
+    }
+}
+
 // MARK: Medallion
 
 /// A large symbol on a quiet tinted disc, the lead of an empty state.
