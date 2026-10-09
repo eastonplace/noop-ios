@@ -305,6 +305,21 @@ extension WidgetGalleryView {
                          sparkline: statTileSparkline, sparkColor: StrandPalette.metricPurple)
                     .galleryMeasured("stat-tile-spark")
             }
+            caption("With a domain symbol (optional, in the domain tint)")
+            LazyVGrid(columns: columns, spacing: NoopMetrics.gap) {
+                StatTile(label: "HRV", value: "64 ms", accent: DomainTint.hrv.accent,
+                         systemImage: "waveform.path.ecg", tint: .hrv)
+                    .galleryMeasured("stat-tile-icon-hrv")
+                StatTile(label: "Resting HR", value: "54 bpm", accent: DomainTint.heart.accent,
+                         systemImage: "heart.fill", tint: .heart)
+                    .galleryMeasured("stat-tile-icon-heart")
+                StatTile(label: "Asleep", value: "7h 42m", caption: "Last night", accent: DomainTint.sleep.accent,
+                         systemImage: "moon.stars.fill", tint: .sleep)
+                    .galleryMeasured("stat-tile-icon-sleep")
+                StatTile(label: "Stress", value: "—", caption: "Calibrating", accent: DomainTint.stress.accent,
+                         systemImage: "waveform.path", tint: .stress)
+                    .galleryMeasured("stat-tile-icon-missing")
+            }
         }
     }
 
