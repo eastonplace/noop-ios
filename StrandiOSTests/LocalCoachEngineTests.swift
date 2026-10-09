@@ -1,5 +1,6 @@
 #if os(iOS)
 import XCTest
+import WhoopStore
 @testable import NOOP
 
 @MainActor
@@ -599,6 +600,160 @@ final class LocalCoachEngineTests: XCTestCase {
         XCTAssertTrue(reply.text.contains("7"), reply.text)
     }
 
+    // MARK: Failures read as plain sentences
+
+    func testCuratedSentenceReadsAsWrittenWithoutDetails() {
+        let sentence = LocalCoachFailure.consent.localizedDescription
+        let copy = CoachErrorCopy(sentence)
+        XCTAssertEqual(copy.message, sentence)
+        XCTAssertNil(copy.details)
+    }
+
+    func testOwnSentenceInsideTheSystemsTextLeadsAndTheWholeTextStaysUnderDetails() {
+        let raw = LocalCoachErrorPrefix.responseStopped
+            + "An error occurred while invoking the tool: LocalCoachReadTool(name: \"sleep_history\") Underlying error: "
+            + LocalCoachFailure.toolBudget.localizedDescription
+        let copy = CoachErrorCopy(raw)
+        XCTAssertEqual(copy.message, LocalCoachFailure.toolBudget.localizedDescription)
+        XCTAssertEqual(copy.details, raw)
+    }
+
+    func testEveryEnginePhraseHasAPlainSentenceAndNeverLeadsWithTheSystemText() {
+        let phrases = [LocalCoachErrorPrefix.responseStopped, LocalCoachErrorPrefix.recordsUnreadable,
+                       LocalCoachErrorPrefix.settingsUnreadable, LocalCoachErrorPrefix.settingsNotSaved,
+                       LocalCoachErrorPrefix.historyUnreadable, LocalCoachErrorPrefix.changesNotSaved,
+                       LocalCoachErrorPrefix.storageUnavailable]
+        XCTAssertEqual(Set(CoachErrorCopy.plain.map { $0.prefix }), Set(phrases))
+        for phrase in phrases {
+            let raw = phrase + "NSCocoaErrorDomain Code=4 \"The file doesn\u{2019}t exist.\""
+            let copy = CoachErrorCopy(raw)
+            XCTAssertFalse(copy.message.contains("NSCocoaErrorDomain"), phrase)
+            XCTAssertNotEqual(copy.message, raw, phrase)
+            XCTAssertEqual(copy.details, raw, phrase)
+        }
+    }
+
+    func testModelFailureReachesThePageAsAPlainSentence() async throws {
+        let model = TestCoachModel()
+        model.body = { _, _, _ in throw CoachSystemError() }
+        let engine = make(model: model, directory: try directory())
+        await engine.send("How did I sleep?")
+        let raw = try XCTUnwrap(engine.errorText)
+        XCTAssertTrue(raw.hasPrefix(LocalCoachErrorPrefix.responseStopped))
+        let copy = CoachErrorCopy(raw)
+        XCTAssertEqual(copy.message, "Coach could not finish that reply. Try again, or ask it a different way.")
+        XCTAssertEqual(copy.details, raw)
+        XCTAssertTrue(copy.details?.contains("FoundationModels") == true)
+    }
+
+    func testRecordReadFailureReachesThePageAsAPlainSentence() async throws {
+        let data = TestCoachData()
+        data.snapshotFailure = CoachSystemError()
+        let engine = make(data: data, directory: try directory())
+        engine.preferences.usePersonalData = true
+        await engine.refresh()
+        let raw = try XCTUnwrap(engine.errorText)
+        XCTAssertTrue(raw.hasPrefix(LocalCoachErrorPrefix.recordsUnreadable))
+        XCTAssertEqual(CoachErrorCopy(raw).message, "Coach could not read your records just now. Try again in a moment.")
+    }
+
+    func testUnreadableHistoryReachesThePageAsAPlainSentence() throws {
+        let store = LocalCoachPersistence(directory: try directory())
+        try store.save(.init(sourceID: "a"))
+        try Data("broken json".utf8).write(to: store.fileURL(sourceID: "a"))
+        let engine = LocalCoachEngine(data: TestCoachData(), persistence: store, model: TestCoachModel(),
+                                      source: { .init(storageID: "a", dataSourceID: "a", revision: "1") })
+        let raw = try XCTUnwrap(engine.errorText)
+        XCTAssertTrue(raw.hasPrefix(LocalCoachErrorPrefix.historyUnreadable))
+        XCTAssertEqual(CoachErrorCopy(raw).message, "Coach could not load your saved conversations. Restart NOOP to try again.")
+    }
+
+    func testPlainSentencesAndDetailsAreTranslated() throws {
+        let bundle = Bundle(for: LocalCoachEngine.self)
+        for locale in ["de", "es", "it", "pt-PT", "zh-Hans", "zh-Hant"] {
+            let path = try XCTUnwrap(bundle.path(forResource: locale, ofType: "lproj"), locale)
+            let table = try XCTUnwrap(Bundle(path: path), locale)
+            let keys = CoachErrorCopy.plain.map { $0.message } + ["Details"]
+            for key in keys {
+                XCTAssertNotEqual(table.localizedString(forKey: key, value: "\u{0}missing", table: nil), "\u{0}missing",
+                                  "\(locale) has no translation for: \(key)")
+            }
+        }
+    }
+
+    // MARK: Records that land after the page opened
+
+    private let readTime = Date(timeIntervalSince1970: 1_790_438_400)
+
+    func testSnapshotReadBeforeRecordsLoadRefreshesWhenTheyLand() async throws {
+        let repo = Repository(deviceId: "coach-late")
+        let engine = repositoryBacked(repo, directory: try directory())
+        engine.addMemory(text: "Build strength", category: .goals)
+
+        // The page opens before the repository has loaded, so nothing is recorded yet.
+        await engine.refresh()
+        XCTAssertEqual(recovery(engine), "Not recorded")
+        let opened = engine.recordContextID
+
+        // The records land afterwards, as the repository publishes its first load.
+        repo.days = [day("2026-09-02", recovery: 71, sleep: 420)]
+        repo.loaded = true
+        repo.refreshSeq += 1
+        try await waitUntil { engine.recordContextID != opened }
+
+        // The page's `.task(id: recordContextID)` runs again and the snapshot now carries them.
+        await engine.refresh()
+        XCTAssertEqual(recovery(engine).flatMap(Double.init), 71)
+        XCTAssertEqual(engine.snapshot.latestDay, "2026-09-02")
+        XCTAssertEqual(engine.memories.map(\.text), ["Build strength"], "New records are not a source change.")
+    }
+
+    func testPublicationsThatChangeNoRecordsLeaveTheRecordContextAlone() async throws {
+        let repo = Repository(deviceId: "coach-live")
+        repo.loaded = true
+        repo.days = [day("2026-09-02", recovery: 71, sleep: 420)]
+        let engine = repositoryBacked(repo, directory: try directory())
+        let settled = engine.recordContextID
+
+        // Publishes, but changes nothing the Coach reads: the page must not re-run its read.
+        repo.vitalRows = []
+        repo.importedSleep = [:]
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertEqual(engine.recordContextID, settled)
+
+        // A real repository change does move it.
+        repo.refreshSeq += 1
+        try await waitUntil { engine.recordContextID != settled }
+    }
+
+    /// An engine over a real repository, wired as the app wires it: the production record token and observer.
+    private func repositoryBacked(_ repo: Repository, directory: URL) -> LocalCoachEngine {
+        let service = LocalCoachDataService(repo: repo, access: { true }, now: { self.readTime })
+        let engine = LocalCoachEngine(data: service, persistence: .init(directory: directory), model: nil,
+                                      source: { .init(storageID: "a", dataSourceID: repo.deviceId, revision: "1") },
+                                      records: { LocalCoachEngine.recordsToken(of: repo) })
+        engine.observe(repo)
+        engine.preferences.usePersonalData = true
+        return engine
+    }
+
+    private func recovery(_ engine: LocalCoachEngine) -> String? {
+        engine.snapshot.metrics.first { $0.id == "recovery" }?.value
+    }
+
+    /// The repository observer hops to the main queue, so give it room to run.
+    private func waitUntil(_ condition: () -> Bool) async throws {
+        var waited = 0
+        while !condition() && waited < 300 { try await Task.sleep(for: .milliseconds(10)); waited += 1 }
+        XCTAssertTrue(condition(), "The condition did not become true in time.")
+    }
+
+    private func day(_ key: String, recovery: Double?, sleep: Double?) -> DailyMetric {
+        DailyMetric(day: key, totalSleepMin: sleep, efficiency: nil, deepMin: nil, remMin: nil,
+                    lightMin: nil, disturbances: nil, restingHr: nil, avgHrv: nil,
+                    recovery: recovery, strain: nil, exerciseCount: nil, strainVersion: nil)
+    }
+
     private func make(data: TestCoachData = TestCoachData(), model: TestCoachModel = TestCoachModel(),
                       directory: URL) -> LocalCoachEngine {
         LocalCoachEngine(data: data, persistence: .init(directory: directory), model: model,
@@ -617,7 +772,11 @@ private final class TestCoachData: LocalCoachDataAccess {
     var saveCount = 0
     var resultText = "private result"
     var beforeRead: (() async -> Void)?
-    func snapshot() async throws -> LocalCoachSnapshot { .empty }
+    var snapshotFailure: Error?
+    func snapshot() async throws -> LocalCoachSnapshot {
+        if let snapshotFailure { throw snapshotFailure }
+        return .empty
+    }
     func query(_ name: String, query: String, days: Int) async throws -> LocalCoachToolResult {
         reads.append((query, days))
         await beforeRead?()
@@ -652,6 +811,10 @@ private final class CoachTestGate {
         XCTFail("The controlled asynchronous operation did not start")
     }
     func release() { continuation?.resume(); continuation = nil }
+}
+
+private struct CoachSystemError: LocalizedError {
+    var errorDescription: String? { "The operation couldn\u{2019}t be completed. (FoundationModels.GenerationError error 2.)" }
 }
 
 @MainActor

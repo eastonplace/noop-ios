@@ -56,13 +56,16 @@ struct LocalCoachWindow: Sendable {
         through = Self.key(last)
     }
 
-    static var calendar: Calendar {
+    /// Built once: the Overview reads record dates on every redraw, including each keystroke in the composer. The
+    /// time zone follows the device, so a change of zone while the app is open still applies.
+    static let calendar: Calendar = {
         var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = .current
+        calendar.timeZone = .autoupdatingCurrent
         return calendar
-    }
+    }()
 
-    private static var formatter: DateFormatter {
+    /// Configured once and only read afterwards.
+    private static let formatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.calendar = calendar
         formatter.locale = Locale(identifier: "en_US_POSIX")
@@ -70,7 +73,7 @@ struct LocalCoachWindow: Sendable {
         formatter.dateFormat = "yyyy-MM-dd"
         formatter.isLenient = false
         return formatter
-    }
+    }()
 
     static func key(_ date: Date) -> String { formatter.string(from: date) }
     static func date(_ key: String) -> Date? {

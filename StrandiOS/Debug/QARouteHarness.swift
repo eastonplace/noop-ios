@@ -110,12 +110,49 @@ enum QARoute: String, CaseIterable {
     }()
 }
 
+/// `--noop-coach-page <overview|conversation|plan|about>` opens the Coach tab on that page (pair it with
+/// `--demo-tab coach`), so each page can be captured without UI automation.
+enum QACoachPage {
+    static let requested: LocalCoachScreen? = {
+        let arguments = ProcessInfo.processInfo.arguments
+        guard let index = arguments.firstIndex(of: "--noop-coach-page"),
+              arguments.indices.contains(index + 1) else { return nil }
+        switch arguments[index + 1].lowercased() {
+        case "overview", "home": return .home
+        case "conversation", "chat": return .chat
+        case "plan": return .plan
+        case "about", "memory": return .memory
+        default: return nil
+        }
+    }()
+}
+
+/// `--noop-coach-availability <checking|unsupported|notready|disabled|unavailable>` makes the Coach screens draw
+/// that model state (the engine is untouched), so the states a supported simulator never reaches can be captured.
+enum QACoachAvailability {
+    static let requested: LocalCoachAvailability? = {
+        let arguments = ProcessInfo.processInfo.arguments
+        guard let index = arguments.firstIndex(of: "--noop-coach-availability"),
+              arguments.indices.contains(index + 1) else { return nil }
+        switch arguments[index + 1].lowercased() {
+        case "checking": return .checking
+        case "unsupported": return .unsupported
+        case "notready": return .notReady
+        case "disabled": return .disabled
+        case "unavailable": return .unavailable("Turn on Apple Intelligence in Settings")
+        default: return nil
+        }
+    }()
+}
+
 /// Screenshot helper: scrolls the screen's main vertical scroll view to an exact offset on request, so a capture
 /// script can take overlapping frames and stitch a full-length image without UI automation. Enabled by
 /// `--noop-qa-scroll-poll`; the script writes the wanted offset in points (0 = top) to `/tmp/noop-qa-scroll.txt`
 /// and reads the `[qa-scroll] ...` line the app logs once the offset is applied.
 enum QAScrollDriver {
-    static let requestPath = "/tmp/noop-qa-scroll.txt"
+    /// `NOOP_QA_SCROLL_FILE` (passed as `SIMCTL_CHILD_NOOP_QA_SCROLL_FILE`) gives a capture run its own request
+    /// file, so two simulators driven at once never scroll each other's screens.
+    static let requestPath = ProcessInfo.processInfo.environment["NOOP_QA_SCROLL_FILE"] ?? "/tmp/noop-qa-scroll.txt"
     static var enabled: Bool { ProcessInfo.processInfo.arguments.contains("--noop-qa-scroll-poll") }
 
     @MainActor static func run() async {
@@ -145,16 +182,19 @@ enum QAScrollDriver {
               points, y - top, maxY - top, scroll.adjustedContentInset.top, scroll.adjustedContentInset.bottom)
     }
 
-    /// The topmost vertically scrollable, full-width scroll view under the middle of the screen.
+    /// The topmost vertically scrollable, full-width scroll view under the middle of the screen. A page that scrolls
+    /// under a pinned header and composer is as tall as the screen with its content shorter than that, so the
+    /// content is measured with the adjusted insets.
     @MainActor private static func mainScrollView() -> UIScrollView? {
         guard let window = UIApplication.shared.connectedScenes
             .compactMap({ $0 as? UIWindowScene }).flatMap(\.windows).first(where: \.isKeyWindow) else { return nil }
         let center = CGPoint(x: window.bounds.midX, y: window.bounds.midY)
         var found: UIScrollView?
         func visit(_ view: UIView) {
-            if view.isHidden || view.alpha < 0.01 { return }
+            if view.isHidden || view.alpha < 0.01 || view.layer.opacity < 0.01 { return }
             if let scroll = view as? UIScrollView,
-               scroll.contentSize.height > scroll.bounds.height + 1,
+               scroll.contentSize.height + scroll.adjustedContentInset.top + scroll.adjustedContentInset.bottom
+                   > scroll.bounds.height + 1,
                scroll.bounds.width >= window.bounds.width * 0.8,
                scroll.convert(scroll.bounds, to: window).contains(center) {
                 found = scroll
