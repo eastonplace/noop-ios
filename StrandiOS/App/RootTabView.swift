@@ -41,6 +41,13 @@ struct RootTabView: View {
         TrendsView()
         #endif
     }
+    private var coachTabRoot: some View {
+        #if DEBUG
+        LocalCoachView(screen: QACoachPage.requested ?? .home)
+        #else
+        LocalCoachView()
+        #endif
+    }
     private var sleepTabRoot: some View {
         #if DEBUG
         SleepView().qaRouteHost(.sleep)
@@ -88,7 +95,7 @@ struct RootTabView: View {
         TabView(selection: $selectedTab) {
             tab(todayTabRoot, "Today", "square.grid.2x2").tag(0)
             tab(trendsTabRoot, "Trends", "chart.bar").tag(1)
-            tab(LocalCoachView(), "Coach", "bubble.left.and.text.bubble.right").tag(4)
+            tab(coachTabRoot, "Coach", "bubble.left.and.text.bubble.right").tag(4)
             tab(sleepTabRoot, "Sleep", "moon").tag(2)
             settingsTab.tag(3)
         }
