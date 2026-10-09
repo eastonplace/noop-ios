@@ -358,24 +358,65 @@ private struct CoachWorkoutRow: View {
     let item: LocalCoachCard.WorkoutItem
     let effortScale: EffortScale
 
+    /// One line while it fits. When the text grows, the figures drop under the heading and the heading wraps, so no
+    /// sport, time or number is ever cut short.
     var body: some View {
-        HStack(spacing: NoopMetrics.space3) {
-            Image(systemName: sportSymbol(item.sport)).font(StrandFont.body)
-                .foregroundStyle(StrandPalette.strainAccent)
-                .frame(width: NoopMetrics.iconCircleDiameter, height: NoopMetrics.iconCircleDiameter)
-                .background(StrandPalette.strainAccent.opacity(0.14), in: Circle())
-            VStack(alignment: .leading, spacing: 2) {
-                Text(item.sport).font(StrandFont.subhead.weight(.semibold))
-                    .foregroundStyle(StrandPalette.textPrimary).lineLimit(1)
-                Text("\(LocalCoachCardFormat.startLabel(item.startTs)) · \(LocalCoachCardFormat.duration(seconds: item.durationS))")
-                    .font(StrandFont.footnote).foregroundStyle(StrandPalette.textSecondary).lineLimit(1)
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: NoopMetrics.space3) {
+                icon
+                heading
+                Spacer(minLength: NoopMetrics.space1)
+                HStack(spacing: NoopMetrics.space3) {
+                    bpmFigure(leading: false)
+                    effortFigure(leading: false)
+                }
             }
-            Spacer(minLength: NoopMetrics.space1)
-            CoachWorkoutFigure(value: LocalCoachCardFormat.whole(item.avgHr), label: "BPM",
-                               tint: StrandPalette.textPrimary)
-            CoachWorkoutFigure(value: item.effort.map { UnitFormatter.effortDisplay($0, scale: effortScale) } ?? "—",
-                               label: "EFFORT", tint: StrandPalette.strainAccent)
+            VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+                HStack(alignment: .top, spacing: NoopMetrics.space3) {
+                    icon
+                    heading.fixedSize(horizontal: false, vertical: true)
+                }
+                // Side by side while they fit, one above the other at the largest text sizes.
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: NoopMetrics.space5) {
+                        bpmFigure(leading: true)
+                        effortFigure(leading: true)
+                    }
+                    VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+                        bpmFigure(leading: true)
+                        effortFigure(leading: true)
+                    }
+                }
+                .padding(.leading, NoopMetrics.iconCircleDiameter + NoopMetrics.space3)
+            }
         }
+    }
+
+    private var icon: some View {
+        Image(systemName: sportSymbol(item.sport)).font(StrandFont.body)
+            .foregroundStyle(StrandPalette.strainAccent)
+            .frame(width: NoopMetrics.iconCircleDiameter, height: NoopMetrics.iconCircleDiameter)
+            .background(StrandPalette.strainAccent.opacity(0.14), in: Circle())
+    }
+
+    /// The sport and when it happened. Single lines in the one-line row; the stacked row lets them wrap.
+    private var heading: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(item.sport).font(StrandFont.subhead.weight(.semibold))
+                .foregroundStyle(StrandPalette.textPrimary)
+            Text("\(LocalCoachCardFormat.startLabel(item.startTs)) · \(LocalCoachCardFormat.duration(seconds: item.durationS))")
+                .font(StrandFont.footnote).foregroundStyle(StrandPalette.textSecondary)
+        }
+    }
+
+    private func bpmFigure(leading: Bool) -> some View {
+        CoachWorkoutFigure(value: LocalCoachCardFormat.whole(item.avgHr), label: "BPM",
+                           tint: StrandPalette.textPrimary, leading: leading)
+    }
+
+    private func effortFigure(leading: Bool) -> some View {
+        CoachWorkoutFigure(value: item.effort.map { UnitFormatter.effortDisplay($0, scale: effortScale) } ?? "—",
+                           label: "EFFORT", tint: StrandPalette.strainAccent, leading: leading)
     }
 }
 
@@ -383,14 +424,16 @@ private struct CoachWorkoutFigure: View {
     let value: String
     let label: String
     let tint: Color
+    /// Left-aligned under the heading in the stacked row; right-aligned at the row's end otherwise.
+    var leading = false
 
     var body: some View {
-        VStack(alignment: .trailing, spacing: 0) {
+        VStack(alignment: leading ? .leading : .trailing, spacing: 0) {
             Text(value).font(StrandFont.bodyNumber)
                 .foregroundStyle(value == "—" ? StrandPalette.textTertiary : tint).lineLimit(1)
-            Text(label).font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
+            Text(label).font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary).lineLimit(1)
         }
-        .frame(minWidth: 40, alignment: .trailing)
+        .frame(minWidth: 40, alignment: leading ? .leading : .trailing)
     }
 }
 
