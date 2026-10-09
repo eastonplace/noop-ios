@@ -1208,7 +1208,8 @@ struct PaperPillarDetailView: View {
         NavigationLink {
             ScoringGuideView(initialSection: .recovery)
                 #if os(iOS)
-                .toolbar(.visible, for: .navigationBar)
+                // The guide draws its own header (title, close, "Got it"); the system bar would be a second one.
+                .toolbar(.hidden, for: .navigationBar)
                 #endif
         } label: {
             VStack(alignment: .leading, spacing: WidgetMetrics.headerSpacing) {
@@ -1381,10 +1382,8 @@ struct PaperPillarDetailView: View {
                 tint: .heart,
                 trailing: .custom(AnyView(
                     NavigationLink {
+                        // A pushed screen draws its own header row and ScreenScaffold hides the system bar.
                         WorkoutsView()
-                            #if os(iOS)
-                            .toolbar(.visible, for: .navigationBar)
-                            #endif
                     } label: {
                         WidgetChip(appTitle: "Details", overhangs: false).chipHitTarget()
                     }
