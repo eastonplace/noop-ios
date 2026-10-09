@@ -456,6 +456,10 @@ struct SleepStageBreakdownRow: View {
     let othersSelected: Bool
     let action: () -> Void
     @Environment(\.dynamicTypeSize) private var typeSize
+    // Column widths follow the text they hold, so a larger Dynamic Type never wraps a share or clips a duration.
+    @ScaledMetric(relativeTo: .caption) private var nameWidth: CGFloat = 66
+    @ScaledMetric(relativeTo: .caption2) private var shareWidth: CGFloat = 36
+    @ScaledMetric(relativeTo: .body) private var durationWidth: CGFloat = 74
 
     private var color: Color { StrandPalette.sleepStageColor(stage) }
 
@@ -503,10 +507,10 @@ struct SleepStageBreakdownRow: View {
                     }
                 } else {
                     HStack(spacing: NoopMetrics.space3) {
-                        name.frame(width: 66, alignment: .leading)
+                        name.frame(width: nameWidth, alignment: .leading)
                         bar
-                        share.frame(width: 34, alignment: .trailing)
-                        duration.frame(width: 70, alignment: .trailing)
+                        share.frame(width: shareWidth, alignment: .trailing)
+                        duration.frame(width: durationWidth, alignment: .trailing)
                     }
                 }
             }
@@ -619,10 +623,12 @@ struct SleepMetricTile: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
+            HStack(alignment: .center, spacing: 6) {
+                // A fixed box so symbols of different heights never move the label or the value below it.
                 Image(systemName: systemImage)
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(tint.accent)
+                    .frame(width: 16, height: 16)
                     .accessibilityHidden(true)
                 Text(label)
                     .font(StrandFont.caption)

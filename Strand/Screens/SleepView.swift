@@ -104,9 +104,7 @@ struct SleepView: View {
     // leaf below (mirrors the Today leaf-scoping pattern), so a tick refreshes only that leaf.
     @EnvironmentObject var intelligence: IntelligenceEngine
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    // The standard tile grid: ONE adaptive column set, used for every tile group.
-    private let tileColumns = [GridItem(.adaptive(minimum: 168), spacing: NoopMetrics.gap)]
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     /// Memoized snapshot of every expensive derivation (latest Night with its intervals
     /// resolved once, the seven metric series, the trend points, the typical means). Rebuilt
@@ -1283,6 +1281,8 @@ struct SleepView: View {
             stageBreakdownRow(.light, minutes: s.light, total: s.total)
             stageBreakdownRow(.awake, minutes: s.awake, total: s.total)
         }
+        // Each row's own 7pt of tap padding would otherwise sit between the last value and the hairline below.
+        .padding(.bottom, -7)
     }
 
     /// One stage row. `fraction = minutes / total` sets both the % and the bar fill. Tappable (WHOOP, ryanAtriumAi
@@ -1878,7 +1878,7 @@ struct SleepView: View {
                            valueFormat: { String(format: "%.1f h", $0) },
                            accessibilityLabel: String(localized: "Hours asleep trend"),
                            yDomain: domain,
-                           xAxisLabelCount: WidgetMetrics.maxXAxisLabels)
+                           xAxisLabelCount: dynamicTypeSize >= .xxLarge ? 3 : WidgetMetrics.maxXAxisLabels)
                 StatFooter(items: [
                     (label: String(localized: "Low"), value: values.min().map { String(format: "%.1f h", $0) } ?? "—"),
                     (label: String(localized: "Latest"), value: values.last.map { String(format: "%.1f h", $0) } ?? "—"),
