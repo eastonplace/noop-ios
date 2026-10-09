@@ -8,6 +8,7 @@ struct LocalCoachPlanView: View {
     @State private var confirmSave = false
     @State private var showWorkouts = false
     @State private var summaryExpanded = false
+    @ScaledMetric(relativeTo: .caption) private var stepDiameter: CGFloat = 24
     let onBuild: () -> Void
 
     /// The exercise being tuned and the day it belongs to, so the edit lands on the right session.
@@ -196,11 +197,13 @@ struct LocalCoachPlanView: View {
             }
             .multilineTextAlignment(.leading)
             Spacer(minLength: NoopMetrics.space2)
+            // The prescription is never cut short; the name beside it wraps instead.
             VStack(alignment: .trailing, spacing: 0) {
                 Text("\(exercise.sets) × \(exercise.reps)").font(StrandFont.bodyNumber)
-                    .foregroundStyle(StrandPalette.textPrimary).lineLimit(1)
+                    .foregroundStyle(StrandPalette.textPrimary)
                 Text("sets × reps").font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
             }
+            .fixedSize(horizontal: true, vertical: false)
             Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold))
                 .foregroundStyle(StrandPalette.textTertiary).accessibilityHidden(true)
         }
@@ -239,7 +242,7 @@ struct LocalCoachPlanView: View {
         HStack(spacing: NoopMetrics.space3) {
             Text("\(number)").font(StrandFont.captionNumber)
                 .foregroundStyle(DomainTint.workout.accent)
-                .frame(width: 24, height: 24)
+                .frame(width: stepDiameter, height: stepDiameter)
                 .background(Circle().fill(DomainTint.workout.accent.opacity(0.14)))
                 .accessibilityHidden(true)
             Text(title).font(StrandFont.subhead).foregroundStyle(StrandPalette.textSecondary)

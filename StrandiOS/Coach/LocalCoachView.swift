@@ -634,7 +634,7 @@ struct LocalCoachView: View {
                 Image(systemName: voice.isRecording ? "waveform" : "mic")
                     .font(.system(size: 17, weight: .regular))
                     .foregroundStyle(voice.isRecording ? StrandPalette.accent : StrandPalette.textSecondary)
-                    .frame(width: 38, height: 44)
+                    .frame(width: 44, height: 44)
                     .contentShape(Rectangle())
             }
             .disabled(!coach.preferences.enabled || coach.isResponding)
@@ -856,18 +856,21 @@ private struct LocalCoachMessageView: View {
                 }
                 Spacer(minLength: 0)
                 if showsActions {
-                    Button(action: onSpeak) {
-                        WidgetChip(systemImage: "speaker.wave.2", showsChevron: false, overhangs: false)
-                            .chipHitTarget()
+                    // Each tap area reaches 9pt past its chip, so 18pt apart they sit edge to edge.
+                    HStack(spacing: 18) {
+                        Button(action: onSpeak) {
+                            WidgetChip(systemImage: "speaker.wave.2", showsChevron: false, overhangs: false)
+                                .iconChipHitTarget()
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Read aloud")
+                        ShareLink(item: message.text) {
+                            WidgetChip(systemImage: "square.and.arrow.up", showsChevron: false, overhangs: false)
+                                .iconChipHitTarget()
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Share")
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Read aloud")
-                    ShareLink(item: message.text) {
-                        WidgetChip(systemImage: "square.and.arrow.up", showsChevron: false, overhangs: false)
-                            .chipHitTarget()
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Share")
                 }
             }
         }

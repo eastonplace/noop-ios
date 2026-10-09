@@ -562,6 +562,23 @@ enum CoachPlanText {
     }
 }
 
+// MARK: Icon chip tap target
+
+private struct CoachGrownRect: Shape {
+    let dx: CGFloat
+    let dy: CGFloat
+    func path(in rect: CGRect) -> Path { Path(rect.insetBy(dx: -dx, dy: -dy)) }
+}
+
+extension View {
+    /// Grows an icon-only chip's tap area to 44pt without moving anything: it reaches 9pt past the chip's sides and
+    /// 12.5pt past its top and bottom. Two such chips 18pt apart get a full target each and neither overlaps the
+    /// other (`chipHitTarget()` reaches 13pt on every side, for a chip with room around it).
+    func iconChipHitTarget() -> some View {
+        contentShape(CoachGrownRect(dx: 9, dy: 12.5))
+    }
+}
+
 // MARK: Medallion
 
 /// A large symbol on a quiet tinted disc, the lead of an empty state.
