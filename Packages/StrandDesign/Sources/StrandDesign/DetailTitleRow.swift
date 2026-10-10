@@ -66,7 +66,6 @@ public struct NoopDetailTitleRow<Trailing: View>: View {
 
     private func titleText(lines: Int) -> some View {
         Text(title)
-            .font(StrandFont.screenOverline)
             .tracking(StrandFont.screenOverlineTracking)
             .textCase(.uppercase)
             .foregroundStyle(StrandPalette.textPrimary)
@@ -92,11 +91,27 @@ public extension NoopDetailTitleRow where Trailing == EmptyView {
 }
 
 extension View {
-    /// A header title that never breaks inside a word. It wraps between words (two lines at most); when one word is
-    /// wider than the line, the type is scaled down to fit it instead of being hyphenated. SwiftUI scales before it
-    /// splits a word only when a scale floor is set and the line limit is small enough that splitting would not fit,
-    /// so the two modifiers go together.
+    /// A header title in the screen overline type that never breaks inside a word. It wraps between words (`lines` at
+    /// most); when one word is wider than the line, the type is scaled down to fit it instead of being hyphenated.
+    ///
+    /// SwiftUI hyphenates a word that does not fit, and does so before it scales, when the type is a Dynamic Type text
+    /// style (`StrandFont.screenOverline` is `.caption2`, bold). A fixed point size scales first, so the modifier sets
+    /// the same size and weight as that style through `ScaledMetric` and scales it with Dynamic Type itself. Apply
+    /// `.tracking` to the `Text` before this.
     func headerTitleFit(lines: Int = 2) -> some View {
-        lineLimit(lines).minimumScaleFactor(0.5)
+        modifier(HeaderTitleFit(lines: lines))
+    }
+}
+
+private struct HeaderTitleFit: ViewModifier {
+    let lines: Int
+    /// `.caption2` at the default size, scaled like `.caption2`.
+    @ScaledMetric(relativeTo: .caption2) private var size: CGFloat = 11
+
+    func body(content: Content) -> some View {
+        content
+            .font(.system(size: size, weight: .bold))
+            .lineLimit(lines)
+            .minimumScaleFactor(0.5)
     }
 }

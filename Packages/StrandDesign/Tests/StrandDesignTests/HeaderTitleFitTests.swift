@@ -20,8 +20,6 @@ final class HeaderTitleFitTests: XCTestCase {
         func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {}
     }
 
-    private let font = Font.system(size: 40, weight: .semibold)
-
     private func measure<V: View>(width: CGFloat, @ViewBuilder _ view: () -> V) -> CGSize {
         var measured = CGSize.zero
         let host = NSHostingView(rootView: Probe(width: width, record: { measured = $0 }) { view() })
@@ -30,24 +28,24 @@ final class HeaderTitleFitTests: XCTestCase {
     }
 
     private func lineHeight() -> CGFloat {
-        measure(width: 2000) { Text("SUMMARY").font(font) }.height
+        measure(width: 2000) { Text("SUMMARY").headerTitleFit() }.height
     }
 
     func testAWordWiderThanTheRowIsScaledDownNotSplit() {
         let line = lineHeight()
-        let wordWidth = measure(width: 2000) { Text("SUMMARY").font(font) }.width
+        let wordWidth = measure(width: 2000) { Text("SUMMARY").headerTitleFit() }.width
         // 25% narrower than the word: unsplit, this would take two lines; fitted, it stays one scaled line.
-        let fitted = measure(width: wordWidth * 0.75) { Text("SUMMARY").font(font).headerTitleFit() }
+        let fitted = measure(width: wordWidth * 0.75) { Text("SUMMARY").headerTitleFit() }
         XCTAssertLessThan(fitted.height, line, "one line, smaller type")
         XCTAssertLessThanOrEqual(fitted.width, wordWidth * 0.75 + 0.5)
-        let split = measure(width: wordWidth * 0.75) { Text("SUMMARY").font(font).lineLimit(2) }
+        let split = measure(width: wordWidth * 0.75) { Text("SUMMARY").font(.system(size: 11, weight: .bold)).lineLimit(2) }
         XCTAssertGreaterThan(split.height, line * 1.5, "without the fit, the word is split over two lines")
     }
 
     func testTwoWordsWrapBetweenThemAndShrinkUntilTheLongerOneFits() {
         let line = lineHeight()
-        let wordWidth = measure(width: 2000) { Text("SUMMARY").font(font) }.width
-        let fitted = measure(width: wordWidth * 0.9) { Text("CYCLING SUMMARY").font(font).headerTitleFit() }
+        let wordWidth = measure(width: 2000) { Text("SUMMARY").headerTitleFit() }.width
+        let fitted = measure(width: wordWidth * 0.9) { Text("CYCLING SUMMARY").headerTitleFit() }
         // Two lines (one per word), each a little under full size: never three lines of split words.
         XCTAssertGreaterThan(fitted.height, line * 1.5)
         XCTAssertLessThan(fitted.height, line * 2)
@@ -55,7 +53,7 @@ final class HeaderTitleFitTests: XCTestCase {
 
     func testATitleThatFitsIsLeftAlone() {
         let line = lineHeight()
-        let size = measure(width: 2000) { Text("SUMMARY").font(font).headerTitleFit() }
+        let size = measure(width: 2000) { Text("SUMMARY").headerTitleFit() }
         XCTAssertEqual(size.height, line, accuracy: 0.5)
     }
 }

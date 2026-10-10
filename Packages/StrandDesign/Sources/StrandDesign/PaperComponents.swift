@@ -108,7 +108,6 @@ public struct NoopScreenHeader<Trailing: View>: View {
     private func compactTitle(primary: Color, lines: Int) -> some View {
         if let title {
             Text(title)
-                .font(StrandFont.screenOverline)
                 .tracking(StrandFont.screenOverlineTracking)
                 .textCase(.uppercase)
                 .foregroundStyle(primary)
@@ -156,7 +155,6 @@ public struct NoopTabTitleRow<Trailing: View>: View {
             // every tab's title on exactly the same line as "TODAY".
             HStack(alignment: .firstTextBaseline, spacing: 0) {
                 Text(title)
-                    .font(StrandFont.screenOverline)
                     .tracking(StrandFont.screenOverlineTracking)
                     .textCase(.uppercase)
                     .foregroundStyle(StrandPalette.textPrimary)
