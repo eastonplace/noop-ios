@@ -117,7 +117,7 @@ struct StrainThroughDaySection: View {
 /// Sizes the sections share with the plot they stand in for.
 enum StrainCurveLayoutMetrics {
     /// The readout, the plot and its time axis.
-    static let placeholderHeight: CGFloat = 230
+    static let placeholderHeight: CGFloat = 240
 }
 
 // MARK: What set the score
