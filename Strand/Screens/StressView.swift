@@ -39,8 +39,6 @@ struct StressView: View {
     /// The stored 0–3 stress series ("my-whoop"), oldest→newest. Empty → derive.
     @State private var storedSeries: [(day: String, value: Double)] = []
     @State private var loadState = LatestWinsLoadState()
-    /// The hour of today under the finger on the hero ribbon (hold and drag), nil when idle.
-    @State private var scrubHour: Int?
     @Environment(\.dynamicTypeSize) private var typeSize
 
     /// Today's intraday stress read (hourly timeline + sustained-high flag), computed
@@ -65,6 +63,9 @@ struct StressView: View {
     /// every body re-eval (hover / animation / 1 Hz HR ticks).
     @State private var model: StressModel?
     @State private var modelSignature: StressInputs?
+    /// The model's daily series as calendar days, for the history chart. Built with the model, once per rebuild, so a
+    /// body pass that has nothing new to say (a heart-rate tick, a sheet) does not walk the whole history again.
+    @State private var stressHistory: [CalendarMetricDay] = []
 
     private var presentation: StressPresentation {
         StressPresentation(
@@ -188,7 +189,9 @@ struct StressView: View {
         let signature = StressInputs(days: repo.days, stored: storedSeries)
         guard signature != modelSignature else { return }
         modelSignature = signature
-        model = StressModel(days: repo.days, stored: storedSeries)
+        let rebuilt = StressModel(days: repo.days, stored: storedSeries)
+        model = rebuilt
+        stressHistory = rebuilt.map(Self.stressObservations) ?? []
     }
 
     private func loadErrorState(_ message: String) -> some View {
@@ -302,170 +305,15 @@ struct StressView: View {
         StressTimelineSlots.map((daytime?.hours ?? []).map { ($0.hour, $0.level) })
     }
 
-    private func stressBandWord(_ level: Double) -> String {
-        switch StressModuleBand.band(level) {
-        case 0: return String(localized: "Low")
-        case 1: return String(localized: "Moderate")
-        default: return String(localized: "High")
-        }
-    }
-
-    /// The big sibling of Today's Stress module: the same eyebrow, value and state, the same hourly ribbon (taller,
-    /// with the band guides), then the hours split by band. Hold and drag on the ribbon reads one hour, and the
-    /// value, caption and state word morph into that hour, the way the Trends hero chart reads a day.
+    /// The big sibling of Today's Stress module (see `StressHero`). The hour under the finger lives in that view, so
+    /// stepping the ribbon redraws the hero and nothing else on the page.
     private func stressHero(
         score: Double?,
         message: String,
         headline: String? = nil,
         mode: StressPresentationMode
     ) -> some View {
-        let slots = stressRibbonSlots
-        let scrubbed: (hour: Int, level: Double)? = scrubHour.flatMap { hour in
-            slots.indices.contains(hour) ? slots[hour].map { (hour, $0) } : nil
-        }
-        let shown = scrubbed?.level ?? score
-        let tint = StressModuleBand.color(shown)
-        let caption: String? = {
-            if let scrubbed { return StressDayRibbon.hourLabel(scrubbed.hour) }
-            switch mode {
-            case .empty: return nil
-            case .intradayOnly: return String(localized: "today so far")
-            default: return String(localized: "daily score")
-            }
-        }()
-        return VStack(alignment: .leading, spacing: WidgetMetrics.contentSpacing) {
-            SectionEyebrow(
-                title: String(localized: "Stress monitor"),
-                systemImage: "bolt.heart",
-                tint: .custom(tint)
-            )
-            // At accessibility text sizes the pill drops under the number instead of squeezing it.
-            let heroValue = HeroValue(
-                value: shown.map { DrillInFormat.number($0, fractionDigits: 1) } ?? WidgetMetrics.missingValue,
-                unit: shown == nil ? nil : String(localized: "of 3"),
-                caption: caption,
-                captionPlacement: .below
-            )
-            let heroPill = ValuePill(shown.map(stressBandWord) ?? String(localized: "No data"), tint: tint)
-            ViewThatFits(in: .horizontal) {
-                HStack(alignment: .firstTextBaseline, spacing: NoopMetrics.space2) {
-                    heroValue
-                    Spacer(minLength: NoopMetrics.space2)
-                    heroPill
-                }
-                VStack(alignment: .leading, spacing: NoopMetrics.space2) {
-                    heroValue
-                    heroPill
-                }
-            }
-            .animation(StrandMotion.fade, value: scrubHour)
-            VStack(alignment: .leading, spacing: 2) {
-                if let headline {
-                    Text(headline)
-                        .font(StrandFont.subhead.weight(.semibold))
-                        .foregroundStyle(StrandPalette.textPrimary)
-                }
-                Text(message)
-                    .font(StrandFont.subhead)
-                    .foregroundStyle(StrandPalette.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            StressDayRibbon(
-                hours: slots,
-                nowHour: Calendar.current.component(.hour, from: Date()),
-                summary: ribbonSummary(slots),
-                spokenHour: { spokenStressHour($0, in: slots) },
-                scrubHour: $scrubHour
-            )
-            hourlySplit(slots, mode: mode)
-            // What the page used to say under its title: how the number is made.
-            Text("Autonomic load from HRV and resting heart rate")
-                .font(StrandFont.micro)
-                .foregroundStyle(StrandPalette.textTertiary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-    }
-
-    private func ribbonSummary(_ slots: [Double?]) -> String {
-        let scored = slots.enumerated().compactMap { index, level in level.map { (index, $0) } }
-        guard let peak = scored.max(by: { $0.1 < $1.1 }) else {
-            return String(localized: "No intraday stress data yet today.")
-        }
-        let counts = bandCounts(slots)
-        // Hours are spoken as durations ("1 hour", "2 hours") so the system pluralises them for the language.
-        let calm = Self.spokenHours(counts[0]), moderate = Self.spokenHours(counts[1]), high = Self.spokenHours(counts[2])
-        return String(localized: "Stress by hour today. Peak \(DrillInFormat.number(peak.1, fractionDigits: 1)) at \(StressDayRibbon.hourLabel(peak.0)). Calm \(calm), moderate \(moderate), high \(high).")
-    }
-
-    private static func spokenHours(_ hours: Int) -> String {
-        Duration.seconds(hours * 3600).formatted(.units(allowed: [.hours], width: .wide))
-    }
-
-    /// What VoiceOver says as it steps the ribbon: the hour, then its band and level ("7 AM, High 2.6"), or that the
-    /// hour carried no signal.
-    private func spokenStressHour(_ hour: Int, in slots: [Double?]) -> String {
-        let label = StressDayRibbon.hourLabel(hour)
-        guard slots.indices.contains(hour), let level = slots[hour] else {
-            return String(localized: "\(label), no signal")
-        }
-        return "\(label), \(stressBandWord(level)) \(DrillInFormat.number(level, fractionDigits: 1))"
-    }
-
-    private func bandCounts(_ slots: [Double?]) -> [Int] {
-        var counts = [0, 0, 0]
-        for level in slots.compactMap({ $0 }) { counts[StressModuleBand.band(level)] += 1 }
-        return counts
-    }
-
-    /// The scored hours by band, inline; under them the day's mean over the hours that carried signal and the day's
-    /// peak; or one honest line when no hour could be scored.
-    @ViewBuilder
-    private func hourlySplit(_ slots: [Double?], mode: StressPresentationMode) -> some View {
-        let scored = slots.enumerated().compactMap { index, level in level.map { (index, $0) } }
-        if let peak = scored.max(by: { $0.1 < $1.1 }) {
-            let counts = bandCounts(slots)
-            let mean = scored.map(\.1).reduce(0, +) / Double(scored.count)
-            let averageText = String(localized: "Avg \(DrillInFormat.number(mean, fractionDigits: 1)) · \(scored.count)h")
-            let peakText = String(localized: "Peak \(DrillInFormat.number(peak.1, fractionDigits: 1)) · \(StressDayRibbon.hourLabel(peak.0))")
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: NoopMetrics.space3) { splitKeys(counts) }
-                ViewThatFits(in: .horizontal) {
-                    HStack(spacing: NoopMetrics.space3) {
-                        Text(averageText).lineLimit(1)
-                        Spacer(minLength: 0)
-                        Text(peakText).lineLimit(1)
-                    }
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(averageText)
-                        Text(peakText)
-                    }
-                }
-                .font(StrandFont.micro)
-                .foregroundStyle(StrandPalette.textTertiary)
-            }
-        } else if mode != .empty {
-            Text("There is not enough same-day signal to build the hourly timeline yet.")
-                .font(StrandFont.micro)
-                .foregroundStyle(StrandPalette.textTertiary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-    }
-
-    @ViewBuilder
-    private func splitKeys(_ counts: [Int]) -> some View {
-        splitKey(String(localized: "\(counts[0])h calm"), color: StressHeatStyle.calm, count: counts[0])
-        splitKey(String(localized: "\(counts[1])h moderate"), color: StressHeatStyle.moderate, count: counts[1])
-        splitKey(String(localized: "\(counts[2])h high"), color: StressHeatStyle.high, count: counts[2])
-    }
-
-    @ViewBuilder
-    private func splitKey(_ text: String, color: Color, count: Int) -> some View {
-        if count > 0 {
-            HStack(spacing: 4) {
-                Circle().fill(color).frame(width: 5, height: 5).accessibilityHidden(true)
-                Text(text).font(StrandFont.micro).foregroundStyle(StrandPalette.textSecondary).lineLimit(1)
-            }
-        }
+        StressHero(score: score, message: message, headline: headline, mode: mode, slots: stressRibbonSlots)
     }
 
     // MARK: Sustained high
@@ -589,7 +437,7 @@ struct StressView: View {
             StatTile(
                 label: "Stress",
                 value: DrillInFormat.number(model.score, fractionDigits: 1),
-                caption: String(localized: "of 3 · \(stressBandWord(model.score))"),
+                caption: String(localized: "of 3 · \(StressHero.bandWord(model.score))"),
                 accent: rampColor,
                 sparkline: model.sparkValues.count > 1 ? model.sparkValues : nil,
                 sparkColor: rampColor,
@@ -659,11 +507,10 @@ struct StressView: View {
     // MARK: History (the Trends hero chart)
 
     private func historySection(_ model: StressModel) -> some View {
-        let observations = stressObservations(model)
-        return DrillInTrendSection(
+        DrillInTrendSection(
             title: String(localized: "Stress trend"),
             metric: .stress,
-            observations: observations,
+            observations: stressHistory,
             // The real today, so a last scored day that is a few days old is dated as such, never as "Today".
             referenceDate: Calendar.current.startOfDay(for: Date()),
             latest: model.score,
@@ -675,7 +522,7 @@ struct StressView: View {
 
     /// The daily proxy history as calendar days. The model keys each day at UTC midnight of its civil date, so the
     /// civil date is read back in UTC and rebuilt as a local day, the way the rest of the app reads day keys.
-    private func stressObservations(_ model: StressModel) -> [CalendarMetricDay] {
+    private static func stressObservations(_ model: StressModel) -> [CalendarMetricDay] {
         let local = Calendar.current
         var utc = Calendar(identifier: .gregorian)
         utc.timeZone = TimeZone(secondsFromGMT: 0) ?? .gmt
@@ -735,6 +582,195 @@ struct StressView: View {
             )
             DrillInSeparator()
             methodologySection(nil)
+        }
+    }
+}
+
+// MARK: - Stress hero
+
+/// The big sibling of Today's Stress module: the same eyebrow, value and state, the same hourly ribbon (taller, with the
+/// band guides), then the hours split by band. Hold and drag on the ribbon reads one hour, and the value, caption and
+/// state word morph into that hour, the way the Trends hero chart reads a day.
+///
+/// The hour under the finger is this view's own state, so stepping the ribbon redraws the hero and nothing else. It
+/// used to live on the page, where every step rebuilt the history chart below, which walks the whole series.
+struct StressHero: View {
+    let score: Double?
+    let message: String
+    let headline: String?
+    let mode: StressPresentationMode
+    /// Today's 24 hourly slots: a scored hour carries its 0-3 level, every other hour stays empty. The daily score never
+    /// fabricates an hourly history.
+    let slots: [Double?]
+
+    /// The hour of today under the finger on the ribbon (hold and drag, or VoiceOver stepping), nil when idle.
+    @State private var scrubHour: Int?
+    /// The app's locale, which carries the 12/24-hour setting, so the hours read the way the rest of the app reads them.
+    @Environment(\.locale) private var locale
+
+    init(score: Double?, message: String, headline: String? = nil, mode: StressPresentationMode, slots: [Double?]) {
+        self.score = score
+        self.message = message
+        self.headline = headline
+        self.mode = mode
+        self.slots = slots
+    }
+
+    /// The band word for a 0-3 stress level: the one word on the hero pill, the marker tile and what VoiceOver speaks.
+    static func bandWord(_ level: Double) -> String {
+        switch StressModuleBand.band(level) {
+        case 0: return String(localized: "Low")
+        case 1: return String(localized: "Moderate")
+        default: return String(localized: "High")
+        }
+    }
+
+    var body: some View {
+        let scrubbed: (hour: Int, level: Double)? = scrubHour.flatMap { hour in
+            slots.indices.contains(hour) ? slots[hour].map { (hour, $0) } : nil
+        }
+        let shown = scrubbed?.level ?? score
+        let tint = StressModuleBand.color(shown)
+        let caption: String? = {
+            if let scrubbed { return StressDayRibbon.hourLabel(scrubbed.hour, locale: locale) }
+            switch mode {
+            case .empty: return nil
+            case .intradayOnly: return String(localized: "today so far")
+            default: return String(localized: "daily score")
+            }
+        }()
+        VStack(alignment: .leading, spacing: WidgetMetrics.contentSpacing) {
+            SectionEyebrow(
+                title: String(localized: "Stress monitor"),
+                systemImage: "bolt.heart",
+                tint: .custom(tint)
+            )
+            // At accessibility text sizes the pill drops under the number instead of squeezing it.
+            let heroValue = HeroValue(
+                value: shown.map { DrillInFormat.number($0, fractionDigits: 1) } ?? WidgetMetrics.missingValue,
+                unit: shown == nil ? nil : String(localized: "of 3"),
+                caption: caption,
+                captionPlacement: .below
+            )
+            let heroPill = ValuePill(shown.map(Self.bandWord) ?? String(localized: "No data"), tint: tint)
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .firstTextBaseline, spacing: NoopMetrics.space2) {
+                    heroValue
+                    Spacer(minLength: NoopMetrics.space2)
+                    heroPill
+                }
+                VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+                    heroValue
+                    heroPill
+                }
+            }
+            .animation(StrandMotion.fade, value: scrubHour)
+            VStack(alignment: .leading, spacing: 2) {
+                if let headline {
+                    Text(headline)
+                        .font(StrandFont.subhead.weight(.semibold))
+                        .foregroundStyle(StrandPalette.textPrimary)
+                }
+                Text(message)
+                    .font(StrandFont.subhead)
+                    .foregroundStyle(StrandPalette.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            StressDayRibbon(
+                hours: slots,
+                nowHour: Calendar.current.component(.hour, from: Date()),
+                summary: Self.ribbonSummary(slots, locale: locale),
+                spokenHour: { [locale, slots] in Self.spokenHour($0, in: slots, locale: locale) },
+                scrubHour: $scrubHour
+            )
+            hourlySplit
+            // What the page used to say under its title: how the number is made.
+            Text("Autonomic load from HRV and resting heart rate")
+                .font(StrandFont.micro)
+                .foregroundStyle(StrandPalette.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    static func ribbonSummary(_ slots: [Double?], locale: Locale = .autoupdatingCurrent) -> String {
+        let scored = slots.enumerated().compactMap { index, level in level.map { (index, $0) } }
+        guard let peak = scored.max(by: { $0.1 < $1.1 }) else {
+            return String(localized: "No intraday stress data yet today.")
+        }
+        let counts = bandCounts(slots)
+        // Hours are spoken as durations ("1 hour", "2 hours") so the system pluralises them for the language.
+        let calm = spokenHours(counts[0]), moderate = spokenHours(counts[1]), high = spokenHours(counts[2])
+        return String(localized: "Stress by hour today. Peak \(DrillInFormat.number(peak.1, fractionDigits: 1)) at \(StressDayRibbon.hourLabel(peak.0, locale: locale)). Calm \(calm), moderate \(moderate), high \(high).")
+    }
+
+    private static func spokenHours(_ hours: Int) -> String {
+        Duration.seconds(hours * 3600).formatted(.units(allowed: [.hours], width: .wide))
+    }
+
+    /// What VoiceOver says as it steps the ribbon: the hour, then its band and level ("7 AM, High 2.6"), or that the
+    /// hour carried no signal. One format string each, so a language can order the pieces its own way.
+    static func spokenHour(_ hour: Int, in slots: [Double?], locale: Locale = .autoupdatingCurrent) -> String {
+        let label = StressDayRibbon.hourLabel(hour, locale: locale)
+        guard slots.indices.contains(hour), let level = slots[hour] else {
+            return String(localized: "\(label), no signal")
+        }
+        return String(localized: "\(label), \(bandWord(level)) \(DrillInFormat.number(level, fractionDigits: 1))")
+    }
+
+    private static func bandCounts(_ slots: [Double?]) -> [Int] {
+        var counts = [0, 0, 0]
+        for level in slots.compactMap({ $0 }) { counts[StressModuleBand.band(level)] += 1 }
+        return counts
+    }
+
+    /// The scored hours by band, inline; under them the day's mean over the hours that carried signal and the day's
+    /// peak; or one honest line when no hour could be scored.
+    @ViewBuilder
+    private var hourlySplit: some View {
+        let scored = slots.enumerated().compactMap { index, level in level.map { (index, $0) } }
+        if let peak = scored.max(by: { $0.1 < $1.1 }) {
+            let counts = Self.bandCounts(slots)
+            let mean = scored.map(\.1).reduce(0, +) / Double(scored.count)
+            let averageText = String(localized: "Avg \(DrillInFormat.number(mean, fractionDigits: 1)) · \(scored.count)h")
+            let peakText = String(localized: "Peak \(DrillInFormat.number(peak.1, fractionDigits: 1)) · \(StressDayRibbon.hourLabel(peak.0, locale: locale))")
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: NoopMetrics.space3) { splitKeys(counts) }
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: NoopMetrics.space3) {
+                        Text(averageText).lineLimit(1)
+                        Spacer(minLength: 0)
+                        Text(peakText).lineLimit(1)
+                    }
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(averageText)
+                        Text(peakText)
+                    }
+                }
+                .font(StrandFont.micro)
+                .foregroundStyle(StrandPalette.textTertiary)
+            }
+        } else if mode != .empty {
+            Text("There is not enough same-day signal to build the hourly timeline yet.")
+                .font(StrandFont.micro)
+                .foregroundStyle(StrandPalette.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    @ViewBuilder
+    private func splitKeys(_ counts: [Int]) -> some View {
+        splitKey(String(localized: "\(counts[0])h calm"), color: StressHeatStyle.calm, count: counts[0])
+        splitKey(String(localized: "\(counts[1])h moderate"), color: StressHeatStyle.moderate, count: counts[1])
+        splitKey(String(localized: "\(counts[2])h high"), color: StressHeatStyle.high, count: counts[2])
+    }
+
+    @ViewBuilder
+    private func splitKey(_ text: String, color: Color, count: Int) -> some View {
+        if count > 0 {
+            HStack(spacing: 4) {
+                Circle().fill(color).frame(width: 5, height: 5).accessibilityHidden(true)
+                Text(text).font(StrandFont.micro).foregroundStyle(StrandPalette.textSecondary).lineLimit(1)
+            }
         }
     }
 }

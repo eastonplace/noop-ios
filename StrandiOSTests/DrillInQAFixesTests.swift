@@ -101,4 +101,23 @@ final class DrillInQAFixesTests: XCTestCase {
         XCTAssertEqual(DrillInRange.extended.last, .all)
         XCTAssertTrue(DrillInRange.all.showsYear && DrillInRange.year.showsYear && !DrillInRange.half.showsYear)
     }
+
+    // MARK: The spoken stress hour is one format string and follows the app's clock
+
+    func testTheSpokenStressHourNamesItsBandAndFollowsTheAppsClock() {
+        var slots = [Double?](repeating: nil, count: 24)
+        slots[7] = 2.6
+        let twelve = StressHero.spokenHour(7, in: slots, locale: Locale(identifier: "en_US@hours=h12"))
+        let twentyFour = StressHero.spokenHour(7, in: slots, locale: Locale(identifier: "en_US@hours=h23"))
+        XCTAssertTrue(twelve.contains("AM"), twelve)
+        XCTAssertFalse(twentyFour.contains("AM") || twentyFour.contains("PM"), twentyFour)
+        for spoken in [twelve, twentyFour] {
+            XCTAssertTrue(spoken.contains(StressHero.bandWord(2.6)), spoken)
+            XCTAssertTrue(spoken.contains(DrillInFormat.number(2.6, fractionDigits: 1)), spoken)
+        }
+        // An hour that carried no signal says so, in the same clock.
+        let silent = StressHero.spokenHour(8, in: slots, locale: Locale(identifier: "en_US@hours=h23"))
+        XCTAssertTrue(silent.contains("no signal"), silent)
+        XCTAssertFalse(silent.contains("AM") || silent.contains("PM"), silent)
+    }
 }
