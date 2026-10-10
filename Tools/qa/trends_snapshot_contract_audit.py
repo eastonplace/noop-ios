@@ -111,7 +111,7 @@ try:
         "data.sleepPerfByDay.filter { $0.value.isFinite }",
         "effortDisplayFactor.isFinite ? effortDisplayFactor : 1",
         "loaded.revision < 0 ? fallback : loaded.canonicalDays",
-        "value.formatted(.number.precision(.fractionLength(0)))",
+        "return ComponentValueFormat.rounded(value)",
     )
     forbid(
         "Strand/Screens/TrendsSnapshotModels.swift",
