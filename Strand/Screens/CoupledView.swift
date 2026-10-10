@@ -635,16 +635,11 @@ struct CoupledView: View {
             )
     }
 
+    /// A unix-second timestamp as the clock the rest of the app writes: the device's autoupdating locale with the app's own
+    /// 12/24-hour setting. (A static formatter built from `Locale.current` kept the locale it was first used in.)
     private func clockString(_ ts: Int) -> String {
-        Self.clockFmt.string(from: Date(timeIntervalSince1970: TimeInterval(ts)))
+        AppClock.hourMinute(unix: ts)
     }
-
-    private static let clockFmt: DateFormatter = {
-        let f = DateFormatter()
-        f.locale = Locale.current
-        f.setLocalizedDateFormatFromTemplate("jmm")
-        return f
-    }()
 
     /// "6h 42m" from a minutes count, for the slept-vs-needed read. Mirror EXACTLY in Kotlin.
     static func hoursMinutes(_ minutes: Double) -> String {
@@ -1802,7 +1797,7 @@ struct PaperPillarDetailView: View {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.calendar = Calendar(identifier: .gregorian)
-        formatter.timeZone = .current
+        formatter.timeZone = .autoupdatingCurrent
         formatter.dateFormat = "yyyy-MM-dd"
         return formatter
     }()
