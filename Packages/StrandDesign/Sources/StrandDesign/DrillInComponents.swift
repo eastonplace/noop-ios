@@ -525,9 +525,61 @@ private struct Triangle: Shape {
 
 // MARK: - Week bars
 
-/// A Monday-first week of daily bars on a fixed scale, with the target band drawn behind them. The viewed day's
-/// bar is the bright one; days after `referenceDate` are empty rails; a day with no value reads as an empty rail
-/// with a dash. Each bar's value sits above it.
+/// One day of the week bars, ready to draw: what it holds, how tall its bar is on the scale, and whether it is the
+/// viewed day. Kept apart from the view so the mapping is a plain function with its own tests.
+public struct PillarWeekBarSlot: Equatable, Sendable, Identifiable {
+    public enum Kind: Equatable, Sendable {
+        /// A day with a score.
+        case value(Double)
+        /// A day that has happened and has none: drawn as a dot, never as a zero.
+        case missing
+        /// A day that has not happened yet.
+        case future
+    }
+
+    public let date: Date
+    public let kind: Kind
+    /// The bar's height as a fraction of the scale (0...1); nil for a day without a value.
+    public let fraction: Double?
+    /// Whether the value reaches the target band's floor (nil without a target or a value).
+    public let reachesTarget: Bool?
+    public let isAnchor: Bool
+
+    public var id: Date { date }
+}
+
+public enum PillarWeekBarModel {
+    /// The seven slots of a Monday-first week, from the days the screen holds.
+    /// - Parameters:
+    ///   - anchorDate: the day the screen shows, which is drawn brightest.
+    ///   - referenceDate: today; later days are future.
+    public static func slots(
+        days: [CalendarMetricDay],
+        maximum: Double,
+        target: ClosedRange<Double>?,
+        anchorDate: Date,
+        referenceDate: Date,
+        calendar: Calendar
+    ) -> [PillarWeekBarSlot] {
+        let today = calendar.startOfDay(for: referenceDate)
+        return days.prefix(7).map { day in
+            let isFuture = calendar.startOfDay(for: day.date) > today
+            let isAnchor = calendar.isDate(day.date, inSameDayAs: anchorDate)
+            if let value = day.value, value.isFinite, !isFuture {
+                let fraction = min(max(value / max(maximum, 0.0001), 0), 1)
+                return PillarWeekBarSlot(
+                    date: day.date, kind: .value(value), fraction: fraction,
+                    reachesTarget: target.map { value >= $0.lowerBound }, isAnchor: isAnchor)
+            }
+            return PillarWeekBarSlot(
+                date: day.date, kind: isFuture ? .future : .missing, fraction: nil, reachesTarget: nil, isAnchor: isAnchor)
+        }
+    }
+}
+
+/// A Monday-first week of daily bars on a fixed scale, with the target band drawn softly behind them. The viewed
+/// day is the bright, bold one; a value sits above its bar only when there is one; a past day without a score is a
+/// dot (never an empty bar that reads as zero), and a day still to come is a fainter one.
 public struct PillarWeekBars: View {
     private let days: [CalendarMetricDay]
     private let maximum: Double
@@ -539,7 +591,9 @@ public struct PillarWeekBars: View {
     private let valueFormat: (Double) -> String
     private let spokenValue: ((Double) -> String)?
 
-    private static let plotHeight: CGFloat = 96
+    private static let plotHeight: CGFloat = 104
+    private static let valueRowHeight: CGFloat = 18
+    private static let barWidth: CGFloat = 16
 
     public init(
         days: [CalendarMetricDay],
@@ -563,87 +617,113 @@ public struct PillarWeekBars: View {
         self.spokenValue = spokenValue
     }
 
+    private var slots: [PillarWeekBarSlot] {
+        PillarWeekBarModel.slots(days: days, maximum: maximum, target: target, anchorDate: anchorDate,
+                                 referenceDate: referenceDate, calendar: calendar)
+    }
+
     public var body: some View {
+        let slots = slots
         let names = TrendsWeekdayNames.veryShort(calendar: calendar)
         VStack(spacing: 6) {
-            ZStack(alignment: .bottom) {
+            ZStack(alignment: .topLeading) {
                 if let target, maximum > 0 {
                     GeometryReader { proxy in
-                        let top = proxy.size.height * CGFloat(1 - min(target.upperBound / maximum, 1))
-                        let bottom = proxy.size.height * CGFloat(1 - min(target.lowerBound / maximum, 1))
-                        RoundedRectangle(cornerRadius: 4, style: .continuous)
-                            .fill(StrandPalette.statusPositive.opacity(0.12))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 4, style: .continuous)
-                                    .stroke(StrandPalette.statusPositive.opacity(0.28),
-                                            style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
-                            )
+                        let track = max(proxy.size.height - Self.valueRowHeight, 1)
+                        let top = Self.valueRowHeight + track * CGFloat(1 - min(target.upperBound / maximum, 1))
+                        let bottom = Self.valueRowHeight + track * CGFloat(1 - min(target.lowerBound / maximum, 1))
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .fill(StrandPalette.statusPositive.opacity(0.09))
                             .frame(height: max(bottom - top, 1))
                             .offset(y: top)
                     }
+                    .accessibilityHidden(true)
                 }
-                HStack(alignment: .bottom, spacing: 0) {
-                    ForEach(Array(days.prefix(7).enumerated()), id: \.offset) { _, day in
-                        bar(for: day)
+                HStack(alignment: .top, spacing: 0) {
+                    ForEach(slots) { slot in
+                        column(for: slot)
                     }
                 }
             }
             .frame(height: Self.plotHeight)
             HStack(spacing: 0) {
-                ForEach(Array(days.prefix(7).enumerated()), id: \.offset) { index, day in
-                    let isAnchor = calendar.isDate(day.date, inSameDayAs: anchorDate)
+                ForEach(Array(slots.enumerated()), id: \.element.id) { index, slot in
                     Text(verbatim: names.indices.contains(index) ? names[index] : "")
-                        .font(StrandFont.micro.weight(isAnchor ? .bold : .medium))
-                        .foregroundStyle(isAnchor ? StrandPalette.textPrimary : StrandPalette.textTertiary)
+                        .font(StrandFont.micro.weight(slot.isAnchor ? .bold : .medium))
+                        .foregroundStyle(slot.isAnchor ? StrandPalette.textPrimary : StrandPalette.textTertiary)
                         .frame(maxWidth: .infinity)
                 }
             }
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text(verbatim: summary()))
+        .accessibilityLabel(Text(verbatim: summary(slots)))
     }
 
     @ViewBuilder
-    private func bar(for day: CalendarMetricDay) -> some View {
-        let isFuture = calendar.startOfDay(for: day.date) > calendar.startOfDay(for: referenceDate)
-        let isAnchor = calendar.isDate(day.date, inSameDayAs: anchorDate)
-        let fraction = day.value.map { min(max($0 / max(maximum, 0.0001), 0), 1) }
-        VStack(spacing: 4) {
-            Text(verbatim: day.value.map(valueFormat) ?? (isFuture ? "" : WidgetMetrics.missingValue))
-                .font(StrandFont.micro.weight(isAnchor ? .bold : .medium))
-                .monospacedDigit()
-                .foregroundStyle(isAnchor ? StrandPalette.textPrimary
-                                          : (day.value == nil ? StrandPalette.textTertiary.opacity(0.7)
-                                                              : StrandPalette.textSecondary))
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-            ZStack(alignment: .bottom) {
-                Capsule(style: .continuous)
-                    .fill(tint.opacity(isFuture ? 0.05 : 0.1))
-                if let fraction {
-                    GeometryReader { proxy in
-                        Capsule(style: .continuous)
-                            .fill(tint.opacity(isAnchor ? 1 : 0.55))
-                            .frame(height: max(proxy.size.height * CGFloat(fraction), 6))
-                            .frame(maxHeight: .infinity, alignment: .bottom)
-                    }
+    private func column(for slot: PillarWeekBarSlot) -> some View {
+        VStack(spacing: 0) {
+            Group {
+                if case .value(let value) = slot.kind {
+                    Text(verbatim: valueFormat(value))
+                        .font(StrandFont.micro.weight(slot.isAnchor ? .bold : .medium))
+                        .monospacedDigit()
+                        .foregroundStyle(slot.isAnchor ? StrandPalette.textPrimary : StrandPalette.textSecondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                } else {
+                    Color.clear
                 }
             }
-            .frame(width: 16)
+            .frame(height: Self.valueRowHeight)
+            ZStack(alignment: .bottom) {
+                switch slot.kind {
+                case .value:
+                    Capsule(style: .continuous).fill(tint.opacity(0.1))
+                    if let fraction = slot.fraction {
+                        GeometryReader { proxy in
+                            Capsule(style: .continuous)
+                                .fill(tint.opacity(barOpacity(slot)))
+                                .frame(height: max(proxy.size.height * CGFloat(fraction), 6))
+                                .frame(maxHeight: .infinity, alignment: .bottom)
+                        }
+                    }
+                case .missing:
+                    Circle().fill(StrandPalette.textTertiary.opacity(0.55)).frame(width: 5, height: 5)
+                        .padding(.bottom, 3)
+                case .future:
+                    Circle().fill(StrandPalette.textTertiary.opacity(0.22)).frame(width: 4, height: 4)
+                        .padding(.bottom, 3)
+                }
+            }
+            .frame(width: Self.barWidth)
+            .frame(maxHeight: .infinity)
         }
         .frame(maxWidth: .infinity)
+        .background {
+            if slot.isAnchor {
+                RoundedRectangle(cornerRadius: 8, style: .continuous).fill(tint.opacity(0.08))
+                    .padding(.horizontal, 4)
+            }
+        }
+    }
+
+    /// The viewed day is solid; the rest are quieter, and a day that fell short of the target quieter still.
+    private func barOpacity(_ slot: PillarWeekBarSlot) -> Double {
+        if slot.isAnchor { return 1 }
+        return slot.reachesTarget == false ? 0.45 : 0.7
     }
 
     /// Spoken, so: whole weekday names, the value with its unit (`spokenValue`, else the printed one), "no data" for a
     /// past day without one, and nothing at all for days that have not happened yet.
-    private func summary() -> String {
+    private func summary(_ slots: [PillarWeekBarSlot]) -> String {
         let names = TrendsWeekdayNames.full(calendar: calendar)
-        let today = calendar.startOfDay(for: referenceDate)
-        return days.prefix(7).enumerated().compactMap { index, day in
-            guard calendar.startOfDay(for: day.date) <= today else { return nil }
+        return slots.enumerated().compactMap { index, slot in
             let name = names.indices.contains(index) ? names[index] : ""
-            let reading = day.value.map { (spokenValue ?? valueFormat)($0) } ?? String(localized: "no data")
-            return "\(name) \(reading)"
+            switch slot.kind {
+            case .future: return nil
+            case .missing: return "\(name) \(String(localized: "no data"))"
+            case .value(let value): return "\(name) \((spokenValue ?? valueFormat)(value))"
+            }
         }.joined(separator: ", ")
     }
 }
