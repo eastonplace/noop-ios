@@ -101,7 +101,7 @@ struct WorkoutsView: View {
     /// Filter beyond the time range: a displayed-sport key (nil = all), an origin class (nil = all), and
     /// a free-text search over the displayed sport. Pure `WorkoutFilter` applies them after the window cut.
     @State private var sportFilter: String?
-    @State private var sourceFilter: WorkoutSource?
+    @State private var sourceFilter: WorkoutOrigin?
     @State private var searchText = ""
 
     /// Multi-select + merge mode. `selectionMode` toggles the leading checkmarks + the toolbar strip;
@@ -406,7 +406,7 @@ struct WorkoutsView: View {
         let generation: Int
         let range: Range
         let sport: String?
-        let source: WorkoutSource?
+        let source: WorkoutOrigin?
         let search: String
     }
 
@@ -606,15 +606,16 @@ struct WorkoutsView: View {
         .accessibilityValue(title)
     }
 
-    /// The origin classes offered in the Source filter (imported + on-device), in a stable menu order.
-    private static let sourceFilterOptions: [WorkoutSource] =
-        [.whoop, .apple, .detected, .manual, .lifting, .activityFile]
+    /// The origins offered in the Source filter (imported + on-device), in a stable menu order.
+    private static let sourceFilterOptions: [WorkoutOrigin] =
+        [.whoop, .apple, .recorded, .detected, .manual, .lifting, .activityFile]
 
-    /// The Source-filter menu label for an origin class.
-    private static func sourceFilterLabel(_ c: WorkoutSource) -> String {
+    /// The Source-filter menu label for an origin.
+    private static func sourceFilterLabel(_ c: WorkoutOrigin) -> String {
         switch c {
         case .whoop:        return String(localized: "Whoop")
         case .apple:        return String(localized: "Apple")
+        case .recorded:     return String(localized: "Recorded")
         case .detected:     return String(localized: "Detected")
         case .manual:       return String(localized: "Manual")
         case .lifting:      return String(localized: "Lifting")
@@ -833,7 +834,7 @@ struct WorkoutsView: View {
     /// The active filter (#64), composed once. Sport / source / search all apply AFTER the window cut,
     /// so the zones and the list all read one filtered set.
     private var filter: WorkoutFilter {
-        WorkoutFilter(sport: sportFilter, sourceClass: sourceFilter, search: searchText)
+        WorkoutFilter(sport: sportFilter, origin: sourceFilter, search: searchText)
     }
 
     /// Sessions inside a given range, RELATIVE TO THE LATEST session, then passed through the active

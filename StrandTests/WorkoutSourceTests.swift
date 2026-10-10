@@ -337,15 +337,15 @@ final class WorkoutSourceTests: XCTestCase {
         XCTAssertEqual(WorkoutFilter(sport: "Running").apply(rows), [run, manualRun])
         // "detected" folds to "Activity" for the sport facet.
         XCTAssertEqual(WorkoutFilter(sport: "Activity").apply(rows), [detected])
-        // Source filter uses classify.
-        XCTAssertEqual(WorkoutFilter(sourceClass: .manual).apply(rows), [manualRun, cycle])
+        // Source filter uses the origin a person reads.
+        XCTAssertEqual(WorkoutFilter(origin: .manual).apply(rows), [manualRun, cycle])
         // Sport AND source compose (Running that is manual only).
-        XCTAssertEqual(WorkoutFilter(sport: "Running", sourceClass: .manual).apply(rows), [manualRun])
+        XCTAssertEqual(WorkoutFilter(sport: "Running", origin: .manual).apply(rows), [manualRun])
         // Search is a case-insensitive substring of the displayed sport.
         XCTAssertEqual(WorkoutFilter(search: "cyc").apply(rows), [cycle])
         XCTAssertEqual(WorkoutFilter(search: "  RUN ").apply(rows), [run, manualRun])
         // All three compose.
-        XCTAssertEqual(WorkoutFilter(sport: "Running", sourceClass: .whoop, search: "run").apply(rows), [run])
+        XCTAssertEqual(WorkoutFilter(sport: "Running", origin: .whoop, search: "run").apply(rows), [run])
     }
 
     // MARK: - Merge (#64)

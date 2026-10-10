@@ -280,7 +280,7 @@ struct WorkoutRowPresentation: Equatable {
             lines = [first + supporting.prefix(1)]
         case .full:
             // Two lines: when it was and where it came from, then what it came to.
-            if includesSource { first.append(Fact(WorkoutFormat.sourceName(row.source))) }
+            if includesSource { first.append(Fact(WorkoutFormat.sourceName(for: row))) }
             lines = supporting.isEmpty ? [first] : [first, supporting]
         }
 
@@ -380,11 +380,15 @@ enum WorkoutFormat {
         Int(value.rounded()).formatted(.number.grouping(.automatic))
     }
 
-    /// Where a workout came from, as a short name.
-    static func sourceName(_ source: String) -> String {
-        switch WorkoutSource.classify(source) {
+    /// Where a workout came from, as a short name. A workout the app recorded reads "Recorded"; "Manual" is for one
+    /// typed into the Add Workout sheet (see `WorkoutOrigin`).
+    static func sourceName(for row: WorkoutRow) -> String { sourceName(WorkoutOrigin.of(row)) }
+
+    static func sourceName(_ origin: WorkoutOrigin) -> String {
+        switch origin {
         case .whoop: return String(localized: "WHOOP")
         case .apple: return String(localized: "Apple Health")
+        case .recorded: return String(localized: "Recorded")
         case .detected: return String(localized: "Detected")
         case .manual: return String(localized: "Manual")
         case .lifting: return String(localized: "Lifting import")

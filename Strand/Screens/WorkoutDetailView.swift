@@ -212,7 +212,7 @@ struct WorkoutDetailView: View {
 
     private var hero: some View {
         FlatSection("Workout strain", systemImage: "flame", tint: .strain,
-                    trailing: .text(WorkoutFormat.sourceName(displayRow.source))) {
+                    trailing: .text(WorkoutFormat.sourceName(for: displayRow))) {
             VStack(alignment: .leading, spacing: WidgetMetrics.contentSpacing) {
                 GaugeLayout {
                     dial
