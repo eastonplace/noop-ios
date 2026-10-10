@@ -961,15 +961,17 @@ public struct TrendsHeroChart: View {
             colors: [tint.accent.opacity(0.55), tint.accent], startPoint: .bottom, endPoint: .top)
     }
 
-    /// Hard recovery-band boundaries projected onto the visible range, so the line changes colour exactly
-    /// where it crosses 34 and 67.
+    /// Hard recovery-band boundaries projected onto the visible range, so the line changes colour exactly where
+    /// it crosses into the next band (the raw cut points: a raw 33.5 is the first score drawn "34"). Each side of
+    /// an edge takes its colour from the band itself, not from probing a hair below the cut, which rounding blurs.
     private var bandStops: [Gradient.Stop] {
         var stops: [Gradient.Stop] = [.init(color: RecoveryBands.color(for: axis.lower), location: 0)]
-        for boundary in [34.0, 67.0] {
-            let position = axis.unit(boundary)
+        let bands: [RecoveryBand] = [.low, .medium, .high]
+        for (index, cut) in RecoveryBands.rawCutPoints.enumerated() {
+            let position = axis.unit(cut)
             guard position > 0.001, position < 0.999 else { continue }
-            stops.append(.init(color: RecoveryBands.color(for: boundary - 0.01), location: max(0, position - 0.0005)))
-            stops.append(.init(color: RecoveryBands.color(for: boundary), location: position))
+            stops.append(.init(color: RecoveryBands.color(of: bands[index]), location: max(0, position - 0.0005)))
+            stops.append(.init(color: RecoveryBands.color(of: bands[index + 1]), location: position))
         }
         stops.append(.init(color: RecoveryBands.color(for: axis.upper), location: 1))
         return stops

@@ -93,11 +93,28 @@ public enum RecoveryBands {
         score.isFinite ? min(max(score.rounded(), 0), 100) : 0
     }
 
+    /// The first whole score of the yellow band and of the green band.
+    private static let mediumFrom = 34.0
+    private static let highFrom = 67.0
+
+    /// Where the bands change along the raw score: half a point under each cut, because a raw 33.5 is the first
+    /// score that is drawn "34". A chart that colours a line by band puts its hard edges here.
+    public static let rawCutPoints: [Double] = [mediumFrom - 0.5, highFrom - 0.5]
+
     public static func band(for score: Double) -> RecoveryBand {
         let value = displayed(score)
-        if value >= 67 { return .high }
-        if value >= 34 { return .medium }
+        if value >= highFrom { return .high }
+        if value >= mediumFrom { return .medium }
         return .low
+    }
+
+    /// The colour a band wears.
+    public static func color(of band: RecoveryBand) -> Color {
+        switch band {
+        case .high: return StrandPalette.recoveryHigh
+        case .medium: return StrandPalette.recoveryMed
+        case .low: return StrandPalette.recoveryLow
+        }
     }
 
     /// The one word for a recovery score, in Title Case: Depleted, Low, Moderate, Primed or Peak. Every screen that
@@ -121,10 +138,6 @@ public enum RecoveryBands {
     }
 
     public static func color(for score: Double) -> Color {
-        switch band(for: score) {
-        case .high: return StrandPalette.recoveryHigh
-        case .medium: return StrandPalette.recoveryMed
-        case .low: return StrandPalette.recoveryLow
-        }
+        color(of: band(for: score))
     }
 }

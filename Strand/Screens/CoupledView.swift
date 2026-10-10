@@ -662,19 +662,24 @@ struct CoupledView: View {
     // score or engine; it just tells the user where a "matched" strain would sit on the 0–21 axis. The bands
     // are the APPROVED mapping and MUST stay byte-identical to the Android `optimalStrainRange`:
     //
-    //   recovery ≥ 67 (green)       → 14–18 of 21
-    //   34 ≤ recovery ≤ 66 (yellow) → 10–14
-    //   recovery < 34 (red)         → 4–10
+    //   green recovery  → 14–18 of 21
+    //   yellow recovery → 10–14
+    //   red recovery    → 4–10
+    //
+    // The bands are `RecoveryBands`, the one place that cuts a recovery score (whole points, rounded half away from
+    // zero: a 66.6 drawn "67" is green, so its target is the green one). The numbers are unchanged. ANDROID PARITY:
+    // the Android `optimalStrainRange` (not in this repo) must cut on the same rounded score (67 and 34 on the
+    // rounded value, not on the raw one) to stay byte-identical; it still cuts the raw value until it is changed.
     //
     // nil recovery (calibrating / unscored day) → nil, the caller renders a dash, never a guessed band.
 
     /// The pure recovery→optimal-strain band. Returns nil when recovery is unknown. Bands per the doc above.
     static func optimalStrainRange(recovery: Double?) -> ClosedRange<Int>? {
         guard let r = recovery else { return nil }
-        switch r {
-        case 67...:   return 14...18
-        case 34..<67: return 10...14
-        default:      return 4...10
+        switch RecoveryBands.band(for: r) {
+        case .high:   return 14...18
+        case .medium: return 10...14
+        case .low:    return 4...10
         }
     }
 
