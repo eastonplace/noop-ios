@@ -69,6 +69,7 @@ struct StartWorkoutSheet: View {
     @State private var summaryRequest = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverOn
+    @Environment(\.dynamicTypeSize) private var typeSize
     @ScaledMetric(relativeTo: .body) private var tileMinimumWidth: CGFloat = 104
     @ScaledMetric(relativeTo: .body) private var tileHeight: CGFloat = 72
 
@@ -176,22 +177,25 @@ struct StartWorkoutSheet: View {
 
     private var liftCard: some View {
         Button { showsLift = true } label: {
-            HStack(spacing: NoopMetrics.space3) {
-                WorkoutSportGlyph(symbol: "dumbbell.fill")
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Lift weights")
-                        .font(StrandFont.body.weight(.semibold))
-                        .foregroundStyle(StrandPalette.textPrimary)
-                    Text("Choose a routine and track sets, reps and weight.")
-                        .font(StrandFont.footnote)
-                        .foregroundStyle(StrandPalette.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
+            Group {
+                if typeSize.isAccessibilitySize {
+                    // The words get the whole card: the glyph and the chevron share a line above them.
+                    VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+                        HStack {
+                            WorkoutSportGlyph(symbol: "dumbbell.fill")
+                            Spacer(minLength: NoopMetrics.space2)
+                            liftChevron
+                        }
+                        liftTexts
+                    }
+                } else {
+                    HStack(spacing: NoopMetrics.space3) {
+                        WorkoutSportGlyph(symbol: "dumbbell.fill")
+                        liftTexts
+                        Spacer(minLength: NoopMetrics.space2)
+                        liftChevron
+                    }
                 }
-                Spacer(minLength: NoopMetrics.space2)
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(StrandPalette.textTertiary)
-                    .accessibilityHidden(true)
             }
             .padding(NoopMetrics.space3)
             .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
@@ -202,6 +206,26 @@ struct StartWorkoutSheet: View {
         }
         .buttonStyle(PaperPressStyle())
         .accessibilityElement(children: .combine)
+    }
+
+    private var liftTexts: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text("Lift weights")
+                .font(StrandFont.body.weight(.semibold))
+                .foregroundStyle(StrandPalette.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+            Text("Choose a routine and track sets, reps and weight.")
+                .font(StrandFont.footnote)
+                .foregroundStyle(StrandPalette.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var liftChevron: some View {
+        Image(systemName: "chevron.right")
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(StrandPalette.textTertiary)
+            .accessibilityHidden(true)
     }
 
     // MARK: Recent
@@ -218,21 +242,21 @@ struct StartWorkoutSheet: View {
 
     private var selectionSection: some View {
         VStack(alignment: .leading, spacing: NoopMetrics.space3) {
-            HStack(alignment: .center, spacing: NoopMetrics.space3) {
-                WorkoutSportGlyph(symbol: sportSymbol(selected))
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(verbatim: title)
-                        .font(StrandFont.title2)
-                        .foregroundStyle(StrandPalette.textPrimary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    if let setting = selectedSport.flatMap(StartWorkoutChoices.setting(for:)) {
-                        Text(setting == .outdoor ? "Outdoor workout" : "Indoor workout")
-                            .font(StrandFont.subhead)
-                            .foregroundStyle(StrandPalette.textSecondary)
+            Group {
+                if typeSize.isAccessibilitySize {
+                    VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+                        WorkoutSportGlyph(symbol: sportSymbol(selected))
+                        selectionTitle
+                        if showsGpsPill { StatePill("GPS ready", tone: .positive).fixedSize() }
+                    }
+                } else {
+                    HStack(alignment: .center, spacing: NoopMetrics.space3) {
+                        WorkoutSportGlyph(symbol: sportSymbol(selected))
+                        selectionTitle
+                        Spacer(minLength: NoopMetrics.space2)
+                        if showsGpsPill { StatePill("GPS ready", tone: .positive).fixedSize() }
                     }
                 }
-                Spacer(minLength: NoopMetrics.space2)
-                if showsGpsPill { StatePill("GPS ready", tone: .positive).fixedSize() }
             }
             .accessibilityElement(children: .combine)
             if WorkoutRunType.of(sport: selected) != nil {
@@ -248,6 +272,21 @@ struct StartWorkoutSheet: View {
                 Text("Your route is saved on this device only.")
                     .font(StrandFont.footnote)
                     .foregroundStyle(StrandPalette.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private var selectionTitle: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(verbatim: title)
+                .font(StrandFont.title2)
+                .foregroundStyle(StrandPalette.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+            if let setting = selectedSport.flatMap(StartWorkoutChoices.setting(for:)) {
+                Text(setting == .outdoor ? "Outdoor workout" : "Indoor workout")
+                    .font(StrandFont.subhead)
+                    .foregroundStyle(StrandPalette.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }

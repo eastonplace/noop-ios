@@ -360,6 +360,12 @@ enum WorkoutFormat {
         String(localized: "\(grouped(kcal)) kilocalories")
     }
 
+    /// Facts on one line, with the separator held to the fact before it: a line that has to wrap breaks after a dot,
+    /// never before one ("Today · 13 sets ·" then "52m").
+    static func joined(_ facts: [String]) -> String {
+        facts.joined(separator: "\u{00A0}· ")
+    }
+
     /// The text with every space made non-breaking, so a fact ("338 kcal", "7:10 AM") wraps between facts and never
     /// inside one.
     static func unbreakable(_ text: String) -> String {

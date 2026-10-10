@@ -21,6 +21,7 @@ struct ManualWorkoutSheet: View {
     let onSave: (_ row: WorkoutRow, _ replacing: WorkoutRow?) -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     @State private var sport: String
     @State private var start: Date
@@ -93,6 +94,8 @@ struct ManualWorkoutSheet: View {
                     }
                 }
                 if avgHrEditedNote { noteRow(String(localized: "Avg HR is shown as typed. The HR graph, zones and Strain stay from the recorded session.")) }
+                // At accessibility text sizes a pinned footer would take half the sheet, so it follows the form.
+                if typeSize.isAccessibilitySize { footerWithNote }
             }
             .padding(.horizontal, NoopMetrics.space6)
             .padding(.top, NoopMetrics.space6)
@@ -101,16 +104,13 @@ struct ManualWorkoutSheet: View {
         .scrollDismissesKeyboard(.interactively)
         .safeAreaInset(edge: .bottom, spacing: 0) {
             // What is wrong with the form stays beside the button it explains, however far the form is scrolled.
-            VStack(alignment: .leading, spacing: NoopMetrics.space2) {
-                if let validationNote {
-                    noteRow(validationNote, systemImage: "exclamationmark.circle.fill", tint: StrandPalette.statusWarning)
-                }
-                footer
+            if !typeSize.isAccessibilitySize {
+                footerWithNote
+                    .padding(.horizontal, NoopMetrics.space6)
+                    .padding(.top, NoopMetrics.space2)
+                    .padding(.bottom, NoopMetrics.space3)
+                    .background(StrandPalette.surfaceOverlay)
             }
-            .padding(.horizontal, NoopMetrics.space6)
-            .padding(.top, NoopMetrics.space2)
-            .padding(.bottom, NoopMetrics.space3)
-            .background(StrandPalette.surfaceOverlay)
         }
         // A fixed 420pt is right for the free-floating macOS sheet, but on iPhone it's wider than
         // the screen, so the Avg HR/Calories row, the Start DatePicker and the footer ran off the
@@ -122,7 +122,7 @@ struct ManualWorkoutSheet: View {
         .frame(maxWidth: .infinity)
         // A short 5-field form → open at .medium with .large a drag away; the grabber also gives the
         // top dismiss affordance the sheet otherwise lacks (only a bottom Cancel).
-        .noopSheetPresentation(largeFirst: false)
+        .noopSheetPresentation(largeFirst: typeSize.isAccessibilitySize)
         #endif
         .background(StrandPalette.surfaceOverlay)
         // Lets the user dismiss the decimal pad (which has no return key) and reach Cancel/Add. No-op on macOS.
@@ -199,38 +199,82 @@ struct ManualWorkoutSheet: View {
     // MARK: - Sections
 
     private var header: some View {
-        HStack(alignment: .top, spacing: 12) {
-            // The same glyph the rest of the workouts screens wear, so the sheet reads as part of them.
-            WorkoutSportGlyph(symbol: "figure.run")
-            VStack(alignment: .leading, spacing: 2) {
-                Text(editing == nil ? "Add Workout" : "Edit Workout")
-                    .font(StrandFont.title2)
-                    .foregroundStyle(StrandPalette.textPrimary)
-                Text(editing == nil
-                     ? "Log a session you tracked elsewhere."
-                     : "Adjust this session's details.")
-                    .font(StrandFont.subhead)
-                    .foregroundStyle(StrandPalette.textSecondary)
+        Group {
+            if typeSize.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: NoopMetrics.space3) {
+                    // The same glyph the rest of the workouts screens wear, so the sheet reads as part of them.
+                    WorkoutSportGlyph(symbol: "figure.run")
+                    headerTexts
+                }
+            } else {
+                HStack(alignment: .top, spacing: 12) {
+                    WorkoutSportGlyph(symbol: "figure.run")
+                    headerTexts
+                    Spacer(minLength: 0)
+                }
             }
-            Spacer(minLength: 0)
+        }
+    }
+
+    private var headerTexts: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(editing == nil ? "Add Workout" : "Edit Workout")
+                .font(StrandFont.title2)
+                .foregroundStyle(StrandPalette.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(editing == nil
+                 ? "Log a session you tracked elsewhere."
+                 : "Adjust this session's details.")
+                .font(StrandFont.subhead)
+                .foregroundStyle(StrandPalette.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    /// What is wrong with the form, beside the buttons it explains.
+    private var footerWithNote: some View {
+        VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+            if let validationNote {
+                noteRow(validationNote, systemImage: "exclamationmark.circle.fill", tint: StrandPalette.statusWarning)
+            }
+            footer
         }
     }
 
     private var footer: some View {
-        HStack(spacing: NoopMetrics.space3) {
-            Button("Cancel") { dismiss() }
-                .buttonStyle(.plain)
-                .font(StrandFont.subhead.weight(.semibold))
-                .foregroundStyle(StrandPalette.textSecondary)
-                .frame(minHeight: 44)
-            Spacer()
-            Button { save() } label: {
-                Label { editing == nil ? Text("Add") : Text("Save") } icon: { Image(systemName: "checkmark") }
+        Group {
+            if typeSize.isAccessibilitySize {
+                // Stacked, the primary action first and as wide as the sheet, so neither label wraps.
+                VStack(spacing: NoopMetrics.space2) {
+                    saveButton.frame(maxWidth: .infinity)
+                    cancelButton
+                }
+            } else {
+                HStack(spacing: NoopMetrics.space3) {
+                    cancelButton
+                    Spacer()
+                    saveButton
+                }
             }
-            .buttonStyle(PrimaryPillButtonStyle())
-            .disabled(builtRow == nil)
-            .accessibilityLabel(editing == nil ? "Add workout" : "Save workout")
         }
+    }
+
+    private var cancelButton: some View {
+        Button("Cancel") { dismiss() }
+            .buttonStyle(.plain)
+            .font(StrandFont.subhead.weight(.semibold))
+            .foregroundStyle(StrandPalette.textSecondary)
+            .frame(minHeight: 44)
+    }
+
+    private var saveButton: some View {
+        Button { save() } label: {
+            Label { editing == nil ? Text("Add") : Text("Save") } icon: { Image(systemName: "checkmark") }
+                .frame(maxWidth: typeSize.isAccessibilitySize ? .infinity : nil)
+        }
+        .buttonStyle(PrimaryPillButtonStyle())
+        .disabled(builtRow == nil)
+        .accessibilityLabel(editing == nil ? "Add workout" : "Save workout")
     }
 
     private func field<Content: View>(_ label: String, @ViewBuilder _ content: () -> Content) -> some View {

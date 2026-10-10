@@ -111,7 +111,7 @@ struct WorkoutsLiftSection: View {
                 .font(StrandFont.body.weight(.semibold))
                 .foregroundStyle(StrandPalette.textPrimary)
                 .fixedSize(horizontal: false, vertical: true)
-            Text(verbatim: facts.joined(separator: " · "))
+            Text(verbatim: WorkoutFormat.joined(facts.map(WorkoutFormat.unbreakable)))
                 .font(StrandFont.footnote)
                 .foregroundStyle(StrandPalette.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)

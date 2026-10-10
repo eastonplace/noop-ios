@@ -372,8 +372,13 @@ private struct QAWorkoutDetailHost: View {
             }
         }
         .task {
-            let rows = await repo.workoutRows(days: 30)
-            row = rows.first(where: matches)
+            // The demo week is written at launch and the repository may not have read it yet when this sheet opens, so
+            // look for it for a few seconds before saying it is missing.
+            for _ in 0..<20 {
+                let rows = await repo.workoutRows(days: 30)
+                if let found = rows.first(where: matches) { row = found; break }
+                try? await Task.sleep(nanoseconds: 500_000_000)
+            }
             searched = true
         }
     }

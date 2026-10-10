@@ -79,6 +79,8 @@ struct WorkoutDetailView: View {
         return .overview
     }
     @State private var refreshedRow: WorkoutRow?
+    @ScaledMetric(relativeTo: .title) private var dialDiameter: CGFloat = NoopMetrics.heroRingDiameter
+    @ScaledMetric(relativeTo: .title) private var dialLineWidth: CGFloat = NoopMetrics.heroRingLineWidth
 
     /// The tap payload is only a routing key. Resolve it again after a durable workout
     /// finish so detail never keeps presenting the pre-save or pre-rescore snapshot.
@@ -89,7 +91,7 @@ struct WorkoutDetailView: View {
     var body: some View {
         ScreenScaffold(title: "\(sportName) Summary",
                        // A sheet's header names the day in full; a pushed screen's row carries it as headerContext.
-                       subtitle: LocalizedStringKey(startDate.formatted(.dateTime.weekday(.wide).month(.abbreviated).day().year())),
+                       subtitle: LocalizedStringKey(startDate.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day().year())),
                        // This bounded summary uses eager layout. Nested lazy chart/grid measurement
                        // repeatedly invalidates placement while scrolling on iOS 26.5.
                        lazy: false,
@@ -232,8 +234,10 @@ struct WorkoutDetailView: View {
     }
 
     @ViewBuilder private var dial: some View {
-        let diameter = NoopMetrics.heroRingDiameter
-        let lineWidth = NoopMetrics.heroRingLineWidth
+        // The dial grows with the text so its number and caption never outgrow the ring, up to a ceiling that keeps
+        // it beside the words as long as it can.
+        let diameter = min(dialDiameter, 190)
+        let lineWidth = min(dialLineWidth, 12)
         switch heroStrain {
         case .noop(let display, _):
             ScoreRing(value: display, range: 0...21, accent: DomainTint.strain.accent, size: diameter,
@@ -242,7 +246,8 @@ struct WorkoutDetailView: View {
             // WHOOP's own number: the same dial in a neutral ink and named, so it is never read as NOOP's.
             ScoreRing(value: display, range: 0...21, accent: StrandPalette.textSecondary, size: diameter,
                       lineWidth: lineWidth, format: { $0.formatted(.number.precision(.fractionLength(1))) },
-                      centerCaption: String(localized: "WHOOP"))
+                      // At accessibility sizes the caption would sit on the ring; the source named above says it.
+                      centerCaption: typeSize.isAccessibilitySize ? nil : String(localized: "WHOOP"))
         case .unscored:
             ZStack {
                 Circle().stroke(StrandPalette.chipFill, lineWidth: lineWidth)

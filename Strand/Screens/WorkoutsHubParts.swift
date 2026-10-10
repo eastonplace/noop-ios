@@ -114,7 +114,7 @@ struct WorkoutRowContent: View {
                 .fixedSize(horizontal: false, vertical: true)
             VStack(alignment: .leading, spacing: 2) {
                 ForEach(Array(presentation.lines.enumerated()), id: \.offset) { _, facts in
-                    Text(verbatim: facts.joined(separator: " · ")).font(StrandFont.footnote)
+                    Text(verbatim: WorkoutFormat.joined(facts)).font(StrandFont.footnote)
                         .foregroundStyle(StrandPalette.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -187,7 +187,7 @@ struct WorkoutFactLine: View {
     }
 
     private func line(_ shown: [String], wrapping: Bool) -> some View {
-        Text(verbatim: shown.joined(separator: " · "))
+        Text(verbatim: WorkoutFormat.joined(shown))
             .font(StrandFont.footnote)
             .foregroundStyle(StrandPalette.textSecondary)
             .lineLimit(wrapping ? 2 : 1)
