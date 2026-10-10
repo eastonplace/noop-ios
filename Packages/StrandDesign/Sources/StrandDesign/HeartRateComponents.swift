@@ -6,9 +6,8 @@ import UIKit
 // MARK: - Heart Rate (NOOP scope, data-rich tier)
 //
 // The Deep-Timeline HR chart rebuilt in the Sleep/Stress paper dialect: a custom SwiftUI
-// `Path` (deliberately not Swift Charts, mirroring StressLoadChart's rationale) so the
-// gradient stroke, dashed hairline grid, reveal animation, and quiet chrome match the
-// production SleepStressComponents exactly. Interactions replicate the production
+// `Path` (deliberately not Swift Charts) so the gradient stroke, dashed hairline grid,
+// reveal animation, and quiet chrome stay under tight control. Interactions replicate the production
 // OverviewHRChart contract — pinch zooms about the window centre, drag pans, double-tap
 // resets, touch-and-hold scrubs a crosshair readout — via the same pure zoom/pan math,
 // re-stated here over plain TimeInterval ranges so the component stays fixture-only.
@@ -642,7 +641,7 @@ public struct HRTimelineChart: View {
     /// The wash under the line: the metric's tint, or the heart's.
     private var washColor: Color { tint ?? DomainTint.heart.accent }
 
-    /// Midpoint-bezier smoothing — byte-identical curve construction to StressLoadChart.
+    /// Midpoint-bezier smoothing.
     private func linePath(_ points: [(CGFloat, CGFloat)]) -> Path {
         var path = Path()
         guard let first = points.first else { return path }
@@ -900,7 +899,7 @@ public struct HRRangeStrip: View {
     }
 }
 
-// MARK: - HRZoneTotalsView (mirrors StressBandTotalsView)
+// MARK: - HRZoneTotalsView
 
 public struct HRZoneTotal: Identifiable, Equatable {
     public let id: String

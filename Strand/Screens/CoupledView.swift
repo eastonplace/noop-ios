@@ -786,7 +786,6 @@ struct PaperPillarDetailView: View {
                     } else {
                         heroCard
                         overTimeCard
-                        stressBreakdownCard
                         stressRecommendationCard
                     }
                 }
@@ -1549,44 +1548,6 @@ struct PaperPillarDetailView: View {
         }
     }
 
-    private var stressBreakdownCard: some View {
-        PaperCard {
-            VStack(alignment: .leading, spacing: 0) {
-                Text("STRESS BREAKDOWN")
-                    .font(StrandFont.sectionOverline)
-                    .tracking(StrandFont.sectionOverlineTracking)
-                    .foregroundStyle(StrandPalette.textSecondary)
-                    .padding(.bottom, 8)
-                if let daytimeStress, !daytimeStress.scored.isEmpty {
-                    ForEach(Array(stressBreakdown.enumerated()), id: \.offset) { index, item in
-                        HStack(spacing: 10) {
-                            Circle().fill(item.color).frame(width: 8, height: 8)
-                            Text(item.label).font(StrandFont.body)
-                                .foregroundStyle(StrandPalette.textPrimary)
-                            Spacer()
-                            Text("\(item.hours)h 00m")
-                                .font(StrandFont.captionNumber)
-                                .foregroundStyle(StrandPalette.textSecondary)
-                            StatusBadge(LocalizedStringKey("\(item.percent)%"),
-                                        style: .upToDate, tint: item.color)
-                        }
-                        .frame(minHeight: 40)
-                        .overlay(alignment: .bottom) {
-                            if index < stressBreakdown.count - 1 {
-                                Rectangle().fill(StrandPalette.hairline).frame(height: 1)
-                            }
-                        }
-                    }
-                } else {
-                    Text("A breakdown appears after enough daytime heart-rate data is recorded.")
-                        .font(StrandFont.caption)
-                        .foregroundStyle(StrandPalette.textTertiary)
-                        .padding(.vertical, 16)
-                }
-            }
-        }
-    }
-
     private var stressRecommendationCard: some View {
         PaperCard {
             HStack(spacing: 12) {
@@ -1637,38 +1598,6 @@ struct PaperPillarDetailView: View {
         let efficiency = rawEfficiency <= 1 ? rawEfficiency * 100 : rawEfficiency
         guard efficiency > 0 else { return asleep }
         return asleep / (efficiency / 100)
-    }
-
-    private struct StressBreakdownItem {
-        let label: LocalizedStringKey
-        let hours: Int
-        let percent: Int
-        let color: Color
-    }
-
-    private var stressBreakdown: [StressBreakdownItem] {
-        let levels = daytimeStress?.scored.compactMap(\.level) ?? []
-        let counts = [
-            levels.filter { $0 < 0.75 }.count,
-            levels.filter { $0 >= 0.75 && $0 < 1.5 }.count,
-            levels.filter { $0 >= 1.5 && $0 < 2.25 }.count,
-            levels.filter { $0 >= 2.25 }.count
-        ]
-        let total = max(1, counts.reduce(0, +))
-        return [
-            StressBreakdownItem(label: "Restful", hours: counts[0],
-                                percent: Int((Double(counts[0]) / Double(total) * 100).rounded()),
-                                color: StrandPalette.stressRestful),
-            StressBreakdownItem(label: "Low", hours: counts[1],
-                                percent: Int((Double(counts[1]) / Double(total) * 100).rounded()),
-                                color: StrandPalette.stressLow),
-            StressBreakdownItem(label: "Medium", hours: counts[2],
-                                percent: Int((Double(counts[2]) / Double(total) * 100).rounded()),
-                                color: StrandPalette.stressMedium),
-            StressBreakdownItem(label: "High", hours: counts[3],
-                                percent: Int((Double(counts[3]) / Double(total) * 100).rounded()),
-                                color: StrandPalette.stressHigh)
-        ]
     }
 
     private var detailWorkouts: [WorkoutRow] {

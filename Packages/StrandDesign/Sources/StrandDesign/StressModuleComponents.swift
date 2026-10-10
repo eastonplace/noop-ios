@@ -31,8 +31,6 @@ public enum StressHeatStyle {
     public static let elevated = moderate
     public static let high = StressLoadStyle.high
 
-    public static let stops = StressLoadStyle.stops
-
     /// The colour of a level is the colour of its band, from `StressModuleBand.band` (calm under 1, moderate
     /// from 1, high from 2), so the word, the pill, the ribbon bars and the band scale never disagree. The
     /// older smooth ramp put a "High" 2.4 between the moderate green and the high yellow, where it read lime.
