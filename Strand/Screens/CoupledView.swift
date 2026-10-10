@@ -1126,7 +1126,8 @@ struct PaperPillarDetailView: View {
             metric: kind == .charge ? .recovery : .strain,
             observations: metricDays,
             referenceDate: anchorDate,
-            latest: latest
+            latest: latest,
+            showsBuildingState: kind == .effort
         )
     }
 

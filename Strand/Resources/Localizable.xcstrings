@@ -27323,6 +27323,46 @@
         }
       }
     },
+    "Building · %lld of %lld days": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Im Aufbau · %lld von %lld Tagen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Construyendo · %lld de %lld días"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Creazione in corso · %lld di %lld giorni"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A criar · %lld de %lld dias"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "构建中 · %lld/%lld 天"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "建立中 · %lld/%lld 天"
+          }
+        }
+      }
+    },
     "Building, moves as you do": {
       "localizations": {
         "de": {

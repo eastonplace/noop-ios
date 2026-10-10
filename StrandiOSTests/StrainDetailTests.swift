@@ -439,7 +439,7 @@ final class StrainActivityRowTests: XCTestCase {
     }
 }
 
-final class StrainTrendBuildingTests: XCTestCase {
+final class TrendBuildingProgressTests: XCTestCase {
     private var calendar: Calendar {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(identifier: "UTC")!
@@ -451,16 +451,28 @@ final class StrainTrendBuildingTests: XCTestCase {
         return CalendarMetricDay(date: calendar.date(byAdding: .day, value: -offset, to: base)!, value: value)
     }
 
-    private let today = Calendar(identifier: .gregorian).date(from: DateComponents(
-        timeZone: TimeZone(identifier: "UTC"), year: 2026, month: 10, day: 10))!
+    private var today: Date { calendar.date(from: DateComponents(year: 2026, month: 10, day: 10))! }
 
     func testNoDaysAndOneDayAreBuildingTwoAreNot() {
-        XCTAssertEqual(StrainTrendBuilding.make(values: [], through: today, calendar: calendar)?.recordedDays, 0)
-        XCTAssertEqual(StrainTrendBuilding.make(values: [day(0, 7)], through: today, calendar: calendar)?.recordedDays, 1)
-        XCTAssertNil(StrainTrendBuilding.make(values: [day(0, 7), day(1, 5)], through: today, calendar: calendar))
+        XCTAssertEqual(TrendBuildingProgress.make(values: [], through: today, calendar: calendar)?.recordedDays, 0)
+        XCTAssertEqual(TrendBuildingProgress.make(values: [day(0, 7)], through: today, calendar: calendar)?.recordedDays, 1)
+        XCTAssertNil(TrendBuildingProgress.make(values: [day(0, 7), day(1, 5)], through: today, calendar: calendar))
     }
 
     func testDaysWithoutAValueDoNotCount() {
-        XCTAssertEqual(StrainTrendBuilding.make(values: [day(0, nil), day(1, 5)], through: today, calendar: calendar)?.recordedDays, 1)
+        XCTAssertEqual(TrendBuildingProgress.make(values: [day(0, nil), day(1, 5)], through: today, calendar: calendar)?.recordedDays, 1)
+    }
+
+    func testTheStripIsAWeekOldestFirstWithTheReferenceDayLast() throws {
+        let progress = try XCTUnwrap(TrendBuildingProgress.make(values: [day(0, 7)], through: today, calendar: calendar))
+        XCTAssertEqual(progress.window, [false, false, false, false, false, false, true])
+        let earlier = try XCTUnwrap(TrendBuildingProgress.make(values: [day(5, 7)], through: today, calendar: calendar))
+        XCTAssertEqual(earlier.window, [false, true, false, false, false, false, false])
+    }
+
+    func testAValueOlderThanTheStripStillCountsAsNothingToShowButKeepsTheTrendBuilding() throws {
+        // One day, long ago: the trend is still building, and none of this week's dots are filled.
+        let progress = try XCTUnwrap(TrendBuildingProgress.make(values: [day(30, 7)], through: today, calendar: calendar))
+        XCTAssertEqual(progress.recordedDays, 0)
     }
 }
