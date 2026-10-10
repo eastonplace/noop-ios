@@ -22,7 +22,17 @@ enum AppleDemoSeeder {
     /// database filename, so a newer fixture never gets trapped behind an older,
     /// partially-seeded database.
     static let fixtureVersion = 4
-    static var databaseFilename: String { "whoop-demo-v\(fixtureVersion).sqlite" }
+    /// The demo database is dated (and carries its Strain scenario, when one is asked for), so a seed is always
+    /// relative to the day it runs: a database seeded on an earlier day would leave "today" empty and the history
+    /// ending days ago.
+    static var databaseFilename: String {
+        let stamp = DateFormatter()
+        stamp.locale = Locale(identifier: "en_US_POSIX")
+        stamp.timeZone = .current
+        stamp.dateFormat = "yyyyMMdd"
+        let scenario = StrainDemoScenario.requested.map { "-strain-\($0.rawValue)" } ?? ""
+        return "whoop-demo-v\(fixtureVersion)-\(stamp.string(from: Date()))\(scenario).sqlite"
+    }
 
     private enum Scenario: String {
         case healthy, illness
@@ -31,7 +41,7 @@ enum AppleDemoSeeder {
     static let whoop = "my-whoop"
     static let apple = "apple-health"
     static let comparisonOura = "oura-ring-4-demo"
-    private static let DAYS = 120
+    private static var DAYS: Int { StrainDemoScenario.requested?.seededDays ?? 120 }
     /// Effort rescale factor: the old 0–21 strain scale → the new 0–100 Effort scale.
     private static let STRAIN_SCALE = 100.0 / 21.0
 
@@ -299,6 +309,9 @@ enum AppleDemoSeeder {
             }
         }
 
+        StrainDemoScenario.requested?.shape(
+            daily: &daily, appleRows: &appleRows, workouts: &workouts, now: Date(), calendar: cal)
+
         // The cleanup illness surface is opt-in now; healthy is the F7 screenshot default.
         if scenario == .illness {
             for index in daily.indices.suffix(2) {
@@ -342,7 +355,15 @@ enum AppleDemoSeeder {
         // every waking interval between them. The latest prior-main → current-main window therefore
         // has complete SQL buckets for the Sleep contrast card, while the earlier nights provide enough
         // genuine raw pre-sleep windows for the opt-in analysis baseline to rebuild deterministically.
-        let physiologicalHR = physiologicalHeartRateFixture(sleeps: sleeps)
+        var physiologicalHR = physiologicalHeartRateFixture(sleeps: sleeps)
+        let todayStartTs = Int(cal.startOfDay(for: Date()).timeIntervalSince1970)
+        if let scenario = StrainDemoScenario.requested {
+            scenario.boostWorkouts(in: &physiologicalHR, workouts: workouts, todayStart: todayStartTs)
+            // A scenario that is about the first minutes of a day has no heart rate banked since the night began.
+            if scenario == .early, let night = sleeps.last?.effectiveStartTs {
+                physiologicalHR.removeAll { $0.ts >= night }
+            }
+        }
         if !physiologicalHR.isEmpty {
             _ = try await store.insert(Streams(hr: physiologicalHR), deviceId: whoop)
         }
@@ -368,7 +389,12 @@ enum AppleDemoSeeder {
         // samples per hour to score an hour, so we seed one sample every 10 s from 06:00
         // to "now" with a gentle daily arc + noise, and R-R at ~0.5 Hz tracking the HR.
         // Sim-only by construction: the seeder itself only runs behind --demo-seed.
-        do {
+        if let scenario = StrainDemoScenario.requested {
+            let now = Int(Date().timeIntervalSince1970)
+            let wake = sleeps.last?.endTs ?? todayStartTs + 6 * 3600
+            let today = scenario.todayHeartRate(wake: wake, now: now, workouts: workouts.filter { $0.startTs >= todayStartTs }, rng: &rng)
+            if !today.hr.isEmpty { _ = try await store.insert(Streams(hr: today.hr, rr: today.rr), deviceId: whoop) }
+        } else {
             let cal = Calendar.current
             let dayStart = Int(cal.startOfDay(for: Date()).timeIntervalSince1970)
             let wake = dayStart + 6 * 3600
@@ -396,6 +422,12 @@ enum AppleDemoSeeder {
             }
         }
         _ = try await store.upsertDailyMetrics(daily, deviceId: whoop)
+        if let scenario = StrainDemoScenario.requested,
+           let today = daily.last?.day {
+            // NOOP's own Day Strain for the earlier days, under the computed id the resolver reads.
+            _ = try await store.upsertDailyMetrics(
+                scenario.persistedStrainRows(daily: daily, today: today), deviceId: "\(whoop)-noop")
+        }
         _ = try await store.upsertSleepSessions(sleeps, deviceId: whoop)
         _ = try await store.upsertMetricSeries(series, deviceId: whoop)
         _ = try await store.upsertAppleDaily(appleRows, deviceId: apple)
