@@ -3,9 +3,9 @@ import SwiftUI
 // MARK: - Heart-rate zone distribution
 //
 // Time in each of the five heart-rate zones: one proportional bar for the shape of the effort and one row per zone
-// for the numbers behind it, hardest zone first. The workout detail and the Workouts hub show the same thing the
-// same way, so it lives here once. It takes plain values (names and ranges already in the person's language) and
-// colours the zones from `StrandPalette.hrZones`.
+// for the numbers behind it, hardest zone first. The workout summary and the Workouts hub draw their zones with it,
+// so they read the same way. It takes plain values (names, ranges and spoken labels already in the person's
+// language) and colours the zones from `StrandPalette.hrZones`.
 //
 // Given a selection binding the rows become buttons: choosing a zone marks its row and dims the other zones in the
 // bar, so a screen can show where that zone fell in the session. Without one the rows are plain.
@@ -19,14 +19,19 @@ public struct HRZoneDistribution: View {
         public let seconds: Double
         /// The zone's bpm band, already written for display ("150–168 bpm", "169+ bpm"), when it is known.
         public let range: String?
+        /// What VoiceOver reads for the zone's row ("Zone 5, Maximum, 169 or more beats per minute, 4 minutes,
+        /// 13 percent"). The caller writes it because a duration shown as "4m" is read as metres, and it knows the
+        /// person's language. When nil the row reads its visible texts.
+        public let accessibilityLabel: String?
 
         public var id: Int { number }
 
-        public init(number: Int, name: String, seconds: Double, range: String? = nil) {
+        public init(number: Int, name: String, seconds: Double, range: String? = nil, accessibilityLabel: String? = nil) {
             self.number = number
             self.name = name
             self.seconds = max(0, seconds.isFinite ? seconds : 0)
             self.range = range
+            self.accessibilityLabel = accessibilityLabel
         }
     }
 
@@ -147,7 +152,19 @@ public struct HRZoneDistribution: View {
         }
         .padding(.vertical, NoopMetrics.space2)
         .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-        .accessibilityElement(children: .combine)
+        .modifier(SpokenRow(label: zone.accessibilityLabel))
+    }
+
+    /// The row as one spoken element: the caller's label when it wrote one, else the row's own texts.
+    private struct SpokenRow: ViewModifier {
+        let label: String?
+        @ViewBuilder func body(content: Content) -> some View {
+            if let label {
+                content.accessibilityElement(children: .ignore).accessibilityLabel(Text(verbatim: label))
+            } else {
+                content.accessibilityElement(children: .combine)
+            }
+        }
     }
 
     private func swatch(_ zone: Zone) -> some View {

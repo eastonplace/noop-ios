@@ -47,6 +47,17 @@ final class HRZonesTests: XCTestCase {
         XCTAssertEqual(zs.zoneNumber(forBPM: 250), 5)   // above max still z5
     }
 
+    func testIntegerBandsAreWhatTheLabelsAreWrittenFrom() throws {
+        let zs = HRZones.zones(maxHR: 187)
+        let four = try XCTUnwrap(zs.integerBpmRange(forZone: 4))
+        XCTAssertEqual(four.lower, 150)
+        XCTAssertEqual(four.upper, 168)
+        let five = try XCTUnwrap(zs.integerBpmRange(forZone: 5))
+        XCTAssertEqual(five.lower, 169)
+        XCTAssertNil(five.upper)
+        XCTAssertNil(zs.integerBpmRange(forZone: 0))
+    }
+
     func testBPMRangeLabelsMatchTheEngineIntegerBoundaries() {
         let zs = HRZones.zones(maxHR: 187)
         XCTAssertEqual(zs.bpmRangeLabel(forZone: 1), "94–112 bpm")

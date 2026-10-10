@@ -71,7 +71,7 @@ extension View {
 
     /// The state pill's chip: 10 / 5pt padding, a 12% wash and a 1pt 28% hairline of the tone. `StatePill`
     /// and every pill that must match it (Live HR zone, Stress value) share this one definition.
-    func statePillChrome(tint: Color) -> some View {
+    public func statePillChrome(tint: Color) -> some View {
         self.padding(.horizontal, StatePillMetrics.horizontalPadding)
             .padding(.vertical, StatePillMetrics.verticalPadding)
             .background(Capsule(style: .continuous).fill(tint.opacity(0.12)))

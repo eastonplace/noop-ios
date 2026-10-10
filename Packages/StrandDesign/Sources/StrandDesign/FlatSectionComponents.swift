@@ -182,11 +182,30 @@ public struct FactStrip: View {
         public let value: String
         /// The unit of a bare number ("min"); nil splits one off the value instead ("55 bpm").
         public let unit: LocalizedStringKey?
+        /// What VoiceOver reads for the value when the text on screen would be misread ("1h 5m" is read as "1 h 5
+        /// metres"). nil reads the label and the value as they are shown.
+        public let spokenValue: String?
 
-        public init(_ label: LocalizedStringKey, value: String, unit: LocalizedStringKey? = nil) {
+        public init(_ label: LocalizedStringKey, value: String, unit: LocalizedStringKey? = nil,
+                    spokenValue: String? = nil) {
             self.label = label
             self.value = value
             self.unit = unit
+            self.spokenValue = spokenValue
+        }
+    }
+
+    /// One fact as one spoken element: label then value, or the label and the caller's spoken value.
+    private struct SpokenFact: ViewModifier {
+        let fact: Fact
+        @ViewBuilder func body(content: Content) -> some View {
+            if let spoken = fact.spokenValue {
+                content.accessibilityElement(children: .ignore)
+                    .accessibilityLabel(fact.label)
+                    .accessibilityValue(Text(verbatim: spoken))
+            } else {
+                content.accessibilityElement(children: .combine)
+            }
         }
     }
 
@@ -228,7 +247,7 @@ public struct FactStrip: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.leading, index == 0 ? 0 : NoopMetrics.space3)
                 .padding(.trailing, index == facts.count - 1 ? 0 : NoopMetrics.space3)
-                .accessibilityElement(children: .combine)
+                .modifier(SpokenFact(fact: fact))
             }
         }
     }
@@ -241,7 +260,7 @@ public struct FactStrip: View {
                     Spacer(minLength: NoopMetrics.space2)
                     UnitValueText(value: fact.value, unit: fact.unit, size: valueSize)
                 }
-                .accessibilityElement(children: .combine)
+                .modifier(SpokenFact(fact: fact))
             }
         }
     }
@@ -309,9 +328,13 @@ public struct ChipRow<Content: View>: View {
     }
 
     public var body: some View {
+        // Side by side the chips are 8pt apart, so each reaches 4pt sideways; stacked they are 20pt apart, so each
+        // reaches 10pt up and down, which makes every chip 44pt tall to the finger.
         ViewThatFits(in: .horizontal) {
             HStack(spacing: NoopMetrics.space2) { content() }
-            VStack(alignment: .leading, spacing: NoopMetrics.space2) { content() }
+                .environment(\.chipHitInsets, ChipHitInsets(horizontal: NoopMetrics.space2 / 2, vertical: 13))
+            VStack(alignment: .leading, spacing: 20) { content() }
+                .environment(\.chipHitInsets, ChipHitInsets(horizontal: 13, vertical: 10))
         }
     }
 }
