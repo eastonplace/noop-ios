@@ -1651,6 +1651,7 @@ struct TodayView: View {
                     }
                 }
         }
+        .settingsSheetScreenScaffoldEnvironment()
     }
     #endif
 
@@ -1731,7 +1732,7 @@ struct TodayView: View {
             TodayPillarModel(
                 id: "recovery", label: String(localized: "Recovery"), value: charge, maximum: 100,
                 valueText: charge.map { "\(Int($0.rounded()))" } ?? "—",
-                state: paperScoreState(charge, kind: .charge),
+                state: Self.paperScoreState(charge, kind: .charge),
                 detail: carriedMetricDetail(.recovery, value: recoveryMetric, snapshot: firstPaint,
                                             currentLogicalDay: key.logicalKey,
                                             currentLocalDay: key.localKey, nowTimestamp: nowTimestamp),
@@ -1741,7 +1742,7 @@ struct TodayView: View {
             TodayPillarModel(
                 id: "strain", label: String(localized: "Strain"), value: strain, maximum: 21,
                 valueText: strain.map { String(format: "%.1f", $0) } ?? "—",
-                state: paperScoreState(effort, kind: .effort),
+                state: Self.paperScoreState(effort, kind: .effort),
                 detail: carriedMetricDetail(.strain, value: strainMetric, snapshot: firstPaint,
                                             currentLogicalDay: key.logicalKey,
                                             currentLocalDay: key.localKey, nowTimestamp: nowTimestamp),
@@ -1750,7 +1751,7 @@ struct TodayView: View {
             TodayPillarModel(
                 id: "sleep", label: String(localized: "Sleep"), value: rest, maximum: 100,
                 valueText: rest.map { "\(Int($0.rounded()))" } ?? "—",
-                state: paperScoreState(rest, kind: .rest),
+                state: Self.paperScoreState(rest, kind: .rest),
                 detail: carriedMetricDetail(.sleepScore, value: sleepMetric, snapshot: firstPaint,
                                             currentLogicalDay: key.logicalKey,
                                             currentLocalDay: key.localKey, nowTimestamp: nowTimestamp)
@@ -1885,13 +1886,15 @@ struct TodayView: View {
         }
     }
 
-    private func paperScoreState(_ value: Double?, kind: PaperPillarDetailKind) -> String {
+    static func paperScoreState(_ value: Double?, kind: PaperPillarDetailKind) -> String {
         guard let value else {
             return kind == .charge ? String(localized: "Not rated") : String(localized: "Not available")
         }
         if kind == .effort {
             return StrainScale.band(StrainScale.displayValue(fromStored: value)).title
         }
+        // Recovery gets the word its colour already follows; the sleep pillar keeps its own scale.
+        if kind == .charge { return RecoveryBands.word(for: value) }
         switch value {
         case ..<35: return String(localized: "Low")
         case ..<70: return String(localized: "Moderate")
@@ -2704,7 +2707,9 @@ struct TodayView: View {
                     // general METHOD behind the score, so the two are clearly separated, not conflated. It
                     // pushes within this sheet's own NavigationStack, so there is no second modal to manage.
                     NavigationLink {
-            ScoringGuideView(initialSection: .recovery, onClose: { showChargeBreakdown = false })
+                        // Pushed, so its close button and "Got it" pop back to this breakdown (the guide's own header
+                        // replaces the system bar), not out of the whole sheet.
+                        ScoringGuideView(initialSection: .recovery)
                     } label: {
                         HStack(spacing: 10) {
                             Image(systemName: "function")
@@ -4063,7 +4068,7 @@ struct TodayView: View {
                     ?? carried.map { "\(Int($0.value.rounded()))%" } ?? "—",
                 // Component 2: never a bare blank, when there's no number, no calibration count and
                 // nothing to carry, the caption states the honest "Needs the strap" rather than nothing.
-                caption: d?.recovery.map { StrandPalette.recoveryState($0).capitalized }
+                caption: d?.recovery.map { RecoveryBands.word(for: $0) }
                     ?? recoveryCalibration.map { _ in String(localized: "Calibrating") }
                     ?? carried.map { $0.caption }
                     ?? Self.needsStrapCaption,
@@ -5053,13 +5058,7 @@ struct TodayView: View {
     /// A short recovery state word for the synthesis hero.
     private func synthesisWord(_ score: Double?) -> String {
         guard let s = score else { return String(localized: "No Data") }
-        switch s {
-        case ..<25:  return String(localized: "Depleted")
-        case ..<50:  return String(localized: "Low")
-        case ..<70:  return String(localized: "Steady")
-        case ..<88:  return String(localized: "Primed")
-        default:     return String(localized: "Peak")
-        }
+        return RecoveryBands.word(for: s)
     }
 
     /// Plain-English synthesis of recovery + sleep. Whole-phrase variants per (charge band × sleep
@@ -5070,20 +5069,21 @@ struct TodayView: View {
         }
         // true = slept 7h+; false = short; nil = no banked duration.
         let sleptWell: Bool? = d.totalSleepMin.map { $0 / 60.0 >= 7 }
-        switch rec {
-        case ..<50:
+        // The same bands as the recovery word and colour beside this line: a "Moderate" never reads "low".
+        switch RecoveryBands.band(for: rec) {
+        case .low:
             switch sleptWell {
             case true?:  return String(localized: "Recovery is low and sleep was consistent.")
             case false?: return String(localized: "Recovery is low but sleep ran short.")
             case nil:    return String(localized: "Recovery is low.")
             }
-        case ..<70:
+        case .medium:
             switch sleptWell {
             case true?:  return String(localized: "Recovery is steady and sleep was consistent.")
             case false?: return String(localized: "Recovery is steady but sleep ran short.")
             case nil:    return String(localized: "Recovery is steady.")
             }
-        default:
+        case .high:
             switch sleptWell {
             case true?:  return String(localized: "Recovery is strong and sleep was consistent.")
             case false?: return String(localized: "Recovery is strong but sleep ran short.")

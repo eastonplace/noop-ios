@@ -307,11 +307,8 @@ public enum StrandPalette {
 
     public static func recoveryColor(_ score: Double) -> Color {
         guard !isClassic else { return sample(stops: cRecoveryStops, at: score / 100.0) }
-        switch score {
-        case ..<34: return recoveryLow
-        case ..<67: return recoveryMed
-        default: return recoveryHigh
-        }
+        // The one set of cuts: RecoveryBands (rounded as drawn, and a score that is not a number is depleted, not green).
+        return RecoveryBands.color(for: score)
     }
 
     public static func strainColor(_ strain: Double) -> Color {
@@ -324,14 +321,10 @@ public enum StrandPalette {
         return strainAccent
     }
 
+    /// The recovery word in caps, for the places that draw caps (the ring, the heat-strip tooltip). It is
+    /// `RecoveryBands.word(for:)` and nothing else: one word per score everywhere.
     public static func recoveryState(_ score: Double) -> String {
-        switch score {
-        case ..<25: return String(localized: "DEPLETED", bundle: .module)
-        case ..<50: return String(localized: "LOW", bundle: .module)
-        case ..<70: return String(localized: "MODERATE", bundle: .module)
-        case ..<88: return String(localized: "PRIMED", bundle: .module)
-        default: return String(localized: "PEAK", bundle: .module)
-        }
+        RecoveryBands.word(for: score).localizedUppercase
     }
 
     public static func hrZoneColor(_ zone: Int) -> Color {

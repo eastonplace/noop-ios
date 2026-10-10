@@ -132,8 +132,12 @@ struct TestCentreView: View {
         .onAppear {
             ScheduledDebugExport.activateIfEnabled()
         }
+        // A sheet opened from here gets its own header context, not this screen's (a pushed screen's compact row
+        // has no subtitle and Settings' native header draws none), or the review would lose the line that says
+        // nothing leaves the device until Share.
         .sheet(item: $report.pending) { _ in
             ReportReviewSheet(report: report)
+                .sheetScreenScaffoldEnvironment(onClose: { report.cancel() })
         }
         .sheet(isPresented: $showStartSport, onDismiss: {
             if model.activeWorkout != nil { showLiveWorkout = true }
@@ -151,6 +155,7 @@ struct TestCentreView: View {
             HRVSnapshotView(onClose: { showHRVSnapshot = false }, source: hrvSnapshotSource)
                 .environmentObject(model)
                 .environmentObject(live)
+                .sheetScreenScaffoldEnvironment()
         }
         .alert(infoTitle, isPresented: $showInfo) {
             Button("OK", role: .cancel) { }
@@ -1189,9 +1194,14 @@ private struct ReportReviewSheet: View {
 
     var body: some View {
         let preview = report.pending?.gate.previewText ?? ""
-        return ScreenScaffold(title: "Review before sharing",
-                              subtitle: "This is exactly what your report will contain. Nothing leaves \(Platform.deviceNounPhrase) until you tap Share.") {
+        return ScreenScaffold(title: "Review before sharing") {
             VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
+                // The promise is what this sheet is for, so it is a sentence that wraps, in full, not a header
+                // subtitle (the header keeps a subtitle to one line and would cut it at "Nothing leaves th...").
+                Text("This is exactly what your report will contain. Nothing leaves \(Platform.deviceNounPhrase) until you tap Share.")
+                    .font(StrandFont.subhead)
+                    .foregroundStyle(StrandPalette.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
                 if report.pending?.modeInactive == true {
                     // #1002: the selected profile's test mode is not on, so this bundle carries no capture
                     // for the very thing being reported (the #812 capture_check only grades ACTIVE modes,

@@ -722,6 +722,9 @@ private struct FitnessAgeSection: View {
                     SettingsView()
                 }
             }
+            // Health is a pushed screen: its sheet must not hand Settings the drill-in role, or the pages Settings pushes
+            // would leave the native look they have in the Settings tab.
+            .settingsSheetScreenScaffoldEnvironment()
             #if os(macOS)
             .frame(width: 900, height: 820)
             #endif

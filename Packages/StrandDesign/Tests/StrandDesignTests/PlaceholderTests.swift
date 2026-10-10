@@ -67,10 +67,33 @@ final class StrandDesignTests: XCTestCase {
 
     func testRecoveryStateWords() {
         XCTAssertEqual(StrandPalette.recoveryState(10), "DEPLETED")
-        XCTAssertEqual(StrandPalette.recoveryState(40), "LOW")
+        XCTAssertEqual(StrandPalette.recoveryState(40), "MODERATE")
         XCTAssertEqual(StrandPalette.recoveryState(60), "MODERATE")
         XCTAssertEqual(StrandPalette.recoveryState(80), "PRIMED")
         XCTAssertEqual(StrandPalette.recoveryState(95), "PEAK")
+    }
+
+    /// The word is the colour band's word: the two extra cut points (25, 88) sit inside a band, so no word
+    /// ever straddles two colours and the ring's caps are just the Title Case word uppercased.
+    func testRecoveryWordFollowsTheColourBands() {
+        // The cuts are on the score as drawn (whole points, half rounds up): a 24.5 is drawn "25".
+        let edges: [(Double, String)] = [
+            (0, "Depleted"), (24.4, "Depleted"), (24.5, "Low"), (25, "Low"), (33.4, "Low"), (33.5, "Moderate"),
+            (34, "Moderate"), (66.4, "Moderate"), (66.5, "Primed"), (67, "Primed"), (87.4, "Primed"),
+            (87.5, "Peak"), (88, "Peak"), (100, "Peak"),
+        ]
+        for (score, word) in edges {
+            XCTAssertEqual(RecoveryBands.word(for: score), word, "score \(score)")
+            XCTAssertEqual(StrandPalette.recoveryState(score), word.uppercased(), "score \(score)")
+        }
+        var colours: [String: Set<String>] = [:]
+        for tenth in 0...1000 {
+            let score = Double(tenth) / 10
+            let band = String(describing: RecoveryBands.band(for: score))
+            colours[RecoveryBands.word(for: score), default: []].insert(band)
+        }
+        for (word, bands) in colours { XCTAssertEqual(bands.count, 1, "\(word) crosses a colour band") }
+        XCTAssertEqual(RecoveryBands.word(for: .nan), "Depleted")
     }
 
     func testStrainColorScaleAndEndpoints() {
@@ -170,6 +193,20 @@ final class StrandDesignTests: XCTestCase {
         assertColor(RecoveryBands.color(for: 34), equals: StrandPalette.recoveryMed)
         assertColor(RecoveryBands.color(for: 66), equals: StrandPalette.recoveryMed)
         assertColor(RecoveryBands.color(for: 67), equals: StrandPalette.recoveryHigh)
+    }
+
+    /// A score is cut as it is drawn: 66.6 reads "67", so it is a green "Primed" and not a yellow "Moderate", and the
+    /// ring, the word and the colour all say the same. The palette's colour is the same cut, and a score that is not
+    /// a number is depleted (red), never green.
+    func testRecoveryBandsCutTheScoreAsDrawn() {
+        for (score, band) in [(66.6, RecoveryBand.high), (66.4, .medium), (33.5, .medium), (33.4, .low)] {
+            XCTAssertEqual(RecoveryBands.band(for: score), band, "score \(score)")
+            assertColor(StrandPalette.recoveryColor(score), equals: RecoveryBands.color(for: score))
+        }
+        XCTAssertEqual(RecoveryBands.word(for: 66.6), "Primed")
+        XCTAssertEqual(RecoveryBands.band(for: .nan), .low)
+        assertColor(StrandPalette.recoveryColor(.nan), equals: StrandPalette.recoveryLow)
+        assertColor(StrandPalette.recoveryColor(.infinity), equals: StrandPalette.recoveryLow)
     }
 
     private func assertColor(_ actual: Color, equals expected: Color,

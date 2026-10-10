@@ -581,7 +581,9 @@ struct MetricDetailView: View {
         return ScreenScaffold(title: LocalizedStringKey(metric.title),
                               subtitle: LocalizedStringKey(MetricCatalog.categoryDisplayName(metric.category)),
                               topBackground: nil,
-                              backAction: { dismiss() }) {
+                              backAction: { dismiss() },
+                              // Pushed, the header row carries the category the subtitle used to name.
+                              headerContext: MetricCatalog.categoryDisplayName(metric.category)) {
                 if loaded && series.isEmpty {
                     // No data in the entire history — keep the range bar for context, then the
                     // honest empty state (no scenic hero floating over nothing). Deliberately

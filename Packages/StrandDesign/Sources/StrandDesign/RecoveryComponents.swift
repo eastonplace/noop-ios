@@ -82,9 +82,7 @@ public struct RecoveryArcCard: View {
 
     private var bandWord: String {
         guard let score else { return "Calibrating" }
-        if score >= 67 { return "High" }
-        if score >= 34 { return "Medium" }
-        return "Low"
+        return RecoveryBands.word(for: score)
     }
 
     private var why: String {
