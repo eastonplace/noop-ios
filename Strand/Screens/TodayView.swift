@@ -2707,8 +2707,8 @@ struct TodayView: View {
                     // general METHOD behind the score, so the two are clearly separated, not conflated. It
                     // pushes within this sheet's own NavigationStack, so there is no second modal to manage.
                     NavigationLink {
-                        // Pushed, so its close button and "Got it" pop back to this breakdown (the guide's own header
-                        // replaces the system bar), not out of the whole sheet.
+                        // Pushed, so its back chip and "Got it" pop back to this breakdown (the guide's own header
+                        // replaces the system bar), not out of the whole sheet. It has no X: nothing here to close.
                         ScoringGuideView(initialSection: .recovery)
                     } label: {
                         HStack(spacing: 10) {

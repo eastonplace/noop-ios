@@ -538,8 +538,8 @@ struct CoupledView: View {
                     // The general METHOD behind the score, clearly separated from today's values, exactly
                     // the link the Today breakdown carries. Pushes within this sheet's own NavigationStack.
                     NavigationLink {
-                        // Pushed, so its close button and "Got it" pop back to this breakdown (the guide's own header
-                        // replaces the system bar), not out of the whole sheet.
+                        // Pushed, so its back chip and "Got it" pop back to this breakdown (the guide's own header
+                        // replaces the system bar), not out of the whole sheet. It has no X: nothing here to close.
                         ScoringGuideView(initialSection: .recovery)
                     } label: {
                         HStack(spacing: 10) {
