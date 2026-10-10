@@ -68,13 +68,24 @@ enum AppleDemoWorkoutFixture {
                     DELETE FROM workout
                     WHERE deviceId IN (?, ?, ?) AND startTs >= ? AND startTs < ?
                     """, arguments: [ids[0], ids[1], ids[2], windowStart, windowEnd])
+                // The fixture also writes two older lift sessions outside the owned week, whose ids carry the
+                // `demo-lift-` prefix and move with the date. Clear every session that prefix names, wherever it
+                // falls, with its sets and its workout row, so a launch on a later day never leaves the earlier
+                // day's older sessions behind.
+                try db.execute(sql: """
+                    DELETE FROM workout
+                    WHERE deviceId IN (?, ?, ?) AND startTs IN (
+                        SELECT startTs FROM liftSession WHERE deviceId = ? AND id LIKE 'demo-lift-%')
+                    """, arguments: [ids[0], ids[1], ids[2], AppleDemoSeeder.whoop])
                 try db.execute(sql: """
                     DELETE FROM liftSet
                     WHERE sessionId IN (
-                        SELECT id FROM liftSession WHERE deviceId = ? AND startTs >= ? AND startTs < ?)
+                        SELECT id FROM liftSession
+                        WHERE deviceId = ? AND (id LIKE 'demo-lift-%' OR (startTs >= ? AND startTs < ?)))
                     """, arguments: [AppleDemoSeeder.whoop, windowStart, windowEnd])
                 try db.execute(sql: """
-                    DELETE FROM liftSession WHERE deviceId = ? AND startTs >= ? AND startTs < ?
+                    DELETE FROM liftSession
+                    WHERE deviceId = ? AND (id LIKE 'demo-lift-%' OR (startTs >= ? AND startTs < ?))
                     """, arguments: [AppleDemoSeeder.whoop, windowStart, windowEnd])
                 for window in hrWindows {
                     try db.execute(sql: """

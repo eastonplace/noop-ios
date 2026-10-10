@@ -4716,8 +4716,11 @@ final class Repository: ObservableObject {
     func workoutZoneMinutes(from: Int, to: Int, age: Int, hrMaxOverride: Int? = nil) async -> [Double]? {
         guard to > from else { return nil }
         let samples = await hrSamples(from: from, to: to, limit: Self.workoutZoneSampleLimit)
-        return Self.zoneMinutes(samples: samples, age: age,
-                                hrMaxOverride: hrMaxOverride ?? ProfileStore.storedHrMaxOverride())
+        let override = hrMaxOverride ?? ProfileStore.storedHrMaxOverride()
+        // Up to 200,000 readings: the binning runs off the main actor, like `reduceWorkoutHr`.
+        return await Task.detached(priority: .userInitiated) {
+            Self.zoneMinutes(samples: samples, age: age, hrMaxOverride: override)
+        }.value
     }
 
     /// Per-zone minutes (zones 1...5) for HR samples against the profile's max heart rate, or nil when there are no
