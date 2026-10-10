@@ -709,7 +709,6 @@ struct PaperPillarDetailView: View {
     @State private var appleDays: [AppleDaily] = []
     @State private var computedZoneMinutes: [Double]?
     @State private var storedStress: [(day: String, value: Double)] = []
-    @State private var daytimeStress: DaytimeStress.Result?
     @State private var latestSleepStart: Date?
 
     private var accent: Color {
@@ -814,7 +813,6 @@ struct PaperPillarDetailView: View {
             latestSleepStart = sleeps.last.map {
                 Date(timeIntervalSince1970: TimeInterval($0.effectiveStartTs))
             }
-            await loadDaytimeStress()
             await loadComputedWorkoutZones()
         }
     }
@@ -1750,24 +1748,6 @@ struct PaperPillarDetailView: View {
     private func percentText(_ raw: Double) -> String {
         let percent = raw <= 1 ? raw * 100 : raw
         return "\(Int(percent.rounded()))%"
-    }
-
-    private func loadDaytimeStress() async {
-        let calendar = Calendar.current
-        let start = Int(calendar.startOfDay(for: Date()).timeIntervalSince1970)
-        let end = Int(Date().timeIntervalSince1970)
-        let hr = await repo.hrSamples(from: start, to: end, limit: 200_000)
-        guard hr.count >= DaytimeStress.minHourHRSamples else {
-            daytimeStress = .empty
-            return
-        }
-        let rr = (try? await repo.storeHandle()?.rrIntervals(
-            deviceId: repo.deviceId, from: start, to: end, limit: 200_000)) ?? []
-        daytimeStress = DaytimeStress.analyze(
-            hr: hr,
-            rr: rr,
-            tzOffsetSeconds: TimeZone.current.secondsFromGMT(for: Date())
-        )
     }
 
     private var detailDateLabel: String {
