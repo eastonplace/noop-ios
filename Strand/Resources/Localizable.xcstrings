@@ -627,6 +627,86 @@
         }
       }
     },
+    "%@ km/h": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ km/h"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ km/h"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ km/h"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ km/h"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 公里/小时"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 公里/小時"
+          }
+        }
+      }
+    },
+    "%@ mph": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ mph"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ mph"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ mph"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ mph"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 英里/小时"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 英里/小時"
+          }
+        }
+      }
+    },
     "%@ No clear relationship. They move largely independently.": {
       "localizations": {
         "de": {
@@ -667,6 +747,46 @@
         }
       }
     },
+    "%@ of recorded activity.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ aufgezeichnete Aktivität."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ de actividad registrada."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ di attività registrata."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ de atividade registada."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已记录 %@ 的活动。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已記錄 %@ 的活動。"
+          }
+        }
+      }
+    },
     "%@ Strain": {
       "localizations": {
         "de": {
@@ -703,6 +823,46 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ 消耗"
+          }
+        }
+      }
+    },
+    "%@ Summary": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zusammenfassung: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resumen: %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riepilogo: %@"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Resumo: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 摘要"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 摘要"
           }
         }
       }
@@ -2075,6 +2235,46 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ 稍後會要求 Bluetooth 權限。"
+          }
+        }
+      }
+    },
+    "%@ without readings. Gaps are not counted as time in a zone.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ohne Messwerte. Lücken zählen nicht als Zeit in einer Zone."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ sin lecturas. Los huecos no cuentan como tiempo en una zona."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ senza letture. Le interruzioni non contano come tempo in una zona."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ sem leituras. As lacunas não contam como tempo numa zona."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 无读数。空档不计入区间时间。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 無讀數。空檔不計入區間時間。"
           }
         }
       }
@@ -5055,6 +5255,46 @@
           "stringUnit": {
             "state": "translated",
             "value": "%lld bpm"
+          }
+        }
+      }
+    },
+    "%lld bpm, %@ into the session": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld bpm, %2$@ nach Beginn der Einheit"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld bpm, a los %2$@ de la sesión"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld bpm, a %2$@ dall'inizio della sessione"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$lld bpm, aos %2$@ de sessão"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld bpm，训练开始后 %2$@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld bpm，訓練開始後 %2$@"
           }
         }
       }
@@ -14561,6 +14801,86 @@
         }
       }
     },
+    "After %lld min": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nach %lld Min."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tras %lld min"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dopo %lld min"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Após %lld min"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 分钟后"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 分鐘後"
+          }
+        }
+      }
+    },
+    "After %lld min, %@": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nach %1$lld Min., %2$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tras %1$lld min, %2$@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dopo %1$lld min, %2$@"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Após %1$lld min, %2$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld 分钟后，%2$@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld 分鐘後，%2$@"
+          }
+        }
+      }
+    },
     "ALL": {
       "localizations": {
         "de": {
@@ -15077,6 +15397,46 @@
         }
       }
     },
+    "Average %lld bpm, peak %lld bpm, low %lld bpm": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Durchschnitt %1$lld bpm, Spitze %2$lld bpm, Minimum %3$lld bpm"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Media %1$lld bpm, máximo %2$lld bpm, mínimo %3$lld bpm"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Media %1$lld bpm, picco %2$lld bpm, minimo %3$lld bpm"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Média %1$lld bpm, máximo %2$lld bpm, mínimo %3$lld bpm"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "平均 %1$lld bpm，峰值 %2$lld bpm，最低 %3$lld bpm"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "平均 %1$lld bpm，峰值 %2$lld bpm，最低 %3$lld bpm"
+          }
+        }
+      }
+    },
     "Average HR must be 25-250 bpm.": {
       "localizations": {
         "de": {
@@ -15193,6 +15553,46 @@
           "stringUnit": {
             "state": "translated",
             "value": "平均心率"
+          }
+        }
+      }
+    },
+    "Avg speed": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ø Geschwindigkeit"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Velocidad media"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Velocità media"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Velocidade média"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "平均速度"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "平均速度"
           }
         }
       }
@@ -21611,6 +22011,46 @@
         }
       }
     },
+    "Below Zone 1: %@": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unter Zone 1: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Por debajo de la zona 1: %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sotto la zona 1: %@"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abaixo da zona 1: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "低于区间 1：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "低於區間 1：%@"
+          }
+        }
+      }
+    },
     "BMI": {
       "localizations": {
         "de": {
@@ -27101,6 +27541,46 @@
         }
       }
     },
+    "Calculated on-device from recorded post-workout heart rate. A missing value means the strap did not record enough nearby samples; NOOP does not interpolate it.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf dem Gerät aus der aufgezeichneten Herzfrequenz nach dem Workout berechnet. Ein fehlender Wert bedeutet, dass der Strap nicht genug Messwerte in der Nähe aufgezeichnet hat; NOOP interpoliert ihn nicht."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Calculado en el dispositivo a partir de la frecuencia cardíaca registrada después del entrenamiento. Un valor ausente significa que la pulsera no registró suficientes muestras cercanas; NOOP no lo interpola."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Calcolato sul dispositivo dalla frequenza cardiaca registrata dopo l'allenamento. Un valore mancante significa che la fascia non ha registrato abbastanza campioni vicini; NOOP non lo interpola."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Calculado no dispositivo a partir da frequência cardíaca registada após o treino. Um valor em falta significa que a bracelete não registou amostras próximas suficientes; o NOOP não o interpola."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "根据训练后记录的心率在设备上计算。缺失的值表示手环没有记录到足够的邻近样本；NOOP 不会对其进行插值。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "根據訓練後記錄的心率在裝置上計算。缺失的值表示手環沒有記錄到足夠的鄰近樣本；NOOP 不會對其進行插補。"
+          }
+        }
+      }
+    },
     "CALIBRATING": {
       "localizations": {
         "de": {
@@ -27257,6 +27737,46 @@
           "stringUnit": {
             "state": "translated",
             "value": "清除篩選"
+          }
+        }
+      }
+    },
+    "Close summary": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zusammenfassung schließen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cerrar resumen"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chiudi riepilogo"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fechar resumo"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭摘要"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉摘要"
           }
         }
       }
@@ -27497,6 +28017,46 @@
           "stringUnit": {
             "state": "translated",
             "value": "教練暫時無法讀取你的記錄。請稍後再試。"
+          }
+        }
+      }
+    },
+    "Compared to your usual": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Im Vergleich zu deinem Durchschnitt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En comparación con lo habitual"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rispetto al tuo solito"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Em comparação com o habitual"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "与你的常规相比"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "與你的常規相比"
           }
         }
       }
@@ -36485,6 +37045,46 @@
         }
       }
     },
+    "down %lld bpm": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld bpm gesunken"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "baja %lld bpm"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "scende di %lld bpm"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "desce %lld bpm"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下降 %lld bpm"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下降 %lld bpm"
+          }
+        }
+      }
+    },
     "Draft": {
       "localizations": {
         "de": {
@@ -36521,6 +37121,46 @@
           "stringUnit": {
             "state": "translated",
             "value": "草稿"
+          }
+        }
+      }
+    },
+    "Drop from your highest heart rate in the final 30 seconds": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abfall von deiner höchsten Herzfrequenz in den letzten 30 Sekunden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Descenso desde tu frecuencia cardíaca más alta en los últimos 30 segundos"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Calo rispetto alla tua frequenza cardiaca massima negli ultimi 30 secondi"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Descida em relação à tua frequência cardíaca mais alta nos últimos 30 segundos"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "相对最后 30 秒内最高心率的下降幅度"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "相對最後 30 秒內最高心率的下降幅度"
           }
         }
       }
@@ -40329,6 +40969,46 @@
           "stringUnit": {
             "state": "translated",
             "value": "輕鬆"
+          }
+        }
+      }
+    },
+    "Elevation": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Höhenmeter"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elevación"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dislivello"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Elevação"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "海拔"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "海拔"
           }
         }
       }
@@ -48643,6 +49323,46 @@
         }
       }
     },
+    "Heart rate timeline": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Herzfrequenzverlauf"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Línea de tiempo de la frecuencia cardíaca"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cronologia della frequenza cardiaca"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cronologia da frequência cardíaca"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "心率时间线"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "心率時間軸"
+          }
+        }
+      }
+    },
     "Heart rate zones": {
       "localizations": {
         "de": {
@@ -48679,6 +49399,86 @@
           "stringUnit": {
             "state": "translated",
             "value": "心率區間"
+          }
+        }
+      }
+    },
+    "Heart-rate recovery": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Herzfrequenz-Erholung"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recuperación de la frecuencia cardíaca"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recupero della frequenza cardiaca"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Recuperação da frequência cardíaca"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "心率恢复"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "心率恢復"
+          }
+        }
+      }
+    },
+    "Heart-rate recovery. %@": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Herzfrequenz-Erholung. %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recuperación de la frecuencia cardíaca. %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recupero della frequenza cardiaca. %@"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Recuperação da frequência cardíaca. %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "心率恢复。%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "心率恢復。%@"
           }
         }
       }
@@ -63976,6 +64776,46 @@
         }
       }
     },
+    "Map": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Karte"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mapa"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mappa"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mapa"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "地图"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "地圖"
+          }
+        }
+      }
+    },
     "MEDIUM": {
       "localizations": {
         "de": {
@@ -67912,6 +68752,46 @@
         }
       }
     },
+    "No heart-rate samples were recorded over this session's window.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Für den Zeitraum dieser Einheit wurden keine Herzfrequenzwerte aufgezeichnet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se registraron muestras de frecuencia cardíaca durante esta sesión."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessun campione di frequenza cardiaca è stato registrato durante questa sessione."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não foram registadas amostras de frequência cardíaca durante esta sessão."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此次锻炼期间没有记录到心率样本。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此次鍛鍊期間沒有記錄到心率樣本。"
+          }
+        }
+      }
+    },
     "No matching activity": {
       "localizations": {
         "de": {
@@ -67988,6 +68868,86 @@
           "stringUnit": {
             "state": "translated",
             "value": "尚無夜晚記錄"
+          }
+        }
+      }
+    },
+    "no reading": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "kein Messwert"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sin lectura"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "nessuna lettura"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "sem leitura"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无读数"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無讀數"
+          }
+        }
+      }
+    },
+    "No recorded timeline is available for this workout.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Für dieses Workout ist kein aufgezeichneter Verlauf verfügbar."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No hay una línea de tiempo registrada para este entrenamiento."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non è disponibile una cronologia registrata per questo allenamento."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não existe uma cronologia registada para este treino."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此次锻炼没有可用的已记录时间线。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此次鍛鍊沒有可用的已記錄時間軸。"
           }
         }
       }
@@ -69442,6 +70402,46 @@
           "stringUnit": {
             "state": "translated",
             "value": "NOOP 從 Apple 健康讀取你的心率、HRV、靜息心率、睡眠、步數、能量和最大攝氧量來計算你的評分。一切都留在這台 iPhone 上，你可以在下一畫面確切地選擇要分享什麼。"
+          }
+        }
+      }
+    },
+    "NOOP scores a workout from the heart rate recorded during it.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NOOP bewertet ein Workout anhand der währenddessen aufgezeichneten Herzfrequenz."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NOOP puntúa un entrenamiento a partir de la frecuencia cardíaca registrada durante el mismo."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NOOP valuta un allenamento in base alla frequenza cardiaca registrata durante lo stesso."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O NOOP pontua um treino a partir da frequência cardíaca registada durante o mesmo."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NOOP 根据锻炼期间记录的心率为锻炼评分。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NOOP 根據鍛鍊期間記錄的心率為鍛鍊評分。"
           }
         }
       }
@@ -75493,6 +76493,46 @@
         }
       }
     },
+    "Not recorded": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nicht aufgezeichnet"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No registrado"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non registrato"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não registado"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未记录"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未記錄"
+          }
+        }
+      }
+    },
     "Not recorded yet": {
       "localizations": {
         "de": {
@@ -75609,6 +76649,46 @@
           "stringUnit": {
             "state": "translated",
             "value": "未在記錄。手環未連接。點擊以連接。"
+          }
+        }
+      }
+    },
+    "Not scored": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nicht bewertet"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sin puntuar"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non valutato"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sem pontuação"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未评分"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未評分"
           }
         }
       }
@@ -80295,6 +81375,46 @@
         }
       }
     },
+    "Overview": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Übersicht"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vista general"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Panoramica"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Resumo"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "概览"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "概覽"
+          }
+        }
+      }
+    },
     "Own your data, offline": {
       "localizations": {
         "de": {
@@ -84697,6 +85817,86 @@
         }
       }
     },
+    "Recorded heart rate timeline": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aufgezeichneter Herzfrequenzverlauf"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Línea de tiempo de la frecuencia cardíaca registrada"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cronologia della frequenza cardiaca registrata"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cronologia da frequência cardíaca registada"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已记录的心率时间线"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已記錄的心率時間軸"
+          }
+        }
+      }
+    },
+    "Recorded heart rate. Zone %lld intervals highlighted.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aufgezeichnete Herzfrequenz. Intervalle in Zone %lld hervorgehoben."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Frecuencia cardíaca registrada. Intervalos de la zona %lld resaltados."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Frequenza cardiaca registrata. Intervalli della zona %lld evidenziati."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Frequência cardíaca registada. Intervalos da zona %lld realçados."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已记录的心率。已突出显示区间 %lld 的时段。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已記錄的心率。已醒目標示區間 %lld 的時段。"
+          }
+        }
+      }
+    },
     "RECORDING": {
       "localizations": {
         "de": {
@@ -84733,6 +85933,46 @@
           "stringUnit": {
             "state": "translated",
             "value": "記錄中"
+          }
+        }
+      }
+    },
+    "Recording segment": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aufzeichnungsabschnitt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Segmento de grabación"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Segmento di registrazione"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Segmento de gravação"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "记录片段"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "記錄片段"
           }
         }
       }
@@ -94069,6 +95309,46 @@
         }
       }
     },
+    "Scored by WHOOP and imported with the session.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Von WHOOP bewertet und mit der Einheit importiert."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Puntuado por WHOOP e importado con la sesión."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Valutato da WHOOP e importato con la sessione."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pontuado pelo WHOOP e importado com a sessão."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "由 WHOOP 评分，并随本次锻炼一同导入。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "由 WHOOP 評分，並隨本次鍛鍊一同匯入。"
+          }
+        }
+      }
+    },
     "SCORES": {
       "localizations": {
         "de": {
@@ -94661,6 +95941,86 @@
           "stringUnit": {
             "state": "translated",
             "value": "短軸"
+          }
+        }
+      }
+    },
+    "Show all": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle anzeigen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar todo"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra tutto"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar tudo"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示全部"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示全部"
+          }
+        }
+      }
+    },
+    "Shows where this zone fell on the timeline": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeigt, wo diese Zone im Verlauf lag"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muestra dónde cayó esta zona en la línea de tiempo"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra dove si è collocata questa zona nella cronologia"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostra onde esta zona ocorreu na cronologia"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示此区间在时间线上的位置"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示此區間在時間軸上的位置"
           }
         }
       }
@@ -107405,6 +108765,46 @@
         }
       }
     },
+    "Tap a zone to explore your effort.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tippe auf eine Zone, um deine Belastung zu erkunden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toca una zona para explorar tu esfuerzo."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tocca una zona per esplorare il tuo sforzo."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Toca numa zona para explorar o teu esforço."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "点按一个区间以查看你的投入。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "點按一個區間以查看你的投入。"
+          }
+        }
+      }
+    },
     "TEST MODES": {
       "localizations": {
         "de": {
@@ -107841,6 +109241,46 @@
           "stringUnit": {
             "state": "translated",
             "value": "今晚所需睡眠"
+          }
+        }
+      }
+    },
+    "Touch and hold to read the curve": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Berühren und halten, um die Kurve abzulesen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantén pulsado para leer la curva"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tieni premuto per leggere la curva"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mantém premido para ler a curva"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按住以读取曲线"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按住以讀取曲線"
           }
         }
       }
@@ -115117,6 +116557,46 @@
         }
       }
     },
+    "up %lld bpm": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld bpm gestiegen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sube %lld bpm"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sale di %lld bpm"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "sobe %lld bpm"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上升 %lld bpm"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上升 %lld bpm"
+          }
+        }
+      }
+    },
     "Updated weekly": {
       "localizations": {
         "de": {
@@ -122297,6 +123777,46 @@
         }
       }
     },
+    "Workout strain": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workout-Anstrengung"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esfuerzo del entrenamiento"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sforzo dell'allenamento"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esforço do treino"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "锻炼消耗"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "鍛鍊消耗"
+          }
+        }
+      }
+    },
     "Workouts": {
       "localizations": {
         "de": {
@@ -125743,6 +127263,46 @@
         }
       }
     },
+    "Zone %lld on your timeline": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zone %lld in deinem Verlauf"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zona %lld en tu línea de tiempo"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zona %lld nella tua cronologia"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zona %lld na tua cronologia"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "时间线上的区间 %lld"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "時間軸上的區間 %lld"
+          }
+        }
+      }
+    },
     "Zone %lld · %@": {
       "localizations": {
         "de": {
@@ -125877,6 +127437,46 @@
           "stringUnit": {
             "state": "translated",
             "value": "區間 %1$lld：%2$lld–%3$lld bpm（最大心率的 %4$lld–%5$lld%%）"
+          }
+        }
+      }
+    },
+    "Zone totals were imported. The timeline uses recorded readings and your current zone thresholds; exact imported intervals are unavailable.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Zonensummen wurden importiert. Der Verlauf nutzt aufgezeichnete Messwerte und deine aktuellen Zonengrenzen; die genauen importierten Intervalle sind nicht verfügbar."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los totales por zona se importaron. La línea de tiempo usa las lecturas registradas y tus umbrales de zona actuales; los intervalos importados exactos no están disponibles."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I totali delle zone sono stati importati. La cronologia usa le letture registrate e le tue soglie di zona attuali; gli intervalli importati esatti non sono disponibili."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Os totais das zonas foram importados. A cronologia usa as leituras registadas e os teus limiares de zona atuais; os intervalos importados exatos não estão disponíveis."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "区间总计已导入。时间线使用已记录的读数和你当前的区间阈值；无法获得导入的确切时段。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "區間總計已匯入。時間軸使用已記錄的讀數和你目前的區間閾值；無法取得匯入的確切時段。"
           }
         }
       }

@@ -6,6 +6,9 @@ import SwiftUI
 // for the numbers behind it, hardest zone first. The workout detail and the Workouts hub show the same thing the
 // same way, so it lives here once. It takes plain values (names and ranges already in the person's language) and
 // colours the zones from `StrandPalette.hrZones`.
+//
+// Given a selection binding the rows become buttons: choosing a zone marks its row and dims the other zones in the
+// bar, so a screen can show where that zone fell in the session. Without one the rows are plain.
 
 public struct HRZoneDistribution: View {
     public struct Zone: Identifiable, Equatable, Sendable {
@@ -35,12 +38,17 @@ public struct HRZoneDistribution: View {
     }
 
     private let zones: [Zone]
+    private let selection: Binding<Int?>?
+    private let rowHint: String?
     @Environment(\.dynamicTypeSize) private var typeSize
     @ScaledMetric(relativeTo: .body) private var barHeight: CGFloat = 12
 
-    /// `zones` in any order; the rows read from the hardest zone down.
-    public init(zones: [Zone]) {
+    /// `zones` in any order; the rows read from the hardest zone down. `selection` (a zone number, or nil for none)
+    /// makes the rows tappable; `rowHint` is the VoiceOver hint for a tappable row, in the person's language.
+    public init(zones: [Zone], selection: Binding<Int?>? = nil, rowHint: String? = nil) {
         self.zones = zones.sorted { $0.number < $1.number }
+        self.selection = selection
+        self.rowHint = rowHint
     }
 
     public var body: some View {
@@ -68,6 +76,7 @@ public struct HRZoneDistribution: View {
                 ForEach(shown, id: \.self) { index in
                     Rectangle()
                         .fill(StrandPalette.hrZoneColor(zones[index].number))
+                        .opacity(dims(zones[index].number) ? 0.3 : 1)
                         .frame(width: max(2, usable * CGFloat(fractions[index])))
                 }
             }
@@ -84,7 +93,38 @@ public struct HRZoneDistribution: View {
         Rectangle().fill(StrandPalette.hairline).frame(height: 1).accessibilityHidden(true)
     }
 
+    private var selectedZone: Int? { selection?.wrappedValue }
+
+    private func dims(_ number: Int) -> Bool {
+        guard let selectedZone else { return false }
+        return selectedZone != number
+    }
+
     @ViewBuilder private func row(_ zone: Zone, share: Double) -> some View {
+        if let selection {
+            Button {
+                selection.wrappedValue = selection.wrappedValue == zone.number ? nil : zone.number
+            } label: {
+                rowContent(zone, share: share)
+                    .padding(.horizontal, NoopMetrics.space2)
+                    .background(
+                        RoundedRectangle(cornerRadius: NoopMetrics.radius1, style: .continuous)
+                            .fill(selectedZone == zone.number
+                                  ? StrandPalette.hrZoneColor(zone.number).opacity(0.16) : Color.clear)
+                    )
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            // The row's own padding gives the text room inside the highlight; this keeps its text on the page's edge.
+            .padding(.horizontal, -NoopMetrics.space2)
+            .accessibilityAddTraits(selectedZone == zone.number ? .isSelected : [])
+            .accessibilityHint(rowHint.map { Text(verbatim: $0) } ?? Text(verbatim: ""))
+        } else {
+            rowContent(zone, share: share)
+        }
+    }
+
+    private func rowContent(_ zone: Zone, share: Double) -> some View {
         Group {
             if typeSize.isAccessibilitySize {
                 VStack(alignment: .leading, spacing: NoopMetrics.space1) {
