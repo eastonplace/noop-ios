@@ -38,7 +38,8 @@ enum WorkoutHeroStrain: Equatable {
     /// The Light / Moderate / High / All Out word for a scored session.
     var bandTitle: String? {
         switch self {
-        case .noop(let display, _), .whoop(let display): return StrainScale.band(display).title
+        // Banded on the number as it is shown (one decimal), so a "10.0" is never called Light.
+        case .noop(let display, _), .whoop(let display): return StrainScale.band((display * 10).rounded() / 10).title
         case .unscored: return nil
         }
     }
@@ -53,8 +54,16 @@ struct WorkoutDetailTile: Equatable, Identifiable {
     let kind: Kind
     /// The value as the tile reads it ("5.8 km", "34m", "5:49 /km", "157 bpm"), or "—" when the session has none.
     let value: String
+    /// What VoiceOver reads for the value: durations and pace written out ("34 minutes"), "Not recorded" for "—".
+    let spokenValue: String
 
     var id: Kind { kind }
+
+    init(kind: Kind, value: String, spokenValue: String? = nil) {
+        self.kind = kind
+        self.value = value
+        self.spokenValue = value == WidgetMetrics.missingValue ? String(localized: "Not recorded") : (spokenValue ?? value)
+    }
 }
 
 enum WorkoutDetailTiles {
@@ -69,20 +78,26 @@ enum WorkoutDetailTiles {
         if let distance = row.distanceM, distance > 0 {
             tiles.append(.init(kind: .distance, value: UnitFormatter.distanceFromMeters(distance, system: unitSystem)))
         }
-        tiles.append(.init(kind: .time, value: WorkoutFacts.activeSeconds(row).map(WorkoutFormat.duration) ?? missing))
+        let seconds = WorkoutFacts.activeSeconds(row)
+        tiles.append(.init(kind: .time, value: seconds.map(WorkoutFormat.duration) ?? missing,
+                           spokenValue: seconds.map(WorkoutFormat.spokenDuration)))
         if hasDistance {
             // On-foot sessions are paced per kilometre or mile; a ride, a row or a swim is read in speed.
             if WorkoutCatalog.isOnFoot(WorkoutSource.displaySport(row.sport)) {
                 if let pace = WorkoutPace.perUnit(row, system: unitSystem) {
-                    tiles.append(.init(kind: .pace, value: WorkoutFormat.pace(pace, system: unitSystem)))
+                    tiles.append(.init(kind: .pace, value: WorkoutFormat.pace(pace, system: unitSystem),
+                                       spokenValue: WorkoutFormat.spokenPace(pace, system: unitSystem)))
                 }
             } else if let speed = WorkoutSpeed.perHour(row, system: unitSystem) {
                 tiles.append(.init(kind: .speed, value: WorkoutSpeed.text(speed, system: unitSystem)))
             }
         }
-        tiles.append(.init(kind: .averageHR, value: row.avgHr.map { String(localized: "\($0) bpm") } ?? missing))
-        tiles.append(.init(kind: .maxHR, value: row.maxHr.map { String(localized: "\($0) bpm") } ?? missing))
-        tiles.append(.init(kind: .calories, value: row.energyKcal.map(WorkoutFormat.energy) ?? missing))
+        tiles.append(.init(kind: .averageHR, value: row.avgHr.map { String(localized: "\($0) bpm") } ?? missing,
+                           spokenValue: row.avgHr.map { String(localized: "\($0) beats per minute") }))
+        tiles.append(.init(kind: .maxHR, value: row.maxHr.map { String(localized: "\($0) bpm") } ?? missing,
+                           spokenValue: row.maxHr.map { String(localized: "\($0) beats per minute") }))
+        tiles.append(.init(kind: .calories, value: row.energyKcal.map(WorkoutFormat.energy) ?? missing,
+                           spokenValue: row.energyKcal.map(WorkoutFormat.spokenEnergy)))
         return tiles
     }
 }

@@ -225,7 +225,8 @@ struct WorkoutDetailView: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                if case .noop(_, let delta) = heroStrain { comparedToUsual(delta) }
+                // With no other scored session of this sport to compare against there is nothing to say.
+                if case .noop(_, let delta?) = heroStrain { comparedToUsual(delta) }
             }
         }
     }
@@ -270,7 +271,7 @@ struct WorkoutDetailView: View {
     @ViewBuilder private var heroSentence: some View {
         switch heroStrain {
         case .noop:
-            Text("\(WorkoutFormat.duration(WorkoutFacts.activeSeconds(displayRow) ?? 0)) of recorded activity.")
+            Text("\(WorkoutFormat.spokenDuration(WorkoutFacts.activeSeconds(displayRow) ?? 0)) of recorded activity.")
                 .font(StrandFont.subhead).foregroundStyle(StrandPalette.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
         case .whoop:
@@ -291,23 +292,18 @@ struct WorkoutDetailView: View {
         return "\(start) – \(AppClock.hourMinute(Date(timeIntervalSince1970: TimeInterval(displayRow.endTs))))"
     }
 
-    private func comparedToUsual(_ delta: Double?) -> some View {
+    private func comparedToUsual(_ delta: Double) -> some View {
         HStack(alignment: .center, spacing: NoopMetrics.space2) {
             Text("Compared to your usual")
                 .font(StrandFont.micro)
                 .foregroundStyle(StrandPalette.textTertiary)
             Spacer(minLength: NoopMetrics.space2)
-            if let delta {
-                StatePill(LocalizedStringKey(delta.formatted(.number.precision(.fractionLength(1)).sign(strategy: .always()))),
-                          tone: delta >= 0 ? .positive : .neutral, showsDot: false)
-                    .fixedSize()
-            } else {
-                Text(verbatim: WidgetMetrics.missingValue)
-                    .font(StrandFont.captionNumber)
-                    .foregroundStyle(StrandPalette.textTertiary)
-            }
+            StatePill(LocalizedStringKey(delta.formatted(.number.precision(.fractionLength(1)).sign(strategy: .always()))),
+                      tone: delta >= 0 ? .positive : .neutral, showsDot: false)
+                .fixedSize()
         }
         .frame(minHeight: 28)
+        .accessibilityElement(children: .combine)
     }
 
     // MARK: - Overview
@@ -348,6 +344,9 @@ struct WorkoutDetailView: View {
         case .calories: (label, accent) = ("Calories", StrandPalette.metricAmber)
         }
         return StatTile(label: label, value: tile.value, accent: accent)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(label)
+            .accessibilityValue(Text(verbatim: tile.spokenValue))
     }
 
     @ViewBuilder private var zones: some View {
