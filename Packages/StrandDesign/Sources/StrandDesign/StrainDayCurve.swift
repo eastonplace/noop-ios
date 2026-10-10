@@ -291,7 +291,7 @@ public struct StrainDayCurve: View {
                 .stroke(StrandPalette.hairline.opacity(0.9), style: StrokeStyle(lineWidth: 0.7))
             }
 
-            // Each workout: a band behind the curve, and the curve itself drawn heavier across it.
+            // Each workout: a shaded column behind the curve (the glyph sits at its top). The curve is one stroke.
             ForEach(layout.segments) { segment in
                 Rectangle()
                     .fill(tint.opacity(0.13))
@@ -305,20 +305,7 @@ public struct StrainDayCurve: View {
                     .opacity(revealed ? 1 : 0)
                 layout.line
                     .trim(from: 0, to: revealed ? 1 : 0)
-                    .stroke(tint.opacity(0.9), style: StrokeStyle(lineWidth: 2.2, lineCap: .round, lineJoin: .round))
-                ForEach(layout.segments) { segment in
-                    layout.line
-                        .stroke(tint, style: StrokeStyle(lineWidth: 4.2, lineCap: .round, lineJoin: .round))
-                        .mask(alignment: .topLeading) {
-                            // The heavier stroke eases in and out over the band's first and last few points,
-                            // so the line thickens along a workout instead of stepping at its edge.
-                            LinearGradient(stops: fadeStops(for: segment.rect.width),
-                                           startPoint: .leading, endPoint: .trailing)
-                                .frame(width: segment.rect.width, height: size.height)
-                                .offset(x: segment.rect.minX)
-                        }
-                        .opacity(revealed ? 1 : 0)
-                }
+                    .stroke(tint, style: StrokeStyle(lineWidth: 2.4, lineCap: .round, lineJoin: .round))
             }
 
             ForEach(layout.rails, id: \.value) { rail in
@@ -404,17 +391,6 @@ public struct StrainDayCurve: View {
             }
         }
         .environment(\.layoutDirection, .leftToRight)
-    }
-
-    /// A mask that is solid across a workout's band and clear just outside its two ends.
-    private func fadeStops(for width: CGFloat) -> [Gradient.Stop] {
-        let edge = min(8 / max(width, 1), 0.4)
-        return [
-            .init(color: .clear, location: 0),
-            .init(color: .black, location: edge),
-            .init(color: .black, location: 1 - edge),
-            .init(color: .clear, location: 1),
-        ]
     }
 
     private func seedNoteHalfWidth(_ text: String) -> CGFloat {
