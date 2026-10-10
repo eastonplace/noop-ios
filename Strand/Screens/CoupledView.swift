@@ -243,13 +243,21 @@ struct CoupledView: View {
     /// The one-word readiness pill (Push / Maintain / Sleep), tinted by the readiness level, matching the
     /// Today hero pill chrome. Reuses TodayView's word + level colour so the read stays consistent.
     private func readinessPill(_ word: String) -> some View {
-        let tint = readinessTint(readinessLevel)
+        let tint = Self.readinessPillTint(recovery: recovery, level: readinessLevel)
         return MicroBadge("\(word)", tint: tint)
             .accessibilityLabel("Readiness: \(word)")
     }
 
+    /// The pill sits over the ring and the recovery number, so it wears the ring's own band (`RecoveryBands`): a
+    /// yellow 35% ring never carries a green pill. With no recovery to draw there is no ring colour to match, and the
+    /// readiness level's tint stands in.
+    static func readinessPillTint(recovery: Double?, level: ReadinessEngine.Level) -> Color {
+        if let recovery { return RecoveryBands.color(for: recovery) }
+        return readinessTint(level)
+    }
+
     /// The readiness level's tint, the SAME mapping TodayView.readinessColor uses.
-    private func readinessTint(_ l: ReadinessEngine.Level) -> Color {
+    private static func readinessTint(_ l: ReadinessEngine.Level) -> Color {
         switch l {
         case .primed:       return StrandPalette.accent
         case .balanced:     return StrandPalette.statusPositive
