@@ -77,7 +77,8 @@ final class EdgeSwipeBackInstaller: NSObject, UIGestureRecognizerDelegate {
 
     // MARK: Root of a modal stack
 
-    private final class RootBackRecognizer: UIScreenEdgePanGestureRecognizer {}
+    /// Its own type, so the one this installs is told apart from the system's own edge recognisers on the same view.
+    final class RootBackRecognizer: UIScreenEdgePanGestureRecognizer {}
 
     private func installRootBackRecognizer(on stack: UINavigationController) {
         let hasOne = stack.view.gestureRecognizers?.contains { $0 is RootBackRecognizer } ?? false

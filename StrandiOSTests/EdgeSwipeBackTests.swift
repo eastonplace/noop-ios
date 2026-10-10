@@ -31,24 +31,24 @@ final class EdgeSwipeBackTests: XCTestCase {
 
     func testTheRootBackSwipeExistsOnlyOnAModalRootWithABackAction() throws {
         let (withBack, _) = stack(depth: 1, rootBack: {})
-        let recognizer = try XCTUnwrap(withBack.view.gestureRecognizers?.first { $0 is UIScreenEdgePanGestureRecognizer })
+        let recognizer = try XCTUnwrap(withBack.view.gestureRecognizers?.first { $0 is EdgeSwipeBackInstaller.RootBackRecognizer })
         XCTAssertEqual((recognizer as? UIScreenEdgePanGestureRecognizer)?.edges, .left)
         XCTAssertTrue(EdgeSwipeBackInstaller.shared.gestureRecognizerShouldBegin(recognizer))
 
         let (without, _) = stack(depth: 1, rootBack: nil)
-        let none = try XCTUnwrap(without.view.gestureRecognizers?.first { $0 is UIScreenEdgePanGestureRecognizer })
+        let none = try XCTUnwrap(without.view.gestureRecognizers?.first { $0 is EdgeSwipeBackInstaller.RootBackRecognizer })
         XCTAssertFalse(EdgeSwipeBackInstaller.shared.gestureRecognizerShouldBegin(none))
 
         // Pushed deeper, the stack pops and the root action stays quiet.
         let (deep, _) = stack(depth: 2, rootBack: {})
-        let deepRoot = try XCTUnwrap(deep.view.gestureRecognizers?.first { $0 is UIScreenEdgePanGestureRecognizer })
+        let deepRoot = try XCTUnwrap(deep.view.gestureRecognizers?.first { $0 is EdgeSwipeBackInstaller.RootBackRecognizer })
         XCTAssertFalse(EdgeSwipeBackInstaller.shared.gestureRecognizerShouldBegin(deepRoot))
     }
 
     func testInstallingTwiceKeepsOneRootRecogniser() {
         let (nav, probe) = stack(depth: 1, rootBack: {})
         EdgeSwipeBackInstaller.install(on: nav, probe: probe)
-        let count = nav.view.gestureRecognizers?.filter { $0 is UIScreenEdgePanGestureRecognizer }.count
+        let count = nav.view.gestureRecognizers?.filter { $0 is EdgeSwipeBackInstaller.RootBackRecognizer }.count
         XCTAssertEqual(count, 1)
     }
 }
