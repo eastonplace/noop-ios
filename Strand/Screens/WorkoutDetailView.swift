@@ -88,13 +88,15 @@ struct WorkoutDetailView: View {
 
     var body: some View {
         ScreenScaffold(title: "\(sportName) Summary",
-                       subtitle: LocalizedStringKey(Self.dayTitle.string(from: startDate)),
+                       // A sheet's header names the day in full; a pushed screen's row carries it as headerContext.
+                       subtitle: LocalizedStringKey(startDate.formatted(.dateTime.weekday(.wide).month(.abbreviated).day().year())),
                        // This bounded summary uses eager layout. Nested lazy chart/grid measurement
                        // repeatedly invalidates placement while scrolling on iOS 26.5.
                        lazy: false,
                        // The sheet host supplies the single close button (sheetScreenScaffoldEnvironment);
                        // pushed from Today it shows the scaffold's back chevron instead.
-                       topBackground: nil) {
+                       topBackground: nil,
+                       headerContext: DrillInFormat.headerDate(startDate)) {
             VStack(alignment: .leading, spacing: 0) {
                 hero
                 FlatSectionSeparator()
@@ -458,13 +460,6 @@ struct WorkoutDetailView: View {
         guard let m, m > 0 else { return WidgetMetrics.missingValue }
         return UnitFormatter.distanceFromMeters(m, system: unitSystem)
     }
-
-    private static let dayTitle: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = .current
-        formatter.setLocalizedDateFormatFromTemplate("EEEEdMMMy")
-        return formatter
-    }()
 }
 
 // MARK: - Route map (#524)

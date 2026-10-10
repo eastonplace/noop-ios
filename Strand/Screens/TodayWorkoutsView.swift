@@ -47,7 +47,7 @@ struct TodayWorkoutsView: View {
     private var unitSystem: UnitSystem { UnitSystem(rawValue: unitSystemRaw) ?? .metric }
 
     var body: some View {
-        ScreenScaffold(title: "Workouts", subtitle: LocalizedStringKey(Self.dayTitle.string(from: day)), lazy: true) {
+        ScreenScaffold(title: "Workouts", lazy: true, headerContext: DrillInFormat.headerDate(day)) {
             LazyVStack(alignment: .leading, spacing: 0) {
                 if !loaded {
                     loading
@@ -134,10 +134,4 @@ struct TodayWorkoutsView: View {
             traces = loadedTraces
         }
     }
-
-    private static let dayTitle: DateFormatter = {
-        let formatter = DateFormatter(); formatter.locale = .current
-        formatter.setLocalizedDateFormatFromTemplate("EEEEMMMMd")
-        return formatter
-    }()
 }

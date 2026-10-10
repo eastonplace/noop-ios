@@ -293,11 +293,6 @@ enum WorkoutFormat {
         }
     }
 
-    /// "Fri, Oct 9": the date a screen's header names.
-    static func headerDay(_ date: Date) -> String {
-        date.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day())
-    }
-
     /// "Oct 4 – 10": the span of a week.
     static func weekRange(_ interval: DateInterval) -> String {
         let last = interval.end.addingTimeInterval(-1)
