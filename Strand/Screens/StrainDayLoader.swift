@@ -98,6 +98,7 @@ enum StrainDayLoader {
         let calendar = Calendar.current
         #if DEBUG
         let began = DispatchTime.now()
+        var checkpoints: [DispatchTime] = []
         #endif
         let logicalStart = Int(request.logicalStart.timeIntervalSince1970)
         let nextStart = Int((calendar.date(byAdding: .day, value: 1, to: request.logicalStart)
@@ -127,8 +128,14 @@ enum StrainDayLoader {
         }
         guard endTs > window.cycleStart else { return nil }
 
+        #if DEBUG
+        checkpoints.append(DispatchTime.now())
+        #endif
         let samples = await repo.hrSamples(from: window.cycleStart, to: endTs, limit: 200_000)
         guard !Task.isCancelled else { return nil }
+        #if DEBUG
+        checkpoints.append(DispatchTime.now())
+        #endif
 
         let context = StrainScorerV2.DayContext(
             validWornSleepMinutes: request.sleepMinutes,
@@ -153,9 +160,16 @@ enum StrainDayLoader {
             cycleStart: start, end: end, sampleCount: samples.count)
         cache.store(result, for: request, now: now)
         #if DEBUG
-        let milliseconds = Double(DispatchTime.now().uptimeNanoseconds - began.uptimeNanoseconds) / 1_000_000
-        NSLog("[strain-curve] day=%@ samples=%d points=%d gate=%@ ms=%.1f",
-              request.dayKey, samples.count, analysis.curve.count, analysis.gateOpen ? "open" : "closed", milliseconds)
+        func ms(_ from: DispatchTime, _ to: DispatchTime) -> Double {
+            Double(to.uptimeNanoseconds - from.uptimeNanoseconds) / 1_000_000
+        }
+        let finished = DispatchTime.now()
+        if checkpoints.count == 2 {
+            NSLog("[strain-curve] day=%@ samples=%d points=%d gate=%@ total=%.1fms (sleep read %.1f, HR read %.1f, compute %.1f)",
+                  request.dayKey, samples.count, analysis.curve.count, analysis.gateOpen ? "open" : "closed",
+                  ms(began, finished), ms(began, checkpoints[0]), ms(checkpoints[0], checkpoints[1]),
+                  ms(checkpoints[1], finished))
+        }
         #endif
         return result
     }

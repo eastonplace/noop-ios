@@ -358,10 +358,12 @@ private struct StrainActivityRowView: View {
             .formatted(.units(allowed: [.hours, .minutes], width: .narrow))
     }
 
+    /// Time, length and average heart rate on one quiet line. Each part keeps its own words together (a non-breaking
+    /// space inside it), so a narrow row wraps between the parts, never inside "avg 102 bpm".
     private var detail: String {
         var parts = [time, duration]
         if let average = row.averageHR { parts.append(String(localized: "avg \(average) bpm")) }
-        return parts.joined(separator: " · ")
+        return parts.map { $0.replacingOccurrences(of: " ", with: "\u{00A0}") }.joined(separator: " · ")
     }
 
     @ViewBuilder
