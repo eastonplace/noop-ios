@@ -67,16 +67,30 @@ final class StrainScorePartsTests: XCTestCase {
     func testTheDominantRowSetsTheScoreWhenThePartsAgreeWithTheHero() throws {
         let parts = try XCTUnwrap(StrainScoreParts.make(components(cardio: 12, steps: 5.2, dominant: .cardio), hero: 12))
         XCTAssertTrue(parts.agreesWithHero)
-        XCTAssertEqual(parts.rows.map(\.kind), [.cardio, .steps, .energy])
-        XCTAssertEqual(parts.rows.map(\.setsScore), [true, false, false])
+        XCTAssertEqual(parts.rows.map(\.kind), [.cardio, .steps])
+        XCTAssertEqual(parts.rows.map(\.setsScore), [true, false])
         XCTAssertEqual(parts.rows[0].value, 12)
         XCTAssertEqual(parts.rows[1].value, 5.2)
-        XCTAssertNil(parts.rows[2].value)
+    }
+
+    /// With no energy source there is no Active energy row at all (never an always-empty one); the screen says what
+    /// the score is worked out from instead.
+    func testActiveEnergyHasNoRowWhileNothingFeedsIt() throws {
+        let parts = try XCTUnwrap(StrainScoreParts.make(components(cardio: 12, steps: nil, dominant: .cardio), hero: 12))
+        XCTAssertEqual(parts.rows.map(\.kind), [.cardio, .steps])
+        XCTAssertTrue(parts.isScoredFromCardioAndSteps)
+    }
+
+    func testActiveEnergyGetsItsRowOnceASourceFeedsIt() throws {
+        let parts = try XCTUnwrap(StrainScoreParts.make(
+            components(cardio: 4, steps: 3, energy: 2.5, dominant: .cardio), hero: 4))
+        XCTAssertEqual(parts.rows.map(\.kind), [.cardio, .steps, .energy])
+        XCTAssertFalse(parts.isScoredFromCardioAndSteps)
     }
 
     func testStepsCanSetTheScore() throws {
         let parts = try XCTUnwrap(StrainScoreParts.make(components(cardio: 4, steps: 6.5, dominant: .steps), hero: 6.5))
-        XCTAssertEqual(parts.rows.map(\.setsScore), [false, true, false])
+        XCTAssertEqual(parts.rows.map(\.setsScore), [false, true])
     }
 
     func testEnergyCanSetTheScoreWhenAnySourceFeedsIt() throws {
@@ -91,13 +105,13 @@ final class StrainScorePartsTests: XCTestCase {
     func testWhenThePartsDisagreeWithTheHeroNoRowSetsTheScore() throws {
         let parts = try XCTUnwrap(StrainScoreParts.make(components(cardio: 4.0, steps: 3, dominant: .cardio), hero: 9.1))
         XCTAssertFalse(parts.agreesWithHero)
-        XCTAssertEqual(parts.rows.map(\.setsScore), [false, false, false])
-        XCTAssertEqual(parts.rows.count, 3)
+        XCTAssertEqual(parts.rows.map(\.setsScore), [false, false])
+        XCTAssertEqual(parts.rows.count, 2)
     }
 
     func testNoHeroMeansNoRowClaimsTheScore() throws {
         let parts = try XCTUnwrap(StrainScoreParts.make(components(cardio: 4.0, steps: 3, dominant: .cardio), hero: nil))
-        XCTAssertEqual(parts.rows.map(\.setsScore), [false, false, false])
+        XCTAssertEqual(parts.rows.map(\.setsScore), [false, false])
     }
 
     func testAnUnscoredDayHasNoParts() {

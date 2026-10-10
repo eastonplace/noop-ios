@@ -139,6 +139,12 @@ struct StrainScorePartsSection: View {
                     StrainScoreRowView(row: row, detail: detail(for: row))
                 }
             }
+            if parts.isScoredFromCardioAndSteps {
+                Text("Scored from cardio and steps.")
+                    .font(StrandFont.micro)
+                    .foregroundStyle(StrandPalette.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             if !parts.agreesWithHero {
                 Text("The parts are worked out from the day's readings and can differ from the score above.")
                     .font(StrandFont.micro)
@@ -156,7 +162,7 @@ struct StrainScorePartsSection: View {
             guard let steps else { return String(localized: "No step count") }
             return String(localized: "\(steps) steps")
         case .energy:
-            return row.value == nil ? String(localized: "No active-energy data") : String(localized: "Active energy")
+            return String(localized: "Active energy")
         }
     }
 }

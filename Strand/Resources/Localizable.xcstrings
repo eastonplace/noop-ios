@@ -71643,46 +71643,6 @@
         }
       }
     },
-    "No active-energy data": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Keine Daten zur aktiven Energie"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sin datos de energía activa"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nessun dato di energia attiva"
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Sem dados de energia ativa"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "没有活动能量数据"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "沒有活動能量資料"
-          }
-        }
-      }
-    },
     "No backup yet.": {
       "localizations": {
         "de": {
@@ -97267,6 +97227,46 @@
           "stringUnit": {
             "state": "translated",
             "value": "掃描中…"
+          }
+        }
+      }
+    },
+    "Scored from cardio and steps.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Berechnet aus Kardio und Schritten."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Calculada a partir de cardio y pasos."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Calcolato da cardio e passi."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Calculada a partir de cardio e passos."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "由心肺和步数计算得出。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "由心肺和步數計算得出。"
           }
         }
       }

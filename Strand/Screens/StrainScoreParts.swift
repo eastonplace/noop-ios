@@ -22,10 +22,14 @@ struct StrainScoreParts: Equatable {
     /// The most the parts' own score may differ from the hero's before they are no longer the same figure.
     static let agreementTolerance = 0.05
 
+    /// Cardio and steps always; active energy only when something feeds it (no source today, so no always-empty row).
     let rows: [StrainScoreRow]
     /// Whether the parts' score is the hero's. They differ only when the hero comes from another source or moment
     /// (the live score counts heart rate before the batch score's 20-reading gate opens).
     let agreesWithHero: Bool
+
+    /// True while active energy is not one of the rows: the score is then worked out from cardio and steps alone.
+    var isScoredFromCardioAndSteps: Bool { !rows.contains { $0.kind == .energy } }
 
     static func make(_ components: StrainScorerV2.DayStrainComponents, hero: Double?) -> StrainScoreParts? {
         guard let score = components.score else { return nil }
@@ -40,7 +44,8 @@ struct StrainScoreParts: Equatable {
             return StrainScoreRow(kind: kind, value: value, setsScore: agrees && components.dominant == dominant)
         }
         return StrainScoreParts(
-            rows: [row(.cardio, components.cardio), row(.steps, components.steps), row(.energy, components.energy)],
+            rows: [row(.cardio, components.cardio), row(.steps, components.steps), row(.energy, components.energy)]
+                .filter { $0.kind != .energy || $0.value != nil },
             agreesWithHero: agrees)
     }
 }
