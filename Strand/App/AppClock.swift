@@ -51,6 +51,9 @@ enum AppClock {
             if state.key == key, let formatter = state.formatter { return formatter }
             let formatter = DateFormatter()
             formatter.locale = locale
+            // The zone follows the device after travel: the cached formatter would otherwise keep the zone in force
+            // when it was made.
+            formatter.timeZone = .autoupdatingCurrent
             formatter.setLocalizedDateFormatFromTemplate(template)
             state.key = key
             state.formatter = formatter
