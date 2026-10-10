@@ -299,4 +299,16 @@ final class WorkoutsHubModelTests: XCTestCase {
         // Without a zone set there is no band to name.
         XCTAssertNil(WorkoutZoneRows.zones(minutes: [1, 2, 3, 4, 5], zoneSet: nil)[0].range)
     }
+
+    func testAZoneVisitedForUnderAMinuteIsNotReadAsNoTime() throws {
+        // 22 seconds in zone 1: the row reads "<1m" beside its 1%, so it is spoken as a visit, not as none.
+        let zones = WorkoutZoneRows.zones(minutes: [22.0 / 60, 0, 0, 30, 0], zoneSet: nil)
+        let warmUp = try XCTUnwrap(zones[0].accessibilityLabel)
+        XCTAssertTrue(warmUp.contains("less than a minute"), warmUp)
+        XCTAssertFalse(warmUp.contains("no time"), warmUp)
+        XCTAssertTrue(warmUp.contains("%"), warmUp)
+        XCTAssertEqual(zones[0].seconds, 22, accuracy: 0.001)
+        let unvisited = try XCTUnwrap(zones[1].accessibilityLabel)
+        XCTAssertTrue(unvisited.contains("no time"), unvisited)
+    }
 }

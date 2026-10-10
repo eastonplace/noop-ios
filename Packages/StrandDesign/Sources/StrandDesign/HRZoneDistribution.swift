@@ -192,9 +192,9 @@ public struct HRZoneDistribution: View {
     }
 
     private func duration(_ zone: Zone) -> some View {
-        Text(verbatim: zone.seconds >= 30 ? Self.durationText(zone.seconds) : WidgetMetrics.missingValue)
+        Text(verbatim: Self.rowDuration(zone.seconds))
             .font(StrandFont.bodyNumber.monospacedDigit())
-            .foregroundStyle(zone.seconds >= 30 ? StrandPalette.textPrimary : StrandPalette.textTertiary)
+            .foregroundStyle(zone.seconds > 0 ? StrandPalette.textPrimary : StrandPalette.textTertiary)
             .lineLimit(1)
     }
 
@@ -203,6 +203,14 @@ public struct HRZoneDistribution: View {
             .font(StrandFont.caption.monospacedDigit())
             .foregroundStyle(StrandPalette.textTertiary)
             .lineLimit(1)
+    }
+
+    /// What a row shows for its time: "<1m" for a zone that was visited for less than a minute (never a dash beside a
+    /// share that is not zero), the dash for a zone that was not visited at all, and the time otherwise.
+    static func rowDuration(_ seconds: Double) -> String {
+        if seconds <= 0 { return WidgetMetrics.missingValue }
+        if seconds < 60 { return String(localized: "<1m", bundle: .module) }
+        return durationText(seconds)
     }
 
     /// "1h 05m"-style time, narrow units, never "0m" for a zone that was visited.

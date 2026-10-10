@@ -230,8 +230,9 @@ enum WorkoutZoneRows {
                                     band: (lower: Int, upper: Int?)?) -> String {
         var parts = [String(localized: "Zone \(zone), \(WorkoutZoneNames.name(for: zone))")]
         if let band { parts.append(spokenRange(band)) }
-        // The row shows a dash under half a minute; say the same thing.
-        parts.append(seconds >= 30 ? WorkoutFormat.spokenDuration(seconds) : String(localized: "no time"))
+        // The row shows "<1m" under a minute and a dash for none; say the same thing.
+        parts.append(seconds >= 60 ? WorkoutFormat.spokenDuration(seconds)
+                     : seconds > 0 ? String(localized: "less than a minute") : String(localized: "no time"))
         if total > 0, seconds > 0 { parts.append((seconds / total).formatted(.percent.precision(.fractionLength(0)))) }
         return parts.joined(separator: ", ")
     }
