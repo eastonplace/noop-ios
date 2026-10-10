@@ -1059,29 +1059,18 @@ struct PaperPillarDetailView: View {
     /// The days before the viewed one that the baseline and the ranking read (28 at most), newest last.
     private var previousScores: [Double] { baselineWindow.compactMap(\.value) }
 
-    private var hrvDeviation: Deviation? {
-        sevenDayDeviation(
-            value: latestDay?.avgHrv,
-            values: priorFactorDays.map(\.avgHrv),
-            cfg: Baselines.hrvCfg)
-    }
-
-    private var restingHRDeviation: Deviation? {
-        sevenDayDeviation(
-            value: latestDay?.restingHr.map(Double.init),
-            values: priorFactorDays.map { $0.restingHr.map(Double.init) },
-            cfg: Baselines.restingHRCfg)
-    }
-
-    private var respiratoryDeviation: Deviation? {
-        sevenDayDeviation(
-            value: latestDay?.respRateBpm,
-            values: priorFactorDays.map(\.respRateBpm),
-            cfg: Baselines.respCfg)
-    }
-
     private var chargeDrivers: some View {
         let sleepPercent = latestDay.flatMap { AnalyticsEngine.Rest.composite(daily: $0) }
+        // The seven days before the viewed one are found once and every driver reads them: it was one filter and sort
+        // of the whole history per deviation and per band, six a pass.
+        let prior = priorFactorDays
+        let hrvDeviation = sevenDayDeviation(
+            value: latestDay?.avgHrv, values: prior.map(\.avgHrv), cfg: Baselines.hrvCfg)
+        let restingHRDeviation = sevenDayDeviation(
+            value: latestDay?.restingHr.map(Double.init), values: prior.map { $0.restingHr.map(Double.init) },
+            cfg: Baselines.restingHRCfg)
+        let respiratoryDeviation = sevenDayDeviation(
+            value: latestDay?.respRateBpm, values: prior.map(\.respRateBpm), cfg: Baselines.respCfg)
         let weights: [(id: String, metric: ProductionTrendMetric, weight: Double)] = [
             ("hrv", .hrv, RecoveryScorer.wHRV), ("rhr", .restingHR, RecoveryScorer.wRHR),
             ("sleep", .sleepPerformance, RecoveryScorer.wSleep), ("resp", .respiratory, RecoveryScorer.wResp),
@@ -1097,16 +1086,19 @@ struct PaperPillarDetailView: View {
             VStack(alignment: .leading, spacing: NoopMetrics.space3) {
                 driverRow(.hrv, label: String(localized: "HRV"), weight: RecoveryScorer.wHRV,
                           value: latestDay?.avgHrv.map { String(Int($0.rounded())) }, unit: "ms",
-                          band: hrvFactorBand, deviation: hrvDeviation, deltaUnit: "ms")
+                          band: FactorBands.hrv(deviationRatio: hrvDeviation?.ratio, zScore: hrvDeviation?.z),
+                          deviation: hrvDeviation, deltaUnit: "ms")
                 driverRow(.restingHR, label: String(localized: "Resting HR"), weight: RecoveryScorer.wRHR,
                           value: latestDay?.restingHr.map { String($0) }, unit: "bpm",
-                          band: restingHRFactorBand, deviation: restingHRDeviation, deltaUnit: "bpm")
+                          band: FactorBands.restingHR(deviationRatio: restingHRDeviation?.ratio, zScore: restingHRDeviation?.z),
+                          deviation: restingHRDeviation, deltaUnit: "bpm")
                 driverRow(.sleepPerformance, label: String(localized: "Sleep"), weight: RecoveryScorer.wSleep,
                           value: sleepPercent.map { String(Int($0.rounded())) }, unit: "%",
                           band: FactorBands.sleepPerformance(percent: sleepPercent))
                 driverRow(.respiratory, label: String(localized: "Respiratory rate"), weight: RecoveryScorer.wResp,
                           value: latestDay?.respRateBpm.map { DrillInFormat.number($0, fractionDigits: 1) }, unit: "rpm",
-                          band: respiratoryRateFactorBand, deviation: respiratoryDeviation, deltaUnit: "rpm",
+                          band: FactorBands.respiratoryRate(zScore: respiratoryDeviation?.z),
+                          deviation: respiratoryDeviation, deltaUnit: "rpm",
                           deltaDigits: 1)
                 driverRow(.skinTemp, label: String(localized: "Skin temp"), weight: RecoveryScorer.wSkinTemp,
                           value: latestDay?.skinTempDevC.map { DrillInFormat.signed($0, fractionDigits: 1) }, unit: "°C",
@@ -1654,30 +1646,6 @@ struct PaperPillarDetailView: View {
     /// (day keys sort as dates, so this is right for a past day too, not just for the latest).
     private var priorFactorDays: [DailyMetric] {
         Array(repo.days.filter { $0.day < anchorDayKey }.sorted { $0.day < $1.day }.suffix(7))
-    }
-
-    private var hrvFactorBand: FactorBand? {
-        let deviation = sevenDayDeviation(
-            value: latestDay?.avgHrv,
-            values: priorFactorDays.map(\.avgHrv),
-            cfg: Baselines.hrvCfg)
-        return FactorBands.hrv(deviationRatio: deviation?.ratio, zScore: deviation?.z)
-    }
-
-    private var restingHRFactorBand: FactorBand? {
-        let deviation = sevenDayDeviation(
-            value: latestDay?.restingHr.map(Double.init),
-            values: priorFactorDays.map { $0.restingHr.map(Double.init) },
-            cfg: Baselines.restingHRCfg)
-        return FactorBands.restingHR(deviationRatio: deviation?.ratio, zScore: deviation?.z)
-    }
-
-    private var respiratoryRateFactorBand: FactorBand? {
-        let deviation = sevenDayDeviation(
-            value: latestDay?.respRateBpm,
-            values: priorFactorDays.map(\.respRateBpm),
-            cfg: Baselines.respCfg)
-        return FactorBands.respiratoryRate(zScore: deviation?.z)
     }
 
     private func legendLine(dashed: Bool, label: String) -> some View {

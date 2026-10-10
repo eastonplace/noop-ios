@@ -100,7 +100,8 @@ struct DrillInTrendSection: View {
 
     var body: some View {
         let tint = metric.domainTint(latest: latest)
-        let rangeDays = range.days(earliest: observations.map(\.date).min(), through: referenceDate, calendar: calendar)
+        let earliest = observations.map(\.date).min()
+        let rangeDays = range.days(earliest: earliest, through: referenceDate, calendar: calendar)
         let days = TrendCalendar.buildRollingWindow(
             observations: observations, through: referenceDate, count: rangeDays, calendar: calendar)
         let values = days.compactMap(\.value)
@@ -113,7 +114,7 @@ struct DrillInTrendSection: View {
                         .foregroundStyle(StrandPalette.textSecondary)
                         .lineLimit(1)
                 },
-                trailing: { rangePicker(days: rangeDays) }
+                trailing: { rangePicker(days: rangeDays, earliest: earliest) }
             )
             // One lone day is a dot, not a trend: say so instead of drawing an empty plot and a footer that repeats it.
             if values.count >= 2,
@@ -153,7 +154,7 @@ struct DrillInTrendSection: View {
 
     /// The canonical segmented pill, announced as one adjustable "Range" control so VoiceOver reads "30 days"
     /// instead of the bare "M" (the same treatment the Trends tab gives it).
-    private func rangePicker(days: Int) -> some View {
+    private func rangePicker(days: Int, earliest: Date?) -> some View {
         SegmentedPillControl(ranges, selection: $range) { $0.rawValue }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Range")
@@ -168,7 +169,7 @@ struct DrillInTrendSection: View {
             }
             .accessibilityActions {
                 ForEach(ranges) { option in
-                    Button(option.title(days: option.days(earliest: observations.map(\.date).min(),
+                    Button(option.title(days: option.days(earliest: earliest,
                                                           through: referenceDate, calendar: calendar))) { range = option }
                 }
             }
