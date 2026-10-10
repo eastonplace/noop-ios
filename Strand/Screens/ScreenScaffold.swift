@@ -210,7 +210,8 @@ struct ScreenScaffold<Content: View, Trailing: View>: View {
         .modifier(RefreshableIfNeeded(onRefresh: onRefresh))
         .modifier(ScreenScaffoldSettingsNavigation(title: title, presentation: presentation))
         #if os(iOS)
-        .modifier(ScreenScaffoldPushedNavigationBar(hidden: presentation == .standard && navigationRole == .detail))
+        .modifier(ScreenScaffoldPushedNavigationBar(
+            hidden: presentation == .standard && navigationRole == .detail, backAction: detailBackAction))
         #endif
         #if os(macOS)
         // The mac window toolbar's default vibrant material washed the top of the liquid day-of-sky WHITE
@@ -374,14 +375,19 @@ private struct ScreenScaffoldDrillInEnvironment: ViewModifier {
 }
 
 /// A pushed screen draws its own back chevron in the scaffold header, so the system navigation bar the
-/// host `NavigationStack` would otherwise show above it (a second, empty back button) is hidden.
+/// host `NavigationStack` would otherwise show above it (a second, empty back button) is hidden. With the bar
+/// hidden UIKit stops the edge swipe from popping, so the screen also asks for it back (`EdgeSwipeBack`): the stack
+/// pops, or, for a screen that roots a modal stack, the screen's own back action runs.
 private struct ScreenScaffoldPushedNavigationBar: ViewModifier {
     let hidden: Bool
+    let backAction: (() -> Void)?
 
     @ViewBuilder
     func body(content: Content) -> some View {
         if hidden {
-            content.toolbar(.hidden, for: .navigationBar)
+            content
+                .toolbar(.hidden, for: .navigationBar)
+                .background { EdgeSwipeBack(rootBackAction: backAction).frame(width: 0, height: 0) }
         } else {
             content
         }

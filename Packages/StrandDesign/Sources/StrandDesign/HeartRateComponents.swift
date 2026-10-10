@@ -1069,10 +1069,12 @@ private struct HRTimelineTouchSurface: UIViewRepresentable {
             if recognizer.state == .ended { onDoubleTap() }
         }
 
-        /// A drag that starts more up-and-down than sideways is the page scrolling: the pan stays out of it.
+        /// A drag that starts more up-and-down than sideways is the page scrolling: the pan stays out of it. One that
+        /// starts in the strip along the leading screen edge is the swipe back, which the pan leaves to the stack.
         nonisolated func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
             MainActor.assumeIsolated {
                 guard let pan = gestureRecognizer as? UIPanGestureRecognizer else { return true }
+                if LeadingEdgeStrip.contains(startOf: pan) { return false }
                 let velocity = pan.velocity(in: pan.view)
                 return abs(velocity.x) > abs(velocity.y)
             }
