@@ -50727,6 +50727,46 @@
         }
       }
     },
+    "GPS": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GPS"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GPS"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GPS"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "GPS"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GPS"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GPS"
+          }
+        }
+      }
+    },
     "GPS ready": {
       "localizations": {
         "de": {
@@ -61610,6 +61650,126 @@
         }
       }
     },
+    "Location is off for NOOP, so this workout won't record a route. Turn it on in Settings.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Standort ist für NOOP ausgeschaltet, daher zeichnet dieses Training keine Route auf. Aktiviere ihn in den Einstellungen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La ubicación está desactivada para NOOP, así que este entrenamiento no registrará una ruta. Actívala en Ajustes."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La posizione è disattivata per NOOP, quindi questo allenamento non registrerà un percorso. Attivala in Impostazioni."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A localização está desativada para o NOOP, por isso este treino não vai registar um percurso. Ative-a em Definições."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NOOP 的定位已关闭，因此本次训练不会记录路线。请在“设置”中开启。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NOOP 的定位已關閉，因此這次訓練不會記錄路線。請在「設定」中開啟。"
+          }
+        }
+      }
+    },
+    "Location is restricted on this device, so this workout won't record a route.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Standort ist auf diesem Gerät eingeschränkt, daher zeichnet dieses Training keine Route auf."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La ubicación está restringida en este dispositivo, así que este entrenamiento no registrará una ruta."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La posizione è limitata su questo dispositivo, quindi questo allenamento non registrerà un percorso."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A localização está restringida neste dispositivo, por isso este treino não vai registar um percurso."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此设备已限制定位，因此本次训练不会记录路线。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此裝置已限制定位，因此這次訓練不會記錄路線。"
+          }
+        }
+      }
+    },
+    "Location off": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standort aus"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ubicación desactivada"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Posizione disattivata"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Localização desativada"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "定位已关闭"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "定位已關閉"
+          }
+        }
+      }
+    },
     "LONG AXIS": {
       "localizations": {
         "de": {
@@ -71916,6 +72076,46 @@
           "stringUnit": {
             "state": "translated",
             "value": "NOOP %@ 來了。點擊查看新功能。"
+          }
+        }
+      }
+    },
+    "NOOP asks for your location when you start. Your route is saved on this device only.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NOOP fragt beim Start nach deinem Standort. Deine Route wird nur auf diesem Gerät gespeichert."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NOOP te pedirá tu ubicación al empezar. Tu ruta se guarda solo en este dispositivo."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NOOP chiede la tua posizione all'avvio. Il tuo percorso viene salvato solo su questo dispositivo."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O NOOP pede a sua localização quando começar. O seu percurso é guardado apenas neste dispositivo."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "开始时，NOOP 会请求使用你的位置。你的路线仅保存在此设备上。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開始時，NOOP 會請求使用你的位置。你的路線僅儲存在此裝置上。"
           }
         }
       }
@@ -82435,6 +82635,46 @@
           "stringUnit": {
             "state": "translated",
             "value": "打開「節律」"
+          }
+        }
+      }
+    },
+    "Open Settings": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einstellungen öffnen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir Ajustes"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apri Impostazioni"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abrir Definições"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开“设置”"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開啟「設定」"
           }
         }
       }

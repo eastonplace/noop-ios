@@ -12,7 +12,8 @@ import WhoopStore
 // The page, in the widget design language, in the order people reach for things:
 //  • the Lift card (a lifting session is its own flow, so it leads);
 //  • Recent sports as one-tap chips, and the sheet opens on the last one used;
-//  • what is selected, with a GPS pill for a route sport and an outdoor / treadmill choice for a run;
+//  • what is selected, with a GPS pill for a route sport (ready only once location is allowed) and an outdoor /
+//    treadmill choice for a run;
 //  • every activity in the catalogue, searchable, the selected one marked;
 //  • keep-screen-awake, the last workout and the last route;
 //  • one pinned button that says what it will do ("Start Run").
@@ -70,6 +71,7 @@ struct StartWorkoutSheet: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverOn
     @Environment(\.dynamicTypeSize) private var typeSize
+    @Environment(\.scenePhase) private var scenePhase
 
     private var unitSystem: UnitSystem { UnitSystem(rawValue: unitSystemRaw) ?? .metric }
     private var selectedSport: WorkoutCatalog.Sport? { WorkoutCatalog.sport(named: selected) }
@@ -90,6 +92,11 @@ struct StartWorkoutSheet: View {
             }
         }
         .task(id: repo.refreshSeq) { recentRows = await repo.workoutRows(days: 365) }
+        // The permission may have been changed in Settings while the app was away.
+        .onAppear { model.gpsRecorder.refreshAvailability() }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { model.gpsRecorder.refreshAvailability() }
+        }
     }
 
     /// The pinned button's own action, and where a confirmed choice is remembered.
@@ -222,14 +229,14 @@ struct StartWorkoutSheet: View {
                     VStack(alignment: .leading, spacing: NoopMetrics.space2) {
                         WorkoutSportGlyph(symbol: sportSymbol(selected))
                         selectionTitle
-                        if showsGpsPill { StatePill("GPS ready", tone: .positive).fixedSize() }
+                        if isRouteSport { gpsPill }
                     }
                 } else {
                     HStack(alignment: .center, spacing: NoopMetrics.space3) {
                         WorkoutSportGlyph(symbol: sportSymbol(selected))
                         selectionTitle
                         Spacer(minLength: NoopMetrics.space2)
-                        if showsGpsPill { StatePill("GPS ready", tone: .positive).fixedSize() }
+                        if isRouteSport { gpsPill }
                     }
                 }
             }
@@ -243,12 +250,7 @@ struct StartWorkoutSheet: View {
                 }
                 .accessibilityLabel("Run type")
             }
-            if showsGpsPill {
-                Text("Your route is saved on this device only.")
-                    .font(StrandFont.footnote)
-                    .foregroundStyle(StrandPalette.textTertiary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+            if isRouteSport { gpsNote }
         }
     }
 
@@ -267,7 +269,53 @@ struct StartWorkoutSheet: View {
         }
     }
 
-    private var showsGpsPill: Bool { selectedSport?.isDistanceSport == true && model.gpsRecorder.canRecordRoute }
+    // MARK: GPS
+    //
+    // A route sport says what location allows right now, and only claims "GPS ready" once it is allowed. Before the
+    // person has answered, starting asks once, so the pill is a neutral "GPS". When it is off, the pill says so and the
+    // note offers Settings (unless a restriction means the person cannot change it).
+
+    private var isRouteSport: Bool { selectedSport?.isDistanceSport == true }
+
+    private var gpsPill: some View {
+        GpsStatusReader(recorder: model.gpsRecorder) { availability in
+            switch availability {
+            case .ready: StatePill("GPS ready", tone: .positive)
+            case .willAsk: StatePill("GPS", tone: .neutral)
+            case .denied, .restricted: StatePill("Location off", tone: .warning)
+            }
+        }
+        .fixedSize()
+    }
+
+    private var gpsNote: some View {
+        GpsStatusReader(recorder: model.gpsRecorder) { availability in
+            VStack(alignment: .leading, spacing: NoopMetrics.space1) {
+                Group {
+                    switch availability {
+                    case .ready: Text("Your route is saved on this device only.")
+                    case .willAsk: Text("NOOP asks for your location when you start. Your route is saved on this device only.")
+                    case .denied: Text("Location is off for NOOP, so this workout won't record a route. Turn it on in Settings.")
+                    case .restricted: Text("Location is restricted on this device, so this workout won't record a route.")
+                    }
+                }
+                .font(StrandFont.footnote)
+                .foregroundStyle(StrandPalette.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
+                #if canImport(UIKit)
+                if availability == .denied, let settings = URL(string: UIApplication.openSettingsURLString) {
+                    Link(destination: settings) {
+                        Text("Open Settings")
+                            .font(StrandFont.subhead.weight(.semibold))
+                            .foregroundStyle(StrandPalette.link)
+                            .frame(minHeight: 44, alignment: .leading)
+                            .contentShape(Rectangle())
+                    }
+                }
+                #endif
+            }
+        }
+    }
 
     /// The run type as the control reads it: a run maps onto outdoor or treadmill, and choosing one sets the sport.
     private var runType: Binding<WorkoutRunType> {
@@ -464,6 +512,15 @@ struct StartWorkoutSheet: View {
         #endif
         .background(StrandPalette.surfaceOverlay)
     }
+}
+
+/// Reads the recorder's location permission and redraws its content when it changes. The sheet holds the recorder only
+/// as part of the app model, which would not tell it the person had just answered the prompt.
+private struct GpsStatusReader<Content: View>: View {
+    @ObservedObject var recorder: GpsWorkoutRecorder
+    @ViewBuilder let content: (GpsAvailability) -> Content
+
+    var body: some View { content(recorder.availability) }
 }
 
 #if DEBUG
