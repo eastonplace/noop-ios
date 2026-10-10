@@ -50,7 +50,10 @@ struct LocalCoachPlanView: View {
         }
         .sheet(isPresented: $showWorkouts) {
             NavigationStack {
+                // A sheet inherits the presenter's header context (Coach is pushed from Explore, a drill-in): reset it so
+                // Workouts draws its own header here, not a pushed row with a back chip that hides the Done button's bar.
                 WorkoutsView()
+                    .sheetScreenScaffoldEnvironment()
                     .background(StrandPalette.appCanvas.ignoresSafeArea())
                     .toolbarBackground(.hidden, for: .navigationBar)
                     .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { showWorkouts = false } } }
