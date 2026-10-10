@@ -61,6 +61,15 @@ final class PillarWeekBarModelTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(result[2].fraction), 0, accuracy: 0.0001)
     }
 
+    func testVoiceOverNamesTheMissingAndTheUpcomingDaysAndNeverCallsAFutureDayMissing() {
+        let result = slots([5, nil, 7, 8, 9, 12, nil], today: 10)
+        let names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+        let spoken = PillarWeekBarModel.spokenSummary(
+            result, dayNames: names, value: { "\($0) of 21" }, noData: "no data", upcoming: "Upcoming")
+        XCTAssertEqual(spoken, "Monday 5.0 of 21, Tuesday no data, Wednesday 7.0 of 21, Thursday 8.0 of 21, "
+            + "Friday 9.0 of 21, Saturday 12.0 of 21, Sunday Upcoming")
+    }
+
     func testOnlySevenSlotsComeBack() {
         XCTAssertEqual(slots([1, 2, 3, 4, 5, 6, 7, 8, 9]).count, 7)
         XCTAssertEqual(slots([]).count, 0)

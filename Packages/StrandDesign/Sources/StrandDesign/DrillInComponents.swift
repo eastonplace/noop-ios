@@ -575,11 +575,26 @@ public enum PillarWeekBarModel {
                 date: day.date, kind: isFuture ? .future : .missing, fraction: nil, reachesTarget: nil, isAnchor: isAnchor)
         }
     }
+
+    /// What VoiceOver reads for the week: each day by its whole name with its value, "no data" for a past day without
+    /// one and "Upcoming" for a day still to come.
+    public static func spokenSummary(
+        _ slots: [PillarWeekBarSlot], dayNames: [String], value: (Double) -> String, noData: String, upcoming: String
+    ) -> String {
+        slots.enumerated().map { index, slot in
+            let name = dayNames.indices.contains(index) ? dayNames[index] : ""
+            switch slot.kind {
+            case .future: return "\(name) \(upcoming)"
+            case .missing: return "\(name) \(noData)"
+            case .value(let number): return "\(name) \(value(number))"
+            }
+        }.joined(separator: ", ")
+    }
 }
 
 /// A Monday-first week of daily bars on a fixed scale, with the target band drawn softly behind them. The viewed
 /// day is the bright, bold one; a value sits above its bar only when there is one; a past day without a score is a
-/// dot (never an empty bar that reads as zero), and a day still to come is a fainter one.
+/// dot (never an empty bar that reads as zero), and a day still to come is just an empty, quieter track.
 public struct PillarWeekBars: View {
     private let days: [CalendarMetricDay]
     private let maximum: Double
@@ -691,8 +706,9 @@ public struct PillarWeekBars: View {
                     Circle().fill(StrandPalette.textTertiary.opacity(0.55)).frame(width: 5, height: 5)
                         .padding(.bottom, 3)
                 case .future:
-                    Circle().fill(StrandPalette.textTertiary.opacity(0.22)).frame(width: 4, height: 4)
-                        .padding(.bottom, 3)
+                    // Nothing has happened yet, so no dot (a dot says "no score"): only the empty track, quieter than a
+                    // scored day's.
+                    Capsule(style: .continuous).fill(tint.opacity(0.04))
                 }
             }
             .frame(width: Self.barWidth)
@@ -714,17 +730,11 @@ public struct PillarWeekBars: View {
     }
 
     /// Spoken, so: whole weekday names, the value with its unit (`spokenValue`, else the printed one), "no data" for a
-    /// past day without one, and nothing at all for days that have not happened yet.
+    /// past day without one, and "Upcoming" for a day that has not happened yet.
     private func summary(_ slots: [PillarWeekBarSlot]) -> String {
-        let names = TrendsWeekdayNames.full(calendar: calendar)
-        return slots.enumerated().compactMap { index, slot in
-            let name = names.indices.contains(index) ? names[index] : ""
-            switch slot.kind {
-            case .future: return nil
-            case .missing: return "\(name) \(String(localized: "no data"))"
-            case .value(let value): return "\(name) \((spokenValue ?? valueFormat)(value))"
-            }
-        }.joined(separator: ", ")
+        PillarWeekBarModel.spokenSummary(
+            slots, dayNames: TrendsWeekdayNames.full(calendar: calendar), value: spokenValue ?? valueFormat,
+            noData: String(localized: "no data"), upcoming: String(localized: "Upcoming"))
     }
 }
 
