@@ -23,32 +23,96 @@ public enum HRZoneStyle {
     /// Fixed bpm scale the semantic ramp is anchored to (the visible chart re-projects it).
     public static let floor: Double = 40
     public static let ceiling: Double = 180
-    /// Band boundaries for the legend / time-in-zone rows.
+    /// Band boundaries when no profile is known (previews, the Live Activity): rest under 60, steady under 110.
+    /// Screens that know the wearer read their own from the environment (`\.hrZoneThresholds`).
     public static let restCeiling: Double = 60
     public static let steadyCeiling: Double = 110
 
-    public static let stops: [Gradient.Stop] = [
-        .init(color: rest, location: 0),
-        .init(color: rest, location: unit(52)),
-        .init(color: steady, location: unit(85)),
-        .init(color: steady, location: unit(102)),
-        .init(color: push, location: unit(140)),
-        .init(color: push, location: 1),
-    ]
+    /// Where rest ends and push begins for one wearer: rest below half of their maximum heart rate, steady from
+    /// there to 70%, push from 70% up (the first, second and third-and-above heart-rate zones). Whole-bpm readings
+    /// are compared with the exact (possibly fractional) boundary, so with a maximum of 187 a reading of 93 is rest
+    /// and 94 is steady (the boundary is 93.5), 130 is steady and 131 is push (130.9).
+    public struct Thresholds: Equatable, Sendable {
+        public let rest: Double
+        public let steady: Double
+
+        /// The fixed 60 / 110 split.
+        public static let `default` = Thresholds(rest: restCeiling, steady: steadyCeiling)
+
+        /// Both boundaries are kept inside the drawn scale and apart from each other, so the ramp can never fold.
+        public init(rest: Double, steady: Double) {
+            let lowest = HRZoneStyle.floor + 5
+            let rest = rest.isFinite ? max(rest, lowest) : HRZoneStyle.restCeiling
+            let steady = steady.isFinite ? steady : HRZoneStyle.steadyCeiling
+            self.rest = rest
+            self.steady = min(max(steady, rest + 10), HRZoneStyle.ceiling - 5)
+        }
+
+        /// 50% and 70% of `hrMax` (the profile's override when set, else the age estimate). An unusable maximum falls
+        /// back to the fixed split. The 70% is computed as `hrMax * 7 / 10`, which is exact where `hrMax * 0.7` is a
+        /// hair off (a maximum of 200 must put push at exactly 140, not 140.00000000000003).
+        public init(hrMax: Double) {
+            guard hrMax.isFinite, (100...260).contains(hrMax) else {
+                self = .default
+                return
+            }
+            self.init(rest: hrMax / 2, steady: hrMax * 7 / 10)
+        }
+
+        /// 0 rest, 1 steady, 2 push.
+        public func zone(for bpm: Double) -> Int {
+            if bpm < rest { return 0 }
+            if bpm < steady { return 1 }
+            return 2
+        }
+
+        /// The first whole bpm of the steady zone ("94" for a boundary of 93.5), for legends.
+        public var steadyStartBPM: Int { Int(rest.rounded(.up)) }
+        /// The first whole bpm of the push zone ("131" for a boundary of 130.9), for legends.
+        public var pushStartBPM: Int { Int(steady.rounded(.up)) }
+
+        /// Moves a ramp anchor written against the fixed 60 / 110 split onto these boundaries, keeping its place
+        /// in its zone: the scale below 60 stretches to the rest boundary, 60 to 110 to the steady band, and
+        /// everything above to the top of the scale. The default thresholds map every anchor to itself.
+        public func anchor(_ legacyBPM: Double) -> Double {
+            let floor = HRZoneStyle.floor, ceiling = HRZoneStyle.ceiling
+            if legacyBPM <= HRZoneStyle.restCeiling {
+                return floor + (legacyBPM - floor) * (rest - floor) / (HRZoneStyle.restCeiling - floor)
+            }
+            if legacyBPM <= HRZoneStyle.steadyCeiling {
+                return rest + (legacyBPM - HRZoneStyle.restCeiling) * (steady - rest)
+                    / (HRZoneStyle.steadyCeiling - HRZoneStyle.restCeiling)
+            }
+            return steady + (legacyBPM - HRZoneStyle.steadyCeiling) * (ceiling - steady)
+                / (ceiling - HRZoneStyle.steadyCeiling)
+        }
+    }
+
+    public static let stops: [Gradient.Stop] = stops(for: .default)
+
+    /// The blue-green-rose ramp anchored to a wearer's boundaries (the default ones give `stops`).
+    public static func stops(for thresholds: Thresholds) -> [Gradient.Stop] {
+        [
+            .init(color: rest, location: 0),
+            .init(color: rest, location: unit(thresholds.anchor(52))),
+            .init(color: steady, location: unit(thresholds.anchor(85))),
+            .init(color: steady, location: unit(thresholds.anchor(102))),
+            .init(color: push, location: unit(thresholds.anchor(140))),
+            .init(color: push, location: 1),
+        ]
+    }
 
     public static func unit(_ bpm: Double) -> Double {
         min(max((bpm - floor) / (ceiling - floor), 0), 1)
     }
 
-    public static func color(for bpm: Double) -> Color {
-        StrandPalette.sample(stops: stops, at: unit(bpm))
+    public static func color(for bpm: Double, thresholds: Thresholds = .default) -> Color {
+        StrandPalette.sample(stops: thresholds == .default ? stops : stops(for: thresholds), at: unit(bpm))
     }
 
     /// 0 rest · 1 steady · 2 push.
-    public static func zone(for bpm: Double) -> Int {
-        if bpm < restCeiling { return 0 }
-        if bpm < steadyCeiling { return 1 }
-        return 2
+    public static func zone(for bpm: Double, thresholds: Thresholds = .default) -> Int {
+        thresholds.zone(for: bpm)
     }
 
     public static func zoneColor(_ zone: Int) -> Color {
@@ -57,6 +121,20 @@ public enum HRZoneStyle {
         case 1: steady
         default: push
         }
+    }
+}
+
+private struct HRZoneThresholdsKey: EnvironmentKey {
+    static let defaultValue = HRZoneStyle.Thresholds.default
+}
+
+public extension EnvironmentValues {
+    /// The wearer's rest / steady / push boundaries, set once at the app's root from their profile. Every heart-rate
+    /// surface that names a zone or paints one reads it, so Today's live pill, the timeline and the time-in-range
+    /// rows agree. The fixed 60 / 110 split when nothing sets it.
+    var hrZoneThresholds: HRZoneStyle.Thresholds {
+        get { self[HRZoneThresholdsKey.self] }
+        set { self[HRZoneThresholdsKey.self] = newValue }
     }
 }
 
@@ -90,23 +168,27 @@ private enum HRTimelineInk {
     static let push = StrandPalette.destructive
     static let live = StrandPalette.liveRed
 
-    static func color(for bpm: Double) -> Color {
-        StrandPalette.sample(stops: stops, at: HRZoneStyle.unit(bpm))
+    static func color(for bpm: Double, zones: HRZoneStyle.Thresholds = .default) -> Color {
+        StrandPalette.sample(stops: stops(zones), at: HRZoneStyle.unit(bpm))
     }
 
-    private static let stops: [Gradient.Stop] = [
-        .init(color: rest, location: 0),
-        .init(color: rest, location: HRZoneStyle.unit(58)),
-        .init(color: steady, location: HRZoneStyle.unit(92)),
-        .init(color: steady, location: HRZoneStyle.unit(112)),
-        .init(color: push, location: HRZoneStyle.unit(142)),
-        .init(color: push, location: 1),
-    ]
+    private static func stops(_ zones: HRZoneStyle.Thresholds) -> [Gradient.Stop] {
+        [
+            .init(color: rest, location: 0),
+            .init(color: rest, location: HRZoneStyle.unit(zones.anchor(58))),
+            .init(color: steady, location: HRZoneStyle.unit(zones.anchor(92))),
+            .init(color: steady, location: HRZoneStyle.unit(zones.anchor(112))),
+            .init(color: push, location: HRZoneStyle.unit(zones.anchor(142))),
+            .init(color: push, location: 1),
+        ]
+    }
 }
 
 // MARK: - HRTimelineChart
 
 public struct HRTimelineChart: View {
+    /// The wearer's rest / steady / push boundaries (the profile's, set at the app's root).
+    @Environment(\.hrZoneThresholds) private var zones
     let points: [HRTrackPoint]
     /// The full-day clamp the zoom window can never escape.
     let day: ClosedRange<TimeInterval>
@@ -317,7 +399,7 @@ public struct HRTimelineChart: View {
     }
 
     private func zoneWord(_ bpm: Double) -> String {
-        switch HRZoneStyle.zone(for: bpm) {
+        switch zones.zone(for: bpm) {
         case 0: return String(localized: "Resting")
         case 1: return String(localized: "Steady")
         default: return String(localized: "Pushing")
@@ -620,7 +702,7 @@ public struct HRTimelineChart: View {
 
     /// The colour a single sample speaks: the flat metric tint, or the heart's own ramp.
     private func sampleColor(_ value: Double) -> Color {
-        tint ?? HRTimelineInk.color(for: value)
+        tint ?? HRTimelineInk.color(for: value, zones: zones)
     }
 
     /// The line's vertical ramp, re-projected onto the visible range: the Live HR module's live-red ramp for the
@@ -633,7 +715,7 @@ public struct HRTimelineChart: View {
         let lo = yRange.lowerBound
         let span = yRange.upperBound - lo
         let stops = stride(from: 0.0, through: 1.0, by: 0.125).map { position in
-            Gradient.Stop(color: HRTimelineInk.color(for: lo + position * span), location: position)
+            Gradient.Stop(color: HRTimelineInk.color(for: lo + position * span, zones: zones), location: position)
         }
         return LinearGradient(gradient: Gradient(stops: stops), startPoint: .bottom, endPoint: .top)
     }

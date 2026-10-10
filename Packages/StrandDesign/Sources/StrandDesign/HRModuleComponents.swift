@@ -24,23 +24,28 @@ private enum HRModuleTint {
     static let push = StrandPalette.destructive
     static let live = StrandPalette.liveRed
 
-    static func color(for bpm: Double) -> Color {
-        StrandPalette.sample(stops: stops, at: HRZoneStyle.unit(bpm))
+    static func color(for bpm: Double, zones: HRZoneStyle.Thresholds = .default) -> Color {
+        StrandPalette.sample(stops: stops(zones), at: HRZoneStyle.unit(bpm))
     }
 
-    private static let stops: [Gradient.Stop] = [
-        .init(color: rest, location: 0),
-        .init(color: rest, location: HRZoneStyle.unit(58)),
-        .init(color: steady, location: HRZoneStyle.unit(92)),
-        .init(color: steady, location: HRZoneStyle.unit(112)),
-        .init(color: push, location: HRZoneStyle.unit(142)),
-        .init(color: push, location: 1),
-    ]
+    /// The ramp's anchors sit at the same place in each zone whatever the wearer's boundaries are.
+    private static func stops(_ zones: HRZoneStyle.Thresholds) -> [Gradient.Stop] {
+        [
+            .init(color: rest, location: 0),
+            .init(color: rest, location: HRZoneStyle.unit(zones.anchor(58))),
+            .init(color: steady, location: HRZoneStyle.unit(zones.anchor(92))),
+            .init(color: steady, location: HRZoneStyle.unit(zones.anchor(112))),
+            .init(color: push, location: HRZoneStyle.unit(zones.anchor(142))),
+            .init(color: push, location: 1),
+        ]
+    }
 }
 
 // MARK: - HRLiveModuleCard
 
 public struct HRLiveModuleCard: View {
+    /// The wearer's rest / steady / push boundaries (the profile's, set at the app's root).
+    @Environment(\.hrZoneThresholds) private var zones
     /// Trailing ~2 hours of samples, oldest → newest; empty = waiting for signal.
     let samples: [HRTrackPoint]
     /// Resting HR baseline for the dashed rule; nil hides it.
@@ -170,7 +175,7 @@ public struct HRLiveModuleCard: View {
 
     private var zoneWord: String {
         guard let displayed else { return "" }
-        switch HRZoneStyle.zone(for: displayed.bpm) {
+        switch zones.zone(for: displayed.bpm) {
         case 0: return "Resting"
         case 1: return "Steady"
         default: return "Pushing"
@@ -272,7 +277,7 @@ public struct HRLiveModuleCard: View {
 
             // The newest sample, pulsing quietly — this is the LIVE edge.
             if revealed, scrubIndex == nil, let lastPoint = rendered.last, let latest {
-                HRLivePulseBead(color: HRModuleTint.color(for: latest.bpm))
+                HRLivePulseBead(color: HRModuleTint.color(for: latest.bpm, zones: zones))
                     .position(x: lastPoint.0, y: lastPoint.1)
             }
 
@@ -284,14 +289,14 @@ public struct HRLiveModuleCard: View {
                     .frame(width: 1, height: size.height)
                     .position(x: point.0, y: size.height / 2)
                 Circle()
-                    .fill(HRModuleTint.color(for: sample.bpm))
+                    .fill(HRModuleTint.color(for: sample.bpm, zones: zones))
                     .frame(width: 9, height: 9)
                     .overlay(Circle().stroke(StrandPalette.surfaceRaised, lineWidth: 1.5))
                     .position(x: point.0, y: point.1)
                 ChartTooltip(
                     value: "\(Int(sample.bpm.rounded())) bpm",
                     label: timeLabel(sample.t),
-                    accent: HRModuleTint.color(for: sample.bpm)
+                    accent: HRModuleTint.color(for: sample.bpm, zones: zones)
                 )
                 .position(
                     ChartTooltipPlacement.position(
@@ -332,7 +337,7 @@ public struct HRLiveModuleCard: View {
         let lo = yRange.lowerBound
         let span = yRange.upperBound - lo
         let stops = stride(from: 0.0, through: 1.0, by: 0.2).map { position in
-            Gradient.Stop(color: HRModuleTint.color(for: lo + position * span), location: position)
+            Gradient.Stop(color: HRModuleTint.color(for: lo + position * span, zones: zones), location: position)
         }
         return LinearGradient(gradient: Gradient(stops: stops), startPoint: .bottom, endPoint: .top)
     }
