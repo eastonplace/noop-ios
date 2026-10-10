@@ -70,8 +70,6 @@ struct StartWorkoutSheet: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverOn
     @Environment(\.dynamicTypeSize) private var typeSize
-    @ScaledMetric(relativeTo: .body) private var tileMinimumWidth: CGFloat = 104
-    @ScaledMetric(relativeTo: .body) private var tileHeight: CGFloat = 72
 
     private var unitSystem: UnitSystem { UnitSystem(rawValue: unitSystemRaw) ?? .metric }
     private var selectedSport: WorkoutCatalog.Sport? { WorkoutCatalog.sport(named: selected) }
@@ -148,30 +146,7 @@ struct StartWorkoutSheet: View {
 
     private static let summaryID = "start.selection"
 
-    private var header: some View {
-        HStack(alignment: .center, spacing: NoopMetrics.space3) {
-            Text("Start a workout")
-                .font(StrandFont.title2)
-                .foregroundStyle(StrandPalette.textPrimary)
-                .accessibilityAddTraits(.isHeader)
-            Spacer(minLength: NoopMetrics.space2)
-            Button { dismiss() } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(StrandPalette.textPrimary)
-                    .frame(width: 32, height: 32)
-                    .background(StrandPalette.chipFill, in: Circle())
-                    .frame(width: 44, height: 44)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Close")
-        }
-        .padding(.horizontal, NoopMetrics.space4)
-        .padding(.top, NoopMetrics.space3)
-        .padding(.bottom, NoopMetrics.space1)
-        .background(StrandPalette.surfaceBase)
-    }
+    private var header: some View { WorkoutSheetHeader(title: "Start a workout") }
 
     // MARK: Lift
 
@@ -306,65 +281,11 @@ struct StartWorkoutSheet: View {
 
     private var activitiesSection: some View {
         FlatSection("All activities", systemImage: "square.grid.2x2", tint: .workout) {
-            VStack(alignment: .leading, spacing: NoopMetrics.space3) {
-                PaperSearchField("Search sport", text: $query, height: 44, cornerRadius: 10)
-                    .accessibilityLabel("Search sport")
-                if filtered.isEmpty {
-                    Text("No matching activity")
-                        .font(StrandFont.footnote)
-                        .foregroundStyle(StrandPalette.textTertiary)
-                        .padding(.vertical, NoopMetrics.space2)
-                } else {
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: tileMinimumWidth), spacing: NoopMetrics.space2)],
-                              spacing: NoopMetrics.space2) {
-                        ForEach(filtered) { sport in activityTile(sport) }
-                    }
-                }
+            WorkoutActivityGrid(selected: selected, hintsGps: true) { name in
+                selected = name
+                summaryRequest += 1
             }
         }
-    }
-
-    private func activityTile(_ sport: WorkoutCatalog.Sport) -> some View {
-        let isSelected = sport.name == selected
-        return Button {
-            selected = sport.name
-            summaryRequest += 1
-        } label: {
-            VStack(spacing: 6) {
-                Image(systemName: sportSymbol(sport.name))
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(isSelected ? DomainTint.workout.accent : StrandPalette.textSecondary)
-                    .accessibilityHidden(true)
-                Text(verbatim: sport.name)
-                    .font(StrandFont.caption.weight(isSelected ? .semibold : .regular))
-                    .foregroundStyle(isSelected ? StrandPalette.textPrimary : StrandPalette.textSecondary)
-                    .multilineTextAlignment(.center)
-                    .lineLimit(2)
-                    .minimumScaleFactor(0.85)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .padding(.horizontal, NoopMetrics.space2)
-            .frame(maxWidth: .infinity, minHeight: tileHeight)
-            .background(RoundedRectangle(cornerRadius: NoopMetrics.radius2, style: .continuous)
-                .fill(isSelected ? DomainTint.workout.accent.opacity(0.14) : StrandPalette.chipFill))
-            .overlay(RoundedRectangle(cornerRadius: NoopMetrics.radius2, style: .continuous)
-                .stroke(isSelected ? DomainTint.workout.accent : StrandPalette.hairline,
-                        lineWidth: isSelected ? 2 : 1))
-            .overlay(alignment: .topTrailing) {
-                if isSelected {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(DomainTint.workout.accent)
-                        .padding(6)
-                        .accessibilityHidden(true)
-                }
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(Text(verbatim: sport.name))
-        .accessibilityHint(sport.isDistanceSport ? Text("Records a GPS route") : Text(verbatim: ""))
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
     // MARK: Setup

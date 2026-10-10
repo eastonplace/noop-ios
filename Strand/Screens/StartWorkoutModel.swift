@@ -78,3 +78,46 @@ enum StartWorkoutChoices {
         }
     }
 }
+
+// MARK: - The manual log's sport
+//
+// The manual log picks a sport the way the start sheet does: a catalogue name, from the recent chips or from all the
+// activities. The free-text path is "Other": choosing it opens a field for the activity's own name, which is what is
+// saved. A stored sport the catalogue does not list (one typed before there was a picker, an unlabelled detected bout)
+// is shown as "Other" carrying its name, so editing it changes nothing it did not have to.
+
+enum ManualWorkoutSport {
+    /// What the picker shows for a stored sport: the catalogue name chosen, and the name "Other" carries. nil, or a blank
+    /// sport, is a fresh log with nothing chosen yet.
+    static func choice(for stored: String?) -> (chosen: String, custom: String) {
+        let trimmed = stored?.trimmingCharacters(in: .whitespaces) ?? ""
+        guard !trimmed.isEmpty else { return ("", "") }
+        if let named = WorkoutCatalog.sport(named: trimmed) { return (named.name, "") }
+        return (WorkoutCatalog.defaultSportName, trimmed)
+    }
+
+    /// The sport that is saved: the catalogue name, or, for "Other", the name typed under it ("Other" when none is).
+    /// Empty while nothing is chosen.
+    static func sport(chosen: String, custom: String) -> String {
+        guard chosen == WorkoutCatalog.defaultSportName else { return chosen }
+        let name = custom.trimmingCharacters(in: .whitespaces)
+        return name.isEmpty ? chosen : name
+    }
+
+    /// The chips under the Sport field: the recent catalogue sports, with the current choice first when it is not one of
+    /// them, so what is chosen is always visible there. At most `RecentSportsPrefs.maxCount`.
+    static func chips(recents: [String], chosen: String) -> [String] {
+        var names = StartWorkoutChoices.recentSports(from: recents).map(\.name)
+        if let named = WorkoutCatalog.sport(named: chosen), !names.contains(named.name) {
+            names.insert(named.name, at: 0)
+            names = Array(names.prefix(RecentSportsPrefs.maxCount))
+        }
+        return names
+    }
+
+    /// Whether a saved sport belongs in the recents: only catalogue sports do, since both pickers offer only those, and a
+    /// free-typed name would take a slot neither of them can show.
+    static func recordedName(for sport: String) -> String? {
+        WorkoutCatalog.sport(named: sport)?.name
+    }
+}
