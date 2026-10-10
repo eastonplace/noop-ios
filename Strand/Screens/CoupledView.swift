@@ -713,6 +713,8 @@ struct PaperPillarDetailView: View {
     @State private var latestSleepStart: Date?
     /// The Strain pillar's pass over the day's heart-rate readings (the curve and the parts of the score).
     @State private var strainDay: StrainDayResult?
+    /// Whether this appearance has already refreshed the live day score (see `loadStrainDay`).
+    @State private var ranLiveStrainPass = false
 
     private var accent: Color {
         switch kind {
@@ -839,6 +841,13 @@ struct PaperPillarDetailView: View {
 
     private func loadStrainDay() async {
         guard kind == .effort else { return }
+        // Today's hero is the live score, which the app refreshes every 20 s. Run one pass now, before the curve is
+        // read, so the hero and the curve's end come from the same readings at first paint instead of the hero
+        // waiting for the next tick. Once per appearance: the hero moving afterwards re-reads the curve, not this.
+        if isToday, !ranLiveStrainPass, repo.loaded {
+            await repo.refreshLiveDayStrain(maxHR: Double(profile.hrMax))
+            ranLiveStrainPass = true
+        }
         let request = StrainDayRequest(
             dayKey: anchorDayKey,
             logicalStart: anchorDate,

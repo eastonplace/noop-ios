@@ -29,12 +29,14 @@ enum StrainCurveRelation: Equatable {
         }
     }
 
-    /// Whether the curve's end and the hero are far enough apart to draw a connector between them.
+    /// Whether the curve's end and the hero are far enough apart to draw a connector between them. Only a real gap
+    /// gets one: steps or energy setting the score. A hero the parts do not match (another moment or source) is a
+    /// passing difference, so it draws nothing.
     static func showsConnector(relation: StrainCurveRelation, hero: Double?, curveEnd: Double?) -> Bool {
         guard let hero, let curveEnd else { return false }
         switch relation {
-        case .otherSetsScore, .scoreDiffers: return abs(hero - curveEnd) >= 0.25
-        case .none, .cardioSetsScore: return false
+        case .otherSetsScore: return abs(hero - curveEnd) >= 0.25
+        case .none, .cardioSetsScore, .scoreDiffers: return false
         }
     }
 }
@@ -205,9 +207,8 @@ struct StrainCurveContent: Equatable {
 
 extension StrainCurveContent {
     /// The words beside the dashed connector from the curve's end to the day's score, or nil when there is no
-    /// connector. They say what the mismatch is: steps (or active energy) set the score, or the score is simply not the
-    /// curve's own end. `heroText` is the score as the hero prints it.
-    func markerLabel(isToday: Bool, heroText: String?) -> String? {
+    /// connector: steps (or active energy) set the score.
+    func markerLabel(isToday: Bool) -> String? {
         guard showsConnector else { return nil }
         switch relation {
         case .otherSetsScore(.steps):
@@ -217,8 +218,7 @@ extension StrainCurveContent {
             return isToday ? String(localized: "Today's score comes from active energy")
                            : String(localized: "That day's score came from active energy")
         case .otherSetsScore(.cardio), .scoreDiffers, .cardioSetsScore, .none:
-            guard let heroText else { return nil }
-            return String(localized: "Day score \(heroText)")
+            return nil
         }
     }
 }

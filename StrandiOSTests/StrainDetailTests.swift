@@ -163,10 +163,12 @@ final class StrainCurveModelTests: XCTestCase {
         XCTAssertTrue(StrainCurveRelation.showsConnector(relation: relation, hero: 4.25, curveEnd: 4.0))
     }
 
-    func testAHeroTheCurveCannotExplainIsLabelledAsThePlainDayScore() {
-        // The curve is cardio only; here the hero is not the parts' score (another source or moment).
+    func testAHeroTheCurveCannotExplainDrawsNoConnector() {
+        // The curve is cardio only; here the hero is not the parts' score (another source or moment). However far
+        // apart they are, that is a passing difference and gets no connector.
         let parts = components(cardio: 4, steps: 3, dominant: .cardio)
         XCTAssertEqual(StrainCurveRelation.make(components: parts, hero: 9.1), .scoreDiffers)
+        XCTAssertFalse(StrainCurveRelation.showsConnector(relation: .scoreDiffers, hero: 9.1, curveEnd: 4))
         XCTAssertEqual(StrainCurveRelation.make(components: .unscored, hero: 9.1), .none)
         XCTAssertEqual(StrainCurveRelation.make(components: parts, hero: nil), .none)
     }
@@ -181,8 +183,8 @@ final class StrainCurveModelTests: XCTestCase {
         let content = try XCTUnwrap(StrainCurveContent.make(
             result: day, hero: 6.5, workouts: [], sleepMinutes: 420, live: true, calendar: utc))
         XCTAssertTrue(content.showsConnector)
-        XCTAssertEqual(content.markerLabel(isToday: true, heroText: "6.5"), "Today's score comes from steps")
-        XCTAssertEqual(content.markerLabel(isToday: false, heroText: "6.5"), "That day's score came from steps")
+        XCTAssertEqual(content.markerLabel(isToday: true), "Today's score comes from steps")
+        XCTAssertEqual(content.markerLabel(isToday: false), "That day's score came from steps")
     }
 
     func testTheMarkerIsAbsentWhenCardioSetsTheScore() throws {
@@ -195,7 +197,7 @@ final class StrainCurveModelTests: XCTestCase {
         let content = try XCTUnwrap(StrainCurveContent.make(
             result: day, hero: 12, workouts: [], sleepMinutes: 420, live: true, calendar: utc))
         XCTAssertFalse(content.showsConnector)
-        XCTAssertNil(content.markerLabel(isToday: true, heroText: "12.0"))
+        XCTAssertNil(content.markerLabel(isToday: true))
     }
 
     func testTheSleepSeedIsNamedOnlyWhenSleepAccountsForTheStart() throws {

@@ -65,8 +65,7 @@ struct StrainThroughDaySection: View {
 
     @ViewBuilder
     private func curve(_ content: StrainCurveContent, result: StrainDayResult) -> some View {
-        let marker = content.markerLabel(
-            isToday: isToday, heroText: hero.map { DrillInFormat.number($0, fractionDigits: 1) })
+        let marker = content.markerLabel(isToday: isToday)
         VStack(alignment: .leading, spacing: WidgetMetrics.contentSpacing) {
             StrainDayCurve(
                 points: content.shape.points,
