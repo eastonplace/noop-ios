@@ -70,9 +70,9 @@ try:
         "releaseWorkoutRealtimeHR()",
     )
     require(
-        "Strand/Screens/ManualWorkoutSheet.swift",
+        "Strand/Screens/StartWorkoutSheet.swift",
         "dismissAfterStart",
-        "private func performStart()",
+        "private func confirm()",
     )
     require(
         "StrandiOS/App/RootTabView.swift",
