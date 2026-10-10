@@ -83,21 +83,19 @@ public struct NoopScreenHeader<Trailing: View>: View {
                         }
                     }
                 } else {
-                    HStack(alignment: .firstTextBaseline, spacing: 10) {
-                        if let title {
-                            Text(title)
-                                .font(StrandFont.screenOverline)
-                                .tracking(StrandFont.screenOverlineTracking)
-                                .textCase(.uppercase)
-                                .foregroundStyle(primary)
+                    // One row while it fits; at accessibility sizes the subtitle drops under the title, which wraps
+                    // only between words (see `headerTitleFit`).
+                    ViewThatFits(in: .horizontal) {
+                        HStack(alignment: .firstTextBaseline, spacing: 10) {
+                            compactTitle(primary: primary, lines: 1)
+                            Spacer(minLength: 8)
+                            compactSubtitle(secondary: secondary)
                         }
-                        Spacer(minLength: 8)
-                        if let subtitle {
-                            Text(subtitle)
-                                .font(StrandFont.caption)
-                                .foregroundStyle(secondary)
-                                .lineLimit(1)
+                        VStack(alignment: .leading, spacing: 2) {
+                            compactTitle(primary: primary, lines: 2)
+                            compactSubtitle(secondary: secondary)
                         }
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
             }
@@ -105,6 +103,28 @@ public struct NoopScreenHeader<Trailing: View>: View {
     }
 
     private var controlSize: CGFloat { style == .expanded ? 38 : 32 }
+
+    @ViewBuilder
+    private func compactTitle(primary: Color, lines: Int) -> some View {
+        if let title {
+            Text(title)
+                .font(StrandFont.screenOverline)
+                .tracking(StrandFont.screenOverlineTracking)
+                .textCase(.uppercase)
+                .foregroundStyle(primary)
+                .headerTitleFit(lines: lines)
+        }
+    }
+
+    @ViewBuilder
+    private func compactSubtitle(secondary: Color) -> some View {
+        if let subtitle {
+            Text(subtitle)
+                .font(StrandFont.caption)
+                .foregroundStyle(secondary)
+                .lineLimit(1)
+        }
+    }
 }
 
 public extension NoopScreenHeader where Trailing == EmptyView {
@@ -140,6 +160,7 @@ public struct NoopTabTitleRow<Trailing: View>: View {
                     .tracking(StrandFont.screenOverlineTracking)
                     .textCase(.uppercase)
                     .foregroundStyle(StrandPalette.textPrimary)
+                    .headerTitleFit()
                     .accessibilityAddTraits(.isHeader)
                 Text(verbatim: "0").font(StrandFont.caption).hidden().frame(width: 0).accessibilityHidden(true)
             }

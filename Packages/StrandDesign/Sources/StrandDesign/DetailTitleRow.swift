@@ -6,7 +6,8 @@ import SwiftUI
 ///
 /// A pushed screen is reached from a tab, so it carries no wordmark of its own and no large title with a
 /// subtitle under it: this row is all of its header, and it is also what pins to the top once it scrolls away.
-/// At accessibility text sizes the context drops under the title instead of squeezing it.
+/// At accessibility text sizes the context drops under the title instead of squeezing it, and the title wraps only
+/// between words (a word wider than the row is scaled down, never split).
 public struct NoopDetailTitleRow<Trailing: View>: View {
     private let title: LocalizedStringKey
     private let context: String?
@@ -31,7 +32,7 @@ public struct NoopDetailTitleRow<Trailing: View>: View {
         ViewThatFits(in: .horizontal) {
             HStack(spacing: NoopMetrics.space2) {
                 backChip
-                titleText.lineLimit(1)
+                titleText(lines: 1)
                 Spacer(minLength: NoopMetrics.space2)
                 contextText
                 trailing()
@@ -39,7 +40,7 @@ public struct NoopDetailTitleRow<Trailing: View>: View {
             HStack(spacing: NoopMetrics.space2) {
                 backChip
                 VStack(alignment: .leading, spacing: 2) {
-                    titleText.lineLimit(2)
+                    titleText(lines: 2)
                     contextText
                 }
                 Spacer(minLength: NoopMetrics.space2)
@@ -63,12 +64,13 @@ public struct NoopDetailTitleRow<Trailing: View>: View {
         .accessibilityLabel("Back")
     }
 
-    private var titleText: some View {
+    private func titleText(lines: Int) -> some View {
         Text(title)
             .font(StrandFont.screenOverline)
             .tracking(StrandFont.screenOverlineTracking)
             .textCase(.uppercase)
             .foregroundStyle(StrandPalette.textPrimary)
+            .headerTitleFit(lines: lines)
             .accessibilityAddTraits(.isHeader)
     }
 
@@ -86,5 +88,15 @@ public struct NoopDetailTitleRow<Trailing: View>: View {
 public extension NoopDetailTitleRow where Trailing == EmptyView {
     init(_ title: LocalizedStringKey, context: String? = nil, backAction: @escaping () -> Void) {
         self.init(title, context: context, backAction: backAction) { EmptyView() }
+    }
+}
+
+extension View {
+    /// A header title that never breaks inside a word. It wraps between words (two lines at most); when one word is
+    /// wider than the line, the type is scaled down to fit it instead of being hyphenated. SwiftUI scales before it
+    /// splits a word only when a scale floor is set and the line limit is small enough that splitting would not fit,
+    /// so the two modifiers go together.
+    func headerTitleFit(lines: Int = 2) -> some View {
+        lineLimit(lines).minimumScaleFactor(0.5)
     }
 }
