@@ -258,9 +258,7 @@ struct WorkoutsView: View {
         // #64: name the merged session when every selected row is a bare detected bout (there's no sport
         // to inherit). Reuses the "Start a workout" named-sport picker.
         .sheet(item: $mergeSportPrompt) { target in
-            StartWorkoutSheet(title: String(localized: "Name the merged session"),
-                              subtitle: String(localized: "These sessions have no sport label yet. Pick one for the merged session."),
-                              actionVerb: String(localized: "Merge")) { name in
+            StartWorkoutSheet(purpose: .nameMergedSession) { name in
                 performMerge(target.rows, sport: name)
             }
         }
