@@ -42,9 +42,10 @@ struct FullDayChartView: View {
     @State private var ownedOnly = true
 
     @State private var series: Repository.TimelineSeries = .empty
-    /// Seconds the shown DAY spent resting / steady / pushing, read once per day at a fixed one-minute resolution so the
-    /// totals never depend on how far the chart is zoomed. Empty until the read lands.
-    @State private var zoneSeconds: [Double] = [0, 0, 0]
+    /// Seconds a DAY spent resting / steady / pushing, read once per day at a fixed one-minute resolution so the
+    /// totals never depend on how far the chart is zoomed. They carry the day they were read for, and only the shown
+    /// day's are drawn: stepping to another day shows no totals until its own land, never the last day's under it.
+    @State private var zoneTotals: ZoneTotals?
     // #979 spin-off — day annotations, mirroring the classic Today's Overview HR markers: the main
     // night's band (labelled with its duration) and each workout's sport glyph. Day-scoped facts, so
     // they're loaded per shown day (NOT per zoom window — the chart clamps them into the visible
@@ -83,7 +84,7 @@ struct FullDayChartView: View {
             // under the eyebrow, the chart in the Live HR module's language), the time in range, the source.
             VStack(alignment: .leading, spacing: 0) {
                 timelineSection
-                if metric == .hr, zoneSeconds.reduce(0, +) > 0 {
+                if metric == .hr, shownZoneSeconds.reduce(0, +) > 0 {
                     DrillInSeparator()
                     zonesSection
                 }
@@ -379,8 +380,11 @@ struct FullDayChartView: View {
 
     // MARK: Time in range (heart rate)
 
+    /// Time in range of the day on screen: none until that day's totals land.
+    private var shownZoneSeconds: [Double] { zoneTotals?.seconds(for: dayStart) ?? [0, 0, 0] }
+
     private var zonesSection: some View {
-        let seconds = zoneSeconds
+        let seconds = shownZoneSeconds
         let total = max(seconds.reduce(0, +), 1)
         let rows: [(word: String, range: String, ink: Color)] = [
             (String(localized: "Rest"), "<60", StrandPalette.liveRed.opacity(0.58)),
@@ -400,6 +404,18 @@ struct FullDayChartView: View {
                             seconds: seconds[index], fraction: seconds[index] / total)
                 }
             }
+        }
+    }
+
+    /// Time in range as read for one day.
+    struct ZoneTotals: Equatable {
+        let day: Date
+        let seconds: [Double]
+
+        /// The totals if they were read for `shownDay`, and none (zero seconds in every zone) if they belong to another
+        /// day, so a slow or cancelled read can never leave the last day's figures under a new day.
+        func seconds(for shownDay: Date) -> [Double] {
+            day == shownDay ? seconds : [0, 0, 0]
         }
     }
 
@@ -508,10 +524,11 @@ struct FullDayChartView: View {
     /// calendar day read at one-minute buckets whatever the chart's zoom, each bucket standing for its own width.
     /// (1500 target points makes the read layer pick 60 s for a 23-, 24- or 25-hour day alike.)
     private func reloadZones() async {
-        guard metric == .hr else { zoneSeconds = [0, 0, 0]; return }
+        guard metric == .hr else { zoneTotals = nil; return }
+        let day = dayStart
         let result = await repo.timelineSeries(
             metric: .hr,
-            from: Int(dayStart.timeIntervalSince1970),
+            from: Int(day.timeIntervalSince1970),
             to: Int(nextDayStart.timeIntervalSince1970),
             targetPoints: 1500
         )
@@ -523,7 +540,7 @@ struct FullDayChartView: View {
             else if point.value < HRZoneStyle.steadyCeiling { totals[1] += width }
             else { totals[2] += width }
         }
-        zoneSeconds = totals
+        zoneTotals = ZoneTotals(day: day, seconds: totals)
     }
 
     /// #979 spin-off — load the shown day's sleep + workouts and scope them EXACTLY like the classic
@@ -607,11 +624,10 @@ struct FullDayChartView: View {
         }
     }
 
-    /// The time of day in the device's locale, time zone and 12/24-hour preference ("5:45 PM" / "17:45"). The style
-    /// resolves the autoupdating locale and time zone each time it formats, so a travelling or re-regioned device
-    /// never keeps showing the old one.
+    /// The time of day as the rest of the app writes it: the device's locale and time zone with the app's own
+    /// 12/24-hour setting ("5:45 PM" / "17:45").
     private static func timeText(_ date: Date) -> String {
-        date.formatted(.dateTime.hour().minute())
+        AppClock.hourMinute(date)
     }
 }
 

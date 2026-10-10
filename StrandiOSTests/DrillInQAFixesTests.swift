@@ -102,6 +102,18 @@ final class DrillInQAFixesTests: XCTestCase {
         XCTAssertTrue(DrillInRange.all.showsYear && DrillInRange.year.showsYear && !DrillInRange.half.showsYear)
     }
 
+    // MARK: Time in range belongs to its day
+
+    func testTimeInRangeTotalsAreOnlyShownForTheirOwnDay() {
+        let monday = Date(timeIntervalSince1970: 1_700_000_000)
+        let tuesday = monday.addingTimeInterval(86_400)
+        let totals = FullDayChartView.ZoneTotals(day: monday, seconds: [600, 1_200, 60])
+        XCTAssertEqual(totals.seconds(for: monday), [600, 1_200, 60])
+        // Stepping to the next day before its read lands (or after a read that was cancelled) draws no totals,
+        // never Monday's under Tuesday.
+        XCTAssertEqual(totals.seconds(for: tuesday), [0, 0, 0])
+    }
+
     // MARK: The spoken stress hour is one format string and follows the app's clock
 
     func testTheSpokenStressHourNamesItsBandAndFollowsTheAppsClock() {
