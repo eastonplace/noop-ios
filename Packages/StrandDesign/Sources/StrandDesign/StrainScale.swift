@@ -81,11 +81,43 @@ public enum RecoveryBand: String, CaseIterable, Sendable {
 
 /// WHOOP-compatible Recovery valuation boundaries and their Paper-aware colors.
 public enum RecoveryBands {
+    /// Inside the red band a score under this is "Depleted", the rest of the band "Low".
+    private static let depletedBelow = 25.0
+    /// Inside the green band a score from this is "Peak", the rest of the band "Primed".
+    private static let peakFrom = 88.0
+
+    /// The score as the screens print it: whole points (rounded half away from zero, like every score label), kept
+    /// inside 0...100. The bands cut that number, so a 66.6 that is drawn "67" is a "67" and never a yellow one.
+    /// A score that is not a number reads as 0, the depleted end, never as a good one.
+    private static func displayed(_ score: Double) -> Double {
+        score.isFinite ? min(max(score.rounded(), 0), 100) : 0
+    }
+
     public static func band(for score: Double) -> RecoveryBand {
-        let value = score.isFinite ? min(max(score, 0), 100) : 0
+        let value = displayed(score)
         if value >= 67 { return .high }
         if value >= 34 { return .medium }
         return .low
+    }
+
+    /// The one word for a recovery score, in Title Case: Depleted, Low, Moderate, Primed or Peak. Every screen that
+    /// names a score gets it from here (the pillar cards, the drill-in, the ring, the heat-strip tooltip). The two
+    /// extra cut points sit inside a colour band, so each word wears exactly one colour: Depleted and Low are the
+    /// red band, Moderate the yellow one, Primed and Peak the green one. A ring that draws caps uppercases it there.
+    public static func word(for score: Double) -> String {
+        let value = displayed(score)
+        switch band(for: value) {
+        case .low:
+            return value < depletedBelow
+                ? String(localized: "Depleted", bundle: .module)
+                : String(localized: "Low", bundle: .module)
+        case .medium:
+            return String(localized: "Moderate", bundle: .module)
+        case .high:
+            return value < peakFrom
+                ? String(localized: "Primed", bundle: .module)
+                : String(localized: "Peak", bundle: .module)
+        }
     }
 
     public static func color(for score: Double) -> Color {

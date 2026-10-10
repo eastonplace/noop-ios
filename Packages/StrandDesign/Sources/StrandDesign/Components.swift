@@ -615,7 +615,9 @@ public struct SegmentedPillControl<T: Hashable>: View {
                                 }
                             }
                         )
-                        .contentShape(Capsule(style: .continuous))
+                        // A finger gets 44 pt of height though the segment is drawn 32: the touch shape reaches 6 pt
+                        // above and below it, which changes nothing in the layout.
+                        .contentShape(SegmentTouchShape())
                 }
                 .buttonStyle(.plain)
                 .frame(height: 32)   // segment height; the pill fills it for an even inset
@@ -640,6 +642,14 @@ public struct SegmentedPillControl<T: Hashable>: View {
         #elseif os(watchOS)
         StrandHaptic.selection.play()
         #endif
+    }
+}
+
+/// The touch area of a pill segment: its own width, and 6 pt more above and below it, so a segment drawn 32 pt tall
+/// is 44 pt tall to a finger without growing the control.
+struct SegmentTouchShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        Path(rect.insetBy(dx: 0, dy: -6))
     }
 }
 

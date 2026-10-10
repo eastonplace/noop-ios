@@ -80,6 +80,10 @@ struct ScoringGuideView: View {
     /// Drives the brief highlight pulse on the deep-linked section.
     @State private var highlighted: ScoreSection? = nil
 
+    /// The height of the compact header the scaffold pins over the scroll content once the page header has scrolled
+    /// away (wordmark row, title row, their padding) plus a little air; it grows with the text size.
+    @ScaledMetric(relativeTo: .caption) private var pinnedHeaderClearance: CGFloat = 84
+
     var body: some View {
         ScrollViewReader { proxy in
             ScreenScaffold(title: "How your scores work",
@@ -105,6 +109,11 @@ struct ScoringGuideView: View {
         }
         .safeAreaInset(edge: .bottom, spacing: 0) { footerBar.sheetFooterBar() }
         .sheetScreenScaffoldEnvironment()
+        #if os(iOS)
+        // Pushed onto a NavigationStack (a score breakdown sheet's "How Recovery is calculated"), the guide still draws
+        // its own header and close button; the system bar above it would be a second, empty one. A sheet root has no bar.
+        .toolbar(.hidden, for: .navigationBar)
+        #endif
         // Same sizing split as WhatsNewView: a fixed window on macOS, fill the presented
         // sheet on iOS so nothing runs off a narrow phone screen (#185).
         #if os(macOS)
@@ -181,13 +190,30 @@ struct ScoringGuideView: View {
         }
     }
 
+    /// A score section and the target a jump scrolls to. The target is an empty strip as tall as the compact header the
+    /// scaffold pins over the content once the page header has scrolled away, directly above the card, so a jump leaves
+    /// the card just below that header, not under it. (Padding on the card itself does not move where a jump lands;
+    /// the id has to sit on a view with a frame of its own.) The strip is pulled up into the gap above the card, so
+    /// the cards sit exactly where they would without it.
+    private func scoreCard(_ section: ScoreSection, headline: String, body: String, vsWhoop: String) -> some View {
+        VStack(spacing: 0) {
+            Color.clear
+                .frame(height: pinnedHeaderClearance)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+                .id(section.id)
+            scoreCardContent(section, headline: headline, body: body, vsWhoop: vsWhoop)
+        }
+        .padding(.top, -pinnedHeaderClearance)
+    }
+
     /// One colour-accented score section: a FLAT WHOOP-grey card (faintly washed with the section's Reset
     /// accent) carrying a clean sample ring of that score beside an accent-tinted headline, the body, and
     /// an italic "vs WHOOP" line set off by a hairline rule. The ring is illustrative — a "what a strong
     /// day reads like" preview in the section's own colour — so a glance maps a card to its Today ring.
     /// Design Reset: a flat GlowRing (no bloom) replaces the old BevelGauge; the accent is a Reset score
     /// token, never gold / strain / sleep-purple.
-    private func scoreCard(_ section: ScoreSection, headline: String, body: String, vsWhoop: String) -> some View {
+    private func scoreCardContent(_ section: ScoreSection, headline: String, body: String, vsWhoop: String) -> some View {
         PaperCard {
             VStack(alignment: .leading, spacing: 14) {
                 // Header row — the flat sample ring sits beside the accent icon + headline.
@@ -239,7 +265,6 @@ struct ScoringGuideView: View {
                 .opacity(highlighted == section ? 1 : 0)
         )
         .animation(.easeOut(duration: 0.35), value: highlighted)
-        .id(section.id)
     }
 
     /// The flat illustrative ring for a score section — a clean GlowRing (Design Reset: solid crisp arc,

@@ -74,7 +74,8 @@ public struct RecoveryRing: View {
 
     private var fraction: Double { min(max(score / 100.0, 0), 1) }
     private var tipColor: Color { RecoveryBands.color(for: score) }
-    private var stateWord: String { StrandPalette.recoveryState(score) }
+    /// The one recovery word (Title Case); the ring draws it in caps, a tooltip and VoiceOver say it as written.
+    private var stateWord: String { RecoveryBands.word(for: score) }
 
     public var body: some View {
         ZStack {
@@ -85,7 +86,7 @@ public struct RecoveryRing: View {
                 size: diameter,
                 lineWidth: lineWidth,
                 format: { ComponentValueFormat.rounded($0) },
-                centerCaption: showsLabel ? stateWord : nil,
+                centerCaption: showsLabel ? stateWord.localizedUppercase : nil,
                 showsValue: showsLabel
             )
             if showsHover, let pt = hoverPoint {

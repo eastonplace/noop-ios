@@ -8,7 +8,8 @@ import StrandDesign
 /// quick-action / routed-pillar sheets. Pair it with `--demo-seed` (demo data) and, optionally, `--demo-tab`.
 ///
 /// Routes: stress, hr-timeline, pillar-recovery, pillar-strain, sleep, workouts, today-workouts, health,
-/// metric-explorer, metric-detail-hrv, compare, trends-explore, insights, intelligence, scoring-guide, updates,
+/// metric-explorer, metric-detail-hrv, compare, trends-explore, insights, intelligence, scoring-guide,
+/// scoring-guide-recovery (the guide opened at its Recovery section, as the Recovery ⓘ opens it), updates,
 /// live-hr, breathe, journal, intervals, start-workout, rhythm, smart-alarm, hydration, fitness-age, coupled,
 /// lab-book, trends-report.
 enum QARoute: String, CaseIterable {
@@ -27,6 +28,7 @@ enum QARoute: String, CaseIterable {
     case insights
     case intelligence
     case scoringGuide = "scoring-guide"
+    case scoringGuideRecovery = "scoring-guide-recovery"
     case updates
     case liveHR = "live-hr"
     case breathe
@@ -60,7 +62,7 @@ enum QARoute: String, CaseIterable {
             return .push(.today)
         case .pillarRecovery, .pillarStrain, .sleep:
             return .cover(.today)
-        case .scoringGuide:
+        case .scoringGuide, .scoringGuideRecovery:
             return .sheet(.today)
         case .metricExplorer, .metricDetailHRV, .compare, .trendsExplore, .insights, .intelligence, .labBook:
             return .push(.trends)
@@ -150,9 +152,17 @@ enum QACoachAvailability {
 /// `--noop-qa-scroll-poll`; the script writes the wanted offset in points (0 = top) to `/tmp/noop-qa-scroll.txt`
 /// and reads the `[qa-scroll] ...` line the app logs once the offset is applied.
 enum QAScrollDriver {
-    /// `NOOP_QA_SCROLL_FILE` (passed as `SIMCTL_CHILD_NOOP_QA_SCROLL_FILE`) gives a capture run its own request
-    /// file, so two simulators driven at once never scroll each other's screens.
-    static let requestPath = ProcessInfo.processInfo.environment["NOOP_QA_SCROLL_FILE"] ?? "/tmp/noop-qa-scroll.txt"
+    /// The request file a capture run scrolls through: `--noop-qa-scroll-file <path>` if the launch passes one,
+    /// else `NOOP_QA_SCROLL_FILE` (passed as `SIMCTL_CHILD_NOOP_QA_SCROLL_FILE`), else `/tmp/noop-qa-scroll.txt`.
+    /// Either of the first two gives a run its own file, so two simulators driven at once never scroll each
+    /// other's screens.
+    static let requestPath: String = {
+        let arguments = ProcessInfo.processInfo.arguments
+        if let index = arguments.firstIndex(of: "--noop-qa-scroll-file"), arguments.indices.contains(index + 1) {
+            return arguments[index + 1]
+        }
+        return ProcessInfo.processInfo.environment["NOOP_QA_SCROLL_FILE"] ?? "/tmp/noop-qa-scroll.txt"
+    }()
     static var enabled: Bool { ProcessInfo.processInfo.arguments.contains("--noop-qa-scroll-poll") }
 
     @MainActor static func run() async {
@@ -305,6 +315,7 @@ private struct QARouteHost: ViewModifier {
     @ViewBuilder private var sheetDestination: some View {
         switch route {
         case .scoringGuide: ScoringGuideView(onClose: { sheeted = false })
+        case .scoringGuideRecovery: ScoringGuideView(initialSection: .recovery, onClose: { sheeted = false })
         case .trendsReport: TrendsReportSheet(days: repo.canonicalDays)
         default: EmptyView()
         }

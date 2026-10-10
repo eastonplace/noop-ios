@@ -79,10 +79,6 @@ public extension HRZoneTotalsView {
     init(_publicAPI: Void = (), totals: [HRZoneTotal]) { self.totals = totals }
 }
 
-public extension HRZoneLegend {
-    init(_publicAPI: Void = ()) {}
-}
-
 
 public extension RecoveryStandingRow {
     init(_publicAPI: Void = (), percentile: Double, highDays: Int, mediumDays: Int, lowDays: Int) {

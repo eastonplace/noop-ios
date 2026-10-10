@@ -225,12 +225,22 @@ def main() -> int:
             'public static let sleepAccent = Color(hex: "#7BA1BB")',
             'public static let sleepNeedTeal = Color(hex: "#00F19F")',
             'public static let recoveryData = Color(hex: "#67AEE6")',
-            "case ..<34: return recoveryLow",
-            "case ..<67: return recoveryMed",
+            # The palette holds no recovery cuts of its own: the colour of a score comes from RecoveryBands.
+            "return RecoveryBands.color(for: score)",
             ".init(color: recoveryLow, location: 0.339)",
             ".init(color: recoveryMed, location: 0.340)",
             ".init(color: recoveryMed, location: 0.669)",
             ".init(color: recoveryHigh, location: 0.670)",
+        )
+        forbid(
+            "Packages/StrandDesign/Sources/StrandDesign/Palette.swift",
+            "case ..<34: return recoveryLow",
+            "case ..<67: return recoveryMed",
+        )
+        require(
+            "Packages/StrandDesign/Sources/StrandDesign/StrainScale.swift",
+            "if value >= 67 { return .high }",
+            "if value >= 34 { return .medium }",
         )
 
         require(
