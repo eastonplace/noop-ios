@@ -31,6 +31,7 @@ struct WorkoutHeartRateCurve: View {
     }
 
     @State private var scrubIndex: Int?
+    @Environment(\.dynamicTypeSize) private var typeSize
     @ScaledMetric(relativeTo: .caption) private var labelUnit: CGFloat = 1
     @ScaledMetric(relativeTo: .title3) private var readoutSize: CGFloat = 22
     @ScaledMetric(relativeTo: .body) private var fullHeight: CGFloat = 168
@@ -184,9 +185,17 @@ struct WorkoutHeartRateCurve: View {
 
     // MARK: Time
 
+    /// Four labels across the plot; from the accessibility sizes only the start and the end, since four at that size
+    /// would be cut to "11:…".
+    private var labelledTimes: [Double] {
+        let times = series.labelTimes()
+        guard typeSize.isAccessibilitySize, times.count > 2, let first = times.first, let last = times.last else { return times }
+        return [first, last]
+    }
+
     private var timeLabels: some View {
         HStack(spacing: 0) {
-            ForEach(Array(series.labelTimes().enumerated()), id: \.offset) { index, seconds in
+            ForEach(Array(labelledTimes.enumerated()), id: \.offset) { index, seconds in
                 if index > 0 { Spacer(minLength: NoopMetrics.space1) }
                 Text(verbatim: WorkoutElapsed.text(seconds))
                     .font(StrandFont.micro)
