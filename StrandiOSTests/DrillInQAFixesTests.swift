@@ -87,7 +87,7 @@ final class DrillInQAFixesTests: XCTestCase {
 
     // MARK: Range control
 
-    func testRangeDaysAndTitles() {
+    func testRangeWindowLengths() {
         let calendar = Calendar(identifier: .gregorian)
         let today = calendar.startOfDay(for: Date())
         let earliest = calendar.date(byAdding: .day, value: -499, to: today)
@@ -100,6 +100,15 @@ final class DrillInQAFixesTests: XCTestCase {
         XCTAssertEqual(DrillInRange.standard, [.week, .month, .quarter, .half])
         XCTAssertEqual(DrillInRange.extended.last, .all)
         XCTAssertTrue(DrillInRange.all.showsYear && DrillInRange.year.showsYear && !DrillInRange.half.showsYear)
+    }
+
+    func testRangeTitlesNameTheWindow() {
+        XCTAssertEqual(DrillInRange.week.title(days: 7), "Last 7 days")
+        XCTAssertEqual(DrillInRange.half.title(days: 180), "Last 180 days")
+        XCTAssertEqual(DrillInRange.year.title(days: 365), "Last 365 days")
+        // ALL is named for what it is, whatever length the history turns out to be.
+        XCTAssertEqual(DrillInRange.all.title(days: 500), "All time")
+        XCTAssertEqual(DrillInRange.all.title(days: 30), "All time")
     }
 
     // MARK: Time in range belongs to its day

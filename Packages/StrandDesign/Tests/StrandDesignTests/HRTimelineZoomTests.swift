@@ -3,6 +3,7 @@ import XCTest
 
 /// The Deep Timeline's pinch and pan maths: zooming out stops at the day, zooming in stops at the floor, and a
 /// window that is the whole day is recognised as such.
+@MainActor
 final class HRTimelineZoomTests: XCTestCase {
     private let day: ClosedRange<TimeInterval> = 0...86_400
     private let threeDays: ClosedRange<TimeInterval> = -172_800...86_400
