@@ -7,6 +7,10 @@ import StrandDesign
 // to clear, quiet rails at the peak and the low with the average dashed between them, each rail's number on a canvas
 // plate that moves to the stretch the line crosses least, and at most four time labels. Touch and hold, then drag, to
 // read any moment; a touch that moves at once is the page scrolling.
+//
+// The same curve is the summary's one heart-rate picture. On the Heart Rate tab it is full height and readable by touch.
+// On the Overview it is `isCompact`: shorter, with no reading of its own (the page around it is the button that opens
+// the Heart Rate tab), and it can mark where one heart-rate zone fell.
 
 struct WorkoutHeartRateCurve: View {
     let series: WorkoutHeartRateSeries
@@ -14,28 +18,46 @@ struct WorkoutHeartRateCurve: View {
     let start: Int
     /// What a screen reader calls the chart ("Heart rate during Running").
     let accessibilityName: String
+    /// A shorter plot with no reading line and no touch reading, for a curve that is itself a way into the full one.
+    var isCompact = false
+    /// The stretches of the session to mark behind the line, for one zone. nil marks nothing.
+    var highlight: Highlight?
+
+    /// Where one heart-rate zone fell: its number (which picks the colour) and the spans of the session it covered, in
+    /// seconds from the start.
+    struct Highlight: Equatable {
+        let zone: Int
+        let spans: [ClosedRange<Double>]
+    }
 
     @State private var scrubIndex: Int?
     @ScaledMetric(relativeTo: .caption) private var labelUnit: CGFloat = 1
     @ScaledMetric(relativeTo: .title3) private var readoutSize: CGFloat = 22
-    @ScaledMetric(relativeTo: .body) private var plotHeight: CGFloat = 168
+    @ScaledMetric(relativeTo: .body) private var fullHeight: CGFloat = 168
+    @ScaledMetric(relativeTo: .body) private var compactHeight: CGFloat = 96
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: NoopMetrics.space2) {
-            readout
+    private var plotHeight: CGFloat { isCompact ? compactHeight : fullHeight }
+
+    @ViewBuilder var body: some View {
+        let chart = VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+            if !isCompact { readout }
             plot
             timeLabels
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(verbatim: accessibilityName))
         .accessibilityValue(Text(verbatim: spokenReading))
-        .accessibilityAdjustableAction { direction in
-            let last = series.samples.count - 1
-            let step = max(1, series.samples.count / 24)
-            switch direction {
-            case .increment: scrubIndex = min(last, (scrubIndex ?? -step) + step)
-            case .decrement: scrubIndex = max(0, (scrubIndex ?? step) - step)
-            @unknown default: break
+        if isCompact {
+            chart
+        } else {
+            chart.accessibilityAdjustableAction { direction in
+                let last = series.samples.count - 1
+                let step = max(1, series.samples.count / 24)
+                switch direction {
+                case .increment: scrubIndex = min(last, (scrubIndex ?? -step) + step)
+                case .decrement: scrubIndex = max(0, (scrubIndex ?? step) - step)
+                @unknown default: break
+                }
             }
         }
     }
@@ -80,7 +102,8 @@ struct WorkoutHeartRateCurve: View {
         GeometryReader { proxy in
             let size = proxy.size
             let frame = PlotFrame(series: series, size: size, labelUnit: labelUnit)
-            ZStack {
+            let canvas = ZStack {
+                zoneBands(size)
                 rails(frame, width: size.width)
                 if frame.points.count >= 2 {
                     frame.area
@@ -114,15 +137,34 @@ struct WorkoutHeartRateCurve: View {
             }
             .frame(width: size.width, height: size.height)
             .contentShape(Rectangle())
-            .holdToScrub(
-                onScrub: { location in
-                    guard size.width > 0 else { return }
-                    let next = series.index(atFraction: Double(location.x / size.width))
-                    if next != scrubIndex { scrubIndex = next }
-                },
-                onEnd: { scrubIndex = nil })
+            if isCompact {
+                canvas
+            } else {
+                canvas.holdToScrub(
+                    onScrub: { location in
+                        guard size.width > 0 else { return }
+                        let next = series.index(atFraction: Double(location.x / size.width))
+                        if next != scrubIndex { scrubIndex = next }
+                    },
+                    onEnd: { scrubIndex = nil })
+            }
         }
         .frame(height: plotHeight)
+    }
+
+    /// The marked zone as tinted full-height bands behind the line, one path for however many stretches there are.
+    @ViewBuilder private func zoneBands(_ size: CGSize) -> some View {
+        if let highlight, !highlight.spans.isEmpty, series.duration > 0 {
+            Path { path in
+                for span in highlight.spans {
+                    let start = size.width * CGFloat(min(max(span.lowerBound / series.duration, 0), 1))
+                    let end = size.width * CGFloat(min(max(span.upperBound / series.duration, 0), 1))
+                    path.addRect(CGRect(x: start, y: 0, width: max(1.5, end - start), height: size.height))
+                }
+            }
+            .fill(StrandPalette.hrZoneColor(highlight.zone).opacity(0.3))
+            .accessibilityHidden(true)
+        }
     }
 
     @ViewBuilder private func rails(_ frame: PlotFrame, width: CGFloat) -> some View {

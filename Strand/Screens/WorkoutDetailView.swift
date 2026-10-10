@@ -13,8 +13,8 @@ import MapKit
 //
 //   • the session's Strain as a dial when NOOP scored it, as WHOOP's own number (named, in a neutral dial) when WHOOP
 //     did, and as a calm "Not scored" when nobody did, beside how long it was and when;
-//   • Overview: the session's numbers as tiles, the heart-rate recovery after it, and the time in each heart-rate
-//     zone with the session's timeline (choose a zone to see where it fell);
+//   • Overview: the session's numbers as tiles, the heart-rate recovery after it, the time in each heart-rate
+//     zone and the session's heart rate in brief (choose a zone to see where it fell; the curve opens the next tab);
 //   • Heart Rate: the whole session's curve with the average, peak and low marked, readable by touch and hold;
 //   • Map: the GPS route recorded on this device (#524), shown only when points were actually captured, and the
 //     elevation row, which says plainly that it is not recorded.
@@ -356,8 +356,10 @@ struct WorkoutDetailView: View {
 
     @ViewBuilder private var zones: some View {
         if let minutes = zoneMinutes {
-            WorkoutZoneSummary(minutes: minutes, timeline: zoneTimeline, imported: zonesFromImport,
-                               start: displayRow.startTs, end: displayRow.endTs, zoneSet: zoneSet)
+            WorkoutZoneSummary(minutes: minutes, timeline: zoneTimeline, heartRate: heartRate,
+                               imported: zonesFromImport, start: displayRow.startTs, zoneSet: zoneSet,
+                               curveName: String(localized: "Heart rate during \(sportName)"),
+                               onOpenHeartRate: { detailTab = .heartRate })
         }
     }
 
