@@ -22,17 +22,11 @@ struct WorkoutZoneSummary: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var selectedZone: Int?
 
-    private var values: [Double] { Array((minutes + Array(repeating: 0, count: 5)).prefix(5)).map { max(0, $0) } }
-
     var body: some View {
         FlatSection("Heart rate zones", systemImage: "heart.fill", tint: .heart) {
             VStack(alignment: .leading, spacing: WidgetMetrics.contentSpacing) {
                 HRZoneDistribution(
-                    zones: (1...5).map { zone in
-                        HRZoneDistribution.Zone(
-                            number: zone, name: WorkoutZoneNames.name(for: zone),
-                            seconds: values[zone - 1] * 60, range: zoneSet?.bpmRangeLabel(forZone: zone))
-                    },
+                    zones: WorkoutZoneRows.zones(minutes: minutes, zoneSet: zoneSet),
                     selection: $selectedZone,
                     rowHint: String(localized: "Shows where this zone fell on the timeline"))
                 Text(imported
@@ -74,13 +68,13 @@ struct WorkoutZoneSummary: View {
                 }
                 WorkoutZoneTimelineChart(timeline: timeline, start: start, end: end, selectedZone: selectedZone)
                 if timeline.unobservedSeconds > 10 {
-                    Text("\(Self.duration(timeline.unobservedSeconds)) without readings. Gaps are not counted as time in a zone.")
+                    Text("\(WorkoutFormat.spokenDuration(timeline.unobservedSeconds)) without readings. Gaps are not counted as time in a zone.")
                         .font(StrandFont.footnote)
                         .foregroundStyle(StrandPalette.textTertiary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 if timeline.belowZoneMinutes > 0 {
-                    Text("Below Zone 1: \(Self.duration(timeline.belowZoneMinutes * 60))")
+                    Text("Below Zone 1: \(WorkoutFormat.spokenDuration(timeline.belowZoneMinutes * 60))")
                         .font(StrandFont.footnote)
                         .foregroundStyle(StrandPalette.textTertiary)
                 }
@@ -91,12 +85,6 @@ struct WorkoutZoneSummary: View {
                 .foregroundStyle(StrandPalette.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
         }
-    }
-
-    /// "1h 05m"-style time in the person's units.
-    private static func duration(_ seconds: Double) -> String {
-        let rounded = max(60, (seconds / 60).rounded() * 60)
-        return Duration.seconds(rounded).formatted(.units(allowed: [.hours, .minutes], width: .narrow))
     }
 }
 

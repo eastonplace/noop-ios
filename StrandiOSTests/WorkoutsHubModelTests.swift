@@ -1,4 +1,5 @@
 import XCTest
+import StrandAnalytics
 import WhoopStore
 @testable import NOOP
 
@@ -224,5 +225,78 @@ final class WorkoutsHubModelTests: XCTestCase {
         let run = row(at: date(2026, 10, 8, 18), minutes: 30, sport: "Running", kcal: 300, avgHr: 150, distanceM: 5_000)
         let runShown = WorkoutRowPresentation.make(run, unitSystem: .metric, when: .day, detail: .full, now: now, calendar: calendar)
         XCTAssertTrue(runShown.lines.flatMap { $0 }.contains { $0.contains("/km") })
+    }
+
+    // MARK: Review fixes
+
+    func testAWeekStaysOnMidnightsWhenADaylightSavingGapSwallowsOne() {
+        // Chile puts its clocks forward at midnight, so Sunday 6 September 2026 has no 00:00 (it starts at 01:00).
+        var chile = Calendar(identifier: .gregorian)
+        chile.timeZone = TimeZone(identifier: "America/Santiago")!
+        chile.firstWeekday = 1   // Sunday
+        chile.locale = Locale(identifier: "en_US")
+        let wednesday = chile.date(from: DateComponents(year: 2026, month: 9, day: 9, hour: 12))!
+        let week = WorkoutWeekSummary.make(rows: [], now: wednesday, calendar: chile)
+        XCTAssertEqual(week.days.map { chile.component(.day, from: $0.start) }, [6, 7, 8, 9, 10, 11, 12])
+        for day in week.days {
+            XCTAssertEqual(day.start, chile.startOfDay(for: day.start), "a day starts at its own midnight")
+        }
+        XCTAssertEqual(week.days.filter(\.isToday).map { chile.component(.day, from: $0.start) }, [9])
+        // A workout in the first hour of Wednesday belongs to Wednesday, not to Tuesday.
+        let earlyWednesday = chile.date(from: DateComponents(year: 2026, month: 9, day: 9, hour: 0, minute: 30))!
+        let early = row(at: earlyWednesday, minutes: 20)
+        let withRow = WorkoutWeekSummary.make(rows: [early], now: wednesday, calendar: chile)
+        XCTAssertEqual(withRow.days[3].sessions, 1)
+        XCTAssertEqual(withRow.days[2].sessions, 0)
+    }
+
+    func testAnOlderDateNamesItsYearAndThisYearsDoesNot() {
+        let lastYear = WorkoutFormat.day(date(2025, 10, 6, 12), now: now, calendar: calendar)
+        let thisYear = WorkoutFormat.day(date(2026, 10, 6, 12), now: now, calendar: calendar)
+        XCTAssertTrue(lastYear.contains("2025"), lastYear)
+        XCTAssertFalse(thisYear.contains("2026"), thisYear)
+    }
+
+    func testTheSpokenRowWritesDurationsPaceAndHeartRateOut() {
+        let run = row(at: date(2026, 10, 8, 18), minutes: 45, sport: "Running", kcal: 400, avgHr: 150, distanceM: 8_000)
+        let shown = WorkoutRowPresentation.make(run, unitSystem: .metric, when: .day, detail: .full, now: now, calendar: calendar)
+        let spoken = shown.accessibilityLabel
+        XCTAssertTrue(spoken.contains("45 minutes"), spoken)
+        XCTAssertTrue(spoken.contains("per kilometer"), spoken)
+        XCTAssertTrue(spoken.contains("150 beats per minute"), spoken)
+        XCTAssertFalse(spoken.contains("45m"), "a narrow duration is read as metres")
+        XCTAssertFalse(spoken.contains("/km"), "a unit slash is read letter by letter")
+        // What is drawn stays short.
+        XCTAssertTrue(shown.lines.flatMap { $0 }.contains(WorkoutFormat.unbreakable("45m")))
+    }
+
+    func testAWeekOfSessionsWithoutALengthIsNotAMinuteOfActivity() {
+        let noLength = WorkoutRow(startTs: Int(date(2026, 10, 7, 9).timeIntervalSince1970),
+                                  endTs: Int(date(2026, 10, 7, 9).timeIntervalSince1970), sport: "Yoga", source: "manual",
+                                  durationS: nil, energyKcal: nil, avgHr: nil, maxHr: nil, strain: nil, distanceM: nil,
+                                  zonesJSON: nil, notes: nil, strainVersion: nil)
+        let week = WorkoutWeekSummary.make(rows: [noLength], now: now, calendar: calendar)
+        XCTAssertEqual(week.sessionCount, 1)
+        XCTAssertEqual(week.activeSeconds, 0)
+        XCTAssertFalse(week.days[3].hasWorkouts)
+        XCTAssertEqual(week.days[3].sessions, 1)
+    }
+
+    // MARK: Zone rows
+
+    func testZoneRowsCarryTheBandInTheirOwnWordsAndAWrittenOutLabel() throws {
+        let set = HRZones.zones(maxHR: 187)
+        let zones = WorkoutZoneRows.zones(minutes: [1, 2, 3, 20, 0], zoneSet: set)
+        XCTAssertEqual(zones.map(\.number), [1, 2, 3, 4, 5])
+        XCTAssertEqual(zones[3].range, "150–168 bpm")
+        XCTAssertEqual(zones[4].range, "169+ bpm")
+        let hard = try XCTUnwrap(zones[3].accessibilityLabel)
+        XCTAssertTrue(hard.hasPrefix("Zone 4, Hard, 150 to 168 beats per minute, 20 minutes"), hard)
+        XCTAssertFalse(hard.contains("20m"))
+        let maximum = try XCTUnwrap(zones[4].accessibilityLabel)
+        XCTAssertTrue(maximum.contains("169 or more beats per minute"), maximum)
+        XCTAssertTrue(maximum.contains("no time"), maximum)
+        // Without a zone set there is no band to name.
+        XCTAssertNil(WorkoutZoneRows.zones(minutes: [1, 2, 3, 4, 5], zoneSet: nil)[0].range)
     }
 }

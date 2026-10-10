@@ -10,22 +10,31 @@ import WhoopStore
 
 // MARK: Sport glyph
 
-/// A sport's symbol on a quiet disc in the workout tint.
+/// A sport's symbol on a quiet disc in the workout tint. The disc follows the text size up to a ceiling, so a very
+/// large text size never gives the glyph more room than the words beside it.
 struct WorkoutSportGlyph: View {
     let symbol: String
-    @ScaledMetric(relativeTo: .body) private var diameter: CGFloat = 38
+    @ScaledMetric(relativeTo: .body) private var scaledDiameter: CGFloat = 38
+
+    /// The disc's diameter for a scaled 38pt: it grows with the text and stops at 48pt.
+    static func diameter(scaled: CGFloat) -> CGFloat { min(scaled, 48) }
+
+    private var diameter: CGFloat { Self.diameter(scaled: scaledDiameter) }
 
     var body: some View {
         Image(systemName: symbol)
-            .font(.system(size: 16, weight: .semibold))
+            .font(.system(size: diameter * 0.42, weight: .semibold))
             .foregroundStyle(DomainTint.workout.accent)
             .frame(width: diameter, height: diameter)
             .background(Circle().fill(DomainTint.workout.accent.opacity(0.14)))
             .accessibilityHidden(true)
     }
+}
 
-    /// Where a row's text starts, for a separator that lines up under it.
-    static let textInset: CGFloat = 38 + NoopMetrics.space3
+/// Which layout a row wears. From the largest standard text size up, the row stacks (glyph, title, facts, numbers),
+/// because side by side it would cut its facts or break its title.
+enum WorkoutRowLayout {
+    static func stacks(_ size: DynamicTypeSize) -> Bool { size >= .xxxLarge }
 }
 
 // MARK: Strain chip
@@ -34,13 +43,14 @@ struct WorkoutSportGlyph: View {
 /// number is named and stays neutral, so it is never read as a NOOP score.
 struct WorkoutStrainChip: View {
     let badge: WorkoutStrainBadge
+    @ScaledMetric(relativeTo: .caption) private var valueSize: CGFloat = 13
 
     private var tint: Color { badge.isWhoop ? StrandPalette.textSecondary : DomainTint.strain.accent }
 
     var body: some View {
         HStack(spacing: 4) {
             Text(verbatim: badge.text)
-                .font(StrandFont.number(13, weight: .semibold))
+                .font(StrandFont.number(valueSize, weight: .semibold))
                 .foregroundStyle(StrandPalette.textPrimary)
             if badge.isWhoop {
                 Text("WHOOP")
@@ -49,10 +59,7 @@ struct WorkoutStrainChip: View {
             }
         }
         .lineLimit(1)
-        .padding(.horizontal, 9)
-        .padding(.vertical, 3)
-        .background(Capsule(style: .continuous).fill(tint.opacity(0.12)))
-        .overlay(Capsule(style: .continuous).stroke(tint.opacity(0.28), lineWidth: 1))
+        .statePillChrome(tint: tint)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(badge.isWhoop
             ? String(localized: "WHOOP strain \(badge.text)")
@@ -70,10 +77,11 @@ struct WorkoutRowContent: View {
     var heartRate: [Double] = []
     var showsChevron = false
     @Environment(\.dynamicTypeSize) private var typeSize
+    @ScaledMetric(relativeTo: .body) private var leadSize: CGFloat = 17
 
     var body: some View {
         Group {
-            if typeSize.isAccessibilitySize { stacked } else { inline }
+            if WorkoutRowLayout.stacks(typeSize) { stacked } else { inline }
         }
         .padding(.vertical, NoopMetrics.space3)
         .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
@@ -93,16 +101,17 @@ struct WorkoutRowContent: View {
         }
     }
 
+    /// The glyph on a line of its own, then the title, the facts and the numbers, each with the full width.
     private var stacked: some View {
         VStack(alignment: .leading, spacing: NoopMetrics.space2) {
-            HStack(spacing: NoopMetrics.space3) {
+            HStack {
                 WorkoutSportGlyph(symbol: presentation.symbol)
-                Text(verbatim: presentation.title).font(StrandFont.body.weight(.semibold))
-                    .foregroundStyle(StrandPalette.textPrimary)
-                    .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 0)
                 if showsChevron { chevron }
             }
+            Text(verbatim: presentation.title).font(StrandFont.body.weight(.semibold))
+                .foregroundStyle(StrandPalette.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
             VStack(alignment: .leading, spacing: 2) {
                 ForEach(Array(presentation.lines.enumerated()), id: \.offset) { _, facts in
                     Text(verbatim: facts.joined(separator: " · ")).font(StrandFont.footnote)
@@ -112,7 +121,7 @@ struct WorkoutRowContent: View {
             }
             HStack(spacing: NoopMetrics.space3) {
                 if let primary = presentation.primary {
-                    Text(verbatim: primary).font(StrandFont.number(17)).foregroundStyle(StrandPalette.textPrimary)
+                    Text(verbatim: primary).font(StrandFont.number(leadSize)).foregroundStyle(StrandPalette.textPrimary)
                 }
                 if let strain = presentation.strain { WorkoutStrainChip(badge: strain) }
             }
@@ -143,10 +152,9 @@ struct WorkoutRowContent: View {
         VStack(alignment: .trailing, spacing: 4) {
             if let primary = presentation.primary {
                 Text(verbatim: primary)
-                    .font(StrandFont.number(17))
+                    .font(StrandFont.number(leadSize))
                     .foregroundStyle(StrandPalette.textPrimary)
                     .lineLimit(1)
-                    .minimumScaleFactor(0.8)
             }
             if let strain = presentation.strain { WorkoutStrainChip(badge: strain) }
         }
@@ -187,13 +195,23 @@ struct WorkoutFactLine: View {
     }
 }
 
-/// The hairline between two rows, starting under the row's text.
+/// The hairline between two rows, starting under the row's text: after the glyph when the row is side by side, at
+/// the edge when it is stacked. `leadingExtra` is whatever the list puts before the row (the selection column).
 struct WorkoutRowSeparator: View {
+    var leadingExtra: CGFloat = 0
+    @Environment(\.dynamicTypeSize) private var typeSize
+    @ScaledMetric(relativeTo: .body) private var scaledGlyph: CGFloat = 38
+
+    private var inset: CGFloat {
+        let glyph = WorkoutRowLayout.stacks(typeSize) ? 0 : WorkoutSportGlyph.diameter(scaled: scaledGlyph) + NoopMetrics.space3
+        return glyph + leadingExtra
+    }
+
     var body: some View {
         Rectangle()
             .fill(StrandPalette.hairline)
             .frame(height: 1)
-            .padding(.leading, WorkoutSportGlyph.textInset)
+            .padding(.leading, inset)
             .accessibilityHidden(true)
     }
 }
@@ -263,9 +281,16 @@ struct WorkoutWeekBars: View {
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(verbatim: spokenDay(day)))
-        .accessibilityValue(day.hasWorkouts
-            ? Text(verbatim: WorkoutFormat.spokenDuration(day.activeSeconds))
-            : Text("No workouts"))
+        .accessibilityValue(Text(verbatim: spokenValue(day)))
+        .accessibilityAddTraits(day.isToday ? .isSelected : [])
+    }
+
+    /// What a day holds, in words: time when it has some, the count when the sessions carry no length, "Upcoming"
+    /// for a day that has not come, else nothing happened.
+    private func spokenValue(_ day: WorkoutWeekSummary.Day) -> String {
+        if day.hasWorkouts { return WorkoutFormat.spokenDuration(day.activeSeconds) }
+        if day.sessions > 0 { return String(localized: "\(day.sessions) sessions") }
+        return day.isFuture ? String(localized: "Upcoming") : String(localized: "No workouts")
     }
 
     private func label(for day: WorkoutWeekSummary.Day) -> String {
@@ -276,7 +301,8 @@ struct WorkoutWeekBars: View {
 
     private func spokenDay(_ day: WorkoutWeekSummary.Day) -> String {
         let weekday = calendar.component(.weekday, from: day.start) - 1
-        return calendar.weekdaySymbols.indices.contains(weekday) ? calendar.weekdaySymbols[weekday] : ""
+        let name = calendar.weekdaySymbols.indices.contains(weekday) ? calendar.weekdaySymbols[weekday] : ""
+        return day.isToday ? String(localized: "\(name), today") : name
     }
 }
 

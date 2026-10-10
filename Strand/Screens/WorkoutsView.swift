@@ -81,8 +81,20 @@ struct WorkoutsView: View {
     /// The most recent finished lift, read from the lifting log. Nil until read, and when there is none.
     @State private var lastLift: WorkoutLastLift?
     /// Heart-rate zone minutes across the sessions the history is showing. Parsed off the main thread when the
-    /// window or the filters change, never in `body`.
-    @State private var zonesSummary: WorkoutZones.Summary?
+    /// window or the filters change, never in `body`. `.pending` until the first parse reports, so a section that
+    /// has not looked yet never claims there is no data.
+    @State private var zonesPhase: WorkoutZonesSection.Phase = .pending
+    /// Bumped whenever `allRows` is replaced, so everything computed from the rows knows they changed, whatever
+    /// their count and newest start say.
+    @State private var rowsGeneration = 0
+    /// What the hub derives from the rows once per change rather than once per body: the week and the pace row.
+    @State private var derived: HubDerived?
+
+    private struct HubDerived {
+        let day: Date
+        let week: WorkoutWeekSummary
+        let paceRow: WorkoutRow?
+    }
 
     // MARK: - Filters + selection (#64)
 
@@ -166,7 +178,7 @@ struct WorkoutsView: View {
             #endif
             // #797: read only the currently-loaded window (bounded on first paint), not the whole history.
             let r = await repo.workoutRows(days: loadedWindowDays ?? 4000)
-            allRows = r
+            setRows(r)
             let wasLoaded = loaded
             loaded = true
             if !wasLoaded {
@@ -177,7 +189,11 @@ struct WorkoutsView: View {
         }
         .task(id: zonesKey) {
             let rows = sessions(for: effectiveRange)
-            zonesSummary = await Task.detached(priority: .userInitiated) { WorkoutZones.summary(from: rows) }.value
+            let summary = await Task.detached(priority: .userInitiated) { WorkoutZones.summary(from: rows) }.value
+            // A detached task does not stop with this one. Without the check a parse for rows the person has already
+            // filtered away could land after the newer one and replace it.
+            guard !Task.isCancelled else { return }
+            zonesPhase = .ready(summary)
         }
         .onAppear {
             // Preview-seeded rows skip `.task`; still choose a range that has data.
@@ -272,7 +288,28 @@ struct WorkoutsView: View {
     /// Keeps the user's current range — only the initial load picks a default — and the auto-widen
     /// (`effectiveRange`) still covers a now-empty window.
     private func reload() async {
-        allRows = await repo.workoutRows(days: loadedWindowDays ?? 4000)
+        setRows(await repo.workoutRows(days: loadedWindowDays ?? 4000))
+    }
+
+    /// Replaces the loaded rows and everything derived from them. The one place `allRows` is assigned.
+    private func setRows(_ rows: [WorkoutRow]) {
+        allRows = rows
+        rowsGeneration &+= 1
+        derived = Self.derive(from: rows, unitSystem: unitSystem)
+    }
+
+    private static func derive(from rows: [WorkoutRow], unitSystem: UnitSystem, now: Date = Date()) -> HubDerived {
+        HubDerived(
+            day: Calendar.current.startOfDay(for: now),
+            week: WorkoutWeekSummary.make(rows: rows, now: now),
+            paceRow: rows.first { WorkoutPace.perUnit($0, system: unitSystem) != nil })
+    }
+
+    /// The derived values, recomputed (without touching state) only when a new day has begun since they were made or
+    /// when a preview seeded rows before the first load.
+    private var currentDerived: HubDerived {
+        if let derived, derived.day == Calendar.current.startOfDay(for: Date()) { return derived }
+        return Self.derive(from: allRows, unitSystem: unitSystem)
     }
 
     /// #797: page the FULL workout history in when the user selects a range wider than the bounded
@@ -284,7 +321,7 @@ struct WorkoutsView: View {
         // A bounded range that fits inside what's already loaded needs no wider read.
         if let pickedDays = picked.days, pickedDays <= (loadedWindowDays ?? 0) { return }
         loadedWindowDays = nil
-        allRows = await repo.workoutRows(days: 4000)
+        setRows(await repo.workoutRows(days: 4000))
     }
 
     /// The finished lift with the latest start, with its working-set count, from the lifting log.
@@ -313,18 +350,17 @@ struct WorkoutsView: View {
     }
 
     @ViewBuilder private var populatedHub: some View {
-        let now = Date()
         let resolved = effectiveRange
         let windowRows = sessions(for: resolved)
-        let paceRow = allRows.first { WorkoutPace.perUnit($0, system: unitSystem) != nil }
-        WorkoutsWeekSection(week: WorkoutWeekSummary.make(rows: allRows, now: now)) { actionPills }
+        let derived = currentDerived
+        WorkoutsWeekSection(week: derived.week) { actionPills }
         FlatSectionSeparator()
         WorkoutsLiftSection(lastLift: lastLift) { liftDestination = $0 }
         FlatSectionSeparator()
         WorkoutsRecentSection(rows: Array(allRows.prefix(3)), unitSystem: unitSystem, onOpen: openDetail)
         FlatSectionSeparator.afterRows
-        WorkoutZonesSection(summary: zonesSummary, zoneSet: zoneSet, windowCaption: resolved.caption)
-        if let paceRow, let pace = WorkoutPace.perUnit(paceRow, system: unitSystem) {
+        WorkoutZonesSection(phase: zonesPhase, zoneSet: zoneSet, windowCaption: resolved.caption)
+        if let paceRow = derived.paceRow, let pace = WorkoutPace.perUnit(paceRow, system: unitSystem) {
             FlatSectionSeparator()
             WorkoutPaceSection(row: paceRow, pace: pace, unitSystem: unitSystem)
         }
@@ -367,8 +403,7 @@ struct WorkoutsView: View {
     /// What the zone section depends on. A change reruns the parse; typing in the search field does not, until the
     /// filtered set actually changes.
     private struct ZonesKey: Equatable {
-        let count: Int
-        let newest: Int?
+        let generation: Int
         let range: Range
         let sport: String?
         let source: WorkoutSource?
@@ -376,7 +411,7 @@ struct WorkoutsView: View {
     }
 
     private var zonesKey: ZonesKey {
-        ZonesKey(count: allRows.count, newest: allRows.first?.startTs, range: range,
+        ZonesKey(generation: rowsGeneration, range: range,
                  sport: sportFilter, source: sourceFilter, search: searchText)
     }
 
@@ -474,7 +509,7 @@ struct WorkoutsView: View {
         } else {
             ForEach(Array(rows.enumerated()), id: \.element.listID) { index, row in
                 VStack(spacing: 0) {
-                    if index > 0 { WorkoutRowSeparator() }
+                    if index > 0 { WorkoutRowSeparator(leadingExtra: selectionMode ? Self.selectionColumnWidth : 0) }
                     sessionRow(row)
                 }
             }
@@ -547,7 +582,7 @@ struct WorkoutsView: View {
                     .accessibilityLabel("Clear filters")
                 }
             }
-            PaperSearchField("Search sport", text: $searchText, height: 38, cornerRadius: 10)
+            PaperSearchField("Search sport", text: $searchText, height: 44, cornerRadius: 10)
                 #if os(iOS)
                 .autocorrectionDisabled()
                 .textInputAutocapitalization(.never)
@@ -562,16 +597,8 @@ struct WorkoutsView: View {
         Menu {
             content()
         } label: {
-            HStack(spacing: 4) {
-                Text(verbatim: title).font(StrandFont.micro.weight(.semibold)).lineLimit(1)
-                Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold)).accessibilityHidden(true)
-            }
-            .foregroundStyle(active ? StrandPalette.onInk : StrandPalette.textSecondary)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
-            .background(Capsule(style: .continuous).fill(active ? StrandPalette.ink : StrandPalette.chipFill))
-            .overlay(Capsule(style: .continuous).stroke(active ? Color.clear : StrandPalette.hairline, lineWidth: 1))
-            .chipHitTarget()
+            WidgetChip(verbatimTitle: title, opensMenu: true, isSelected: active)
+                .chipHitTarget()
         }
         .menuStyle(.borderlessButton)
         .fixedSize()
@@ -605,10 +632,6 @@ struct WorkoutsView: View {
         let presentation = WorkoutRowPresentation.make(
             row, unitSystem: unitSystem, when: .dayAndTime, detail: .full, includesSource: true)
         return HStack(spacing: 0) {
-            if selectionMode {
-                selectionGlyph(selectable: selectable, isSelected: isSelected)
-                    .frame(width: 36)
-            }
             Button {
                 if selectionMode {
                     guard selectable else { return }
@@ -617,7 +640,14 @@ struct WorkoutsView: View {
                     openDetail(row)
                 }
             } label: {
-                WorkoutRowContent(presentation: presentation)
+                // The glyph is part of the button, so tapping the checkmark selects the row like tapping its text.
+                HStack(spacing: 0) {
+                    if selectionMode {
+                        selectionGlyph(selectable: selectable, isSelected: isSelected)
+                            .frame(width: Self.selectionColumnWidth)
+                    }
+                    WorkoutRowContent(presentation: presentation)
+                }
             }
             .buttonStyle(PaperPressStyle())
             .accessibilityValue(selectionMode
@@ -630,6 +660,9 @@ struct WorkoutsView: View {
         }
         .contextMenu { if !selectionMode { rowMenu(row) } }
     }
+
+    /// The width of the selection glyph's column, which the separators between rows start after.
+    private static let selectionColumnWidth: CGFloat = 36
 
     /// The leading selection glyph: a filled/hollow checkmark for a mergeable row, or a lock for imported
     /// history (which can never be merged or bulk-deleted).
@@ -783,12 +816,6 @@ struct WorkoutsView: View {
             await model.intelligence.analyzeRecent()
             await reload()
         }
-    }
-
-    /// #796 - the per-session Strain label: the stored 0-100 strain mapped to the canonical 0-21 display scale, or
-    /// "–" when the session has no captured strain. Pure + unit-testable.
-    static func effortCellLabel(strain: Double?, scale: EffortScale) -> String {
-        StrainScale.badgeText(fromStored: strain)
     }
 
     // MARK: - Windowing + filtering

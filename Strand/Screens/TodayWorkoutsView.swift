@@ -65,15 +65,18 @@ struct TodayWorkoutsView: View {
         .task(id: Calendar.current.startOfDay(for: day)) { await load() }
     }
 
-    /// Sessions, active time and calories for the day, in one quiet strip.
+    /// Sessions, active time and calories for the day, in one quiet strip. The strip stacks when the text is too large
+    /// for three columns, and each column reads as one element.
     private func summary(_ totals: TodayWorkoutsSummary) -> some View {
-        StatFooter(items: [
-            (label: String(localized: "Sessions"), value: totals.sessions.formatted()),
-            (label: String(localized: "Active"), value: WorkoutFormat.duration(totals.activeSeconds)),
-            (label: String(localized: "Calories"),
-             value: totals.energyKcal > 0 ? WorkoutFormat.energy(totals.energyKcal) : WidgetMetrics.missingValue),
-        ], style: .compact)
-        .accessibilityElement(children: .combine)
+        FactStrip(facts: [
+            .init("Sessions", value: totals.sessions.formatted()),
+            .init("Active", value: totals.activeSeconds > 0
+                  ? WorkoutFormat.duration(totals.activeSeconds) : WidgetMetrics.missingValue,
+                  spokenValue: totals.activeSeconds > 0 ? WorkoutFormat.spokenDuration(totals.activeSeconds) : nil),
+            .init("Calories",
+                  value: totals.energyKcal > 0 ? WorkoutFormat.grouped(totals.energyKcal) : WidgetMetrics.missingValue,
+                  unit: totals.energyKcal > 0 ? "kcal" : nil),
+        ])
     }
 
     private var sessions: some View {
@@ -105,7 +108,7 @@ struct TodayWorkoutsView: View {
                 WorkoutRowContent(presentation: WorkoutRowPresentation(
                     title: "Running", symbol: "figure.run", primary: "5.0 km",
                     lines: [["6:00 PM", "Manual"], ["30m", "300 kcal"]],
-                    strain: .noop("10.0"), source: .manual))
+                    strain: .noop("10.0")))
             }
         }
         .redacted(reason: .placeholder)

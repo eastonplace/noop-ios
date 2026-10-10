@@ -81,11 +81,12 @@ struct WorkoutWeekSummary: Equatable {
         let interval = calendar.dateInterval(of: .weekOfYear, for: now)
             ?? DateInterval(start: today, duration: 7 * 86_400)
 
-        var starts: [Date] = []
-        var cursor = calendar.startOfDay(for: interval.start)
-        for _ in 0..<7 {
-            starts.append(cursor)
-            cursor = calendar.date(byAdding: .day, value: 1, to: cursor) ?? cursor.addingTimeInterval(86_400)
+        // Every day is found from the week's first day and snapped to its own midnight. Stepping from the day before
+        // would carry a daylight-saving gap at midnight (where 00:00 does not exist) into every later day.
+        let weekStart = calendar.startOfDay(for: interval.start)
+        let starts: [Date] = (0..<7).map { offset in
+            let day = calendar.date(byAdding: .day, value: offset, to: weekStart) ?? weekStart.addingTimeInterval(Double(offset) * 86_400)
+            return calendar.startOfDay(for: day)
         }
 
         var sessionsByDay = [Int](repeating: 0, count: 7)
@@ -190,21 +191,35 @@ struct WorkoutRowPresentation: Equatable {
     /// lines ("338 kcal" keeps its number and its unit together).
     let lines: [[String]]
     let strain: WorkoutStrainBadge?
-    let source: WorkoutSource
+    /// What VoiceOver reads for each fact, in the same order as `facts`: a duration shown as "45m" is read as "45
+    /// minutes", not as metres. Empty means the facts read as shown.
+    var spokenFacts: [String] = []
+    /// What VoiceOver reads for `primary`.
+    var spokenPrimary: String?
 
     /// Every fact the lines carry, in reading order.
     var facts: [String] { lines.flatMap { $0 } }
 
     /// The spoken form: everything the row shows, in reading order.
     var accessibilityLabel: String {
-        var parts = [title] + facts
-        if let primary { parts.append(primary) }
+        var parts = [title] + (spokenFacts.isEmpty ? facts : spokenFacts)
+        if let primary = spokenPrimary ?? primary { parts.append(primary) }
         switch strain {
         case .noop(let text)?: parts.append(String(localized: "Strain \(text)"))
         case .whoop(let text)?: parts.append(String(localized: "WHOOP strain \(text)"))
         case nil: break
         }
         return parts.joined(separator: ", ")
+    }
+
+    /// A fact as the row draws it and as VoiceOver says it.
+    private struct Fact {
+        let shown: String
+        let spoken: String
+        init(_ shown: String, spoken: String? = nil) {
+            self.shown = shown
+            self.spoken = spoken ?? shown
+        }
     }
 
     static func make(
@@ -219,47 +234,61 @@ struct WorkoutRowPresentation: Equatable {
         let start = Date(timeIntervalSince1970: TimeInterval(row.startTs))
         let lead = WorkoutFacts.lead(for: row)
 
-        var primary: String?
+        var primary: Fact?
         switch lead {
-        case .distance?: primary = row.distanceM.map { UnitFormatter.distanceFromMeters($0, system: unitSystem) }
-        case .duration?: primary = WorkoutFacts.activeSeconds(row).map(WorkoutFormat.duration)
-        case .energy?: primary = row.energyKcal.map(WorkoutFormat.energy)
+        case .distance?:
+            primary = row.distanceM.map { Fact(UnitFormatter.distanceFromMeters($0, system: unitSystem)) }
+        case .duration?:
+            primary = WorkoutFacts.activeSeconds(row).map {
+                Fact(WorkoutFormat.duration($0), spoken: WorkoutFormat.spokenDuration($0))
+            }
+        case .energy?:
+            primary = row.energyKcal.map { Fact(WorkoutFormat.energy($0), spoken: WorkoutFormat.spokenEnergy($0)) }
         case nil: primary = nil
         }
 
-        var first: [String] = []
-        let day = WorkoutFormat.day(start, now: now, calendar: calendar)
+        var first: [Fact] = []
+        let day = Fact(WorkoutFormat.day(start, now: now, calendar: calendar))
+        let clock = Fact(AppClock.hourMinute(start))
         switch when {
         case .day: first.append(day)
-        case .time: first.append(AppClock.hourMinute(start))
-        case .dayAndTime: first += [day, AppClock.hourMinute(start)]
+        case .time: first.append(clock)
+        case .dayAndTime: first += [day, clock]
         }
 
         // Supporting facts, in the order a person asks for them: how long, how hard on the body, how fast the
         // heart ran. The lead is already in the trailing column, so it is never repeated here.
-        var supporting: [String] = []
-        if lead != .duration, let seconds = WorkoutFacts.activeSeconds(row) { supporting.append(WorkoutFormat.duration(seconds)) }
-        if detail == .full, lead == .distance, let pace = WorkoutPace.perUnit(row, system: unitSystem) {
-            supporting.append(WorkoutFormat.pace(pace, system: unitSystem))
+        var supporting: [Fact] = []
+        if lead != .duration, let seconds = WorkoutFacts.activeSeconds(row) {
+            supporting.append(Fact(WorkoutFormat.duration(seconds), spoken: WorkoutFormat.spokenDuration(seconds)))
         }
-        if lead != .energy, let kcal = row.energyKcal, kcal > 0 { supporting.append(WorkoutFormat.energy(kcal)) }
-        if detail == .full, let hr = row.avgHr, hr > 0 { supporting.append(String(localized: "\(hr) bpm")) }
+        if detail == .full, lead == .distance, let pace = WorkoutPace.perUnit(row, system: unitSystem) {
+            supporting.append(Fact(WorkoutFormat.pace(pace, system: unitSystem),
+                                   spoken: WorkoutFormat.spokenPace(pace, system: unitSystem)))
+        }
+        if lead != .energy, let kcal = row.energyKcal, kcal > 0 {
+            supporting.append(Fact(WorkoutFormat.energy(kcal), spoken: WorkoutFormat.spokenEnergy(kcal)))
+        }
+        if detail == .full, let hr = row.avgHr, hr > 0 {
+            supporting.append(Fact(String(localized: "\(hr) bpm"), spoken: String(localized: "\(hr) beats per minute")))
+        }
 
-        let lines: [[String]]
+        let lines: [[Fact]]
         switch detail {
         case .compact:
             // One line: when, and the one fact that says most.
             lines = [first + supporting.prefix(1)]
         case .full:
             // Two lines: when it was and where it came from, then what it came to.
-            if includesSource { first.append(WorkoutFormat.sourceName(row.source)) }
+            if includesSource { first.append(Fact(WorkoutFormat.sourceName(row.source))) }
             lines = supporting.isEmpty ? [first] : [first, supporting]
         }
 
         return WorkoutRowPresentation(
             title: WorkoutSource.displaySport(row.sport), symbol: sportSymbol(row.sport),
-            primary: primary, lines: lines.map { $0.map(WorkoutFormat.unbreakable) },
-            strain: WorkoutStrainBadge.make(for: row), source: WorkoutSource.classify(row.source))
+            primary: primary?.shown, lines: lines.map { $0.map { WorkoutFormat.unbreakable($0.shown) } },
+            strain: WorkoutStrainBadge.make(for: row),
+            spokenFacts: lines.flatMap { $0.map(\.spoken) }, spokenPrimary: primary?.spoken)
     }
 }
 
@@ -289,7 +318,12 @@ enum WorkoutFormat {
         case .yesterday:
             let yesterday = calendar.date(byAdding: .day, value: -1, to: Date()) ?? Date().addingTimeInterval(-86_400)
             return relativeDayFormatter.string(from: yesterday)
-        case .other: return date.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day())
+        case .other:
+            // An older date names its year once it is not this year's, so "Tue, Oct 6" is never last year's.
+            let thisYear = calendar.component(.year, from: date) == calendar.component(.year, from: now)
+            return thisYear
+                ? date.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day())
+                : date.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day().year())
         }
     }
 
@@ -311,10 +345,19 @@ enum WorkoutFormat {
         return Duration.seconds(rounded).formatted(.units(allowed: [.hours, .minutes], width: .wide))
     }
 
-    /// "5:49 /km": a pace and the distance unit it is per.
+    /// "5:49 /km": a pace and the distance unit it is per. One string each, so a language can order them.
     static func pace(_ perUnit: String, system: UnitSystem) -> String {
-        let unit = system == .imperial ? String(localized: "/mi") : String(localized: "/km")
-        return "\(perUnit) \(unit)"
+        system == .imperial ? String(localized: "\(perUnit) /mi") : String(localized: "\(perUnit) /km")
+    }
+
+    /// "5:49 per kilometer": what VoiceOver says for a pace ("/km" is read as slash k m).
+    static func spokenPace(_ perUnit: String, system: UnitSystem) -> String {
+        system == .imperial ? String(localized: "\(perUnit) per mile") : String(localized: "\(perUnit) per kilometer")
+    }
+
+    /// "338 kilocalories": what VoiceOver says for an energy.
+    static func spokenEnergy(_ kcal: Double) -> String {
+        String(localized: "\(grouped(kcal)) kilocalories")
     }
 
     /// The text with every space made non-breaking, so a fact ("338 kcal", "7:10 AM") wraps between facts and never

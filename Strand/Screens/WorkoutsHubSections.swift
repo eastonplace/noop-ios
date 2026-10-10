@@ -34,13 +34,25 @@ struct WorkoutsWeekSection<Actions: View>: View {
         }
     }
 
+    /// Active time as the hero. A week whose sessions carry no length reads "—", not a floor of one minute; a week
+    /// with nothing in it says so. One spoken element, caption first, so the value is never read bare.
     @ViewBuilder private var hero: some View {
-        if week.hasSessions {
+        if week.activeSeconds > 0 {
             HeroValue(value: WorkoutFormat.duration(week.activeSeconds),
                       caption: String(localized: "Active time"), captionPlacement: .below)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(String(localized: "Active time, \(WorkoutFormat.spokenDuration(week.activeSeconds))"))
+        } else if week.hasSessions {
+            HeroValue(value: WidgetMetrics.missingValue,
+                      caption: String(localized: "Active time"), captionPlacement: .below)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(String(localized: "Active time"))
+                .accessibilityValue(String(localized: "Not recorded"))
         } else {
             HeroValue(value: WidgetMetrics.missingValue,
                       caption: String(localized: "No workouts yet this week"), captionPlacement: .below)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(String(localized: "No workouts yet this week"))
         }
     }
 
@@ -83,11 +95,19 @@ struct WorkoutsLiftSection: View {
 
     private func lastLiftLine(_ lift: WorkoutLastLift) -> some View {
         var facts = [WorkoutFormat.day(lift.start)]
-        if lift.workingSets > 0 { facts.append(String(localized: "\(lift.workingSets) sets")) }
-        if let seconds = lift.durationSeconds { facts.append(WorkoutFormat.duration(seconds)) }
+        var spoken = facts
+        if lift.workingSets > 0 {
+            facts.append(String(localized: "\(lift.workingSets) sets"))
+            spoken = facts
+        }
+        if let seconds = lift.durationSeconds {
+            facts.append(WorkoutFormat.duration(seconds))
+            spoken.append(WorkoutFormat.spokenDuration(seconds))
+        }
+        let title = lift.title ?? String(localized: "Strength training")
         return VStack(alignment: .leading, spacing: 2) {
             Text("Last lift").font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
-            Text(verbatim: lift.title ?? String(localized: "Strength training"))
+            Text(verbatim: title)
                 .font(StrandFont.body.weight(.semibold))
                 .foregroundStyle(StrandPalette.textPrimary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -97,7 +117,9 @@ struct WorkoutsLiftSection: View {
                 .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(String(localized: "Last lift"))
+        .accessibilityValue(([title] + spoken).joined(separator: ", "))
     }
 }
 
@@ -135,7 +157,7 @@ struct WorkoutsHubSkeleton: View {
     private static let rows = (0..<3).map { _ in
         WorkoutRowPresentation(
             title: "Running", symbol: "figure.run", primary: "5.0 km", lines: [["Yesterday", "30m"]],
-            strain: .noop("10.0"), source: .manual)
+            strain: .noop("10.0"))
     }
 
     var body: some View {
@@ -164,46 +186,93 @@ struct WorkoutsHubSkeleton: View {
 
 // MARK: Zones
 
-/// The names of the five heart-rate zones, easiest first. Each is a word of its own in the string catalog, so none
-/// borrows a translation written for another screen ("Light" is a sleep stage elsewhere).
+/// The names of the five heart-rate zones, easiest first. Each has a key of its own, so none borrows a translation
+/// written for another screen ("Light" is a sleep stage elsewhere, "Maximum" a statistic in some languages).
 enum WorkoutZoneNames {
     static func name(for zone: Int) -> String {
         switch zone {
-        case 1: return String(localized: "Warm-up")
-        case 2: return String(localized: "Easy")
-        case 3: return String(localized: "Moderate")
-        case 4: return String(localized: "Hard")
-        default: return String(localized: "Maximum")
+        case 1: return String(localized: "hrzone.name.1", defaultValue: "Warm-up", comment: "Heart-rate zone 1 name, the easiest zone")
+        case 2: return String(localized: "hrzone.name.2", defaultValue: "Easy", comment: "Heart-rate zone 2 name")
+        case 3: return String(localized: "hrzone.name.3", defaultValue: "Moderate", comment: "Heart-rate zone 3 name")
+        case 4: return String(localized: "hrzone.name.4", defaultValue: "Hard", comment: "Heart-rate zone 4 name")
+        default: return String(localized: "hrzone.name.5", defaultValue: "Maximum", comment: "Heart-rate zone 5 name, the hardest zone")
         }
+    }
+}
+
+/// The five zones as the hub and the workout summary draw them: name, bpm band in the person's language, time, and
+/// the row's spoken label (a duration shown as "4m" is read as metres, so the spoken form writes minutes out).
+enum WorkoutZoneRows {
+    static func zones(minutes: [Double], zoneSet: HRZoneSet?) -> [HRZoneDistribution.Zone] {
+        let seconds = (1...5).map { $0 <= minutes.count ? max(0, minutes[$0 - 1]) * 60 : 0 }
+        let total = seconds.reduce(0, +)
+        return (1...5).map { zone in
+            let band = zoneSet?.integerBpmRange(forZone: zone)
+            return HRZoneDistribution.Zone(
+                number: zone, name: WorkoutZoneNames.name(for: zone), seconds: seconds[zone - 1],
+                range: band.map(rangeText),
+                accessibilityLabel: spokenLabel(zone: zone, seconds: seconds[zone - 1], total: total, band: band))
+        }
+    }
+
+    /// "150–168 bpm", "169+ bpm".
+    static func rangeText(_ band: (lower: Int, upper: Int?)) -> String {
+        guard let upper = band.upper else { return String(localized: "\(band.lower)+ bpm") }
+        return String(localized: "\(band.lower)–\(upper) bpm")
+    }
+
+    private static func spokenRange(_ band: (lower: Int, upper: Int?)) -> String {
+        guard let upper = band.upper else { return String(localized: "\(band.lower) or more beats per minute") }
+        return String(localized: "\(band.lower) to \(upper) beats per minute")
+    }
+
+    private static func spokenLabel(zone: Int, seconds: Double, total: Double,
+                                    band: (lower: Int, upper: Int?)?) -> String {
+        var parts = [String(localized: "Zone \(zone), \(WorkoutZoneNames.name(for: zone))")]
+        if let band { parts.append(spokenRange(band)) }
+        // The row shows a dash under half a minute; say the same thing.
+        parts.append(seconds >= 30 ? WorkoutFormat.spokenDuration(seconds) : String(localized: "no time"))
+        if total > 0, seconds > 0 { parts.append((seconds / total).formatted(.percent.precision(.fractionLength(0)))) }
+        return parts.joined(separator: ", ")
     }
 }
 
 /// Time in each heart-rate zone across the sessions the hub is showing, from the zone split each import carries.
 struct WorkoutZonesSection: View {
-    let summary: WorkoutZones.Summary?
+    /// Where the parse is: not run yet, or run (a nil summary then means there was nothing to count).
+    enum Phase {
+        case pending
+        case ready(WorkoutZones.Summary?)
+    }
+
+    let phase: Phase
     let zoneSet: HRZoneSet?
     /// What the zones cover, as the history's range reads ("last 30 days").
     let windowCaption: String
 
     var body: some View {
         FlatSection("Heart rate zones", systemImage: "heart.fill", tint: .heart, trailing: .text(windowCaption)) {
-            if let summary, summary.totalMinutes > 0 {
-                VStack(alignment: .leading, spacing: WidgetMetrics.contentSpacing) {
-                    HRZoneDistribution(zones: (1...5).map { zone in
-                        HRZoneDistribution.Zone(
-                            number: zone, name: WorkoutZoneNames.name(for: zone),
-                            seconds: summary.minutes[zone - 1] * 60,
-                            range: zoneSet?.bpmRangeLabel(forZone: zone))
-                    })
-                    Text("Share of imported zone time, duration-weighted across sessions (approximate).")
+            switch phase {
+            case .pending:
+                // The distribution in its real shape, as quiet placeholders, until the parse reports.
+                HRZoneDistribution(zones: WorkoutZoneRows.zones(minutes: [6, 12, 18, 12, 6], zoneSet: nil))
+                    .redacted(reason: .placeholder)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("Loading your sessions…")
+            case .ready(let summary):
+                if let summary, summary.totalMinutes > 0 {
+                    VStack(alignment: .leading, spacing: WidgetMetrics.contentSpacing) {
+                        HRZoneDistribution(zones: WorkoutZoneRows.zones(minutes: summary.minutes, zoneSet: zoneSet))
+                        Text("Share of imported zone time, duration-weighted across sessions (approximate).")
+                            .font(StrandFont.footnote)
+                            .foregroundStyle(StrandPalette.textTertiary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                } else {
+                    Text("No zone data")
                         .font(StrandFont.footnote)
                         .foregroundStyle(StrandPalette.textTertiary)
-                        .fixedSize(horizontal: false, vertical: true)
                 }
-            } else {
-                Text("No zone data")
-                    .font(StrandFont.footnote)
-                    .foregroundStyle(StrandPalette.textTertiary)
             }
         }
     }
