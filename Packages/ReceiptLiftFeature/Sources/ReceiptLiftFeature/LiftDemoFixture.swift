@@ -9,7 +9,7 @@ import Foundation
 /// - `--noop-lift-demo <variant>` replaces what the coordinator loads with one of the variants below.
 ///   `full` (routines, fourteen weeks of history, a schedule), `empty` (no routines, no history),
 ///   `session` (a lift in flight: three sets logged, rest timer idle), `session-rest` (the same with the
-///   rest timer running), `session-barbell` (a barbell routine with nothing logged yet) and `fresh` (the starter routines and no history).
+///   rest timer running), `session-barbell` (a barbell routine with nothing logged yet), `session-open` (an open lift with no exercises) and `fresh` (the starter routines and no history).
 /// - `--noop-lift-scene <scene>` opens a deeper screen straight away; see `LiftQAScene`.
 public enum ReceiptLiftDemo {
   public static var requestedVariant: String? {
@@ -41,7 +41,7 @@ enum LiftDemoFixture {
     case "fresh":
       let bank = starter()
       return base(routines: bank.routines, userExercises: bank.exercises, sessions: [], scheduled: [], active: nil)
-    case "full", "session", "session-rest", "session-barbell":
+    case "full", "session", "session-rest", "session-barbell", "session-open":
       let bank = starter()
       let basics = barbellBasics()
       let routines = bank.routines + [basics]
@@ -51,6 +51,13 @@ enum LiftDemoFixture {
       guard variant != "full" else {
         return base(routines: routines, userExercises: bank.exercises, sessions: sessions, scheduled: scheduled,
                     active: nil)
+      }
+      if variant == "session-open" {
+        var open = base(routines: routines, userExercises: bank.exercises, sessions: sessions, scheduled: scheduled,
+                        active: LiftSession(id: UUID(), routineID: nil, title: "Open Lift",
+                                            startedAt: now.addingTimeInterval(-4 * 60), endedAt: nil, sets: []))
+        open.activeExerciseIDsOverride = []
+        return open
       }
       let barbell = variant == "session-barbell"
       guard let routine = routines.first(where: { $0.name == (barbell ? "Barbell Basics" : "Upper A") }) else { return nil }

@@ -21,13 +21,18 @@ enum LiftQAScene {
   static let holdsStamp = ProcessInfo.processInfo.arguments.contains("--noop-lift-hold-stamp")
   #endif
 
-  static func isRequested(_ names: [String]) -> Bool {
+  /// The scene this launch asked for; always nil in release.
+  static var current: String? {
     #if DEBUG
-    guard let requested else { return false }
-    return names.contains(requested)
+    requested
     #else
-    return false
+    nil
     #endif
+  }
+
+  static func isRequested(_ names: [String]) -> Bool {
+    guard let current else { return false }
+    return names.contains(current)
   }
 }
 
