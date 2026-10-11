@@ -11,6 +11,19 @@ enum LiftRoute: Hashable {
   case history, progress, routines, newRoutine
 }
 
+/// Which page sits at the root of Lift's stack and what is pushed over it. Showing the completed history swaps the root,
+/// so whatever the start screen's chips had pushed has to go with it; otherwise "Workout history" on a receipt closes
+/// onto the Schedule page that was open when the workout began.
+struct LiftRootNavigation: Equatable {
+  var path: [LiftRoute] = []
+  var showsCompletedHistory = false
+
+  mutating func showCompletedHistory() {
+    path = []
+    showsCompletedHistory = true
+  }
+}
+
 /// Whether the Lift start screen should open an active session's workout by itself. Reopening Lift after a
 /// relaunch used to land on a picker whose "Resume active lift" button needed a second tap. It is one-shot per
 /// presentation, so a deliberate dismissal of the workout is never undone.
@@ -28,17 +41,16 @@ struct LiftRootView: View {
   let destination: LiftDestination
   init(destination: LiftDestination = .start) { self.destination = destination }
   @EnvironmentObject private var store: LiftStore
-  @State private var showsCompletedHistory = false
+  @State private var navigation = LiftRootNavigation()
   @State private var showsSettings = false
   @State private var previewRoutine: LiftRoutine?
   @State private var isWorkoutPresented = false
   @State private var hasAutoResumed = false
   @State private var printedSession: LiftSession?
   @State private var selectedHistorySegment = LiftHistorySegment.receipts
-  @State private var path: [LiftRoute] = []
 
   var body: some View {
-    NavigationStack(path: $path) {
+    NavigationStack(path: $navigation.path) {
       rootPage
         .environment(\.liftScreenRole, .root)
         .navigationBarTitleDisplayMode(.inline)
@@ -80,7 +92,7 @@ struct LiftRootView: View {
         onDismiss: { isWorkoutPresented = false },
         onSessionSaved: { session in
           isWorkoutPresented = false
-          showsCompletedHistory = true
+          navigation.showCompletedHistory()
           printedSession = session
         }
       )
@@ -93,7 +105,7 @@ struct LiftRootView: View {
         onClose: { printedSession = nil },
         onViewReceipts: {
           printedSession = nil
-          showsCompletedHistory = true
+          navigation.showCompletedHistory()
         }
       )
       .environmentObject(store)
@@ -101,7 +113,7 @@ struct LiftRootView: View {
   }
 
   @ViewBuilder private var rootPage: some View {
-    if showsCompletedHistory {
+    if navigation.showsCompletedHistory {
       HistoryView(selectedSegment: $selectedHistorySegment)
     } else {
       switch destination {
@@ -111,7 +123,7 @@ struct LiftRootView: View {
           onResume: { isWorkoutPresented = true },
           onStartOpen: startOpenLift,
           onPreview: presentPreview,
-          onOpen: { path.append($0) }
+          onOpen: { navigation.path.append($0) }
         )
       case .history:
         HistoryView(selectedSegment: $selectedHistorySegment)
