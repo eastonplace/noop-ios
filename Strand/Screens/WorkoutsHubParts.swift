@@ -282,7 +282,6 @@ struct WorkoutWeekBars: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(verbatim: spokenDay(day)))
         .accessibilityValue(Text(verbatim: spokenValue(day)))
-        .accessibilityAddTraits(day.isToday ? .isSelected : [])
     }
 
     /// What a day holds, in words: time when it has some, the count when the sessions carry no length, "Upcoming"
