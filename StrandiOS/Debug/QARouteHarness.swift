@@ -326,7 +326,8 @@ private struct QARouteHost: ViewModifier {
         switch route {
         case .pillarRecovery: PaperPillarDetailView(kind: .charge, anchorDayKey: anchorDayKey)
         case .pillarStrain: PaperPillarDetailView(kind: .effort, anchorDayKey: anchorDayKey)
-        case .sleep: SleepView()
+        // Its own stack, as Today's cover has it (the edge swipe back needs one).
+        case .sleep: NavigationStack { SleepView() }
         default: EmptyView()
         }
     }

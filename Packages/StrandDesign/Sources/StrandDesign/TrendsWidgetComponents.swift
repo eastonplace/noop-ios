@@ -504,6 +504,7 @@ public struct TrendsHeroChart: View {
 
     @ScaledMetric(relativeTo: .caption2) private var labelUnit: CGFloat = 1
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var typeSize
     @State private var revealed = false
     @State private var scrubDay: CalendarMetricDay?
     @State private var plotWidth: CGFloat = 1
@@ -827,8 +828,10 @@ public struct TrendsHeroChart: View {
                     .transition(.opacity)
             }
 
-            // Names ride above the line on a canvas plate, each on the clearest stretch of its rule.
-            if let typicalSpot {
+            // Names ride above the line on a canvas plate, each on the clearest stretch of its rule. At the accessibility
+            // sizes they would be three times the size of a 148 pt plot's rules and land on each other and on the line;
+            // the stat row under the chart carries the low, average and high there, and the reading above it the rest.
+            if let typicalSpot, !typeSize.isAccessibilitySize {
                 Text("typical")
                     .font(StrandFont.micro)
                     .foregroundStyle(StrandPalette.textTertiary)
@@ -836,7 +839,7 @@ public struct TrendsHeroChart: View {
                     .fixedSize()
                     .position(typicalSpot)
             }
-            ForEach(Array(railLabels.enumerated()), id: \.offset) { _, label in
+            ForEach(Array((typeSize.isAccessibilitySize ? [] : railLabels).enumerated()), id: \.offset) { _, label in
                 Text(verbatim: label.text)
                     .font(StrandFont.micro)
                     .monospacedDigit()
@@ -1024,20 +1027,28 @@ public struct TrendsHeroChart: View {
 
     // MARK: Date labels
 
+    /// The labels drawn: all of them, or at the accessibility sizes only the first and last, which are what fit side by
+    /// side at that size.
+    private var shownTickLabels: [(index: Int, tick: (label: String, fraction: Double))] {
+        let all = Array(tickLabels.enumerated()).map { (index: $0.offset, tick: $0.element) }
+        guard typeSize.isAccessibilitySize, all.count > 2, let first = all.first, let last = all.last else { return all }
+        return [first, last]
+    }
+
     private var dateLabels: some View {
         GeometryReader { proxy in
             ZStack(alignment: .topLeading) {
-                ForEach(Array(tickLabels.enumerated()), id: \.offset) { index, tick in
-                    Text(verbatim: tick.label)
+                ForEach(shownTickLabels, id: \.index) { item in
+                    Text(verbatim: item.tick.label)
                         .font(StrandFont.micro)
                         .foregroundStyle(StrandPalette.textTertiary)
                         .fixedSize()
-                        .frame(width: 0, alignment: alignment(for: index, of: tickLabels.count))
-                        .offset(x: proxy.size.width * tick.fraction)
+                        .frame(width: 0, alignment: alignment(for: item.index, of: tickLabels.count))
+                        .offset(x: proxy.size.width * item.tick.fraction)
                 }
             }
         }
-        .frame(height: 16)
+        .frame(height: 16 * labelUnit)
         .accessibilityHidden(true)
     }
 

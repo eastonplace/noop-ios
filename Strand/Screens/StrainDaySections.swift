@@ -173,6 +173,9 @@ private struct StrainScoreRowView: View {
     let detail: String
 
     @Environment(\.dynamicTypeSize) private var typeSize
+    /// The symbol's slot scales with its caption-size glyph, so a large symbol stays in its slot and the lines under it
+    /// keep lining up with the label.
+    @ScaledMetric(relativeTo: .caption) private var iconWidth: CGFloat = WidgetMetrics.metricIconWidth
     private var tint: Color { DomainTint.strain.accent }
 
     var body: some View {
@@ -182,9 +185,9 @@ private struct StrainScoreRowView: View {
                 .font(StrandFont.micro)
                 .foregroundStyle(StrandPalette.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
-                .padding(.leading, WidgetMetrics.metricIconWidth + NoopMetrics.space2)
+                .padding(.leading, iconWidth + NoopMetrics.space2)
             bar
-                .padding(.leading, WidgetMetrics.metricIconWidth + NoopMetrics.space2)
+                .padding(.leading, iconWidth + NoopMetrics.space2)
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(verbatim: spoken))
@@ -214,7 +217,26 @@ private struct StrainScoreRowView: View {
         ValuePill(String(localized: "Sets score"), tint: tint)
     }
 
-    private var titleLine: some View {
+    @ViewBuilder private var titleLine: some View {
+        if typeSize.isAccessibilitySize {
+            // Label, then the value, then the pill, each on its own line: beside the label the value ("13,8 von 21")
+            // and the pill ("Bestimmt den Wert") would be cut off at these sizes.
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(alignment: .firstTextBaseline, spacing: NoopMetrics.space2) {
+                    icon
+                    labelText
+                }
+                valueView.padding(.leading, iconWidth + NoopMetrics.space2)
+                if row.setsScore {
+                    pill.padding(.leading, iconWidth + NoopMetrics.space2)
+                }
+            }
+        } else {
+            fittedTitleLine
+        }
+    }
+
+    private var fittedTitleLine: some View {
         ViewThatFits(in: .horizontal) {
             HStack(alignment: .firstTextBaseline, spacing: NoopMetrics.space2) {
                 icon
@@ -231,7 +253,7 @@ private struct StrainScoreRowView: View {
                     valueView
                 }
                 if row.setsScore {
-                    pill.padding(.leading, WidgetMetrics.metricIconWidth + NoopMetrics.space2)
+                    pill.padding(.leading, iconWidth + NoopMetrics.space2)
                 }
             }
         }
@@ -241,7 +263,7 @@ private struct StrainScoreRowView: View {
         Image(systemName: symbol)
             .font(StrandFont.caption)
             .foregroundStyle(tint)
-            .frame(width: WidgetMetrics.metricIconWidth)
+            .frame(width: iconWidth)
             .accessibilityHidden(true)
     }
 

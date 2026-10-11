@@ -17,6 +17,7 @@ import SwiftUI
 public struct ValuePill: View {
     private let text: String
     private let tint: Color
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     public init(_ text: String, tint: Color) {
         self.text = text
@@ -24,12 +25,15 @@ public struct ValuePill: View {
     }
 
     public var body: some View {
+        // One line at its natural size; at the accessibility sizes a long label ("Bestimmt den Wert") wraps within
+        // the width it is given instead of running off the screen.
+        let wraps = typeSize.isAccessibilitySize
         Text(verbatim: text)
             .statePillLabel()
             .monospacedDigit()
-            .lineLimit(1)
+            .lineLimit(wraps ? 3 : 1)
             .statePillChrome(tint: tint)
-            .fixedSize()
+            .fixedSize(horizontal: !wraps, vertical: true)
     }
 }
 
