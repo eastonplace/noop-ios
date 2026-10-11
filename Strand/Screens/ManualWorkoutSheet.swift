@@ -90,16 +90,7 @@ struct ManualWorkoutSheet: View {
                             .accessibilityValue(WorkoutFormat.spokenDuration(Double(durationMin) * 60))
                         }
                     }
-                    HStack(spacing: 14) {
-                        field(String(localized: "Avg HR")) {
-                            numberInput(String(localized: "optional"), text: $avgHrText, unit: "bpm", field: .avgHr)
-                                .accessibilityLabel("Average heart rate in beats per minute, optional")
-                        }
-                        field(String(localized: "Calories")) {
-                            numberInput(String(localized: "optional"), text: $kcalText, unit: "kcal", field: .calories)
-                                .accessibilityLabel("Calories in kilocalories, optional")
-                        }
-                    }
+                    numberFields
                 }
                 if avgHrEditedNote { noteRow(String(localized: "Avg HR is shown as typed. The HR graph, zones and Strain stay from the recorded session.")) }
                 // At accessibility text sizes a pinned footer would take half the sheet, so it follows the form.
@@ -204,6 +195,23 @@ struct ManualWorkoutSheet: View {
     }
 
     // MARK: - Sections
+
+    /// Avg HR and Calories share a row; at accessibility sizes each is as wide as the sheet, so what is typed stays in view.
+    @ViewBuilder private var numberFields: some View {
+        let avgHrField = field(String(localized: "Avg HR")) {
+            numberInput(String(localized: "optional"), text: $avgHrText, unit: "bpm", field: .avgHr)
+                .accessibilityLabel("Average heart rate in beats per minute, optional")
+        }
+        let caloriesField = field(String(localized: "Calories")) {
+            numberInput(String(localized: "optional"), text: $kcalText, unit: "kcal", field: .calories)
+                .accessibilityLabel("Calories in kilocalories, optional")
+        }
+        if typeSize.isAccessibilitySize {
+            VStack(alignment: .leading, spacing: NoopMetrics.space4) { avgHrField; caloriesField }
+        } else {
+            HStack(spacing: 14) { avgHrField; caloriesField }
+        }
+    }
 
     private var header: some View {
         Group {
