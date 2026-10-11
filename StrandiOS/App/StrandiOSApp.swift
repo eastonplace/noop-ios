@@ -663,6 +663,9 @@ struct StrandiOSApp: App {
                     #if DEBUG
                     // The synthetic screenshot route does not use HealthKit or background publication.
                     guard !workoutRefinementQARequested else { return }
+                    // `--noop-qa-route live-workout`: a workout in flight first, which the shell then opens the way
+                    // "Return to workout" does.
+                    if QARoute.requested == .liveWorkout { model.seedDemoLiveWorkout(QARoute.liveWorkoutScenario) }
                     #endif
                     // SwiftUI does not guarantee an initial scenePhase onChange edge. Arm the clock owner on
                     // first mount so a continuously-foregrounded fresh launch still invalidates at midnight

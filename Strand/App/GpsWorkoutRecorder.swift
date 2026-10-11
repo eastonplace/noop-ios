@@ -442,13 +442,21 @@ final class GpsWorkoutRecorder: NSObject, ObservableObject {
     #if DEBUG
     /// Deterministic screenshot fixture, stripped from Release. It fills the same published
     /// fields the CoreLocation ingest path owns without changing the production recorder path.
-    func seedDemoRoute(points: [RouteMath.LatLng], elapsedSeconds: Double) {
+    func seedDemoRoute(points: [RouteMath.LatLng], elapsedSeconds: Double,
+                       paused: Bool = false, signalLost: Bool = false) {
         segments = points.isEmpty ? [] : [points]
         pointCount = points.count
         distanceM = RouteMath.totalMeters(points)
         paceSecPerKm = RouteMath.paceSecPerKm(meters: distanceM, seconds: elapsedSeconds)
         startsNewSegmentOnNextFix = points.isEmpty
         isRecording = true
+        isPaused = paused
+        availability = .ready
+        let now = Date()
+        recordingBeganAt = now.addingTimeInterval(-elapsedSeconds)
+        lastRawFixAt = now.addingTimeInterval(signalLost ? -75 : -1)
+        lastAcceptedFixAt = lastRawFixAt
+        lastErrorAt = signalLost ? now.addingTimeInterval(-40) : nil
     }
     #endif
 

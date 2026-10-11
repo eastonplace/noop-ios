@@ -272,6 +272,11 @@ final class AppModel: ObservableObject {
 
         var isPaused: Bool { pauseLedger.isPaused }
 
+        #if DEBUG
+        /// Screenshot fixtures only: stamp when the last reading arrived, so a stale-signal frame needs no wait.
+        func seedDemoLastReading(_ time: Date?) { lastReadingAt = time }
+        #endif
+
         /// Seconds the workout has actually run: the timer's value, frozen while paused.
         func activeElapsed(at now: Date = Date()) -> TimeInterval {
             pauseLedger.activeSeconds(from: start.timeIntervalSince1970, to: now.timeIntervalSince1970)
@@ -2012,6 +2017,79 @@ final class AppModel: ObservableObject {
         buzz(loops: 1)
     }
 
+    #if DEBUG
+    /// What a screenshot of the live workout screen shows. Set by `--demo-live-workout`.
+    enum DemoLiveWorkoutScenario: String {
+        case running, paused, stale, indoor
+    }
+
+    /// True for a fixture workout: nothing about it is written to disk, so a screenshot run can never leave a
+    /// synthetic session to be restored on the next launch.
+    private(set) var activeWorkoutIsDemo = false
+
+    /// DEBUG only, simulator only: put a deterministic workout in flight so the live workout screen can be captured
+    /// running, paused or with a stale signal. Heart rate, route and pauses are synthetic and never persisted.
+    func seedDemoLiveWorkout(_ scenario: DemoLiveWorkoutScenario, now: Date = Date()) {
+        #if targetEnvironment(simulator)
+        guard activeWorkout == nil else { return }
+        let activeSeconds = 34 * 60 + 12
+        let pausedFor = scenario == .paused ? 180 : 0
+        let indoor = scenario == .indoor
+        let started = now.addingTimeInterval(-Double(activeSeconds + pausedFor))
+        let startTs = Int(started.timeIntervalSince1970)
+        let workout = ActiveWorkout(start: started, sport: indoor ? "Strength" : "Running",
+                                    maxHR: Double(profile.hrMax), energyProfile: workoutEnergyProfile)
+        // A warm-up into a steady block, with a little beat-to-beat wobble.
+        let readings = (2...activeSeconds).map { second -> HRSample in
+            let ramp = min(1.0, Double(second) / 600.0)
+            let bpm = 96 + 58 * ramp + 9 * sin(Double(second) / 41) + 4 * sin(Double(second) / 7)
+            return HRSample(ts: startTs + second, bpm: Int(bpm.rounded()))
+        }
+        // A paused fixture stopped counting three minutes ago: its open pause began at the last reading.
+        let pauses = scenario == .paused
+            ? WorkoutPauseLedger(openSince: Double(startTs + activeSeconds) + 0.5) : WorkoutPauseLedger()
+        workout.restore(samples: readings, pauses: pauses)
+        workout.seedDemoLastReading(now.addingTimeInterval(scenario == .stale ? -47 : -2))
+        activeWorkoutIsDemo = true
+        activeWorkout = workout
+        workoutFinishState = .recording
+        if !indoor {
+            activeWorkoutIsGps = true
+            gpsRecorder.seedDemoRoute(points: Self.demoRoutePoints(), elapsedSeconds: Double(activeSeconds),
+                                      paused: scenario == .paused, signalLost: scenario == .stale)
+        }
+        // A strap that keeps reporting, so a capture taken a while after launch is not a stale frame by accident.
+        // The stale scenario is the one fixture that deliberately goes quiet.
+        if scenario != .stale { startDemoHeartbeat(for: workout, from: activeSeconds) }
+        #endif
+    }
+
+    #if targetEnvironment(simulator)
+    private func startDemoHeartbeat(for workout: ActiveWorkout, from activeSeconds: Int) {
+        Task { @MainActor [weak self, weak workout] in
+            var tick = 0
+            while let self, let workout, self.activeWorkout === workout, self.activeWorkoutIsDemo {
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                tick += 1
+                let second = activeSeconds + tick
+                let bpm = 96 + 58 + 9 * sin(Double(second) / 41) + 4 * sin(Double(second) / 7)
+                workout.ingest(HRSample(ts: Int(Date().timeIntervalSince1970), bpm: Int(bpm.rounded())))
+            }
+        }
+    }
+    #endif
+
+    /// A 5.4 km loop of a park, drawn as 200 points. Fixture geometry, not a real route.
+    nonisolated static func demoRoutePoints() -> [RouteMath.LatLng] {
+        (0..<200).map { index in
+            let angle = Double(index) / 199 * 1.84 * Double.pi
+            let lat = 40.7829 + 0.0108 * sin(angle) + 0.0009 * sin(angle * 5)
+            let lon = -73.9654 + 0.0150 * (cos(angle) - 1) * 0.5 + 0.0006 * cos(angle * 3)
+            return RouteMath.LatLng(lat, lon)
+        }
+    }
+    #endif
+
     /// The wearer's body numbers for the live energy estimate, taken when a workout starts or is restored.
     private var workoutEnergyProfile: UserProfile {
         UserProfile(weightKg: profile.weightKg, heightCm: profile.heightCm,
@@ -2031,7 +2109,11 @@ final class AppModel: ObservableObject {
               workoutFinishState != .saving else { return false }
         guard workout.setPaused(paused, at: time) else { return false }
         // Written at once: a pause iOS ends the app in the middle of must still be a pause on relaunch.
+        #if DEBUG
+        if !activeWorkoutIsDemo { ActiveWorkoutPauseStore.store(workout.pauseLedger, sessionID: workout.sessionID) }
+        #else
         ActiveWorkoutPauseStore.store(workout.pauseLedger, sessionID: workout.sessionID)
+        #endif
         if activeWorkoutIsGps { gpsRecorder.setPaused(paused) }
         persistActiveWorkout(force: true)
         // The Lock Screen and Dynamic Island read this edge; nothing else changes when only the ledger does.
@@ -2090,6 +2172,9 @@ final class AppModel: ObservableObject {
         synchronously: Bool = false
     ) -> Bool {
         guard let w = activeWorkout else { return true }
+        #if DEBUG
+        if activeWorkoutIsDemo { return true }
+        #endif
         let now = Date()
         guard force || now.timeIntervalSince(lastWorkoutSnapshotEnqueuedAt) >= 5 else { return true }
         latestWorkoutSnapshotAttempt &+= 1
@@ -2143,6 +2228,9 @@ final class AppModel: ObservableObject {
         synchronously: Bool = false
     ) -> Bool {
         guard activeWorkout?.sessionID == checkpoint.sessionID, activeWorkoutIsGps else { return true }
+        #if DEBUG
+        if activeWorkoutIsDemo { return true }
+        #endif
         latestGpsSnapshotAttempt &+= 1
         let attempt = latestGpsSnapshotAttempt
         let sessionID = checkpoint.sessionID

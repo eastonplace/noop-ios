@@ -223,6 +223,7 @@ struct RootTabView: View {
             case .journal: quickAction = .journal
             case .intervals: quickAction = .intervals
             case .startWorkout: quickAction = .workout
+            case .liveWorkout: quickAction = .activeWorkout
             }
         }
     }

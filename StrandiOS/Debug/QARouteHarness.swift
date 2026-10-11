@@ -14,7 +14,8 @@ import WhoopStore
 /// insights, intelligence, scoring-guide, scoring-guide-recovery (the guide opened at its Recovery section, as the
 /// Recovery ⓘ opens it), updates, live-hr, breathe, journal, intervals, start-workout, rhythm, smart-alarm,
 /// hydration, fitness-age, coupled, lab-book, trends-report, coach-workouts-sheet (the Workouts hub at the root of a sheet,
-/// as Coach's plan opens it).
+/// as Coach's plan opens it), live-workout (the in-exercise screen over a synthetic workout; pick its state with
+/// `--demo-live-workout running|paused|stale|indoor`).
 ///
 /// The `workout-detail-*` routes open the real detail screen the way the Workouts hub does (a sheet with its own
 /// navigation stack) for one of the demo week's known sessions (`AppleDemoWorkoutFixture`), so they need
@@ -57,12 +58,13 @@ enum QARoute: String, CaseIterable {
     case labBook = "lab-book"
     case trendsReport = "trends-report"
     case coachWorkoutsSheet = "coach-workouts-sheet"
+    case liveWorkout = "live-workout"
 
     /// The tab whose navigation stack, cover or sheet presents the route.
     enum Tab: Int { case today = 0, trends = 1, sleep = 2 }
 
     /// What the app shell (`RootTabView`) presents itself, for routes that live in its sheets.
-    enum ShellTarget { case updates, rhythm, liveHR, breathe, journal, intervals, startWorkout }
+    enum ShellTarget { case updates, rhythm, liveHR, breathe, journal, intervals, startWorkout, liveWorkout }
 
     enum Presentation {
         case push(Tab)
@@ -94,6 +96,7 @@ enum QARoute: String, CaseIterable {
         case .journal: return .shell(.journal)
         case .intervals: return .shell(.intervals)
         case .startWorkout: return .shell(.startWorkout)
+        case .liveWorkout: return .shell(.liveWorkout)
         }
     }
 
@@ -111,6 +114,14 @@ enum QARoute: String, CaseIterable {
     /// Logged when the route's screen goes away again (a root re-render when the demo data lands can pop it), so a
     /// capture script never takes a frame of the root it fell back to.
     func logDismissed() { NSLog("[qa-route] dismissed %@", rawValue) }
+
+    /// The state `--demo-live-workout running|paused|stale|indoor` names for the `live-workout` route.
+    static var liveWorkoutScenario: AppModel.DemoLiveWorkoutScenario {
+        let arguments = ProcessInfo.processInfo.arguments
+        return arguments.firstIndex(of: "--demo-live-workout")
+            .flatMap { arguments.indices.contains($0 + 1) ? arguments[$0 + 1] : nil }
+            .flatMap(AppModel.DemoLiveWorkoutScenario.init(rawValue:)) ?? .running
+    }
 
     /// True while any modal is presented over the app's root view controller (the shell's quick-action and
     /// routed-pillar sheets), which is how the shell route knows its sheet was not dropped.
