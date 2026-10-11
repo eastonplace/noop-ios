@@ -548,17 +548,13 @@ private struct QuickActionSheet: View {
 struct PaperTabLabel: View {
     let title: LocalizedStringKey
     let isActive: Bool
-    /// `.caption2` at the default size, scaled like `.caption2`.
-    @ScaledMetric(relativeTo: .caption2) private var size: CGFloat = 11
 
     /// The largest the label grows to; the large content viewer shows it at full size.
     static let ceiling: CGFloat = 15
 
     var body: some View {
         Text(title)
-            .font(.system(size: min(size, Self.ceiling), weight: isActive ? .semibold : .regular))
-            .lineLimit(1)
-            .minimumScaleFactor(0.5)
+            .microLabelFit(lines: 1, weight: isActive ? .semibold : .regular, ceiling: Self.ceiling)
     }
 }
 

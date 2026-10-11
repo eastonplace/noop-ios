@@ -186,15 +186,15 @@ public struct HeroValue: View {
                     .foregroundStyle(value == WidgetMetrics.missingValue ? StrandPalette.textTertiary : StrandPalette.textPrimary)
                     .lineLimit(1).minimumScaleFactor(0.7)
                 if let unit {
-                    Text(unit).font(StrandFont.caption).foregroundStyle(StrandPalette.textTertiary)
+                    Text(unit).foregroundStyle(StrandPalette.textTertiary).captionLabelFit(lines: 1)
                 }
                 if let caption, captionPlacement == .trailing {
                     Spacer(minLength: NoopMetrics.space2)
-                    Text(caption).font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
+                    Text(caption).foregroundStyle(StrandPalette.textTertiary).microLabelFit()
                 }
             }
             if let caption, captionPlacement == .below {
-                Text(caption).font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
+                Text(caption).foregroundStyle(StrandPalette.textTertiary).microLabelFit()
             }
         }
     }
@@ -225,7 +225,7 @@ public struct MetricValueRow: View {
             Image(systemName: systemImage).font(StrandFont.caption).foregroundStyle(tint.accent)
                 .frame(width: WidgetMetrics.metricIconWidth)
                 .accessibilityHidden(true)
-            Text(label).font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary).lineLimit(1)
+            Text(label).foregroundStyle(StrandPalette.textSecondary).captionLabelFit(lines: 2)
             Spacer(minLength: NoopMetrics.space1)
             HStack(alignment: .firstTextBaseline, spacing: 2) {
                 Text(value).font(StrandFont.bodyNumber)
@@ -265,7 +265,7 @@ public struct StatFooter: View {
             HStack(alignment: .top, spacing: NoopMetrics.space2) {
                 ForEach(Array(items.enumerated()), id: \.offset) { _, item in
                     VStack(alignment: .leading, spacing: 0) {
-                        Text(item.label).font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
+                        Text(item.label).foregroundStyle(StrandPalette.textTertiary).microLabelFit()
                         Text(item.value).font(StrandFont.bodyNumber)
                             .foregroundStyle(item.value == WidgetMetrics.missingValue ? StrandPalette.textTertiary : StrandPalette.textPrimary)
                             .lineLimit(1).minimumScaleFactor(0.8)
@@ -293,8 +293,7 @@ public struct StatFooter: View {
                         .accessibilityHidden(true)
                 }
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(item.label).font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
-                        .lineLimit(1)
+                    Text(item.label).foregroundStyle(StrandPalette.textTertiary).microLabelFit()
                     Text(item.value)
                         .font(StrandFont.number(size, weight: .semibold))
                         .foregroundStyle(item.value == WidgetMetrics.missingValue ? StrandPalette.textTertiary : StrandPalette.textPrimary)

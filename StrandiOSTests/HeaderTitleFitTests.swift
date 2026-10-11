@@ -60,4 +60,23 @@ final class HeaderTitleFitTests: XCTestCase {
         // Scaled down to fit the slot it is shorter than the full-size line; wrapped or hyphenated it would be taller.
         XCTAssertLessThanOrEqual(slot, word + 1, "a label that did not fit would wrap or hyphenate onto a second line")
     }
+
+    func testAWidgetLabelScalesALongWordInsteadOfHyphenatingIt() {
+        let oneLine = height(width: 3000) { Text("Effizienzbewertung").microLabelFit() }
+        let narrow = height(width: 110) { Text("Effizienzbewertung").microLabelFit() }
+        XCTAssertLessThan(narrow, oneLine * 1.4, "a hyphenated word would stack two lines")
+        let caption = height(width: 3000) { Text("Effizienzbewertung").captionLabelFit() }
+        let captionNarrow = height(width: 110) { Text("Effizienzbewertung").captionLabelFit() }
+        XCTAssertLessThan(captionNarrow, caption * 1.4)
+    }
+
+    func testTheHeaderChromeKeepsItsWordmarkOnOneLineAtTheLargestTextSize() {
+        func chrome() -> HeaderChromeRow {
+            HeaderChromeRow(strapState: .offline, battery: 68, syncState: .idle, unreadCount: 2, initials: "",
+                            recovery: 72, onStrap: {}, onSync: {}, onUpdates: {}, onProfile: {})
+        }
+        let wide = height(width: 3000) { chrome() }
+        let phone = height(width: 370) { chrome() }
+        XCTAssertLessThan(phone, wide * 1.4, "letters stacking one per line would make the row several lines tall")
+    }
 }

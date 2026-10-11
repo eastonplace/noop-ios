@@ -113,6 +113,47 @@ public extension Text {
     }
 }
 
+public extension View {
+    /// A label in the `StrandFont.micro` role (`.caption2`, medium) that scales down to fit a word instead of
+    /// hyphenating it ("Efficien-cy") or truncating it. It wraps between words, `lines` at most.
+    ///
+    /// SwiftUI hyphenates a word wider than its column before it scales when the type is a Dynamic Type text style, so
+    /// this sets the same size and weight through `ScaledMetric` (a fixed size that scales with Dynamic Type itself),
+    /// which scales first. Set the ink on the `Text` before this.
+    ///
+    /// `weight` defaults to medium (the role's own); `ceiling`, when set, is the largest the type grows to, for a label
+    /// in a bar of fixed height (the tab bar) whose full-size text the large content viewer shows instead.
+    func microLabelFit(lines: Int = 2, weight: Font.Weight = .medium, ceiling: CGFloat? = nil) -> some View {
+        modifier(LabelFit(base: 11, style: .caption2, weight: weight, lines: lines, ceiling: ceiling))
+    }
+
+    /// The same for a label in the `StrandFont.caption` role (`.caption`, medium).
+    func captionLabelFit(lines: Int = 2) -> some View {
+        modifier(LabelFit(base: 12, style: .caption, weight: .medium, lines: lines, ceiling: nil))
+    }
+}
+
+private struct LabelFit: ViewModifier {
+    @ScaledMetric private var size: CGFloat
+    private let weight: Font.Weight
+    private let lines: Int
+    private let ceiling: CGFloat?
+
+    init(base: CGFloat, style: Font.TextStyle, weight: Font.Weight, lines: Int, ceiling: CGFloat?) {
+        _size = ScaledMetric(wrappedValue: base, relativeTo: style)
+        self.weight = weight
+        self.lines = lines
+        self.ceiling = ceiling
+    }
+
+    func body(content: Content) -> some View {
+        content
+            .font(.system(size: ceiling.map { min(size, $0) } ?? size, weight: weight, design: .default))
+            .lineLimit(lines)
+            .minimumScaleFactor(0.5)
+    }
+}
+
 private struct OverlineFit: ViewModifier {
     /// `.caption2` at the default size, scaled like `.caption2`.
     @ScaledMetric(relativeTo: .caption2) private var size: CGFloat = 11

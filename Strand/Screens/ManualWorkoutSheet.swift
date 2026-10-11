@@ -23,6 +23,8 @@ struct ManualWorkoutSheet: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dynamicTypeSize) private var typeSize
+    /// The duration value beside its stepper, scaled with Dynamic Type like the labels around it.
+    @ScaledMetric(relativeTo: .body) private var durationValueSize: CGFloat = 16
 
     /// The catalogue sport chosen; empty until one is. "Other" may carry a name of its own (`customSport`).
     @State private var chosenSport: String
@@ -82,8 +84,10 @@ struct ManualWorkoutSheet: View {
                         HStack(spacing: 12) {
                             Stepper(value: $durationMin, in: 1...(24 * 60), step: 5) {
                                 Text(durationLabel)
-                                    .font(StrandFont.number(16))
+                                    .font(StrandFont.number(durationValueSize))
                                     .foregroundStyle(StrandPalette.effortBright)
+                                    .lineLimit(2)
+                                    .minimumScaleFactor(0.6)
                             }
                             // The label names what the stepper changes; the value is what it is now, spoken after each step.
                             .accessibilityLabel("Duration")

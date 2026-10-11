@@ -139,7 +139,7 @@ private struct CoachSleepCard: View {
                         VStack(alignment: .trailing, spacing: 0) {
                             Text(LocalCoachCardFormat.whole(efficiency, unit: "%"))
                                 .font(StrandFont.bodyNumber).foregroundStyle(StrandPalette.textPrimary)
-                            Text("Efficiency").font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
+                            Text("Efficiency").foregroundStyle(StrandPalette.textTertiary).microLabelFit()
                         }
                     }
                 }
@@ -151,7 +151,7 @@ private struct CoachSleepCard: View {
                         HStack(alignment: .top, spacing: 6) {
                             Circle().fill(stage.color).frame(width: 7, height: 7).padding(.top, 4)
                             VStack(alignment: .leading, spacing: 0) {
-                                Text(stage.label).font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
+                                Text(stage.label).foregroundStyle(StrandPalette.textTertiary).microLabelFit()
                                 Text(LocalCoachCardFormat.duration(minutes: stage.minutes))
                                     .font(StrandFont.captionNumber)
                                     .foregroundStyle(stage.minutes == nil ? StrandPalette.textTertiary : StrandPalette.textPrimary)
@@ -164,7 +164,7 @@ private struct CoachSleepCard: View {
                 if card.recentNights.count > 1 {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Last \(card.recentNights.count) recorded nights")
-                            .font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
+                            .foregroundStyle(StrandPalette.textTertiary).microLabelFit()
                         Sparkline(values: card.recentNights.map { $0.value / 60 }, gradient: StrandPalette.restGradient,
                                   lineWidth: 2, showsArea: true, showsHead: true, showsHover: false)
                             .frame(height: 40).accessibilityHidden(true)
@@ -323,7 +323,7 @@ private struct CoachEffortCard: View {
                                     value: StrainScale.band(UnitFormatter.effortValue(stored, scale: effortScale)).title,
                                     tint: .strain)
                     Text("Out of \(UnitFormatter.effortScaleMax(effortScale))")
-                        .font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
+                        .foregroundStyle(StrandPalette.textTertiary).microLabelFit()
                 }
             }
         }
@@ -437,7 +437,7 @@ private struct CoachWorkoutFigure: View {
         VStack(alignment: leading ? .leading : .trailing, spacing: 0) {
             Text(value).font(StrandFont.bodyNumber)
                 .foregroundStyle(value == "—" ? StrandPalette.textTertiary : tint).lineLimit(1)
-            Text(label).font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary).lineLimit(1)
+            Text(label).foregroundStyle(StrandPalette.textTertiary).microLabelFit(lines: 1)
         }
         .frame(minWidth: 40, alignment: leading ? .leading : .trailing)
     }

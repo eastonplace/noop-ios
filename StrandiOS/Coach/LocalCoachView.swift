@@ -569,9 +569,11 @@ struct LocalCoachView: View {
                 attachmentMenu.padding(.leading, -NoopMetrics.space1)
                 composerField
             }
-            HStack(spacing: 4) {
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
                 Image(systemName: "lock.fill").font(.system(size: 9, weight: .semibold)).accessibilityHidden(true)
+                // Wraps between words rather than ending in an ellipsis at the largest text sizes.
                 Text("On this iPhone · private by design")
+                    .fixedSize(horizontal: false, vertical: true)
             }
             .font(StrandFont.micro)
             .foregroundStyle(StrandPalette.textTertiary)
