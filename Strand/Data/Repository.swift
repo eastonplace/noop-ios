@@ -4511,9 +4511,12 @@ final class Repository: ObservableObject {
                 RouteStore.store(route, startTs: row.startTs, sport: row.sport)
                 RouteStore.remove(startTs: old.startTs, sport: old.sport)
             }
-            // The pauses follow the workout the same way, so an edited sport or start keeps its paused time out.
-            WorkoutPauseStore.move(fromStartTs: old.startTs, fromSport: old.sport,
-                                   toStartTs: row.startTs, toSport: row.sport)
+        }
+        // The pauses follow the workout the same way, whatever was edited: a moved start takes them with it, a changed
+        // sport re-keys them, and a duration that no longer reaches one clips or drops it, so the window and its pauses
+        // always agree (the heart-rate reconcile and the Health write-back read both).
+        if let old, WorkoutSource.classify(old.source) != .detected {
+            WorkoutPauseStore.follow(fromStartTs: old.startTs, fromSport: old.sport, to: row)
         }
         _ = try? await store.upsertWorkouts([row], deviceId: deviceId)
     }

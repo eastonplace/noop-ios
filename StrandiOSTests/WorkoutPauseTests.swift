@@ -3,6 +3,7 @@ import HealthKit
 import XCTest
 import StrandAnalytics
 import WhoopProtocol
+import WhoopStore
 @testable import NOOP
 
 /// Pause and resume for a live cardio workout: the timer stands still, paused heart-rate readings and GPS fixes are
@@ -198,6 +199,11 @@ final class WorkoutPauseTests: XCTestCase {
 
     // MARK: A finished workout keeps its pauses
 
+    private func pauseTestRow(start: Int, end: Int, sport: String) -> WorkoutRow {
+        WorkoutRow(startTs: start, endTs: end, sport: sport, source: "manual", durationS: nil, energyKcal: nil,
+                   avgHr: nil, maxHr: nil, strain: nil, distanceM: nil, zonesJSON: nil, notes: nil, strainVersion: nil)
+    }
+
     func testFinishedWorkoutPausesRoundTripAndFollowTheWorkout() {
         let defaults = ephemeralDefaults()
         var ledger = WorkoutPauseLedger()
@@ -209,7 +215,8 @@ final class WorkoutPauseTests: XCTestCase {
         XCTAssertEqual(WorkoutPauseStore.load(startTs: 900, from: defaults)?.intervals, ledger.intervals)
         XCTAssertNil(WorkoutPauseStore.load(startTs: 900, sport: "Cycling", from: defaults))
 
-        WorkoutPauseStore.move(fromStartTs: 900, fromSport: "Running", toStartTs: 900, toSport: "Hiking", in: defaults)
+        WorkoutPauseStore.follow(fromStartTs: 900, fromSport: "Running", to: pauseTestRow(start: 900, end: 1_200, sport: "Hiking"),
+                                 in: defaults)
         XCTAssertNil(WorkoutPauseStore.load(startTs: 900, sport: "Running", from: defaults))
         XCTAssertEqual(WorkoutPauseStore.load(startTs: 900, sport: "Hiking", from: defaults)?.intervals, ledger.intervals)
 
@@ -223,7 +230,8 @@ final class WorkoutPauseTests: XCTestCase {
         ledger.pause(at: 10)
         ledger.resume(at: 80)
         WorkoutPauseStore.store(ledger, startTs: 5, sport: "Running", into: defaults)
-        WorkoutPauseStore.move(fromStartTs: 5, fromSport: "Running", toStartTs: 5, toSport: "Running", in: defaults)
+        WorkoutPauseStore.follow(fromStartTs: 5, fromSport: "Running", to: pauseTestRow(start: 5, end: 100, sport: "Running"),
+                                 in: defaults)
         XCTAssertNotNil(WorkoutPauseStore.load(startTs: 5, sport: "Running", from: defaults))
     }
 

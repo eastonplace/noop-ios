@@ -1,5 +1,6 @@
 import Foundation
 import StrandAnalytics
+import WhoopStore
 
 // MARK: - Pause persistence
 //
@@ -108,12 +109,60 @@ enum WorkoutPauseStore {
         defaults.set(data, forKey: defaultsKey)
     }
 
-    /// Follow a workout that was re-keyed (its sport or start second was edited).
-    static func move(fromStartTs: Int, fromSport: String, toStartTs: Int, toSport: String,
-                     in defaults: UserDefaults = .standard) {
-        guard key(startTs: fromStartTs, sport: fromSport) != key(startTs: toStartTs, sport: toSport),
-              let ledger = load(startTs: fromStartTs, sport: fromSport, from: defaults) else { return }
-        store(ledger, startTs: toStartTs, sport: toSport, into: defaults)
-        remove(startTs: fromStartTs, sport: fromSport, from: defaults)
+    /// Follow a workout that was edited. The pauses keep their place in the workout: a start moved by some seconds moves
+    /// them by the same seconds (a pause 20 minutes in is still 20 minutes in), and whatever then falls outside the new
+    /// window (the duration was cut short, or the window no longer reaches a pause) is clipped or dropped, so what is
+    /// stored is exactly what the window holds. Re-keyed by sport or start, the entry moves to its new key.
+    static func follow(fromStartTs: Int, fromSport: String, to row: WorkoutRow, in defaults: UserDefaults = .standard) {
+        guard let ledger = load(startTs: fromStartTs, sport: fromSport, from: defaults) else { return }
+        let followed = ledger
+            .shifted(by: Double(row.startTs - fromStartTs))
+            .clipped(from: Double(row.startTs), to: Double(row.endTs))
+        if key(startTs: fromStartTs, sport: fromSport) != key(startTs: row.startTs, sport: row.sport) {
+            remove(startTs: fromStartTs, sport: fromSport, from: defaults)
+        }
+        if followed.intervals.isEmpty {
+            remove(startTs: row.startTs, sport: row.sport, from: defaults)
+        } else {
+            store(followed, startTs: row.startTs, sport: row.sport, into: defaults)
+        }
+    }
+}
+
+extension WorkoutPauseLedger {
+
+    /// The same pauses, every one `seconds` later (or earlier, when negative). A workout whose start moves takes its
+    /// pauses with it.
+    func shifted(by seconds: Double) -> WorkoutPauseLedger {
+        guard seconds != 0 else { return self }
+        return WorkoutPauseLedger(intervals: intervals.map { .init(start: $0.start + seconds, end: $0.end + seconds) })
+    }
+
+    /// The pauses that lie in `start...end`, each cut at its edges; a pause wholly outside is dropped.
+    func clipped(from start: Double, to end: Double) -> WorkoutPauseLedger {
+        WorkoutPauseLedger(intervals: intervals.compactMap { interval in
+            let from = max(interval.start, start), to = min(interval.end, end)
+            return to > from ? WorkoutPauseLedger.Interval(start: from, end: to) : nil
+        })
+    }
+
+    /// The wall-clock second a workout that began at `start` reaches `activeSeconds` of running time: the first moment
+    /// after `start` at which `activeSeconds(from: start, to:)` equals it. The pauses are walked in order, so one the
+    /// workout never reaches costs nothing and one it does reach costs its whole length; a workout that reaches its
+    /// running time exactly as a pause begins ends there, before the pause.
+    func wallClockEnd(from start: Double, activeSeconds: Double) -> Double {
+        var cursor = start
+        var remaining = max(0, activeSeconds)
+        for interval in intervals where interval.end > cursor {
+            if interval.start <= cursor {          // the cursor is inside this pause: step over it
+                cursor = interval.end
+                continue
+            }
+            let gap = interval.start - cursor
+            if remaining <= gap { return cursor + remaining }
+            remaining -= gap
+            cursor = interval.end
+        }
+        return cursor + remaining
     }
 }
