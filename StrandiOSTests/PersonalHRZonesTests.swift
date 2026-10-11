@@ -5,10 +5,10 @@ import StrandDesign
 /// Rest, steady and push follow the wearer's maximum heart rate: the profile's override, else the age estimate.
 final class PersonalHRZonesTests: XCTestCase {
     func testTheMaximumIsTheOverrideWhenSetElseTheAgeEstimate() {
-        XCTAssertEqual(ProfileStore.hrMax(override: 200, age: 30), 200)
-        XCTAssertEqual(ProfileStore.hrMax(override: 0, age: 30), 187)
-        XCTAssertEqual(ProfileStore.hrMax(override: 0, age: 40), 180)
-        XCTAssertEqual(ProfileStore.hrMax(override: -5, age: 40), 180, "a negative override is no override")
+        XCTAssertEqual(ProfileStore.hrMax(age: 30, override: 200), 200)
+        XCTAssertEqual(ProfileStore.hrMax(age: 30, override: 0), 187)
+        XCTAssertEqual(ProfileStore.hrMax(age: 40, override: 0), 180)
+        XCTAssertEqual(ProfileStore.hrMax(age: 40, override: -5), 180, "a negative override is no override")
     }
 
     func testTheZonesFollowTheEstimateAtTheBoundaries() {

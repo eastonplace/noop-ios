@@ -352,6 +352,38 @@ enum WorkoutSource: Equatable {
     }
 }
 
+// MARK: - What a row's origin reads as
+//
+// `WorkoutSource.classify` can only read a row's stored `source`, and a workout recorded live in the app is stored under
+// source "manual" (`AppModel.endWorkout`), the same as a session typed into the Add Workout sheet. A person should
+// not read "Manual" on a run the app recorded, so the UI tells the two apart here. This is display and filtering only:
+// nothing stored changes, `classify` still returns `.manual` for both, and editing, merging and deleting treat them alike.
+
+/// The origin a person reads on a workout and filters by.
+enum WorkoutOrigin: Equatable {
+    case whoop, apple, recorded, detected, manual, lifting, activityFile
+
+    static func of(_ row: WorkoutRow) -> WorkoutOrigin {
+        switch WorkoutSource.classify(row.source) {
+        case .whoop: return .whoop
+        case .apple: return .apple
+        case .detected: return .detected
+        case .lifting: return .lifting
+        case .activityFile: return .activityFile
+        case .manual: return isRecordedInApp(row) ? .recorded : .manual
+        }
+    }
+
+    /// A row stored as manual was recorded when it carries something only a recording produces: a Strain score or a
+    /// peak heart rate (both from the captured heart-rate window) or a GPS distance. The Add Workout sheet has no field
+    /// for any of them and writes none, so a row with one of them was recorded: live in the app, or edited since without
+    /// losing what was captured (`WorkoutSource.preservingCaptured`). A session typed in by hand has none and stays
+    /// "Manual".
+    static func isRecordedInApp(_ row: WorkoutRow) -> Bool {
+        row.strain != nil || row.maxHr != nil || row.distanceM != nil
+    }
+}
+
 // MARK: - Filter predicate (#64)
 //
 // The Workouts list filters beyond the time range: a SPORT filter (a specific displayed sport, or all)
@@ -361,31 +393,32 @@ enum WorkoutSource: Equatable {
 // set. Kept alongside `WorkoutSource` so both platforms share one rule and the unit test pins it.
 
 /// One workout-list filter state. `sport` is a displayed-sport key (`WorkoutSource.displaySport`), nil =
-/// all sports. `sourceClass` is the origin class, nil = all sources. `search` is a free-text query over
-/// the displayed sport name (trimmed, case-insensitive; empty = no search).
+/// all sports. `origin` is where the workout came from as a person reads it (`WorkoutOrigin`), nil = all
+/// sources. `search` is a free-text query over the displayed sport name (trimmed, case-insensitive; empty = no
+/// search).
 struct WorkoutFilter: Equatable {
     var sport: String?
-    var sourceClass: WorkoutSource?
+    var origin: WorkoutOrigin?
     var search: String
 
-    init(sport: String? = nil, sourceClass: WorkoutSource? = nil, search: String = "") {
+    init(sport: String? = nil, origin: WorkoutOrigin? = nil, search: String = "") {
         self.sport = sport
-        self.sourceClass = sourceClass
+        self.origin = origin
         self.search = search
     }
 
     /// True when no facet is active — the caller can skip the walk and keep the input verbatim.
     var isActive: Bool {
-        sport != nil || sourceClass != nil
+        sport != nil || origin != nil
             || !search.trimmingCharacters(in: .whitespaces).isEmpty
     }
 
     /// Does one row pass every active facet? Sport matches on the DISPLAYED name (so "detected" folds to
-    /// "Activity", camelCase splits) exactly as the picker lists it; source matches on `classify`; search
+    /// "Activity", camelCase splits) exactly as the picker lists it; source matches on `WorkoutOrigin`; search
     /// is a case-insensitive substring of the displayed sport.
     func matches(_ row: WorkoutRow) -> Bool {
         if let sport, WorkoutSource.displaySport(row.sport) != sport { return false }
-        if let sourceClass, WorkoutSource.classify(row.source) != sourceClass { return false }
+        if let origin, WorkoutOrigin.of(row) != origin { return false }
         let q = search.trimmingCharacters(in: .whitespaces)
         if !q.isEmpty,
            WorkoutSource.displaySport(row.sport).range(of: q, options: .caseInsensitive) == nil {

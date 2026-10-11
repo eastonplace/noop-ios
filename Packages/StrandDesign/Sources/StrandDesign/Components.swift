@@ -555,83 +555,124 @@ public struct SegmentedPillControl<T: Hashable>: View {
     let isEnabled: (T) -> Bool
     /// Optional per-segment accessibility identifier (for UI automation). nil = none, the default.
     let identifier: ((T) -> String)?
+    /// Whether the segments stack into one column at the accessibility text sizes. A caller that already puts the control in a
+    /// horizontal `ScrollView` (a pinned header, a row of presets) passes false: stacked, the control would grow tall inside it.
+    let stacksAtAccessibilitySizes: Bool
     @Binding var selection: T
     @Namespace private var selectionThumb
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    public init(_ items: [T], selection: Binding<T>, label: @escaping (T) -> String) {
-        self.init(items, selection: selection, isEnabled: { _ in true }, label: label)
-    }
-    public init(_ items: [T], selection: Binding<T>, isEnabled: @escaping (T) -> Bool,
+    public init(_ items: [T], selection: Binding<T>, stacksAtAccessibilitySizes: Bool = true,
                 label: @escaping (T) -> String) {
+        self.init(items, selection: selection, stacksAtAccessibilitySizes: stacksAtAccessibilitySizes,
+                  isEnabled: { _ in true }, label: label)
+    }
+    public init(_ items: [T], selection: Binding<T>, stacksAtAccessibilitySizes: Bool = true,
+                isEnabled: @escaping (T) -> Bool, label: @escaping (T) -> String) {
         self.items = items; self._selection = selection; self.isEnabled = isEnabled; self.label = label
         self.identifier = nil
+        self.stacksAtAccessibilitySizes = stacksAtAccessibilitySizes
     }
     /// Same control with a stable accessibility identifier per segment, so a screen that exposes the
     /// segments as tabs keeps its UI-test hooks when it adopts the canonical control.
-    public init(_ items: [T], selection: Binding<T>, identifier: @escaping (T) -> String,
-                label: @escaping (T) -> String) {
+    public init(_ items: [T], selection: Binding<T>, stacksAtAccessibilitySizes: Bool = true,
+                identifier: @escaping (T) -> String, label: @escaping (T) -> String) {
         self.items = items; self._selection = selection; self.isEnabled = { _ in true }; self.label = label
         self.identifier = identifier
+        self.stacksAtAccessibilitySizes = stacksAtAccessibilitySizes
     }
+    @Environment(\.dynamicTypeSize) private var typeSize
+
     public var body: some View {
-        HStack(spacing: 4) {
-            ForEach(items, id: \.self) { item in
-                let sel = item == selection
-                let enabled = isEnabled(item)
-                Button {
-                    SegmentedPillSelection.perform(
-                        current: selection,
-                        next: item,
-                        isEnabled: enabled,
-                        setSelection: { newSelection in
-                            withAnimation(reduceMotion ? nil : StrandMotion.press) {
-                                selection = newSelection
-                            }
-                        },
-                        feedback: playSelectionFallback
-                    )
-                } label: {
-                    Text(label(item))
-                        .font(StrandFont.captionNumber)
-                        // Active segment is SELECTION CHROME, so it follows the accent: on dark a
-                        // Canonical selected chrome is scheme-invariant ink. Disabled segments
-                        // drop to a fainter tertiary so the lock reads at a glance.
-                        .foregroundStyle(sel ? StrandPalette.onInk
-                                             : StrandPalette.textTertiary.opacity(enabled ? 1 : 0.35))
-                        // Fill the segment height so the selected pill has EQUAL margins to the track
-                        // on every side. (The old compact pill inside a taller 44pt touch frame left
-                        // more vertical margin than horizontal — it read as off-centre.)
-                        .frame(minWidth: 26, maxHeight: .infinity)
-                        .padding(.horizontal, 9)
-                        .background(
-                            Group {
-                                if sel {
-                                    Capsule(style: .continuous)
-                                        .fill(StrandPalette.ink)
-                                        .matchedGeometryEffect(
-                                            id: "selected-segment",
-                                            in: selectionThumb
-                                        )
-                                }
-                            }
-                        )
-                        // A finger gets 44 pt of height though the segment is drawn 32: the touch shape reaches 6 pt
-                        // above and below it, which changes nothing in the layout.
-                        .contentShape(SegmentTouchShape())
+        // Side by side the labels share one line. From the accessibility sizes up they would be cut, so the segments
+        // stack, one full-width row each, and a label may take as many lines as it needs. A control inside a sideways
+        // scroll view opts out and keeps its single row.
+        let stacked = stacksAtAccessibilitySizes && typeSize.isAccessibilitySize
+        Group {
+            if stacked {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(items, id: \.self) { item in segment(item, stacked: true) }
                 }
-                .buttonStyle(.plain)
-                .frame(height: 32)   // segment height; the pill fills it for an even inset
-                .disabled(!enabled)
-                // Announce the active range to VoiceOver and give a non-colour cue.
-                .accessibilityAddTraits(sel ? .isSelected : [])
-                .modifier(SegmentIdentifier(identifier: identifier?(item)))
+            } else {
+                HStack(spacing: 4) {
+                    ForEach(items, id: \.self) { item in segment(item, stacked: false) }
+                }
             }
         }
         .padding(3)
-        .background(StrandPalette.surfaceInset, in: Capsule(style: .continuous))
-        .overlay(Capsule(style: .continuous).strokeBorder(StrandPalette.hairline, lineWidth: 1))
+        // A rounded rectangle whose radius clamps to half its height is the capsule; stacked rows get a firm corner.
+        .background(StrandPalette.surfaceInset, in: RoundedRectangle(cornerRadius: stacked ? 24 : 1000, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: stacked ? 24 : 1000, style: .continuous)
+            .strokeBorder(StrandPalette.hairline, lineWidth: 1))
         .accessibilityElement(children: .contain)
         .strandHaptic(.selection, trigger: selection)
+    }
+
+    @ViewBuilder private func segment(_ item: T, stacked: Bool) -> some View {
+        let sel = item == selection
+        let enabled = isEnabled(item)
+        Button {
+            SegmentedPillSelection.perform(
+                current: selection,
+                next: item,
+                isEnabled: enabled,
+                setSelection: { newSelection in
+                    withAnimation(reduceMotion ? nil : StrandMotion.press) {
+                        selection = newSelection
+                    }
+                },
+                feedback: playSelectionFallback
+            )
+        } label: {
+            Text(label(item))
+                .font(StrandFont.captionNumber)
+                // Active segment is SELECTION CHROME, so it follows the accent: on dark a
+                // Canonical selected chrome is scheme-invariant ink. Disabled segments
+                // drop to a fainter tertiary so the lock reads at a glance.
+                .foregroundStyle(sel ? StrandPalette.onInk
+                                     : StrandPalette.textTertiary.opacity(enabled ? 1 : 0.35))
+                .multilineTextAlignment(.center)
+                // Fill the segment height so the selected pill has EQUAL margins to the track
+                // on every side. (The old compact pill inside a taller 44pt touch frame left
+                // more vertical margin than horizontal — it read as off-centre.)
+                // (Stacked rows are only as tall as their label: a greedy height would stretch a pinned header.)
+                .frame(minWidth: 26, maxWidth: stacked ? .infinity : nil, maxHeight: stacked ? nil : .infinity)
+                .padding(.horizontal, 9)
+                .padding(.vertical, stacked ? 10 : 0)
+                .background(
+                    Group {
+                        if sel {
+                            Capsule(style: .continuous)
+                                .fill(StrandPalette.ink)
+                                .matchedGeometryEffect(
+                                    id: "selected-segment",
+                                    in: selectionThumb
+                                )
+                        }
+                    }
+                )
+                // Side by side, a finger gets 44 pt of height though the segment is drawn 32: the touch shape reaches 6 pt
+                // above and below it, which changes nothing in the layout. Stacked rows are 44 pt already and sit 4 pt
+                // apart, so they keep their own bounds and neighbouring touch areas never overlap.
+                .contentShape(stacked ? AnyShape(Rectangle()) : AnyShape(SegmentTouchShape()))
+        }
+        .buttonStyle(.plain)
+        .modifier(SegmentHeight(stacked: stacked))
+        .disabled(!enabled)
+        // Announce the active range to VoiceOver and give a non-colour cue.
+        .accessibilityAddTraits(sel ? .isSelected : [])
+        .modifier(SegmentIdentifier(identifier: identifier?(item)))
+    }
+
+    /// 32pt (44pt to the finger) side by side; as tall as the label needs, at least 44pt, when stacked.
+    private struct SegmentHeight: ViewModifier {
+        let stacked: Bool
+        @ViewBuilder func body(content: Content) -> some View {
+            if stacked {
+                content.frame(minHeight: 44)
+            } else {
+                content.frame(height: 32)   // segment height; the pill fills it for an even inset
+            }
+        }
     }
 
     private func playSelectionFallback() {

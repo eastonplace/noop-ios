@@ -84,13 +84,13 @@ struct LocalCoachMemoryView: View {
                 if coach.isPreview { LocalCoachFixtureLabel().padding(.bottom, NoopMetrics.space3) }
                 header
                 if coach.memories.isEmpty {
-                    CoachSectionSeparator()
+                    FlatSectionSeparator.coach
                     emptyMemory
                 }
                 ForEach(LocalCoachMemory.Category.allCases) { category in
                     let entries = coach.memories.filter { $0.category == category }
                     if !entries.isEmpty {
-                        CoachSectionSeparator()
+                        FlatSectionSeparator.coach
                         categorySection(category, entries)
                     }
                 }
@@ -111,7 +111,7 @@ struct LocalCoachMemoryView: View {
 
     /// What the page is for, the master switch, and (once something is remembered) the Add chip.
     private var header: some View {
-        CoachSection("What Coach remembers", systemImage: "person.crop.circle.badge.checkmark", tint: .accent,
+        FlatSection("What Coach remembers", systemImage: "person.crop.circle.badge.checkmark", tint: .accent,
                      trailing: coach.memories.isEmpty ? .none : .custom(AnyView(addChip))) {
             VStack(alignment: .leading, spacing: NoopMetrics.space2) {
                 Text("A coach that\nknows your context.").font(StrandFont.title1)
@@ -147,7 +147,7 @@ struct LocalCoachMemoryView: View {
 
     private func categorySection(_ category: LocalCoachMemory.Category, _ entries: [LocalCoachMemory]) -> some View {
         // Every category wears the Coach accent, like the other Coach eyebrows; only the symbol tells them apart.
-        CoachSection(LocalizedStringKey(category.title), systemImage: Self.symbol(for: category), tint: .accent,
+        FlatSection(LocalizedStringKey(category.title), systemImage: Self.symbol(for: category), tint: .accent,
                      trailing: .text("\(entries.count)")) {
             VStack(spacing: 0) {
                 ForEach(Array(entries.enumerated()), id: \.element.id) { index, memory in
@@ -203,7 +203,7 @@ struct LocalCoachMemoryView: View {
             Text("Add a goal, routine or preference and Coach will use it in your conversations.")
                 .font(StrandFont.subhead).lineSpacing(3).foregroundStyle(StrandPalette.textSecondary)
             Button { adding = true } label: { Text("Add something about you") }
-                .buttonStyle(CoachPrimaryPillStyle())
+                .buttonStyle(PrimaryPillButtonStyle())
                 .disabled(!canAdd)
                 .accessibilityIdentifier("coach.addMemory")
         }

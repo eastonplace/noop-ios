@@ -333,7 +333,7 @@ private struct BreathingContent: View {
         // Up to four pills (incl. locked Resonance) overflow a narrow iPhone — let a
         // horizontal scroll govern the width rather than truncating inside a fixed frame.
         ScrollView(.horizontal, showsIndicators: false) {
-            SegmentedPillControl(availablePaces, selection: $pace) { $0.label }
+            SegmentedPillControl(availablePaces, selection: $pace, stacksAtAccessibilitySizes: false) { $0.label }
         }
     }
 

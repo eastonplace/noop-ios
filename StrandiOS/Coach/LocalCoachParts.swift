@@ -7,9 +7,10 @@ import StrandDesign
 // The four Coach pages (Overview, Conversation, Your plan, About you) are flat sections on the canvas in the
 // same language as Today, Trends, Sleep and the Coach cards: a `SectionEyebrow` header (domain symbol plus a
 // tracked caps title), values bright with their units muted, one hairline between sections and one
-// `DomainTint` per subject. These are the few pieces that language needs which the shared design system does
-// not ship: a flat section, a primary pill sized like Today's Start pill, a glance-style row, a fact strip and
-// a flat notice. They take plain values and never see the engine.
+// `DomainTint` per subject. The section, its separator, the fact strip and the primary pill come from
+// StrandDesign (`FlatSection`, `FlatSectionSeparator`, `FactStrip`, `PrimaryPillButtonStyle`); these are the
+// few pieces only the Coach pages need: a glance-style row and a flat notice. They take plain values and never
+// see the engine.
 
 // MARK: Page rhythm
 
@@ -24,40 +25,10 @@ enum CoachRhythm {
     static let pageBottom: CGFloat = NoopMetrics.space6
 }
 
-/// The one hairline between two Coach sections (Today's own separator, so weight and colour cannot drift).
-struct CoachSectionSeparator: View {
-    var above: CGFloat = CoachRhythm.airAbove
-    var below: CGFloat = CoachRhythm.airBelow
-
-    var body: some View {
-        TodaySectionSeparator(above: above, below: below)
-    }
-}
-
-/// A flat section: eyebrow header over free-form content, spaced like the Coach cards' interiors.
-struct CoachSection<Content: View>: View {
-    private let eyebrow: SectionEyebrow
-    @ViewBuilder private let content: () -> Content
-
-    init(_ title: LocalizedStringKey, systemImage: String, tint: DomainTint = .accent,
-         trailing: EyebrowTrailing = .none, @ViewBuilder content: @escaping () -> Content) {
-        self.eyebrow = SectionEyebrow(title, systemImage: systemImage, tint: tint, trailing: trailing)
-        self.content = content
-    }
-
-    /// A title that is data (a weekday, a category name), shown as written.
-    init(verbatim title: String, systemImage: String, tint: DomainTint = .accent,
-         trailing: EyebrowTrailing = .none, @ViewBuilder content: @escaping () -> Content) {
-        self.eyebrow = SectionEyebrow(title: title, systemImage: systemImage, tint: tint, trailing: trailing)
-        self.content = content
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: WidgetMetrics.contentSpacing) {
-            eyebrow
-            content()
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
+extension FlatSectionSeparator {
+    /// The separator between two Coach sections, at Coach's tuned air.
+    static var coach: FlatSectionSeparator {
+        FlatSectionSeparator(above: CoachRhythm.airAbove, below: CoachRhythm.airBelow)
     }
 }
 
@@ -71,26 +42,6 @@ enum CoachRecordDate {
         let age = LocalCoachWindow.calendar.dateComponents(
             [.day], from: date, to: LocalCoachWindow.calendar.startOfDay(for: now)).day ?? 0
         return .record(date: LocalCoachCardFormat.dayLabel(date, now: now), isStale: age >= 2)
-    }
-}
-
-// MARK: Primary pill
-
-/// The primary action: Today's Start pill (brand ink capsule, dark label) scaled up modestly for a page whose one
-/// job is this action. The tap area reaches 44pt without growing the layout. Disabled it is the standard quiet
-/// look (the chip wash behind a tertiary label), never a dimmed accent, so it cannot be mistaken for a rendering fault.
-struct CoachPrimaryPillStyle: ButtonStyle {
-    @Environment(\.isEnabled) private var isEnabled
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(StrandFont.subhead.weight(.semibold))
-            .foregroundStyle(isEnabled ? StrandPalette.appCanvas : StrandPalette.textTertiary)
-            .padding(.horizontal, NoopMetrics.space4)
-            .padding(.vertical, 10)
-            .background(isEnabled ? StrandPalette.ink : StrandPalette.chipFill, in: Capsule(style: .continuous))
-            .contentShape(Rectangle().inset(by: -4))
-            .opacity(isEnabled && configuration.isPressed ? 0.78 : 1)
     }
 }
 
@@ -130,81 +81,6 @@ struct CoachRow: View {
         }
         .frame(minHeight: 44)
         .contentShape(Rectangle())
-    }
-}
-
-// MARK: Fact strip
-
-struct CoachFact {
-    let label: LocalizedStringKey
-    let value: String
-    var unit: LocalizedStringKey?
-}
-
-/// Label-over-value columns with hairline dividers, the shape of `StatFooter(.prominent)` with the unit muted.
-/// Equal columns on one baseline; steps down in size and then stacks as rows before anything truncates.
-struct CoachFactStrip: View {
-    let facts: [CoachFact]
-    @ScaledMetric(relativeTo: .title3) private var valueSize: CGFloat = WidgetMetrics.statValueSize
-    @Environment(\.dynamicTypeSize) private var typeSize
-
-    var body: some View {
-        if typeSize.isAccessibilitySize {
-            stacked
-        } else {
-            ViewThatFits(in: .horizontal) {
-                columns(size: valueSize)
-                columns(size: valueSize * 0.85)
-                columns(size: valueSize * 0.72)
-                stacked
-            }
-        }
-    }
-
-    private func value(_ fact: CoachFact, size: CGFloat) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 3) {
-            Text(fact.value)
-                .font(StrandFont.number(size, weight: .semibold))
-                .foregroundStyle(fact.value == WidgetMetrics.missingValue ? StrandPalette.textTertiary : StrandPalette.textPrimary)
-            if let unit = fact.unit, fact.value != WidgetMetrics.missingValue {
-                Text(unit).font(StrandFont.caption).foregroundStyle(StrandPalette.textTertiary)
-            }
-        }
-        .lineLimit(1)
-    }
-
-    private func columns(size: CGFloat) -> some View {
-        HStack(alignment: .top, spacing: 0) {
-            ForEach(Array(facts.enumerated()), id: \.offset) { index, fact in
-                if index > 0 {
-                    Rectangle().fill(StrandPalette.hairline).frame(width: 1, height: 36)
-                        .accessibilityHidden(true)
-                }
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(fact.label).font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary).lineLimit(1)
-                    // One-line sizes report their full width, so ViewThatFits moves to the next size
-                    // rather than truncating one column.
-                    value(fact, size: size).fixedSize(horizontal: true, vertical: false)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.leading, index == 0 ? 0 : NoopMetrics.space3)
-                .padding(.trailing, index == facts.count - 1 ? 0 : NoopMetrics.space3)
-                .accessibilityElement(children: .combine)
-            }
-        }
-    }
-
-    private var stacked: some View {
-        VStack(alignment: .leading, spacing: NoopMetrics.space3) {
-            ForEach(Array(facts.enumerated()), id: \.offset) { _, fact in
-                HStack(alignment: .firstTextBaseline, spacing: NoopMetrics.space2) {
-                    Text(fact.label).font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
-                    Spacer(minLength: NoopMetrics.space2)
-                    value(fact, size: valueSize)
-                }
-                .accessibilityElement(children: .combine)
-            }
-        }
     }
 }
 

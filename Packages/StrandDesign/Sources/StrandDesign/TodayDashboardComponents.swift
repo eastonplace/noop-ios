@@ -628,59 +628,6 @@ public struct MetricCatalogRow: View {
     }
 }
 
-// MARK: - Workouts
-
-public struct TodayWorkoutRowModel: Identifiable, Equatable {
-    public let id: String
-    public let sport: String
-    public let subtitle: String
-    public let strain: String
-    public let heartRate: [Double]
-    public let accent: Color
-
-    public init(id: String, sport: String, subtitle: String, strain: String,
-                heartRate: [Double] = [], accent: Color = StrandPalette.strainAccent) {
-        self.id = id; self.sport = sport; self.subtitle = subtitle; self.strain = strain
-        self.heartRate = heartRate; self.accent = accent
-    }
-
-    public static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.id == rhs.id && lhs.sport == rhs.sport && lhs.subtitle == rhs.subtitle
-            && lhs.strain == rhs.strain && lhs.heartRate == rhs.heartRate
-    }
-}
-
-public struct TodayWorkoutRow: View {
-    public let model: TodayWorkoutRowModel
-    public init(model: TodayWorkoutRowModel) { self.model = model }
-    public var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "figure.run").font(.system(size: 15, weight: .semibold)).foregroundStyle(model.accent)
-                .frame(width: 28, height: 38)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(verbatim: model.sport).font(StrandFont.body.weight(.semibold))
-                Text(verbatim: model.subtitle).font(StrandFont.footnote).foregroundStyle(StrandPalette.textSecondary)
-            }
-            Spacer(minLength: 4)
-            if model.heartRate.count > 1 {
-                Sparkline(values: model.heartRate, gradient: Gradient(colors: [StrandPalette.metricCyan, model.accent]),
-                          lineWidth: 1.4, showsArea: false, showsHead: false, showsHover: false)
-                    .frame(width: 62, height: 28).accessibilityHidden(true)
-            }
-            VStack(alignment: .trailing, spacing: 2) {
-                Text(verbatim: model.strain).font(StrandFont.number(18, weight: .semibold)).foregroundStyle(model.accent)
-                Text("STRAIN", bundle: .module).font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
-            }
-            Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold))
-                .foregroundStyle(StrandPalette.textTertiary)
-        }
-        .contentRowSurface(boundedPadding: 13, flatVerticalPadding: 12, cornerRadius: 14)
-        .contentShape(Rectangle())
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(model.sport), \(model.subtitle), strain \(model.strain)")
-    }
-}
-
 // MARK: - Header chrome
 
 public enum AppStrapState: Equatable { case live, syncing, offline }

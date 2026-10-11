@@ -25,7 +25,7 @@ struct LocalCoachPlanView: View {
                 if let plan = coach.plan {
                     planHeader(plan)
                     ForEach(plan.days) { day in
-                        CoachSectionSeparator()
+                        FlatSectionSeparator.coach
                         daySection(day, in: plan)
                     }
                     Text("Tap an exercise to adjust sets, reps, rest or notes. Start with a load you can control.")
@@ -76,7 +76,7 @@ struct LocalCoachPlanView: View {
     private func planHeader(_ plan: LocalCoachPlan) -> some View {
         let perSession = CoachPlanText.minutesPerSession(plan.days.map(\.minutes))
         let exercises = plan.days.reduce(0) { $0 + $1.exercises.count }
-        return CoachSection(plan.saved ? "Saved to your workouts" : "Built for your review",
+        return FlatSection(plan.saved ? "Saved to your workouts" : "Built for your review",
                             systemImage: plan.saved ? "checkmark.circle.fill" : "calendar.badge.plus",
                             tint: .workout,
                             trailing: .pill(plan.saved ? "Saved" : "Draft", tone: plan.saved ? .positive : .neutral)) {
@@ -87,11 +87,11 @@ struct LocalCoachPlanView: View {
                 // with a chip to read the rest when it really runs past them. VoiceOver always reads all of it.
                 CoachCollapsibleSummary(text: plan.summary, isExpanded: $summaryExpanded)
             }
-            CoachFactStrip(facts: [
-                CoachFact(label: "Workouts", value: "\(plan.days.count)"),
-                CoachFact(label: "Per workout", value: perSession.map(String.init) ?? WidgetMetrics.missingValue,
-                          unit: "min"),
-                CoachFact(label: "Exercises", value: "\(exercises)")
+            FactStrip(facts: [
+                .init("Workouts", value: "\(plan.days.count)"),
+                .init("Per workout", value: perSession.map(String.init) ?? WidgetMetrics.missingValue,
+                      unit: "min"),
+                .init("Exercises", value: "\(exercises)")
             ])
             actions(plan)
         }
@@ -120,7 +120,7 @@ struct LocalCoachPlanView: View {
                   systemImage: plan.saved ? "checkmark.circle" : "plus.circle")
                 .labelStyle(.titleAndIcon)
         }
-        .buttonStyle(CoachPrimaryPillStyle())
+        .buttonStyle(PrimaryPillButtonStyle())
         .disabled(coach.isResponding || coach.isPreview)
         .accessibilityIdentifier("coach.savePlan")
     }
@@ -146,7 +146,7 @@ struct LocalCoachPlanView: View {
         let when = date(of: day, in: plan)
         let isToday = Calendar.current.isDateInToday(when)
         let heading = when.formatted(.dateTime.weekday(.wide).month(.abbreviated).day())
-        return CoachSection(verbatim: heading, systemImage: "figure.strengthtraining.traditional", tint: .workout,
+        return FlatSection(verbatim: heading, systemImage: "figure.strengthtraining.traditional", tint: .workout,
                             trailing: isToday ? .pill("Today", tone: .accent) : .none) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(day.title).font(StrandFont.headline).foregroundStyle(StrandPalette.textPrimary)
@@ -212,11 +212,11 @@ struct LocalCoachPlanView: View {
                 Text("Build a training plan around your focus and available time. Review the exercises, adjust the details and save it to your NOOP workouts.")
                     .font(StrandFont.subhead).lineSpacing(3).foregroundStyle(StrandPalette.textSecondary)
                 Button(action: onBuild) { Text("Build my plan") }
-                    .buttonStyle(CoachPrimaryPillStyle())
+                    .buttonStyle(PrimaryPillButtonStyle())
                     .accessibilityIdentifier("coach.buildPlan")
             }
-            CoachSectionSeparator()
-            CoachSection("How it works", systemImage: "list.number", tint: .workout) {
+            FlatSectionSeparator.coach
+            FlatSection("How it works", systemImage: "list.number", tint: .workout) {
                 VStack(alignment: .leading, spacing: NoopMetrics.space3) {
                     step(1, "Pick your focus and time")
                     step(2, "Review and adjust the draft")

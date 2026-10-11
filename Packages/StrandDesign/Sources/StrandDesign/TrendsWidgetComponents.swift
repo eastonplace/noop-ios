@@ -293,6 +293,14 @@ private extension View {
     }
 }
 
+public extension View {
+    /// Touch and hold, then drag, to read a chart that sits inside a vertically scrolling page: a touch that moves at once is
+    /// the page scrolling. `onScrub` receives the finger's location in this view; `onEnd` is called when the finger lifts.
+    func holdToScrub(onScrub: @escaping (CGPoint) -> Void, onEnd: @escaping () -> Void) -> some View {
+        modifier(TrendsScrubModifier(onScrub: onScrub, onEnd: onEnd))
+    }
+}
+
 // MARK: - Chips
 
 /// The label of the metric menu: the metric's symbol in its domain colour, its name and the up-down chevron,

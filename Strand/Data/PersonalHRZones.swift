@@ -11,7 +11,7 @@ import StrandDesign
 extension ProfileStore {
     /// The wearer's rest / steady / push boundaries for a given override and age.
     nonisolated static func hrZoneThresholds(override: Int, age: Int) -> HRZoneStyle.Thresholds {
-        HRZoneStyle.Thresholds(hrMax: Double(hrMax(override: override, age: age)))
+        HRZoneStyle.Thresholds(hrMax: Double(hrMax(age: age, override: override)))
     }
 }
 

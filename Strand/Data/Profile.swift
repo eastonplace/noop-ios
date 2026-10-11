@@ -170,11 +170,17 @@ final class ProfileStore: ObservableObject {
     }
 
     /// Tanaka estimate unless overridden.
-    var hrMax: Int { Self.hrMax(override: hrMaxOverride, age: age) }
+    var hrMax: Int { Self.hrMax(age: age, override: hrMaxOverride) }
 
-    /// The override when one is set, else the Tanaka estimate for `age`.
-    nonisolated static func hrMax(override: Int, age: Int) -> Int {
+    /// The one max-heart-rate rule: a positive manual override wins, else the Tanaka estimate (208 − 0.7 × age).
+    /// Pure, so code with no `ProfileStore` in hand (the repository's zone reads) applies the same rule as the screens.
+    nonisolated static func hrMax(age: Int, override: Int) -> Int {
         override > 0 ? override : Int((208 - 0.7 * Double(age)).rounded())
+    }
+
+    /// The max-heart-rate override as the profile last saved it (0 = none), for readers with no `ProfileStore`.
+    nonisolated static func storedHrMaxOverride(_ defaults: UserDefaults = .standard) -> Int {
+        defaults.object(forKey: K.hrMax) as? Int ?? 0
     }
 
     /// The maximum the nightly batch scores Strain with: the override, else the unrounded Tanaka estimate.

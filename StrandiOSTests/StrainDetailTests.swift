@@ -178,7 +178,7 @@ final class StrainBatchParityTests: XCTestCase {
         XCTAssertEqual(ProfileStore.hrMaxForBatchScoring(override: 0, age: 34), 208 - 0.7 * 34, accuracy: 1e-9)
         XCTAssertEqual(ProfileStore.hrMaxForBatchScoring(override: 191, age: 34), 191)
         XCTAssertEqual(ProfileStore.hrMaxForBatchScoring(override: 0, age: 0), 208 - 0.7 * Double(StrainScorer.defaultAge), accuracy: 1e-9)
-        XCTAssertNotEqual(ProfileStore.hrMaxForBatchScoring(override: 0, age: 34), Double(ProfileStore.hrMax(override: 0, age: 34)))
+        XCTAssertNotEqual(ProfileStore.hrMaxForBatchScoring(override: 0, age: 34), Double(ProfileStore.hrMax(age: 34, override: 0)))
     }
 }
 
