@@ -100,6 +100,7 @@ public struct TodayHeroCard: View {
     public let onPillar: (String) -> Void
     public let onOpenWorkouts: () -> Void
     public let onWorkoutAction: () -> Void
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     public init(pillars: [TodayPillarModel], glance: String, workoutIsActive: Bool,
                 showsWorkoutAction: Bool = true, onPillar: @escaping (String) -> Void,
@@ -118,9 +119,19 @@ public struct TodayHeroCard: View {
             // The dials / glance hairline is the same 1pt hairline as the ones between sections, with the air
             // above and below chosen (like theirs) to make the visible gap the same on both sides.
             VStack(spacing: 0) {
-                HStack(alignment: .top, spacing: 6) {
-                    ForEach(pillars) { pillar in
-                        TodayPillarGauge(model: pillar) { onPillar(pillar.id) }
+                // Side by side at ordinary sizes; one row each (dial, then its words beside it) at the accessibility
+                // sizes, where a third of the width cannot hold a caption.
+                if typeSize.isAccessibilitySize {
+                    VStack(alignment: .leading, spacing: NoopMetrics.space4) {
+                        ForEach(pillars) { pillar in
+                            TodayPillarGauge(model: pillar) { onPillar(pillar.id) }
+                        }
+                    }
+                } else {
+                    HStack(alignment: .top, spacing: 6) {
+                        ForEach(pillars) { pillar in
+                            TodayPillarGauge(model: pillar) { onPillar(pillar.id) }
+                        }
                     }
                 }
                 TodayHairline().padding(.top, 9.87).padding(.bottom, 11.87)
@@ -216,6 +227,7 @@ private struct TodayPillarGauge: View {
     let model: TodayPillarModel
     let action: () -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var typeSize
     @State private var revealed = false
     /// One shared icon column, so the three labels start at the same offset whatever symbol precedes them.
     @ScaledMetric(relativeTo: .caption) private var symbolColumn: CGFloat = 14
@@ -306,52 +318,103 @@ private struct TodayPillarGauge: View {
         return detail
     }
 
+    /// The dial itself: the arc, its target band and ticks, the value in the middle.
+    private var dial: some View {
+        GeometryReader { proxy in
+            let side = min(proxy.size.width, proxy.size.height)
+            let width: CGFloat = 8
+            let radius = side / 2 - width / 2
+            ZStack {
+                if model.value == nil {
+                    dottedTrack(side: side, width: width)
+                } else {
+                    Circle().trim(from: 0, to: 2 / 3)
+                        .stroke(trackColor, style: StrokeStyle(lineWidth: width, lineCap: .round))
+                        .rotationEffect(.degrees(150))
+                }
+                if let target = model.targetBand {
+                    Circle().trim(from: (2 / 3) * target.lowerBound,
+                                  to: (2 / 3) * target.upperBound)
+                        .stroke(StrandPalette.statusPositive.opacity(0.3),
+                                style: StrokeStyle(lineWidth: width))
+                        .rotationEffect(.degrees(150))
+                }
+                // An empty dial has no scale to mark, and the ticks would cut through its dots.
+                ForEach(model.value == nil ? [] : model.bandTicks, id: \.self) { tick in
+                    let angle = Angle.degrees(150 + 240 * tick)
+                    Capsule().fill(StrandPalette.hairlineStrong)
+                        .frame(width: 1.5, height: width + 4)
+                        .rotationEffect(angle + .degrees(90))
+                        .offset(x: cos(angle.radians) * radius, y: sin(angle.radians) * radius)
+                }
+                if model.value != nil {
+                    Circle().trim(from: 0, to: (2 / 3) * (revealed ? fraction : 0))
+                        .stroke(model.accent, style: StrokeStyle(lineWidth: width, lineCap: .round))
+                        .rotationEffect(.degrees(150))
+                }
+                Text(verbatim: model.valueText)
+                    .font(StrandFont.number(25, weight: .bold))
+                    .monospacedDigit()
+                    .foregroundStyle(model.value == nil ? StrandPalette.textTertiary : StrandPalette.textPrimary)
+                    .minimumScaleFactor(0.55)
+                    .offset(y: 3)
+            }
+            .frame(width: side, height: side)
+            .frame(maxWidth: .infinity)
+        }
+        .frame(height: 100)
+    }
+
     var body: some View {
+        if typeSize.isAccessibilitySize {
+            rowBody
+        } else {
+            stackedBody
+        }
+    }
+
+    /// At the accessibility sizes three dials side by side leave each caption about a third of the width ("RECOV…",
+    /// "Prim…"), so each pillar is a row of its own: the dial, then its name, state word and detail beside it, free to
+    /// wrap between words and, for a word wider than the line, to scale down (never hyphenate).
+    private var rowBody: some View {
+        Button(action: action) {
+            HStack(alignment: .center, spacing: NoopMetrics.space4) {
+                dial.frame(width: 100)
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        if let symbol {
+                            Image(systemName: symbol)
+                                .font(StrandFont.caption)
+                                .foregroundStyle(inkColor)
+                                .accessibilityHidden(true)
+                        }
+                        Text(verbatim: model.label)
+                            .tracking(StrandFont.overlineTracking)
+                            .textCase(.uppercase)
+                            .foregroundStyle(StrandPalette.textSecondary)
+                            .captionLabelFit(lines: 2, weight: .semibold)
+                    }
+                    Text(verbatim: model.state).foregroundStyle(inkColor).captionLabelFit(lines: 2)
+                    if let detail = visibleDetail {
+                        Text(verbatim: detail).foregroundStyle(StrandPalette.textTertiary).microLabelFit(lines: 3)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onAppear { withAnimation(reduceMotion ? nil : .easeOut(duration: 0.65)) { revealed = true } }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(model.label), \(model.valueText), \(model.state)"
+                            + (visibleDetail.map { ", \($0)" } ?? ""))
+    }
+
+    private var stackedBody: some View {
         Button(action: action) {
             VStack(spacing: 5) {
-                GeometryReader { proxy in
-                    let side = min(proxy.size.width, proxy.size.height)
-                    let width: CGFloat = 8
-                    let radius = side / 2 - width / 2
-                    ZStack {
-                        if model.value == nil {
-                            dottedTrack(side: side, width: width)
-                        } else {
-                            Circle().trim(from: 0, to: 2 / 3)
-                                .stroke(trackColor, style: StrokeStyle(lineWidth: width, lineCap: .round))
-                                .rotationEffect(.degrees(150))
-                        }
-                        if let target = model.targetBand {
-                            Circle().trim(from: (2 / 3) * target.lowerBound,
-                                          to: (2 / 3) * target.upperBound)
-                                .stroke(StrandPalette.statusPositive.opacity(0.3),
-                                        style: StrokeStyle(lineWidth: width))
-                                .rotationEffect(.degrees(150))
-                        }
-                        // An empty dial has no scale to mark, and the ticks would cut through its dots.
-                        ForEach(model.value == nil ? [] : model.bandTicks, id: \.self) { tick in
-                            let angle = Angle.degrees(150 + 240 * tick)
-                            Capsule().fill(StrandPalette.hairlineStrong)
-                                .frame(width: 1.5, height: width + 4)
-                                .rotationEffect(angle + .degrees(90))
-                                .offset(x: cos(angle.radians) * radius, y: sin(angle.radians) * radius)
-                        }
-                        if model.value != nil {
-                            Circle().trim(from: 0, to: (2 / 3) * (revealed ? fraction : 0))
-                                .stroke(model.accent, style: StrokeStyle(lineWidth: width, lineCap: .round))
-                                .rotationEffect(.degrees(150))
-                        }
-                        Text(verbatim: model.valueText)
-                            .font(StrandFont.number(25, weight: .bold))
-                            .monospacedDigit()
-                            .foregroundStyle(model.value == nil ? StrandPalette.textTertiary : StrandPalette.textPrimary)
-                            .minimumScaleFactor(0.55)
-                            .offset(y: 3)
-                    }
-                    .frame(width: side, height: side)
-                    .frame(maxWidth: .infinity)
-                }
-                .frame(height: 100)
+                dial
                 eyebrow
                 Text(verbatim: model.state).font(StrandFont.micro).foregroundStyle(inkColor).lineLimit(1)
                 if let detail = visibleDetail {
