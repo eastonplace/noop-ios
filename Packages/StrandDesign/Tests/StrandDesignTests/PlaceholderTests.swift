@@ -107,7 +107,7 @@ final class StrandDesignTests: XCTestCase {
     }
 
     func testStrainScaleCanonicalConversionsAndClamping() {
-        XCTAssertEqual(StrainScale.formatted(67), "14.1")
+        XCTAssertEqual(StrainScale.formatted(67, locale: Locale(identifier: "en_US")), "14.1")
         XCTAssertEqual(StrainScale.displayValue(fromStored: 100), 21, accuracy: 0.0001)
         XCTAssertEqual(StrainScale.displayValue(fromStored: 0), 0, accuracy: 0.0001)
         XCTAssertEqual(StrainScale.displayValue(fromStored: -1), 0, accuracy: 0.0001)
@@ -122,9 +122,18 @@ final class StrandDesignTests: XCTestCase {
     }
 
     func testWorkoutBadgeFixtureUsesCanonicalStrainFormatter() {
-        XCTAssertEqual(StrainScale.badgeText(fromStored: 67), "14.1")
-        XCTAssertEqual(StrainScale.badgeText(fromStored: 0), "0.0")
-        XCTAssertEqual(StrainScale.badgeText(fromStored: nil), "–")
+        let english = Locale(identifier: "en_US")
+        XCTAssertEqual(StrainScale.badgeText(fromStored: 67, locale: english), "14.1")
+        XCTAssertEqual(StrainScale.badgeText(fromStored: 0, locale: english), "0.0")
+        XCTAssertEqual(StrainScale.badgeText(fromStored: nil, locale: english), "–")
+    }
+
+    /// The decimal separator follows the person's language, so a German strain reads 14,1 and not 14.1.
+    func testStrainFormattingFollowsTheDecimalSeparatorOfTheLocale() {
+        XCTAssertEqual(StrainScale.formatted(67, locale: Locale(identifier: "de_DE")), "14,1")
+        XCTAssertEqual(StrainScale.formatted(67, locale: Locale(identifier: "es_ES")), "14,1")
+        XCTAssertEqual(StrainScale.formattedDelta(-10, locale: Locale(identifier: "it_IT")), "-2,1")
+        XCTAssertEqual(StrainScale.badgeText(fromStored: 67, locale: Locale(identifier: "pt_PT")), "14,1")
     }
 
     /// A band word has a key of its own: "Light" the strain band is not "Light" the sleep stage.

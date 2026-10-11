@@ -47,20 +47,21 @@ public enum StrainScale {
         return storedDelta * storedToDisplayFactor
     }
 
-    public static func formattedDelta(_ storedDelta: Double) -> String {
-        String(format: "%.1f", displayDelta(fromStored: storedDelta))
+    /// One decimal place, in the person's decimal separator ("12,3" in German, "12.3" in English).
+    public static func formattedDelta(_ storedDelta: Double, locale: Locale = .current) -> String {
+        displayDelta(fromStored: storedDelta).formatted(.number.precision(.fractionLength(1)).locale(locale))
     }
 
-    /// Format a stored value on the 0...21 display scale with one decimal place.
-    public static func formatted(_ storedValue: Double) -> String {
-        String(format: "%.1f", displayValue(fromStored: storedValue))
+    /// Format a stored value on the 0...21 display scale with one decimal place, in the person's decimal separator.
+    public static func formatted(_ storedValue: Double, locale: Locale = .current) -> String {
+        displayValue(fromStored: storedValue).formatted(.number.precision(.fractionLength(1)).locale(locale))
     }
 
     /// Canonical compact row/badge text for an optional stored strain value.
     /// Keeping the empty-state glyph here lets workout rows, widgets, and tests share the same
     /// presentation boundary without importing a view type.
-    public static func badgeText(fromStored storedValue: Double?) -> String {
-        storedValue.map(formatted) ?? "–"
+    public static func badgeText(fromStored storedValue: Double?, locale: Locale = .current) -> String {
+        storedValue.map { formatted($0, locale: locale) } ?? "–"
     }
 
     /// Resolve a status from a value that is already on the 0...21 display scale.
