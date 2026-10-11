@@ -322,6 +322,7 @@ struct LiveWorkoutView: View {
   @State private var draft = LiveComposerDraft(weight: 0, reps: 8)
   @State private var confirmationStamp: WorkoutConfirmationStamp?
   @State private var stampDismissTask: Task<Void, Never>?
+  @State private var confirmsDiscard = false
   @State private var isLibrarySelectionPending = false
   @State private var composerSwapStartedAt: TimeInterval?
   @State private var composerSwapTargetID: UUID?
@@ -410,6 +411,13 @@ struct LiveWorkoutView: View {
       stampDismissTask?.cancel()
       stampDismissTask = nil
       confirmationStamp = nil
+    }
+    // Discarding loses every set logged so far, so the menu entry only asks; this is where it happens.
+    .confirmationDialog("Discard this workout?", isPresented: $confirmsDiscard, titleVisibility: .visible) {
+      Button("Discard workout", role: .destructive) { discardWorkout() }
+      Button("Cancel", role: .cancel) {}
+    } message: {
+      Text("The sets you’ve logged will be lost. This can’t be undone.")
     }
     .sheet(item: $activeSheet) { sheet in
       switch sheet {
@@ -524,7 +532,7 @@ struct LiveWorkoutView: View {
           finishWorkout()
         }
         Button("Discard workout", systemImage: "trash", role: .destructive) {
-          discardWorkout()
+          confirmsDiscard = true
         }
       } label: {
         HeaderChipGlyph(systemImage: "ellipsis")

@@ -42813,6 +42813,46 @@
         }
       }
     },
+    "Discard this workout?": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieses Workout verwerfen?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Descartar este entrenamiento?"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scartare questo allenamento?"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Descartar este treino?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "放弃本次锻炼？"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "捨棄本次鍛鍊？"
+          }
+        }
+      }
+    },
     "Discard workout": {
       "localizations": {
         "de": {
@@ -125325,6 +125365,46 @@
           "stringUnit": {
             "state": "translated",
             "value": "產生的收據太小，無法讀取。請再次嘗試分享。"
+          }
+        }
+      }
+    },
+    "The sets you’ve logged will be lost. This can’t be undone.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die erfassten Sätze gehen verloren. Das lässt sich nicht rückgängig machen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se perderán las series registradas. Esta acción no se puede deshacer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le serie registrate andranno perse. L’azione non può essere annullata."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "As séries registadas serão perdidas. Esta ação não pode ser anulada."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已记录的组数将会丢失，且无法撤销。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已記錄的組數將會遺失，且無法復原。"
           }
         }
       }
