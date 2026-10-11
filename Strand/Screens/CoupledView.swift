@@ -854,16 +854,22 @@ struct PaperPillarDetailView: View {
             await repo.refreshLiveDayStrain(maxHR: Double(profile.hrMax))
             ranLiveStrainPass = true
         }
+        // A past day was scored by the nightly batch from the on-device computed row (its resting HR, its scored sleep
+        // minutes, its steps). `repo.days` merges an import over that row, so on a day that has both, the merged row's
+        // fields are the import's and would not reproduce the stored score; today follows the merged row, like the live
+        // score. A past day with no computed row falls back to the merged one.
+        var basis = latestDay
+        if !isToday, let computed = await repo.computedDailyMetric(day: anchorDayKey) { basis = computed }
         let request = StrainDayRequest(
             dayKey: anchorDayKey,
             logicalStart: anchorDate,
             isToday: isToday,
             // Today is the live score's (the rounded maximum); a past day is the batch's (unrounded).
             maxHR: isToday ? Double(profile.hrMax) : profile.hrMaxForBatchScoring,
-            restingHR: latestDay?.restingHr.map(Double.init) ?? StrainScorerV2.defaultRestingHR,
-            steps: latestDay?.steps,
+            restingHR: basis?.restingHr.map(Double.init) ?? StrainScorerV2.defaultRestingHR,
+            steps: basis?.steps,
             stepTicksPerStep: profile.stepTicksPerStep,
-            sleepMinutes: latestDay?.totalSleepMin,
+            sleepMinutes: basis?.totalSleepMin,
             heroTenths: latest.map { Int(($0 * 10).rounded()) },
             refreshSeq: repo.refreshSeq)
         // A pass from earlier paints at once; the new one replaces it when it lands.
@@ -933,10 +939,12 @@ struct PaperPillarDetailView: View {
         DrillInSeparator()
         StrainThroughDaySection(
             result: strainDay, hero: latest, target: strainTarget, workouts: strainWorkouts,
-            sleepMinutes: latestDay?.totalSleepMin, isToday: isToday)
+            sleepMinutes: strainDay?.sleepMinutes ?? latestDay?.totalSleepMin, isToday: isToday)
         if let parts = strainDay.flatMap({ StrainScoreParts.make($0.analysis.components, hero: latest) }) {
             DrillInSeparator()
-            StrainScorePartsSection(parts: parts, steps: latestDay?.steps, isToday: isToday)
+            // The steps the pass scored, so the row's line and its spoken text agree with its number; the calendar
+            // day's total only before a pass has landed.
+            StrainScorePartsSection(parts: parts, steps: strainDay?.steps ?? latestDay?.steps, isToday: isToday)
         }
         DrillInSeparator()
         StrainActivitiesSection(workouts: strainWorkouts, isToday: isToday)

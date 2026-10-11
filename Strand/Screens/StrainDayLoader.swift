@@ -40,6 +40,22 @@ struct StrainDayResult: Equatable, Sendable {
     let cycleStart: Date
     let end: Date
     let sampleCount: Int
+    /// The step count the pass scored: a past day's cycle total (not the calendar day's), else the request's. The Steps
+    /// row shows and speaks this number, so the line under it agrees with the part beside it.
+    let steps: Int?
+    /// The scored sleep minutes the pass used (the seed under the curve's start).
+    let sleepMinutes: Double?
+
+    init(analysis: StrainDayAnalysis, wake: Date?, cycleStart: Date, end: Date, sampleCount: Int,
+         steps: Int? = nil, sleepMinutes: Double? = nil) {
+        self.analysis = analysis
+        self.wake = wake
+        self.cycleStart = cycleStart
+        self.end = end
+        self.sampleCount = sampleCount
+        self.steps = steps
+        self.sleepMinutes = sleepMinutes
+    }
 }
 
 /// The last results, a few days deep.
@@ -120,8 +136,20 @@ enum StrainDayLoader {
             ?? request.logicalStart.addingTimeInterval(172_800)).timeIntervalSince1970)
         let nowTs = Int(now.timeIntervalSince1970)
 
-        let rows = await repo.sleepSessions(from: logicalStart - 12 * 3_600, to: afterNext, limit: 50)
-        guard !Task.isCancelled else { return nil }
+        // Today follows the live score's own rule, which reads the sleeps the app shows (the imported/live namespace). A
+        // past day is the nightly batch's, and the batch detected its sleeps on this device and stored them under the
+        // computed source; reading the imported namespace there would find none for a strap-only wearer and start the
+        // cycle at midnight. A day with no computed sleep falls back to the imported one.
+        let sleepFrom = logicalStart - 12 * 3_600
+        var rows: [CachedSleepSession] = []
+        if !request.isToday {
+            rows = await repo.computedSleepSessions(from: sleepFrom, to: afterNext, limit: 50)
+            guard !Task.isCancelled else { return nil }
+        }
+        if rows.isEmpty {
+            rows = await repo.sleepSessions(from: sleepFrom, to: afterNext, limit: 50)
+            guard !Task.isCancelled else { return nil }
+        }
         let sleeps = rows.map {
             StrainCycleWindow.Sleep(start: $0.startTs, end: $0.endTs, effectiveStart: $0.effectiveStartTs)
         }
@@ -176,7 +204,8 @@ enum StrainDayLoader {
         let result = StrainDayResult(
             analysis: analysis,
             wake: window.wake.map { Date(timeIntervalSince1970: TimeInterval($0)) },
-            cycleStart: start, end: end, sampleCount: samples.count)
+            cycleStart: start, end: end, sampleCount: samples.count,
+            steps: steps, sleepMinutes: request.sleepMinutes)
         cache.store(result, for: request, now: now)
         #if DEBUG
         func ms(_ from: DispatchTime, _ to: DispatchTime) -> Double {

@@ -2993,6 +2993,20 @@ final class Repository: ObservableObject {
         return await unionSleepSessions(store: store, from: from, to: to, limit: limit)
     }
 
+    /// The sleep sessions detected on this device (the computed source, `-noop`), the ones the nightly batch scored a day
+    /// from. A Bluetooth-only wearer has every block here and none in the imported namespace `sleepSessions` reads.
+    func computedSleepSessions(from: Int, to: Int, limit: Int = 100) async -> [CachedSleepSession] {
+        guard let store = await ensureStore() else { return [] }
+        return await unionComputedSleepSessions(store: store, from: from, to: to, limit: limit)
+    }
+
+    /// The on-device computed daily row for `day`, which is what the nightly batch scored the day from. `days` merges an
+    /// import over it (the import's fields win), so a past day's score is re-derived from this row instead.
+    func computedDailyMetric(day: String) async -> DailyMetric? {
+        guard let store = await ensureStore() else { return nil }
+        return await unionComputedDailyMetrics(store: store, from: day, to: day).first
+    }
+
     /// Bounded Sleep navigation page. Older pages can be requested later without making every Repository
     /// revision reload the entire sleep table.
     func sleepHistoryPage(beforeWakeDay: String? = nil, limit: Int = 200) async -> [CachedSleepSession] {
