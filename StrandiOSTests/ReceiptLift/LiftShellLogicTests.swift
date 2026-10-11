@@ -140,3 +140,21 @@ struct LiftShellLogicTests {
     )
   }
 }
+
+@Suite("Routine preview rows")
+struct RoutinePreviewRowTests {
+  @Test func catalogNamesReadCapitalisedOnScreenAndAloud() {
+    // The bundled catalog stores lowercase names; the preview used to draw them as stored.
+    let press = LiftExercise(
+      id: UUID(), name: "barbell bench press", muscleGroup: "chest", equipment: "barbell", instructions: "")
+    let fly = LiftExercise(
+      id: UUID(), name: "cable fly or pec deck", muscleGroup: "chest", equipment: "cable", instructions: "")
+    let routine = LiftRoutine(
+      id: UUID(), name: "Push", notes: "", trainingMode: .hypertrophy, exerciseIDs: [press.id, fly.id])
+
+    let rows = RoutinePreviewRow.rows(for: routine, exercises: [press, fly])
+
+    #expect(rows.map(\.title) == ["Barbell Bench Press", "Cable Fly or Pec Deck"])
+    #expect(rows[0].accessibilityLabel.contains("Barbell Bench Press"))
+  }
+}

@@ -128,7 +128,7 @@ private struct RoutinePreviewContent: View {
   }
 }
 
-private struct RoutinePreviewRow: Identifiable {
+struct RoutinePreviewRow: Identifiable {
   let id: String
   let index: Int
   let exercise: LiftExercise?
@@ -160,8 +160,10 @@ private struct RoutinePreviewRow: Identifiable {
     }
   }
 
+  /// The bundled catalog stores lowercase names, so the title (and what VoiceOver reads) goes through `liftDisplayName`
+  /// like every other Lift list.
   var title: String {
-    exercise?.name ?? String(localized: "Exercise unavailable")
+    exercise?.name.liftDisplayName ?? String(localized: "Exercise unavailable")
   }
 
   var prescription: String {
