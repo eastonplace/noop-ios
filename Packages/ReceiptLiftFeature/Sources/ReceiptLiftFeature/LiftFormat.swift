@@ -229,10 +229,11 @@ struct LiftFormat: Sendable {
   /// "12 sets".
   static func setCount(_ count: Int) -> String { String(localized: "\(count) sets") }
 
-  /// Words read aloud in a row ("Exercise 2, Pull-Up, 1 of 3 sets"), joined the way the person's language lists things.
-  /// Empty entries are dropped.
+  /// Words read aloud in a row ("Exercise 2, Pull-Up, 1 of 3 sets"), a pause between them in the person's script. They are
+  /// separate facts, not the items of one list, so no language's "and" goes before the last. Empty entries are dropped.
   nonisolated static func spoken(_ parts: [String], locale: Locale = .autoupdatingCurrent) -> String {
-    parts.filter { !$0.isEmpty }.formatted(.list(type: .and, width: .narrow).locale(locale))
+    let separator = locale.language.languageCode == .chinese ? "，" : ", "
+    return parts.filter { !$0.isEmpty }.joined(separator: separator)
   }
 
   /// Quiet facts about one thing, in a line ("8 exercises · 55 min"). Empty entries are dropped. When a line wraps at large

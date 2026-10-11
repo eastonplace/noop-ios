@@ -81,6 +81,14 @@ struct LiftFormatTests {
       LiftFormat.spoken(["Exercise 2", "Pull-Up", "", "1 of 3 sets"], locale: Self.enUS)
         == "Exercise 2, Pull-Up, 1 of 3 sets")
     #expect(LiftFormat.spoken([], locale: Self.enUS) == "")
+    // Unrelated facts are never turned into a list with an "and" (de "und", es "y", zh "和") before the last one.
+    let facts = ["Exercise 2", "Klimmzug", "1 von 3 Sätze"]
+    #expect(LiftFormat.spoken(facts, locale: Locale(identifier: "de_DE")) == "Exercise 2, Klimmzug, 1 von 3 Sätze")
+    #expect(LiftFormat.spoken(["A", "B", "C"], locale: Locale(identifier: "es_ES")) == "A, B, C")
+    #expect(LiftFormat.spoken(["A", "B", "C"], locale: Locale(identifier: "it_IT")) == "A, B, C")
+    // Chinese pauses with the full-width comma.
+    #expect(LiftFormat.spoken(["A", "B", "C"], locale: Locale(identifier: "zh_Hans")) == "A，B，C")
+    #expect(LiftFormat.spoken(["A", "B", "C"], locale: Locale(identifier: "zh_Hant_TW")) == "A，B，C")
     #expect(LiftFormat.facts(["8 exercises", "", "55 min"]) == "8\u{00A0}exercises\u{00A0}· 55\u{00A0}min")
     #expect(LiftFormat.facts(["Oct 10", "Upper A"]) == "Oct 10\u{00A0}· Upper A")
   }
