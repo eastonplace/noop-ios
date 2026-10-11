@@ -17,28 +17,33 @@ import UIKit
 // chart's scrub or pan (the HR timeline, the Trends hero chart, the Stress ribbon) starts anywhere else and is
 // untouched; a chart that could start inside that strip stands aside for the swipe (`HRTimelineTouchSurface`).
 // Settings keeps its native bar and its native swipe, and never installs this.
+//
+// It lives in StrandDesign so every package that draws its own header can ask for the swipe: Lift's pushed pages hide the
+// navigation bar for the same reason the app's do, and ask for it back the same way (`LiftPage`).
 
 /// Placed in the background of a custom-header screen. It installs once per navigation stack and costs nothing
 /// per frame.
-struct EdgeSwipeBack: UIViewControllerRepresentable {
+public struct EdgeSwipeBack: UIViewControllerRepresentable {
     /// What the swipe does on a screen with nothing to pop. nil leaves the swipe to the stack.
     let rootBackAction: (() -> Void)?
 
-    func makeUIViewController(context: Context) -> Probe { Probe() }
+    public init(rootBackAction: (() -> Void)?) { self.rootBackAction = rootBackAction }
 
-    func updateUIViewController(_ probe: Probe, context: Context) {
+    public func makeUIViewController(context: Context) -> Probe { Probe() }
+
+    public func updateUIViewController(_ probe: Probe, context: Context) {
         probe.rootBackAction = rootBackAction
     }
 
     @MainActor
-    final class Probe: UIViewController {
+    public final class Probe: UIViewController {
         var rootBackAction: (() -> Void)? {
             didSet { attach() }
         }
         /// The stack this probe is registered on, so it can be withdrawn after the stack no longer has a parent for it.
         private weak var attachedStack: UINavigationController?
 
-        override func viewDidLoad() {
+        public override func viewDidLoad() {
             super.viewDidLoad()
             view.isUserInteractionEnabled = false
             view.backgroundColor = .clear
@@ -46,17 +51,17 @@ struct EdgeSwipeBack: UIViewControllerRepresentable {
             view.accessibilityElementsHidden = true
         }
 
-        override func didMove(toParent parent: UIViewController?) {
+        public override func didMove(toParent parent: UIViewController?) {
             super.didMove(toParent: parent)
             attach()
         }
 
-        override func viewWillAppear(_ animated: Bool) {
+        public override func viewWillAppear(_ animated: Bool) {
             super.viewWillAppear(animated)
             attach()
         }
 
-        override func viewDidDisappear(_ animated: Bool) {
+        public override func viewDidDisappear(_ animated: Bool) {
             super.viewDidDisappear(animated)
             // Gone from the stack's top (popped, covered): it must not answer a swipe on its stack any more.
             EdgeSwipeBackInstaller.shared.forget(self, on: attachedStack)

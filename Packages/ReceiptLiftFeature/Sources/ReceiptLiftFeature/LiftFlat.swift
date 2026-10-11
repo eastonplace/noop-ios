@@ -85,6 +85,9 @@ struct LiftPage<Trailing: View, Content: View>: View {
     .background(StrandPalette.appCanvas.ignoresSafeArea())
     .safeAreaInset(edge: .top, spacing: 0) { header }
     .toolbar(.hidden, for: .navigationBar)
+    // With the system bar hidden UIKit stops the edge swipe from popping, so the page asks for it back: a pushed page
+    // pops with the native transition, and a root page hosted by the app (it has a back of its own) runs that back.
+    .background { EdgeSwipeBack(rootBackAction: role == .root ? host.onBack : nil).frame(width: 0, height: 0) }
   }
 
   @ViewBuilder private var column: some View {
