@@ -160,7 +160,7 @@ struct LiveComposerSection: View {
   private var steppers: some View {
     VStack(spacing: NoopMetrics.space3) {
       LiftBigStepper(
-        title: "Weight",
+        title: "Load",
         value: format.load(pounds: draft.weight, for: exercise),
         spokenValue: format.spokenLoad(pounds: draft.weight, for: exercise),
         decrement: { stepWeight(up: false, large: false) },
@@ -214,7 +214,7 @@ struct LiveComposerSection: View {
       }
       .buttonStyle(.plain)
       .accessibilityLabel("Effort \(Int(draft.rpe))")
-      .accessibilityHint(isEffortExpanded ? "Collapses effort choices" : "Expands effort choices")
+      .accessibilityHint(isEffortExpanded ? Text("Collapses effort choices") : Text("Expands effort choices"))
 
       if isEffortExpanded {
         SegmentedPillControl(Array(6...10), selection: effortSelection) { $0.formatted(.number.locale(format.locale)) }
@@ -327,7 +327,7 @@ private struct WarmupSuggestionRow: View {
     .buttonStyle(FlatRowPressStyle())
     .accessibilityElement(children: .ignore)
     .accessibilityLabel(
-      "Use warm-up set \(set.sequence), \(format.spokenLoad(pounds: set.weight, for: exercise)), \(set.reps) reps")
+      "Use warm-up set \(set.sequence), \(format.spokenLoad(pounds: set.weight, for: exercise)), \(LiftFormat.repCount(set.reps))")
   }
 
   private var rowSubtitle: String {

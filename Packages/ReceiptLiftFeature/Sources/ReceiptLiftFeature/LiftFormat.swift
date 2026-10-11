@@ -127,18 +127,25 @@ struct LiftFormat: Sendable {
     measurement(value, width: .wide)
   }
 
-  private func measurement(_ value: Double, width: Measurement<UnitMass>.FormatStyle.UnitWidth) -> String {
+  /// Total volumes are tonnage: past a hundred the tenths are noise, so they read as whole numbers.
+  private func volumeStyle(for value: Double) -> FloatingPointFormatStyle<Double> {
+    value >= 100 ? .number.precision(.fractionLength(0)).locale(locale) : numberStyle
+  }
+
+  private func measurement(
+    _ value: Double, width: Measurement<UnitMass>.FormatStyle.UnitWidth, style: FloatingPointFormatStyle<Double>? = nil
+  ) -> String {
     Measurement(value: value, unit: unit.measurementUnit)
-      .formatted(.measurement(width: width, usage: .asProvided, numberFormatStyle: numberStyle).locale(locale))
+      .formatted(.measurement(width: width, usage: .asProvided, numberFormatStyle: style ?? numberStyle).locale(locale))
   }
 
   /// A load: bodyweight movements read "BW" at zero and "+25 lb" with added load, the rest read their weight.
   func load(pounds: Double, for exercise: LiftExercise?) -> String {
     if exercise.map(liftUsesBodyweightLoad) ?? false {
       guard pounds > 0 else { return Self.bodyweight }
-      return "+" + volume(pounds: pounds)
+      return "+" + weight(pounds: pounds)
     }
-    return volume(pounds: pounds)
+    return weight(pounds: pounds)
   }
 
   /// A load read aloud.
@@ -153,7 +160,14 @@ struct LiftFormat: Sendable {
   /// Total weight moved. Zero is a real zero, in the person's unit.
   func volume(pounds: Double) -> String {
     guard pounds > 0 else { return weight(inUnit: 0) }
-    return weight(pounds: pounds)
+    let value = unit.fromPounds(pounds)
+    return measurement(value, width: .abbreviated, style: volumeStyle(for: value))
+  }
+
+  /// A total volume as its figure and its unit, whole numbers past a hundred.
+  func volumeParts(pounds: Double) -> (number: String, unit: String) {
+    let value = unit.fromPounds(max(pounds, 0))
+    return (value.formatted(volumeStyle(for: value)), unitSymbol)
   }
 
   /// A weight that may be missing: no load reads as a dash, never as zero.
@@ -205,6 +219,9 @@ struct LiftFormat: Sendable {
 
   /// "8 exercises", with the plural the person's language needs.
   static func exerciseCount(_ count: Int) -> String { String(localized: "\(count) exercises") }
+
+  /// "8 reps", with the plural the person's language needs.
+  static func repCount(_ count: Int) -> String { String(localized: "\(count) reps") }
 
   /// "3 workouts".
   static func workoutCount(_ count: Int) -> String { String(localized: "\(count) workouts") }

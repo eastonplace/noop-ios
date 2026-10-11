@@ -81,6 +81,7 @@ struct MiniRestOptionsSheet: View {
   @Environment(\.liftFormat) private var format
   @EnvironmentObject private var store: LiftStore
 
+  @Environment(\.dynamicTypeSize) private var typeSize
   private let presets: [TimeInterval] = [30, 45, 60, 75, 90, 120, 150, 180]
 
   var body: some View {
@@ -93,7 +94,8 @@ struct MiniRestOptionsSheet: View {
             LiftNote(text: "Using the routine plan")
           }
           LazyVGrid(
-            columns: Array(repeating: GridItem(.flexible(), spacing: NoopMetrics.space2), count: 4),
+            columns: Array(
+              repeating: GridItem(.flexible(), spacing: NoopMetrics.space2), count: typeSize.isAccessibilitySize ? 2 : 4),
             spacing: NoopMetrics.space2
           ) {
             ForEach(presets, id: \.self) { seconds in
@@ -210,7 +212,7 @@ private struct MiniRestBarContent: View {
   private var identity: some View {
     Button(action: onPresentOptions) {
       VStack(alignment: .leading, spacing: 0) {
-        Text("Rest").font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
+        Text("Rest timer").font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
         Text(timerInterval: now...endDate, countsDown: true, showsHours: false)
           .font(StrandFont.number(timerSize, weight: .bold))
           .foregroundStyle(StrandPalette.textPrimary)
@@ -235,7 +237,7 @@ private struct MiniRestBarContent: View {
   }
 
   private func restChip(_ title: String, accessibilityLabel: LocalizedStringKey, action: @escaping () -> Void) -> some View {
-    ChoiceChipButton(verbatimTitle: title, accessibilityLabel: Text(accessibilityLabel), action: action)
+    LiftTimerPill(title: title, accessibilityLabel: Text(accessibilityLabel), action: action)
   }
 }
 
@@ -246,8 +248,8 @@ private struct MiniRestPresetButton: View {
   let action: () -> Void
 
   var body: some View {
-    ChoiceChipButton(
-      verbatimTitle: LiftFormat.duration(seconds), isSelected: isSelected,
+    LiftTimerPill(
+      title: LiftFormat.duration(seconds), isSelected: isSelected,
       accessibilityLabel: Text("Set next rest to \(format.spokenDuration(seconds))"), action: action
     )
     .frame(maxWidth: .infinity)

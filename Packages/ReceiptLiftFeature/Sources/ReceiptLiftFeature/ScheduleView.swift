@@ -52,7 +52,7 @@ struct ScheduleView: View {
         .environmentObject(store)
     }
     .alert(
-      "Delete \(pendingRoutineDeletion?.name ?? "Routine")?",
+      "Delete \(pendingRoutineDeletion?.name ?? String(localized: "Routine"))?",
       isPresented: deletionPresentation
     ) {
       Button("Delete Routine", role: .destructive) {
@@ -123,7 +123,7 @@ struct ScheduleView: View {
       .buttonStyle(FlatRowPressStyle())
       .disabled(routine == nil)
       .accessibilityElement(children: .combine)
-      .accessibilityHint(routine == nil ? "The linked routine no longer exists" : "Opens routine preview without starting")
+      .accessibilityHint(routine == nil ? Text("The linked routine no longer exists") : Text("Opens routine preview without starting"))
       LiftRowMenu(label: "Scheduled workout actions") {
         Button("Reschedule", systemImage: "calendar") { scheduleRoute = .edit(workout) }
         Button("Remove", systemImage: "trash", role: .destructive) { store.deleteScheduledWorkout(id: workout.id) }

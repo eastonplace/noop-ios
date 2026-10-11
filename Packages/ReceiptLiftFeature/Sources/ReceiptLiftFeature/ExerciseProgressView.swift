@@ -99,11 +99,18 @@ struct ExerciseProgressView: View {
           .accessibilityValue(
             oneRepMax.map { format.spokenWeight(pounds: $0) } ?? String(localized: "No data"))
         }
-        if LiftStore.prDetectionEnabled, let record = snapshot?.latestPersonalRecord {
+        if LiftStore.prDetectionEnabled, let record = snapshot?.latestPersonalRecord,
+           !Self.repeats(record, oneRepMax: oneRepMax) {
           LiftPRPayoffView(record: record)
         }
       }
     }
+  }
+
+  /// An estimated-1RM record that is the very figure the header already leads with says nothing new.
+  private static func repeats(_ record: LiftPersonalRecord, oneRepMax: Double?) -> Bool {
+    guard record.kind == .estimatedOneRepMax, let oneRepMax else { return false }
+    return abs(record.value - oneRepMax) < 0.05
   }
 
   private func setLabel(_ set: LiftSet, exercise: LiftExercise) -> String {
@@ -194,7 +201,7 @@ struct ExerciseProgressView: View {
     .accessibilityLabel(
       LiftFormat.facts([
         format.dayYear(set.completedAt),
-        String(localized: "\(format.spokenLoad(pounds: set.weight, for: exercise)) by \(set.reps) reps"),
+        String(localized: "\(format.spokenLoad(pounds: set.weight, for: exercise)) by \(LiftFormat.repCount(set.reps))"),
         personalRecord == nil ? "" : String(localized: "personal record"),
       ])
     )
@@ -260,7 +267,7 @@ private struct ExerciseProgressChartSection: View {
     ViewThatFits(in: .horizontal) {
       HStack(spacing: NoopMetrics.space3) {
         modeMenu
-        rangeControl
+        rangeControl.fixedSize(horizontal: true, vertical: false)
       }
       VStack(alignment: .leading, spacing: NoopMetrics.space3) {
         modeMenu
@@ -354,7 +361,7 @@ private struct ExerciseProgressChartSection: View {
         : (LiftFormat.missing, nil)
     case .volume:
       point.volume > 0
-        ? { let parts = format.parts(pounds: point.volume); return (parts.number, parts.unit) }()
+        ? { let parts = format.volumeParts(pounds: point.volume); return (parts.number, parts.unit) }()
         : (LiftFormat.missing, nil)
     case .reps:
       (point.bestReps.formatted(.number.locale(format.locale)), String(localized: "reps"))
@@ -380,7 +387,7 @@ private struct ExerciseProgressChartSection: View {
   private func summary(of visible: [VolumePoint]) -> String {
     guard let first = visible.first, let last = visible.last else { return String(localized: "No data") }
     return String(
-      localized: "\(mode.label) chart, \(visible.count) days from \(format.dayYear(first.date)) to \(format.dayYear(last.date))")
+      localized: "\(mode.label) chart from \(format.dayYear(first.date)) to \(format.dayYear(last.date))")
   }
 
   private func visiblePoints(window: LiftProgressWindow) -> [VolumePoint] {

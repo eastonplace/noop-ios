@@ -163,7 +163,7 @@ public struct ExerciseArtTile<Art: View>: View {
         art
             .frame(width: size - mat * 2, height: size - mat * 2)
             // White paper becomes soft grey, and the darkest ink stays dark: legible, not glaring.
-            .colorMultiply(Color(white: 0.8))
+            .colorMultiply(Color(white: 0.74))
             .clipShape(RoundedRectangle(cornerRadius: inner, style: .continuous))
             .overlay {
                 // A vignette: the picture's edge falls away into the mat, so the white never reads as a hard square.

@@ -285,7 +285,6 @@ private struct LiftWorkoutQueueActionRow: View {
         reduceMotion: false
       )
         .equatable()
-        .matchedGeometryEffect(id: row.id, in: continuityNamespace)
     }
   }
 
@@ -359,7 +358,7 @@ struct LiveWorkoutView: View {
           }
           queueSection(title: "Up next", symbol: "list.number", rows: upNextRows, isPrinted: false)
           queueSection(title: "Done", symbol: "checkmark.circle", rows: printedRows, isPrinted: true)
-          addExerciseChip
+          if !activeExercises.isEmpty { addExerciseChip }
         } else {
           inactiveReceipt
         }

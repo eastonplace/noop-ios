@@ -253,7 +253,7 @@ private struct LiftProgressOverview: View {
     let weeks = snapshot.weeklyVolume
     let shown = selection.flatMap { weeks.indices.contains($0) ? weeks[$0] : nil }
     let pounds = shown?.volume ?? snapshot.metrics.workDone
-    let parts = format.parts(pounds: pounds)
+    let parts = format.volumeParts(pounds: pounds)
     let caption: String = {
       guard let shown else { return range.caption }
       return LiftFormat.facts([
@@ -270,7 +270,7 @@ private struct LiftProgressOverview: View {
           captionPlacement: .below
         )
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(shown == nil ? "Work done" : "Weekly volume")
+        .accessibilityLabel(shown == nil ? Text("Work done") : Text("Weekly volume"))
         .accessibilityValue(
           LiftFormat.facts([format.spokenWeight(pounds: pounds), caption]))
         if weeks.isEmpty {
@@ -284,7 +284,7 @@ private struct LiftProgressOverview: View {
             selection: $selection,
             calendar: .current,
             locale: format.locale,
-            summary: String(localized: "Weekly training volume, \(weeks.count) weeks, \(format.spokenWeight(pounds: snapshot.metrics.workDone)) total"),
+            summary: String(localized: "Weekly training volume, \(range.caption), \(format.spokenWeight(pounds: snapshot.metrics.workDone)) total"),
             spokenValue: { point in
               let week = weeks.first { $0.weekStart == point.date }
               return LiftFormat.facts([
@@ -326,6 +326,12 @@ private struct LiftProgressOverview: View {
 
   // MARK: Top lifts
 
+  /// The muscle and equipment of a top exercise, so the list reads as movements and not as a column of captions.
+  private func topExerciseDetails(_ id: UUID) -> [String] {
+    guard let exercise = store.exercise(for: id) else { return [] }
+    return [LiftFormat.facts([exercise.muscleGroup, exercise.equipment]).liftDisplayName]
+  }
+
   private func topSection(_ snapshot: LiftProgressSnapshot) -> some View {
     LiftFlatSection("Top exercises", systemImage: "trophy", contentSpacing: 0) {
       if snapshot.topExercises.isEmpty {
@@ -338,7 +344,7 @@ private struct LiftProgressOverview: View {
           } label: {
             LiftListRow(
               title: exercise.name.liftDisplayName,
-              details: [String(localized: "Total training volume")],
+              details: topExerciseDetails(exercise.exerciseID),
               value: format.volume(pounds: exercise.volume),
               showsChevron: true,
               leading: {

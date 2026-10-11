@@ -679,6 +679,33 @@ extension View {
   func liftPillLabel() -> some View { frame(maxWidth: .infinity) }
 }
 
+/// A 44pt pill for the timer's quick actions (a preset, plus or minus fifteen seconds, skip). Bigger than a chip because
+/// it is tapped between sets, often with a chalky thumb. `title` is already in the person's language.
+struct LiftTimerPill: View {
+  let title: String
+  var isSelected = false
+  let accessibilityLabel: Text
+  let action: () -> Void
+
+  var body: some View {
+    Button(action: action) {
+      Text(verbatim: title)
+        .monospacedDigit()
+        .lineLimit(1)
+        .minimumScaleFactor(0.8)
+        .frame(minWidth: 40, minHeight: 24)
+    }
+    .buttonStyle(SecondaryPillButtonStyle())
+    .overlay {
+      if isSelected {
+        Capsule(style: .continuous).stroke(DomainTint.workout.accent, lineWidth: 1.5)
+      }
+    }
+    .accessibilityLabel(accessibilityLabel)
+    .accessibilityAddTraits(isSelected ? .isSelected : [])
+  }
+}
+
 // MARK: Key-value row
 
 /// A quiet label with its bright value on the same line, stacking at the largest text sizes so neither is cut.

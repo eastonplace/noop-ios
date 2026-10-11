@@ -7,7 +7,7 @@ import StrandDesign
 // primitives (sheet, header, columns, lines, rules, totals, edge, barcode) compose ONLY the receipt itself:
 // the completed receipt, the live receipt sheet, and the exported image. They use `LiftTheme.Receipt` tokens
 // (paper/ink that adapt to the light appearance the export renders in) and `.receiptArtifact` type.
-// Everything else in Lift (screens, rows, buttons, controls) uses `LiftChrome.swift` and the canonical
+// Everything else in Lift (screens, rows, buttons, controls) uses `LiftFlat.swift` and the canonical
 // design system, never these.
 
 struct ReceiptSheet<Content: View>: View {

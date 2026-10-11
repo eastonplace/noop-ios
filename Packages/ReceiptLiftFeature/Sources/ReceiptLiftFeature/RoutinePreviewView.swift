@@ -119,7 +119,7 @@ private struct RoutinePreviewContent: View {
   private func planRow(_ row: RoutinePreviewRow) -> some View {
     LiftListRow(
       title: row.title,
-      highlight: row.plan.map { String(localized: "\($0.sets) sets × \($0.reps) reps") },
+      highlight: row.plan.map { String(localized: "\($0.sets) × \($0.reps)") },
       details: [row.exercise.map { LiftFormat.facts([$0.muscleGroup.capitalized, $0.equipment.capitalized]) } ?? "", row.detail]
         .filter { !$0.isEmpty },
       showsChevron: row.exercise != nil,

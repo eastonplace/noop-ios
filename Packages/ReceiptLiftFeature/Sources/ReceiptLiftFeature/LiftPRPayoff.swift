@@ -27,9 +27,9 @@ enum LiftPRPresentation {
   nonisolated static func valueText(for record: LiftPersonalRecord, format: LiftFormat) -> String {
     switch record.kind {
     case .estimatedOneRepMax:
-      format.volume(pounds: record.value)
+      format.weight(pounds: record.value)
     case .reps:
-      String(localized: "\(format.number(inUnit: record.value)) reps")
+      String(localized: "\(Int(record.value.rounded())) reps")
     }
   }
 }

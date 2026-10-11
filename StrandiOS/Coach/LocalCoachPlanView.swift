@@ -336,7 +336,8 @@ private struct CoachExerciseThumbnail: View {
     }
 
     var body: some View {
-        Group {
+        // The calm tile Lift draws exercises in: the picture is inset in a dark mat instead of a glaring white square.
+        ExerciseArtTile(size: 54) {
             if let image {
                 Image(uiImage: image).resizable().scaledToFit()
                     .background(Color.white)
@@ -345,12 +346,10 @@ private struct CoachExerciseThumbnail: View {
                     .foregroundStyle(DomainTint.workout.accent)
             }
         }
-        .frame(width: 48, height: 54).background(DomainTint.workout.accent.opacity(0.12))
-        .clipShape(.rect(cornerRadius: NoopMetrics.radius1)).accessibilityHidden(true)
         .task(id: CoachExerciseArt.key(for: exercise)) {
             image = CoachExerciseArt.cached(for: exercise)
             image = await CoachExerciseArt.image(
-                for: exercise, pixelSize: CGSize(width: 48 * displayScale, height: 54 * displayScale))
+                for: exercise, pixelSize: CGSize(width: 54 * displayScale, height: 54 * displayScale))
         }
     }
 }

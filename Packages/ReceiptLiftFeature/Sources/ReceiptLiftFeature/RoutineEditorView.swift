@@ -284,7 +284,7 @@ private struct RoutinePlanEditor: View {
               .fixedSize(horizontal: false, vertical: true)
             LiftField(title: "Sets", text: $draft.sets, placeholder: "3", capitalization: .never)
             LiftField(title: "Reps", text: $draft.reps, placeholder: "8-12", capitalization: .never)
-            LiftField(title: "Rest", text: $draft.rest, placeholder: "90 s", capitalization: .never)
+            LiftField(title: "Rest between sets", text: $draft.rest, placeholder: "90 s", capitalization: .never)
             LiftField(title: "Target effort", text: $draft.targetEffort, placeholder: "2 RIR", capitalization: .characters)
             LiftField(title: "Notes", text: $draft.notes, placeholder: "Notes", axis: .vertical, capitalization: .sentences)
           }
