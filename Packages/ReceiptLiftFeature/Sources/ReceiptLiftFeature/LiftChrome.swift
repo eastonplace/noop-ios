@@ -9,29 +9,6 @@ import StrandDesign
 // the few small compositions Lift needs that the shared design system does not already provide. The
 // receipt artifact (the printed receipt itself) lives in `ReceiptComponents.swift` and keeps its own look.
 
-enum LiftChromeMetrics {
-  /// The shared page gutter every NOOP screen uses.
-  static let gutter: CGFloat = 16
-  /// Spacing between stacked blocks on a page.
-  static let blockSpacing: CGFloat = 16
-  /// Readable column cap on iPad, matching `ScreenScaffold`.
-  static let maxColumnWidth: CGFloat = 700
-}
-
-// MARK: - Host chrome
-
-/// Controls the embedding app injects around Lift's root pages. Lift is presented inside a sheet that the
-/// host owns, so close and back live in the page header (as on every other sheet screen) instead of a
-/// separate host bar stacked above it.
-struct LiftHostChrome {
-  var onBack: (() -> Void)?
-  var onClose: (() -> Void)?
-}
-
-extension EnvironmentValues {
-  @Entry var liftHostChrome = LiftHostChrome()
-}
-
 /// The trailing cluster of a root page header: the page's own actions, then the host's close button.
 struct LiftHeaderTrailing<Actions: View>: View {
   @Environment(\.liftHostChrome) private var host
@@ -120,22 +97,6 @@ extension LiftScreen where Trailing == EmptyView {
       trailing: { EmptyView() },
       content: content
     )
-  }
-}
-
-extension View {
-  /// The pinned action bar at the foot of a sheet: canvas, a hairline above, and the shared gutter.
-  func liftFooterBar() -> some View {
-    padding(.horizontal, LiftChromeMetrics.gutter)
-      .padding(.vertical, NoopMetrics.space3)
-      .frame(maxWidth: .infinity)
-      .background(StrandPalette.appCanvas)
-      .overlay(alignment: .top) {
-        Rectangle()
-          .fill(StrandPalette.hairline)
-          .frame(height: 1)
-          .accessibilityHidden(true)
-      }
   }
 }
 

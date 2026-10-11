@@ -1,3 +1,4 @@
+import os
 import SwiftUI
 
 /// DEBUG screenshot harness: `--noop-lift-scene <name>` opens a deeper Lift screen straight from launch, so every
@@ -34,18 +35,34 @@ enum LiftQAScene {
     guard let current else { return false }
     return names.contains(current)
   }
+
+  #if DEBUG
+  private static let claimed = OSAllocatedUnfairLock(initialState: Set<String>())
+  #endif
+
+  /// True for the first caller at each `site` only: a scene opens its screen once per launch, however often a view
+  /// comes back.
+  static func claim(_ names: [String], site: String) -> Bool {
+    #if DEBUG
+    guard isRequested(names) else { return false }
+    return claimed.withLock { $0.insert(site).inserted }
+    #else
+    return false
+    #endif
+  }
 }
 
 private struct LiftQASceneModifier: ViewModifier {
   let names: [String]
   let delay: Duration
+  let site: String
   let perform: @MainActor () -> Void
 
   func body(content: Content) -> some View {
     content.task {
       guard LiftQAScene.isRequested(names) else { return }
       try? await Task.sleep(for: delay)
-      guard !Task.isCancelled else { return }
+      guard !Task.isCancelled, LiftQAScene.claim(names, site: site) else { return }
       perform()
     }
   }
@@ -57,10 +74,12 @@ extension View {
   func liftQAScene(
     _ scenes: String...,
     after delay: Duration = .milliseconds(900),
+    fileID: String = #fileID,
+    line: Int = #line,
     perform: @escaping @MainActor () -> Void
   ) -> some View {
     #if DEBUG
-    modifier(LiftQASceneModifier(names: scenes, delay: delay, perform: perform))
+    modifier(LiftQASceneModifier(names: scenes, delay: delay, site: "\(fileID):\(line)", perform: perform))
     #else
     self
     #endif
