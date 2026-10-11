@@ -224,6 +224,7 @@ struct WorkoutDetailView: View {
                             .font(StrandFont.footnote)
                             .foregroundStyle(StrandPalette.textTertiary)
                             .padding(.top, 2)
+                            .accessibilityLabel(Text(verbatim: spokenTimeRange))
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -294,7 +295,15 @@ struct WorkoutDetailView: View {
     private var timeRange: String {
         let start = AppClock.hourMinute(startDate)
         guard displayRow.endTs > displayRow.startTs else { return start }
-        return "\(start) – \(AppClock.hourMinute(Date(timeIntervalSince1970: TimeInterval(displayRow.endTs))))"
+        return String(localized: "\(start) – \(AppClock.hourMinute(Date(timeIntervalSince1970: TimeInterval(displayRow.endTs))))",
+                      comment: "The clock times a workout started and ended, e.g. 5:40 PM – 6:14 PM. Order and punctuation may change.")
+    }
+
+    /// "from 5:40 PM to 6:14 PM": the same range, as it is spoken (a dash is often skipped, leaving two bare times).
+    private var spokenTimeRange: String {
+        let start = AppClock.hourMinute(startDate)
+        guard displayRow.endTs > displayRow.startTs else { return start }
+        return String(localized: "from \(start) to \(AppClock.hourMinute(Date(timeIntervalSince1970: TimeInterval(displayRow.endTs))))")
     }
 
     private func comparedToUsual(_ delta: Double) -> some View {
@@ -341,7 +350,7 @@ struct WorkoutDetailView: View {
         let label: LocalizedStringKey
         switch tile.kind {
         case .distance: (label, accent) = ("Distance", DomainTint.workout.accent)
-        case .time: (label, accent) = ("Time", DomainTint.workout.accent)
+        case .time: (label, accent) = ("Duration", DomainTint.workout.accent)
         case .pace: (label, accent) = ("Avg pace", DomainTint.workout.accent)
         case .speed: (label, accent) = ("Avg speed", DomainTint.workout.accent)
         case .averageHR: (label, accent) = ("Avg HR", DomainTint.heart.accent)
@@ -430,7 +439,8 @@ struct WorkoutDetailView: View {
     private var routeFacts: [FactStrip.Fact] {
         var facts: [FactStrip.Fact] = [.init("Distance", value: distanceLabel(displayRow.distanceM))]
         if let pace = WorkoutPace.perUnit(displayRow, system: unitSystem) {
-            facts.append(.init("Avg pace", value: WorkoutFormat.pace(pace, system: unitSystem)))
+            facts.append(.init("Avg pace", value: WorkoutFormat.pace(pace, system: unitSystem),
+                               spokenValue: WorkoutFormat.spokenPace(pace, system: unitSystem)))
         } else if let speed = WorkoutSpeed.perHour(displayRow, system: unitSystem) {
             facts.append(.init("Avg speed", value: WorkoutSpeed.text(speed, system: unitSystem)))
         }
