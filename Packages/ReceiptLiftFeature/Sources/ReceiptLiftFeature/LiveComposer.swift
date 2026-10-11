@@ -372,7 +372,7 @@ struct SupersetPairingSheet: View {
             } label: {
               Label("Clear pairing", systemImage: "xmark")
             }
-            .buttonStyle(PrimaryPillButtonStyle(looksUnavailable: true))
+            .buttonStyle(SecondaryPillButtonStyle())
           }
         }
         FlatSectionSeparator()
