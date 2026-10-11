@@ -18,6 +18,7 @@ struct LiftLiveActivityWidget: Widget {
         move: context.state.currentMove,
         setProgress: context.state.setProgressLabel,
         volume: context.state.volume,
+        volumeUnit: context.state.volumeUnit,
         restEndsAt: liftActivityRestEnd(context),
         isStale: context.isStale)
         .activityBackgroundTint(.black)
@@ -42,7 +43,8 @@ struct LiftLiveActivityWidget: Widget {
 
         DynamicIslandExpandedRegion(.bottom) {
           NOOPLiftFacts(
-            move: nil, setProgress: context.state.setProgressLabel, volume: context.state.volume)
+            move: nil, setProgress: context.state.setProgressLabel, volume: context.state.volume,
+            volumeUnit: context.state.volumeUnit)
             .padding(.top, 4)
         }
       } compactLeading: {

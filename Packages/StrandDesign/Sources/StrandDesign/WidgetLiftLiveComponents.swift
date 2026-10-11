@@ -42,11 +42,28 @@ public struct NOOPLiftFacts: View {
     public let move: String?
     public let setProgress: String
     public let volume: Double
+    /// The unit `volume` is in, "lb" or "kg"; nil leaves the figure bare (an activity from an older build).
+    public let volumeUnit: String?
 
-    public init(move: String?, setProgress: String, volume: Double) {
+    public init(move: String?, setProgress: String, volume: Double, volumeUnit: String? = nil) {
         self.move = move
         self.setProgress = setProgress
         self.volume = volume
+        self.volumeUnit = volumeUnit
+    }
+
+    /// The unit written in the person's language ("lb", "kg"), or nil for a code it does not know.
+    public nonisolated static func unitSymbol(_ code: String?) -> String? {
+        let unit: UnitMass
+        switch code {
+        case "lb": unit = .pounds
+        case "kg": unit = .kilograms
+        default: return nil
+        }
+        let formatter = MeasurementFormatter()
+        formatter.unitStyle = .short
+        formatter.unitOptions = .providedUnit
+        return formatter.string(from: unit)
     }
 
     /// 842 stays "842"; 12 450 reads "12.5k".
@@ -63,18 +80,26 @@ public struct NOOPLiftFacts: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             fact(Text("Sets", bundle: .module), value: setProgress, tint: StrandPalette.strainAccent)
-            fact(Text("Volume", bundle: .module), value: Self.volumeText(volume), tint: StrandPalette.textPrimary)
+            fact(Text("Volume", bundle: .module), value: Self.volumeText(volume), tint: StrandPalette.textPrimary,
+                 unit: Self.unitSymbol(volumeUnit))
             if move == nil { Spacer(minLength: 0) }
         }
     }
 
-    private func fact(_ label: Text, value: String, tint: Color) -> some View {
+    private func fact(_ label: Text, value: String, tint: Color, unit: String? = nil) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             label.textCase(.uppercase).font(.system(size: 9, weight: .bold)).tracking(0.8)
                 .foregroundStyle(StrandPalette.textTertiary).lineLimit(1)
-            Text(verbatim: value).font(StrandFont.number(16, weight: .semibold)).monospacedDigit()
-                .foregroundStyle(value == WidgetMetrics.missingValue ? StrandPalette.textTertiary : tint)
-                .lineLimit(1).minimumScaleFactor(0.62)
+            HStack(alignment: .lastTextBaseline, spacing: 3) {
+                Text(verbatim: value).font(StrandFont.number(16, weight: .semibold)).monospacedDigit()
+                    .foregroundStyle(value == WidgetMetrics.missingValue ? StrandPalette.textTertiary : tint)
+                    .lineLimit(1).minimumScaleFactor(0.62)
+                // The unit is small and muted, like the "bpm" beside the heart rate, and never what gives way.
+                if let unit {
+                    Text(verbatim: unit).font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
+                        .lineLimit(1).fixedSize()
+                }
+            }
         }
     }
 }
@@ -86,18 +111,20 @@ public struct NOOPLiftLiveActivityView: View {
     public let move: String
     public let setProgress: String
     public let volume: Double
+    public let volumeUnit: String?
     /// Set while resting between sets.
     public let restEndsAt: Date?
     /// ActivityKit's own staleness: the app has not updated this activity for a while.
     public let isStale: Bool
 
     public init(workoutName: String, startedAt: Date, move: String, setProgress: String, volume: Double,
-                restEndsAt: Date?, isStale: Bool = false) {
+                volumeUnit: String? = nil, restEndsAt: Date?, isStale: Bool = false) {
         self.workoutName = workoutName
         self.startedAt = startedAt
         self.move = move
         self.setProgress = setProgress
         self.volume = volume
+        self.volumeUnit = volumeUnit
         self.restEndsAt = restEndsAt
         self.isStale = isStale
     }
@@ -128,7 +155,7 @@ public struct NOOPLiftLiveActivityView: View {
                     .lineLimit(1).minimumScaleFactor(0.7)
                     .frame(maxWidth: .infinity, alignment: .trailing)
             }
-            NOOPLiftFacts(move: move, setProgress: setProgress, volume: volume)
+            NOOPLiftFacts(move: move, setProgress: setProgress, volume: volume, volumeUnit: volumeUnit)
                 .opacity(isStale ? 0.6 : 1)
         }
         .padding(14)

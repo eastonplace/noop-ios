@@ -328,7 +328,7 @@ struct Component41QAShot: View {
         return VStack(spacing: 22) {
             NOOPLiftLiveActivityView(
                 workoutName: "Upper Body A", startedAt: startedAt, move: "Incline Press", setProgress: "7/18",
-                volume: 4_820, restEndsAt: restEndsAt, isStale: stale)
+                volume: 4_820, volumeUnit: "kg", restEndsAt: restEndsAt, isStale: stale)
                 .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
             HStack(spacing: 0) {
                 NOOPLiftIslandGlyph(isResting: resting).padding(.leading, 12)
@@ -345,7 +345,7 @@ struct Component41QAShot: View {
                     Spacer(minLength: 8)
                     NOOPLiftIslandClock(startedAt: startedAt, restEndsAt: restEndsAt, size: 22)
                 }
-                NOOPLiftFacts(move: nil, setProgress: "7/18", volume: 4_820)
+                NOOPLiftFacts(move: nil, setProgress: "7/18", volume: 4_820, volumeUnit: "kg")
             }
             .padding(16).frame(width: 356)
             .background(RoundedRectangle(cornerRadius: 30).fill(Color.black))
