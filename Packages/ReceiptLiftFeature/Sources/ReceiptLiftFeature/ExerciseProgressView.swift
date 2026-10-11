@@ -6,6 +6,7 @@ struct ExerciseProgressView: View {
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @Environment(\.liftScreenRole) private var inheritedRole
   @Environment(\.liftFormat) private var format
+  @Environment(\.dynamicTypeSize) private var typeSize
   @EnvironmentObject private var store: LiftStore
 
   let exerciseID: UUID
@@ -30,7 +31,8 @@ struct ExerciseProgressView: View {
   var body: some View {
     LiftPage(
       title: LocalizedStringKey(exercise?.name.liftDisplayName ?? String(localized: "Exercise not found")),
-      context: exercise.map { LiftFormat.facts([$0.muscleGroup, $0.equipment]).liftDisplayName },
+      // The title row has one line for this; at the largest sizes the facts move into the page, where they can wrap.
+      context: typeSize.isAccessibilitySize ? nil : exercise.map(Self.facts),
       lazy: true,
       bottomPadding: NoopMetrics.space6
     ) {
@@ -76,6 +78,10 @@ struct ExerciseProgressView: View {
 
   // MARK: Header
 
+  private static func facts(_ exercise: LiftExercise) -> String {
+    LiftFormat.facts([exercise.muscleGroup, exercise.equipment]).liftDisplayName
+  }
+
   private func header(_ exercise: LiftExercise) -> some View {
     let best = snapshot?.bestSet
     let oneRepMax = best.flatMap { $0.weight > 0 ? $0.estimatedOneRepMax : nil }
@@ -98,6 +104,12 @@ struct ExerciseProgressView: View {
           .accessibilityLabel("Estimated one-rep max")
           .accessibilityValue(
             oneRepMax.map { format.spokenWeight(pounds: $0) } ?? String(localized: "No data"))
+        }
+        if typeSize.isAccessibilitySize {
+          Text(verbatim: Self.facts(exercise))
+            .font(StrandFont.footnote)
+            .foregroundStyle(StrandPalette.textSecondary)
+            .fixedSize(horizontal: false, vertical: true)
         }
         if LiftStore.prDetectionEnabled, let record = snapshot?.latestPersonalRecord,
            !Self.repeats(record, oneRepMax: oneRepMax) {

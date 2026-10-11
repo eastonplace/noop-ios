@@ -235,10 +235,31 @@ struct LiftFormat: Sendable {
     parts.filter { !$0.isEmpty }.formatted(.list(type: .and, width: .narrow).locale(locale))
   }
 
-  /// Quiet facts about one thing, in a line ("8 exercises · 55 min"). Empty entries are dropped. The dot is tied to the
-  /// fact before it with a no-break space, so when a line wraps at large text sizes the dot ends a line and never opens one.
+  /// Quiet facts about one thing, in a line ("8 exercises · 55 min"). Empty entries are dropped. When a line wraps at large
+  /// text sizes the dot is tied to the fact before it and a number to its unit with no-break spaces, so the dot ends a line
+  /// and never opens one, and "19 sets" is never split.
   static func facts(_ parts: [String]) -> String {
-    parts.filter { !$0.isEmpty }.joined(separator: "\u{00A0}· ")
+    parts.filter { !$0.isEmpty }.map(tyingNumbersToUnits).joined(separator: "\u{00A0}· ")
+  }
+
+  /// "19 sets" with a no-break space between the digit and the word after it.
+  private static func tyingNumbersToUnits(_ text: String) -> String {
+    var result = ""
+    result.reserveCapacity(text.count)
+    var previous: Character?
+    var characters = text.makeIterator()
+    var pending = characters.next()
+    while let character = pending {
+      let following = characters.next()
+      if character == " ", let previous, previous.isNumber, let following, following.isLetter {
+        result.append("\u{00A0}")
+      } else {
+        result.append(character)
+      }
+      previous = character
+      pending = following
+    }
+    return result
   }
 
   // MARK: Dates

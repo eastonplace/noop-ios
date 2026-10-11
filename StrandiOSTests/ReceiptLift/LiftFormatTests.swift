@@ -81,7 +81,8 @@ struct LiftFormatTests {
       LiftFormat.spoken(["Exercise 2", "Pull-Up", "", "1 of 3 sets"], locale: Self.enUS)
         == "Exercise 2, Pull-Up, 1 of 3 sets")
     #expect(LiftFormat.spoken([], locale: Self.enUS) == "")
-    #expect(LiftFormat.facts(["8 exercises", "", "55 min"]) == "8 exercises\u{00A0}· 55 min")
+    #expect(LiftFormat.facts(["8 exercises", "", "55 min"]) == "8\u{00A0}exercises\u{00A0}· 55\u{00A0}min")
+    #expect(LiftFormat.facts(["Oct 10", "Upper A"]) == "Oct 10\u{00A0}· Upper A")
   }
 
   @Test("Durations read as clocks, in lists and aloud")
