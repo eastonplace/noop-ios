@@ -269,13 +269,12 @@ struct ManualWorkoutSheet: View {
 
     private var saveButton: some View {
         // Never disabled: a button that cannot be pressed cannot say what is missing. Pressed on an incomplete form it
-        // turns the hint into the fault, and it reads as unavailable until the form can be saved.
+        // turns the hint into the fault. Until the form can be saved it is drawn in the standard unavailable look.
         Button { attemptSave() } label: {
             Label { editing == nil ? Text("Add") : Text("Save") } icon: { Image(systemName: "checkmark") }
                 .frame(maxWidth: typeSize.isAccessibilitySize ? .infinity : nil)
         }
-        .buttonStyle(PrimaryPillButtonStyle())
-        .opacity(builtRow == nil ? 0.5 : 1)
+        .buttonStyle(PrimaryPillButtonStyle(looksUnavailable: builtRow == nil))
         .accessibilityLabel(editing == nil ? "Add workout" : "Save workout")
         .accessibilityHint(Text(verbatim: builtRow == nil ? (validationNote?.text ?? "") : ""))
     }

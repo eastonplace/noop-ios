@@ -348,16 +348,20 @@ public struct ChipRow<Content: View>: View {
 /// fault.
 public struct PrimaryPillButtonStyle: ButtonStyle {
     @Environment(\.isEnabled) private var isEnabled
+    private let looksUnavailable: Bool
 
-    public init() {}
+    /// - Parameter looksUnavailable: Draws the standard disabled look while the button stays tappable. For an action that
+    ///   must stay pressable so it can say what is missing (a form that cannot be saved yet).
+    public init(looksUnavailable: Bool = false) { self.looksUnavailable = looksUnavailable }
 
     public func makeBody(configuration: Configuration) -> some View {
-        configuration.label
+        let drawnEnabled = isEnabled && !looksUnavailable
+        return configuration.label
             .font(StrandFont.subhead.weight(.semibold))
-            .foregroundStyle(isEnabled ? StrandPalette.appCanvas : StrandPalette.textTertiary)
+            .foregroundStyle(drawnEnabled ? StrandPalette.appCanvas : StrandPalette.textTertiary)
             .padding(.horizontal, NoopMetrics.space4)
             .padding(.vertical, 10)
-            .background(isEnabled ? StrandPalette.ink : StrandPalette.chipFill, in: Capsule(style: .continuous))
+            .background(drawnEnabled ? StrandPalette.ink : StrandPalette.chipFill, in: Capsule(style: .continuous))
             .contentShape(Rectangle().inset(by: -4))
             .opacity(isEnabled && configuration.isPressed ? 0.78 : 1)
     }
