@@ -55,7 +55,7 @@ struct RoutineEditorView: View {
   private var routineSection: some View {
     LiftFlatSection("Routine", systemImage: "list.bullet.rectangle") {
       VStack(alignment: .leading, spacing: NoopMetrics.space4) {
-        LiftField(title: "Name", text: $draft.name, placeholder: "Upper A", capitalization: .words)
+        LiftField(title: "Name", text: $draft.name, placeholder: "lift.routine.namePlaceholder", capitalization: .words)
         LiftField(
           title: "Notes", text: $draft.notes, placeholder: "Training notes", axis: .vertical,
           capitalization: .sentences)

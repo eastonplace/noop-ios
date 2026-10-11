@@ -44,6 +44,13 @@ extension EnvironmentValues {
 
 // MARK: Page
 
+extension LocalizedStringKey {
+  /// A title that is somebody's own text (a routine, session or exercise name). It goes through the catalog's "%@" entry,
+  /// so it is drawn as typed and never looked up as a key: a seeded routine called "Upper A" must not pick up the
+  /// translation of the name-field placeholder.
+  init(userText: String) { self.init("\(userText)") }
+}
+
 /// A scrolling Lift page: the pinned title row, a 16pt gutter and flat sections on the canvas.
 struct LiftPage<Trailing: View, Content: View>: View {
   let title: LocalizedStringKey

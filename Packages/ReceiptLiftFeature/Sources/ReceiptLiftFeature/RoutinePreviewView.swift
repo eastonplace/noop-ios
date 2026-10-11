@@ -50,7 +50,7 @@ private struct RoutinePreviewContent: View {
 
   var body: some View {
     LiftPage(
-      title: LocalizedStringKey(routine.name),
+      title: LocalizedStringKey(userText: routine.name),
       context: routine.trainingMode.title,
       backAction: onCancel,
       lazy: true,

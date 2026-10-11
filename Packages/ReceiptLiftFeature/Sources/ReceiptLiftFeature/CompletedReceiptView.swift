@@ -114,7 +114,7 @@ struct CompletedReceiptView: View {
 
   var body: some View {
     LiftPage(
-      title: LocalizedStringKey(session.title),
+      title: LocalizedStringKey(userText: session.title),
       context: format.receiptDate(session.startedAt),
       backAction: { dismiss() },
       closeAction: onClose,

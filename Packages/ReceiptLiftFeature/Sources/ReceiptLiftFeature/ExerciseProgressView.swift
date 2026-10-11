@@ -29,7 +29,7 @@ struct ExerciseProgressView: View {
 
   var body: some View {
     LiftPage(
-      title: LocalizedStringKey(exercise?.name.liftDisplayName ?? String(localized: "Exercise not found")),
+      title: LocalizedStringKey(userText: exercise?.name.liftDisplayName ?? String(localized: "Exercise not found")),
       // The title row has one line for this; at the largest sizes the facts move into the page, where they can wrap.
       context: typeSize.isAccessibilitySize ? nil : exercise.map(Self.facts),
       lazy: true,
