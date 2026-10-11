@@ -22,6 +22,8 @@ import WhoopStore
 
 struct FullDayChartView: View {
     @EnvironmentObject var repo: Repository
+    /// The wearer's rest / steady / push boundaries (the profile's, set at the app's root).
+    @Environment(\.hrZoneThresholds) private var zones
 
     /// The day this timeline is showing (its real calendar midnight). Defaults to the logical day so an
     /// after-midnight open still lands on the night the user is living, not an empty new calendar day (#144).
@@ -117,7 +119,7 @@ struct FullDayChartView: View {
     /// Time in range is a fact about the day: it re-reads when the day, the source scope or fresh strap data changes,
     /// and deliberately not when the window moves.
     private var zonesKey: String {
-        "\(metric == .hr)|\(Int(dayStart.timeIntervalSince1970))|\(ownedOnly)|\(repo.refreshSeq)"
+        "\(metric == .hr)|\(Int(dayStart.timeIntervalSince1970))|\(ownedOnly)|\(repo.refreshSeq)|\(zones.rest)|\(zones.steady)"
     }
 
     // MARK: Controls
@@ -387,9 +389,9 @@ struct FullDayChartView: View {
         let seconds = shownZoneSeconds
         let total = max(seconds.reduce(0, +), 1)
         let rows: [(word: String, range: String, ink: Color)] = [
-            (String(localized: "Rest"), "<60", StrandPalette.liveRed.opacity(0.58)),
-            (String(localized: "Steady"), "60–110", StrandPalette.liveRed),
-            (String(localized: "Push"), "110+", StrandPalette.destructive),
+            (String(localized: "Rest"), "<\(zones.steadyStartBPM.formatted())", StrandPalette.liveRed.opacity(0.58)),
+            (String(localized: "Steady"), "\(zones.steadyStartBPM.formatted())–\((zones.pushStartBPM - 1).formatted())", StrandPalette.liveRed),
+            (String(localized: "Push"), "\(zones.pushStartBPM.formatted())+", StrandPalette.destructive),
         ]
         return VStack(alignment: .leading, spacing: WidgetMetrics.headerSpacing) {
             SectionEyebrow(
@@ -520,8 +522,9 @@ struct FullDayChartView: View {
         loading = false
     }
 
-    /// How long the shown DAY spent resting (under 60), steady (60 to 110) and pushing (110 and over): the whole
-    /// calendar day read at one-minute buckets whatever the chart's zoom, each bucket standing for its own width.
+    /// How long the shown DAY spent resting, steady and pushing by the wearer's own zones (half and 70% of their maximum
+    /// heart rate): the whole calendar day read at one-minute buckets whatever the chart's zoom, each bucket standing for
+    /// its own width.
     /// (1500 target points makes the read layer pick 60 s for a 23-, 24- or 25-hour day alike.)
     private func reloadZones() async {
         guard metric == .hr else { zoneTotals = nil; return }
@@ -536,9 +539,7 @@ struct FullDayChartView: View {
         let width = Double(max(result.bucketSeconds, 1))
         var totals = [0.0, 0.0, 0.0]
         for point in result.points where point.value.isFinite {
-            if point.value < HRZoneStyle.restCeiling { totals[0] += width }
-            else if point.value < HRZoneStyle.steadyCeiling { totals[1] += width }
-            else { totals[2] += width }
+            totals[zones.zone(for: point.value)] += width
         }
         zoneTotals = ZoneTotals(day: day, seconds: totals)
     }

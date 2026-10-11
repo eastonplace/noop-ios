@@ -69,12 +69,14 @@ public enum StressModuleDateContext: Equatable, Sendable {
         }
     }
 
-    fileprivate var accessibilitySubject: String {
+    /// The phrase VoiceOver opens with, in the device's language and the app's locale for the date.
+    fileprivate func accessibilitySubject(locale: Locale) -> String {
         switch self {
         case .today:
-            return "Today's stress"
+            return String(localized: "Today's stress", bundle: .module)
         case .historical(let date):
-            return "Stress for \(date.formatted(.dateTime.weekday(.wide).month(.wide).day().year()))"
+            let day = date.formatted(.dateTime.weekday(.wide).month(.wide).day().year().locale(locale))
+            return String(localized: "Stress for \(day)", bundle: .module)
         }
     }
 }
@@ -83,32 +85,32 @@ public enum StressModuleDateContext: Equatable, Sendable {
 
 public enum StressModuleBand {
     public static func word(_ value: Double?) -> String {
-        guard let value else { return "Calibrating" }
+        guard let value else { return String(localized: "Calibrating", bundle: .module) }
         switch value {
-        case ..<1: return "Low"
-        case ..<2: return "Moderate"
-        default: return "High"
+        case ..<1: return String(localized: "Low", bundle: .module)
+        case ..<2: return String(localized: "Moderate", bundle: .module)
+        default: return String(localized: "High", bundle: .module)
         }
     }
 
     public static func why(_ value: Double?) -> String {
-        guard let value else { return "First nights build your baseline." }
+        guard let value else { return String(localized: "First nights build your baseline.", bundle: .module) }
         switch value {
-        case ..<1: return "Load is sitting under your baseline."
-        case ..<2: return "Riding above baseline — normal for a workday."
-        default: return "Sustained high load. A breather would land well."
+        case ..<1: return String(localized: "Load is sitting under your baseline.", bundle: .module)
+        case ..<2: return String(localized: "Riding above baseline — normal for a workday.", bundle: .module)
+        default: return String(localized: "Sustained high load. A breather would land well.", bundle: .module)
         }
     }
 
     public static func word(_ value: Double?, mode: StressPresentationMode) -> String {
         switch mode {
         case .baselineCalibration:
-            return "Calibrating"
+            return String(localized: "Calibrating", bundle: .module)
         case .dailyOnly, .intradayOnly, .combined:
-            guard let value else { return "Insufficient signal" }
+            guard let value else { return String(localized: "Insufficient signal", bundle: .module) }
             return word(value)
         case .empty:
-            return "No data"
+            return String(localized: "No data", bundle: .module)
         }
     }
 
@@ -120,26 +122,26 @@ public enum StressModuleBand {
     ) -> String {
         switch mode {
         case .baselineCalibration:
-            return "First nights build your baseline."
+            return String(localized: "First nights build your baseline.", bundle: .module)
         case .dailyOnly:
             return dateContext.isToday
-                ? "The daily score is ready; today has not supplied enough hourly signal."
-                : "The daily score is ready; hourly signal is unavailable for this date."
+                ? String(localized: "The daily score is ready; today has not supplied enough hourly signal.", bundle: .module)
+                : String(localized: "The daily score is ready; hourly signal is unavailable for this date.", bundle: .module)
         case .intradayOnly:
             guard value != nil else {
                 return baselineBuilding
-                    ? "Same-day signal is present but not yet scorable while your baseline builds."
-                    : "Same-day signal is present but not yet scorable."
+                    ? String(localized: "Same-day signal is present but not yet scorable while your baseline builds.", bundle: .module)
+                    : String(localized: "Same-day signal is present but not yet scorable.", bundle: .module)
             }
             return baselineBuilding
-                ? "Same-day signal is available while your daily baseline builds."
-                : "Same-day signal is available; a daily score has not landed yet."
+                ? String(localized: "Same-day signal is available while your daily baseline builds.", bundle: .module)
+                : String(localized: "Same-day signal is available; a daily score has not landed yet.", bundle: .module)
         case .combined:
             return why(value)
         case .empty:
             return dateContext.isToday
-                ? "No stress signal is available for today."
-                : "No stress signal is available for this date."
+                ? String(localized: "No stress signal is available for today.", bundle: .module)
+                : String(localized: "No stress signal is available for this date.", bundle: .module)
         }
     }
 
@@ -195,6 +197,8 @@ public struct StressModuleCard: View {
     }
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// The app's locale, which carries its 12/24-hour setting: the hours on the ribbon follow it.
+    @Environment(\.locale) private var locale
     @State private var revealed = false
     /// Hour under the finger while scrubbing the ribbon, nil when idle.
     @State private var scrubHour: Int? = nil
@@ -310,7 +314,7 @@ public struct StressModuleCard: View {
         if let sample = scrubSample {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 // Hour readout while the finger rides the ribbon.
-                Text(Self.hourLabel(sample.hour))
+                Text(Self.hourLabel(sample.hour, locale: locale))
                     .font(StrandFont.caption.weight(.semibold))
                     .foregroundStyle(StressHeatStyle.color(for: sample.level))
                 Text("· \(StressModuleBand.word(sample.level)) hour")
@@ -437,8 +441,8 @@ public struct StressModuleCard: View {
 
     private var axis: some View {
         HStack(spacing: 0) {
-            ForEach(Array(["12AM", "6AM", "12PM", "6PM", "12AM"].enumerated()), id: \.offset) { index, label in
-                Text(label)
+            ForEach(Array([0, 6, 12, 18, 24].enumerated()), id: \.offset) { index, hour in
+                Text(verbatim: Self.hourLabel(hour, locale: locale))
                 if index < 4 { Spacer(minLength: 0) }
             }
         }
@@ -517,31 +521,49 @@ public struct StressModuleCard: View {
 
     // MARK: Helpers
 
-    static func hourLabel(_ hour: Int) -> String {
-        let normalized = ((hour % 24) + 24) % 24
-        if normalized == 0 { return "12 AM" }
-        if normalized < 12 { return "\(normalized) AM" }
-        if normalized == 12 { return "12 PM" }
-        return "\(normalized - 12) PM"
+    /// "12 AM" / "00" for an hour of the day, in the device's locale and 12/24-hour setting (never a hard-coded "AM"):
+    /// the same label the Stress screen's ribbon draws.
+    static func hourLabel(_ hour: Int, locale: Locale = .autoupdatingCurrent) -> String {
+        StressDayRibbon.hourLabel(hour, locale: locale)
     }
 
+    /// One spoken sentence per state, built from whole localized formats (never English fragments joined by hand): the
+    /// subject, the day's value and word, the peak with its hour in the app's 12/24-hour setting, and the hours spent
+    /// in each band.
     private var accessibilitySummary: String {
+        Self.spokenSummary(
+            subject: dateContext.accessibilitySubject(locale: locale),
+            value: value,
+            word: StressModuleBand.word(value, mode: presentationMode),
+            why: StressModuleBand.why(value, mode: presentationMode, baselineBuilding: baselineBuilding,
+                                      dateContext: dateContext),
+            peak: peak,
+            bandCounts: bandCounts,
+            locale: locale)
+    }
+
+    static func spokenSummary(subject: String, value: Double?, word: String, why: String,
+                              peak: (hour: Int, level: Double)?, bandCounts counts: [Int], locale: Locale) -> String {
         guard let value else {
-            return "\(dateContext.accessibilitySubject), \(StressModuleBand.word(nil, mode: presentationMode)). \(StressModuleBand.why(nil, mode: presentationMode, baselineBuilding: baselineBuilding, dateContext: dateContext))"
+            return String(localized: "\(subject), \(word). \(why)", bundle: .module)
         }
-        var parts = [
-            "\(dateContext.accessibilitySubject) \(String(format: "%.1f", value)), \(StressModuleBand.word(value, mode: presentationMode))",
-        ]
+        let level = Self.number(value, locale: locale)
+        var clauses = [String(localized: "\(subject) \(level), \(word)", bundle: .module)]
         if let peak {
-            parts.append("peak \(String(format: "%.1f", peak.level)) at \(Self.hourLabel(peak.hour))")
+            clauses.append(String(localized: "Peak \(Self.number(peak.level, locale: locale)) at \(Self.hourLabel(peak.hour, locale: locale))",
+                                  bundle: .module))
         }
-        let counts = bandCounts
         if counts.reduce(0, +) > 0 {
             // Hours are spoken as durations ("1 hour", "2 hours") so the system pluralises them for the language.
             let calm = Self.spokenHours(counts[0]), moderate = Self.spokenHours(counts[1]), high = Self.spokenHours(counts[2])
-            parts.append(String(localized: "Calm \(calm), moderate \(moderate), high \(high)", bundle: .module))
+            clauses.append(String(localized: "Calm \(calm), moderate \(moderate), high \(high)", bundle: .module))
         }
-        return parts.joined(separator: ", ")
+        return clauses.dropFirst().reduce(clauses[0]) { String(localized: "\($0), \($1)", bundle: .module) }
+    }
+
+    /// One decimal in the app's locale.
+    static func number(_ value: Double, locale: Locale) -> String {
+        value.formatted(.number.precision(.fractionLength(1)).locale(locale))
     }
 
     static func spokenHours(_ hours: Int) -> String {

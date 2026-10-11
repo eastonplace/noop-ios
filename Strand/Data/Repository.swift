@@ -2763,13 +2763,39 @@ final class Repository: ObservableObject {
         guard deviceId != canonicalDeviceId else {
             return (try? await store.hrSamples(deviceId: deviceId, from: from, to: to, limit: limit)) ?? []
         }
-        var byTs: [Int: HRSample] = [:]
+        var lists: [[HRSample]] = []
         for id in importedReadIds {
-            for s in (try? await store.hrSamples(deviceId: id, from: from, to: to, limit: limit)) ?? [] where byTs[s.ts] == nil {
-                byTs[s.ts] = s
-            }
+            lists.append((try? await store.hrSamples(deviceId: id, from: from, to: to, limit: limit)) ?? [])
         }
-        return byTs.values.sorted { $0.ts < $1.ts }
+        return await Self.unionByTimestamp(lists, ts: { $0.ts })
+    }
+
+    /// The first list wins a shared second; ascending. A day of readings from two ids is up to 400,000 rows, so the
+    /// dedupe and the sort run off the main actor.
+    nonisolated private static func unionByTimestamp<T: Sendable>(
+        _ lists: [[T]], ts: @escaping @Sendable (T) -> Int
+    ) async -> [T] {
+        await Task.detached(priority: .userInitiated) {
+            var byTs: [Int: T] = [:]
+            for list in lists {
+                for sample in list where byTs[ts(sample)] == nil { byTs[ts(sample)] = sample }
+            }
+            return byTs.values.sorted { ts($0) < ts($1) }
+        }.value
+    }
+
+    /// The raw step-counter readings of a window, ascending, from the active strap and the canonical history (the
+    /// active strap wins a shared second), like `hrSamples`.
+    func stepSamples(from: Int, to: Int, limit: Int = 8000) async -> [StepSample] {
+        guard let store = await ensureStore() else { return [] }
+        guard deviceId != canonicalDeviceId else {
+            return (try? await store.stepSamples(deviceId: deviceId, from: from, to: to, limit: limit)) ?? []
+        }
+        var lists: [[StepSample]] = []
+        for id in importedReadIds {
+            lists.append((try? await store.stepSamples(deviceId: id, from: from, to: to, limit: limit)) ?? [])
+        }
+        return await Self.unionByTimestamp(lists, ts: { $0.ts })
     }
 
     /// A live Strain pass needs the initial daily cache. Before that cache exists, the live accumulator
@@ -2965,6 +2991,20 @@ final class Repository: ObservableObject {
     func sleepSessions(from: Int, to: Int, limit: Int = 100) async -> [CachedSleepSession] {
         guard let store = await ensureStore() else { return [] }
         return await unionSleepSessions(store: store, from: from, to: to, limit: limit)
+    }
+
+    /// The sleep sessions detected on this device (the computed source, `-noop`), the ones the nightly batch scored a day
+    /// from. A Bluetooth-only wearer has every block here and none in the imported namespace `sleepSessions` reads.
+    func computedSleepSessions(from: Int, to: Int, limit: Int = 100) async -> [CachedSleepSession] {
+        guard let store = await ensureStore() else { return [] }
+        return await unionComputedSleepSessions(store: store, from: from, to: to, limit: limit)
+    }
+
+    /// The on-device computed daily row for `day`, which is what the nightly batch scored the day from. `days` merges an
+    /// import over it (the import's fields win), so a past day's score is re-derived from this row instead.
+    func computedDailyMetric(day: String) async -> DailyMetric? {
+        guard let store = await ensureStore() else { return nil }
+        return await unionComputedDailyMetrics(store: store, from: day, to: day).first
     }
 
     /// Bounded Sleep navigation page. Older pages can be requested later without making every Repository

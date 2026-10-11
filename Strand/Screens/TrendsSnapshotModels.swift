@@ -214,10 +214,9 @@ enum ProductionTrendMetric: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .strain, .sleepDuration, .respiratory, .skinTemp, .stress:
             return value.formatted(.number.precision(.fractionLength(1)))
-        case .steps, .calories:
-            return value.formatted(.number.precision(.fractionLength(0)))
         default:
-            return value.formatted(.number.precision(.fractionLength(0)))
+            // Half away from zero, like the band that colours it (RecoveryBands).
+            return ComponentValueFormat.rounded(value)
         }
     }
 

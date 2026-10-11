@@ -68,7 +68,10 @@ public struct ScoreRing: View {
                         .foregroundStyle(StrandPalette.textPrimary)
                         .monospacedDigit()
                         .lineLimit(1)
-                        .minimumScaleFactor(0.55)
+                        // A decimal ("13.4") is wider than the two digits the numeral is sized for, and a 76pt ring
+                        // leaves it about half a numeral's width: let it shrink as far as it must, never truncate.
+                        .minimumScaleFactor(0.3)
+                        .allowsTightening(true)
                     if let centerCaption {
                         Text(centerCaption)
                             .font(StrandFont.micro)

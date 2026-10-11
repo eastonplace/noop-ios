@@ -2299,12 +2299,14 @@ struct TodayView: View {
             Group {
                 switch kind {
                 case .rest:
-                    SleepView()
+                    // Its own stack, like the Recovery and Strain pages carry: a cover with no stack has no edge swipe
+                    // back (`EdgeSwipeBack` needs the stack's recogniser), and the chevron is then its only way out.
+                    NavigationStack { SleepView() }
                 case .stress:
                     // Nothing sets .stress any more (paperStressCard pushes stressDetail directly);
                     // this case only keeps a future setter from resurrecting the retired
                     // PaperPillarDetailView stress surface instead of the canonical StressView.
-                    stressDetail
+                    NavigationStack { stressDetail }
                 case .charge, .effort:
                     PaperPillarDetailView(kind: kind, anchorDayKey: selectedDayKey)
                 }
@@ -2707,8 +2709,8 @@ struct TodayView: View {
                     // general METHOD behind the score, so the two are clearly separated, not conflated. It
                     // pushes within this sheet's own NavigationStack, so there is no second modal to manage.
                     NavigationLink {
-                        // Pushed, so its close button and "Got it" pop back to this breakdown (the guide's own header
-                        // replaces the system bar), not out of the whole sheet.
+                        // Pushed, so its back chip and "Got it" pop back to this breakdown (the guide's own header
+                        // replaces the system bar), not out of the whole sheet. It has no X: nothing here to close.
                         ScoringGuideView(initialSection: .recovery)
                     } label: {
                         HStack(spacing: 10) {

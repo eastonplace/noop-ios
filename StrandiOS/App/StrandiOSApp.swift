@@ -544,6 +544,7 @@ struct StrandiOSApp: App {
             }
                 .contentSurfacePresentation(.flat)
                 .background(StrandPalette.appCanvas.ignoresSafeArea())
+                .personalHRZones(model.profile)
                 .environmentObject(model)
                 .environmentObject(model.ble)
                 .environmentObject(model.live)

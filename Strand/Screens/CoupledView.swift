@@ -40,6 +40,12 @@ struct CoupledView: View {
     /// Today's day key, tracking the resolved row when one exists (the Today idiom).
     private var todayKey: String { day?.day ?? Repository.logicalDayKey(Date()) }
 
+    /// The date the pushed header names: the day of the row the screen shows (between midnight and the 04:00 rollover
+    /// that row can already be the new calendar day), else the logical day.
+    private var headerDate: Date {
+        day.flatMap { PaperPillarDetailView.dayFormatter.date(from: $0.day) } ?? Repository.logicalDayStart(Date())
+    }
+
     /// Recovery cold-start: nights banked so far while the HRV baseline still seeds, nil once recovery
     /// exists. The SAME pure helper Today's ring reads, so the two screens can't disagree.
     private var calibrationNights: Int? {
@@ -108,8 +114,9 @@ struct CoupledView: View {
                        // The day-of-sky liquid backdrop, matching Today / Health / Sleep / Trends: a fixed,
                        // full-bleed time-of-day sky behind the scroll content (does not scroll).
                        topBackground: nil,
-                       // Pushed, the header row says which day this is, in the Recovery and Strain format.
-                       headerContext: DrillInFormat.headerDate(Date())) {
+                       // Pushed, the header row says which day this is, in the Recovery and Strain format: the
+                       // logical day the screen shows (a 01:30 morning still shows yesterday's numbers).
+                       headerContext: DrillInFormat.headerDate(headerDate)) {
             ViewThatFits(in: .horizontal) {
                 // Regular width (macOS / iPad): hero left, strain + sleep stacked right in a 2-column grid.
                 HStack(alignment: .top, spacing: NoopMetrics.gap) {
@@ -243,13 +250,21 @@ struct CoupledView: View {
     /// The one-word readiness pill (Push / Maintain / Sleep), tinted by the readiness level, matching the
     /// Today hero pill chrome. Reuses TodayView's word + level colour so the read stays consistent.
     private func readinessPill(_ word: String) -> some View {
-        let tint = readinessTint(readinessLevel)
+        let tint = Self.readinessPillTint(recovery: recovery, level: readinessLevel)
         return MicroBadge("\(word)", tint: tint)
             .accessibilityLabel("Readiness: \(word)")
     }
 
+    /// The pill sits over the ring and the recovery number, so it wears the ring's own band (`RecoveryBands`): a
+    /// yellow 35% ring never carries a green pill. With no recovery to draw there is no ring colour to match, and the
+    /// readiness level's tint stands in.
+    static func readinessPillTint(recovery: Double?, level: ReadinessEngine.Level) -> Color {
+        if let recovery { return RecoveryBands.color(for: recovery) }
+        return readinessTint(level)
+    }
+
     /// The readiness level's tint, the SAME mapping TodayView.readinessColor uses.
-    private func readinessTint(_ l: ReadinessEngine.Level) -> Color {
+    private static func readinessTint(_ l: ReadinessEngine.Level) -> Color {
         switch l {
         case .primed:       return StrandPalette.accent
         case .balanced:     return StrandPalette.statusPositive
@@ -529,8 +544,8 @@ struct CoupledView: View {
                     // The general METHOD behind the score, clearly separated from today's values, exactly
                     // the link the Today breakdown carries. Pushes within this sheet's own NavigationStack.
                     NavigationLink {
-                        // Pushed, so its close button and "Got it" pop back to this breakdown (the guide's own header
-                        // replaces the system bar), not out of the whole sheet.
+                        // Pushed, so its back chip and "Got it" pop back to this breakdown (the guide's own header
+                        // replaces the system bar), not out of the whole sheet. It has no X: nothing here to close.
                         ScoringGuideView(initialSection: .recovery)
                     } label: {
                         HStack(spacing: 10) {
@@ -654,19 +669,24 @@ struct CoupledView: View {
     // score or engine; it just tells the user where a "matched" strain would sit on the 0–21 axis. The bands
     // are the APPROVED mapping and MUST stay byte-identical to the Android `optimalStrainRange`:
     //
-    //   recovery ≥ 67 (green)       → 14–18 of 21
-    //   34 ≤ recovery ≤ 66 (yellow) → 10–14
-    //   recovery < 34 (red)         → 4–10
+    //   green recovery  → 14–18 of 21
+    //   yellow recovery → 10–14
+    //   red recovery    → 4–10
+    //
+    // The bands are `RecoveryBands`, the one place that cuts a recovery score (whole points, rounded half away from
+    // zero: a 66.6 drawn "67" is green, so its target is the green one). The numbers are unchanged. ANDROID PARITY:
+    // the Android `optimalStrainRange` (not in this repo) must cut on the same rounded score (67 and 34 on the
+    // rounded value, not on the raw one) to stay byte-identical; it still cuts the raw value until it is changed.
     //
     // nil recovery (calibrating / unscored day) → nil, the caller renders a dash, never a guessed band.
 
     /// The pure recovery→optimal-strain band. Returns nil when recovery is unknown. Bands per the doc above.
     static func optimalStrainRange(recovery: Double?) -> ClosedRange<Int>? {
         guard let r = recovery else { return nil }
-        switch r {
-        case 67...:   return 14...18
-        case 34..<67: return 10...14
-        default:      return 4...10
+        switch RecoveryBands.band(for: r) {
+        case .high:   return 14...18
+        case .medium: return 10...14
+        case .low:    return 4...10
         }
     }
 
@@ -696,8 +716,11 @@ struct PaperPillarDetailView: View {
     @State private var appleDays: [AppleDaily] = []
     @State private var computedZoneMinutes: [Double]?
     @State private var storedStress: [(day: String, value: Double)] = []
-    @State private var daytimeStress: DaytimeStress.Result?
     @State private var latestSleepStart: Date?
+    /// The Strain pillar's pass over the day's heart-rate readings (the curve and the parts of the score).
+    @State private var strainDay: StrainDayResult?
+    /// Whether this appearance has already refreshed the live day score (see `loadStrainDay`).
+    @State private var ranLiveStrainPass = false
 
     private var accent: Color {
         switch kind {
@@ -801,9 +824,57 @@ struct PaperPillarDetailView: View {
             latestSleepStart = sleeps.last.map {
                 Date(timeIntervalSince1970: TimeInterval($0.effectiveStartTs))
             }
-            await loadDaytimeStress()
             await loadComputedWorkoutZones()
         }
+        // Strain only: one bounded, off-main pass over the day's readings. A new key (another day, a refresh, the
+        // hero moving) cancels the one in flight.
+        .task(id: strainLoadKey) { await loadStrainDay() }
+    }
+
+    private struct StrainLoadKey: Hashable {
+        let day: String
+        let refresh: Int
+        /// The hero in tenths, so the curve follows the live score without reloading for noise below what it prints.
+        let hero: Int?
+    }
+
+    private var strainLoadKey: StrainLoadKey? {
+        guard kind == .effort else { return nil }
+        return StrainLoadKey(day: anchorDayKey, refresh: repo.refreshSeq, hero: latest.map { Int(($0 * 10).rounded()) })
+    }
+
+    private var isToday: Bool { anchorDayKey == Repository.logicalDayKey(Date()) }
+
+    private func loadStrainDay() async {
+        guard kind == .effort else { return }
+        // Today's hero is the live score, which the app refreshes every 20 s. Run one pass now, before the curve is
+        // read, so the hero and the curve's end come from the same readings at first paint instead of the hero
+        // waiting for the next tick. Once per appearance: the hero moving afterwards re-reads the curve, not this.
+        if isToday, !ranLiveStrainPass, repo.loaded {
+            await repo.refreshLiveDayStrain(maxHR: Double(profile.hrMax))
+            ranLiveStrainPass = true
+        }
+        // A past day was scored by the nightly batch from the on-device computed row (its resting HR, its scored sleep
+        // minutes, its steps). `repo.days` merges an import over that row, so on a day that has both, the merged row's
+        // fields are the import's and would not reproduce the stored score; today follows the merged row, like the live
+        // score. A past day with no computed row falls back to the merged one.
+        var basis = latestDay
+        if !isToday, let computed = await repo.computedDailyMetric(day: anchorDayKey) { basis = computed }
+        let request = StrainDayRequest(
+            dayKey: anchorDayKey,
+            logicalStart: anchorDate,
+            isToday: isToday,
+            // Today is the live score's (the rounded maximum); a past day is the batch's (unrounded).
+            maxHR: isToday ? Double(profile.hrMax) : profile.hrMaxForBatchScoring,
+            restingHR: basis?.restingHr.map(Double.init) ?? StrainScorerV2.defaultRestingHR,
+            steps: basis?.steps,
+            stepTicksPerStep: profile.stepTicksPerStep,
+            sleepMinutes: basis?.totalSleepMin,
+            heroTenths: latest.map { Int(($0 * 10).rounded()) },
+            refreshSeq: repo.refreshSeq)
+        // A pass from earlier paints at once; the new one replaces it when it lands.
+        if strainDay == nil, let kept = StrainDayCache.shared.entry(for: anchorDayKey) { strainDay = kept.result }
+        if let fresh = await StrainDayLoader.load(request, repo: repo) { strainDay = fresh }
     }
 
     private var heroCard: some View {
@@ -866,15 +937,21 @@ struct PaperPillarDetailView: View {
     private var effortSections: some View {
         pillarHero
         DrillInSeparator()
-        pillarTrend
+        StrainThroughDaySection(
+            result: strainDay, hero: latest, target: strainTarget, workouts: strainWorkouts,
+            sleepMinutes: strainDay?.sleepMinutes ?? latestDay?.totalSleepMin, isToday: isToday)
+        if let parts = strainDay.flatMap({ StrainScoreParts.make($0.analysis.components, hero: latest) }) {
+            DrillInSeparator()
+            // The steps the pass scored, so the row's line and its spoken text agree with its number; the calendar
+            // day's total only before a pass has landed.
+            StrainScorePartsSection(parts: parts, steps: strainDay?.steps ?? latestDay?.steps, isToday: isToday)
+        }
+        DrillInSeparator()
+        StrainActivitiesSection(workouts: strainWorkouts, isToday: isToday)
         DrillInSeparator()
         effortWeek
         DrillInSeparator()
-        effortContributors
-        if !scoredWorkouts.isEmpty {
-            DrillInSeparator()
-            effortActivities
-        }
+        pillarTrend
         DrillInSeparator()
         effortZones
     }
@@ -990,18 +1067,8 @@ struct PaperPillarDetailView: View {
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity)
-        } else if let state = strainState {
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Circle().fill(state.color).frame(width: 6, height: 6)
-                    .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 1 }
-                    .accessibilityHidden(true)
-                Text(state.text)
-                    .font(StrandFont.subhead)
-                    .foregroundStyle(StrandPalette.textSecondary)
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .frame(maxWidth: .infinity)
+        } else {
+            strainGuidance
         }
     }
 
@@ -1014,17 +1081,52 @@ struct PaperPillarDetailView: View {
         }
     }
 
-    private var strainState: (text: String, color: Color)? {
-        guard let latest else { return (String(localized: "No strain recorded for this day yet."), StrandPalette.textTertiary) }
-        guard let target = strainTarget else { return nil }
-        if latest < target.lowerBound {
-            return (String(localized: "Under your optimal band — room to move."), StrandPalette.textTertiary)
+    /// Under the dial: how the day sits against the target, and (quietly, as a way into the scoring guide) where the
+    /// target came from.
+    private var strainGuidance: some View {
+        let guidance = StrainTargetGuidance.make(value: latest, target: strainTarget)
+        let source = StrainTargetSource.make(recovery: latestDay?.recovery, isToday: isToday)
+        return VStack(spacing: 6) {
+            if latest == nil {
+                Text("No strain recorded for this day yet.")
+                    .font(StrandFont.subhead)
+                    .foregroundStyle(StrandPalette.textTertiary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else if let guidance {
+                let color = guidance.tint
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Circle().fill(color).frame(width: 6, height: 6)
+                        .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 1 }
+                        .accessibilityHidden(true)
+                    Text(guidance.text)
+                        .font(StrandFont.subhead.weight(.semibold))
+                        .foregroundStyle(StrandPalette.textPrimary)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            NavigationLink {
+                ScoringGuideView(initialSection: .strain)
+            } label: {
+                HStack(spacing: 4) {
+                    Text(source.text)
+                        .font(StrandFont.micro)
+                        .foregroundStyle(StrandPalette.textTertiary)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(StrandPalette.textTertiary)
+                        .accessibilityHidden(true)
+                }
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint(Text("Opens how Strain is scored"))
         }
-        if latest > target.upperBound {
-            return (String(localized: "Past your band — recovery pays the bill."), StrandPalette.statusWarning)
-        }
-        return (String(localized: "Inside your \(Int(target.lowerBound))–\(Int(target.upperBound)) optimal band."),
-                StrandPalette.statusPositive)
+        .frame(maxWidth: .infinity)
     }
 
     private var heroFooterItems: [(label: String, value: String)] {
@@ -1050,7 +1152,8 @@ struct PaperPillarDetailView: View {
             metric: kind == .charge ? .recovery : .strain,
             observations: metricDays,
             referenceDate: anchorDate,
-            latest: latest
+            latest: latest,
+            showsBuildingState: kind == .effort
         )
     }
 
@@ -1240,125 +1343,13 @@ struct PaperPillarDetailView: View {
                 target: strainTarget,
                 tint: DomainTint.strain.accent,
                 anchorDate: anchorDate,
-                referenceDate: calendar.startOfDay(for: Date()),
+                // The logical day, so a 01:30 morning does not turn the day to come into a missed one.
+                referenceDate: Repository.logicalDayStart(Date()),
                 calendar: calendar,
                 valueFormat: { DrillInFormat.number($0, fractionDigits: 1) },
                 spokenValue: { String(localized: "\(DrillInFormat.number($0, fractionDigits: 1)) of 21") }
             )
         }
-    }
-
-    private var effortContributors: some View {
-        let sessions = detailWorkouts
-        let averageHR = sessions.compactMap(\.avgHr)
-        let calories = sessions.compactMap(\.energyKcal).reduce(0, +)
-        let maxHR = sessions.compactMap(\.maxHr).max()
-        let duration = sessions.reduce(0.0) { $0 + ($1.durationS ?? Double($1.endTs - $1.startTs)) }
-        let daily = detailAppleDay
-        let resolvedAverageHR = averageHR.isEmpty ? daily?.avgHr : averageHR.reduce(0, +) / averageHR.count
-        let resolvedCalories = calories > 0 ? calories : (daily?.activeKcal ?? latestDay?.activeKcalEst ?? 0)
-        let resolvedMaxHR = maxHR ?? daily?.maxHr
-        let hrMax = profile.hrMax > 0 ? Double(profile.hrMax) : nil
-        let minutes = Int((duration / 60).rounded())
-
-        return VStack(alignment: .leading, spacing: WidgetMetrics.headerSpacing) {
-            SectionEyebrow(
-                title: String(localized: "Strain contributors"),
-                systemImage: "flame.fill",
-                tint: .strain
-            )
-            VStack(alignment: .leading, spacing: NoopMetrics.space3) {
-                contributorRow(
-                    symbol: "heart.fill", tint: .heart, label: String(localized: "Average HR"),
-                    value: resolvedAverageHR.map { String($0) }, unit: "bpm",
-                    band: FactorBands.heartRate(bpm: resolvedAverageHR.map(Double.init), maxHR: hrMax))
-                contributorRow(
-                    symbol: "flame.fill", tint: .custom(ProductionTrendMetric.calories.tint),
-                    label: String(localized: "Calories"),
-                    value: resolvedCalories > 0 ? String(Int(resolvedCalories.rounded())) : nil, unit: "kcal")
-                contributorRow(
-                    symbol: "heart.circle.fill", tint: .heart, label: String(localized: "Max HR"),
-                    value: resolvedMaxHR.map { String($0) }, unit: "bpm",
-                    band: FactorBands.heartRate(bpm: resolvedMaxHR.map(Double.init), maxHR: hrMax))
-                contributorRow(
-                    symbol: "clock.fill", tint: .neutral, label: String(localized: "Duration"),
-                    value: duration > 0 ? (minutes >= 60 ? "\(minutes / 60)h \(minutes % 60)m" : String(minutes)) : nil,
-                    unit: minutes >= 60 ? nil : "min")
-            }
-        }
-    }
-
-    private func contributorRow(
-        symbol: String, tint: DomainTint, label: String, value: String?, unit: String?, band: FactorBand? = nil
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            MetricValueRow(systemImage: symbol, label: label, value: value ?? WidgetMetrics.missingValue,
-                           unit: unit, tint: tint)
-            if let band {
-                Text(String(localized: String.LocalizationValue(band.localizationKey)))
-                    .font(StrandFont.micro)
-                    .foregroundStyle(band.color)
-                    .padding(.leading, WidgetMetrics.metricIconWidth + NoopMetrics.space2)
-            }
-        }
-        .accessibilityElement(children: .combine)
-    }
-
-    private var scoredWorkouts: [(workout: WorkoutRow, strain: Double)] {
-        detailWorkouts.compactMap { workout in
-            guard let stored = StrainResolver.canonicalWorkout(workout)?.storedValue else { return nil }
-            return (workout, StrainScale.displayValue(fromStored: stored))
-        }
-    }
-
-    private var effortActivities: some View {
-        VStack(alignment: .leading, spacing: WidgetMetrics.headerSpacing) {
-            SectionEyebrow(title: String(localized: "Activities"), systemImage: "figure.run", tint: .workout)
-            VStack(alignment: .leading, spacing: NoopMetrics.space3) {
-                ForEach(Array(scoredWorkouts.enumerated()), id: \.offset) { _, entry in
-                    activityRow(entry.workout, strain: entry.strain)
-                }
-            }
-        }
-    }
-
-    private func activityRow(_ workout: WorkoutRow, strain: Double) -> some View {
-        let total = latest ?? 0
-        let share = total > 0 ? min(max(strain / total, 0), 1) : 0
-        let length = durationText(workout.durationS ?? Double(workout.endTs - workout.startTs))
-        return VStack(alignment: .leading, spacing: 5) {
-            MetricValueRow(
-                systemImage: sportSymbol(workout.sport),
-                label: "\(WorkoutSource.displaySport(workout.sport)) · \(length)",
-                value: DrillInFormat.number(strain, fractionDigits: 1),
-                tint: .workout)
-            Text(workoutContext(workout))
-                .font(StrandFont.micro)
-                .foregroundStyle(StrandPalette.textTertiary)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.leading, WidgetMetrics.metricIconWidth + NoopMetrics.space2)
-            GeometryReader { proxy in
-                ZStack(alignment: .leading) {
-                    Capsule(style: .continuous).fill(DomainTint.strain.accent.opacity(0.14))
-                    Capsule(style: .continuous).fill(DomainTint.strain.accent)
-                        .frame(width: max(proxy.size.width * CGFloat(share), 4))
-                }
-            }
-            .frame(height: 4)
-            .padding(.leading, WidgetMetrics.metricIconWidth + NoopMetrics.space2)
-            .accessibilityHidden(true)
-        }
-        .accessibilityElement(children: .combine)
-    }
-
-    private func workoutContext(_ workout: WorkoutRow) -> String {
-        var parts: [String] = []
-        if let average = workout.avgHr { parts.append(String(localized: "avg \(average) bpm")) }
-        if let peak = workout.maxHr { parts.append(String(localized: "max \(peak) bpm")) }
-        if let calories = workout.energyKcal, calories > 0 {
-            parts.append(String(localized: "\(Int(calories.rounded())) cal"))
-        }
-        return parts.isEmpty ? String(localized: "Recorded workout") : parts.joined(separator: " · ")
     }
 
     private var effortZones: some View {
@@ -1381,14 +1372,8 @@ struct PaperPillarDetailView: View {
                 ))
             )
             if let minutes = resolvedZoneMinutes, minutes.reduce(0, +) > 0 {
-                let total = minutes.reduce(0, +)
-                ZoneBars((1...5).map { zone in
-                    let zoneMinutes = minutes[zone - 1]
-                    return ZoneBarItem(zone: zone,
-                                       fraction: zoneMinutes / total,
-                                       duration: shortDuration(zoneMinutes),
-                                       bpmRange: zoneSet?.bpmRangeLabel(forZone: zone))
-                })
+                // The same distribution the Workouts hub and a workout's summary draw, so the zones read alike.
+                HRZoneDistribution(zones: WorkoutZoneRows.zones(minutes: minutes, zoneSet: zoneSet))
             } else {
                 Text("Heart-rate zone time will appear after a workout records zone data.")
                     .font(StrandFont.subhead)
@@ -1587,6 +1572,15 @@ struct PaperPillarDetailView: View {
         return asleep / (efficiency / 100)
     }
 
+    /// The workouts the Strain screen shows: those inside the window the curve and the score were worked out over (the
+    /// sleep-to-sleep cycle), not the calendar day of their start. Until that window is known, the calendar day's.
+    private var strainWorkouts: [WorkoutRow] {
+        guard let result = strainDay else { return detailWorkouts }
+        let start = Int(result.cycleStart.timeIntervalSince1970)
+        let end = Int(result.end.timeIntervalSince1970)
+        return workouts.filter { $0.startTs < end && max($0.endTs, $0.startTs) > start }
+    }
+
     private var detailWorkouts: [WorkoutRow] {
         let day = detailDayKey
         return workouts.filter {
@@ -1718,16 +1712,6 @@ struct PaperPillarDetailView: View {
         values.isEmpty ? nil : values.reduce(0, +) / Double(values.count)
     }
 
-    private func durationText(_ seconds: Double) -> String {
-        let minutes = Int((seconds / 60).rounded())
-        return minutes >= 60 ? "\(minutes / 60)h \(minutes % 60)m" : "\(minutes) min"
-    }
-
-    private func shortDuration(_ minutes: Double) -> String {
-        let total = Int(minutes.rounded())
-        return total >= 60 ? "\(total / 60)h\(total % 60)m" : "\(total)m"
-    }
-
     private func sleepDuration(_ minutes: Double?) -> String {
         guard let minutes else { return "—" }
         let total = max(0, Int(minutes.rounded()))
@@ -1739,29 +1723,11 @@ struct PaperPillarDetailView: View {
         return "\(Int(percent.rounded()))%"
     }
 
-    private func loadDaytimeStress() async {
-        let calendar = Calendar.current
-        let start = Int(calendar.startOfDay(for: Date()).timeIntervalSince1970)
-        let end = Int(Date().timeIntervalSince1970)
-        let hr = await repo.hrSamples(from: start, to: end, limit: 200_000)
-        guard hr.count >= DaytimeStress.minHourHRSamples else {
-            daytimeStress = .empty
-            return
-        }
-        let rr = (try? await repo.storeHandle()?.rrIntervals(
-            deviceId: repo.deviceId, from: start, to: end, limit: 200_000)) ?? []
-        daytimeStress = DaytimeStress.analyze(
-            hr: hr,
-            rr: rr,
-            tzOffsetSeconds: TimeZone.current.secondsFromGMT(for: Date())
-        )
-    }
-
     private var detailDateLabel: String {
         DrillInFormat.headerDate(anchorDate)
     }
 
-    private static let dayFormatter: DateFormatter = {
+    fileprivate static let dayFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.calendar = Calendar(identifier: .gregorian)

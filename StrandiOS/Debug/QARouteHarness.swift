@@ -14,7 +14,8 @@ import WhoopStore
 /// workout-detail-manual, manual-workout, health, metric-explorer, metric-detail-hrv, compare, trends-explore,
 /// insights, intelligence, scoring-guide, scoring-guide-recovery (the guide opened at its Recovery section, as the
 /// Recovery ⓘ opens it), updates, live-hr, breathe, journal, intervals, start-workout, rhythm, smart-alarm,
-/// hydration, fitness-age, coupled, lab-book, trends-report, lift, lift-history, lift-progress, lift-routines.
+/// hydration, fitness-age, coupled, lab-book, trends-report, coach-workouts-sheet (the Workouts hub at the root of a sheet,
+/// as Coach's plan opens it), lift, lift-history, lift-progress, lift-routines.
 ///
 /// The Lift routes show whatever Lift holds; `--noop-lift-demo <variant>` and `--noop-lift-scene <scene>` (see
 /// `ReceiptLiftDemo` and `LiftQAScene`) load generated data and open a deeper screen.
@@ -59,6 +60,7 @@ enum QARoute: String, CaseIterable {
     case coupled
     case labBook = "lab-book"
     case trendsReport = "trends-report"
+    case coachWorkoutsSheet = "coach-workouts-sheet"
     case lift
     case liftHistory = "lift-history"
     case liftProgress = "lift-progress"
@@ -85,7 +87,8 @@ enum QARoute: String, CaseIterable {
         case .pillarRecovery, .pillarStrain, .sleep:
             return .cover(.today)
         case .scoringGuide, .scoringGuideRecovery, .workoutDetailRun, .workoutDetailStrength, .workoutDetailWhoop,
-             .workoutDetailManual, .manualWorkout, .lift, .liftHistory, .liftProgress, .liftRoutines:
+             .workoutDetailManual, .manualWorkout, .coachWorkoutsSheet, .lift, .liftHistory, .liftProgress,
+             .liftRoutines:
             return .sheet(.today)
         case .metricExplorer, .metricDetailHRV, .compare, .trendsExplore, .insights, .intelligence, .labBook:
             return .push(.trends)
@@ -334,7 +337,8 @@ private struct QARouteHost: ViewModifier {
         switch route {
         case .pillarRecovery: PaperPillarDetailView(kind: .charge, anchorDayKey: anchorDayKey)
         case .pillarStrain: PaperPillarDetailView(kind: .effort, anchorDayKey: anchorDayKey)
-        case .sleep: SleepView()
+        // Its own stack, as Today's cover has it (the edge swipe back needs one).
+        case .sleep: NavigationStack { SleepView() }
         default: EmptyView()
         }
     }
@@ -349,6 +353,13 @@ private struct QARouteHost: ViewModifier {
         case .workoutDetailWhoop: QAWorkoutDetailHost(kind: .whoop, onClose: { sheeted = false })
         case .workoutDetailManual: QAWorkoutDetailHost(kind: .manual, onClose: { sheeted = false })
         case .manualWorkout: ManualWorkoutSheet(editing: nil) { _, _ in }
+        case .coachWorkoutsSheet:
+            // The Workouts hub as Coach's plan opens it: the root of a sheet that supplies its own close action.
+            NavigationStack {
+                WorkoutsView()
+                    .sheetScreenScaffoldEnvironment(onClose: { sheeted = false })
+                    .background(StrandPalette.appCanvas.ignoresSafeArea())
+            }
         // The Lift screens, presented as the Workouts hub presents them (a sheet over the tab).
         case .lift: LiftLogView(destination: .start)
         case .liftHistory: LiftLogView(destination: .history)

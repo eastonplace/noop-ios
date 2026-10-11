@@ -92,6 +92,9 @@ struct DrillInTrendSection: View {
     let latest: Double?
     var valueBounds: ClosedRange<Double>? = nil
     var emptyMessage: String? = nil
+    /// With fewer than two days of data, say how far along the trend is ("Building, 1 of 7 days") in place of the
+    /// range control and an empty plot.
+    var showsBuildingState = false
     /// The range control's segments. Defaults to W / M / 3M / 6M, like Trends.
     var ranges: [DrillInRange] = DrillInRange.standard
 
@@ -100,6 +103,19 @@ struct DrillInTrendSection: View {
 
     var body: some View {
         let tint = metric.domainTint(latest: latest)
+        if showsBuildingState, emptyMessage == nil,
+           let building = TrendBuildingProgress.make(values: observations, through: referenceDate, calendar: calendar) {
+            VStack(alignment: .leading, spacing: WidgetMetrics.headerSpacing) {
+                SectionEyebrow(title: title, systemImage: metric.symbol, tint: tint)
+                buildingState(building, tint: tint)
+            }
+        } else {
+            rangeSection(tint: tint)
+        }
+    }
+
+    @ViewBuilder
+    private func rangeSection(tint: DomainTint) -> some View {
         let earliest = observations.map(\.date).min()
         let rangeDays = range.days(earliest: earliest, through: referenceDate, calendar: calendar)
         let days = TrendCalendar.buildRollingWindow(
@@ -150,6 +166,38 @@ struct DrillInTrendSection: View {
                     .frame(maxWidth: .infinity, minHeight: 96, alignment: .leading)
             }
         }
+    }
+
+    /// Compact: a week of dots (filled where there is a day), how many of them, and why there is no chart yet.
+    private func buildingState(_ progress: TrendBuildingProgress, tint: DomainTint) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                ForEach(Array(progress.window.enumerated()), id: \.offset) { index, filled in
+                    Circle()
+                        .fill(filled ? tint.accent : Color.clear)
+                        .overlay(Circle().stroke(filled ? tint.accent : StrandPalette.hairlineStrong, lineWidth: 1.5))
+                        .frame(width: 10, height: 10)
+                        // The newest day is ringed, like the last capsule of a band strip.
+                        .padding(2)
+                        .overlay {
+                            if index == progress.window.count - 1 {
+                                Circle().stroke(StrandPalette.textTertiary, lineWidth: 1)
+                            }
+                        }
+                }
+            }
+            .accessibilityHidden(true)
+            Text("Building · \(progress.recordedDays) of \(TrendBuildingProgress.windowDays) days")
+                .font(StrandFont.subhead.weight(.semibold))
+                .foregroundStyle(StrandPalette.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+            Text("Not enough days to chart a trend yet.")
+                .font(StrandFont.micro)
+                .foregroundStyle(StrandPalette.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
     }
 
     /// The canonical segmented pill, announced as one adjustable "Range" control so VoiceOver reads "30 days"

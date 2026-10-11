@@ -69,13 +69,14 @@ public struct SectionEyebrow: View {
     /// One row at ordinary sizes. The title wraps to a second line before it truncates (a long German title with a
     /// date beside it) and the trailing date or pill keeps its full width, so a record's date is never the thing
     /// that gives way. At accessibility sizes the trailing item drops under the title so both wrap freely.
-    /// A title that fits on one line lays out exactly as it always did.
+    /// A title that fits on one line lays out exactly as it always did. A word wider than the row scales the title down
+    /// (down to half) instead of hyphenating it, at every size (`strandOverlineFitted`).
     public var body: some View {
         if typeSize.isAccessibilitySize {
             VStack(alignment: .leading, spacing: NoopMetrics.space1) {
                 HStack(spacing: NoopMetrics.space2) {
                     leadingSymbol
-                    titleText.strandOverline().accessibilityAddTraits(.isHeader)
+                    titleText.strandOverlineFitted().lineLimit(3).accessibilityAddTraits(.isHeader)
                     Spacer(minLength: NoopMetrics.space2)
                     chevron
                 }
@@ -86,7 +87,7 @@ public struct SectionEyebrow: View {
         } else {
             HStack(spacing: NoopMetrics.space2) {
                 leadingSymbol
-                titleText.strandOverline().lineLimit(2).layoutPriority(1).accessibilityAddTraits(.isHeader)
+                titleText.strandOverlineFitted().lineLimit(2).layoutPriority(1).accessibilityAddTraits(.isHeader)
                 Spacer(minLength: NoopMetrics.space2)
                 trailingView
                 chevron
@@ -185,15 +186,15 @@ public struct HeroValue: View {
                     .foregroundStyle(value == WidgetMetrics.missingValue ? StrandPalette.textTertiary : StrandPalette.textPrimary)
                     .lineLimit(1).minimumScaleFactor(0.7)
                 if let unit {
-                    Text(unit).font(StrandFont.caption).foregroundStyle(StrandPalette.textTertiary)
+                    Text(unit).foregroundStyle(StrandPalette.textTertiary).captionLabelFit(lines: 1)
                 }
                 if let caption, captionPlacement == .trailing {
                     Spacer(minLength: NoopMetrics.space2)
-                    Text(caption).font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
+                    Text(caption).foregroundStyle(StrandPalette.textTertiary).microLabelFit()
                 }
             }
             if let caption, captionPlacement == .below {
-                Text(caption).font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
+                Text(caption).foregroundStyle(StrandPalette.textTertiary).microLabelFit()
             }
         }
     }
@@ -224,7 +225,9 @@ public struct MetricValueRow: View {
             Image(systemName: systemImage).font(StrandFont.caption).foregroundStyle(tint.accent)
                 .frame(width: WidgetMetrics.metricIconWidth)
                 .accessibilityHidden(true)
-            Text(label).font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary).lineLimit(1)
+            // One line at every size short of the accessibility sizes, where the label may take a second.
+            Text(label).foregroundStyle(StrandPalette.textSecondary)
+                .captionLabelFit(lines: 2, standardLines: 1)
             Spacer(minLength: NoopMetrics.space1)
             HStack(alignment: .firstTextBaseline, spacing: 2) {
                 Text(value).font(StrandFont.bodyNumber)
@@ -252,6 +255,7 @@ public struct StatFooter: View {
     private let items: [(label: String, value: String)]
     private let style: Style
     @ScaledMetric(relativeTo: .title3) private var valueSize: CGFloat = WidgetMetrics.statValueSize
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     public init(items: [(label: String, value: String)], style: Style = .compact) {
         self.items = items
@@ -259,12 +263,40 @@ public struct StatFooter: View {
     }
 
     public var body: some View {
+        if typeSize.isAccessibilitySize {
+            stacked
+        } else {
+            columnsBody
+        }
+    }
+
+    /// At the accessibility sizes three columns are too narrow for a label and its value, and a wrapped label in one
+    /// column pushes its value out of line with the next. Each fact gets a full-width row of its own instead, label over
+    /// value, in the order the columns had.
+    private var stacked: some View {
+        VStack(alignment: .leading, spacing: NoopMetrics.space3) {
+            ForEach(Array(items.prefix(3).enumerated()), id: \.offset) { index, item in
+                if index > 0 { Rectangle().fill(StrandPalette.hairline).frame(height: 1).accessibilityHidden(true) }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(item.label).foregroundStyle(StrandPalette.textTertiary).microLabelFit()
+                    Text(item.value)
+                        .font(StrandFont.number(style == .prominent ? valueSize * 0.7 : valueSize * 0.5, weight: .semibold))
+                        .foregroundStyle(item.value == WidgetMetrics.missingValue ? StrandPalette.textTertiary : StrandPalette.textPrimary)
+                        .lineLimit(1).minimumScaleFactor(0.5)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityElement(children: .combine)
+            }
+        }
+    }
+
+    @ViewBuilder private var columnsBody: some View {
         switch style {
         case .compact:
             HStack(alignment: .top, spacing: NoopMetrics.space2) {
                 ForEach(Array(items.enumerated()), id: \.offset) { _, item in
                     VStack(alignment: .leading, spacing: 0) {
-                        Text(item.label).font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
+                        Text(item.label).foregroundStyle(StrandPalette.textTertiary).microLabelFit()
                         Text(item.value).font(StrandFont.bodyNumber)
                             .foregroundStyle(item.value == WidgetMetrics.missingValue ? StrandPalette.textTertiary : StrandPalette.textPrimary)
                             .lineLimit(1).minimumScaleFactor(0.8)
@@ -292,8 +324,7 @@ public struct StatFooter: View {
                         .accessibilityHidden(true)
                 }
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(item.label).font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
-                        .lineLimit(1)
+                    Text(item.label).foregroundStyle(StrandPalette.textTertiary).microLabelFit(lines: 1, standardLines: 1)
                     Text(item.value)
                         .font(StrandFont.number(size, weight: .semibold))
                         .foregroundStyle(item.value == WidgetMetrics.missingValue ? StrandPalette.textTertiary : StrandPalette.textPrimary)

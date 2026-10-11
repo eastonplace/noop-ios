@@ -239,13 +239,44 @@ def named_view_bodies(text: str, site: str) -> str:
     return "\n".join(bodies)
 
 
+def without_child_presentations(text: str) -> str:
+    """`text` with every .sheet / .fullScreenCover / .popover call (arguments and trailing closure) removed, so what is
+    left is what the screen itself does and not what it hands to a screen it presents."""
+    call = re.compile(r"\.(?:sheet|fullScreenCover|popover)\(")
+    out: list[str] = []
+    cursor = 0
+    for match in call.finditer(text):
+        if match.start() < cursor:
+            continue
+        end = closing_index(text, match.end() - 1)
+        if end < 0:
+            continue
+        trailing = re.match(r"[ \t]*\{", text[end:])
+        if trailing:
+            body_end = closing_index(text, end + trailing.end() - 1)
+            end = body_end if body_end > 0 else end
+        out.append(text[cursor:match.start()])
+        cursor = end
+    out.append(text[cursor:])
+    return "".join(out)
+
+
+def host_resets_its_own_root(host_text: str) -> bool:
+    """True when the screen itself applies sheetScreenScaffoldEnvironment (in its body or in a view it builds). A reset
+    that appears only inside a sheet the screen presents (WorkoutsView resets its WorkoutDetailView sheet, say) does
+    not clear the header context the screen itself inherits."""
+    return "sheetScreenScaffoldEnvironment" in without_child_presentations(host_text)
+
+
 def presentation_findings(sources: dict[str, str]) -> list[str]:
     """Sheets and full-screen covers that do not give what they present its own header context.
 
     A sheet inherits its presenter's environment. Opened from a pushed screen, a screen that draws a ScreenScaffold
     header would wear the pushed row (a back chip, no subtitle), and one opened from Settings would draw no header at
-    all, so the sheet loses what its subtitle says. Either the site or the presented screen must call
-    sheetScreenScaffoldEnvironment (or set screenScaffoldNavigationRole on purpose, as a pillar's full-screen cover does).
+    all, so the sheet loses what its subtitle says. Either the site must call
+    sheetScreenScaffoldEnvironment on what it presents, or the presented screen must apply it in its own body (a reset
+    that appears only on a sheet that screen presents does not count), or the site sets screenScaffoldNavigationRole
+    on purpose, as a pillar's full-screen cover does.
 
     Settings shown in a sheet needs the same care the other way round: the Settings tab sets `.settingsDetail` on its
     stack so every page it pushes keeps the native grouped-list look, and a sheet that shows SettingsView must set it
@@ -276,7 +307,7 @@ def presentation_findings(sources: dict[str, str]) -> list[str]:
             line = text.count("\n", 0, match.start()) + 1
             if "sheetScreenScaffoldEnvironment" not in site and "screenScaffoldNavigationRole" not in site:
                 for name in sorted(set(re.findall(r"\b[A-Z]\w*\b", site)) & hosts.keys()):
-                    if "sheetScreenScaffoldEnvironment" in hosts[name]:
+                    if host_resets_its_own_root(hosts[name]):
                         continue
                     findings.append(f"{path}:{line}: .{match.group(1)} presents {name}, a ScreenScaffold screen, without "
                                     "sheetScreenScaffoldEnvironment; a sheet inherits its presenter's header context.")

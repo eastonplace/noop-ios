@@ -1319,6 +1319,46 @@
         }
       }
     },
+    "%@ above target": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ über dem Ziel"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ por encima del objetivo"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ sopra l'obiettivo"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ acima do alvo"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "高于目标 %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "高於目標 %@"
+          }
+        }
+      }
+    },
     "%@ agrees: %@": {
       "localizations": {
         "de": {
@@ -1407,6 +1447,46 @@
           "stringUnit": {
             "state": "translated",
             "value": "平均 %@"
+          }
+        }
+      }
+    },
+    "%@ below target": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ unter dem Ziel"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ por debajo del objetivo"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ sotto l'obiettivo"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ abaixo do alvo"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "低于目标 %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "低於目標 %@"
           }
         }
       }
@@ -1533,6 +1613,46 @@
           "stringUnit": {
             "state": "translated",
             "value": "每分鐘 %@ 次呼吸：%@"
+          }
+        }
+      }
+    },
+    "%@ from sleep": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ durch Schlaf"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ del sueño"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ dal sonno"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ do sono"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "睡眠贡献 %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "睡眠貢獻 %@"
           }
         }
       }
@@ -3979,6 +4099,126 @@
         }
       }
     },
+    "%@, %@ of 21": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@, %@ von 21"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@, %@ de 21"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@, %@ su 21"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@, %@ de 21"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@，%@（满分 21）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@，%@（滿分 21）"
+          }
+        }
+      }
+    },
+    "%@, %@ of 21, %@": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@, %@ von 21, %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@, %@ de 21, %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@, %@ su 21, %@"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@, %@ de 21, %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@，%@（满分 21），%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@，%@（滿分 21），%@"
+          }
+        }
+      }
+    },
+    "%@, %@ of 21, %@, sets the score": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@, %@ von 21, %@, bestimmt den Wert"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@, %@ de 21, %@, determina la puntuación"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@, %@ su 21, %@, determina il punteggio"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@, %@ de 21, %@, define a pontuação"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@，%@（满分 21），%@，决定评分"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@，%@（滿分 21），%@，決定評分"
+          }
+        }
+      }
+    },
     "%@, %@ to %@": {
       "localizations": {
         "de": {
@@ -4055,6 +4295,46 @@
           "stringUnit": {
             "state": "translated",
             "value": "%1$@，%2$@，%3$@"
+          }
+        }
+      }
+    },
+    "%@, %@, %@, average %lld bpm": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@, %@, %@, Durchschnitt %lld bpm"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@, %@, %@, promedio %lld ppm"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@, %@, %@, media %lld bpm"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@, %@, %@, média %lld bpm"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@，%@，%@，平均 %lld bpm"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@，%@，%@，平均 %lld bpm"
           }
         }
       }
@@ -4593,6 +4873,46 @@
         }
       }
     },
+    "%@, not scored": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@, nicht bewertet"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@, sin puntuar"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@, non valutato"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@, sem pontuação"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@，未评分"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@，未評分"
+          }
+        }
+      }
+    },
     "%@, prescription unavailable, rest uses workout default": {
       "localizations": {
         "de": {
@@ -4737,6 +5057,86 @@
         }
       }
     },
+    "%@, strain %@ of 21": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@, Anstrengung %@ von 21"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@, esfuerzo %@ de 21"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@, sforzo %@ su 21"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@, esforço %@ de 21"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@，消耗 %@（满分 21）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@，消耗 %@（滿分 21）"
+          }
+        }
+      }
+    },
+    "%@, strain %@ of 21, from WHOOP": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@, Anstrengung %@ von 21, von WHOOP"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@, esfuerzo %@ de 21, de WHOOP"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@, sforzo %@ su 21, da WHOOP"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@, esforço %@ de 21, da WHOOP"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@，消耗 %@（满分 21），来自 WHOOP"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@，消耗 %@（滿分 21），來自 WHOOP"
+          }
+        }
+      }
+    },
     "%@, today": {
       "localizations": {
         "de": {
@@ -4773,6 +5173,46 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@，今天"
+          }
+        }
+      }
+    },
+    "%@, viewed day": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@, angezeigter Tag"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@, día mostrado"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@, giorno visualizzato"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@, dia apresentado"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@，当前查看的日期"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@，目前查看的日期"
           }
         }
       }
@@ -7664,27 +8104,75 @@
     "%lld low": {
       "localizations": {
         "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld niedrig"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld niedrig"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld niedrig"
+                }
+              }
+            }
           }
         },
         "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld bajos"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld bajo"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld bajos"
+                }
+              }
+            }
           }
         },
         "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld bassi"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld basso"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld bassi"
+                }
+              }
+            }
           }
         },
         "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%lld baixos"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld baixo"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld baixos"
+                }
+              }
+            }
           }
         },
         "zh-Hans": {
@@ -8008,27 +8496,75 @@
     "%lld moderate": {
       "localizations": {
         "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld moderat"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld moderat"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld moderat"
+                }
+              }
+            }
           }
         },
         "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld moderados"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld moderado"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld moderados"
+                }
+              }
+            }
           }
         },
         "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld moderati"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld moderato"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld moderati"
+                }
+              }
+            }
           }
         },
         "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%lld moderados"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld moderado"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld moderados"
+                }
+              }
+            }
           }
         },
         "zh-Hans": {
@@ -8604,27 +9140,75 @@
     "%lld primed": {
       "localizations": {
         "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld bereit"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld bereit"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld bereit"
+                }
+              }
+            }
           }
         },
         "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld preparados"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld preparado"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld preparados"
+                }
+              }
+            }
           }
         },
         "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld pronti"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld pronto"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld pronti"
+                }
+              }
+            }
           }
         },
         "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%lld preparados"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld preparado"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld preparados"
+                }
+              }
+            }
           }
         },
         "zh-Hans": {
@@ -10685,6 +11269,112 @@
         }
       }
     },
+    "%lld steps": {
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld step"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld steps"
+                }
+              }
+            }
+          }
+        },
+        "de": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld Schritt"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld Schritte"
+                }
+              }
+            }
+          }
+        },
+        "es": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld paso"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld pasos"
+                }
+              }
+            }
+          }
+        },
+        "it": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld passo"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld passi"
+                }
+              }
+            }
+          }
+        },
+        "pt-PT": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld passo"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld passos"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 步"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 步"
+          }
+        }
+      }
+    },
     "%lld to %lld beats per minute": {
       "localizations": {
         "de": {
@@ -10987,6 +11677,112 @@
           "stringUnit": {
             "state": "translated",
             "value": "%lld 次鍛鍊"
+          }
+        }
+      }
+    },
+    "%lld workouts marked.": {
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld workout marked."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld workouts marked."
+                }
+              }
+            }
+          }
+        },
+        "de": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld Workout markiert."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld Workouts markiert."
+                }
+              }
+            }
+          }
+        },
+        "es": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld entrenamiento marcado."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld entrenamientos marcados."
+                }
+              }
+            }
+          }
+        },
+        "it": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld allenamento segnato."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld allenamenti segnati."
+                }
+              }
+            }
+          }
+        },
+        "pt-PT": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld treino marcado."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld treinos marcados."
+                }
+              }
+            }
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已标出 %lld 次锻炼。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已標出 %lld 次鍛鍊。"
           }
         }
       }
@@ -19530,7 +20326,7 @@
         "pt-PT": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Energía ativa"
+            "value": "Energia ativa"
           }
         },
         "zh-Hans": {
@@ -19582,7 +20378,7 @@
         "pt-PT": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Energía ativa"
+            "value": "Energia ativa"
           }
         },
         "ru": {
@@ -19858,7 +20654,7 @@
         "pt-PT": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Atividade e energía"
+            "value": "Atividade e energia"
           }
         },
         "ru": {
@@ -30501,6 +31297,46 @@
         }
       }
     },
+    "Building · %lld of %lld days": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Im Aufbau · %lld von %lld Tagen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Construyendo · %lld de %lld días"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Creazione in corso · %lld di %lld giorni"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A criar · %lld de %lld dias"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "构建中 · %lld/%lld 天"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "建立中 · %lld/%lld 天"
+          }
+        }
+      }
+    },
     "Building, moves as you do": {
       "localizations": {
         "de": {
@@ -34423,6 +35259,166 @@
           "stringUnit": {
             "state": "translated",
             "value": "心臟"
+          }
+        }
+      }
+    },
+    "Cardio": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kardio"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cardio"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cardio"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cardio"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "心肺"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "心肺"
+          }
+        }
+      }
+    },
+    "Cardio load so far": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kardiobelastung bisher"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Carga cardiovascular hasta ahora"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Carico cardio finora"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Carga cardiovascular até agora"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目前的心肺负荷"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目前的心肺負荷"
+          }
+        }
+      }
+    },
+    "Cardio load that day": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kardiobelastung an diesem Tag"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Carga cardiovascular ese día"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Carico cardio quel giorno"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Carga cardiovascular nesse dia"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当天的心肺负荷"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "當天的心肺負荷"
+          }
+        }
+      }
+    },
+    "Cardio load through the day, from %@ to %@ by %@.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kardiobelastung im Tagesverlauf, von %@ auf %@ bis %@."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Carga cardiovascular a lo largo del día, de %@ a %@ a las %@."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Carico cardio nel corso della giornata, da %@ a %@ entro le %@."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Carga cardiovascular ao longo do dia, de %@ para %@ às %@."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全天心肺负荷，从 %@ 升至 %@，截至 %@。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全天心肺負荷，從 %@ 升至 %@，截至 %@。"
           }
         }
       }
@@ -58193,6 +59189,46 @@
         }
       }
     },
+    "Heart rate and sleep": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Herzfrequenz und Schlaf"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Frecuencia cardíaca y sueño"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Frequenza cardiaca e sonno"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Frequência cardíaca e sono"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "心率与睡眠"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "心率與睡眠"
+          }
+        }
+      }
+    },
     "Heart rate during %@": {
       "localizations": {
         "de": {
@@ -58607,6 +59643,46 @@
           "stringUnit": {
             "state": "translated",
             "value": "心率* · HRV* · 睡眠* · 靜息心率* · 皮膚溫度* · 電量*"
+          }
+        }
+      }
+    },
+    "Heart-rate load counts after 10 minutes of readings.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Herzfrequenzbelastung zählt nach 10 Minuten Messwerten."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La carga de frecuencia cardíaca cuenta tras 10 minutos de lecturas."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il carico della frequenza cardiaca conta dopo 10 minuti di letture."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A carga da frequência cardíaca conta após 10 minutos de leituras."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "心率负荷在有 10 分钟读数后开始计入。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "心率負荷在有 10 分鐘讀數後開始計入。"
           }
         }
       }
@@ -77754,6 +78830,46 @@
         }
       }
     },
+    "No recovery was scored that day, so it had no target.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An diesem Tag wurde keine Erholung bewertet, daher gab es kein Ziel."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ese día no se puntuó la recuperación, así que no tuvo objetivo."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quel giorno non è stato calcolato il recupero, quindi non c'era un obiettivo."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nesse dia não foi calculada a recuperação, por isso não houve alvo."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当天没有恢复评分，因此没有目标。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "當天沒有恢復評分，因此沒有目標。"
+          }
+        }
+      }
+    },
     "No reps data yet": {
       "localizations": {
         "de": {
@@ -82947,6 +84063,86 @@
         }
       }
     },
+    "No heart-rate readings were recorded that day.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An diesem Tag wurden keine Herzfrequenzwerte aufgezeichnet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ese día no se registraron lecturas de frecuencia cardíaca."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quel giorno non sono state registrate letture della frequenza cardiaca."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nesse dia não foram registadas leituras de frequência cardíaca."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当天没有记录到心率读数。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "當天沒有記錄到心率讀數。"
+          }
+        }
+      }
+    },
+    "No heart-rate readings yet today.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Heute noch keine Herzfrequenzwerte."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aún no hay lecturas de frecuencia cardíaca hoy."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ancora nessuna lettura della frequenza cardiaca oggi."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ainda sem leituras de frequência cardíaca hoje."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今天还没有心率读数。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今天還沒有心率讀數。"
+          }
+        }
+      }
+    },
     "No history": {
       "localizations": {
         "de": {
@@ -84155,6 +85351,46 @@
         }
       }
     },
+    "No step count": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine Schrittzahl"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sin recuento de pasos"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessun conteggio dei passi"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sem contagem de passos"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有步数"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有步數"
+          }
+        }
+      }
+    },
     "No strain recorded for this day yet.": {
       "localizations": {
         "de": {
@@ -84672,6 +85908,86 @@
           "stringUnit": {
             "state": "translated",
             "value": "找不到鍛鍊。請指向 Hevy CSV 匯出檔或 Liftosaur JSON 匯出檔。"
+          }
+        }
+      }
+    },
+    "No workouts recorded that day.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An diesem Tag wurden keine Workouts aufgezeichnet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ese día no se registraron entrenamientos."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quel giorno non sono stati registrati allenamenti."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nesse dia não foram registados treinos."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当天没有记录到锻炼。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "當天沒有記錄到鍛鍊。"
+          }
+        }
+      }
+    },
+    "No workouts recorded today.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Heute wurden keine Workouts aufgezeichnet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hoy no se registraron entrenamientos."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oggi non sono stati registrati allenamenti."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hoje não foram registados treinos."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今天没有记录到锻炼。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今天沒有記錄到鍛鍊。"
           }
         }
       }
@@ -89973,6 +91289,46 @@
         }
       }
     },
+    "Opens how Strain is scored": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Öffnet die Erklärung zur Anstrengungsbewertung"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abre cómo se puntúa el esfuerzo"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apre come viene calcolato lo sforzo"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abre como o esforço é calculado"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开消耗评分说明"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打開消耗評分說明"
+          }
+        }
+      }
+    },
     "Opens insights, comparisons, metrics, and experiments": {
       "localizations": {
         "de": {
@@ -90255,6 +91611,46 @@
           "stringUnit": {
             "state": "translated",
             "value": "開啟「心率」標籤頁"
+          }
+        }
+      }
+    },
+    "Opens this workout": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Öffnet dieses Workout"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abre este entrenamiento"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apre questo allenamento"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abre este treino"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开这次锻炼"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打開這次鍛鍊"
           }
         }
       }
@@ -108031,6 +109427,46 @@
         }
       }
     },
+    "Scored from cardio and steps.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Berechnet aus Kardio und Schritten."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Calculada a partir de cardio y pasos."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Calcolato da cardio e passi."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Calculada a partir de cardio e passos."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "由心肺和步数计算得出。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "由心肺和步數計算得出。"
+          }
+        }
+      }
+    },
     "SCORES": {
       "localizations": {
         "de": {
@@ -113603,6 +115039,46 @@
         }
       }
     },
+    "Sets score": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bestimmt den Wert"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Determina la puntuación"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Determina il punteggio"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Define a pontuação"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "决定评分"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "決定評分"
+          }
+        }
+      }
+    },
     "Settings": {
       "localizations": {
         "de": {
@@ -114957,6 +116433,46 @@
           "stringUnit": {
             "state": "translated",
             "value": "與 WHOOP 的 Sleep Performance % 理念相近；我們的綜合評分是自己的。"
+          }
+        }
+      }
+    },
+    "Since %@": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seit %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desde las %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dalle %@"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Desde as %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自 %@ 起"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自 %@ 起"
           }
         }
       }
@@ -118860,7 +120376,7 @@
         "pt-PT": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Estable"
+            "value": "Estável"
           }
         },
         "zh-Hans": {
@@ -124327,6 +125843,46 @@
         }
       }
     },
+    "Touch and hold, then drag to read a time. With VoiceOver, swipe up or down to move through the day.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Berühren und halten, dann ziehen, um eine Uhrzeit abzulesen. Mit VoiceOver nach oben oder unten wischen, um durch den Tag zu gehen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantén pulsado y arrastra para leer una hora. Con VoiceOver, desliza hacia arriba o abajo para recorrer el día."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tieni premuto e trascina per leggere un orario. Con VoiceOver, scorri verso l'alto o il basso per muoverti nella giornata."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mantém premido e arrasta para ler uma hora. Com o VoiceOver, desliza para cima ou para baixo para percorrer o dia."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按住并拖动以读取某个时间。使用旁白时，向上或向下轻扫即可浏览全天。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按住並拖移以讀取某個時間。使用旁白時，向上或向下輕掃即可瀏覽全天。"
+          }
+        }
+      }
+    },
     "Training": {
       "localizations": {
         "de": {
@@ -125647,6 +127203,86 @@
         }
       }
     },
+    "Target set by that day's recovery (%lld)": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ziel nach der Erholung dieses Tages (%lld)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Objetivo según la recuperación de ese día (%lld)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Obiettivo in base al recupero di quel giorno (%lld)"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Alvo definido pela recuperação desse dia (%lld)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目标取决于当天的恢复（%lld）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目標取決於當天的恢復（%lld）"
+          }
+        }
+      }
+    },
+    "Target set by your recovery today (%lld)": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ziel nach deiner heutigen Erholung (%lld)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Objetivo según tu recuperación de hoy (%lld)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Obiettivo in base al tuo recupero di oggi (%lld)"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Alvo definido pela tua recuperação de hoje (%lld)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目标取决于你今天的恢复（%lld）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目標取決於你今天的恢復（%lld）"
+          }
+        }
+      }
+    },
     "Temperature": {
       "localizations": {
         "de": {
@@ -125977,6 +127613,166 @@
           "stringUnit": {
             "state": "translated",
             "value": "正在測試 %@ 次/分鐘…"
+          }
+        }
+      }
+    },
+    "That day's score came from active energy": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Wert dieses Tages stammte aus der aktiven Energie"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La puntuación de ese día vino de la energía activa"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il punteggio di quel giorno derivava dall'energia attiva"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A pontuação desse dia veio da energia ativa"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当天的评分来自活动能量"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "當天的評分來自活動能量"
+          }
+        }
+      }
+    },
+    "That day's score came from active energy.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Wert dieses Tages stammte aus der aktiven Energie."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La puntuación de ese día vino de la energía activa."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il punteggio di quel giorno derivava dall'energia attiva."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A pontuação desse dia veio da energia ativa."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当天的评分来自活动能量。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "當天的評分來自活動能量。"
+          }
+        }
+      }
+    },
+    "That day's score came from steps": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Wert dieses Tages stammte aus den Schritten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La puntuación de ese día vino de los pasos"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il punteggio di quel giorno derivava dai passi"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A pontuação desse dia veio dos passos"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当天的评分来自步数"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "當天的評分來自步數"
+          }
+        }
+      }
+    },
+    "That day's score came from steps.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Wert dieses Tages stammte aus den Schritten."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La puntuación de ese día vino de los pasos."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il punteggio di quel giorno derivava dai passi."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A pontuação desse dia veio dos passos."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当天的评分来自步数。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "當天的評分來自步數。"
           }
         }
       }
@@ -126627,6 +128423,46 @@
         }
       }
     },
+    "The parts are worked out from the day's readings and can differ from the score above.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Anteile werden aus den Messwerten des Tages berechnet und können vom Wert oben abweichen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las partes se calculan a partir de las lecturas del día y pueden diferir de la puntuación de arriba."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le parti sono calcolate dalle letture della giornata e possono differire dal punteggio qui sopra."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "As partes são calculadas a partir das leituras do dia e podem diferir da pontuação acima."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "各部分根据当天的读数计算，可能与上方的评分略有不同。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "各部分根據當天的讀數計算，可能與上方的評分略有不同。"
+          }
+        }
+      }
+    },
     "The scatter looked rounder and more spread out than a tight, steady beat. This has many ordinary causes and is not a diagnosis.": {
       "localizations": {
         "de": {
@@ -126743,6 +128579,46 @@
           "stringUnit": {
             "state": "translated",
             "value": "手環會以略低於你當前心率的柔和節律震動，一個可感知的節拍器，讓你朝著它放鬆。它會引領你的心率緩緩下降，而非猛拉，並會自行停止。"
+          }
+        }
+      }
+    },
+    "The target appears once today's recovery is scored.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Ziel erscheint, sobald die heutige Erholung bewertet ist."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El objetivo aparece cuando se puntúa la recuperación de hoy."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L'obiettivo appare quando il recupero di oggi viene calcolato."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O alvo aparece quando a recuperação de hoje for calculada."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今天的恢复评分出来后，将显示目标。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今天的恢復評分出來後，將顯示目標。"
           }
         }
       }
@@ -128665,6 +130541,46 @@
         }
       }
     },
+    "Through the day": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Im Tagesverlauf"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A lo largo del día"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nel corso della giornata"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ao longo do dia"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全天变化"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全天變化"
+          }
+        }
+      }
+    },
     "Thu": {
       "localizations": {
         "de": {
@@ -129561,6 +131477,166 @@
           "stringUnit": {
             "state": "translated",
             "value": "今日心情：%1$@，%2$lld / 5"
+          }
+        }
+      }
+    },
+    "Today's score comes from active energy": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der heutige Wert stammt aus der aktiven Energie"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La puntuación de hoy viene de la energía activa"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il punteggio di oggi deriva dall'energia attiva"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A pontuação de hoje vem da energia ativa"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今天的评分来自活动能量"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今天的評分來自活動能量"
+          }
+        }
+      }
+    },
+    "Today's score comes from active energy.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der heutige Wert stammt aus der aktiven Energie."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La puntuación de hoy viene de la energía activa."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il punteggio di oggi deriva dall'energia attiva."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A pontuação de hoje vem da energia ativa."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今天的评分来自活动能量。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今天的評分來自活動能量。"
+          }
+        }
+      }
+    },
+    "Today's score comes from steps": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der heutige Wert stammt aus den Schritten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La puntuación de hoy viene de los pasos"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il punteggio di oggi deriva dai passi"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A pontuação de hoje vem dos passos"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今天的评分来自步数"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今天的評分來自步數"
+          }
+        }
+      }
+    },
+    "Today's score comes from steps.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der heutige Wert stammt aus den Schritten."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La puntuación de hoy viene de los pasos."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il punteggio di oggi deriva dai passi."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A pontuação de hoje vem dos passos."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今天的评分来自步数。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今天的評分來自步數。"
           }
         }
       }
@@ -138475,6 +140551,86 @@
           "stringUnit": {
             "state": "translated",
             "value": "什麼在影響你的 %@"
+          }
+        }
+      }
+    },
+    "What set that day's score": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Was den Wert dieses Tages bestimmte"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Qué determinó la puntuación de ese día"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cosa ha determinato il punteggio di quel giorno"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O que definiu a pontuação desse dia"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当天评分的构成"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "當天評分的構成"
+          }
+        }
+      }
+    },
+    "What set today's score": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Was den heutigen Wert bestimmt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Qué determinó la puntuación de hoy"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cosa ha determinato il punteggio di oggi"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O que definiu a pontuação de hoje"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今天评分的构成"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今天評分的構成"
           }
         }
       }
@@ -154481,6 +156637,86 @@
           "stringUnit": {
             "state": "translated",
             "value": "✓"
+          }
+        }
+      }
+    },
+    "Strap %@": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Strap %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pulsera %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fascia %@"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bracelete %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手环 %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手環 %@"
+          }
+        }
+      }
+    },
+    "Strap battery, %lld percent": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Strap-Akku, %lld Prozent"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Batería de la pulsera, %lld por ciento"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Batteria della fascia, %lld percento"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bateria da bracelete, %lld por cento"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手环电量，百分之 %lld"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手環電量，百分之 %lld"
           }
         }
       }

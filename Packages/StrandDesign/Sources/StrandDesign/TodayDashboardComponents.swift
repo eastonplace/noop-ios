@@ -100,6 +100,7 @@ public struct TodayHeroCard: View {
     public let onPillar: (String) -> Void
     public let onOpenWorkouts: () -> Void
     public let onWorkoutAction: () -> Void
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     public init(pillars: [TodayPillarModel], glance: String, workoutIsActive: Bool,
                 showsWorkoutAction: Bool = true, onPillar: @escaping (String) -> Void,
@@ -118,9 +119,19 @@ public struct TodayHeroCard: View {
             // The dials / glance hairline is the same 1pt hairline as the ones between sections, with the air
             // above and below chosen (like theirs) to make the visible gap the same on both sides.
             VStack(spacing: 0) {
-                HStack(alignment: .top, spacing: 6) {
-                    ForEach(pillars) { pillar in
-                        TodayPillarGauge(model: pillar) { onPillar(pillar.id) }
+                // Side by side at ordinary sizes; one row each (dial, then its words beside it) at the accessibility
+                // sizes, where a third of the width cannot hold a caption.
+                if typeSize.isAccessibilitySize {
+                    VStack(alignment: .leading, spacing: NoopMetrics.space4) {
+                        ForEach(pillars) { pillar in
+                            TodayPillarGauge(model: pillar) { onPillar(pillar.id) }
+                        }
+                    }
+                } else {
+                    HStack(alignment: .top, spacing: 6) {
+                        ForEach(pillars) { pillar in
+                            TodayPillarGauge(model: pillar) { onPillar(pillar.id) }
+                        }
                     }
                 }
                 TodayHairline().padding(.top, 9.87).padding(.bottom, 11.87)
@@ -216,6 +227,7 @@ private struct TodayPillarGauge: View {
     let model: TodayPillarModel
     let action: () -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var typeSize
     @State private var revealed = false
     /// One shared icon column, so the three labels start at the same offset whatever symbol precedes them.
     @ScaledMetric(relativeTo: .caption) private var symbolColumn: CGFloat = 14
@@ -306,52 +318,103 @@ private struct TodayPillarGauge: View {
         return detail
     }
 
+    /// The dial itself: the arc, its target band and ticks, the value in the middle.
+    private var dial: some View {
+        GeometryReader { proxy in
+            let side = min(proxy.size.width, proxy.size.height)
+            let width: CGFloat = 8
+            let radius = side / 2 - width / 2
+            ZStack {
+                if model.value == nil {
+                    dottedTrack(side: side, width: width)
+                } else {
+                    Circle().trim(from: 0, to: 2 / 3)
+                        .stroke(trackColor, style: StrokeStyle(lineWidth: width, lineCap: .round))
+                        .rotationEffect(.degrees(150))
+                }
+                if let target = model.targetBand {
+                    Circle().trim(from: (2 / 3) * target.lowerBound,
+                                  to: (2 / 3) * target.upperBound)
+                        .stroke(StrandPalette.statusPositive.opacity(0.3),
+                                style: StrokeStyle(lineWidth: width))
+                        .rotationEffect(.degrees(150))
+                }
+                // An empty dial has no scale to mark, and the ticks would cut through its dots.
+                ForEach(model.value == nil ? [] : model.bandTicks, id: \.self) { tick in
+                    let angle = Angle.degrees(150 + 240 * tick)
+                    Capsule().fill(StrandPalette.hairlineStrong)
+                        .frame(width: 1.5, height: width + 4)
+                        .rotationEffect(angle + .degrees(90))
+                        .offset(x: cos(angle.radians) * radius, y: sin(angle.radians) * radius)
+                }
+                if model.value != nil {
+                    Circle().trim(from: 0, to: (2 / 3) * (revealed ? fraction : 0))
+                        .stroke(model.accent, style: StrokeStyle(lineWidth: width, lineCap: .round))
+                        .rotationEffect(.degrees(150))
+                }
+                Text(verbatim: model.valueText)
+                    .font(StrandFont.number(25, weight: .bold))
+                    .monospacedDigit()
+                    .foregroundStyle(model.value == nil ? StrandPalette.textTertiary : StrandPalette.textPrimary)
+                    .minimumScaleFactor(0.55)
+                    .offset(y: 3)
+            }
+            .frame(width: side, height: side)
+            .frame(maxWidth: .infinity)
+        }
+        .frame(height: 100)
+    }
+
     var body: some View {
+        if typeSize.isAccessibilitySize {
+            rowBody
+        } else {
+            stackedBody
+        }
+    }
+
+    /// At the accessibility sizes three dials side by side leave each caption about a third of the width ("RECOV…",
+    /// "Prim…"), so each pillar is a row of its own: the dial, then its name, state word and detail beside it, free to
+    /// wrap between words and, for a word wider than the line, to scale down (never hyphenate).
+    private var rowBody: some View {
+        Button(action: action) {
+            HStack(alignment: .center, spacing: NoopMetrics.space4) {
+                dial.frame(width: 100)
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        if let symbol {
+                            Image(systemName: symbol)
+                                .font(StrandFont.caption)
+                                .foregroundStyle(inkColor)
+                                .accessibilityHidden(true)
+                        }
+                        Text(verbatim: model.label)
+                            .tracking(StrandFont.overlineTracking)
+                            .textCase(.uppercase)
+                            .foregroundStyle(StrandPalette.textSecondary)
+                            .captionLabelFit(lines: 2, weight: .semibold)
+                    }
+                    Text(verbatim: model.state).foregroundStyle(inkColor).captionLabelFit(lines: 2)
+                    if let detail = visibleDetail {
+                        Text(verbatim: detail).foregroundStyle(StrandPalette.textTertiary).microLabelFit(lines: 3)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onAppear { withAnimation(reduceMotion ? nil : .easeOut(duration: 0.65)) { revealed = true } }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(model.label), \(model.valueText), \(model.state)"
+                            + (visibleDetail.map { ", \($0)" } ?? ""))
+    }
+
+    private var stackedBody: some View {
         Button(action: action) {
             VStack(spacing: 5) {
-                GeometryReader { proxy in
-                    let side = min(proxy.size.width, proxy.size.height)
-                    let width: CGFloat = 8
-                    let radius = side / 2 - width / 2
-                    ZStack {
-                        if model.value == nil {
-                            dottedTrack(side: side, width: width)
-                        } else {
-                            Circle().trim(from: 0, to: 2 / 3)
-                                .stroke(trackColor, style: StrokeStyle(lineWidth: width, lineCap: .round))
-                                .rotationEffect(.degrees(150))
-                        }
-                        if let target = model.targetBand {
-                            Circle().trim(from: (2 / 3) * target.lowerBound,
-                                          to: (2 / 3) * target.upperBound)
-                                .stroke(StrandPalette.statusPositive.opacity(0.3),
-                                        style: StrokeStyle(lineWidth: width))
-                                .rotationEffect(.degrees(150))
-                        }
-                        // An empty dial has no scale to mark, and the ticks would cut through its dots.
-                        ForEach(model.value == nil ? [] : model.bandTicks, id: \.self) { tick in
-                            let angle = Angle.degrees(150 + 240 * tick)
-                            Capsule().fill(StrandPalette.hairlineStrong)
-                                .frame(width: 1.5, height: width + 4)
-                                .rotationEffect(angle + .degrees(90))
-                                .offset(x: cos(angle.radians) * radius, y: sin(angle.radians) * radius)
-                        }
-                        if model.value != nil {
-                            Circle().trim(from: 0, to: (2 / 3) * (revealed ? fraction : 0))
-                                .stroke(model.accent, style: StrokeStyle(lineWidth: width, lineCap: .round))
-                                .rotationEffect(.degrees(150))
-                        }
-                        Text(verbatim: model.valueText)
-                            .font(StrandFont.number(25, weight: .bold))
-                            .monospacedDigit()
-                            .foregroundStyle(model.value == nil ? StrandPalette.textTertiary : StrandPalette.textPrimary)
-                            .minimumScaleFactor(0.55)
-                            .offset(y: 3)
-                    }
-                    .frame(width: side, height: side)
-                    .frame(maxWidth: .infinity)
-                }
-                .frame(height: 100)
+                dial
                 eyebrow
                 Text(verbatim: model.state).font(StrandFont.micro).foregroundStyle(inkColor).lineLimit(1)
                 if let detail = visibleDetail {
@@ -646,6 +709,14 @@ public struct HeaderChromeRow: View {
     public let onSync: () -> Void
     public let onUpdates: () -> Void
     public let onProfile: () -> Void
+    @Environment(\.dynamicTypeSize) private var typeSize
+    /// The wordmark's size at an accessibility size: `.caption2` bold, scaled like `.caption2` but never past
+    /// `wordmarkCeiling`, so it stays one line. Every smaller size keeps `StrandFont.overline`.
+    @ScaledMetric(relativeTo: .caption2) private var wordmarkSize: CGFloat = 11
+
+    private static let wordmarkCeiling: CGFloat = 17
+    /// The tap target of the condensed strap and battery symbols (the minimum touch target).
+    private static let condensedTarget: CGFloat = 44
 
     public init(strapState: AppStrapState, battery: Int?, syncState: AppSyncState,
                 syncCompletedUnits: Int? = nil,
@@ -660,28 +731,51 @@ public struct HeaderChromeRow: View {
     }
 
     public var body: some View {
+        // At the accessibility sizes the status would not fit beside the wordmark ("Offline" and "68%" broke letter by
+        // letter), so it shrinks to its two symbols (the strap's dot, the battery glyph). The words and the number are
+        // what VoiceOver says and what the large content viewer shows on a press and hold; that viewer exists only at
+        // these sizes, so every smaller size keeps the words on screen. The strap's state also shows in the dot's shape
+        // (filled, ringed, hollow), not by colour alone.
+        let condensed = typeSize.isAccessibilitySize
         HStack(spacing: 9) {
-            Text("NOOP", bundle: .module).font(StrandFont.overline).tracking(4).foregroundStyle(StrandPalette.textPrimary)
+            Text("NOOP", bundle: .module)
+                .font(condensed ? .system(size: min(wordmarkSize, Self.wordmarkCeiling), weight: .bold) : StrandFont.overline)
+                .tracking(4).foregroundStyle(StrandPalette.textPrimary)
+                .lineLimit(1).fixedSize(horizontal: true, vertical: false)
             Spacer(minLength: 4)
             Button(action: onStrap) {
                 HStack(spacing: 5) {
-                    Circle().fill(strapColor).frame(width: 6, height: 6)
-                    Text(strapLabel).font(StrandFont.micro.weight(.semibold))
+                    if condensed {
+                        strapDot
+                    } else {
+                        Circle().fill(strapColor).frame(width: 6, height: 6)
+                        Text(strapLabel).font(StrandFont.micro.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.6)
+                    }
                 }
-                .padding(.horizontal, 8).padding(.vertical, 6)
+                .padding(.horizontal, condensed ? 6 : 8).padding(.vertical, 6)
+                .frame(minWidth: condensed ? Self.condensedTarget : 0, minHeight: condensed ? Self.condensedTarget : 0)
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain).accessibilityLabel("Strap \(strapLabel)")
+            .accessibilityShowsLargeContentViewer { Text("Strap \(strapLabel)") }
             if let battery {
                 Button(action: onStrap) {
                     HStack(spacing: 4) {
                         Image(systemName: batterySymbol(for: battery))
-                            .font(.system(size: 12, weight: .semibold))
-                        Text("\(battery)%").font(StrandFont.micro).monospacedDigit()
+                            .font(.system(size: condensed ? 15 : 12, weight: .semibold))
+                        if !condensed {
+                            Text("\(battery)%").font(StrandFont.micro).monospacedDigit().lineLimit(1).minimumScaleFactor(0.6)
+                        }
                     }
                     .foregroundStyle(batteryColor(for: battery))
-                    .padding(.horizontal, 7).padding(.vertical, 6)
+                    .padding(.horizontal, condensed ? 4 : 7).padding(.vertical, 6)
+                    .frame(minWidth: condensed ? Self.condensedTarget : 0, minHeight: condensed ? Self.condensedTarget : 0)
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain).accessibilityLabel("Strap battery, \(battery) percent")
+                .accessibilityShowsLargeContentViewer {
+                    Label("\(battery)%", systemImage: batterySymbol(for: battery))
+                }
             }
             Button(action: onSync) {
                 HStack(spacing: 4) {
@@ -728,6 +822,19 @@ public struct HeaderChromeRow: View {
     }
     private var strapLabel: String {
         switch strapState { case .live: String(localized: "Live", bundle: .module); case .syncing: String(localized: "Syncing", bundle: .module); case .offline: String(localized: "Offline", bundle: .module) }
+    }
+    /// The strap's state as a shape as well as a colour: filled while live, ringed while syncing, hollow when offline.
+    @ViewBuilder private var strapDot: some View {
+        switch strapState {
+        case .live:
+            Circle().fill(strapColor).frame(width: 10, height: 10)
+        case .syncing:
+            Circle().fill(strapColor).frame(width: 6, height: 6)
+                .overlay(Circle().strokeBorder(strapColor, lineWidth: 1.5).frame(width: 12, height: 12))
+                .frame(width: 12, height: 12)
+        case .offline:
+            Circle().strokeBorder(strapColor, lineWidth: 2).frame(width: 10, height: 10)
+        }
     }
     private func batterySymbol(for percentage: Int) -> String {
         switch percentage { case ..<13: "battery.0"; case ..<38: "battery.25"; case ..<63: "battery.50"; case ..<88: "battery.75"; default: "battery.100" }

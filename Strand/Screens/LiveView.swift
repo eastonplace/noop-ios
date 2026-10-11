@@ -21,6 +21,7 @@ import WhoopStore
 /// the stream and gate the layout.
 struct LiveView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var typeSize
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var live: LiveState
     @EnvironmentObject private var repo: Repository
@@ -296,24 +297,35 @@ struct LiveView: View {
     /// Pick the strap family to scan for. Switching the selection drops the current strap's bond so the
     /// newly-picked one connects fresh — letting a user move between a WHOOP 4 and a 5/MG.
     private var modelPicker: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 10) {
-                Text("Strap").font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
-                SegmentedPillControl(
-                    WhoopModel.allCases,
-                    selection: Binding(
-                        get: { selectedModel },
-                        set: { newModel in
-                            guard newModel.rawValue != selectedModelRaw else { return }
-                            selectedModelRaw = newModel.rawValue
-                            // Clear the previous strap's sticky bond/connection so the next scan targets the
-                            // new family's service and bonds it fresh.
-                            model.prepareStrapSwitch()
-                        }
-                    ),
-                    label: { $0.displayName }
-                )
-                Spacer()
+        let strapLabel = Text("Strap").font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
+        let strapPicker = SegmentedPillControl(
+            WhoopModel.allCases,
+            selection: Binding(
+                get: { selectedModel },
+                set: { newModel in
+                    guard newModel.rawValue != selectedModelRaw else { return }
+                    selectedModelRaw = newModel.rawValue
+                    // Clear the previous strap's sticky bond/connection so the next scan targets the
+                    // new family's service and bonds it fresh.
+                    model.prepareStrapSwitch()
+                }
+            ),
+            label: { $0.displayName }
+        )
+        return VStack(alignment: .leading, spacing: 10) {
+            // The control stacks its segments one per row at the accessibility sizes, so it takes the width under its
+            // label there instead of the sliver beside it.
+            if typeSize.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: 6) {
+                    strapLabel
+                    strapPicker
+                }
+            } else {
+                HStack(spacing: 10) {
+                    strapLabel
+                    strapPicker
+                    Spacer()
+                }
             }
             // Proactive 5/MG guidance: the strap bonds to one host at a time, so if it's still paired in
             // the official WHOOP app a scan here finds nothing. Shown the moment 5/MG is picked — not only
