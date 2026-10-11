@@ -88,21 +88,31 @@ public enum ManualWorkoutRescore {
     /// Recompute avg/peak HR, strain and calories from `windowSamples` (the HR now stored for the
     /// workout's [start, end]). Returns nil when there are too few samples to score meaningfully — i.e.
     /// nothing better than what we already had.
+    ///
+    /// `pauses` are the workout's paused stretches (recorded when it was live). Readings taken during a pause are
+    /// left out of the average, the peak, the strain and the energy, and nothing is credited across one. Without
+    /// pauses the result is exactly what it was.
     public static func scored(windowSamples: [HRSample], profile: UserProfile, hrMax: Double,
-                              restingHR: Double? = nil) -> Scored? {
-        guard windowSamples.count >= 2 else { return nil }
-        let bpms = windowSamples.map(\.bpm)
+                              restingHR: Double? = nil, pauses: WorkoutPauseLedger? = nil) -> Scored? {
+        let segments = pauses.map { $0.segments(of: windowSamples) } ?? [windowSamples]
+        let samples = pauses?.hasPauses == true ? segments.flatMap { $0 } : windowSamples
+        guard samples.count >= 2 else { return nil }
+        let bpms = samples.map(\.bpm)
         let avg = Int((Double(bpms.reduce(0, +)) / Double(bpms.count)).rounded())
         let peak = bpms.max() ?? 0
         let measuredRestingHR = plausibleRestingHR(restingHR, hrMax: hrMax)
-        let strain = StrainScorerV2.strain(
-            windowSamples,
-            maxHR: hrMax,
-            restingHR: measuredRestingHR ?? StrainScorerV2.defaultRestingHR,
-            mode: .activity
-        )
-        let kcalRaw = Calories.estimateBoutCalories(windowSamples, profile: profile,
+        let resting = measuredRestingHR ?? StrainScorerV2.defaultRestingHR
+        let strain: Double?
+        let kcalRaw: Double
+        if pauses?.hasPauses == true {
+            strain = StrainScorerV2.activityStrain(segments: segments, maxHR: hrMax, restingHR: resting)
+            kcalRaw = Calories.estimateBoutCalories(segments: segments, profile: profile,
                                                     hrmax: hrMax, restingHR: measuredRestingHR).0
+        } else {
+            strain = StrainScorerV2.strain(windowSamples, maxHR: hrMax, restingHR: resting, mode: .activity)
+            kcalRaw = Calories.estimateBoutCalories(windowSamples, profile: profile,
+                                                    hrmax: hrMax, restingHR: measuredRestingHR).0
+        }
         return Scored(avgHr: avg, maxHr: peak, strain: strain, kcal: kcalRaw > 0 ? kcalRaw : nil)
     }
 

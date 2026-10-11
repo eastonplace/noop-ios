@@ -396,6 +396,20 @@ final class GpsWorkoutRecorder: NSObject, ObservableObject {
     /// What the location permission allows right now, kept current as the person answers the prompt or changes it in
     /// Settings, so a start screen never claims GPS is ready before it is.
     @Published private(set) var availability: GpsAvailability = .willAsk
+    /// True while the workout is paused. Location updates and the background session stay open, so the workout can be
+    /// resumed from a locked phone, but no fix is added to the route or the distance until it is resumed.
+    @Published private(set) var isPaused = false
+    /// The latest fix the system delivered, accepted or not, and the latest the filter kept. A screen compares them with
+    /// the clock to say the signal is weak or gone; a person standing still delivers no new fixes, which is not a fault.
+    private(set) var lastRawFixAt: Date?
+    private(set) var lastAcceptedFixAt: Date?
+    /// Set when the system reports a location error, cleared by the next delivered fix.
+    private(set) var lastErrorAt: Date?
+    /// When this recording (or its restore) began, the start of the "no fix yet" wait.
+    private(set) var recordingBeganAt: Date?
+    /// Seconds the workout has actually run, for live pace. The owner of the workout supplies it so a pause never slows
+    /// the pace; nil falls back to the wall clock since the start.
+    var activeElapsedProvider: (() -> TimeInterval?)?
 
     private let manager: CLLocationManager
     /// Keeps a When-In-Use app's location updates alive while the screen is locked (iOS 17+). Held from the
@@ -503,6 +517,8 @@ final class GpsWorkoutRecorder: NSObject, ObservableObject {
         startsNewSegmentOnNextFix = true
         hadTerminatedGap = false
         isRecording = true
+        isPaused = false
+        resetSignal()
         releaseBackgroundActivity()
         refreshAccuracyAuthorization()
 
@@ -527,6 +543,7 @@ final class GpsWorkoutRecorder: NSObject, ObservableObject {
         manager.stopUpdatingLocation()
         releaseBackgroundActivity()
         isRecording = false
+        isPaused = false
         isReducedAccuracy = false
         return routePoints
     }
@@ -564,15 +581,65 @@ final class GpsWorkoutRecorder: NSObject, ObservableObject {
         hadTerminatedGap = snapshot.hadTerminatedGap || snapshot.recordingWasActive
         pointCount = snapshot.acceptedPointCount
         distanceM = snapshot.distanceM
-        let elapsed = Double(Int64(Date().timeIntervalSince1970 * 1000) - startMs) / 1000
-        paceSecPerKm = RouteMath.paceSecPerKm(meters: distanceM, seconds: elapsed)
+        paceSecPerKm = RouteMath.paceSecPerKm(meters: distanceM, seconds: elapsedSeconds())
         isRecording = snapshot.recordingWasActive
+        isPaused = false
+        resetSignal()
         if isRecording {
             refreshAccuracyAuthorization()
         }
         if isRecording, (manager.authorizationStatus == .authorizedWhenInUse || manager.authorizationStatus == .authorizedAlways) {
             beginUpdates()
         }
+    }
+
+    /// Pause or resume the route. Idempotent. Pausing leaves CoreLocation and the background session running; it only
+    /// stops fixes reaching the route and the distance. Resuming forgets the filter's last fix and starts a new segment,
+    /// so wherever the person moved while paused is never drawn as a line or added to the distance.
+    func setPaused(_ paused: Bool) {
+        guard isRecording, paused != isPaused else { return }
+        isPaused = paused
+        if !paused {
+            filter = TrackFilter()
+            startsNewSegmentOnNextFix = true
+            recordingBeganAt = Date()
+            lastErrorAt = nil
+        }
+    }
+
+    /// Seconds the workout has run, as its owner counts them; the wall clock since the start when there is no owner.
+    private func elapsedSeconds() -> Double {
+        if let active = activeElapsedProvider?() { return max(0, active) }
+        return max(0, Double(Int64(Date().timeIntervalSince1970 * 1000) - startMs) / 1000)
+    }
+
+    private func resetSignal() {
+        lastRawFixAt = nil
+        lastAcceptedFixAt = nil
+        lastErrorAt = nil
+        recordingBeganAt = Date()
+    }
+
+    /// What the live screen may truthfully say about the signal. A standing person gets no new fixes, so silence after
+    /// a good fix is not reported; only a wait for the first fix, rejected-only fixes and system errors are.
+    enum SignalState: Equatable {
+        case notRecording, paused, ok, searching, weak, lost
+    }
+
+    func signalState(now: Date = Date(), patience: TimeInterval = 30) -> SignalState {
+        guard isRecording, availability == .ready else { return .notRecording }
+        if isPaused { return .paused }
+        if let lastErrorAt, lastErrorAt > (lastRawFixAt ?? .distantPast),
+           now.timeIntervalSince(lastErrorAt) > 5 { return .lost }
+        if lastAcceptedFixAt == nil {
+            guard let began = recordingBeganAt, now.timeIntervalSince(began) > patience else { return .ok }
+            return lastRawFixAt == nil ? .searching : .weak
+        }
+        if let raw = lastRawFixAt, let accepted = lastAcceptedFixAt,
+           raw > accepted, now.timeIntervalSince(accepted) > patience, now.timeIntervalSince(raw) < patience {
+            return .weak
+        }
+        return .ok
     }
 
     /// Re-arm CoreLocation when the app returns to the foreground mid-recording. `startUpdatingLocation()`
@@ -636,6 +703,12 @@ final class GpsWorkoutRecorder: NSObject, ObservableObject {
     /// distance/pace. No-op when not recording.
     fileprivate func ingest(_ fixes: [RawFix]) {
         guard isRecording else { return }
+        if !fixes.isEmpty {
+            lastRawFixAt = Date()
+            lastErrorAt = nil
+        }
+        // Paused: the system keeps delivering so the session stays alive, but nothing reaches the route or distance.
+        guard !isPaused else { return }
         rawFixCount += fixes.count
         var appendedPoints: [ActiveGpsJournalPoint] = []
         appendedPoints.reserveCapacity(fixes.count)
@@ -662,8 +735,8 @@ final class GpsWorkoutRecorder: NSObject, ObservableObject {
             }
         }
         guard !appendedPoints.isEmpty else { return }
-        let elapsed = Double(Int64(Date().timeIntervalSince1970 * 1000) - startMs) / 1000.0
-        paceSecPerKm = RouteMath.paceSecPerKm(meters: distanceM, seconds: elapsed)
+        lastAcceptedFixAt = Date()
+        paceSecPerKm = RouteMath.paceSecPerKm(meters: distanceM, seconds: elapsedSeconds())
         // Workouts & GPS test mode: one GPS-fix-progress line tagged `.workouts` per batch that added a point,
         // showing raw fixes seen, how many the accuracy/speed filter accepted, and the running distance, so a
         // route that under-records (weak signal / denied permission) is visible. Zero-cost when off (the gate
@@ -738,6 +811,7 @@ extension GpsWorkoutRecorder: @preconcurrency CLLocationManagerDelegate {
         // denial arrives via the auth callback instead. Never throw so a GPS hiccup can't crash a workout,
         // but leave a trace: a route that silently stops accruing is otherwise impossible to diagnose.
         let nsError = error as NSError
+        lastErrorAt = Date()
         logWorkouts("gps locationError domain=\(nsError.domain) code=\(nsError.code)")
     }
 }

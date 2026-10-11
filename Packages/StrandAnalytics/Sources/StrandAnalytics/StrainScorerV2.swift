@@ -175,6 +175,14 @@ public enum StrainScorerV2 {
             peakHR = max(peakHR ?? sample.bpm, sample.bpm)
         }
 
+        /// End the continuous stretch: the next reading starts a new one and nothing is credited between the two.
+        /// Called when a workout is paused. The readings already counted stay counted, so the average and peak
+        /// are unchanged; only the interval that would have bridged the pause is never added.
+        public mutating func breakStream() {
+            currentSecond = nil
+            currentSecondMaxBPM = 0
+        }
+
         /// Replace the canonical value for the current integer second without increasing reading count or
         /// changing elapsed coverage. Live transports can callback several times inside one second; the
         /// workout session owns one last-write-wins sample for that second and uses this operation to keep
@@ -448,15 +456,19 @@ public enum StrainScorerV2 {
     /// Cardiovascular load and covered seconds of an already sorted, validated stream. Each interval
     /// between distinct timestamps (at most `maxIntervalSeconds`) is charged at the earlier second's
     /// maximum bpm; nothing counts until the stream holds `minReadings` readings.
-    private static func cardiovascularKernel<C: RandomAccessCollection>(
+    ///
+    /// `requiresMinimumReadings: false` is for one stretch of a workout recorded in several: the minimum then
+    /// applies to the whole workout, which the caller has already checked.
+    static func cardiovascularKernel<C: RandomAccessCollection>(
         _ sortedValidHR: C,
         effectiveMax: Double,
-        restingHR: Double
+        restingHR: Double,
+        requiresMinimumReadings: Bool = true
     ) -> (load: Double, coverageSeconds: Int) where C.Element == HRSample {
         let reserve = effectiveMax - restingHR
         var cardiovascularLoad = 0.0
         var coverageSeconds = 0
-        if sortedValidHR.count >= minReadings {
+        if sortedValidHR.count >= (requiresMinimumReadings ? minReadings : 2) {
             var index = sortedValidHR.startIndex
             var next = sortedValidHR.index(after: index)
             while next != sortedValidHR.endIndex {

@@ -8,7 +8,11 @@ import NoopPhase34Core
 
 struct WorkoutLiveActivityState {
     let sport: String
+    /// The timer's anchor: the start moved forward by the pauses already over, so a clock counting up from it reads the
+    /// time the workout ran.
     let startedAt: Date
+    /// When the pause still open began; the Lock Screen clock freezes there. nil while the workout is running.
+    var pausedAt: Date? = nil
     let strain: Double?
     let strainBuilding: Bool
     let calories: Int?

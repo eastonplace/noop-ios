@@ -2345,6 +2345,7 @@ final class HealthKitBridge: ObservableObject {
         guard !rows.isEmpty else { return }
         let fingerprint = HealthKitWritebackFingerprint.fingerprint(rows.map {
             "\($0.startTs)|\($0.endTs)|\($0.sport)|\($0.energyKcal ?? -1)|\($0.distanceM ?? -1)"
+                + (WorkoutPauseStore.load(startTs: $0.startTs, sport: $0.sport).map { "|p\($0.intervals.count)" } ?? "")
         })
         guard HealthKitWritebackFingerprint.shouldWrite(.workouts, fingerprint: fingerprint) else { return }
 
@@ -2411,6 +2412,10 @@ final class HealthKitBridge: ObservableObject {
                                                    ]))
                 }
                 if !extras.isEmpty { try await builder.addSamples(extras) }
+                // A workout that was paused tells Health when, so its duration there excludes the pauses too.
+                let pauseEvents = Self.workoutPauseEvents(
+                    WorkoutPauseStore.load(startTs: row.startTs, sport: row.sport), start: start, end: end)
+                if !pauseEvents.isEmpty { try await builder.addWorkoutEvents(pauseEvents) }
                 try await builder.endCollection(at: end)
                 _ = try await builder.finishWorkout()
                 try Task.checkCancellation()
@@ -2419,6 +2424,25 @@ final class HealthKitBridge: ObservableObject {
                 throw error
             }
         }
+    }
+
+    /// Pause and resume events for a workout that was paused, ordered and paired, clipped to the workout's own span.
+    /// A pause that falls outside the span, or lasts under a second, is dropped; HealthKit rejects events outside it.
+    nonisolated static func workoutPauseEvents(_ ledger: WorkoutPauseLedger?, start: Date, end: Date) -> [HKWorkoutEvent] {
+        guard let ledger, end > start else { return [] }
+        var events: [HKWorkoutEvent] = []
+        for interval in ledger.intervals {
+            let from = max(interval.start, start.timeIntervalSince1970)
+            let to = min(interval.end, end.timeIntervalSince1970)
+            guard to - from >= 1 else { continue }
+            events.append(HKWorkoutEvent(type: .pause,
+                                         dateInterval: DateInterval(start: Date(timeIntervalSince1970: from), duration: 0),
+                                         metadata: nil))
+            events.append(HKWorkoutEvent(type: .resume,
+                                         dateInterval: DateInterval(start: Date(timeIntervalSince1970: to), duration: 0),
+                                         metadata: nil))
+        }
+        return events
     }
 
     private func deleteWorkoutReplayArtifacts(

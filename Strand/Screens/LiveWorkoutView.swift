@@ -92,10 +92,10 @@ private struct StableLiveWorkoutContent: View, @preconcurrency Equatable {
 
     @ViewBuilder
     private var timerBlock: some View {
-        if let start = model.activeWorkout?.start {
-            TimelineView(.periodic(from: .now, by: 1)) { _ in
+        if let workout = model.activeWorkout {
+            TimelineView(.periodic(from: .now, by: 1)) { context in
                 VStack(spacing: 3) {
-                    Text(Self.elapsed(since: start))
+                    Text(Self.elapsed(workout.activeElapsed(at: context.date)))
                         .font(StrandFont.timer)
                         .tracking(StrandFont.timerTracking)
                         .monospacedDigit()
@@ -109,8 +109,8 @@ private struct StableLiveWorkoutContent: View, @preconcurrency Equatable {
         }
     }
 
-    private static func elapsed(since start: Date) -> String {
-        let seconds = max(0, Int(Date().timeIntervalSince(start)))
+    private static func elapsed(_ interval: TimeInterval) -> String {
+        let seconds = max(0, Int(interval))
         return String(format: "%d:%02d", seconds / 60, seconds % 60)
     }
 }
@@ -201,6 +201,9 @@ private struct LiveWorkoutControlRow: View {
                 .strokeBorder(StrandPalette.cardBorder, lineWidth: 1))
 
             let saving = model.workoutFinishState == .saving
+            if let workout = model.activeWorkout {
+                LiveWorkoutPauseButton(model: model, workout: workout, saving: saving)
+            }
             let title: LocalizedStringKey = saving ? "Saving…" : "Finish"
             NoopButton(
                 title,
@@ -211,6 +214,24 @@ private struct LiveWorkoutControlRow: View {
             }
             .disabled(saving)
         }
+    }
+}
+
+private struct LiveWorkoutPauseButton: View {
+    @ObservedObject var model: AppModel
+    @ObservedObject var workout: AppModel.ActiveWorkout
+    let saving: Bool
+
+    var body: some View {
+        let paused = workout.isPaused
+        NoopButton(
+            paused ? "Resume" : "Pause",
+            systemImage: paused ? "play.fill" : "pause.fill",
+            kind: .secondary
+        ) {
+            model.setWorkoutPaused(!paused)
+        }
+        .disabled(saving)
     }
 }
 
@@ -435,8 +456,8 @@ private struct LiveWorkoutSignalStatus: View {
     @ObservedObject var workout: AppModel.ActiveWorkout
     var body: some View {
         TimelineView(.periodic(from: .now, by: 5)) { context in
-            if let last = workout.samples.last,
-               context.date.timeIntervalSince1970 - Double(last.ts) > 15 {
+            if !workout.isPaused, let last = workout.lastReadingAt,
+               context.date.timeIntervalSince(last) > 15 {
                 Label("Waiting for fresh heart rate. Showing the last recorded reading.", systemImage: "antenna.radiowaves.left.and.right.slash")
                     .font(StrandFont.footnote).foregroundStyle(StrandPalette.statusWarning)
                     .fixedSize(horizontal: false, vertical: true)
