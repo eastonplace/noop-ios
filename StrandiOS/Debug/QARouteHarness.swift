@@ -377,7 +377,8 @@ private struct QAWorkoutDetailHost: View {
             for _ in 0..<20 {
                 let rows = await repo.workoutRows(days: 30)
                 if let found = rows.first(where: matches) { row = found; break }
-                try? await Task.sleep(nanoseconds: 500_000_000)
+                // A sheet that has gone away cancels this task; stop looking rather than spend the rest of the tries at once.
+                do { try await Task.sleep(nanoseconds: 500_000_000) } catch { return }
             }
             searched = true
         }
