@@ -192,6 +192,12 @@ enum WorkoutElapsed {
         }
         return Duration.seconds(whole).formatted(.time(pattern: .minuteSecond(padMinuteToLength: 1)))
     }
+
+    /// "5 minutes, 49 seconds": the spoken form of time into a session ("5:49" would be heard as a time of day).
+    static func spoken(_ seconds: Double) -> String {
+        let whole = Int(max(0, seconds).rounded())
+        return Duration.seconds(whole).formatted(.units(allowed: [.hours, .minutes, .seconds], width: .wide))
+    }
 }
 
 // MARK: Edited average

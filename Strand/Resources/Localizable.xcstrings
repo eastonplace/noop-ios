@@ -5773,6 +5773,46 @@
         }
       }
     },
+    "%lld beats per minute, %@ into the session": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld Schläge pro Minute, %2$@ nach Beginn der Einheit"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld pulsaciones por minuto, a los %2$@ de la sesión"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld battiti al minuto, a %2$@ dall'inizio della sessione"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$lld batimentos por minuto, aos %2$@ de sessão"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每分钟 %1$lld 次，训练开始后 %2$@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每分鐘 %1$lld 次，訓練開始後 %2$@"
+          }
+        }
+      }
+    },
     "%lld beats per minute, zone %lld": {
       "localizations": {
         "de": {
@@ -16935,6 +16975,46 @@
           "stringUnit": {
             "state": "translated",
             "value": "提問"
+          }
+        }
+      }
+    },
+    "Average %lld beats per minute, peak %lld, low %lld": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Durchschnitt %1$lld Schläge pro Minute, Spitze %2$lld, Minimum %3$lld"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Media de %1$lld pulsaciones por minuto, máximo %2$lld, mínimo %3$lld"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Media %1$lld battiti al minuto, picco %2$lld, minimo %3$lld"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Média de %1$lld batimentos por minuto, máximo %2$lld, mínimo %3$lld"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "平均每分钟 %1$lld 次，峰值 %2$lld，最低 %3$lld"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "平均每分鐘 %1$lld 次，峰值 %2$lld，最低 %3$lld"
           }
         }
       }

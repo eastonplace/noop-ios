@@ -31,6 +31,8 @@ struct WorkoutHeartRateCurve: View {
     }
 
     @State private var scrubIndex: Int?
+    /// Whether VoiceOver is on this chart, so a reading set by its adjustable action is cleared when it moves on.
+    @AccessibilityFocusState private var isAccessibilityFocused: Bool
     @Environment(\.dynamicTypeSize) private var typeSize
     @ScaledMetric(relativeTo: .caption) private var labelUnit: CGFloat = 1
     @ScaledMetric(relativeTo: .title3) private var readoutSize: CGFloat = 22
@@ -51,50 +53,81 @@ struct WorkoutHeartRateCurve: View {
         if isCompact {
             chart
         } else {
-            chart.accessibilityAdjustableAction { direction in
-                let last = series.samples.count - 1
-                let step = max(1, series.samples.count / 24)
-                switch direction {
-                case .increment: scrubIndex = min(last, (scrubIndex ?? -step) + step)
-                case .decrement: scrubIndex = max(0, (scrubIndex ?? step) - step)
-                @unknown default: break
+            chart
+                .accessibilityFocused($isAccessibilityFocused)
+                .onChange(of: isAccessibilityFocused) { _, focused in
+                    // The marker and the reading belong to the focus that set them; leaving the chart puts it back.
+                    if !focused { scrubIndex = nil }
                 }
-            }
+                .accessibilityAdjustableAction { direction in
+                    let last = series.samples.count - 1
+                    let step = max(1, series.samples.count / 24)
+                    switch direction {
+                    case .increment: scrubIndex = min(last, (scrubIndex ?? -step) + step)
+                    case .decrement: scrubIndex = max(0, (scrubIndex ?? step) - step)
+                    @unknown default: break
+                    }
+                }
         }
     }
 
     // MARK: Reading
 
-    /// A fixed-height line: the hint while nothing is touched, the reading while it is, so the page never shifts.
+    private var scrubSample: WorkoutHeartRateSeries.Sample? {
+        guard let index = scrubIndex, series.samples.indices.contains(index) else { return nil }
+        return series.samples[index]
+    }
+
+    /// The hint while nothing is touched, the reading while it is. Both are laid out, one over the other, so the line is as
+    /// tall as the taller of the two and the page never shifts; at accessibility sizes the reading takes two lines and the
+    /// hint wraps, rather than either being cut short.
     private var readout: some View {
-        HStack(alignment: .firstTextBaseline, spacing: NoopMetrics.space2) {
-            if let index = scrubIndex, series.samples.indices.contains(index) {
-                let sample = series.samples[index]
-                Text(verbatim: Int(sample.bpm.rounded()).formatted())
-                    .font(StrandFont.number(readoutSize, weight: .bold))
-                    .foregroundStyle(StrandPalette.textPrimary)
-                Text("bpm").font(StrandFont.caption).foregroundStyle(StrandPalette.textTertiary)
-                Spacer(minLength: NoopMetrics.space2)
-                Text(verbatim: WorkoutElapsed.text(sample.seconds))
-                    .font(StrandFont.captionNumber).foregroundStyle(StrandPalette.textSecondary)
-                Text(verbatim: AppClock.hourMinute(Date(timeIntervalSince1970: TimeInterval(start) + sample.seconds)))
-                    .font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
-            } else {
-                Text("Touch and hold to read the curve")
-                    .font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
-                Spacer(minLength: 0)
+        let sample = scrubSample
+        return ZStack(alignment: .leading) {
+            Text("Touch and hold to read the curve")
+                .font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
+                .opacity(sample == nil ? 1 : 0)
+            // With nothing touched the first reading stands in, unseen, to give the line its height.
+            if let shown = sample ?? series.samples.first {
+                reading(shown).opacity(sample == nil ? 0 : 1)
             }
         }
-        .lineLimit(1)
-        .frame(minHeight: readoutSize * 1.3, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: readoutSize * 1.3, alignment: .leading)
+    }
+
+    @ViewBuilder private func reading(_ sample: WorkoutHeartRateSeries.Sample) -> some View {
+        let value = Text(verbatim: Int(sample.bpm.rounded()).formatted())
+            .font(StrandFont.number(readoutSize, weight: .bold))
+            .foregroundStyle(StrandPalette.textPrimary)
+        let unit = Text("bpm").font(StrandFont.caption).foregroundStyle(StrandPalette.textTertiary)
+        let elapsed = Text(verbatim: WorkoutElapsed.text(sample.seconds))
+            .font(StrandFont.captionNumber).foregroundStyle(StrandPalette.textSecondary)
+        let clock = Text(verbatim: AppClock.hourMinute(Date(timeIntervalSince1970: TimeInterval(start) + sample.seconds)))
+            .font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
+        if typeSize.isAccessibilitySize {
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(alignment: .firstTextBaseline, spacing: NoopMetrics.space2) { value; unit }
+                HStack(alignment: .firstTextBaseline, spacing: NoopMetrics.space2) { elapsed; clock }
+            }
+            .lineLimit(1)
+        } else {
+            HStack(alignment: .firstTextBaseline, spacing: NoopMetrics.space2) {
+                value
+                unit
+                Spacer(minLength: NoopMetrics.space2)
+                elapsed
+                clock
+            }
+            .lineLimit(1)
+        }
     }
 
     private var spokenReading: String {
-        guard let index = scrubIndex, series.samples.indices.contains(index) else {
-            return String(localized: "Average \(Int(series.average.rounded())) bpm, peak \(Int(series.peak.rounded())) bpm, low \(Int(series.low.rounded())) bpm")
+        guard let sample = scrubSample else {
+            return String(localized: "Average \(Int(series.average.rounded())) beats per minute, peak \(Int(series.peak.rounded())), low \(Int(series.low.rounded()))")
         }
-        let sample = series.samples[index]
-        return String(localized: "\(Int(sample.bpm.rounded())) bpm, \(WorkoutElapsed.text(sample.seconds)) into the session")
+        return String(localized: "\(Int(sample.bpm.rounded())) beats per minute, \(WorkoutElapsed.spoken(sample.seconds)) into the session")
     }
 
     // MARK: Plot
@@ -291,88 +324,3 @@ private extension View {
         }
     }
 }
-
-// MARK: - Touch and hold to read
-
-/// Touch-and-hold-then-drag reading for a chart that sits inside a vertically scrolling page. A touch that starts
-/// moving at once is the page scrolling: the press has not rested long enough, so the recogniser fails and the scroll
-/// view takes the touch. A touch that rests for a beat reads the chart under the finger and keeps reading as the finger
-/// drags; lifting it clears the reading.
-private struct HoldToScrub: ViewModifier {
-    let onScrub: (CGPoint) -> Void
-    let onEnd: () -> Void
-
-    func body(content: Content) -> some View {
-        #if canImport(UIKit)
-        content.overlay(HoldToScrubSurface(onScrub: onScrub, onEnd: onEnd).accessibilityHidden(true))
-        #else
-        content.gesture(
-            DragGesture(minimumDistance: 0)
-                .onChanged { onScrub($0.location) }
-                .onEnded { _ in onEnd() }
-        )
-        #endif
-    }
-}
-
-private extension View {
-    func holdToScrub(onScrub: @escaping (CGPoint) -> Void, onEnd: @escaping () -> Void) -> some View {
-        modifier(HoldToScrub(onScrub: onScrub, onEnd: onEnd))
-    }
-}
-
-#if canImport(UIKit)
-import UIKit
-
-/// A transparent surface carrying the long-press recogniser, laid over the view it reads.
-private struct HoldToScrubSurface: UIViewRepresentable {
-    let onScrub: (CGPoint) -> Void
-    let onEnd: () -> Void
-
-    func makeCoordinator() -> Coordinator { Coordinator() }
-
-    func makeUIView(context: Context) -> UIView {
-        let view = UIView()
-        view.backgroundColor = .clear
-        view.isAccessibilityElement = false
-        let recognizer = UILongPressGestureRecognizer(
-            target: context.coordinator, action: #selector(Coordinator.handle(_:)))
-        recognizer.minimumPressDuration = 0.1
-        recognizer.allowableMovement = 8
-        recognizer.cancelsTouchesInView = false
-        recognizer.delegate = context.coordinator
-        view.addGestureRecognizer(recognizer)
-        return view
-    }
-
-    func updateUIView(_ uiView: UIView, context: Context) {
-        context.coordinator.onScrub = onScrub
-        context.coordinator.onEnd = onEnd
-    }
-
-    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
-        var onScrub: (CGPoint) -> Void = { _ in }
-        var onEnd: () -> Void = {}
-
-        @MainActor @objc func handle(_ recognizer: UILongPressGestureRecognizer) {
-            switch recognizer.state {
-            case .began, .changed:
-                onScrub(recognizer.location(in: recognizer.view))
-            case .ended, .cancelled, .failed:
-                onEnd()
-            default:
-                break
-            }
-        }
-
-        /// Other recognisers (the scroll view's pan, a sheet's dismiss) may run beside this one only until the hold has
-        /// been recognised. From then on the reading owns the touch, so the page does not move under the finger.
-        nonisolated func gestureRecognizer(
-            _ gestureRecognizer: UIGestureRecognizer,
-            shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer
-        ) -> Bool {
-            MainActor.assumeIsolated { gestureRecognizer.state == .possible }
-        }
-    }
-}
-#endif

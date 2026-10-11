@@ -169,6 +169,14 @@ final class WorkoutDetailModelTests: XCTestCase {
         XCTAssertEqual(WorkoutElapsed.text(-12), "0:00")
     }
 
+    /// Spoken, "5:49" would be heard as a time of day, so the elapsed time is said in words.
+    func testElapsedTimeIsSpokenInWordsNotAsAClockReading() {
+        XCTAssertEqual(WorkoutElapsed.spoken(349), "5 minutes, 49 seconds")
+        XCTAssertEqual(WorkoutElapsed.spoken(3_905), "1 hour, 5 minutes, 5 seconds")
+        XCTAssertEqual(WorkoutElapsed.spoken(0), "0 seconds")
+        XCTAssertEqual(WorkoutElapsed.spoken(-12), "0 seconds")
+    }
+
     // MARK: Edited average
 
     func testAnAverageEditedAwayFromARecordingIsFlagged() {
