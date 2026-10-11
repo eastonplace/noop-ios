@@ -1,3 +1,4 @@
+import StrandDesign
 import SwiftUI
 
 struct LiftReceiptLineSnapshot: Identifiable, Equatable, Sendable {
@@ -11,14 +12,14 @@ struct LiftReceiptLineSnapshot: Identifiable, Equatable, Sendable {
   let isWarmup: Bool
 
   var detailLabel: String {
-    guard !isWarmup else { return "WARM-UP  /  \(loadLabel)" }
-    let setNoun = statusLabel == "1" || statusLabel.hasPrefix("1/") ? "SET" : "SETS"
+    guard !isWarmup else { return "\(statusLabel)  /  \(loadLabel)" }
+    let setNoun = (statusLabel == "1" || statusLabel.hasPrefix("1/") ? String(localized: "set") : String(localized: "sets")).uppercased()
     return "\(loadLabel)  /  \(statusLabel) \(setNoun)"
   }
 
   var accessibilityLabel: String {
-    let setKind = isWarmup ? "warm-up set" : "working set \(statusLabel)"
-    return "\(exerciseName), \(setKind), \(loadLabel), volume \(volumeLabel)"
+    let setKind = isWarmup ? String(localized: "warm-up set") : String(localized: "working set \(statusLabel)")
+    return LiftFormat.spoken([exerciseName, setKind, loadLabel, String(localized: "volume \(volumeLabel)")])
   }
 }
 
@@ -29,11 +30,14 @@ struct LiftReceiptSnapshot: Equatable, Sendable {
   let totalVolume: Double
   let duration: TimeInterval
 
+  /// The receipt's lines and totals. `format` decides the unit and language the loads are printed in; the default is
+  /// pounds in English, which is what the logic tests read.
   nonisolated static func make(
     session: LiftSession,
     exercisesByID: [UUID: LiftExercise],
     targetSetsByExerciseID: [UUID: Int],
-    now: Date = Date()
+    now: Date = Date(),
+    format: LiftFormat = LiftFormat(unit: .pounds, locale: Locale(identifier: "en_US"))
   ) -> Self {
     var workingOrdinals: [UUID: Int] = [:]
 
@@ -41,7 +45,7 @@ struct LiftReceiptSnapshot: Equatable, Sendable {
       let exercise = exercisesByID[set.exerciseID]
       let statusLabel: String
       if set.isWarmup {
-        statusLabel = "WARM-UP"
+        statusLabel = String(localized: "warm-up").uppercased()
       } else {
         workingOrdinals[set.exerciseID, default: 0] += 1
         let completed = workingOrdinals[set.exerciseID, default: 0]
@@ -53,15 +57,15 @@ struct LiftReceiptSnapshot: Equatable, Sendable {
       }
 
       let usesBodyweight = exercise.map(liftUsesBodyweightLoad) ?? false
-      let load = liftLoad(set.weight, for: exercise).uppercased()
+      let load = format.load(pounds: set.weight, for: exercise).uppercased()
       return LiftReceiptLineSnapshot(
         id: set.id,
         ordinal: index + 1,
         exerciseID: set.exerciseID,
-        exerciseName: (exercise?.name ?? "Exercise unavailable").uppercased(),
+        exerciseName: (exercise?.name ?? String(localized: "Exercise unavailable")).uppercased(),
         loadLabel: "\(load) × \(set.reps)",
         statusLabel: statusLabel,
-        volumeLabel: usesBodyweight ? "—" : liftVolume(set.volume).uppercased(),
+        volumeLabel: usesBodyweight ? LiftFormat.missing : format.volume(pounds: set.volume).uppercased(),
         isWarmup: set.isWarmup
       )
     }
@@ -79,37 +83,41 @@ struct LiftReceiptSnapshot: Equatable, Sendable {
 struct LiveReceiptView: View {
   @EnvironmentObject private var store: LiftStore
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @Environment(\.liftFormat) private var format
 
   let session: LiftSession
 
   var body: some View {
+    let snapshot = snapshot
     ScrollView {
-      ReceiptSheet {
-        ReceiptHeader(
-          title: "Live Receipt",
-          subtitle: currentSession.title,
-          trailing: receiptNumber
-        )
-        ReceiptDashedRule()
-        ReceiptColumns([
-          ("#", .leading),
-          ("Exercise", .leading),
-          ("Sets", .trailing),
-          ("Volume (lb)", .trailing),
-        ])
-        ReceiptDashedRule()
-        LiveReceiptRows(snapshot: snapshot)
-        LiveReceiptTotals(
-          session: currentSession,
-          workingSetCount: snapshot.workingSetCount,
-          totalVolume: snapshot.totalVolume
-        )
+      VStack(spacing: 0) {
+        ReceiptEdge(flipped: true)
+        ReceiptSheet {
+          ReceiptHeader(
+            title: String(localized: "Live Receipt"),
+            subtitle: currentSession.title,
+            trailing: receiptNumber
+          )
+          ReceiptDashedRule()
+          ReceiptColumns(
+            title: String(localized: "Exercise"), value: String(localized: "Volume (\(format.unitSymbol))"))
+          ReceiptDashedRule()
+          LiveReceiptRows(snapshot: snapshot)
+          LiveReceiptTotals(
+            session: currentSession,
+            workingSetCount: snapshot.workingSetCount,
+            totalVolume: snapshot.totalVolume
+          )
+        }
+        ReceiptEdge()
       }
-      .padding(.horizontal, 16)
+      .padding(.horizontal, LiftChromeMetrics.gutter)
       .padding(.vertical, 18)
+      .frame(maxWidth: LiftChromeMetrics.maxColumnWidth)
+      .frame(maxWidth: .infinity)
     }
     .scrollIndicators(.hidden)
-    .background(LiftTheme.Receipt.paper.ignoresSafeArea())
+    .background(StrandPalette.appCanvas.ignoresSafeArea())
     .animation(
       reduceMotion ? LiftMotion.reducedCrossfade : LiftMotion.printLine,
       value: snapshot.lines.map(\.id)
@@ -135,7 +143,8 @@ struct LiveReceiptView: View {
     return LiftReceiptSnapshot.make(
       session: currentSession,
       exercisesByID: exercisesByID,
-      targetSetsByExerciseID: targets
+      targetSetsByExerciseID: targets,
+      format: format
     )
   }
 
@@ -149,7 +158,8 @@ private struct LiveReceiptRows: View {
 
   var body: some View {
     if snapshot.lines.isEmpty {
-      Text("SETS PRINT HERE AS YOU LOG THEM.")
+      Text("Sets print here as you log them.")
+        .textCase(.uppercase)
         .font(.receiptArtifact(11, weight: .bold))
         .foregroundStyle(LiftTheme.Receipt.inkSecondary)
         .frame(maxWidth: .infinity, alignment: .center)
@@ -183,6 +193,7 @@ private struct LiveReceiptTotals: View {
   let totalVolume: Double
 
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @Environment(\.liftFormat) private var format
   @State private var displayedWorkingSetCount: Int
   @State private var displayedTotalVolume: Double
   @State private var totalsTask: Task<Void, Never>?
@@ -202,9 +213,9 @@ private struct LiveReceiptTotals: View {
   var body: some View {
     TimelineView(.periodic(from: .now, by: 1)) { context in
       ReceiptTotals(rows: [
-        ("Sets", "\(displayedWorkingSetCount)"),
-        ("Total volume", liftVolume(displayedTotalVolume)),
-        ("Duration", liftClockDuration(duration(at: context.date))),
+        (String(localized: "Sets"), displayedWorkingSetCount.formatted(.number.locale(format.locale))),
+        (String(localized: "Total volume"), format.volume(pounds: displayedTotalVolume)),
+        (String(localized: "Duration"), LiftFormat.clockDuration(duration(at: context.date))),
       ])
       .contentTransition(.numericText())
     }

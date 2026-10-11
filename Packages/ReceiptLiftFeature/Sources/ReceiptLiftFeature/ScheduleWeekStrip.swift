@@ -46,6 +46,7 @@ struct ScheduleWeekStrip: View {
   private let calendar: Calendar
 
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @Environment(\.locale) private var locale
   @Namespace private var selectionNamespace
 
   init(
@@ -87,7 +88,7 @@ struct ScheduleWeekStrip: View {
         Text(weekdaySymbol(for: day.date))
           .font(StrandFont.micro)
           .foregroundStyle(isSelected ? StrandPalette.onInk : StrandPalette.textTertiary)
-        Text(String(calendar.component(.day, from: day.date)))
+        Text(calendar.component(.day, from: day.date).formatted(.number.locale(locale)))
           .font(StrandFont.number(16))
           .foregroundStyle(isSelected ? StrandPalette.onInk : StrandPalette.textPrimary)
         Circle()
@@ -117,13 +118,15 @@ struct ScheduleWeekStrip: View {
 
   private func weekdaySymbol(for date: Date) -> String {
     let weekday = calendar.component(.weekday, from: date)
-    let symbols = calendar.veryShortWeekdaySymbols
+    var localized = calendar
+    localized.locale = locale
+    let symbols = localized.veryShortWeekdaySymbols
     guard symbols.indices.contains(weekday - 1) else { return "" }
     return symbols[weekday - 1].uppercased()
   }
 
   private func accessibilityLabel(for day: LiftScheduleWeekDay) -> String {
-    let date = day.date.formatted(.dateTime.weekday(.wide).month(.wide).day())
-    return day.isTrained ? "\(date), trained" : date
+    let date = day.date.formatted(.dateTime.weekday(.wide).month(.wide).day().locale(locale))
+    return day.isTrained ? String(localized: "\(date), trained") : date
   }
 }

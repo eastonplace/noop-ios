@@ -26,3 +26,20 @@ struct LiftAutoResumePolicyTests {
     }
   }
 }
+
+@Suite("Lift root navigation")
+struct LiftRootNavigationTests {
+  @Test func showingCompletedHistoryClearsWhateverTheChipsPushed() {
+    // Schedule pushed from the start screen's chip, a workout started and finished from it.
+    var navigation = LiftRootNavigation(path: [.routines], showsCompletedHistory: false)
+    navigation.showCompletedHistory()
+    #expect(navigation.path.isEmpty)
+    #expect(navigation.showsCompletedHistory)
+  }
+
+  @Test func showingCompletedHistoryIsStableWhenNothingWasPushed() {
+    var navigation = LiftRootNavigation()
+    navigation.showCompletedHistory()
+    #expect(navigation == LiftRootNavigation(path: [], showsCompletedHistory: true))
+  }
+}

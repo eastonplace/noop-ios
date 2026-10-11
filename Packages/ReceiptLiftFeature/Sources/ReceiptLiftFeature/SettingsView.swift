@@ -1,79 +1,108 @@
 import StrandDesign
 import SwiftUI
 
+/// Lift's own settings: the default rest, haptics, how a shared receipt is printed, and the starter routines.
 struct SettingsView: View {
   @EnvironmentObject private var store: LiftStore
   @Environment(\.dismiss) private var dismiss
+  @Environment(\.liftFormat) private var format
 
   private let starterNames = ["Upper A", "Lower A", "Pull + Posture", "Push + Delts", "Lower B"]
 
   var body: some View {
-    LiftScreen(
-      title: "Lift settings",
-      subtitle: "Rest, feedback and workout exports",
-      trailing: {
-        NoopIconButton("xmark", accessibilityLabel: "Close") { dismiss() }
-      }
-    ) {
-      LiftSection(title: "Workout") {
-        Stepper(value: restBinding, in: 15...600, step: 15) {
-          settingLabel("Default rest", value: "\(Int(store.settings.defaultRestSeconds)) sec")
-        }
-        .contentRowSurface(boundedPadding: NoopMetrics.space3, flatVerticalPadding: NoopMetrics.space3)
+    LiftSheetPage(title: "Lift settings", onClose: { dismiss() }) {
+      workoutSection
+      FlatSectionSeparator()
+      unitSection
+      FlatSectionSeparator()
+      receiptsSection
+      FlatSectionSeparator()
+      aboutSection
+    }
+    .presentationDetents([.large])
+    .presentationDragIndicator(.visible)
+  }
 
+  // MARK: Workout
+
+  private var workoutSection: some View {
+    LiftFlatSection("Workout", systemImage: "timer", contentSpacing: NoopMetrics.space3) {
+      VStack(alignment: .leading, spacing: NoopMetrics.space4) {
+        LiftBigStepper(
+          title: "Default rest",
+          value: LiftFormat.duration(store.settings.defaultRestSeconds),
+          spokenValue: format.spokenDuration(store.settings.defaultRestSeconds),
+          decrement: { store.setDefaultRestSeconds(max(15, store.settings.defaultRestSeconds - 15)) },
+          increment: { store.setDefaultRestSeconds(min(600, store.settings.defaultRestSeconds + 15)) }
+        )
         Toggle(isOn: hapticsBinding) {
-          settingLabel("Haptics", value: store.settings.hapticsEnabled ? "On" : "Off")
+          VStack(alignment: .leading, spacing: 2) {
+            Text("Haptics")
+              .font(StrandFont.body)
+              .foregroundStyle(StrandPalette.textPrimary)
+            Text("Feel each logged set and finished rest")
+              .font(StrandFont.caption)
+              .foregroundStyle(StrandPalette.textSecondary)
+              .fixedSize(horizontal: false, vertical: true)
+          }
         }
         .noopToggle()
-        .contentRowSurface(boundedPadding: NoopMetrics.space3, flatVerticalPadding: NoopMetrics.space3)
+        .frame(minHeight: 44)
       }
+    }
+  }
 
-      LiftSection(title: "Receipts") {
-        VStack(alignment: .leading, spacing: 10) {
-          settingLabel("Export paper", value: "Used when you share a receipt image")
-          SegmentedPillControl(
-            [ExportPaperStyle.white, ExportPaperStyle.cream],
-            selection: exportBinding
-          ) { $0 == .white ? "White" : "Cream" }
+  // MARK: Units
+
+  private var unitSection: some View {
+    LiftFlatSection("Units", systemImage: "scalemass", contentSpacing: 0) {
+      LiftKeyValueRow(
+        label: "Weights",
+        value: format.unit == .pounds ? String(localized: "Pounds") : String(localized: "Kilograms"))
+      LiftNote(text: "Lift follows the unit you chose in NOOP's settings.")
+    }
+  }
+
+  // MARK: Receipts
+
+  private var receiptsSection: some View {
+    LiftFlatSection("Receipts", systemImage: "ticket", contentSpacing: NoopMetrics.space3) {
+      VStack(alignment: .leading, spacing: NoopMetrics.space4) {
+        VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+          Text("Export paper")
+            .font(StrandFont.body)
+            .foregroundStyle(StrandPalette.textPrimary)
+          Text("Used when you share a receipt image")
+            .font(StrandFont.caption)
+            .foregroundStyle(StrandPalette.textSecondary)
+            .fixedSize(horizontal: false, vertical: true)
+          SegmentedPillControl([ExportPaperStyle.white, ExportPaperStyle.cream], selection: exportBinding) {
+            $0 == .white ? String(localized: "White") : String(localized: "Cream")
+          }
         }
-        .contentRowSurface(boundedPadding: NoopMetrics.space3, flatVerticalPadding: NoopMetrics.space3)
-
         Menu {
           ForEach(starterNames, id: \.self) { name in
             Button(name) { store.restoreStarterRoutine(named: name) }
           }
         } label: {
-          LiftRow(
-            title: "Restore starter routine",
-            detail: "Five starter templates",
+          LiftListRow(
+            title: String(localized: "Restore starter routine"),
+            details: [String(localized: "Five starter templates")],
             showsChevron: true
           )
         }
-        .buttonStyle(.plain)
-      }
-
-      LiftSection(title: "About") {
-        LiftRow(title: "Version", value: appVersion)
-        Text("Exercise media: Gym Visual · see notice")
-          .font(StrandFont.caption)
-          .foregroundStyle(StrandPalette.textTertiary)
+        .buttonStyle(FlatRowPressStyle())
       }
     }
   }
 
-  private func settingLabel(_ title: String, value: String) -> some View {
-    VStack(alignment: .leading, spacing: 2) {
-      Text(title)
-        .font(StrandFont.body)
-        .foregroundStyle(StrandPalette.textPrimary)
-      Text(value)
-        .font(StrandFont.caption)
-        .foregroundStyle(StrandPalette.textSecondary)
-    }
-  }
+  // MARK: About
 
-  private var restBinding: Binding<Double> {
-    Binding(get: { store.settings.defaultRestSeconds }, set: { store.setDefaultRestSeconds($0) })
+  private var aboutSection: some View {
+    LiftFlatSection("About", systemImage: "info.circle", contentSpacing: 0) {
+      LiftKeyValueRow(label: "Version", value: appVersion)
+      LiftNote(text: "Exercise media: Gym Visual · see notice")
+    }
   }
 
   private var hapticsBinding: Binding<Bool> {

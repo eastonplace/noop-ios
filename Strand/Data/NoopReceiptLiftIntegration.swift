@@ -3,6 +3,11 @@ import Combine
 import ReceiptLiftFeature
 import WhoopStore
 
+extension UnitSystem {
+    /// Lift stores pounds; the unit setting only changes how loads are drawn and stepped.
+    var liftWeightUnit: LiftWeightUnit { self == .imperial ? .pounds : .kilograms }
+}
+
 /// Keeps a lifting session attached to its original NOOP source across source switches.
 @MainActor
 final class NoopReceiptLiftIntegration: ObservableObject {
@@ -69,8 +74,9 @@ final class NoopReceiptLiftIntegration: ObservableObject {
         let sourceOwner: HistoricalCursorScope
         do { sourceOwner = try await store.receiptLiftSourceOwner(deviceId: source) }
         catch { self.error = "Couldn’t open this source’s workout log: \(error.localizedDescription)"; return }
+        let demoState = Self.demoState()
         let feature = ReceiptLiftCoordinator(
-            load: { try await store.loadReceiptLiftState(sourceOwner: sourceOwner) },
+            load: { if let demoState { return demoState }; return try await store.loadReceiptLiftState(sourceOwner: sourceOwner) },
             save: { [weak model] data, workouts in
                 let payload = NoopReceiptLiftPayload.make(owner: source, workouts: workouts)
                 try await store.saveReceiptLiftStateAndWorkout(sourceOwner: sourceOwner, data: data,
@@ -82,7 +88,9 @@ final class NoopReceiptLiftIntegration: ObservableObject {
                             _ = await model.repo.refresh(.currentDay)
                     }
                 }
-            }, canStart: { [weak model] in model?.activeWorkout == nil })
+            }, canStart: { [weak model] in model?.activeWorkout == nil },
+            // Before load(): a restored session redraws its Live Activity as part of loading.
+            weightUnit: UnitSystem.stored.liftWeightUnit)
         guard model.repo.deviceId == source else { return }
         owner = source
         selectedSourceOwner = sourceOwner
@@ -104,6 +112,17 @@ final class NoopReceiptLiftIntegration: ObservableObject {
     }
 
     func consumeRestoredSession() { restoredSessionPending = false }
+
+    /// Simulator QA only: `--demo-seed --noop-lift-demo <variant>` loads generated Lift data instead of the database's.
+    /// What the person does afterwards is still saved to the database, so a relaunch without the flag restores it.
+    private static func demoState() -> Data? {
+        #if DEBUG && targetEnvironment(simulator)
+        guard CommandLine.arguments.contains("--demo-seed"), let variant = ReceiptLiftDemo.requestedVariant else { return nil }
+        return ReceiptLiftDemo.stateData(variant: variant)
+        #else
+        return nil
+        #endif
+    }
 
     /// Post-sync refresh work is parked while a lift is active. `objectWillChange` fires before the change
     /// lands, so check after it has: if the session just ended, the model replays what was parked. Cheap and

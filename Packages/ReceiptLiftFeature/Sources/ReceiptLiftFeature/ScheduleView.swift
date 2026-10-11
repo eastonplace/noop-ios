@@ -3,39 +3,41 @@ import SwiftUI
 
 struct ScheduleView: View {
   @EnvironmentObject private var store: LiftStore
-  @Environment(\.liftHostChrome) private var host
+  @Environment(\.liftFormat) private var format
   let onStartRoutine: (LiftRoutine) -> Void
+  /// Opens the routine editor on a new routine as the page appears: "Create routine" from the home page.
+  var createsRoutine = false
   @State private var showsLibrary = false
   @State private var editorRoute: RoutineEditorRoute?
   @State private var scheduleRoute: ScheduleEditorRoute?
   @State private var pendingRoutineDeletion: LiftRoutine?
   @State private var selectedDay = Date()
+  @State private var didOpenCreator = false
 
   var body: some View {
-    LiftScreen(
+    LiftPage(
       title: "Schedule",
-      subtitle: "Upcoming lifts and routines",
-      backAction: host.onBack,
       trailing: {
-        LiftHeaderTrailing {
-          NoopIconButton("books.vertical", accessibilityLabel: "Exercise library") { showsLibrary = true }
-          NoopIconButton("plus", accessibilityLabel: "Schedule workout") {
-            scheduleRoute = .create(prefill: store.nextSuggestedRoutine?.id)
-          }
+        HeaderChipButton("books.vertical", accessibilityLabel: "Exercise library") { showsLibrary = true }
+        HeaderChipButton("plus", accessibilityLabel: "Schedule workout") {
+          scheduleRoute = .create(prefill: store.nextSuggestedRoutine?.id)
         }
       }
     ) {
-      ScheduleWeekStrip(
-        sessions: store.sessions,
-        selectedDay: $selectedDay
-      )
       upcomingSection
       recentlyCompletedSection
+      FlatSectionSeparator()
       routineSection
-      NoopButton("Create routine", systemImage: "plus", kind: .primary, fullWidth: true) {
-        editorRoute = .create
-      }
     }
+    .task {
+      guard createsRoutine, !didOpenCreator else { return }
+      didOpenCreator = true
+      editorRoute = .create
+    }
+    .liftQAScene("routine-editor") { editorRoute = .create }
+    .liftQAScene("routine-edit") { editorRoute = store.routines.first.map { .edit($0) } }
+    .liftQAScene("schedule-editor") { scheduleRoute = .create(prefill: store.nextSuggestedRoutine?.id) }
+    .liftQAScene("library") { showsLibrary = true }
     .sheet(isPresented: $showsLibrary) {
       NavigationStack { ExerciseLibraryView() }
         .environmentObject(store)
@@ -50,7 +52,7 @@ struct ScheduleView: View {
         .environmentObject(store)
     }
     .alert(
-      "Delete \(pendingRoutineDeletion?.name ?? "Routine")?",
+      "Delete \(pendingRoutineDeletion?.name ?? String(localized: "Routine"))?",
       isPresented: deletionPresentation
     ) {
       Button("Delete Routine", role: .destructive) {
@@ -65,130 +67,142 @@ struct ScheduleView: View {
     }
   }
 
+  // MARK: Upcoming
+
   private var upcomingSection: some View {
     let upcoming = LiftScheduleWeek.upcoming(
       store.upcomingWorkouts,
       on: selectedDay,
       calendar: .current
     )
-    return LiftSection(title: "Upcoming") {
+    return LiftFlatSection("Upcoming", systemImage: "calendar", contentSpacing: NoopMetrics.space3) {
+      ScheduleWeekStrip(sessions: store.sessions, selectedDay: $selectedDay)
       if upcoming.isEmpty {
-        LiftEmptyNote(text: "Nothing scheduled for \(dayPhrase(selectedDay)). Pick a routine and schedule a date.")
+        VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+          emptyDayNote
+          ChipRow {
+            WidgetChipButton(
+              title: "Schedule workout", systemImage: "calendar.badge.plus",
+              accessibilityLabel: "Schedule workout"
+            ) { scheduleRoute = .create(prefill: store.nextSuggestedRoutine?.id) }
+          }
+        }
       } else {
-        ForEach(Array(upcoming.enumerated()), id: \.element.id) { index, workout in
-          upcomingRow(workout, index: index)
+        LiftRowList(items: upcoming, leadsWithGlyphDisc: true) { workout, _ in
+          upcomingRow(workout)
         }
       }
     }
   }
+
+  @ViewBuilder private var emptyDayNote: some View {
+    let calendar = Calendar.current
+    if calendar.isDateInToday(selectedDay) {
+      LiftNote(text: "Nothing scheduled for today.")
+    } else if calendar.isDateInTomorrow(selectedDay) {
+      LiftNote(text: "Nothing scheduled for tomorrow.")
+    } else {
+      LiftNote(text: "Nothing scheduled for \(format.weekdayDay(selectedDay)).")
+    }
+  }
+
+  private func upcomingRow(_ workout: ScheduledWorkout) -> some View {
+    let routine = store.routines.first { $0.id == workout.routineID }
+    return HStack(spacing: 0) {
+      Button {
+        guard let routine else { return }
+        onStartRoutine(routine)
+      } label: {
+        LiftListRow(
+          title: routine?.name ?? String(localized: "Unavailable routine"),
+          details: [upcomingDetail(workout, routine: routine)],
+          value: routine == nil ? LiftFormat.missing : nil,
+          leading: { GlyphDisc("calendar") }
+        )
+      }
+      .buttonStyle(FlatRowPressStyle())
+      .disabled(routine == nil)
+      .accessibilityElement(children: .combine)
+      .accessibilityHint(routine == nil ? Text("The linked routine no longer exists") : Text("Opens routine preview without starting"))
+      LiftRowMenu(label: "Scheduled workout actions") {
+        Button("Reschedule", systemImage: "calendar") { scheduleRoute = .edit(workout) }
+        Button("Remove", systemImage: "trash", role: .destructive) { store.deleteScheduledWorkout(id: workout.id) }
+      }
+    }
+  }
+
+  private func upcomingDetail(_ workout: ScheduledWorkout, routine: LiftRoutine?) -> String {
+    var parts = [format.relativeDay(workout.plannedAt)]
+    if let routine {
+      parts.append(LiftFormat.exerciseCount(routine.exerciseIDs.count))
+      let estimate = store.estimatedMinutes(for: routine)
+      if estimate > 0 { parts.append(format.minutes(estimate)) }
+    }
+    let note = workout.note.trimmingCharacters(in: .whitespacesAndNewlines)
+    if !note.isEmpty { parts.append(note) }
+    return LiftFormat.facts(parts)
+  }
+
+  // MARK: Recently completed
 
   @ViewBuilder
   private var recentlyCompletedSection: some View {
     let recent = store.recentCompletedWorkouts
     if !recent.isEmpty {
-      LiftSection(title: "Recently completed") {
-        ForEach(Array(recent.enumerated()), id: \.element.id) { index, workout in
+      FlatSectionSeparator()
+      LiftFlatSection("Recently completed", systemImage: "checkmark.circle", contentSpacing: 0) {
+        LiftRowList(items: recent, leadsWithGlyphDisc: true) { workout, _ in
           let routine = store.routines.first { $0.id == workout.routineID }
-          LiftRow(
-            title: routine?.name ?? completedSessionTitle(for: workout) ?? "Unavailable routine",
-            detail: dayLabel(workout.plannedAt),
-            leading: { LiftRowIndex(index: index + 1) },
-            trailing: {
-              Image(systemName: "checkmark")
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(StrandPalette.success)
-                .accessibilityHidden(true)
-            }
+          let name = routine?.name ?? completedSessionTitle(for: workout) ?? String(localized: "Unavailable routine")
+          LiftListRow(
+            title: name,
+            details: [format.relativeDay(workout.plannedAt)],
+            leading: { GlyphDisc("checkmark", tint: .custom(StrandPalette.success)) }
           )
-          .accessibilityElement(children: .combine)
-          .accessibilityLabel("Completed \(routine?.name ?? "workout") on \(dayLabel(workout.plannedAt))")
+          .accessibilityElement(children: .ignore)
+          .accessibilityLabel("Completed \(name) on \(format.weekdayDay(workout.plannedAt))")
         }
       }
     }
   }
+
+  // MARK: Routines
 
   private var routineSection: some View {
-    LiftSection(title: "Routines") {
+    LiftFlatSection("Routines", systemImage: "list.bullet.rectangle", contentSpacing: 0) {
       if store.routines.isEmpty {
-        LiftEmptyNote(text: "No routines yet. Create one to start.")
+        LiftNote(text: "No routines yet. Create one to start.")
+          .padding(.vertical, NoopMetrics.space2)
       } else {
-        ForEach(Array(store.routines.enumerated()), id: \.element.id) { index, routine in
-          Button { editorRoute = .edit(routine) } label: {
-            LiftRow(
-              title: routine.name,
-              detail: "\(routine.exerciseIDs.count) exercises · \(routine.trainingMode.title)",
-              showsChevron: true
-            ) {
-              LiftRowIndex(index: index + 1)
-            }
-          }
-          .buttonStyle(.plain)
-          .accessibilityHint("Edits this routine")
-          .contextMenu {
-            Button("Duplicate", systemImage: "plus.square.on.square") {
-              _ = store.duplicateRoutine(id: routine.id)
-            }
-            Button("Schedule", systemImage: "calendar.badge.plus") {
-              scheduleRoute = .create(prefill: routine.id)
-            }
-            Button("Delete", systemImage: "trash", role: .destructive) {
-              pendingRoutineDeletion = routine
-            }
-          }
+        LiftRowList(items: store.routines, leadsWithGlyphDisc: true) { routine, _ in
+          routineRow(routine)
         }
       }
+      Button { editorRoute = .create } label: { Label("Create routine", systemImage: "plus") }
+        .buttonStyle(PrimaryPillButtonStyle())
+        .padding(.top, NoopMetrics.space3)
     }
   }
 
-  private func upcomingRow(_ workout: ScheduledWorkout, index: Int) -> some View {
-    let routine = store.routines.first { $0.id == workout.routineID }
-    return Button {
-      guard let routine else { return }
-      onStartRoutine(routine)
-    } label: {
-      LiftRow(
-        title: routine?.name ?? "Unavailable routine",
-        detail: upcomingDetail(workout, routine: routine),
-        value: routine == nil ? "—" : nil,
-        showsChevron: routine != nil
-      ) {
-        LiftRowIndex(index: index + 1)
+  private func routineRow(_ routine: LiftRoutine) -> some View {
+    HStack(spacing: 0) {
+      Button { editorRoute = .edit(routine) } label: {
+        LiftListRow(
+          title: routine.name,
+          details: [LiftFormat.facts([LiftFormat.exerciseCount(routine.exerciseIDs.count), routine.trainingMode.title])],
+          leading: { GlyphDisc("dumbbell.fill") }
+        )
+      }
+      .buttonStyle(FlatRowPressStyle())
+      .accessibilityElement(children: .combine)
+      .accessibilityHint("Edits this routine")
+      LiftRowMenu(label: "Routine actions") {
+        Button("Edit", systemImage: "pencil") { editorRoute = .edit(routine) }
+        Button("Schedule", systemImage: "calendar.badge.plus") { scheduleRoute = .create(prefill: routine.id) }
+        Button("Duplicate", systemImage: "plus.square.on.square") { _ = store.duplicateRoutine(id: routine.id) }
+        Button("Delete", systemImage: "trash", role: .destructive) { pendingRoutineDeletion = routine }
       }
     }
-    .buttonStyle(.plain)
-    .disabled(routine == nil)
-    .accessibilityHint(routine == nil ? "The linked routine no longer exists" : "Opens routine preview without starting")
-    .swipeActions(edge: .trailing) {
-      Button("Delete", role: .destructive) { store.deleteScheduledWorkout(id: workout.id) }
-      Button("Reschedule") { scheduleRoute = .edit(workout) }
-        .tint(.gray)
-    }
-  }
-
-  private func upcomingDetail(_ workout: ScheduledWorkout, routine: LiftRoutine?) -> String {
-    var parts = [dayLabel(workout.plannedAt)]
-    if let routine {
-      let estimate = store.estimatedMinutes(for: routine)
-      parts.append("\(routine.exerciseIDs.count) exercises")
-      if estimate > 0 { parts.append("~\(estimate) min") }
-    }
-    if !workout.note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-      parts.append(workout.note)
-    }
-    return parts.joined(separator: " · ")
-  }
-
-  /// Lowercase form of `dayLabel` for use mid-sentence ("today", "tomorrow", "Thu, Oct 8").
-  private func dayPhrase(_ date: Date) -> String {
-    let label = dayLabel(date)
-    return Calendar.current.isDateInToday(date) || Calendar.current.isDateInTomorrow(date) ? label.lowercased() : label
-  }
-
-  private func dayLabel(_ date: Date) -> String {
-    let calendar = Calendar.current
-    if calendar.isDateInToday(date) { return "Today" }
-    if calendar.isDateInTomorrow(date) { return "Tomorrow" }
-    return date.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day())
   }
 
   private func completedSessionTitle(for workout: ScheduledWorkout) -> String? {
@@ -258,36 +272,42 @@ private struct ScheduleWorkoutEditor: View {
   }
 
   var body: some View {
-    NavigationStack {
-      Form {
-        Picker("Routine", selection: $routineID) {
-          Text("Select routine").tag(UUID?.none)
-          ForEach(store.routines) { routine in
-            Text(routine.name).tag(Optional(routine.id))
+    LiftSheetPage(
+      title: isEditing ? "Reschedule" : "Schedule workout",
+      onClose: { dismiss() },
+      content: {
+        LiftFlatSection("Routine", contentSpacing: 0) {
+          LiftRowList(items: store.routines, leadsWithGlyphDisc: true) { routine, _ in
+            LiftChoiceRow(
+              title: routine.name,
+              detail: LiftFormat.facts([LiftFormat.exerciseCount(routine.exerciseIDs.count), routine.trainingMode.title]),
+              isSelected: routineID == routine.id
+            ) { routineID = routine.id }
           }
         }
-        .listRowBackground(StrandPalette.card)
-        DatePicker("Date", selection: $plannedAt)
-          .listRowBackground(StrandPalette.card)
-        TextField("Optional note", text: $note, axis: .vertical)
-          .listRowBackground(StrandPalette.card)
-      }
-      .font(StrandFont.body)
-      .scrollContentBackground(.hidden)
-      .background(StrandPalette.appCanvas)
-      .navigationTitle(isEditing ? "Reschedule" : "Schedule workout")
-      .navigationBarTitleDisplayMode(.inline)
-      .toolbar {
-        ToolbarItem(placement: .cancellationAction) {
-          Button("Cancel") { dismiss() }
+        FlatSectionSeparator()
+        LiftFlatSection("Date", systemImage: "calendar") {
+          DatePicker("Date", selection: $plannedAt)
+            .labelsHidden()
+            .datePickerStyle(.compact)
+            .tint(StrandPalette.accent)
+            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
         }
-        ToolbarItem(placement: .confirmationAction) {
-          Button("Save", action: save)
-            .disabled(!canSave)
+        FlatSectionSeparator()
+        LiftFlatSection("Note", systemImage: "text.alignleft") {
+          LiftField(
+            title: "Note", text: $note, placeholder: "Optional note", axis: .vertical, capitalization: .sentences,
+            hidesTitle: true)
         }
+      },
+      footer: {
+        Button(action: save) { Text("Save").liftPillLabel() }
+          .buttonStyle(PrimaryPillButtonStyle())
+          .disabled(!canSave)
       }
-    }
-    .presentationDetents([.medium, .large])
+    )
+    .presentationDetents([.large])
+    .presentationDragIndicator(.visible)
   }
 
   private var isEditing: Bool {
