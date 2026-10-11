@@ -148,6 +148,9 @@ final class LiftStore: ObservableObject {
   @Published private(set) var settings = LiftSettings()
   @Published var defaultRestSeconds: TimeInterval = 90
   @Published var status = "Ready"
+  /// The person's unit setting, which the host hands to `ReceiptLiftView`. Loads are stored in pounds; this is only the
+  /// unit the Live Activity (which has no SwiftUI environment) shows the session's volume in.
+  private(set) var weightUnit: LiftWeightUnit = .pounds
 
   private var userExercises: [LiftExercise] = []
   private var starterBankVersion = LiftDataEnvelope.currentStarterBankVersion
@@ -527,7 +530,8 @@ final class LiftStore: ObservableObject {
       session: session,
       progress: progress,
       currentMove: liveActivityMoveName(for: progress),
-      restTimerEndDate: nil
+      restTimerEndDate: nil,
+      weightUnit: weightUnit
     )
     sessions.insert(session, at: 0)
     activeSession = nil
@@ -785,6 +789,13 @@ final class LiftStore: ObservableObject {
     return max(restTimerEndDate.timeIntervalSince(date), 0)
   }
 
+  /// Follows the unit setting. A running session's Live Activity is redrawn at once so it never lags a unit change.
+  func setWeightUnit(_ unit: LiftWeightUnit) {
+    guard unit != weightUnit else { return }
+    weightUnit = unit
+    if activeSession != nil { syncLiveActivity() }
+  }
+
   private func syncLiveActivity() {
     guard let activeSession else {
       LiftLiveActivityManager.shared.discard(sessionID: nil)
@@ -795,7 +806,8 @@ final class LiftStore: ObservableObject {
       session: activeSession,
       progress: progress,
       currentMove: liveActivityMoveName(for: progress),
-      restTimerEndDate: restTimerEndDate
+      restTimerEndDate: restTimerEndDate,
+      weightUnit: weightUnit
     )
   }
 
@@ -1512,7 +1524,7 @@ final class LiftStore: ObservableObject {
       guard !databaseInvalidated else { return nil }
       let progress = activeRoutineProgress()
       LiftLiveActivityManager.shared.finish(session: session, progress: progress,
-        currentMove: liveActivityMoveName(for: progress), restTimerEndDate: nil)
+        currentMove: liveActivityMoveName(for: progress), restTimerEndDate: nil, weightUnit: weightUnit)
       apply(envelope)
       databaseSaveError = nil
       status = "Saved \(session.workingSets.count) working sets"

@@ -62,6 +62,7 @@ public struct ReceiptLiftView: View {
                 }
             }
             .task { await coordinator.load() }
+            .onChange(of: weightUnit, initial: true) { _, unit in coordinator.store.setWeightUnit(unit) }
             .onChange(of: scenePhase) { _, phase in
                 if phase == .background { coordinator.applicationDidEnterBackground() }
             }
