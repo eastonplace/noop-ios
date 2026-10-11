@@ -146,17 +146,21 @@ public extension NoopScreenHeader where Trailing == EmptyView {
 /// height) with optional trailing controls, such as a `WidgetChip`, pinned to the right.
 public struct NoopTabTitleRow<Trailing: View>: View {
     private let title: LocalizedStringKey
+    private let hasTrailing: Bool
     @ViewBuilder private let trailing: () -> Trailing
 
-    public init(_ title: LocalizedStringKey, @ViewBuilder trailing: @escaping () -> Trailing) {
+    /// `hasTrailing` says whether `trailing` draws anything. It defaults to "the trailing content is not `EmptyView`";
+    /// a caller that wraps its trailing content in a container that may be empty (a stack) passes the real answer.
+    public init(_ title: LocalizedStringKey, hasTrailing: Bool? = nil, @ViewBuilder trailing: @escaping () -> Trailing) {
         self.title = title
+        self.hasTrailing = hasTrailing ?? (Trailing.self != EmptyView.self)
         self.trailing = trailing
     }
 
     @Environment(\.dynamicTypeSize) private var typeSize
 
     public var body: some View {
-        if typeSize.isAccessibilitySize, Trailing.self != EmptyView.self {
+        if typeSize.isAccessibilitySize, hasTrailing {
             // The controls beside the title take most of the row at these sizes and squeeze a word of it ("TREND" and
             // "S"), so they drop under the title.
             VStack(alignment: .leading, spacing: NoopMetrics.space2) {

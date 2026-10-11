@@ -250,7 +250,9 @@ struct ScreenScaffold<Content: View, Trailing: View>: View {
         if showsAppHeaderChrome, let title {
             // A tab root already has the pinned chrome row (and its wordmark) above the content, so it gets
             // one compact title row, like Today's, instead of a second wordmark, a large title and a subtitle.
-            NoopTabTitleRow(title) { headerTrailing }
+            NoopTabTitleRow(title, hasTrailing: Trailing.self != EmptyView.self || resolvedCloseAction != nil) {
+                headerTrailing
+            }
         } else if let title, let back = detailBackAction {
             // A pushed screen gets one compact row of its own: back chip, caps title, optional context. No
             // wordmark (the tab it came from owns that) and no subtitle line. The bare `trailing()` goes in (a
