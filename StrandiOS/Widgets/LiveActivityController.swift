@@ -19,6 +19,8 @@ struct WorkoutLiveActivityState {
     let hrTrace: [Int]
     let zoneSeconds: [Int]
     var maxHR: Double? = nil
+    /// The workout was ended and is saving (or failed and awaits a retry): the activity shows Pause unavailable.
+    var isFinishing = false
 }
 
 enum LiveActivityPublicationError: Error {
@@ -224,7 +226,8 @@ final class LiveActivityController {
             zoneSeconds: workoutState?.zoneSeconds,
             maxHR: workoutState?.maxHR,
             isPaused: workoutState.map { $0.pausedAt != nil },
-            pausedAt: workoutState?.pausedAt
+            pausedAt: workoutState?.pausedAt,
+            isFinishing: workoutState.flatMap { $0.isFinishing ? true : nil }
         )
         let staleDate = now.addingTimeInterval(Self.staleAfter)
 

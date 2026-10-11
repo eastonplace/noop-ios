@@ -26,18 +26,24 @@ public struct NOOPActivityAttributes: ActivityAttributes, Sendable {
         /// When the open pause began. The timer freezes there (`Text(timerInterval:pauseTime:)`), so the Lock Screen clock
         /// stops on its own, with no push needed to keep it still.
         public var pausedAt: Date?
+        /// The person ended the workout and it is saving (or the save failed and is waiting for a retry). The recorder
+        /// refuses a pause or resume in that state, so the Pause button is shown unavailable rather than inert. nil reads
+        /// as not finishing, so an activity started by an older build still decodes.
+        public var isFinishing: Bool?
 
         public var isWorkout: Bool { sport != nil && workoutStartedAt != nil }
         public var paused: Bool { isPaused == true }
+        public var finishing: Bool { isFinishing == true }
 
         public init(bpm: Int?, recovery: Int?, bonded: Bool, effort: Double? = nil,
                     sport: String? = nil, workoutStartedAt: Date? = nil,
                     strainBuilding: Bool? = nil, calories: Int? = nil,
                     hrTrace: [Int]? = nil, zoneSeconds: [Int]? = nil, maxHR: Double? = nil,
-                    isPaused: Bool? = nil, pausedAt: Date? = nil) {
+                    isPaused: Bool? = nil, pausedAt: Date? = nil, isFinishing: Bool? = nil) {
             self.maxHR = maxHR
             self.isPaused = isPaused
             self.pausedAt = pausedAt
+            self.isFinishing = isFinishing
             self.bpm = bpm
             self.recovery = recovery
             self.bonded = bonded

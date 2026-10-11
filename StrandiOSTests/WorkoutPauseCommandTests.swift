@@ -92,5 +92,22 @@ final class WorkoutPauseCommandTests: XCTestCase {
         XCTAssertFalse(decoded.paused)
         XCTAssertNil(decoded.pausedAt)
         XCTAssertTrue(decoded.isWorkout)
+        XCTAssertFalse(decoded.finishing, "an activity from an older build is not finishing")
+        XCTAssertNil(decoded.isFinishing)
+    }
+
+    func testAFinishingActivityRoundTripsAndDiffersFromARunningOne() throws {
+        let started = Date(timeIntervalSince1970: 1_000_000)
+        let running = NOOPActivityAttributes.ContentState(
+            bpm: 140, recovery: nil, bonded: true, sport: "Running", workoutStartedAt: started, isPaused: false)
+        var finishing = running
+        finishing.isFinishing = true
+        XCTAssertNotEqual(finishing, running, "the controller's unchanged-state dedupe must not swallow the finishing edge")
+        XCTAssertTrue(finishing.finishing)
+        XCTAssertFalse(running.finishing)
+        let decoded = try JSONDecoder().decode(
+            NOOPActivityAttributes.ContentState.self, from: JSONEncoder().encode(finishing))
+        XCTAssertEqual(decoded, finishing)
+        XCTAssertTrue(decoded.finishing)
     }
 }

@@ -222,7 +222,11 @@ final class AppModel: ObservableObject {
     /// True while the active workout is a GPS-type session (drives the End-time route persist). Mirrors
     /// Android's `ActiveWorkout.gpsEnabled`.
     private var activeWorkoutIsGps = false
-    private var pendingWorkoutSnapshot: ActiveWorkout?
+    /// The workout End was tried on. Entering or leaving this state is an edge the Lock Screen and Dynamic Island must see
+    /// at once (the Pause button there is unavailable while it is set), so it raises `workoutPauseEdge` too.
+    private var pendingWorkoutSnapshot: ActiveWorkout? {
+        didSet { if (oldValue == nil) != (pendingWorkoutSnapshot == nil) { workoutPauseEdge &+= 1 } }
+    }
     private var pendingWorkoutEnd: Date?
     private var pendingWorkoutRoute: WorkoutRoute?
     private var pendingWorkoutWasGps = false
@@ -2124,7 +2128,8 @@ final class AppModel: ObservableObject {
         return true
     }
 
-    /// Bumped on every real pause or resume so external surfaces update at once instead of on the next heart-rate tick.
+    /// Bumped on every real pause or resume, and when a finish starts or is abandoned, so external surfaces update at once
+    /// instead of on the next heart-rate tick.
     @Published private(set) var workoutPauseEdge = 0
 
     /// A request to pause or resume from outside the app (the Live Activity's button). Returns whether there was a workout

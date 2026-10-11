@@ -167,7 +167,7 @@ struct Component41QAGallery: View {
 /// One-screen capture plates used by the simulator gate. Splitting the long gallery prevents
 /// off-screen content from being mistaken for visual QA.
 struct Component41QAShot: View {
-    enum Kind { case home, large, largeZones, stress, lock, live, livePaused, liveStale, lift, liftRest, liftStale }
+    enum Kind { case home, large, largeZones, stress, lock, live, livePaused, liveStale, liveFinishing, lift, liftRest, liftStale }
 
     /// Narrow DEBUG launch route for rendered Simulator proof. This avoids restoring the obsolete
     /// all-screen demo router while keeping the production widget/ActivityKit views directly auditable.
@@ -184,6 +184,7 @@ struct Component41QAShot: View {
         case "live": .live
         case "live-paused": .livePaused
         case "live-stale": .liveStale
+        case "live-finishing": .liveFinishing
         case "lift": .lift
         case "lift-rest": .liftRest
         case "lift-stale": .liftStale
@@ -283,6 +284,8 @@ struct Component41QAShot: View {
             liveSpecimens(paused: true, stale: false)
         case .liveStale:
             liveSpecimens(paused: false, stale: true)
+        case .liveFinishing:
+            liveSpecimens(paused: false, stale: false, finishing: true)
         case .lift:
             liftSpecimens(resting: false, stale: false)
         case .liftRest:
@@ -294,7 +297,7 @@ struct Component41QAShot: View {
 
     /// The workout Live Activity on every surface, at real point sizes: the Lock Screen card, the Dynamic Island compact,
     /// expanded and minimal. The pause button is the shared label; the extension wraps the same label in `Button(intent:)`.
-    private func liveSpecimens(paused: Bool, stale: Bool) -> some View {
+    private func liveSpecimens(paused: Bool, stale: Bool, finishing: Bool = false) -> some View {
         let startedAt = Date().addingTimeInterval(-2_052)
         let pausedAt: Date? = paused ? Date().addingTimeInterval(-180) : nil
         let maxHR = 187.0
@@ -304,11 +307,13 @@ struct Component41QAShot: View {
                 title: "Outdoor Run", startedAt: startedAt, pausedAt: pausedAt, bpm: bpm, strain: 6.8,
                 strainBuilding: false, calories: 438, hrSpark: hr, maxHR: maxHR, isStale: stale
             ) {
-                NOOPLivePauseButtonLabel(isPaused: paused)
+                // The extension wraps this label in a disabled Button(intent:) at 0.35 opacity while the workout is ending.
+                NOOPLivePauseButtonLabel(isPaused: paused).opacity(finishing ? 0.35 : 1)
             }
             .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
             islandCompact(startedAt: startedAt, pausedAt: pausedAt, bpm: bpm, maxHR: maxHR, stale: stale)
-            islandExpanded(startedAt: startedAt, pausedAt: pausedAt, bpm: bpm, maxHR: maxHR, stale: stale)
+            islandExpanded(startedAt: startedAt, pausedAt: pausedAt, bpm: bpm, maxHR: maxHR, stale: stale,
+                           finishing: finishing)
             islandMinimal(bpm: bpm, maxHR: maxHR, paused: paused)
         }
     }
@@ -358,7 +363,8 @@ struct Component41QAShot: View {
         .frame(width: 250, height: 36).background(Capsule().fill(Color.black))
     }
 
-    private func islandExpanded(startedAt: Date, pausedAt: Date?, bpm: Int, maxHR: Double, stale: Bool) -> some View {
+    private func islandExpanded(startedAt: Date, pausedAt: Date?, bpm: Int, maxHR: Double, stale: Bool,
+                                finishing: Bool = false) -> some View {
         VStack(spacing: 10) {
             HStack(alignment: .firstTextBaseline) {
                 NOOPDynamicIslandIdentityView(sport: "Outdoor Run", startedAt: startedAt, pausedAt: pausedAt)
@@ -369,7 +375,7 @@ struct Component41QAShot: View {
             HStack(spacing: 12) {
                 LiveZoneRail(bpm: bpm, thresholds: HRZoneStyle.Thresholds(hrMax: maxHR),
                              isDimmed: pausedAt != nil || stale, style: .bar)
-                NOOPLivePauseButtonLabel(isPaused: pausedAt != nil, isCompact: true)
+                NOOPLivePauseButtonLabel(isPaused: pausedAt != nil, isCompact: true).opacity(finishing ? 0.35 : 1)
             }
         }
         .padding(16).frame(width: 356)
@@ -391,6 +397,7 @@ struct Component41QAShot: View {
         case .live: "LIVE + ISLAND"
         case .livePaused: "LIVE + ISLAND · PAUSED"
         case .liveStale: "LIVE + ISLAND · STALE"
+        case .liveFinishing: "LIVE + ISLAND · ENDING"
         case .lift: "LIFT + ISLAND"
         case .liftRest: "LIFT + ISLAND · REST"
         case .liftStale: "LIFT + ISLAND · STALE"

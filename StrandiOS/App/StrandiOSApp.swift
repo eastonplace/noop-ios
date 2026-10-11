@@ -320,7 +320,9 @@ struct StrandiOSApp: App {
 
     private var workoutActivityState: WorkoutLiveActivityState? {
         guard let workout = model.activeWorkout else { return nil }
-        return workoutProjection.state(workout: workout, profile: model.profile)
+        var state = workoutProjection.state(workout: workout, profile: model.profile)
+        state.isFinishing = model.isWorkoutFinishPending
+        return state
     }
 
     private var workoutBPMUpdates: AnyPublisher<Int?, Never> {
@@ -595,8 +597,9 @@ struct StrandiOSApp: App {
                     driveLiveActivity(workoutReading: reading)
                 }
                 .onReceive(model.live.$connected) { driveLiveActivity(connected: $0) }
-                // A pause or resume reaches the Lock Screen and the Dynamic Island at once, not on the next heart-rate tick,
-                // so the activity and the app never disagree about whether the workout is running.
+                // A pause or resume (or the workout starting to finish) reaches the Lock Screen and the Dynamic Island at
+                // once, not on the next heart-rate tick, so the activity and the app never disagree about whether the
+                // workout is running or can be paused.
                 .onReceive(model.$workoutPauseEdge.dropFirst()) { _ in
                     liveActivity.noteWorkoutPauseEdge()
                     driveLiveActivity()

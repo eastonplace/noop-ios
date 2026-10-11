@@ -28,7 +28,7 @@ struct NOOPLiveActivity: Widget {
                         isStale: context.isStale,
                         heartRateIsLive: context.state.bonded
                     ) {
-                        PauseResumeButton(isPaused: context.state.pausedAt != nil, isCompact: false)
+                        PauseResumeButton(isPaused: context.state.pausedAt != nil, isCompact: false, isAvailable: !context.state.finishing)
                     }
                 } else {
                     liveHRBanner(context: context)
@@ -68,7 +68,7 @@ struct NOOPLiveActivity: Widget {
                                 thresholds: liveMaxHR(context.state).map { HRZoneStyle.Thresholds(hrMax: $0) } ?? .default,
                                 isDimmed: context.state.pausedAt != nil || context.isStale || !context.state.bonded,
                                 style: .bar)
-                            PauseResumeButton(isPaused: context.state.pausedAt != nil, isCompact: true)
+                            PauseResumeButton(isPaused: context.state.pausedAt != nil, isCompact: true, isAvailable: !context.state.finishing)
                         }
                         .padding(.top, 6)
                     } else {
@@ -127,12 +127,17 @@ private func liveThresholds(_ state: NOOPActivityAttributes.ContentState) -> HRZ
 private struct PauseResumeButton: View {
     let isPaused: Bool
     let isCompact: Bool
+    /// False while the workout is being ended: the recorder refuses a pause or resume then, so the button is shown
+    /// unavailable instead of offering a tap that does nothing.
+    var isAvailable = true
 
     var body: some View {
         Button(intent: SetWorkoutPausedIntent(paused: !isPaused)) {
             NOOPLivePauseButtonLabel(isPaused: isPaused, isCompact: isCompact)
         }
         .buttonStyle(.plain)
+        .disabled(!isAvailable)
+        .opacity(isAvailable ? 1 : 0.35)
     }
 }
 
