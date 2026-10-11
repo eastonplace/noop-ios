@@ -11,7 +11,6 @@ struct WorkoutHeartRateRecoveryCard: View {
 
     @EnvironmentObject private var repo: Repository
     @State private var result: HeartRateRecovery.Result?
-    @State private var loaded = false
 
     var body: some View {
         // Nothing while the first read is out: a section that appeared and then went away would shift the page. The
@@ -53,7 +52,6 @@ struct WorkoutHeartRateRecoveryCard: View {
     /// create an unbounded task sleep because only deadlines inside the six-minute observation horizon survive.
     private func loadAsCoverageArrives() async {
         result = nil
-        loaded = false
 
         let tolerance = HeartRateRecovery.measurementToleranceSeconds
         let now = Int(Date().timeIntervalSince1970)
@@ -94,7 +92,6 @@ struct WorkoutHeartRateRecoveryCard: View {
             let next = await repo.workoutHeartRateRecovery(for: workout, maxHR: maxHR)
             guard !Task.isCancelled else { return }
             result = next
-            loaded = true
         }
     }
 
