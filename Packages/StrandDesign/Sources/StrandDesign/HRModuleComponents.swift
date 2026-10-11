@@ -278,11 +278,16 @@ public struct HRLiveModuleCard: View {
                     .foregroundStyle(StrandPalette.textTertiary)
                 if typeSize.isAccessibilitySize {
                     // The label is wider than the 44pt it is centred in at an accessibility size, which pushed its
-                    // first letters past the card's edge: it starts at the leading edge instead.
+                    // first letters past the card's edge: it starts at the leading edge instead. It is also as tall as
+                    // the rule is thin, so centring it 8pt above the line drew the line through the text: it sits wholly
+                    // above the line (or wholly below, when the line is in the top half), clear of it by a few points.
+                    let gap: CGFloat = 3
+                    let above = y >= size.height / 2
+                    let room = above ? y - gap : size.height - y - gap
                     rhrLabel
                         .fixedSize()
-                        .frame(width: size.width, alignment: .leading)
-                        .position(x: size.width / 2, y: max(7, y - 8))
+                        .frame(width: size.width, height: max(room, 0), alignment: above ? .bottomLeading : .topLeading)
+                        .position(x: size.width / 2, y: above ? max(room, 0) / 2 : y + gap + max(room, 0) / 2)
                 } else {
                     rhrLabel.position(x: 22, y: max(7, y - 8))
                 }
