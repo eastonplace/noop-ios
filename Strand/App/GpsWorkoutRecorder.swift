@@ -711,12 +711,14 @@ final class GpsWorkoutRecorder: NSObject, ObservableObject {
     /// distance/pace. No-op when not recording.
     fileprivate func ingest(_ fixes: [RawFix]) {
         guard isRecording else { return }
+        // Paused: the system keeps delivering so the session stays alive, but nothing reaches the route or distance. The
+        // fixes are not noted either: a raw fix that never became an accepted one would, after the resume, read as a
+        // signal that is arriving and being rejected ("Weak GPS signal") on a perfectly good one.
+        guard !isPaused else { return }
         if !fixes.isEmpty {
             lastRawFixAt = Date()
             lastErrorAt = nil
         }
-        // Paused: the system keeps delivering so the session stays alive, but nothing reaches the route or distance.
-        guard !isPaused else { return }
         rawFixCount += fixes.count
         var appendedPoints: [ActiveGpsJournalPoint] = []
         appendedPoints.reserveCapacity(fixes.count)

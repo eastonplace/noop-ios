@@ -433,6 +433,24 @@ final class GpsPauseTests: XCTestCase {
         XCTAssertEqual(recorder.signalState(now: Date().addingTimeInterval(600)), .paused)
     }
 
+    /// Fixes keep arriving during a pause (the person walked to a fountain). They are not accepted into the route, so if the
+    /// recorder noted them as raw fixes, the first reading after the resume would see "fixes arrived, none accepted" and
+    /// report a weak signal on a good one.
+    func testFixesThatArriveDuringAPauseDoNotMakeTheResumeLookLikeAWeakSignal() throws {
+        let (recorder, manager, _) = makeRecorder()
+        recorder.start(startMs: 1_700_000_000_000)
+        deliver(recorder, manager, fix(lat(0)), fix(lat(1)), fix(lat(2)))
+        recorder.setPaused(true)
+        Thread.sleep(forTimeInterval: 0.05)
+        deliver(recorder, manager, fix(lat(3)), fix(lat(4)))
+        recorder.setPaused(false)
+
+        let accepted = try XCTUnwrap(recorder.lastAcceptedFixAt)
+        // Just over the patience after the last accepted fix, which is inside it for the fixes that came during the pause.
+        let now = accepted.addingTimeInterval(30.02)
+        XCTAssertEqual(recorder.signalState(now: now), .ok, "a good signal after a resume is not 'weak'")
+    }
+
     func testASystemLocationErrorIsReportedOnceItHasPersisted() {
         let (recorder, manager, _) = makeRecorder()
         recorder.start(startMs: 1_700_000_000_000)
