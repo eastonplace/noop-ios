@@ -197,7 +197,8 @@ struct LiftReceiptMonth: Identifiable, Equatable {
     return order.map { start in
       LiftReceiptMonth(
         id: start,
-        title: start.formatted(.dateTime.month(.wide).year().locale(locale)),
+        title: start.formatted(
+          Date.FormatStyle(locale: locale, calendar: calendar, timeZone: calendar.timeZone).month(.wide).year()),
         sessions: buckets[start] ?? []
       )
     }
