@@ -85,7 +85,9 @@ struct ManualWorkoutSheet: View {
                                     .font(StrandFont.number(16))
                                     .foregroundStyle(StrandPalette.effortBright)
                             }
-                            .accessibilityLabel("Duration in minutes")
+                            // The label names what the stepper changes; the value is what it is now, spoken after each step.
+                            .accessibilityLabel("Duration")
+                            .accessibilityValue(WorkoutFormat.spokenDuration(Double(durationMin) * 60))
                         }
                     }
                     HStack(spacing: 14) {
