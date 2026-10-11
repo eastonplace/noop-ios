@@ -88,7 +88,7 @@ struct LiftStartView: View {
         .padding(.top, NoopMetrics.space3)
       } else {
         let nextID = store.nextSuggestedRoutine?.id
-        LiftRowList(items: store.routines, separatorInset: GlyphDisc.diameter(scaled: 38) + NoopMetrics.space3) { routine, _ in
+        LiftRowList(items: store.routines, leadsWithGlyphDisc: true) { routine, _ in
           Button { onPreview(routine) } label: {
             LiftListRow(
               title: routine.name,

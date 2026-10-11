@@ -278,7 +278,7 @@ struct WarmupSuggestionSheet: View {
       FlatSectionSeparator()
       LiftFlatSection("Warm-up sets", systemImage: "list.number", contentSpacing: 0) {
         if plan.hasSets {
-          LiftRowList(items: plan.sets, separatorInset: GlyphDisc.diameter(scaled: 38) + NoopMetrics.space3) { set, _ in
+          LiftRowList(items: plan.sets, leadsWithGlyphDisc: true) { set, _ in
             WarmupSuggestionRow(set: set, exercise: exercise) {
               draft.weight = unit(set.weight)
               draft.reps = set.reps

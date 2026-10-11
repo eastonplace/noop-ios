@@ -88,7 +88,7 @@ struct ScheduleView: View {
           }
         }
       } else {
-        LiftRowList(items: upcoming, separatorInset: GlyphDisc.diameter(scaled: 38) + NoopMetrics.space3) { workout, _ in
+        LiftRowList(items: upcoming, leadsWithGlyphDisc: true) { workout, _ in
           upcomingRow(workout)
         }
       }
@@ -151,7 +151,7 @@ struct ScheduleView: View {
     if !recent.isEmpty {
       FlatSectionSeparator()
       LiftFlatSection("Recently completed", systemImage: "checkmark.circle", contentSpacing: 0) {
-        LiftRowList(items: recent, separatorInset: GlyphDisc.diameter(scaled: 38) + NoopMetrics.space3) { workout, _ in
+        LiftRowList(items: recent, leadsWithGlyphDisc: true) { workout, _ in
           let routine = store.routines.first { $0.id == workout.routineID }
           let name = routine?.name ?? completedSessionTitle(for: workout) ?? String(localized: "Unavailable routine")
           LiftListRow(
@@ -174,7 +174,7 @@ struct ScheduleView: View {
         LiftNote(text: "No routines yet. Create one to start.")
           .padding(.vertical, NoopMetrics.space2)
       } else {
-        LiftRowList(items: store.routines, separatorInset: GlyphDisc.diameter(scaled: 38) + NoopMetrics.space3) { routine, _ in
+        LiftRowList(items: store.routines, leadsWithGlyphDisc: true) { routine, _ in
           routineRow(routine)
         }
       }
@@ -277,7 +277,7 @@ private struct ScheduleWorkoutEditor: View {
       onClose: { dismiss() },
       content: {
         LiftFlatSection("Routine", contentSpacing: 0) {
-          LiftRowList(items: store.routines, separatorInset: GlyphDisc.diameter(scaled: 38) + NoopMetrics.space3) { routine, _ in
+          LiftRowList(items: store.routines, leadsWithGlyphDisc: true) { routine, _ in
             LiftChoiceRow(
               title: routine.name,
               detail: LiftFormat.facts([LiftFormat.exerciseCount(routine.exerciseIDs.count), routine.trainingMode.title]),

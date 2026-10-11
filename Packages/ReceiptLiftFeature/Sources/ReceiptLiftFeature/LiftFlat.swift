@@ -378,15 +378,24 @@ struct LiftRowList<Item: Identifiable, Row: View>: View {
   let items: [Item]
   /// Where the hairline starts: the width of the row's leading picture plus its gap, 0 when it has none.
   var separatorInset: CGFloat = 0
+  /// True when every row leads with a `GlyphDisc`. The disc grows with the text, so the hairline starts under the row's
+  /// text at the disc's size for the current text size instead of at a fixed width.
+  var leadsWithGlyphDisc = false
   @ViewBuilder var row: (Item, Int) -> Row
 
   @Environment(\.dynamicTypeSize) private var typeSize
+  @ScaledMetric(relativeTo: .body) private var glyphDiameter: CGFloat = 38
+
+  private var hairlineInset: CGFloat {
+    if typeSize >= .xxxLarge { return 0 }
+    return leadsWithGlyphDisc ? GlyphDisc.diameter(scaled: glyphDiameter) + NoopMetrics.space3 : separatorInset
+  }
 
   var body: some View {
     VStack(spacing: 0) {
       ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
         if index > 0 {
-          FlatRowSeparator(leadingInset: typeSize >= .xxxLarge ? 0 : separatorInset)
+          FlatRowSeparator(leadingInset: hairlineInset)
         }
         row(item, index)
       }
