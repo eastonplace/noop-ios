@@ -253,6 +253,7 @@ public struct StatFooter: View {
     private let items: [(label: String, value: String)]
     private let style: Style
     @ScaledMetric(relativeTo: .title3) private var valueSize: CGFloat = WidgetMetrics.statValueSize
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     public init(items: [(label: String, value: String)], style: Style = .compact) {
         self.items = items
@@ -260,6 +261,34 @@ public struct StatFooter: View {
     }
 
     public var body: some View {
+        if typeSize.isAccessibilitySize {
+            stacked
+        } else {
+            columnsBody
+        }
+    }
+
+    /// At the accessibility sizes three columns are too narrow for a label and its value, and a wrapped label in one
+    /// column pushes its value out of line with the next. Each fact gets a full-width row of its own instead, label over
+    /// value, in the order the columns had.
+    private var stacked: some View {
+        VStack(alignment: .leading, spacing: NoopMetrics.space3) {
+            ForEach(Array(items.prefix(3).enumerated()), id: \.offset) { index, item in
+                if index > 0 { Rectangle().fill(StrandPalette.hairline).frame(height: 1).accessibilityHidden(true) }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(item.label).foregroundStyle(StrandPalette.textTertiary).microLabelFit()
+                    Text(item.value)
+                        .font(StrandFont.number(style == .prominent ? valueSize * 0.7 : valueSize * 0.5, weight: .semibold))
+                        .foregroundStyle(item.value == WidgetMetrics.missingValue ? StrandPalette.textTertiary : StrandPalette.textPrimary)
+                        .lineLimit(1).minimumScaleFactor(0.5)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityElement(children: .combine)
+            }
+        }
+    }
+
+    @ViewBuilder private var columnsBody: some View {
         switch style {
         case .compact:
             HStack(alignment: .top, spacing: NoopMetrics.space2) {

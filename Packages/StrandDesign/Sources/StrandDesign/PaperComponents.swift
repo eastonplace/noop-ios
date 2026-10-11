@@ -76,10 +76,11 @@ public struct NoopScreenHeader<Trailing: View>: View {
                                 .expandedTitleFit()
                         }
                         if let subtitle {
+                            // Wraps under the title rather than ending in an ellipsis ("Erholung · Anstre…").
                             Text(subtitle)
                                 .font(StrandFont.caption)
                                 .foregroundStyle(secondary)
-                                .lineLimit(1)
+                                .fixedSize(horizontal: false, vertical: true)
                         }
                     }
                 } else {
@@ -151,23 +152,41 @@ public struct NoopTabTitleRow<Trailing: View>: View {
         self.trailing = trailing
     }
 
+    @Environment(\.dynamicTypeSize) private var typeSize
+
     public var body: some View {
-        HStack(spacing: NoopMetrics.space2) {
-            // Today's row takes its baseline from its caption-size date, so the invisible caption below keeps
-            // every tab's title on exactly the same line as "TODAY".
-            HStack(alignment: .firstTextBaseline, spacing: 0) {
-                Text(title)
-                    .tracking(StrandFont.screenOverlineTracking)
-                    .textCase(.uppercase)
-                    .foregroundStyle(StrandPalette.textPrimary)
-                    .headerTitleFit()
-                    .accessibilityAddTraits(.isHeader)
-                Text(verbatim: "0").font(StrandFont.caption).hidden().frame(width: 0).accessibilityHidden(true)
+        if typeSize.isAccessibilitySize, Trailing.self != EmptyView.self {
+            // The controls beside the title take most of the row at these sizes and squeeze a word of it ("TREND" and
+            // "S"), so they drop under the title.
+            VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+                titleText
+                HStack(spacing: NoopMetrics.space2) {
+                    Spacer(minLength: 0)
+                    trailing()
+                }
             }
-            Spacer(minLength: NoopMetrics.space2)
-            trailing()
+        } else {
+            HStack(spacing: NoopMetrics.space2) {
+                titleText
+                Spacer(minLength: NoopMetrics.space2)
+                trailing()
+            }
+            .frame(minHeight: 24)
         }
-        .frame(minHeight: 24)
+    }
+
+    // Today's row takes its baseline from its caption-size date, so the invisible caption below keeps
+    // every tab's title on exactly the same line as "TODAY".
+    private var titleText: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 0) {
+            Text(title)
+                .tracking(StrandFont.screenOverlineTracking)
+                .textCase(.uppercase)
+                .foregroundStyle(StrandPalette.textPrimary)
+                .headerTitleFit()
+                .accessibilityAddTraits(.isHeader)
+            Text(verbatim: "0").font(StrandFont.caption).hidden().frame(width: 0).accessibilityHidden(true)
+        }
     }
 }
 

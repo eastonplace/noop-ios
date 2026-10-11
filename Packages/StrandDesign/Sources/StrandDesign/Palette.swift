@@ -228,10 +228,13 @@ public enum StrandPalette {
     public static var sleepLight: Color { stageLight }
     public static var sleepDeep: Color { stageDeep }
 
-    public static let zoneZ5 = Color(hex: "#FF6B2C")
-    public static let zoneZ4 = Color(hex: "#FFA424")
-    public static let zoneZ3 = Color(hex: "#33BE66")
-    public static let zoneZ2 = Color(hex: "#64B5F6")
+    // Heart-rate zones, easiest to hardest: grey, blue, green, amber, red. Each steps toward the app's own ramp (the
+    // recovery green #16EC06, the strain blue #0093E7, the amber and red of the status colours) without taking its full
+    // brightness, so a bar of five zones reads as one family and the hardest zone is a red, not a second orange.
+    public static let zoneZ5 = Color(hex: "#FF3D4F")
+    public static let zoneZ4 = Color(hex: "#FFB020")
+    public static let zoneZ3 = Color(hex: "#2FCB5E")
+    public static let zoneZ2 = Color(hex: "#4DA8F2")
     public static let zoneZ1 = Color(hex: "#B7C9D3")
     public static var zone1: Color { zoneZ1 }
     public static var zone2: Color { zoneZ2 }

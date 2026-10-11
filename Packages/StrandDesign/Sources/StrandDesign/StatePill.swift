@@ -63,10 +63,11 @@ public struct StatePill: View {
 extension View {
     /// The state pill's type: overline face, 0.4pt tracking, white ink. White, never the tone, so a
     /// red or amber pill still reads as a quiet label on a tinted chip.
+    ///
+    /// The type is a fixed size that scales with Dynamic Type (`.caption2` bold), so a word wider than the pill scales
+    /// down instead of hyphenating ("Rest-ing") at the accessibility sizes, and a two-word label wraps between words.
     func statePillLabel() -> some View {
-        self.font(StrandFont.overline)
-            .tracking(0.4)
-            .foregroundStyle(StrandPalette.textPrimary)
+        modifier(StatePillLabelFit())
     }
 
     /// The state pill's chip: 10 / 5pt padding, a 12% wash and a 1pt 28% hairline of the tone. `StatePill`
@@ -76,6 +77,19 @@ extension View {
             .padding(.vertical, StatePillMetrics.verticalPadding)
             .background(Capsule(style: .continuous).fill(tint.opacity(0.12)))
             .overlay(Capsule(style: .continuous).stroke(tint.opacity(0.28), lineWidth: 1))
+    }
+}
+
+private struct StatePillLabelFit: ViewModifier {
+    @ScaledMetric(relativeTo: .caption2) private var size: CGFloat = 11
+
+    func body(content: Content) -> some View {
+        content
+            .font(.system(size: size, weight: .bold, design: .default))
+            .tracking(0.4)
+            .foregroundStyle(StrandPalette.textPrimary)
+            .lineLimit(2)
+            .minimumScaleFactor(0.5)
     }
 }
 
