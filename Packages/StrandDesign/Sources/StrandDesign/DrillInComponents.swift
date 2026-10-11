@@ -541,8 +541,6 @@ public struct PillarWeekBarSlot: Equatable, Sendable, Identifiable {
     public let kind: Kind
     /// The bar's height as a fraction of the scale (0...1); nil for a day without a value.
     public let fraction: Double?
-    /// Whether the value reaches the target band's floor (nil without a target or a value).
-    public let reachesTarget: Bool?
     public let isAnchor: Bool
 
     public var id: Date { date }
@@ -556,7 +554,6 @@ public enum PillarWeekBarModel {
     public static func slots(
         days: [CalendarMetricDay],
         maximum: Double,
-        target: ClosedRange<Double>?,
         anchorDate: Date,
         referenceDate: Date,
         calendar: Calendar
@@ -567,27 +564,31 @@ public enum PillarWeekBarModel {
             let isAnchor = calendar.isDate(day.date, inSameDayAs: anchorDate)
             if let value = day.value, value.isFinite, !isFuture {
                 let fraction = min(max(value / max(maximum, 0.0001), 0), 1)
-                return PillarWeekBarSlot(
-                    date: day.date, kind: .value(value), fraction: fraction,
-                    reachesTarget: target.map { value >= $0.lowerBound }, isAnchor: isAnchor)
+                return PillarWeekBarSlot(date: day.date, kind: .value(value), fraction: fraction, isAnchor: isAnchor)
             }
             return PillarWeekBarSlot(
-                date: day.date, kind: isFuture ? .future : .missing, fraction: nil, reachesTarget: nil, isAnchor: isAnchor)
+                date: day.date, kind: isFuture ? .future : .missing, fraction: nil, isAnchor: isAnchor)
         }
     }
 
     /// What VoiceOver reads for the week: each day by its whole name with its value, "no data" for a past day without
-    /// one and "Upcoming" for a day still to come.
+    /// one and "Upcoming" for a day still to come, and the day on screen marked as the viewed one.
+    /// - Parameters:
+    ///   - reading: joins a day's name and what it holds ("Monday", "9.1 of 21") in the app's language.
+    ///   - viewed: marks a day's reading as the one the screen shows ("Saturday 15.1 of 21, viewed day").
     public static func spokenSummary(
-        _ slots: [PillarWeekBarSlot], dayNames: [String], value: (Double) -> String, noData: String, upcoming: String
+        _ slots: [PillarWeekBarSlot], dayNames: [String], value: (Double) -> String, noData: String, upcoming: String,
+        reading: (String, String) -> String = { "\($0) \($1)" }, viewed: (String) -> String = { $0 }
     ) -> String {
         slots.enumerated().map { index, slot in
             let name = dayNames.indices.contains(index) ? dayNames[index] : ""
+            let text: String
             switch slot.kind {
-            case .future: return "\(name) \(upcoming)"
-            case .missing: return "\(name) \(noData)"
-            case .value(let number): return "\(name) \(value(number))"
+            case .future: text = reading(name, upcoming)
+            case .missing: text = reading(name, noData)
+            case .value(let number): text = reading(name, value(number))
             }
+            return slot.isAnchor ? viewed(text) : text
         }.joined(separator: ", ")
     }
 }
@@ -606,8 +607,15 @@ public struct PillarWeekBars: View {
     private let valueFormat: (Double) -> String
     private let spokenValue: ((Double) -> String)?
 
-    private static let plotHeight: CGFloat = 104
-    private static let valueRowHeight: CGFloat = 18
+    @Environment(\.dynamicTypeSize) private var typeSize
+    /// The row above the bars that holds a day's printed value: it grows with the type, and the band and the bar track
+    /// are offset by it. At accessibility sizes a seven-column value no longer fits its column, so the row goes (the
+    /// spoken summary and the hero carry the values).
+    @ScaledMetric(relativeTo: .caption2) private var valueRowBase: CGFloat = 18
+    private var showsValues: Bool { !typeSize.isAccessibilitySize }
+    private var valueRowHeight: CGFloat { showsValues ? valueRowBase : 0 }
+    private static let trackHeight: CGFloat = 86
+    private var plotHeight: CGFloat { Self.trackHeight + valueRowHeight }
     private static let barWidth: CGFloat = 16
 
     public init(
@@ -633,7 +641,7 @@ public struct PillarWeekBars: View {
     }
 
     private var slots: [PillarWeekBarSlot] {
-        PillarWeekBarModel.slots(days: days, maximum: maximum, target: target, anchorDate: anchorDate,
+        PillarWeekBarModel.slots(days: days, maximum: maximum, anchorDate: anchorDate,
                                  referenceDate: referenceDate, calendar: calendar)
     }
 
@@ -644,9 +652,9 @@ public struct PillarWeekBars: View {
             ZStack(alignment: .topLeading) {
                 if let target, maximum > 0 {
                     GeometryReader { proxy in
-                        let track = max(proxy.size.height - Self.valueRowHeight, 1)
-                        let top = Self.valueRowHeight + track * CGFloat(1 - min(target.upperBound / maximum, 1))
-                        let bottom = Self.valueRowHeight + track * CGFloat(1 - min(target.lowerBound / maximum, 1))
+                        let track = max(proxy.size.height - valueRowHeight, 1)
+                        let top = valueRowHeight + track * CGFloat(1 - min(target.upperBound / maximum, 1))
+                        let bottom = valueRowHeight + track * CGFloat(1 - min(target.lowerBound / maximum, 1))
                         RoundedRectangle(cornerRadius: 6, style: .continuous)
                             .fill(StrandPalette.statusPositive.opacity(0.09))
                             .frame(height: max(bottom - top, 1))
@@ -660,7 +668,7 @@ public struct PillarWeekBars: View {
                     }
                 }
             }
-            .frame(height: Self.plotHeight)
+            .frame(height: plotHeight)
             HStack(spacing: 0) {
                 ForEach(Array(slots.enumerated()), id: \.element.id) { index, slot in
                     Text(verbatim: names.indices.contains(index) ? names[index] : "")
@@ -678,7 +686,7 @@ public struct PillarWeekBars: View {
     private func column(for slot: PillarWeekBarSlot) -> some View {
         VStack(spacing: 0) {
             Group {
-                if case .value(let value) = slot.kind {
+                if showsValues, case .value(let value) = slot.kind {
                     Text(verbatim: valueFormat(value))
                         .font(StrandFont.micro.weight(slot.isAnchor ? .bold : .medium))
                         .monospacedDigit()
@@ -689,7 +697,7 @@ public struct PillarWeekBars: View {
                     Color.clear
                 }
             }
-            .frame(height: Self.valueRowHeight)
+            .frame(height: valueRowHeight)
             ZStack(alignment: .bottom) {
                 switch slot.kind {
                 case .value:
@@ -723,10 +731,10 @@ public struct PillarWeekBars: View {
         }
     }
 
-    /// The viewed day is solid; the rest are quieter, and a day that fell short of the target quieter still.
+    /// The viewed day is solid; the rest are quieter. No bar is dimmed for missing a target: the band is the viewed
+    /// day's, so it says nothing about another day.
     private func barOpacity(_ slot: PillarWeekBarSlot) -> Double {
-        if slot.isAnchor { return 1 }
-        return slot.reachesTarget == false ? 0.45 : 0.7
+        slot.isAnchor ? 1 : 0.7
     }
 
     /// Spoken, so: whole weekday names, the value with its unit (`spokenValue`, else the printed one), "no data" for a
@@ -734,7 +742,8 @@ public struct PillarWeekBars: View {
     private func summary(_ slots: [PillarWeekBarSlot]) -> String {
         PillarWeekBarModel.spokenSummary(
             slots, dayNames: TrendsWeekdayNames.full(calendar: calendar), value: spokenValue ?? valueFormat,
-            noData: String(localized: "no data"), upcoming: String(localized: "Upcoming"))
+            noData: String(localized: "no data"), upcoming: String(localized: "Upcoming"),
+            reading: { String(localized: "\($0) \($1)") }, viewed: { String(localized: "\($0), viewed day") })
     }
 }
 

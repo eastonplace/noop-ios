@@ -88,7 +88,7 @@ struct StrainThroughDaySection: View {
                 spokenReading: { point in
                     String(localized: "\(AppClock.hourMinute(point.t)), \(DrillInFormat.number(point.value, fractionDigits: 1)) of 21")
                 },
-                summary: summary(content, marker: marker),
+                summary: summary(content, marker: content.markerSentence(isToday: isToday)),
                 hint: String(localized: "Touch and hold, then drag to read a time. With VoiceOver, swipe up or down to move through the day.")
             )
             if !content.gateOpen {
@@ -100,6 +100,8 @@ struct StrainThroughDaySection: View {
         }
     }
 
+    /// The plot's spoken summary: whole sentences, each with its own punctuation, joined through one format key so the
+    /// language decides the gap.
     private func summary(_ content: StrainCurveContent, marker: String?) -> String {
         let start = DrillInFormat.number(content.shape.startValue, fractionDigits: 1)
         let end = DrillInFormat.number(content.shape.endValue, fractionDigits: 1)
@@ -108,8 +110,8 @@ struct StrainThroughDaySection: View {
         if !content.segments.isEmpty {
             sentences.append(String(localized: "\(content.segments.count) workouts marked."))
         }
-        if let marker { sentences.append(marker + ".") }
-        return sentences.joined(separator: " ")
+        if let marker { sentences.append(marker) }
+        return sentences.dropFirst().reduce(sentences[0]) { String(localized: "\($0) \($1)") }
     }
 }
 
@@ -277,12 +279,13 @@ private struct StrainScoreRowView: View {
         .accessibilityHidden(true)
     }
 
+    /// The label, the value and the line under it ("16,500 steps"), so a VoiceOver user hears what the part is made of.
     private var spoken: String {
-        guard let value = row.value else { return String(localized: "\(label), no data") }
+        guard let value = row.value else { return String(localized: "\(label), \(detail)") }
         let number = DrillInFormat.number(value, fractionDigits: 1)
         return row.setsScore
-            ? String(localized: "\(label), \(number) of 21, sets the score")
-            : String(localized: "\(label), \(number) of 21")
+            ? String(localized: "\(label), \(number) of 21, \(detail), sets the score")
+            : String(localized: "\(label), \(number) of 21, \(detail)")
     }
 }
 
@@ -395,9 +398,17 @@ private struct StrainActivityRowView: View {
         }
     }
 
+    /// Spoken with whole words ("1 hour, 5 minutes"), never the narrow "1h 5m", and with the average heart rate the line
+    /// shows.
+    private var spokenDuration: String {
+        Duration.seconds(row.durationSeconds.rounded())
+            .formatted(.units(allowed: [.hours, .minutes], width: .wide))
+    }
+
     private var spoken: String {
         let sport = WorkoutSource.displaySport(row.sport)
-        let base = String(localized: "\(sport), \(time), \(duration)")
+        let base = row.averageHR.map { String(localized: "\(sport), \(time), \(spokenDuration), average \($0) bpm") }
+            ?? String(localized: "\(sport), \(time), \(spokenDuration)")
         switch row.score {
         case .noop(let value):
             return String(localized: "\(base), strain \(DrillInFormat.number(value, fractionDigits: 1)) of 21")

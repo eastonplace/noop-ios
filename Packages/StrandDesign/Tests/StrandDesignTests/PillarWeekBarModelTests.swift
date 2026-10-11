@@ -18,8 +18,8 @@ final class PillarWeekBarModelTests: XCTestCase {
 
     private func date(_ day: Int) -> Date { calendar.date(from: DateComponents(year: 2026, month: 10, day: day))! }
 
-    private func slots(_ values: [Double?], anchor: Int = 10, today: Int = 10, target: ClosedRange<Double>? = 14...18) -> [PillarWeekBarSlot] {
-        PillarWeekBarModel.slots(days: week(values), maximum: 21, target: target, anchorDate: date(anchor),
+    private func slots(_ values: [Double?], anchor: Int = 10, today: Int = 10) -> [PillarWeekBarSlot] {
+        PillarWeekBarModel.slots(days: week(values), maximum: 21, anchorDate: date(anchor),
                                  referenceDate: date(today), calendar: calendar)
     }
 
@@ -33,7 +33,6 @@ final class PillarWeekBarModelTests: XCTestCase {
         let result = slots([5, nil, 7, 8, 9, 12, nil])
         XCTAssertEqual(result[1].kind, .missing)
         XCTAssertNil(result[1].fraction)
-        XCTAssertNil(result[1].reachesTarget)
     }
 
     func testDaysAfterTodayAreFutureEvenWhenTheyHoldAValue() {
@@ -46,12 +45,6 @@ final class PillarWeekBarModelTests: XCTestCase {
     func testTheViewedDayIsTheAnchorAndOnlyThatOne() {
         let result = slots([5, 6, 7, 8, 9, 12, nil], anchor: 8)
         XCTAssertEqual(result.map(\.isAnchor), [false, false, false, true, false, false, false])
-    }
-
-    func testAValueReachesTheTargetAtItsFloor() {
-        let result = slots([13.9, 14, 17, 18, 21, nil, nil])
-        XCTAssertEqual(result.prefix(5).map(\.reachesTarget), [false, true, true, true, true])
-        XCTAssertEqual(slots([14, nil, nil, nil, nil, nil, nil], target: nil)[0].reachesTarget, nil)
     }
 
     func testAValueBeyondTheScaleIsClampedAndANonFiniteOneIsMissing() {
@@ -69,6 +62,16 @@ final class PillarWeekBarModelTests: XCTestCase {
         XCTAssertEqual(spoken, "Monday 5.0 of 21, Tuesday no data, Wednesday 7.0 of 21, Thursday 8.0 of 21, "
             + "Friday 9.0 of 21, Saturday 12.0 of 21, Sunday Upcoming")
     }
+
+    func testVoiceOverMarksTheViewedDayAndJoinsNameAndReadingThroughTheGivenFormats() {
+        let result = slots([5, nil, 7, 8, 9, 12, nil], anchor: 8, today: 10)
+        let names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+        let spoken = PillarWeekBarModel.spokenSummary(
+            result, dayNames: names, value: { "\($0)" }, noData: "none", upcoming: "later",
+            reading: { "\($0): \($1)" }, viewed: { "\($0) (viewed)" })
+        XCTAssertEqual(spoken, "Mon: 5.0, Tue: none, Wed: 7.0, Thu: 8.0 (viewed), Fri: 9.0, Sat: 12.0, Sun: later")
+    }
+
 
     func testOnlySevenSlotsComeBack() {
         XCTAssertEqual(slots([1, 2, 3, 4, 5, 6, 7, 8, 9]).count, 7)

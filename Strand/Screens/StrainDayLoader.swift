@@ -16,12 +16,19 @@ struct StrainDayRequest: Equatable, Sendable {
     /// Midnight of the logical day.
     let logicalStart: Date
     let isToday: Bool
+    /// The batch's effective maximum for a past day (the override, else the unrounded Tanaka estimate); the live
+    /// score's rounded one for today.
     let maxHR: Double
     let restingHR: Double
+    /// The calendar day's steps: today's, and a past day's fallback when the day's raw counter is not stored.
     let steps: Int?
+    /// The wearer's counter ticks per step, which scales a cycle's raw step count.
+    let stepTicksPerStep: Double
     let sleepMinutes: Double?
-    /// The repository's refresh counter. A past day re-reads when it moves; today re-reads on a short clock instead,
-    /// because the counter moves with every sync.
+    /// The hero in tenths. Today's score moves with new readings, so a pass that was read for another value is behind
+    /// the screen's hero: it is stale however young it is.
+    let heroTenths: Int?
+    /// The repository's refresh counter: new data landed.
     let refreshSeq: Int
 }
 
@@ -46,7 +53,7 @@ final class StrainDayCache {
         let computedAt: Date
     }
 
-    /// How long today's pass is trusted before the next screen visit reads again.
+    /// How long today's pass is trusted when nothing else says it is behind (reopening the screen).
     static let todayLifetime: TimeInterval = 60
     static let capacity = 8
 
@@ -63,10 +70,16 @@ final class StrainDayCache {
             && entry.request.maxHR == request.maxHR
             && entry.request.restingHR == request.restingHR
             && entry.request.steps == request.steps
+            && entry.request.stepTicksPerStep == request.stepTicksPerStep
             && entry.request.sleepMinutes == request.sleepMinutes
-        guard sameInputs else { return false }
-        if request.isToday { return now.timeIntervalSince(entry.computedAt) < Self.todayLifetime }
-        return entry.request.refreshSeq == request.refreshSeq
+        guard sameInputs, entry.request.refreshSeq == request.refreshSeq else { return false }
+        // Today's pass is also only as good as the hero it was read for (the live score ticks every 20 s) and as young
+        // as the lifetime; a past day has no clock.
+        if request.isToday {
+            return entry.request.heroTenths == request.heroTenths
+                && now.timeIntervalSince(entry.computedAt) < Self.todayLifetime
+        }
+        return true
     }
 
     func store(_ result: StrainDayResult, for request: StrainDayRequest, now: Date) {
@@ -114,35 +127,41 @@ enum StrainDayLoader {
         }
 
         // Today follows the live score's own rule (the longest sleep that has begun and woke after the day started);
-        // a past day wakes inside its own day and runs until the next day's sleep begins.
+        // a past day wakes inside its own day. A past day's cycle is the nightly batch's (see `StrainBatchCycle`), so
+        // the curve and the parts are worked out from what the stored score was.
         let window = StrainCycleWindow.resolve(
             logicalStart: logicalStart,
             logicalEnd: request.isToday ? Int.max : nextStart,
             windowEnd: request.isToday ? nowTs : nextStart,
             sleeps: sleeps)
-        var endTs = nowTs
-        if !request.isToday {
-            let next = StrainCycleWindow.resolve(
-                logicalStart: nextStart, logicalEnd: afterNext, windowEnd: afterNext, sleeps: sleeps)
-            endTs = next.cycleStart > window.cycleStart ? next.cycleStart : nextStart
-        }
-        guard endTs > window.cycleStart else { return nil }
+        let cycleStartTs = request.isToday
+            ? window.cycleStart
+            : StrainBatchCycle.start(sleeps: sleeps, dayStart: logicalStart, dayEnd: nextStart)
+        let endTs = request.isToday ? nowTs : nextStart
+        guard endTs > cycleStartTs else { return nil }
 
         #if DEBUG
         checkpoints.append(DispatchTime.now())
         #endif
-        let samples = await repo.hrSamples(from: window.cycleStart, to: endTs, limit: 200_000)
+        let samples = await repo.hrSamples(from: cycleStartTs, to: endTs, limit: 200_000)
         guard !Task.isCancelled else { return nil }
+        // The batch scores a past day on its cycle's step total, not the calendar day's.
+        var steps = request.steps
+        if !request.isToday {
+            let rows = await repo.stepSamples(from: cycleStartTs, to: endTs, limit: 200_000)
+            guard !Task.isCancelled else { return nil }
+            steps = StrainBatchCycle.steps(rows, ticksPerStep: request.stepTicksPerStep) ?? request.steps
+        }
         #if DEBUG
         checkpoints.append(DispatchTime.now())
         #endif
 
         let context = StrainScorerV2.DayContext(
             validWornSleepMinutes: request.sleepMinutes,
-            steps: request.steps,
+            steps: steps,
             activeEnergyKcal: nil,
             hasWearCoverage: window.wake != nil || !samples.isEmpty)
-        let start = Date(timeIntervalSince1970: TimeInterval(window.cycleStart))
+        let start = Date(timeIntervalSince1970: TimeInterval(cycleStartTs))
         let end = Date(timeIntervalSince1970: TimeInterval(endTs))
         let maxHR = request.maxHR
         let restingHR = request.restingHR

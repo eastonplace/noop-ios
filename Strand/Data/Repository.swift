@@ -2763,13 +2763,39 @@ final class Repository: ObservableObject {
         guard deviceId != canonicalDeviceId else {
             return (try? await store.hrSamples(deviceId: deviceId, from: from, to: to, limit: limit)) ?? []
         }
-        var byTs: [Int: HRSample] = [:]
+        var lists: [[HRSample]] = []
         for id in importedReadIds {
-            for s in (try? await store.hrSamples(deviceId: id, from: from, to: to, limit: limit)) ?? [] where byTs[s.ts] == nil {
-                byTs[s.ts] = s
-            }
+            lists.append((try? await store.hrSamples(deviceId: id, from: from, to: to, limit: limit)) ?? [])
         }
-        return byTs.values.sorted { $0.ts < $1.ts }
+        return await Self.unionByTimestamp(lists, ts: { $0.ts })
+    }
+
+    /// The first list wins a shared second; ascending. A day of readings from two ids is up to 400,000 rows, so the
+    /// dedupe and the sort run off the main actor.
+    nonisolated private static func unionByTimestamp<T: Sendable>(
+        _ lists: [[T]], ts: @escaping @Sendable (T) -> Int
+    ) async -> [T] {
+        await Task.detached(priority: .userInitiated) {
+            var byTs: [Int: T] = [:]
+            for list in lists {
+                for sample in list where byTs[ts(sample)] == nil { byTs[ts(sample)] = sample }
+            }
+            return byTs.values.sorted { ts($0) < ts($1) }
+        }.value
+    }
+
+    /// The raw step-counter readings of a window, ascending, from the active strap and the canonical history (the
+    /// active strap wins a shared second), like `hrSamples`.
+    func stepSamples(from: Int, to: Int, limit: Int = 8000) async -> [StepSample] {
+        guard let store = await ensureStore() else { return [] }
+        guard deviceId != canonicalDeviceId else {
+            return (try? await store.stepSamples(deviceId: deviceId, from: from, to: to, limit: limit)) ?? []
+        }
+        var lists: [[StepSample]] = []
+        for id in importedReadIds {
+            lists.append((try? await store.stepSamples(deviceId: id, from: from, to: to, limit: limit)) ?? [])
+        }
+        return await Self.unionByTimestamp(lists, ts: { $0.ts })
     }
 
     /// A live Strain pass needs the initial daily cache. Before that cache exists, the live accumulator

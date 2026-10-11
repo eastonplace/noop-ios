@@ -144,7 +144,7 @@ public struct HRLiveModuleCard: View {
             } else {
                 // Waiting for a first reading: keep the row as tall as it will be, so the pill arriving
                 // does not push the module down.
-                HRZonePill(word: "Steady").hidden()
+                HRZonePill(word: String(localized: "Steady")).hidden()
             }
         }
     }
@@ -176,9 +176,9 @@ public struct HRLiveModuleCard: View {
     private var zoneWord: String {
         guard let displayed else { return "" }
         switch zones.zone(for: displayed.bpm) {
-        case 0: return "Resting"
-        case 1: return "Steady"
-        default: return "Pushing"
+        case 0: return String(localized: "Resting")
+        case 1: return String(localized: "Steady")
+        default: return String(localized: "Pushing")
         }
     }
 

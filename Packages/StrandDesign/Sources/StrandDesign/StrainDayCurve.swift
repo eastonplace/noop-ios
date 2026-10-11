@@ -108,6 +108,10 @@ public struct StrainDayCurve: View {
     private let tint = DomainTint.strain.accent
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var typeSize
+    /// Label offsets and width guesses are in points at the default size; this scales them with `.caption2`, the type
+    /// the labels are set in.
+    @ScaledMetric(relativeTo: .caption2) private var labelUnit: CGFloat = 1
     @State private var revealed = false
     @State private var scrubIndex: Int?
     @State private var plotWidth: CGFloat = 1
@@ -115,6 +119,15 @@ public struct StrainDayCurve: View {
     @State private var adjustReset: Task<Void, Never>?
 
     private static let plotHeight: CGFloat = 164
+
+    /// At accessibility sizes the labels no longer fit inside a 164 pt plot: the seed note and the score label move out
+    /// of it into captions that wrap, the scale numbers and the target word go (the band itself and the Target figure
+    /// on the screen above name them), and the time axis keeps its two ends.
+    private var roomyLabels: Bool { typeSize.isAccessibilitySize }
+    private var visibleTicks: [Date] {
+        guard roomyLabels, ticks.count > 2, let first = ticks.first, let last = ticks.last else { return ticks }
+        return [first, last]
+    }
 
     /// - Parameters:
     ///   - points: the curve, oldest first (at least two to draw).
@@ -185,6 +198,7 @@ public struct StrainDayCurve: View {
                 plot.frame(height: Self.plotHeight)
                 axisLabels
             }
+            if roomyLabels { captions }
         }
         .onAppear {
             withAnimation(reduceMotion ? nil : .easeOut(duration: 0.7).delay(0.05)) { revealed = true }
@@ -206,6 +220,25 @@ public struct StrainDayCurve: View {
             size: 28
         )
         .animation(StrandMotion.fade, value: scrubIndex)
+    }
+
+    /// The seed note and the score label, below the plot where they can take the room their type needs.
+    @ViewBuilder
+    private var captions: some View {
+        if seedNote != nil || scoreMarker != nil {
+            VStack(alignment: .leading, spacing: 2) {
+                if let seedNote {
+                    Text(verbatim: seedNote)
+                }
+                if let scoreMarker {
+                    Text(verbatim: scoreMarker.label)
+                }
+            }
+            .font(StrandFont.micro)
+            .foregroundStyle(StrandPalette.textTertiary)
+            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityHidden(true)
+        }
     }
 
     // MARK: Plot
@@ -264,7 +297,7 @@ public struct StrainDayCurve: View {
     @ViewBuilder
     private func layers(size: CGSize) -> some View {
         let geometry = StrainCurveGeometry(size: size, domain: domain)
-        let layout = layoutCache.layout(size: size, token: layoutToken) { makeLayout(geometry) }
+        let layout = layoutCache.layout(size: size, token: layoutToken &+ Int(labelUnit * 100)) { makeLayout(geometry) }
 
         ZStack {
             // The target band: a quiet wash, named once on the leading edge above the curve's start.
@@ -273,7 +306,7 @@ public struct StrainDayCurve: View {
                     .fill(StrandPalette.statusPositive.opacity(0.10))
                     .frame(width: size.width, height: band.height)
                     .position(x: size.width / 2, y: band.midY)
-                if let spot = layout.targetLabelSpot {
+                if let spot = layout.targetLabelSpot, !roomyLabels {
                     Text(verbatim: targetLabel)
                         .font(StrandFont.micro)
                         .foregroundStyle(StrandPalette.textTertiary)
@@ -308,14 +341,16 @@ public struct StrainDayCurve: View {
                     .stroke(tint, style: StrokeStyle(lineWidth: 2.4, lineCap: .round, lineJoin: .round))
             }
 
-            ForEach(layout.rails, id: \.value) { rail in
-                Text(verbatim: "\(rail.value)")
-                    .font(StrandFont.micro)
-                    .monospacedDigit()
-                    .foregroundStyle(StrandPalette.textTertiary)
-                    .strainCurveKnockout()
-                    .fixedSize()
-                    .position(x: 12, y: rail.y - 8)
+            if !roomyLabels {
+                ForEach(layout.rails, id: \.value) { rail in
+                    Text(verbatim: "\(rail.value)")
+                        .font(StrandFont.micro)
+                        .monospacedDigit()
+                        .foregroundStyle(StrandPalette.textTertiary)
+                        .strainCurveKnockout()
+                        .fixedSize()
+                        .position(x: 12 * labelUnit, y: rail.y - 8 * labelUnit)
+                }
             }
 
             // Workout glyphs along the top of their bands.
@@ -330,14 +365,16 @@ public struct StrainDayCurve: View {
             }
 
             // Where the curve starts from (the sleep seed).
-            if let seedNote, let start = layout.startPoint, scrubIndex == nil {
+            if let seedNote, let start = layout.startPoint, scrubIndex == nil, !roomyLabels {
+                let half = seedNoteHalfWidth(seedNote)
                 Text(verbatim: seedNote)
                     .font(StrandFont.micro)
                     .foregroundStyle(StrandPalette.textTertiary)
                     .strainCurveKnockout()
                     .fixedSize()
-                    .position(x: min(start.x + seedNoteHalfWidth(seedNote), size.width - 4),
-                              y: start.y + 14 < size.height - 6 ? start.y + 14 : max(start.y - 13, 10))
+                    // Kept whole inside the plot: pulled in from either edge rather than clipped.
+                    .position(x: min(max(start.x + half, half + 2), max(size.width - half - 2, half)),
+                              y: start.y + 14 * labelUnit < size.height - 6 ? start.y + 14 * labelUnit : max(start.y - 13 * labelUnit, 10))
             }
 
             // The score, when steps or energy set it: a dashed connector from the end of the curve.
@@ -353,17 +390,19 @@ public struct StrainDayCurve: View {
                     .background(Circle().fill(StrandPalette.appCanvas))
                     .frame(width: 9, height: 9)
                     .position(x: end.x, y: y)
-                let labelWidth = max(size.width - 40, 80)
-                Text(verbatim: marker.label)
-                    .font(StrandFont.micro)
-                    .foregroundStyle(StrandPalette.textSecondary)
-                    .multilineTextAlignment(.trailing)
-                    .strainCurveKnockout()
-                    .frame(maxWidth: labelWidth, alignment: .trailing)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.trailing, size.width - end.x + 12)
-                    .frame(width: size.width, height: size.height, alignment: .trailing)
-                    .offset(y: min(max(y, 12), size.height - 12) - size.height / 2)
+                if !roomyLabels {
+                    let labelWidth = max(size.width - 40, 80)
+                    Text(verbatim: marker.label)
+                        .font(StrandFont.micro)
+                        .foregroundStyle(StrandPalette.textSecondary)
+                        .multilineTextAlignment(.trailing)
+                        .strainCurveKnockout()
+                        .frame(maxWidth: labelWidth, alignment: .trailing)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.trailing, size.width - end.x + 12)
+                        .frame(width: size.width, height: size.height, alignment: .trailing)
+                        .offset(y: min(max(y, 12), size.height - 12) - size.height / 2)
+                }
             }
 
             // The live edge.
@@ -394,7 +433,7 @@ public struct StrainDayCurve: View {
     }
 
     private func seedNoteHalfWidth(_ text: String) -> CGFloat {
-        max(24, CGFloat(text.count) * 3.1 + 6)
+        max(24, CGFloat(text.count) * 3.1 + 6) * labelUnit
     }
 
     // MARK: Layout
@@ -423,10 +462,10 @@ public struct StrainDayCurve: View {
                 let rect = CGRect(x: 0, y: top, width: geometry.size.width, height: bottom - top)
                 targetRect = rect
                 // At the trailing edge, just inside the band's top, unless the curve gets there first.
-                let label = CGPoint(x: geometry.size.width - 30, y: top + 9)
+                let label = CGPoint(x: geometry.size.width - 30 * labelUnit, y: top + 9 * labelUnit)
                 let end = rendered.last
-                let collides = end.map { $0.y < top + 20 && $0.x > geometry.size.width - 70 } ?? false
-                targetLabelSpot = collides ? CGPoint(x: geometry.size.width * 0.5, y: top + 9) : label
+                let collides = end.map { $0.y < top + 20 * labelUnit && $0.x > geometry.size.width - 70 * labelUnit } ?? false
+                targetLabelSpot = collides ? CGPoint(x: geometry.size.width * 0.5, y: top + 9 * labelUnit) : label
             }
         }
 
@@ -456,18 +495,18 @@ public struct StrainDayCurve: View {
         GeometryReader { proxy in
             let geometry = StrainCurveGeometry(size: CGSize(width: proxy.size.width, height: 1), domain: domain)
             ZStack(alignment: .topLeading) {
-                ForEach(Array(ticks.enumerated()), id: \.offset) { index, tick in
+                ForEach(Array(visibleTicks.enumerated()), id: \.offset) { index, tick in
                     Text(verbatim: timeLabel(tick))
                         .font(StrandFont.micro)
                         .foregroundStyle(StrandPalette.textTertiary)
                         .fixedSize()
-                        .frame(width: 0, alignment: alignment(for: index, of: ticks.count))
+                        .frame(width: 0, alignment: alignment(for: index, of: visibleTicks.count))
                         .offset(x: geometry.x(tick))
                 }
             }
             .environment(\.layoutDirection, .leftToRight)
         }
-        .frame(height: 16)
+        .frame(height: 16 * labelUnit)
         .accessibilityHidden(true)
     }
 

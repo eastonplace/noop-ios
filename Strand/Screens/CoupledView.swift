@@ -40,6 +40,12 @@ struct CoupledView: View {
     /// Today's day key, tracking the resolved row when one exists (the Today idiom).
     private var todayKey: String { day?.day ?? Repository.logicalDayKey(Date()) }
 
+    /// The date the pushed header names: the day of the row the screen shows (between midnight and the 04:00 rollover
+    /// that row can already be the new calendar day), else the logical day.
+    private var headerDate: Date {
+        day.flatMap { PaperPillarDetailView.dayFormatter.date(from: $0.day) } ?? Repository.logicalDayStart(Date())
+    }
+
     /// Recovery cold-start: nights banked so far while the HRV baseline still seeds, nil once recovery
     /// exists. The SAME pure helper Today's ring reads, so the two screens can't disagree.
     private var calibrationNights: Int? {
@@ -110,7 +116,7 @@ struct CoupledView: View {
                        topBackground: nil,
                        // Pushed, the header row says which day this is, in the Recovery and Strain format: the
                        // logical day the screen shows (a 01:30 morning still shows yesterday's numbers).
-                       headerContext: DrillInFormat.headerDate(Repository.logicalDayStart(Date()))) {
+                       headerContext: DrillInFormat.headerDate(headerDate)) {
             ViewThatFits(in: .horizontal) {
                 // Regular width (macOS / iPad): hero left, strain + sleep stacked right in a 2-column grid.
                 HStack(alignment: .top, spacing: NoopMetrics.gap) {
@@ -852,10 +858,13 @@ struct PaperPillarDetailView: View {
             dayKey: anchorDayKey,
             logicalStart: anchorDate,
             isToday: isToday,
-            maxHR: Double(profile.hrMax),
+            // Today is the live score's (the rounded maximum); a past day is the batch's (unrounded).
+            maxHR: isToday ? Double(profile.hrMax) : profile.hrMaxForBatchScoring,
             restingHR: latestDay?.restingHr.map(Double.init) ?? StrainScorerV2.defaultRestingHR,
             steps: latestDay?.steps,
+            stepTicksPerStep: profile.stepTicksPerStep,
             sleepMinutes: latestDay?.totalSleepMin,
+            heroTenths: latest.map { Int(($0 * 10).rounded()) },
             refreshSeq: repo.refreshSeq)
         // A pass from earlier paints at once; the new one replaces it when it lands.
         if strainDay == nil, let kept = StrainDayCache.shared.entry(for: anchorDayKey) { strainDay = kept.result }
@@ -923,14 +932,14 @@ struct PaperPillarDetailView: View {
         pillarHero
         DrillInSeparator()
         StrainThroughDaySection(
-            result: strainDay, hero: latest, target: strainTarget, workouts: detailWorkouts,
+            result: strainDay, hero: latest, target: strainTarget, workouts: strainWorkouts,
             sleepMinutes: latestDay?.totalSleepMin, isToday: isToday)
         if let parts = strainDay.flatMap({ StrainScoreParts.make($0.analysis.components, hero: latest) }) {
             DrillInSeparator()
             StrainScorePartsSection(parts: parts, steps: latestDay?.steps, isToday: isToday)
         }
         DrillInSeparator()
-        StrainActivitiesSection(workouts: detailWorkouts, isToday: isToday)
+        StrainActivitiesSection(workouts: strainWorkouts, isToday: isToday)
         DrillInSeparator()
         effortWeek
         DrillInSeparator()
@@ -1326,7 +1335,8 @@ struct PaperPillarDetailView: View {
                 target: strainTarget,
                 tint: DomainTint.strain.accent,
                 anchorDate: anchorDate,
-                referenceDate: calendar.startOfDay(for: Date()),
+                // The logical day, so a 01:30 morning does not turn the day to come into a missed one.
+                referenceDate: Repository.logicalDayStart(Date()),
                 calendar: calendar,
                 valueFormat: { DrillInFormat.number($0, fractionDigits: 1) },
                 spokenValue: { String(localized: "\(DrillInFormat.number($0, fractionDigits: 1)) of 21") }
@@ -1560,6 +1570,15 @@ struct PaperPillarDetailView: View {
         return asleep / (efficiency / 100)
     }
 
+    /// The workouts the Strain screen shows: those inside the window the curve and the score were worked out over (the
+    /// sleep-to-sleep cycle), not the calendar day of their start. Until that window is known, the calendar day's.
+    private var strainWorkouts: [WorkoutRow] {
+        guard let result = strainDay else { return detailWorkouts }
+        let start = Int(result.cycleStart.timeIntervalSince1970)
+        let end = Int(result.end.timeIntervalSince1970)
+        return workouts.filter { $0.startTs < end && max($0.endTs, $0.startTs) > start }
+    }
+
     private var detailWorkouts: [WorkoutRow] {
         let day = detailDayKey
         return workouts.filter {
@@ -1711,7 +1730,7 @@ struct PaperPillarDetailView: View {
         DrillInFormat.headerDate(anchorDate)
     }
 
-    private static let dayFormatter: DateFormatter = {
+    fileprivate static let dayFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.calendar = Calendar(identifier: .gregorian)

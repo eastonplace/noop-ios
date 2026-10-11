@@ -124,6 +124,64 @@ final class StrainScorePartsTests: XCTestCase {
     }
 }
 
+/// A past day's parts and curve are worked out from what the nightly batch scored the stored day on: its cycle and its
+/// cycle step total, not the calendar day's.
+final class StrainBatchParityTests: XCTestCase {
+    private let dayStart = 1_790_000_000
+    private let maxHR = StrainScorer.tanakaHRmax(age: 34)
+
+    private func sleeps() -> [StrainCycleWindow.Sleep] {
+        [.init(start: dayStart + 3_600, end: dayStart + 8 * 3_600, effectiveStart: dayStart + 1_800),   // the night
+         .init(start: dayStart + 14 * 3_600, end: dayStart + 14 * 3_600 + 1_800, effectiveStart: dayStart + 14 * 3_600),  // a nap
+         .init(start: dayStart - 6 * 3_600, end: dayStart - 600, effectiveStart: dayStart - 6 * 3_600)]  // last night's
+    }
+
+    func testTheCycleStartsAtTheEarliestSleepThatEndedOnTheDayNotAtTheCorrectedOnset() {
+        let start = StrainBatchCycle.start(sleeps: sleeps(), dayStart: dayStart, dayEnd: dayStart + 86_400)
+        XCTAssertEqual(start, dayStart + 3_600)
+        XCTAssertEqual(StrainBatchCycle.start(sleeps: [], dayStart: dayStart, dayEnd: dayStart + 86_400), dayStart)
+    }
+
+    func testTheCycleStepTotalScalesByTicksPerStepAndIsNilWithoutReadings() {
+        let rows = (0..<100).map { StepSample(ts: dayStart + $0 * 300, counter: $0 * 100) }
+        XCTAssertEqual(StrainBatchCycle.steps(rows, ticksPerStep: 1), 9_900)
+        XCTAssertEqual(StrainBatchCycle.steps(rows, ticksPerStep: 2), 4_950)
+        XCTAssertEqual(StrainBatchCycle.steps(rows, ticksPerStep: 0.1), 19_800, "the batch floors the divisor at 0.5")
+        XCTAssertNil(StrainBatchCycle.steps([], ticksPerStep: 1))
+    }
+
+    /// 16,500 steps on the calendar day, 15,800 over the cycle: the stored score is the cycle's. Worked out from the
+    /// calendar steps the parts miss it by more than the tolerance and no row could claim the score.
+    func testAStepsLedPastDayAgreesWithItsStoredScoreOnTheCycleStepTotal() throws {
+        let hr = stride(from: dayStart + 3_600, to: dayStart + 86_400, by: 10).map { HRSample(ts: $0, bpm: 64) }
+        let rows = (0..<158).map { StepSample(ts: dayStart + 3_600 + $0 * 540, counter: $0 * 100) }
+        let cycleSteps = try XCTUnwrap(StrainBatchCycle.steps(rows, ticksPerStep: 1))
+        XCTAssertEqual(cycleSteps, 15_700)
+        func context(_ steps: Int) -> StrainScorerV2.DayContext {
+            .init(validWornSleepMinutes: 420, steps: steps, activeEnergyKcal: nil, hasWearCoverage: true)
+        }
+        let stored = try XCTUnwrap(StrainScorerV2.strain(hr, maxHR: maxHR, restingHR: 52, mode: .physiologicalDay(context(cycleSteps))))
+        let hero = StrainScale.displayValue(fromStored: stored)
+        let start = Date(timeIntervalSince1970: TimeInterval(dayStart + 3_600))
+        let end = Date(timeIntervalSince1970: TimeInterval(dayStart + 86_400))
+
+        let onCycle = StrainDayAnalysis.make(samples: hr, maxHR: maxHR, restingHR: 52, context: context(cycleSteps), start: start, end: end)
+        XCTAssertEqual(StrainCurveRelation.make(components: onCycle.components, hero: hero), .otherSetsScore(.steps))
+        let parts = try XCTUnwrap(StrainScoreParts.make(onCycle.components, hero: hero))
+        XCTAssertEqual(parts.rows.map(\.setsScore), [false, true])
+
+        let onCalendar = StrainDayAnalysis.make(samples: hr, maxHR: maxHR, restingHR: 52, context: context(16_500), start: start, end: end)
+        XCTAssertEqual(StrainCurveRelation.make(components: onCalendar.components, hero: hero), .scoreDiffers)
+    }
+
+    func testThePastDaysMaximumIsTheOverrideOrTheUnroundedEstimate() {
+        XCTAssertEqual(ProfileStore.hrMaxForBatchScoring(override: 0, age: 34), 208 - 0.7 * 34, accuracy: 1e-9)
+        XCTAssertEqual(ProfileStore.hrMaxForBatchScoring(override: 191, age: 34), 191)
+        XCTAssertEqual(ProfileStore.hrMaxForBatchScoring(override: 0, age: 0), 208 - 0.7 * Double(StrainScorer.defaultAge), accuracy: 1e-9)
+        XCTAssertNotEqual(ProfileStore.hrMaxForBatchScoring(override: 0, age: 34), Double(ProfileStore.hrMax(override: 0, age: 34)))
+    }
+}
+
 final class StrainCurveModelTests: XCTestCase {
     private var utc: Calendar {
         var calendar = Calendar(identifier: .gregorian)
@@ -372,9 +430,11 @@ final class StrainCurveModelTests: XCTestCase {
 
 @MainActor
 final class StrainDayCacheTests: XCTestCase {
-    private func request(day: String = "2026-10-10", today: Bool = true, refresh: Int = 1, maxHR: Double = 187) -> StrainDayRequest {
+    private func request(day: String = "2026-10-10", today: Bool = true, refresh: Int = 1, maxHR: Double = 187,
+                         hero: Int? = 82) -> StrainDayRequest {
         StrainDayRequest(dayKey: day, logicalStart: Date(timeIntervalSince1970: 1_000), isToday: today, maxHR: maxHR,
-                         restingHR: 52, steps: 8200, sleepMinutes: 400, refreshSeq: refresh)
+                         restingHR: 52, steps: 8200, stepTicksPerStep: 1, sleepMinutes: 400, heroTenths: hero,
+                         refreshSeq: refresh)
     }
 
     private var result: StrainDayResult {
@@ -387,9 +447,22 @@ final class StrainDayCacheTests: XCTestCase {
         let now = Date()
         cache.store(result, for: request(), now: now)
         let entry = try XCTUnwrap(cache.entry(for: "2026-10-10"))
-        // The repository's refresh counter moves with every sync, so it never invalidates today on its own.
-        XCTAssertTrue(cache.isFresh(entry, for: request(refresh: 9), now: now.addingTimeInterval(StrainDayCache.todayLifetime - 1)))
-        XCTAssertFalse(cache.isFresh(entry, for: request(refresh: 9), now: now.addingTimeInterval(StrainDayCache.todayLifetime + 1)))
+        XCTAssertTrue(cache.isFresh(entry, for: request(), now: now.addingTimeInterval(StrainDayCache.todayLifetime - 1)))
+        XCTAssertFalse(cache.isFresh(entry, for: request(), now: now.addingTimeInterval(StrainDayCache.todayLifetime + 1)))
+    }
+
+    /// The live score ticks every 20 s. A pass read for 8.2 is behind a hero that now says 8.6, however young it is,
+    /// or the curve and the parts would disagree with the hero until the lifetime ran out.
+    func testTodayIsStaleAsSoonAsTheHeroOrTheDataMoves() throws {
+        let cache = StrainDayCache()
+        let now = Date()
+        cache.store(result, for: request(hero: 82), now: now)
+        let entry = try XCTUnwrap(cache.entry(for: "2026-10-10"))
+        let soon = now.addingTimeInterval(20)
+        XCTAssertTrue(cache.isFresh(entry, for: request(hero: 82), now: soon))
+        XCTAssertFalse(cache.isFresh(entry, for: request(hero: 86), now: soon))
+        XCTAssertFalse(cache.isFresh(entry, for: request(hero: nil), now: soon))
+        XCTAssertFalse(cache.isFresh(entry, for: request(refresh: 2, hero: 82), now: soon))
     }
 
     func testAPastDayIsReadAgainOnlyWhenTheDataRefreshesOrItsInputsChange() throws {
@@ -401,6 +474,8 @@ final class StrainDayCacheTests: XCTestCase {
         XCTAssertTrue(cache.isFresh(entry, for: request(day: "2026-10-09", today: false), now: later))
         XCTAssertFalse(cache.isFresh(entry, for: request(day: "2026-10-09", today: false, refresh: 2), now: later))
         XCTAssertFalse(cache.isFresh(entry, for: request(day: "2026-10-09", today: false, maxHR: 190), now: later))
+        // A past day's hero is the stored score, which only moves with a refresh.
+        XCTAssertTrue(cache.isFresh(entry, for: request(day: "2026-10-09", today: false, hero: 90), now: later))
     }
 
     func testTheCacheKeepsTheLastFewDays() {

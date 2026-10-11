@@ -165,6 +165,22 @@ struct StrainCycleWindow: Equatable {
     }
 }
 
+/// What the nightly batch scored a past day from. The parts and the curve beside a stored score are worked out from the
+/// same inputs, or a steps-led day would never agree with its own hero.
+enum StrainBatchCycle {
+    /// The cycle starts at the earliest detected onset among the sleeps that ended on the day (a nap counts), else at
+    /// the day's start. It runs to the day's end.
+    static func start(sleeps: [StrainCycleWindow.Sleep], dayStart: Int, dayEnd: Int) -> Int {
+        sleeps.filter { $0.end >= dayStart && $0.end < dayEnd }.map(\.start).min() ?? dayStart
+    }
+
+    /// The cycle's step total, scaled by the wearer's counter ticks per step as the batch scales it; nil without any.
+    static func steps(_ rows: [StepSample], ticksPerStep: Double) -> Int? {
+        guard let ticks = StepsCounter.stepsInWindow(rows) else { return nil }
+        let scaled = Int((Double(ticks) / max(ticksPerStep, 0.5)).rounded())
+        return scaled > 0 ? scaled : nil
+    }
+}
 
 /// Everything the "Through the day" plot needs from one pass, apart from words.
 struct StrainCurveContent: Equatable {
@@ -217,6 +233,21 @@ extension StrainCurveContent {
         case .otherSetsScore(.energy):
             return isToday ? String(localized: "Today's score comes from active energy")
                            : String(localized: "That day's score came from active energy")
+        case .otherSetsScore(.cardio), .scoreDiffers, .cardioSetsScore, .none:
+            return nil
+        }
+    }
+
+    /// The same words as a full spoken sentence, with its own punctuation, for the plot's VoiceOver summary.
+    func markerSentence(isToday: Bool) -> String? {
+        guard showsConnector else { return nil }
+        switch relation {
+        case .otherSetsScore(.steps):
+            return isToday ? String(localized: "Today's score comes from steps.")
+                           : String(localized: "That day's score came from steps.")
+        case .otherSetsScore(.energy):
+            return isToday ? String(localized: "Today's score comes from active energy.")
+                           : String(localized: "That day's score came from active energy.")
         case .otherSetsScore(.cardio), .scoreDiffers, .cardioSetsScore, .none:
             return nil
         }
