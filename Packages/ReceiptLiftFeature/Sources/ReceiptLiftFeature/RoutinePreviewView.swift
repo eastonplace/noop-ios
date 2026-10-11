@@ -46,87 +46,85 @@ private struct RoutinePreviewContent: View {
   let onBegin: () -> Void
   let onCancel: () -> Void
 
+  @Environment(\.liftFormat) private var format
+
   var body: some View {
-    LiftScreen(
+    LiftPage(
       title: LocalizedStringKey(routine.name),
-      subtitle: "Strength training",
-      backAction: onCancel
+      context: routine.trainingMode.title,
+      backAction: onCancel,
+      lazy: true,
+      bottomPadding: NoopMetrics.space4
     ) {
-      if !routine.notes.isEmpty {
-        Text(routine.notes)
-          .font(StrandFont.subhead)
-          .foregroundStyle(StrandPalette.textSecondary)
-          .fixedSize(horizontal: false, vertical: true)
-      }
-
-      HStack(alignment: .top, spacing: 24) {
-        LiftMetric(title: "Exercises", value: "\(rows.count)")
-        LiftMetric(title: "Estimated time", value: estimatedMinutes > 0 ? "\(estimatedMinutes) min" : "—")
-      }
-
-      LiftDivider()
-
-      LiftSection(title: "Workout plan", trailing: "\(rows.count) exercises") {
-        if rows.isEmpty {
-          LiftEmptyNote(text: "Add exercises during your workout.")
-        } else {
-          ForEach(rows) { row in
-            NavigationLink {
-              if let exercise = row.exercise {
-                ExerciseProgressView(exerciseID: exercise.id, showsInformation: true)
-              }
-            } label: {
-              planRow(row)
-            }
-            .buttonStyle(.plain)
-            .disabled(row.exercise == nil)
-            .accessibilityLabel(row.accessibilityLabel)
-            .accessibilityHint("Opens exercise photo, muscles, instructions, and progress")
-          }
-        }
-      }
+      overview
+      FlatSectionSeparator()
+      planSection
     }
     .navigationBarBackButtonHidden(true)
     .safeAreaInset(edge: .bottom, spacing: 0) {
-      NoopButton("Start workout", systemImage: "play.fill", kind: .primary, fullWidth: true, action: onBegin)
+      Button(action: onBegin) { Label("Start workout", systemImage: "play.fill").liftPillLabel() }
+        .buttonStyle(PrimaryPillButtonStyle())
         .liftFooterBar()
     }
   }
 
-  private func planRow(_ row: RoutinePreviewRow) -> some View {
-    HStack(alignment: .top, spacing: 14) {
-      if let exercise = row.exercise {
-        LiftExerciseThumb(exercise: exercise, size: 56, showsBorder: false)
-          .clipShape(.rect(cornerRadius: NoopMetrics.radius1))
-      }
-      VStack(alignment: .leading, spacing: 4) {
-        Text(row.title.capitalized)
-          .font(StrandFont.body)
-          .foregroundStyle(StrandPalette.textPrimary)
-          .fixedSize(horizontal: false, vertical: true)
-        if let exercise = row.exercise {
-          Text("\(exercise.muscleGroup.capitalized) · \(exercise.equipment.capitalized)")
-            .font(StrandFont.caption)
+  private var overview: some View {
+    LiftFlatSection("Overview", systemImage: "list.bullet.rectangle") {
+      VStack(alignment: .leading, spacing: WidgetMetrics.contentSpacing) {
+        if !routine.notes.isEmpty {
+          Text(verbatim: routine.notes)
+            .font(StrandFont.subhead)
             .foregroundStyle(StrandPalette.textSecondary)
+            .fixedSize(horizontal: false, vertical: true)
         }
-        if let plan = row.plan {
-          Text("\(plan.sets) sets × \(plan.reps) reps")
-            .font(StrandFont.subhead.weight(.semibold))
-            .foregroundStyle(StrandPalette.accent)
-          Text(row.detail)
-            .font(StrandFont.caption)
-            .foregroundStyle(StrandPalette.textSecondary)
-        }
+        FactStrip(facts: [
+          .init("Exercises", value: rows.count.formatted()),
+          .init("Sets", value: totalSets > 0 ? totalSets.formatted() : LiftFormat.missing),
+          .init(
+            "Estimated time", value: estimatedMinutes > 0 ? format.minutes(estimatedMinutes) : LiftFormat.missing,
+            spokenValue: estimatedMinutes > 0 ? format.spokenDuration(TimeInterval(estimatedMinutes * 60)) : nil),
+        ])
       }
-      .frame(maxWidth: .infinity, alignment: .leading)
-      Image(systemName: "chevron.right")
-        .font(.system(size: 13, weight: .semibold))
-        .foregroundStyle(StrandPalette.textTertiary)
-        .padding(.top, 4)
-        .accessibilityHidden(true)
     }
-    .contentRowSurface(boundedPadding: NoopMetrics.space3, flatVerticalPadding: NoopMetrics.space3)
-    .contentShape(Rectangle())
+  }
+
+  private var totalSets: Int {
+    rows.reduce(0) { $0 + (LiftStore.setCount(from: $1.plan?.sets ?? "") ?? 0) }
+  }
+
+  private var planSection: some View {
+    LiftFlatSection("Workout plan", trailing: .text(LiftFormat.exerciseCount(rows.count)), contentSpacing: 0) {
+      if rows.isEmpty {
+        LiftNote(text: "Add exercises during your workout.")
+          .padding(.vertical, NoopMetrics.space2)
+      } else {
+        LiftRowList(items: rows, separatorInset: 52 + NoopMetrics.space3) { row, _ in
+          NavigationLink {
+            if let exercise = row.exercise {
+              ExerciseProgressView(exerciseID: exercise.id, showsInformation: true)
+            }
+          } label: {
+            planRow(row)
+          }
+          .buttonStyle(FlatRowPressStyle())
+          .disabled(row.exercise == nil)
+          .accessibilityElement(children: .ignore)
+          .accessibilityLabel(row.accessibilityLabel)
+          .accessibilityHint("Opens exercise photo, muscles, instructions, and progress")
+        }
+      }
+    }
+  }
+
+  private func planRow(_ row: RoutinePreviewRow) -> some View {
+    LiftListRow(
+      title: row.title,
+      highlight: row.plan.map { String(localized: "\($0.sets) sets × \($0.reps) reps") },
+      details: [row.exercise.map { LiftFormat.facts([$0.muscleGroup.capitalized, $0.equipment.capitalized]) } ?? "", row.detail]
+        .filter { !$0.isEmpty },
+      showsChevron: row.exercise != nil,
+      leading: { LiftExerciseThumb(exercise: row.exercise, size: 52) }
+    )
   }
 }
 
@@ -163,7 +161,7 @@ private struct RoutinePreviewRow: Identifiable {
   }
 
   var title: String {
-    exercise?.name ?? "Exercise unavailable"
+    exercise?.name ?? String(localized: "Exercise unavailable")
   }
 
   var prescription: String {
@@ -172,17 +170,17 @@ private struct RoutinePreviewRow: Identifiable {
 
   var detail: String {
     guard let plan else {
-      return "Prescription unavailable · rest uses workout default"
+      return String(localized: "Prescription unavailable · rest uses workout default")
     }
-    return "Rest \(plan.rest) · effort \(plan.targetEffort)"
+    return String(localized: "Rest \(plan.rest) · effort \(plan.targetEffort)")
   }
 
   var accessibilityLabel: String {
-    let prefix = "Exercise \(index), \(title)"
+    let prefix = String(localized: "Exercise \(index), \(title)")
     guard let plan else {
-      return "\(prefix), prescription unavailable, rest uses workout default"
+      return String(localized: "\(prefix), prescription unavailable, rest uses workout default")
     }
-    return "\(prefix), \(plan.prescription), rest \(plan.rest), effort \(plan.targetEffort)"
+    return String(localized: "\(prefix), \(plan.prescription), rest \(plan.rest), effort \(plan.targetEffort)")
   }
 }
 

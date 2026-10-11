@@ -1,10 +1,11 @@
-import Charts
 import StrandDesign
 import SwiftUI
 
+/// One exercise: its best set, how to do it, its progress over time and the sets behind it.
 struct ExerciseProgressView: View {
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
-  @Environment(\.dismiss) private var dismiss
+  @Environment(\.liftScreenRole) private var inheritedRole
+  @Environment(\.liftFormat) private var format
   @EnvironmentObject private var store: LiftStore
 
   let exerciseID: UUID
@@ -13,8 +14,8 @@ struct ExerciseProgressView: View {
   @State private var selectedMode: LiftExerciseProgressMode = .strength
   @State private var referenceNow = Date()
   @State private var selectedRange: LiftProgressRange = .twelveWeeks
-  @State private var selectedDate: Date?
   @State private var showsInformation = false
+  @State private var snapshot: LiftExerciseProgressSnapshot?
 
   init(exerciseID: UUID, showsInformation: Bool = false, closesModal: Bool = false) {
     self.exerciseID = exerciseID
@@ -27,209 +28,133 @@ struct ExerciseProgressView: View {
   }
 
   var body: some View {
-    let snapshot = LiftProgressMath.exerciseProgressSnapshot(
+    LiftPage(
+      title: LocalizedStringKey(exercise?.name.liftDisplayName ?? String(localized: "Exercise not found")),
+      context: exercise.map { LiftFormat.facts([$0.muscleGroup, $0.equipment]).liftDisplayName },
+      lazy: true,
+      bottomPadding: NoopMetrics.space6
+    ) {
+      if let exercise {
+        header(exercise)
+        FlatSectionSeparator()
+        informationSection(exercise)
+        FlatSectionSeparator()
+        ExerciseProgressChartSection(
+          exercise: exercise,
+          points: snapshot?.points ?? [],
+          range: $selectedRange,
+          mode: $selectedMode,
+          referenceNow: referenceNow
+        )
+        FlatSectionSeparator()
+        recentSetsSection(exercise)
+      } else {
+        LiftMessage(
+          symbol: "questionmark.circle",
+          title: "Exercise not found",
+          message: "This local exercise is no longer available. Return to history and choose another exercise."
+        )
+      }
+    }
+    .environment(\.liftScreenRole, closesModal ? .sheet : inheritedRole)
+    .onAppear {
+      referenceNow = Date()
+      refresh()
+    }
+    .onChange(of: store.sessions) { refresh() }
+    .liftQAScene("exercise-info") { showsInformation = true }
+  }
+
+  private func refresh() {
+    snapshot = LiftProgressMath.exerciseProgressSnapshot(
       sessions: store.sessions,
       exerciseID: exerciseID,
       now: referenceNow,
       calendar: .current
     )
-    LiftScreen(
-      title: LocalizedStringKey(exercise?.name.liftDisplayName ?? "Exercise not found"),
-      subtitle: exercise.map { LocalizedStringKey("\($0.muscleGroup) · \($0.equipment)".liftDisplayName) },
-      backAction: closesModal ? nil : { dismiss() },
-      lazy: true,
-      bottomPadding: 40,
-      trailing: {
-        if closesModal {
-          NoopIconButton("xmark", accessibilityLabel: "Close") { dismiss() }
+  }
+
+  // MARK: Header
+
+  private func header(_ exercise: LiftExercise) -> some View {
+    let best = snapshot?.bestSet
+    let oneRepMax = best.flatMap { $0.weight > 0 ? $0.estimatedOneRepMax : nil }
+    let parts = oneRepMax.map { format.parts(pounds: $0) }
+    return LiftFlatSection("Est. 1RM", systemImage: "scalemass.fill") {
+      VStack(alignment: .leading, spacing: WidgetMetrics.contentSpacing) {
+        HStack(alignment: .center, spacing: NoopMetrics.space4) {
+          Button { toggleInformation() } label: {
+            LiftExerciseThumb(exercise: exercise, size: 84)
+          }
+          .buttonStyle(.plain)
+          .accessibilityLabel("Show \(exercise.name) photo and muscles")
+          HeroValue(
+            value: parts?.number ?? LiftFormat.missing,
+            unit: parts?.unit,
+            caption: best.map { String(localized: "Best set · \(setLabel($0, exercise: exercise))") },
+            captionPlacement: .below
+          )
+          .accessibilityElement(children: .ignore)
+          .accessibilityLabel("Estimated one-rep max")
+          .accessibilityValue(
+            oneRepMax.map { format.spokenWeight(pounds: $0) } ?? String(localized: "No data"))
+        }
+        if LiftStore.prDetectionEnabled, let record = snapshot?.latestPersonalRecord {
+          LiftPRPayoffView(record: record)
         }
       }
-    ) {
-      if let exercise {
-        exerciseHeader(exercise, snapshot: snapshot)
-        DisclosureGroup(isExpanded: $showsInformation) {
-          ExerciseInformationView(exercise: exercise).padding(.vertical, 12)
-        } label: {
-          Text("Exercise photo, muscles & instructions")
+    }
+  }
+
+  private func setLabel(_ set: LiftSet, exercise: LiftExercise) -> String {
+    String(localized: "\(format.load(pounds: set.weight, for: exercise)) × \(set.reps)")
+  }
+
+  // MARK: Information
+
+  private func informationSection(_ exercise: LiftExercise) -> some View {
+    LiftFlatSection("Exercise", systemImage: "info.circle", contentSpacing: 0) {
+      Button { toggleInformation() } label: {
+        HStack(spacing: NoopMetrics.space3) {
+          Text("Photo, muscles & instructions")
             .font(StrandFont.subhead)
             .foregroundStyle(StrandPalette.textPrimary)
+            .fixedSize(horizontal: false, vertical: true)
+          Spacer(minLength: NoopMetrics.space2)
+          Image(systemName: "chevron.down")
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(StrandPalette.textTertiary)
+            .rotationEffect(.degrees(showsInformation ? 180 : 0))
+            .accessibilityHidden(true)
         }
-        .tint(LiftTheme.accent)
-        SegmentedPillControl(
-          LiftProgressRange.allCases,
-          selection: $selectedRange
-        ) { $0.title }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        modeBar
-        progressChart(points: snapshot.points)
-        LiftSection(title: "Recent sets") {
-          if snapshot.recentSets.isEmpty {
-            LiftEmptyNote(text: "No working sets yet.")
-          } else {
-            ForEach(snapshot.recentSets) { row in
-              recentSetRow(
-                row,
-                exercise: exercise,
-                personalRecords: snapshot.historicalPersonalRecords
-              )
-            }
-          }
-        }
+        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+        .contentShape(Rectangle())
+      }
+      .buttonStyle(FlatRowPressStyle())
+      .accessibilityValue(showsInformation ? Text("Expanded") : Text("Collapsed"))
+      .accessibilityHint("Shows the exercise photo, muscles and instructions")
+      if showsInformation {
+        ExerciseInformationView(exercise: exercise)
+          .padding(.top, NoopMetrics.space2)
+          .transition(.opacity)
+      }
+    }
+  }
+
+  private func toggleInformation() {
+    withAnimation(reduceMotion ? LiftMotion.reducedCrossfade : LiftMotion.surface) { showsInformation.toggle() }
+  }
+
+  // MARK: Recent sets
+
+  private func recentSetsSection(_ exercise: LiftExercise) -> some View {
+    let rows = snapshot?.recentSets ?? []
+    return LiftFlatSection("Recent sets", systemImage: "list.bullet", contentSpacing: 0) {
+      if rows.isEmpty {
+        LiftNote(text: "No working sets yet.").padding(.vertical, NoopMetrics.space2)
       } else {
-        missingExercise
-      }
-    }
-    .onAppear { referenceNow = Date() }
-    .liftQAScene("exercise-info") { showsInformation = true }
-    .onChange(of: selectedRange) { selectedDate = nil }
-    .onChange(of: selectedMode) { selectedDate = nil }
-  }
-
-  private func exerciseHeader(
-    _ exercise: LiftExercise,
-    snapshot: LiftExerciseProgressSnapshot
-  ) -> some View {
-    VStack(alignment: .leading, spacing: 12) {
-      HStack(alignment: .top, spacing: 14) {
-        Button { showsInformation.toggle() } label: {
-          LiftExerciseThumb(exercise: exercise, size: 84)
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Show \(exercise.name) photo and muscles")
-        VStack(alignment: .leading, spacing: 4) {
-          Text("Est. 1RM").strandOverline()
-          Text(estimatedOneRepMaxLabel(bestSet: snapshot.bestSet))
-            .font(StrandFont.number(36, weight: .bold))
-            .foregroundStyle(StrandPalette.textPrimary)
-            .lineLimit(1)
-            .minimumScaleFactor(0.6)
-          Text("Best set · \(bestSetLabel(exercise, bestSet: snapshot.bestSet))")
-            .font(StrandFont.caption)
-            .foregroundStyle(StrandPalette.textSecondary)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityElement(children: .combine)
-      }
-      if LiftStore.prDetectionEnabled, let latestPersonalRecord = snapshot.latestPersonalRecord {
-        LiftPRPayoffView(record: latestPersonalRecord)
-      }
-    }
-  }
-
-  private var modeBar: some View {
-    SegmentedPillControl(
-      LiftExerciseProgressMode.allCases,
-      selection: modeSelection
-    ) { $0.title.capitalized }
-    .frame(maxWidth: .infinity, alignment: .leading)
-  }
-
-  private var modeSelection: Binding<LiftExerciseProgressMode> {
-    Binding(
-      get: { selectedMode },
-      set: { mode in
-        withAnimation(reduceMotion ? LiftMotion.reducedCrossfade : LiftMotion.compose) {
-          selectedMode = mode
-        }
-      }
-    )
-  }
-
-  private func progressChart(points: [VolumePoint]) -> some View {
-    let visiblePoints = visiblePoints(in: points)
-    return LiftSection(title: LocalizedStringKey(chartTitle)) {
-      VStack(alignment: .leading, spacing: 10) {
-        Text("Completed workouts only. Volume includes warm-ups; strength and reps use working sets. Estimated 1RM uses weight × (1 + reps / 30).")
-          .font(StrandFont.caption)
-          .foregroundStyle(StrandPalette.textSecondary)
-          .fixedSize(horizontal: false, vertical: true)
-        if visiblePoints.isEmpty {
-          LiftStateMessage(
-            symbol: "chart.xyaxis.line",
-            title: "No \(selectedMode.title.lowercased()) data yet",
-            message: "Log working sets to see this chart."
-          )
-          .frame(minHeight: 180)
-        } else {
-          VStack(alignment: .leading, spacing: 12) {
-            let selectedPoint = selectedDate.flatMap { date in
-              visiblePoints.min { abs($0.date.timeIntervalSince(date)) < abs($1.date.timeIntervalSince(date)) }
-            } ?? visiblePoints.last
-            if let point = selectedPoint {
-              VStack(alignment: .leading, spacing: 6) {
-                Text(point.date.formatted(date: .abbreviated, time: .omitted))
-                  .font(StrandFont.subhead.weight(.semibold))
-                  .foregroundStyle(StrandPalette.textPrimary)
-                Text(formattedChartValue(point))
-                  .font(StrandFont.number(26, weight: .bold))
-                  .foregroundStyle(StrandPalette.textPrimary)
-                Text("Estimated 1RM: \(liftMeasuredWeight(point.bestEstimatedOneRepMax)) · Volume: \(liftVolume(point.volume)) · Best reps: \(point.bestReps)")
-                  .font(StrandFont.caption)
-                  .foregroundStyle(StrandPalette.textSecondary)
-              }
-              .accessibilityElement(children: .combine)
-            }
-            Text("Touch the chart to inspect a training day.")
-              .font(StrandFont.caption)
-              .foregroundStyle(StrandPalette.textTertiary)
-            Chart {
-              ForEach(visiblePoints) { point in
-                if selectedMode == .volume {
-                  BarMark(
-                    x: .value("Date", point.date, unit: .day),
-                    y: .value(chartValueLabel, chartValue(point))
-                  )
-                  .foregroundStyle(LiftTheme.accent)
-                  .accessibilityLabel(point.date.formatted(.dateTime.month(.abbreviated).day().year()))
-                  .accessibilityValue(formattedChartValue(point))
-                } else {
-                  LineMark(
-                    x: .value("Date", point.date, unit: .day),
-                    y: .value(chartValueLabel, chartValue(point))
-                  )
-                  .foregroundStyle(LiftTheme.accent)
-                  .lineStyle(StrokeStyle(lineWidth: 2))
-                  PointMark(
-                    x: .value("Date", point.date, unit: .day),
-                    y: .value(chartValueLabel, chartValue(point))
-                  )
-                  .foregroundStyle(LiftTheme.accent)
-                  .accessibilityLabel(point.date.formatted(.dateTime.month(.abbreviated).day().year()))
-                  .accessibilityValue(formattedChartValue(point))
-                }
-              }
-              if let point = selectedPoint {
-                RuleMark(x: .value("Selected day", point.date, unit: .day))
-                  .foregroundStyle(StrandPalette.textSecondary)
-                  .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 4]))
-              }
-            }
-            .chartXSelection(value: $selectedDate)
-            .chartXScale(domain: chartDomain(for: visiblePoints))
-            .chartXAxis {
-              AxisMarks(values: .automatic(desiredCount: 5)) {
-                AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5))
-                  .foregroundStyle(LiftTheme.rule)
-                AxisValueLabel(format: .dateTime.month(.abbreviated).day())
-                  .font(StrandFont.micro)
-                  .foregroundStyle(StrandPalette.textTertiary)
-              }
-            }
-            .chartYAxis {
-              AxisMarks(position: .leading, values: .automatic(desiredCount: 4)) {
-                AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5))
-                  .foregroundStyle(LiftTheme.rule)
-                AxisValueLabel()
-                  .font(StrandFont.micro)
-                  .foregroundStyle(StrandPalette.textTertiary)
-              }
-            }
-            .frame(height: 260)
-            .id(selectedMode)
-            .transition(.opacity)
-            .accessibilityLabel(chartTitle.capitalized)
-            .accessibilityValue(chartSummary(for: visiblePoints))
-          }
+        LiftRowList(items: rows) { row, _ in
+          recentSetRow(row, exercise: exercise, personalRecords: snapshot?.historicalPersonalRecords)
         }
       }
     }
@@ -238,113 +163,234 @@ struct ExerciseProgressView: View {
   private func recentSetRow(
     _ row: LiftRecentSetRow,
     exercise: LiftExercise,
-    personalRecords: LiftHistoricalPRLedger
+    personalRecords: LiftHistoricalPRLedger?
   ) -> some View {
-    let personalRecord = LiftStore.prDetectionEnabled
-      ? personalRecords[row.set.id]
-      : nil
-    let load = "\(liftLoad(row.set.weight, for: exercise)) × \(row.set.reps)"
-    let date = row.set.completedAt.formatted(.dateTime.month(.abbreviated).day().year())
-    var detail = "Set \(row.set.setNumber) · RPE \(String(format: "%.1f", row.set.rpe)) · Volume \(liftVolume(row.set.volume)) · Est. 1RM \(liftMeasuredWeight(row.set.estimatedOneRepMax))"
-    if !row.set.notes.isEmpty { detail += "\n\(row.set.notes)" }
+    let personalRecord = LiftStore.prDetectionEnabled ? personalRecords?[row.set.id] : nil
+    let set = row.set
+    let load = String(localized: "\(format.load(pounds: set.weight, for: exercise)) × \(set.reps)")
+    let rpe = set.rpe.formatted(.number.precision(.fractionLength(1)).locale(format.locale))
+    var details = [
+      LiftFormat.facts([String(localized: "Set \(set.setNumber)"), String(localized: "RPE \(rpe)")]),
+      LiftFormat.facts([
+        String(localized: "Volume \(format.volume(pounds: set.volume))"),
+        String(localized: "Est. 1RM \(format.measured(pounds: set.estimatedOneRepMax))"),
+      ]),
+    ]
+    if !set.notes.isEmpty { details.append(set.notes) }
     return NavigationLink {
       CompletedReceiptView(session: row.session, presentation: .settled)
     } label: {
-      LiftRow(
-        title: date,
-        detail: detail,
+      LiftListRow(
+        title: format.dayYear(set.completedAt),
+        details: details,
         value: load,
         showsChevron: true,
         leading: { EmptyView() },
-        trailing: {
-          if let personalRecord {
-            LiftPRBadge(record: personalRecord)
-          }
-        }
+        accessory: { if let personalRecord { LiftPRBadge(record: personalRecord) } }
       )
     }
-    .buttonStyle(.plain)
+    .buttonStyle(FlatRowPressStyle())
     .accessibilityElement(children: .ignore)
     .accessibilityLabel(
-      "\(row.set.completedAt.formatted(date: .abbreviated, time: .omitted)), \(liftLoad(row.set.weight, for: exercise)) by \(row.set.reps) reps\(personalRecord == nil ? "" : ", personal record")"
+      LiftFormat.facts([
+        format.dayYear(set.completedAt),
+        String(localized: "\(format.spokenLoad(pounds: set.weight, for: exercise)) by \(set.reps) reps"),
+        personalRecord == nil ? "" : String(localized: "personal record"),
+      ])
     )
     .accessibilityHint("Opens the parent workout receipt")
   }
+}
 
-  private var missingExercise: some View {
-    LiftStateMessage(
-      symbol: "questionmark.circle",
-      title: "Exercise not found",
-      message: "This local exercise is no longer available. Return to history and choose another exercise."
-    )
+// MARK: - Chart
+
+/// The mode and range controls, the reading under the finger and the chart. The reading lives here, so a scrub redraws
+/// this section and nothing else on the page.
+private struct ExerciseProgressChartSection: View {
+  let exercise: LiftExercise
+  let points: [VolumePoint]
+  @Binding var range: LiftProgressRange
+  @Binding var mode: LiftExerciseProgressMode
+  let referenceNow: Date
+
+  @EnvironmentObject private var store: LiftStore
+  @Environment(\.liftFormat) private var format
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @State private var selection: Int?
+
+  var body: some View {
+    let window = LiftProgressMath.window(for: range, sessions: store.sessions, now: referenceNow, calendar: .current)
+    let visible = visiblePoints(window: window)
+    return LiftFlatSection("Progress", systemImage: "chart.xyaxis.line") {
+      VStack(alignment: .leading, spacing: WidgetMetrics.contentSpacing) {
+        controls
+        if visible.isEmpty {
+          emptyState
+        } else {
+          reading(of: shownPoint(in: visible))
+          ScrubChart(
+            points: visible.map { ScrubChartPoint(date: $0.date, value: chartValue($0)) },
+            domain: window.startInclusive...max(window.endInclusive, window.startInclusive.addingTimeInterval(86_400)),
+            style: mode == .volume ? .bars : .line,
+            tint: .workout,
+            selection: $selection,
+            calendar: .current,
+            locale: format.locale,
+            summary: summary(of: visible),
+            spokenValue: { point in
+              guard let match = visible.first(where: { $0.date == point.date }) else { return "" }
+              return LiftFormat.facts([format.dayYear(match.date), spokenValue(match)])
+            }
+          )
+          .id(mode)
+          Text("Completed workouts only. Volume includes warm-ups; strength and reps use working sets. Estimated 1RM uses weight × (1 + reps / 30).")
+            .font(StrandFont.caption)
+            .foregroundStyle(StrandPalette.textTertiary)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+      }
+    }
+    .onChange(of: mode) { selection = nil }
+    .onChange(of: range) { selection = nil }
   }
 
-  private func visiblePoints(in points: [VolumePoint]) -> [VolumePoint] {
-    let window = LiftProgressMath.window(for: selectedRange, sessions: store.sessions, now: referenceNow, calendar: .current)
-    return points.filter { point in
-      guard point.date >= window.startInclusive, point.date <= window.endInclusive else { return false }
-      return switch selectedMode {
-      case .strength: point.bestEstimatedOneRepMax > 0
-      case .volume: point.volume > 0
-      case .reps: point.bestReps > 0
+  // MARK: Controls
+
+  private var controls: some View {
+    ViewThatFits(in: .horizontal) {
+      HStack(spacing: NoopMetrics.space3) {
+        modeMenu
+        rangeControl
+      }
+      VStack(alignment: .leading, spacing: NoopMetrics.space3) {
+        modeMenu
+        rangeControl
       }
     }
   }
 
-  private func chartDomain(for visiblePoints: [VolumePoint]) -> ClosedRange<Date> {
-    guard let first = visiblePoints.first?.date, let last = visiblePoints.last?.date else {
-      return referenceNow...referenceNow.addingTimeInterval(86_400)
+  private var modeMenu: some View {
+    Menu {
+      Picker("Metric", selection: modeBinding) {
+        ForEach(LiftExerciseProgressMode.allCases) { Text(verbatim: $0.label).tag($0) }
+      }
+    } label: {
+      TrendsMenuChipLabel(title: mode.label, systemImage: "figure.strengthtraining.traditional", tint: DomainTint.workout.accent)
+        .frame(minHeight: 44)
     }
-    if first == last {
-      return first...first.addingTimeInterval(86_400)
-    }
-    return first...last
+    .accessibilityLabel("Metric")
+    .accessibilityValue(Text(verbatim: mode.label))
   }
 
-  private var chartTitle: String {
-    switch selectedMode {
-    case .strength: "Strength (Estimated 1RM)"
-    case .volume: "Daily Volume (LB)"
-    case .reps: "Best Reps"
+  private var rangeControl: some View {
+    SegmentedPillControl(LiftProgressRange.allCases, selection: $range) { $0.label }
+  }
+
+  private var modeBinding: Binding<LiftExerciseProgressMode> {
+    Binding(
+      get: { mode },
+      set: { newMode in
+        withAnimation(reduceMotion ? LiftMotion.reducedCrossfade : LiftMotion.compose) { mode = newMode }
+      }
+    )
+  }
+
+  // MARK: Reading
+
+  private func shownPoint(in visible: [VolumePoint]) -> VolumePoint? {
+    selection.flatMap { visible.indices.contains($0) ? visible[$0] : nil } ?? visible.last
+  }
+
+  @ViewBuilder
+  private func reading(of point: VolumePoint?) -> some View {
+    if let point {
+      let parts = valueParts(point)
+      VStack(alignment: .leading, spacing: 4) {
+        HeroValue(
+          value: parts.number, unit: parts.unit, caption: format.dayYear(point.date), captionPlacement: .below
+        )
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(verbatim: mode.label))
+        .accessibilityValue(LiftFormat.facts([format.dayYear(point.date), spokenValue(point)]))
+        Text(
+          verbatim: LiftFormat.facts([
+            String(localized: "Est. 1RM \(format.measured(pounds: point.bestEstimatedOneRepMax))"),
+            String(localized: "Volume \(format.volume(pounds: point.volume))"),
+            String(localized: "Best reps \(point.bestReps)"),
+          ])
+        )
+        .font(StrandFont.footnote)
+        .foregroundStyle(StrandPalette.textSecondary)
+        .fixedSize(horizontal: false, vertical: true)
+        .accessibilityHidden(true)
+      }
     }
   }
 
-  private var chartValueLabel: String {
-    switch selectedMode {
-    case .strength: "Best estimated one rep max"
-    case .volume: "Daily volume in pounds"
-    case .reps: "Best working-set reps"
+  private var emptyState: some View {
+    LiftMessage(
+      symbol: "chart.xyaxis.line",
+      title: LocalizedStringKey(emptyTitle),
+      message: "Log working sets to see this chart."
+    )
+    .frame(minHeight: 140, alignment: .topLeading)
+  }
+
+  private var emptyTitle: String {
+    switch mode {
+    case .strength: String(localized: "No strength data yet")
+    case .volume: String(localized: "No volume data yet")
+    case .reps: String(localized: "No reps data yet")
+    }
+  }
+
+  // MARK: Values
+
+  private func valueParts(_ point: VolumePoint) -> (number: String, unit: String?) {
+    switch mode {
+    case .strength:
+      point.bestEstimatedOneRepMax > 0
+        ? { let parts = format.parts(pounds: point.bestEstimatedOneRepMax); return (parts.number, parts.unit) }()
+        : (LiftFormat.missing, nil)
+    case .volume:
+      point.volume > 0
+        ? { let parts = format.parts(pounds: point.volume); return (parts.number, parts.unit) }()
+        : (LiftFormat.missing, nil)
+    case .reps:
+      (point.bestReps.formatted(.number.locale(format.locale)), String(localized: "reps"))
+    }
+  }
+
+  private func spokenValue(_ point: VolumePoint) -> String {
+    switch mode {
+    case .strength: format.spokenWeight(pounds: point.bestEstimatedOneRepMax)
+    case .volume: format.spokenWeight(pounds: point.volume)
+    case .reps: String(localized: "\(point.bestReps) reps")
     }
   }
 
   private func chartValue(_ point: VolumePoint) -> Double {
-    switch selectedMode {
+    switch mode {
     case .strength: point.bestEstimatedOneRepMax
     case .volume: point.volume
     case .reps: Double(point.bestReps)
     }
   }
 
-  private func formattedChartValue(_ point: VolumePoint) -> String {
-    switch selectedMode {
-    case .strength: liftMeasuredWeight(point.bestEstimatedOneRepMax)
-    case .volume: liftVolume(point.volume)
-    case .reps: "\(point.bestReps) reps"
+  private func summary(of visible: [VolumePoint]) -> String {
+    guard let first = visible.first, let last = visible.last else { return String(localized: "No data") }
+    return String(
+      localized: "\(mode.label) chart, \(visible.count) days from \(format.dayYear(first.date)) to \(format.dayYear(last.date))")
+  }
+
+  private func visiblePoints(window: LiftProgressWindow) -> [VolumePoint] {
+    points.filter { point in
+      guard point.date >= window.startInclusive, point.date <= window.endInclusive else { return false }
+      return switch mode {
+      case .strength: point.bestEstimatedOneRepMax > 0
+      case .volume: point.volume > 0
+      case .reps: point.bestReps > 0
+      }
     }
-  }
-
-  private func chartSummary(for visiblePoints: [VolumePoint]) -> String {
-    guard let first = visiblePoints.first, let last = visiblePoints.last else { return "No data" }
-    return "\(visiblePoints.count) daily points from \(first.date.formatted(date: .abbreviated, time: .omitted)) to \(last.date.formatted(date: .abbreviated, time: .omitted))"
-  }
-
-  private func bestSetLabel(_ exercise: LiftExercise, bestSet: LiftSet?) -> String {
-    guard let bestSet else { return "—" }
-    return "\(liftLoad(bestSet.weight, for: exercise)) × \(bestSet.reps)"
-  }
-
-  private func estimatedOneRepMaxLabel(bestSet: LiftSet?) -> String {
-    guard let bestSet, bestSet.weight > 0 else { return "—" }
-    return liftMeasuredWeight(bestSet.estimatedOneRepMax)
   }
 }

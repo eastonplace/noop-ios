@@ -14,8 +14,6 @@ enum LiftChromeMetrics {
   static let gutter: CGFloat = NoopMetrics.space4
   /// Readable column cap on iPad, matching `ScreenScaffold`.
   static let maxColumnWidth: CGFloat = 700
-  /// Spacing between stacked blocks in a page not yet moved to flat sections.
-  static let blockSpacing: CGFloat = 16
 }
 
 // MARK: Host chrome
@@ -32,10 +30,12 @@ extension EnvironmentValues {
 }
 
 /// Where a page sits. A root page is the first thing in the sheet (a sheet title and the host's close button); a pushed
-/// page is reached from another and wears the compact row with its back chip.
+/// page is reached from another and wears the compact row with its back chip; a sheet page is the first page of a modal
+/// of its own and closes just that modal.
 enum LiftScreenRole {
   case root
   case pushed
+  case sheet
 }
 
 extension EnvironmentValues {
@@ -51,6 +51,8 @@ struct LiftPage<Trailing: View, Content: View>: View {
   var context: String? = nil
   /// What the back chip of a pushed page does; it pops the page when nil.
   var backAction: (() -> Void)? = nil
+  /// What the close chip of a sheet page does; it dismisses the modal when nil.
+  var closeAction: (() -> Void)? = nil
   /// Build the content lazily: a long list only draws the rows on screen.
   var lazy = false
   var bottomPadding: CGFloat = NoopMetrics.space4
@@ -65,6 +67,7 @@ struct LiftPage<Trailing: View, Content: View>: View {
     ScrollView(.vertical) {
       column
         .padding(.horizontal, LiftChromeMetrics.gutter)
+        .padding(.top, NoopMetrics.space2)
         .padding(.bottom, bottomPadding)
         .frame(maxWidth: LiftChromeMetrics.maxColumnWidth, alignment: .leading)
         .frame(maxWidth: .infinity)
@@ -98,6 +101,13 @@ struct LiftPage<Trailing: View, Content: View>: View {
     switch role {
     case .pushed:
       NoopDetailTitleRow(title, context: context, backAction: backAction ?? { dismiss() }) { trailing() }
+    case .sheet:
+      NoopSheetTitleRow(title) {
+        HStack(spacing: 0) {
+          trailing()
+          HeaderChipButton("xmark", accessibilityLabel: "Close") { (closeAction ?? { dismiss() })() }
+        }
+      }
     case .root:
       if let onBack = host.onBack {
         NoopDetailTitleRow(title, context: context, backAction: onBack) { trailingWithClose }
@@ -122,13 +132,14 @@ extension LiftPage where Trailing == EmptyView {
     title: LocalizedStringKey,
     context: String? = nil,
     backAction: (() -> Void)? = nil,
+    closeAction: (() -> Void)? = nil,
     lazy: Bool = false,
     bottomPadding: CGFloat = NoopMetrics.space4,
     @ViewBuilder content: @escaping () -> Content
   ) {
     self.init(
-      title: title, context: context, backAction: backAction, lazy: lazy, bottomPadding: bottomPadding,
-      trailing: { EmptyView() }, content: content)
+      title: title, context: context, backAction: backAction, closeAction: closeAction, lazy: lazy,
+      bottomPadding: bottomPadding, trailing: { EmptyView() }, content: content)
   }
 }
 
@@ -177,6 +188,21 @@ struct LiftFlatSection<Content: View>: View {
     FlatSection(title, systemImage: systemImage, tint: tint, trailing: trailing, contentSpacing: contentSpacing) {
       content()
     }
+  }
+}
+
+/// A flat section whose title is data (a month), shown as written.
+struct LiftDataSection<Content: View>: View {
+  let title: String
+  var systemImage = "calendar"
+  var trailing: EyebrowTrailing = .none
+  var contentSpacing: CGFloat = 0
+  @ViewBuilder var content: () -> Content
+
+  var body: some View {
+    FlatSection(
+      verbatim: title, systemImage: systemImage, tint: .workout, trailing: trailing, contentSpacing: contentSpacing
+    ) { content() }
   }
 }
 
@@ -238,6 +264,8 @@ struct LiftMessage: View {
 /// side it would cut its words.
 struct LiftListRow<Leading: View, Accessory: View>: View {
   let title: String
+  /// A line in the workout colour under the title: what the row asks of you ("4 sets × 6-8 reps").
+  var highlight: String? = nil
   var details: [String] = []
   /// The trailing figure ("1,240 lb"); a missing one reads "—" in the tertiary ink.
   var value: String? = nil
@@ -289,6 +317,12 @@ struct LiftListRow<Leading: View, Accessory: View>: View {
         .font(StrandFont.body.weight(.semibold))
         .foregroundStyle(StrandPalette.textPrimary)
         .fixedSize(horizontal: false, vertical: true)
+      if let highlight {
+        Text(verbatim: highlight)
+          .font(StrandFont.subhead.weight(.semibold))
+          .foregroundStyle(DomainTint.workout.accent)
+          .fixedSize(horizontal: false, vertical: true)
+      }
       ForEach(Array(details.enumerated()), id: \.offset) { _, detail in
         Text(verbatim: detail)
           .font(StrandFont.footnote)
@@ -315,9 +349,11 @@ struct LiftListRow<Leading: View, Accessory: View>: View {
 }
 
 extension LiftListRow where Leading == EmptyView, Accessory == EmptyView {
-  init(title: String, details: [String] = [], value: String? = nil, showsChevron: Bool = false) {
+  init(
+    title: String, highlight: String? = nil, details: [String] = [], value: String? = nil, showsChevron: Bool = false
+  ) {
     self.init(
-      title: title, details: details, value: value, showsChevron: showsChevron,
+      title: title, highlight: highlight, details: details, value: value, showsChevron: showsChevron,
       leading: { EmptyView() }, accessory: { EmptyView() })
   }
 }
@@ -325,13 +361,14 @@ extension LiftListRow where Leading == EmptyView, Accessory == EmptyView {
 extension LiftListRow where Accessory == EmptyView {
   init(
     title: String,
+    highlight: String? = nil,
     details: [String] = [],
     value: String? = nil,
     showsChevron: Bool = false,
     @ViewBuilder leading: @escaping () -> Leading
   ) {
     self.init(
-      title: title, details: details, value: value, showsChevron: showsChevron,
+      title: title, highlight: highlight, details: details, value: value, showsChevron: showsChevron,
       leading: leading, accessory: { EmptyView() })
   }
 }
@@ -383,13 +420,18 @@ struct LiftField: View {
   let placeholder: LocalizedStringKey
   var axis: Axis = .horizontal
   var capitalization: TextInputAutocapitalization = .words
+  /// Hides the label above the field when the section already names it; VoiceOver still reads it.
+  var hidesTitle = false
 
   var body: some View {
     VStack(alignment: .leading, spacing: 6) {
-      Text(title)
-        .font(StrandFont.caption)
-        .foregroundStyle(StrandPalette.textSecondary)
+      if !hidesTitle {
+        Text(title)
+          .font(StrandFont.caption)
+          .foregroundStyle(StrandPalette.textSecondary)
+      }
       TextField(text: $text, axis: axis) { Text(placeholder) }
+        .accessibilityLabel(title)
         .font(StrandFont.body)
         .foregroundStyle(StrandPalette.textPrimary)
         .textInputAutocapitalization(capitalization)
@@ -532,5 +574,145 @@ struct LiftBigStepper: View {
         content
       }
     }
+  }
+}
+
+// MARK: Row menu
+
+/// The "…" at the end of a row: that row's own actions in a menu, in a 44pt target.
+struct LiftRowMenu<Items: View>: View {
+  let label: LocalizedStringKey
+  @ViewBuilder var items: () -> Items
+
+  var body: some View {
+    Menu {
+      items()
+    } label: {
+      Image(systemName: "ellipsis")
+        .font(.system(size: 15, weight: .semibold))
+        .foregroundStyle(StrandPalette.textTertiary)
+        .frame(width: 44, height: 44)
+        .contentShape(Rectangle())
+    }
+    .accessibilityLabel(label)
+  }
+}
+
+// MARK: Sheet page
+
+/// A modal form page: the sheet title with a close chip, a scrolling form of flat sections and the pinned footer the
+/// page's one action sits in. At the accessibility text sizes the footer follows the form instead, so the keyboard and
+/// a very large button never take the sheet's height.
+struct LiftSheetPage<Content: View, Footer: View>: View {
+  let title: LocalizedStringKey
+  let onClose: () -> Void
+  @ViewBuilder var content: () -> Content
+  @ViewBuilder var footer: () -> Footer
+  /// False for a page with no action of its own (a list of choices that closes on tap).
+  var hasFooter = true
+
+  @Environment(\.dynamicTypeSize) private var typeSize
+
+  var body: some View {
+    ScrollView(.vertical) {
+      VStack(alignment: .leading, spacing: 0) {
+        content()
+        if hasFooter, typeSize.isAccessibilitySize {
+          footer().padding(.top, NoopMetrics.space4)
+        }
+      }
+      .padding(.horizontal, LiftChromeMetrics.gutter)
+      .padding(.top, NoopMetrics.space2)
+      .padding(.bottom, NoopMetrics.space4)
+      .frame(maxWidth: LiftChromeMetrics.maxColumnWidth, alignment: .leading)
+      .frame(maxWidth: .infinity)
+    }
+    .scrollIndicators(.hidden)
+    .scrollDismissesKeyboard(.interactively)
+    .background(StrandPalette.appCanvas.ignoresSafeArea())
+    .safeAreaInset(edge: .top, spacing: 0) {
+      NoopSheetTitleRow(title) { HeaderChipButton("xmark", accessibilityLabel: "Close", action: onClose) }
+        .padding(.horizontal, LiftChromeMetrics.gutter)
+        .padding(.top, NoopMetrics.space3)
+        .padding(.bottom, NoopMetrics.space1)
+        .frame(maxWidth: LiftChromeMetrics.maxColumnWidth + LiftChromeMetrics.gutter * 2)
+        .frame(maxWidth: .infinity)
+        .background(StrandPalette.appCanvas)
+    }
+    .safeAreaInset(edge: .bottom, spacing: 0) {
+      if hasFooter, !typeSize.isAccessibilitySize { footer().liftFooterBar() }
+    }
+    .toolbar(.hidden, for: .navigationBar)
+  }
+}
+
+extension LiftSheetPage where Footer == EmptyView {
+  init(title: LocalizedStringKey, onClose: @escaping () -> Void, @ViewBuilder content: @escaping () -> Content) {
+    self.init(title: title, onClose: onClose, content: content, footer: { EmptyView() }, hasFooter: false)
+  }
+}
+
+/// A selectable row in a list of choices: its title and facts, and a check on the one chosen.
+struct LiftChoiceRow: View {
+  let title: String
+  var detail: String? = nil
+  let isSelected: Bool
+  let action: () -> Void
+
+  var body: some View {
+    Button(action: action) {
+      LiftListRow(
+        title: title,
+        details: detail.map { [$0] } ?? [],
+        leading: { GlyphDisc(isSelected ? "checkmark" : "dumbbell.fill", tint: isSelected ? .accent : .workout) },
+        accessory: { EmptyView() }
+      )
+    }
+    .buttonStyle(FlatRowPressStyle())
+    .accessibilityElement(children: .combine)
+    .accessibilityAddTraits(isSelected ? .isSelected : [])
+  }
+}
+
+extension View {
+  /// Stretches a pill button's label across the page, for the one action a pinned footer is for.
+  func liftPillLabel() -> some View { frame(maxWidth: .infinity) }
+}
+
+// MARK: Key-value row
+
+/// A quiet label with its bright value on the same line, stacking at the largest text sizes so neither is cut.
+struct LiftKeyValueRow: View {
+  let label: LocalizedStringKey
+  let value: String
+
+  @Environment(\.dynamicTypeSize) private var typeSize
+
+  var body: some View {
+    Group {
+      if LiftListRow<EmptyView, EmptyView>.stacks(typeSize) {
+        VStack(alignment: .leading, spacing: 2) { labelText; valueText }
+      } else {
+        HStack(alignment: .firstTextBaseline, spacing: NoopMetrics.space3) {
+          labelText
+          Spacer(minLength: NoopMetrics.space2)
+          valueText.multilineTextAlignment(.trailing)
+        }
+      }
+    }
+    .padding(.vertical, NoopMetrics.space3)
+    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+    .accessibilityElement(children: .combine)
+  }
+
+  private var labelText: some View {
+    Text(label).font(StrandFont.subhead).foregroundStyle(StrandPalette.textSecondary)
+  }
+
+  private var valueText: some View {
+    Text(verbatim: value)
+      .font(StrandFont.subhead)
+      .foregroundStyle(StrandPalette.textPrimary)
+      .fixedSize(horizontal: false, vertical: true)
   }
 }

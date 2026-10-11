@@ -82,7 +82,7 @@ struct LiftStartView: View {
       if store.routines.isEmpty {
         VStack(alignment: .leading, spacing: WidgetMetrics.contentSpacing) {
           LiftNote(text: "No routines yet. Create one, or open a workout and add exercises as you go.")
-          Button { onOpen(.routines) } label: { Label("Create routine", systemImage: "plus") }
+          Button { onOpen(.newRoutine) } label: { Label("Create routine", systemImage: "plus") }
             .buttonStyle(PrimaryPillButtonStyle())
         }
         .padding(.top, NoopMetrics.space3)
@@ -108,10 +108,9 @@ struct LiftStartView: View {
 
   private func routineDetail(_ routine: LiftRoutine) -> String {
     let minutes = store.estimatedMinutes(for: routine)
-    let count = routine.exerciseIDs.count
-    var facts = [String(localized: "\(count) exercises")]
-    if minutes > 0 { facts.append(String(localized: "\(minutes) min")) }
-    return facts.joined(separator: " · ")
+    return LiftFormat.facts([
+      LiftFormat.exerciseCount(routine.exerciseIDs.count), minutes > 0 ? format.minutes(minutes) : "",
+    ])
   }
 
   private func refreshSummaries() {
@@ -137,8 +136,8 @@ struct LiftChipLinks: View {
         accessibilityLabel: "Lift progress"
       ) { onOpen(.progress) }
       WidgetChipButton(
-        title: "Routines", systemImage: "calendar", showsChevron: true,
-        accessibilityLabel: "Manage routines"
+        title: "Schedule", systemImage: "calendar", showsChevron: true,
+        accessibilityLabel: "Routines and schedule"
       ) { onOpen(.routines) }
     }
   }
@@ -155,7 +154,7 @@ struct LiftLastLiftLine: View {
     var facts = [format.day(session.startedAt)]
     var spoken = facts
     if sets > 0 {
-      facts.append(String(localized: "\(sets) sets"))
+      facts.append(LiftFormat.setCount(sets))
       spoken = facts
     }
     if seconds >= 60 {

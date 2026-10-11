@@ -39,6 +39,29 @@ public enum LiftWeightUnit: String, CaseIterable, Sendable {
   }
 }
 
+extension LiftWeightUnit {
+  /// The load one press of a weight stepper away, in pounds. Pounds move by exactly the step. Kilograms first land on a
+  /// multiple of the step (a 135 lb bar opens on 61 kg, and 62.5 kg is the press above it), because a converted load is
+  /// never a plate-friendly figure. Never below zero.
+  func stepped(pounds: Double, up: Bool, large: Bool) -> Double {
+    let amount = large ? largeStep : step
+    switch self {
+    case .pounds:
+      return max(up ? pounds + amount : pounds - amount, 0)
+    case .kilograms:
+      let ratio = snappedDisplay(fromPounds: pounds) / amount
+      // A ratio that is a whole number already sits on a step; the 1e-9 keeps float noise from skipping one.
+      let landed = up ? (ratio + 1e-9).rounded(.down) + 1 : (ratio - 1e-9).rounded(.up) - 1
+      return toPounds(max(landed, 0) * amount)
+    }
+  }
+
+  /// A load as the composer holds it: kilograms snap to the nearest half so the figure on screen is the figure stored.
+  func canonicalPounds(_ pounds: Double) -> Double {
+    self == .pounds ? pounds : toPounds(snappedDisplay(fromPounds: pounds))
+  }
+}
+
 extension EnvironmentValues {
   /// The unit weights are shown in. Set once by `ReceiptLiftView`.
   @Entry var liftWeightUnit: LiftWeightUnit = .pounds
@@ -73,6 +96,21 @@ struct LiftFormat: Sendable {
   /// "225 lb" or "102 kg" in the person's language, the unit abbreviated.
   func weight(pounds: Double) -> String {
     measurement(unit.fromPounds(pounds), width: .abbreviated)
+  }
+
+  /// The unit on its own, abbreviated in the person's language ("lb", "kg").
+  var unitSymbol: String {
+    let digits = 1.formatted(numberStyle)
+    return measurement(1, width: .abbreviated)
+      .replacingOccurrences(of: digits, with: "")
+      .replacingOccurrences(of: "\u{00A0}", with: " ")
+      .replacingOccurrences(of: "\u{202F}", with: " ")
+      .trimmingCharacters(in: .whitespaces)
+  }
+
+  /// A weight as its figure and its unit, for a value drawn with the unit small and muted.
+  func parts(pounds: Double) -> (number: String, unit: String) {
+    (number(pounds: pounds), unitSymbol)
   }
 
   /// A figure already in the person's unit, with the unit written.
@@ -157,6 +195,34 @@ struct LiftFormat: Sendable {
       Duration.UnitsFormatStyle(allowedUnits: units, width: .wide, maximumUnitCount: 2).locale(locale))
   }
 
+  /// "55 min" or "1 hr 5 min": an estimate or a length in the person's language, the unit abbreviated.
+  func minutes(_ count: Int) -> String {
+    let clamped = max(count, 0)
+    let style = Duration.UnitsFormatStyle(
+      allowedUnits: clamped >= 60 ? [.hours, .minutes] : [.minutes], width: .abbreviated, maximumUnitCount: 2)
+    return Duration.seconds(clamped * 60).formatted(style.locale(locale))
+  }
+
+  /// "8 exercises", with the plural the person's language needs.
+  static func exerciseCount(_ count: Int) -> String { String(localized: "\(count) exercises") }
+
+  /// "3 workouts".
+  static func workoutCount(_ count: Int) -> String { String(localized: "\(count) workouts") }
+
+  /// "12 sets".
+  static func setCount(_ count: Int) -> String { String(localized: "\(count) sets") }
+
+  /// Words read aloud in a row ("Exercise 2, Pull-Up, 1 of 3 sets"), joined the way the person's language lists things.
+  /// Empty entries are dropped.
+  nonisolated static func spoken(_ parts: [String], locale: Locale = .autoupdatingCurrent) -> String {
+    parts.filter { !$0.isEmpty }.formatted(.list(type: .and, width: .narrow).locale(locale))
+  }
+
+  /// Quiet facts about one thing, in a line ("8 exercises · 55 min"). Empty entries are dropped.
+  static func facts(_ parts: [String]) -> String {
+    parts.filter { !$0.isEmpty }.joined(separator: " · ")
+  }
+
   // MARK: Dates
 
   /// "Oct 9" (the month and day, in the person's language).
@@ -167,6 +233,15 @@ struct LiftFormat: Sendable {
   /// "Fri, Oct 9".
   func weekdayDay(_ date: Date) -> String {
     date.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day().locale(locale))
+  }
+
+  /// "Today", "Tomorrow", else "Fri, Oct 9": how a planned day reads in a list.
+  func relativeDay(_ date: Date, calendar: Calendar = .current, now: Date = Date()) -> String {
+    if calendar.isDate(date, inSameDayAs: now) { return String(localized: "Today") }
+    if let tomorrow = calendar.date(byAdding: .day, value: 1, to: now), calendar.isDate(date, inSameDayAs: tomorrow) {
+      return String(localized: "Tomorrow")
+    }
+    return weekdayDay(date)
   }
 
   /// "Oct 9, 2026": with the year, for lists that span years.
@@ -193,4 +268,31 @@ struct LiftFormat: Sendable {
 extension EnvironmentValues {
   /// The formatter for this view: the person's unit, in the clock and language the app draws in.
   var liftFormat: LiftFormat { LiftFormat(unit: liftWeightUnit, locale: locale) }
+}
+
+// MARK: - Display names
+
+extension String {
+  /// The bundled exercise catalog stores lowercase names ("barbell bench press"). Chrome shows them with
+  /// each lowercase word capitalised, leaving words that already carry capitals ("DB", "EZ") alone.
+  var liftDisplayName: String {
+    split(separator: " ", omittingEmptySubsequences: false)
+      .map { word in
+        guard let first = word.first, first.isLowercase else { return String(word) }
+        return first.uppercased() + word.dropFirst()
+      }
+      .joined(separator: " ")
+  }
+}
+
+/// Bodyweight movements read "BW" at zero load and "+25 lb" with added weight, and have no volume of their own.
+func liftUsesBodyweightLoad(_ exercise: LiftExercise) -> Bool {
+  let name = exercise.name.lowercased()
+  let equipment = exercise.equipment.lowercased()
+  return equipment.contains("bodyweight")
+    || name.contains("pull-up")
+    || name.contains("dead hang")
+    || name.contains("plank")
+    || name.contains("hanging knee raise")
+    || name.contains("russian twist")
 }

@@ -6,6 +6,14 @@ enum LiftHistorySegment: String, CaseIterable, Identifiable, Sendable {
 
   var id: String { rawValue }
   var title: String { rawValue.uppercased() }
+
+  /// The segment's name on the control, in the person's language.
+  var label: String {
+    switch self {
+    case .receipts: String(localized: "Receipts")
+    case .progress: String(localized: "Progress")
+    }
+  }
 }
 
 enum LiftProgressRange: String, CaseIterable, Identifiable, Sendable {
@@ -22,6 +30,26 @@ enum LiftProgressRange: String, CaseIterable, Identifiable, Sendable {
     case .twelveWeeks: "12W"
     case .sixMonths: "6M"
     case .all: "ALL"
+    }
+  }
+
+  /// The range's name on the control, in the person's language.
+  var label: String {
+    switch self {
+    case .fourWeeks: String(localized: "4W")
+    case .twelveWeeks: String(localized: "12W")
+    case .sixMonths: String(localized: "6M")
+    case .all: String(localized: "All")
+    }
+  }
+
+  /// The range in words, for a caption ("last 12 weeks").
+  var caption: String {
+    switch self {
+    case .fourWeeks: String(localized: "last 4 weeks")
+    case .twelveWeeks: String(localized: "last 12 weeks")
+    case .sixMonths: String(localized: "last 6 months")
+    case .all: String(localized: "all time")
     }
   }
 }
@@ -80,6 +108,15 @@ enum LiftExerciseProgressMode: String, CaseIterable, Identifiable, Sendable {
 
   var id: String { rawValue }
   var title: String { rawValue.uppercased() }
+
+  /// The mode's name on the control, in the person's language.
+  var label: String {
+    switch self {
+    case .strength: String(localized: "Strength")
+    case .volume: String(localized: "Volume")
+    case .reps: String(localized: "Reps")
+    }
+  }
 }
 
 struct LiftRecentSetRow: Identifiable, Equatable, Sendable {

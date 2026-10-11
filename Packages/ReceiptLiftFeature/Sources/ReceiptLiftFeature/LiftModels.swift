@@ -9,9 +9,9 @@ enum TrainingMode: String, CaseIterable, Codable, Identifiable, Sendable {
 
   var title: String {
     switch self {
-    case .strength: "Strength"
-    case .hypertrophy: "Hypertrophy"
-    case .endurance: "Endurance"
+    case .strength: String(localized: "Strength")
+    case .hypertrophy: String(localized: "Hypertrophy")
+    case .endurance: String(localized: "Endurance")
     }
   }
 

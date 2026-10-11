@@ -605,7 +605,7 @@ final class LiftStore: ObservableObject {
     // A newly logged set always starts a new recovery window, even when the
     // previous set's timer is still running.
     restTimerEndDate = now.addingTimeInterval(max(restSeconds ?? defaultRestSeconds, 0))
-    status = "Logged \(exercise.name) \(set.setNumber): \(liftLoad(weight, for: exercise)) x \(set.reps)"
+    status = "Logged \(exercise.name) \(set.setNumber): \(weight) lb x \(set.reps)"
     save()
     syncLiveActivity()
     return LiftSetOutcome(set: set, personalRecord: personalRecord)
@@ -973,42 +973,49 @@ final class LiftStore: ObservableObject {
     )
   }
 
-  func warmupPlan(for exercise: LiftExercise, workingWeight: Double, workingReps: Int) -> LiftWarmupPlan {
+  /// A warm-up ramp for the next working set. `unit` only decides how the ramp's loads are rounded (to 5 lb, or to
+  /// 2.5 kg); the plan's thresholds are weights, the same in either unit.
+  func warmupPlan(
+    for exercise: LiftExercise,
+    workingWeight: Double,
+    workingReps: Int,
+    unit: LiftWeightUnit = .pounds
+  ) -> LiftWarmupPlan {
     let progress = setProgress(for: exercise.id)
     if progress.completed >= 2 {
       return LiftWarmupPlan(
-        title: "Probably Skip",
-        reason: "You already have \(progress.completed) work sets logged here. Keep the next set clean unless the weight jumps hard.",
+        title: String(localized: "Probably skip"),
+        reason: String(localized: "You already have \(progress.completed) work sets logged here. Keep the next set clean unless the weight jumps hard."),
         sets: []
       )
     }
 
     if progress.completed == 1 {
       return LiftWarmupPlan(
-        title: "Optional Primer",
-        reason: "You have a work set in. Only add this if the next load feels like a big jump.",
+        title: String(localized: "Optional primer"),
+        reason: String(localized: "You have a work set in. Only add this if the next load feels like a big jump."),
         sets: [
-          LiftWarmupSet(sequence: 1, percent: 0.55, weight: Self.roundedWarmupWeight(workingWeight * 0.55), reps: min(max(workingReps, 5), 8), note: "easy groove")
+          LiftWarmupSet(sequence: 1, percent: 0.55, weight: Self.roundedWarmupWeight(workingWeight * 0.55, unit: unit), reps: min(max(workingReps, 5), 8), note: String(localized: "easy groove"))
         ]
       )
     }
 
     if liftUsesBodyweightLoad(exercise) {
       return LiftWarmupPlan(
-        title: "Movement Prep",
-        reason: "Bodyweight work does not need a loaded ramp. Use one easy technical set if the first work set will be hard.",
+        title: String(localized: "Movement prep"),
+        reason: String(localized: "Bodyweight work does not need a loaded ramp. Use one easy technical set if the first work set will be hard."),
         sets: [
-          LiftWarmupSet(sequence: 1, percent: nil, weight: 0, reps: min(max(workingReps, 5), 8), note: "easy tempo")
+          LiftWarmupSet(sequence: 1, percent: nil, weight: 0, reps: min(max(workingReps, 5), 8), note: String(localized: "easy tempo"))
         ]
       )
     }
 
     if workingWeight <= 0 {
       return LiftWarmupPlan(
-        title: "Set Load First",
-        reason: "Add the working weight to calculate a real ramp. Until then, use one easy technique set on the machine.",
+        title: String(localized: "Set load first"),
+        reason: String(localized: "Add the working weight to calculate a real ramp. Until then, use one easy technique set on the machine."),
         sets: [
-          LiftWarmupSet(sequence: 1, percent: nil, weight: 0, reps: min(max(workingReps, 5), 8), note: "easy setup")
+          LiftWarmupSet(sequence: 1, percent: nil, weight: 0, reps: min(max(workingReps, 5), 8), note: String(localized: "easy setup"))
         ]
       )
     }
@@ -1016,28 +1023,28 @@ final class LiftStore: ObservableObject {
     let ramp: [(Double, Int, String)]
     switch workingWeight {
     case ..<45:
-      ramp = [(0.50, min(max(workingReps, 6), 10), "easy feeler")]
+      ramp = [(0.50, min(max(workingReps, 6), 10), String(localized: "easy feeler"))]
     case ..<95:
-      ramp = [(0.50, 8, "easy feeler"), (0.75, 3, "fast reps")]
+      ramp = [(0.50, 8, String(localized: "easy feeler")), (0.75, 3, String(localized: "fast reps"))]
     case ..<185:
-      ramp = [(0.40, 8, "easy feeler"), (0.60, 5, "smooth"), (0.80, 2, "primer")]
+      ramp = [(0.40, 8, String(localized: "easy feeler")), (0.60, 5, String(localized: "smooth")), (0.80, 2, String(localized: "primer"))]
     default:
-      ramp = [(0.35, 8, "easy feeler"), (0.55, 5, "smooth"), (0.70, 3, "build"), (0.85, 1, "primer")]
+      ramp = [(0.35, 8, String(localized: "easy feeler")), (0.55, 5, String(localized: "smooth")), (0.70, 3, String(localized: "build")), (0.85, 1, String(localized: "primer"))]
     }
 
     let sets = ramp.enumerated().map { index, item in
       LiftWarmupSet(
         sequence: index + 1,
         percent: item.0,
-        weight: Self.roundedWarmupWeight(workingWeight * item.0),
+        weight: Self.roundedWarmupWeight(workingWeight * item.0, unit: unit),
         reps: item.1,
         note: item.2
       )
     }
 
     return LiftWarmupPlan(
-      title: "\(sets.count) Ramp \(sets.count == 1 ? "Set" : "Sets")",
-      reason: "Conservative ramp from your current working weight so the warm-up primes the lift without adding junk fatigue.",
+      title: String(localized: "\(sets.count) ramp sets"),
+      reason: String(localized: "Conservative ramp from your current working weight so the warm-up primes the lift without adding junk fatigue."),
       sets: sets
     )
   }
@@ -1061,9 +1068,16 @@ final class LiftStore: ObservableObject {
     return numbers.max()
   }
 
-  nonisolated static func roundedWarmupWeight(_ weight: Double) -> Double {
+  /// A warm-up load rounded to something a bar can hold: 5 lb, or 2.5 kg. Never below one step.
+  nonisolated static func roundedWarmupWeight(_ weight: Double, unit: LiftWeightUnit = .pounds) -> Double {
     guard weight > 0 else { return 0 }
-    return max(5, (weight / 5).rounded() * 5)
+    switch unit {
+    case .pounds:
+      return max(5, (weight / 5).rounded() * 5)
+    case .kilograms:
+      let kilograms = unit.fromPounds(weight)
+      return unit.toPounds(max(2.5, (kilograms / 2.5).rounded() * 2.5))
+    }
   }
 
   nonisolated static func supersetName(for group: Int) -> String {

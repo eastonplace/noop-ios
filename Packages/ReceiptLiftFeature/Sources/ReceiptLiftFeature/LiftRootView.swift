@@ -8,7 +8,7 @@ public enum LiftDestination: String, Identifiable {
 
 /// The pages the start screen pushes: its chips lead to Lift's other pages without leaving the sheet.
 enum LiftRoute: Hashable {
-  case history, progress, routines
+  case history, progress, routines, newRoutine
 }
 
 /// Whether the Lift start screen should open an active session's workout by itself. Reopening Lift after a
@@ -49,6 +49,7 @@ struct LiftRootView: View {
           case .history: HistoryView(selectedSegment: $selectedHistorySegment)
           case .progress: HistoryView(selectedSegment: .constant(.progress), progressOnly: true)
           case .routines: ScheduleView(onStartRoutine: presentPreview)
+          case .newRoutine: ScheduleView(onStartRoutine: presentPreview, createsRoutine: true)
           }
         }
         .navigationDestination(isPresented: previewPresentation) {
@@ -65,13 +66,13 @@ struct LiftRootView: View {
     // Everything the root pushes is a pushed page; the root page opts back in above.
     .environment(\.liftScreenRole, .pushed)
     .sheet(isPresented: $showsSettings) { SettingsView().environmentObject(store) }
-    .tint(LiftTheme.accent)
+    .tint(StrandPalette.accent)
     .task { await autoResumeActiveSessionIfNeeded() }
     .liftQAScene("routine-preview") {
       previewRoutine = store.routines.first { $0.name == "Upper A" } ?? store.routines.first
     }
     .liftQAScene("settings") { showsSettings = true }
-    .liftQAScene("receipt") {
+    .liftQAScene("receipt", "receipt-export-white", "receipt-export-cream") {
       printedSession = store.sessions.filter { $0.endedAt != nil }.max { $0.startedAt < $1.startedAt }
     }
     .fullScreenCover(isPresented: workoutPresentation) {
