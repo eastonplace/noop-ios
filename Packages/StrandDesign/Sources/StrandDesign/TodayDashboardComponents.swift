@@ -710,11 +710,13 @@ public struct HeaderChromeRow: View {
     public let onUpdates: () -> Void
     public let onProfile: () -> Void
     @Environment(\.dynamicTypeSize) private var typeSize
-    /// The wordmark's size: `.caption2` bold, scaled like `.caption2` but never past `wordmarkCeiling`, so it stays
-    /// one line at every text size.
+    /// The wordmark's size at an accessibility size: `.caption2` bold, scaled like `.caption2` but never past
+    /// `wordmarkCeiling`, so it stays one line. Every smaller size keeps `StrandFont.overline`.
     @ScaledMetric(relativeTo: .caption2) private var wordmarkSize: CGFloat = 11
 
     private static let wordmarkCeiling: CGFloat = 17
+    /// The tap target of the condensed strap and battery symbols (the minimum touch target).
+    private static let condensedTarget: CGFloat = 44
 
     public init(strapState: AppStrapState, battery: Int?, syncState: AppSyncState,
                 syncCompletedUnits: Int? = nil,
@@ -729,25 +731,30 @@ public struct HeaderChromeRow: View {
     }
 
     public var body: some View {
-        // From the extra-extra-large sizes the status would not fit beside the wordmark ("Offline" and "68%" broke
-        // letter by letter), so it shrinks to its two symbols (the strap's dot, the battery glyph). The words and the
-        // number are what VoiceOver says and what the large content viewer shows on a press and hold.
-        let condensed = typeSize >= .xxxLarge
+        // At the accessibility sizes the status would not fit beside the wordmark ("Offline" and "68%" broke letter by
+        // letter), so it shrinks to its two symbols (the strap's dot, the battery glyph). The words and the number are
+        // what VoiceOver says and what the large content viewer shows on a press and hold; that viewer exists only at
+        // these sizes, so every smaller size keeps the words on screen. The strap's state also shows in the dot's shape
+        // (filled, ringed, hollow), not by colour alone.
+        let condensed = typeSize.isAccessibilitySize
         HStack(spacing: 9) {
             Text("NOOP", bundle: .module)
-                .font(.system(size: min(wordmarkSize, Self.wordmarkCeiling), weight: .bold))
+                .font(condensed ? .system(size: min(wordmarkSize, Self.wordmarkCeiling), weight: .bold) : StrandFont.overline)
                 .tracking(4).foregroundStyle(StrandPalette.textPrimary)
                 .lineLimit(1).fixedSize(horizontal: true, vertical: false)
             Spacer(minLength: 4)
             Button(action: onStrap) {
                 HStack(spacing: 5) {
-                    Circle().fill(strapColor).frame(width: condensed ? 10 : 6, height: condensed ? 10 : 6)
-                    if !condensed {
-                        Text(strapLabel).font(StrandFont.micro.weight(.semibold)).lineLimit(1)
+                    if condensed {
+                        strapDot
+                    } else {
+                        Circle().fill(strapColor).frame(width: 6, height: 6)
+                        Text(strapLabel).font(StrandFont.micro.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.6)
                     }
                 }
                 .padding(.horizontal, condensed ? 6 : 8).padding(.vertical, 6)
-                .frame(minWidth: condensed ? 30 : 0, minHeight: condensed ? 30 : 0)
+                .frame(minWidth: condensed ? Self.condensedTarget : 0, minHeight: condensed ? Self.condensedTarget : 0)
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain).accessibilityLabel("Strap \(strapLabel)")
             .accessibilityShowsLargeContentViewer { Text("Strap \(strapLabel)") }
@@ -757,12 +764,13 @@ public struct HeaderChromeRow: View {
                         Image(systemName: batterySymbol(for: battery))
                             .font(.system(size: condensed ? 15 : 12, weight: .semibold))
                         if !condensed {
-                            Text("\(battery)%").font(StrandFont.micro).monospacedDigit().lineLimit(1)
+                            Text("\(battery)%").font(StrandFont.micro).monospacedDigit().lineLimit(1).minimumScaleFactor(0.6)
                         }
                     }
                     .foregroundStyle(batteryColor(for: battery))
                     .padding(.horizontal, condensed ? 4 : 7).padding(.vertical, 6)
-                    .frame(minWidth: condensed ? 30 : 0, minHeight: condensed ? 30 : 0)
+                    .frame(minWidth: condensed ? Self.condensedTarget : 0, minHeight: condensed ? Self.condensedTarget : 0)
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain).accessibilityLabel("Strap battery, \(battery) percent")
                 .accessibilityShowsLargeContentViewer {
@@ -814,6 +822,19 @@ public struct HeaderChromeRow: View {
     }
     private var strapLabel: String {
         switch strapState { case .live: String(localized: "Live", bundle: .module); case .syncing: String(localized: "Syncing", bundle: .module); case .offline: String(localized: "Offline", bundle: .module) }
+    }
+    /// The strap's state as a shape as well as a colour: filled while live, ringed while syncing, hollow when offline.
+    @ViewBuilder private var strapDot: some View {
+        switch strapState {
+        case .live:
+            Circle().fill(strapColor).frame(width: 10, height: 10)
+        case .syncing:
+            Circle().fill(strapColor).frame(width: 6, height: 6)
+                .overlay(Circle().strokeBorder(strapColor, lineWidth: 1.5).frame(width: 12, height: 12))
+                .frame(width: 12, height: 12)
+        case .offline:
+            Circle().strokeBorder(strapColor, lineWidth: 2).frame(width: 10, height: 10)
+        }
     }
     private func batterySymbol(for percentage: Int) -> String {
         switch percentage { case ..<13: "battery.0"; case ..<38: "battery.25"; case ..<63: "battery.50"; case ..<88: "battery.75"; default: "battery.100" }
