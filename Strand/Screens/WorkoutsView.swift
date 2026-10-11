@@ -188,6 +188,9 @@ struct WorkoutsView: View {
             lastLift = await readLastLift()
         }
         .task(id: zonesKey) {
+            // Before the rows arrive there is nothing to parse, and parsing nothing would report "No zone data" for a
+            // history that has some. The generation bump that comes with the rows starts this task again.
+            guard loaded else { return }
             let rows = sessions(for: effectiveRange)
             let summary = await Task.detached(priority: .userInitiated) { WorkoutZones.summary(from: rows) }.value
             // A detached task does not stop with this one. Without the check a parse for rows the person has already
