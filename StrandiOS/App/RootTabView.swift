@@ -684,14 +684,41 @@ enum TabSlotWidths {
     static let gutter: CGFloat = 8
 
     /// A width per slot, in proportion to what each one needs (its ideal width plus the gutter, never under the touch
-    /// target), scaled so they fill `total` exactly. When what they need is more than `total`, every slot is scaled
-    /// down by the same fraction and the labels shrink to fit.
+    /// target), scaled so they fill `total` exactly.
+    ///
+    /// When what they need is more than `total`, the long labels give way and the short ones do not: a slot that needs
+    /// only the touch target keeps it for as long as the row can afford 44pt for every slot, and the rest share what is
+    /// left in proportion to what they need (so the labels shrink to fit). Scaling every slot by one fraction instead took
+    /// the short ones (Hoy, +) under the touch target even though six of them fit with room to spare. Only a row too narrow
+    /// for six touch targets gives every slot an equal share.
     static func widths(ideals: [CGFloat], total: CGFloat) -> [CGFloat] {
         guard !ideals.isEmpty else { return [] }
+        let count = CGFloat(ideals.count)
         let needs = ideals.map { max($0 + gutter, minimumSlot) }
         let sum = needs.reduce(0, +)
-        guard total > 0, sum > 0 else { return Array(repeating: max(total, 0) / CGFloat(ideals.count), count: ideals.count) }
-        return needs.map { $0 * total / sum }
+        guard total > 0, sum > 0 else { return Array(repeating: max(total, 0) / count, count: ideals.count) }
+        if sum <= total { return needs.map { $0 * total / sum } }
+        guard total >= minimumSlot * count else { return Array(repeating: total / count, count: ideals.count) }
+
+        // Overfull: lock a slot at the touch target as soon as its scaled share would fall under it, and share what is
+        // left between the rest. A lock takes a little from the others, which can put one more under the target, so this
+        // repeats; the last slot standing always has at least 44pt (the row affords six of them), so it settles.
+        var locked = Array(repeating: false, count: needs.count)
+        while true {
+            let lockedCount = CGFloat(locked.filter { $0 }.count)
+            let free = total - minimumSlot * lockedCount
+            let freeNeed = zip(needs, locked).filter { !$0.1 }.reduce(0) { $0 + $1.0 }
+            guard freeNeed > 0 else { return needs.map { _ in minimumSlot } }
+            let factor = free / freeNeed
+            var changed = false
+            for index in needs.indices where !locked[index] && needs[index] * factor < minimumSlot {
+                locked[index] = true
+                changed = true
+            }
+            if !changed {
+                return zip(needs, locked).map { $1 ? minimumSlot : $0 * factor }
+            }
+        }
     }
 }
 #endif

@@ -500,6 +500,8 @@ public struct HealthDashboardCard: View {
     public let onShowAll: () -> Void
     public let onDataSources: () -> Void
 
+    @Environment(\.dynamicTypeSize) private var typeSize
+
     public init(tiles: [HealthDashboardTileModel], status: String,
                 onTile: @escaping (String) -> Void, onCustomize: @escaping () -> Void,
                 onShowAll: @escaping () -> Void, onDataSources: @escaping () -> Void) {
@@ -512,16 +514,25 @@ public struct HealthDashboardCard: View {
             VStack(alignment: .leading, spacing: 9) {
                 VStack(alignment: .leading, spacing: 3) {
                     // The widget eyebrow, as on Live HR and Stress: ink symbol, caps title, quiet chip.
-                    HStack(spacing: NoopMetrics.space2) {
-                        HealthMonitorEyebrowIcon()
-                        Text("Health Monitor", bundle: .module).strandOverline()
-                        Spacer(minLength: NoopMetrics.space2)
-                        Button(action: onCustomize) {
-                            WidgetChip("Customise", systemImage: "slider.horizontal.3", showsChevron: false, overhangs: false)
-                                .chipHitTarget()
+                    //
+                    // At an accessibility size the title and the chip cannot share a row (the title broke one letter
+                    // per line beside "Customise"), so the chip drops under the title and the title wraps between its
+                    // words. Every smaller size is the one-row header exactly as it was.
+                    if typeSize.isAccessibilitySize {
+                        VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+                            HStack(spacing: NoopMetrics.space2) {
+                                HealthMonitorEyebrowIcon()
+                                Text("Health Monitor", bundle: .module).strandOverlineFitted().lineLimit(3)
+                            }
+                            customiseButton
                         }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel(Text("Customise", bundle: .module))
+                    } else {
+                        HStack(spacing: NoopMetrics.space2) {
+                            HealthMonitorEyebrowIcon()
+                            Text("Health Monitor", bundle: .module).strandOverline()
+                            Spacer(minLength: NoopMetrics.space2)
+                            customiseButton
+                        }
                     }
                     Text(verbatim: status).font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
                 }
@@ -551,6 +562,15 @@ public struct HealthDashboardCard: View {
                 }
             }
         }
+    }
+
+    private var customiseButton: some View {
+        Button(action: onCustomize) {
+            WidgetChip("Customise", systemImage: "slider.horizontal.3", showsChevron: false, overhangs: false)
+                .chipHitTarget()
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text("Customise", bundle: .module))
     }
 
     private var verticalTileDivider: some View {

@@ -272,11 +272,20 @@ public struct HRLiveModuleCard: View {
                     StrandPalette.hairlineStrong.opacity(0.9),
                     style: StrokeStyle(lineWidth: 0.7, dash: [3, 4])
                 )
-                Text("RHR \(Int(restingHR.rounded()))")
+                let rhrLabel = Text("RHR \(Int(restingHR.rounded()))")
                     .font(StrandFont.micro)
                     .monospacedDigit()
                     .foregroundStyle(StrandPalette.textTertiary)
-                    .position(x: 22, y: max(7, y - 8))
+                if typeSize.isAccessibilitySize {
+                    // The label is wider than the 44pt it is centred in at an accessibility size, which pushed its
+                    // first letters past the card's edge: it starts at the leading edge instead.
+                    rhrLabel
+                        .fixedSize()
+                        .frame(width: size.width, alignment: .leading)
+                        .position(x: size.width / 2, y: max(7, y - 8))
+                } else {
+                    rhrLabel.position(x: 22, y: max(7, y - 8))
+                }
             }
 
             areaPath(rendered, height: size.height)
@@ -420,12 +429,23 @@ public struct HRLiveModuleCard: View {
             let low = Int((values.min() ?? 0).rounded())
             let average = Int((values.reduce(0, +) / Double(values.count)).rounded())
             let peak = Int((values.max() ?? 0).rounded())
-            HStack(spacing: NoopMetrics.space3) {
-                footKey(label: "low", value: "\(low)")
-                footKey(label: "avg", value: "\(average)")
-                footKey(label: "peak", value: "\(peak)")
-                Spacer(minLength: 0)
-                rangeChip
+            if typeSize.isAccessibilitySize {
+                // Three keys and the range chip do not fit one row at an accessibility size (each broke to a letter per
+                // line), so they stack. Every smaller size is the one row it was.
+                VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+                    footKey(label: "low", value: "\(low)")
+                    footKey(label: "avg", value: "\(average)")
+                    footKey(label: "peak", value: "\(peak)")
+                    rangeChip
+                }
+            } else {
+                HStack(spacing: NoopMetrics.space3) {
+                    footKey(label: "low", value: "\(low)")
+                    footKey(label: "avg", value: "\(average)")
+                    footKey(label: "peak", value: "\(peak)")
+                    Spacer(minLength: 0)
+                    rangeChip
+                }
             }
         } else {
             HStack {
