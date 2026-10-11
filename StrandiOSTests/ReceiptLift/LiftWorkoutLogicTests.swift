@@ -409,6 +409,24 @@ struct LiftWorkoutLogicTests {
     )
   }
 
+  @Test func queueAccessibilityTextPluralisesSetsWhenThereIsNoTarget() {
+    // An open lift has no targets: the label is a bare count, and one set is "1 set", not "1 sets".
+    let exercise = Self.exercise("Bench Press")
+    func row(_ progress: String) -> LiftWorkoutQueueRowState {
+      LiftWorkoutQueueRowState(
+        id: exercise.id, ordinal: 1, exercise: exercise, progressLabel: progress, isDone: false, supersetLabel: nil)
+    }
+
+    #expect(
+      liftWorkoutQueueAccessibilityLabel(row: row("1"), isPrinted: false, locale: Self.enUS)
+        == "Exercise 1, Bench Press, 1 set, up next"
+    )
+    #expect(
+      liftWorkoutQueueAccessibilityLabel(row: row("3"), isPrinted: false, locale: Self.enUS)
+        == "Exercise 1, Bench Press, 3 sets, up next"
+    )
+  }
+
   @Test func composerAccessibilitySummaryFormatsLoadedAndBodyweightSets() {
     let loaded = Self.exercise("Loaded")
     let bodyweight = Self.exercise("Pull-Up", equipment: "Bodyweight")

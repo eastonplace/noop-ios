@@ -48,12 +48,11 @@ nonisolated func liftWorkoutQueueAccessibilityLabel(
   locale: Locale = .autoupdatingCurrent
 ) -> String {
   let state = isPrinted ? String(localized: "printed") : String(localized: "up next")
-  let progress = liftWorkoutSpokenProgress(row.progressLabel)
   return LiftFormat.spoken(
     [
       String(localized: "Exercise \(row.ordinal)"),
       row.exercise.name,
-      String(localized: "\(progress) sets"),
+      liftWorkoutSpokenSets(row.progressLabel),
       state,
       row.supersetLabel ?? "",
     ],
@@ -99,6 +98,13 @@ private nonisolated func liftWorkoutSpokenProgress(_ label: String) -> String {
   let parts = label.split(separator: "/", omittingEmptySubsequences: false)
   guard parts.count == 2 else { return label }
   return String(localized: "\(String(parts[0])) of \(String(parts[1]))")
+}
+
+/// A queue row's progress read aloud: "1 of 3 sets" against a target, "1 set" without one (the count takes its language's
+/// plural).
+nonisolated func liftWorkoutSpokenSets(_ label: String) -> String {
+  if let count = Int(label) { return LiftFormat.setCount(count) }
+  return String(localized: "\(liftWorkoutSpokenProgress(label)) sets")
 }
 
 struct LiftWorkoutQueueRowState: Identifiable, Equatable, Sendable {
@@ -250,7 +256,7 @@ private struct LiftWorkoutQueueActionRow: View {
       .accessibilityValue(
         LiftFormat.spoken(
           [
-            String(localized: "\(liftWorkoutSpokenProgress(row.progressLabel)) sets"),
+            liftWorkoutSpokenSets(row.progressLabel),
             isPrinted ? String(localized: "printed") : String(localized: "up next"),
             row.supersetLabel ?? "",
           ])
