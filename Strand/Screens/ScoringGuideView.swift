@@ -75,7 +75,12 @@ struct ScoringGuideView: View {
     /// When set, the guide scrolls to (and briefly highlights) this section on appear —
     /// used by the ⓘ affordances on the Today screen so each opens at its own score.
     var initialSection: ScoreSection? = nil
+    /// Set by a host that presents the guide as a sheet: the header's X and "Got it" close that sheet. A guide pushed
+    /// onto a stack (a score breakdown's "How Recovery is calculated") has none, so it wears the pushed screens' back
+    /// chip instead of an X, and "Got it" pops back to the screen it came from.
     var onClose: (() -> Void)? = nil
+
+    private var isPushed: Bool { onClose == nil }
 
     /// Drives the brief highlight pulse on the deep-linked section.
     @State private var highlighted: ScoreSection? = nil
@@ -88,7 +93,9 @@ struct ScoringGuideView: View {
         ScrollViewReader { proxy in
             ScreenScaffold(title: "How your scores work",
                            subtitle: "Recovery · Strain · Sleep",
-                           trailing: { NoopIconButton("xmark", accessibilityLabel: "Close", action: close) }) {
+                           trailing: {
+                               if !isPushed { NoopIconButton("xmark", accessibilityLabel: "Close", action: close) }
+                           }) {
                 introCard
                 scoreCard(.recovery,
                           headline: String(localized: "Recovery: how recovered are you?"),
@@ -108,10 +115,13 @@ struct ScoringGuideView: View {
             .onAppear { jump(to: initialSection, using: proxy) }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) { footerBar.sheetFooterBar() }
+        // Nearest to the scaffold, so a pushed guide stays a drill-in (back chip, compact row) while the sheet reset
+        // below still clears the presenter's chrome and close action.
+        .environment(\.screenScaffoldNavigationRole, isPushed ? .detail : .root)
         .sheetScreenScaffoldEnvironment()
         #if os(iOS)
         // Pushed onto a NavigationStack (a score breakdown sheet's "How Recovery is calculated"), the guide still draws
-        // its own header and close button; the system bar above it would be a second, empty one. A sheet root has no bar.
+        // its own header and back chip; the system bar above it would be a second, empty one. A sheet root has no bar.
         .toolbar(.hidden, for: .navigationBar)
         #endif
         // Same sizing split as WhatsNewView: a fixed window on macOS, fill the presented

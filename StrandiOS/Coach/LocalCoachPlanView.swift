@@ -50,10 +50,12 @@ struct LocalCoachPlanView: View {
         }
         .sheet(isPresented: $showWorkouts) {
             NavigationStack {
+                // A sheet inherits the presenter's header context (Coach is pushed from Explore, a drill-in): reset it so
+                // Workouts draws its own header here, and give it the canonical close button. Workouts hides the navigation
+                // bar, so a toolbar Done would never show.
                 WorkoutsView()
+                    .sheetScreenScaffoldEnvironment(onClose: { showWorkouts = false })
                     .background(StrandPalette.appCanvas.ignoresSafeArea())
-                    .toolbarBackground(.hidden, for: .navigationBar)
-                    .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { showWorkouts = false } } }
             }
             .tint(StrandPalette.accent)
             .noopSheetPresentation(largeFirst: true)

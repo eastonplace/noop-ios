@@ -22,6 +22,8 @@ import Foundation
 
 struct WorkoutsView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.screenScaffoldNavigationRole) private var navigationRole
+    @Environment(\.screenScaffoldCloseAction) private var sheetCloseAction
     @EnvironmentObject var repo: Repository
     /// #459: "Start Workout" used to live ONLY on the Live screen, so a user reaching Workouts (via the
     /// Quick-action FAB or the tab) had no way to begin one from the obvious place. The model is captured
@@ -156,6 +158,13 @@ struct WorkoutsView: View {
         .background(AppModelReferenceCapture(reference: $appModel))
     }
 
+    /// A pushed hub (or one with no close control of its own) draws a back chevron. The hub at the root of a sheet that
+    /// supplies its own close action (Coach's plan opens it so) has nothing to go back to: the scaffold draws the
+    /// canonical close button there instead.
+    private var dashboardBackAction: (() -> Void)? {
+        navigationRole == .root && sheetCloseAction != nil ? nil : { dismiss() }
+    }
+
     private var dashboard: some View {
         ScreenScaffold(title: "Workouts", subtitle: "Every session, threaded together.",
                        onRefresh: { _ = await repo.refresh(.currentDay) },
@@ -164,7 +173,7 @@ struct WorkoutsView: View {
                        // byte-identical layout) builds the off-screen sections/rows on demand instead.
                        lazy: true,
                        topBackground: nil,
-                       backAction: { dismiss() }) {
+                       backAction: dashboardBackAction) {
             LazyVStack(alignment: .leading, spacing: 0) { hub }
         }
         #if os(iOS)

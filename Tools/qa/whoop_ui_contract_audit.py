@@ -239,8 +239,10 @@ def main() -> int:
         )
         require(
             "Packages/StrandDesign/Sources/StrandDesign/StrainScale.swift",
-            "if value >= 67 { return .high }",
-            "if value >= 34 { return .medium }",
+            "private static let mediumFrom = 34.0",
+            "private static let highFrom = 67.0",
+            "if value >= highFrom { return .high }",
+            "if value >= mediumFrom { return .medium }",
         )
 
         require(

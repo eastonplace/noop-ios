@@ -1104,7 +1104,7 @@ public extension TrendMonthHeat {
     init(_publicAPI: Void = (), days: [TrendCalendarDay], tint: Color,
          referenceDate: Date = Date(), calendar: Calendar = .autoupdatingCurrent,
          valueFormat: @escaping (Double) -> String = { value in
-             value.isFinite ? value.formatted(.number.precision(.fractionLength(0))) : "—"
+             ComponentValueFormat.rounded(value)
          },
          colorScale: TrendHeatColorScale = .intensity) {
         self.days = days
@@ -1129,7 +1129,7 @@ public extension TrendPanelChart {
         tint: Color,
         unit: String,
         valueFormat: @escaping (Double) -> String = { value in
-            value.isFinite ? value.formatted(.number.precision(.fractionLength(0))) : "—"
+            ComponentValueFormat.rounded(value)
         },
         range: TrendRange,
         direction: TrendPanelChart.Direction = .contextual
@@ -1153,7 +1153,7 @@ public extension TrendWeekdayBars {
     init(_publicAPI: Void = (), values: [Double?], tint: Color,
          referenceDate: Date = Date(), calendar: Calendar = .autoupdatingCurrent,
          valueFormat: @escaping (Double) -> String = { value in
-             value.isFinite ? value.formatted(.number.precision(.fractionLength(0))) : "—"
+             ComponentValueFormat.rounded(value)
          }) {
         self.values = Array(values.prefix(7)) + Array(repeating: nil, count: max(0, 7 - values.count))
         self.tint = tint

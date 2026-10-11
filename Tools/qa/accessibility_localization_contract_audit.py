@@ -50,9 +50,12 @@ try:
     )
     require(
         "StrandiOS/App/RootTabView.swift",
-        "@Environment(\\.dynamicTypeSize)",
-        "dynamicTypeSize.isAccessibilitySize ? 92 : NoopMetrics.navBarHeight",
-        ".fixedSize(horizontal: false, vertical: true)",
+        # A tab label is one line that scales to its slot (never split inside a word), under a growth ceiling, with the
+        # large content viewer carrying the full-size label, and the bar keeps one height at every text size.
+        "struct PaperTabLabel: View",
+        ".microLabelFit(lines: 1,",
+        ".accessibilityShowsLargeContentViewer",
+        ".frame(height: NoopMetrics.navBarHeight)",
     )
     require(
         "Strand/Screens/SmartAlarmView.swift",

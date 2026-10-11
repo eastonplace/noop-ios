@@ -6,7 +6,8 @@ import SwiftUI
 ///
 /// A pushed screen is reached from a tab, so it carries no wordmark of its own and no large title with a
 /// subtitle under it: this row is all of its header, and it is also what pins to the top once it scrolls away.
-/// At accessibility text sizes the context drops under the title instead of squeezing it.
+/// At accessibility text sizes the context drops under the title instead of squeezing it, and the title wraps only
+/// between words (a word wider than the row is scaled down, never split).
 public struct NoopDetailTitleRow<Trailing: View>: View {
     private let title: LocalizedStringKey
     private let context: String?
@@ -31,7 +32,7 @@ public struct NoopDetailTitleRow<Trailing: View>: View {
         ViewThatFits(in: .horizontal) {
             HStack(spacing: NoopMetrics.space2) {
                 backChip
-                titleText.lineLimit(1)
+                titleText(lines: 1)
                 Spacer(minLength: NoopMetrics.space2)
                 contextText
                 trailing()
@@ -39,7 +40,7 @@ public struct NoopDetailTitleRow<Trailing: View>: View {
             HStack(spacing: NoopMetrics.space2) {
                 backChip
                 VStack(alignment: .leading, spacing: 2) {
-                    titleText.lineLimit(2)
+                    titleText(lines: 2)
                     contextText
                 }
                 Spacer(minLength: NoopMetrics.space2)
@@ -63,12 +64,12 @@ public struct NoopDetailTitleRow<Trailing: View>: View {
         .accessibilityLabel("Back")
     }
 
-    private var titleText: some View {
+    private func titleText(lines: Int) -> some View {
         Text(title)
-            .font(StrandFont.screenOverline)
             .tracking(StrandFont.screenOverlineTracking)
             .textCase(.uppercase)
             .foregroundStyle(StrandPalette.textPrimary)
+            .headerTitleFit(lines: lines)
             .accessibilityAddTraits(.isHeader)
     }
 
@@ -86,5 +87,58 @@ public struct NoopDetailTitleRow<Trailing: View>: View {
 public extension NoopDetailTitleRow where Trailing == EmptyView {
     init(_ title: LocalizedStringKey, context: String? = nil, backAction: @escaping () -> Void) {
         self.init(title, context: context, backAction: backAction) { EmptyView() }
+    }
+}
+
+extension View {
+    /// A header title in the screen overline type that never breaks inside a word. It wraps between words (`lines` at
+    /// most); when one word is wider than the line, the type is scaled down to fit it instead of being hyphenated.
+    ///
+    /// SwiftUI hyphenates a word that does not fit, and does so before it scales, when the type is a Dynamic Type text
+    /// style (`StrandFont.screenOverline` is `.caption2`, bold). A fixed point size scales first, so the modifier sets
+    /// the same size and weight as that style through `ScaledMetric` and scales it with Dynamic Type itself. Apply
+    /// `.tracking` to the `Text` before this.
+    func headerTitleFit(lines: Int = 2) -> some View {
+        modifier(HeaderTitleFit(lines: lines))
+    }
+}
+
+extension View {
+    /// The expanded screen title (`StrandFont.title1`: `.title`, bold) that scales down to fit a long word instead of
+    /// hyphenating it, for the same reason as `headerTitleFit`. It wraps between words, three lines at most.
+    func expandedTitleFit() -> some View {
+        modifier(ExpandedTitleFit())
+    }
+}
+
+private struct ExpandedTitleFit: ViewModifier {
+    /// `.title` at the default size, scaled like `.title`.
+    @ScaledMetric(relativeTo: .title) private var size: CGFloat = 28
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    /// `StrandFont.title1` itself short of the accessibility sizes, exactly as it was.
+    func body(content: Content) -> some View {
+        if typeSize.isAccessibilitySize {
+            content
+                .font(.system(size: size, weight: .bold))
+                .lineLimit(3)
+                .minimumScaleFactor(0.5)
+        } else {
+            content
+                .font(StrandFont.title1)
+        }
+    }
+}
+
+private struct HeaderTitleFit: ViewModifier {
+    let lines: Int
+    /// `.caption2` at the default size, scaled like `.caption2`.
+    @ScaledMetric(relativeTo: .caption2) private var size: CGFloat = 11
+
+    func body(content: Content) -> some View {
+        content
+            .font(.system(size: size, weight: .bold))
+            .lineLimit(lines)
+            .minimumScaleFactor(0.5)
     }
 }

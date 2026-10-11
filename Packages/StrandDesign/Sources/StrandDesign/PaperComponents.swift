@@ -18,6 +18,7 @@ public struct NoopScreenHeader<Trailing: View>: View {
     private let onDark: Bool
     private let style: NoopScreenHeaderStyle
     @ViewBuilder private let trailing: () -> Trailing
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     public init(
         title: LocalizedStringKey? = nil,
@@ -72,32 +73,27 @@ public struct NoopScreenHeader<Trailing: View>: View {
                     VStack(alignment: .leading, spacing: 4) {
                         if let title {
                             Text(title)
-                                .font(StrandFont.title1)
                                 .foregroundStyle(primary)
+                                .expandedTitleFit()
                         }
                         if let subtitle {
-                            Text(subtitle)
-                                .font(StrandFont.caption)
-                                .foregroundStyle(secondary)
-                                .lineLimit(1)
+                            headerSubtitle(subtitle, secondary: secondary, wraps: typeSize.isAccessibilitySize)
                         }
                     }
                 } else {
-                    HStack(alignment: .firstTextBaseline, spacing: 10) {
-                        if let title {
-                            Text(title)
-                                .font(StrandFont.screenOverline)
-                                .tracking(StrandFont.screenOverlineTracking)
-                                .textCase(.uppercase)
-                                .foregroundStyle(primary)
+                    // One row while it fits; at accessibility sizes the subtitle drops under the title, which wraps
+                    // only between words (see `headerTitleFit`).
+                    ViewThatFits(in: .horizontal) {
+                        HStack(alignment: .firstTextBaseline, spacing: 10) {
+                            compactTitle(primary: primary, lines: 1)
+                            Spacer(minLength: 8)
+                            compactSubtitle(secondary: secondary)
                         }
-                        Spacer(minLength: 8)
-                        if let subtitle {
-                            Text(subtitle)
-                                .font(StrandFont.caption)
-                                .foregroundStyle(secondary)
-                                .lineLimit(1)
+                        VStack(alignment: .leading, spacing: 2) {
+                            compactTitle(primary: primary, lines: 2)
+                            compactSubtitle(secondary: secondary, wraps: typeSize.isAccessibilitySize)
                         }
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
             }
@@ -105,6 +101,42 @@ public struct NoopScreenHeader<Trailing: View>: View {
     }
 
     private var controlSize: CGFloat { style == .expanded ? 38 : 32 }
+
+    @ViewBuilder
+    private func compactTitle(primary: Color, lines: Int) -> some View {
+        if let title {
+            Text(title)
+                .tracking(StrandFont.screenOverlineTracking)
+                .textCase(.uppercase)
+                .foregroundStyle(primary)
+                .headerTitleFit(lines: lines)
+        }
+    }
+
+    @ViewBuilder
+    private func compactSubtitle(secondary: Color, wraps: Bool = false) -> some View {
+        if let subtitle {
+            headerSubtitle(subtitle, secondary: secondary, wraps: wraps)
+        }
+    }
+
+    /// One truncating line at every size short of the accessibility sizes, exactly as it always was. At an accessibility
+    /// size (`wraps`) the subtitle wraps between words, three lines at most, rather than ending in an ellipsis
+    /// ("Erholung · Anstre…"), and a word wider than the line scales down instead of hyphenating.
+    @ViewBuilder
+    private func headerSubtitle(_ subtitle: LocalizedStringKey, secondary: Color, wraps: Bool) -> some View {
+        if wraps {
+            Text(subtitle)
+                .foregroundStyle(secondary)
+                .captionLabelFit(lines: 3)
+                .fixedSize(horizontal: false, vertical: true)
+        } else {
+            Text(subtitle)
+                .font(StrandFont.caption)
+                .foregroundStyle(secondary)
+                .lineLimit(1)
+        }
+    }
 }
 
 public extension NoopScreenHeader where Trailing == EmptyView {
@@ -123,30 +155,52 @@ public extension NoopScreenHeader where Trailing == EmptyView {
 /// height) with optional trailing controls, such as a `WidgetChip`, pinned to the right.
 public struct NoopTabTitleRow<Trailing: View>: View {
     private let title: LocalizedStringKey
+    private let hasTrailing: Bool
     @ViewBuilder private let trailing: () -> Trailing
 
-    public init(_ title: LocalizedStringKey, @ViewBuilder trailing: @escaping () -> Trailing) {
+    /// `hasTrailing` says whether `trailing` draws anything. It defaults to "the trailing content is not `EmptyView`";
+    /// a caller that wraps its trailing content in a container that may be empty (a stack) passes the real answer.
+    public init(_ title: LocalizedStringKey, hasTrailing: Bool? = nil, @ViewBuilder trailing: @escaping () -> Trailing) {
         self.title = title
+        self.hasTrailing = hasTrailing ?? (Trailing.self != EmptyView.self)
         self.trailing = trailing
     }
 
+    @Environment(\.dynamicTypeSize) private var typeSize
+
     public var body: some View {
-        HStack(spacing: NoopMetrics.space2) {
-            // Today's row takes its baseline from its caption-size date, so the invisible caption below keeps
-            // every tab's title on exactly the same line as "TODAY".
-            HStack(alignment: .firstTextBaseline, spacing: 0) {
-                Text(title)
-                    .font(StrandFont.screenOverline)
-                    .tracking(StrandFont.screenOverlineTracking)
-                    .textCase(.uppercase)
-                    .foregroundStyle(StrandPalette.textPrimary)
-                    .accessibilityAddTraits(.isHeader)
-                Text(verbatim: "0").font(StrandFont.caption).hidden().frame(width: 0).accessibilityHidden(true)
+        if typeSize.isAccessibilitySize, hasTrailing {
+            // The controls beside the title take most of the row at these sizes and squeeze a word of it ("TREND" and
+            // "S"), so they drop under the title.
+            VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+                titleText
+                HStack(spacing: NoopMetrics.space2) {
+                    Spacer(minLength: 0)
+                    trailing()
+                }
             }
-            Spacer(minLength: NoopMetrics.space2)
-            trailing()
+        } else {
+            HStack(spacing: NoopMetrics.space2) {
+                titleText
+                Spacer(minLength: NoopMetrics.space2)
+                trailing()
+            }
+            .frame(minHeight: 24)
         }
-        .frame(minHeight: 24)
+    }
+
+    // Today's row takes its baseline from its caption-size date, so the invisible caption below keeps
+    // every tab's title on exactly the same line as "TODAY".
+    private var titleText: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 0) {
+            Text(title)
+                .tracking(StrandFont.screenOverlineTracking)
+                .textCase(.uppercase)
+                .foregroundStyle(StrandPalette.textPrimary)
+                .headerTitleFit()
+                .accessibilityAddTraits(.isHeader)
+            Text(verbatim: "0").font(StrandFont.caption).hidden().frame(width: 0).accessibilityHidden(true)
+        }
     }
 }
 
@@ -721,60 +775,6 @@ public struct MetricTile: View {
         }
         .frame(maxWidth: .infinity, minHeight: NoopMetrics.healthTileMinHeight,
                alignment: .topLeading)
-    }
-}
-
-public struct ZoneBarItem {
-    public let zone: Int
-    public let fraction: Double
-    public let duration: String
-    /// Exact engine-derived bpm range when max HR is known; nil keeps the honest
-    /// fixed %-of-max fallback for callers without a usable profile boundary.
-    public let bpmRange: String?
-    public init(zone: Int, fraction: Double, duration: String, bpmRange: String? = nil) {
-        self.zone = zone; self.fraction = fraction; self.duration = duration
-        self.bpmRange = bpmRange
-    }
-}
-
-public struct ZoneBars: View {
-    private let items: [ZoneBarItem]
-    public init(_ items: [ZoneBarItem]) { self.items = items.sorted { $0.zone > $1.zone } }
-
-    /// WHOOP's fixed %-of-max bands per zone (C14).
-    private static let bandLabel: [Int: String] = [5: "90–100%", 4: "80–90%", 3: "70–80%",
-                                                   2: "60–70%", 1: "50–60%"]
-
-    public var body: some View {
-        // C14 + D14: each zone reads like WHOOP's row — "Z5 (161+ bpm)" when
-        // the zones engine supplied real boundaries, otherwise "Z5 (90–100%)".
-        // The bar carries the zone colour; the numeric share remains readable ink (F4).
-        VStack(spacing: 12) {
-            ForEach(items, id: \.zone) { item in
-                VStack(spacing: 5) {
-                    HStack(spacing: 6) {
-                        Text("Z\(item.zone) (\(item.bpmRange ?? Self.bandLabel[item.zone] ?? ""))")
-                            .font(.system(size: 10, weight: .medium))
-                            .foregroundStyle(StrandPalette.textSecondary)
-                        Text("\(Int((item.fraction * 100).rounded()))%")
-                            .font(StrandFont.micro.weight(.semibold))
-                            .foregroundStyle(StrandPalette.textSecondary)
-                        Spacer(minLength: 8)
-                        Text(item.duration)
-                            .font(StrandFont.captionNumber.weight(.semibold))
-                            .foregroundStyle(StrandPalette.textPrimary)
-                    }
-                    GeometryReader { geo in
-                        ZStack(alignment: .leading) {
-                            Capsule().fill(StrandPalette.inset)
-                            Capsule().fill(StrandPalette.hrZoneColor(item.zone))
-                                .frame(width: geo.size.width * min(max(item.fraction, 0), 1))
-                        }
-                    }
-                    .frame(height: 8)
-                }
-            }
-        }
     }
 }
 

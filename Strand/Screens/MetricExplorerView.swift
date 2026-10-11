@@ -571,6 +571,11 @@ struct MetricDetailView: View {
 
     // MARK: Body
 
+    /// The category the pushed header row names beside the title, or nil when it is the title itself.
+    static func headerContext(category: String, title: String) -> String? {
+        category.caseInsensitiveCompare(title) == .orderedSame ? nil : category
+    }
+
     var body: some View {
         // Compute the heavy window derivations ONCE per body eval, then hand them to
         // the subviews — instead of every subview re-deriving `effectiveRange` /
@@ -582,8 +587,10 @@ struct MetricDetailView: View {
                               subtitle: LocalizedStringKey(MetricCatalog.categoryDisplayName(metric.category)),
                               topBackground: nil,
                               backAction: { dismiss() },
-                              // Pushed, the header row carries the category the subtitle used to name.
-                              headerContext: MetricCatalog.categoryDisplayName(metric.category)) {
+                              // Pushed, the header row carries the category the subtitle used to name (and says
+                              // nothing when it would only repeat the title: "Recovery" under "Recovery").
+                              headerContext: Self.headerContext(category: MetricCatalog.categoryDisplayName(metric.category),
+                                                                title: metric.title)) {
                 if loaded && series.isEmpty {
                     // No data in the entire history — keep the range bar for context, then the
                     // honest empty state (no scenic hero floating over nothing). Deliberately
