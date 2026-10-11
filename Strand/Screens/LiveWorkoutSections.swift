@@ -21,18 +21,21 @@ struct LiveWorkoutHero: View {
             : AnyLayout(HStackLayout(alignment: .center, spacing: NoopMetrics.space3))
         layout {
             TimelineView(.periodic(from: .now, by: 1)) { context in
+                let elapsed = workout.activeElapsed(at: context.date)
                 HeroValue(
-                    value: LiveWorkoutTiles.elapsedText(workout.activeElapsed(at: context.date)),
+                    value: LiveWorkoutTiles.elapsedText(elapsed),
                     caption: workout.sport,
                     captionPlacement: .below,
                     size: typeSize.isAccessibilitySize ? 34 : 64
                 )
                 .monospacedDigit()
                 .opacity(paused ? 0.4 : 1)
+                // Spoken from the same tick as the digits: outside the timeline this value was fixed at the last time
+                // the workout published (a heart-rate sample), so with no strap streaming it never moved.
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(Text("Elapsed time"))
+                .accessibilityValue(Text(verbatim: LiveWorkoutTiles.spokenElapsed(elapsed)))
             }
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(Text("Elapsed time"))
-            .accessibilityValue(Text(verbatim: spokenElapsed))
             if paused {
                 Spacer(minLength: 0)
                 StatePill("Paused", tone: .warning)
@@ -42,13 +45,29 @@ struct LiveWorkoutHero: View {
         .animation(.easeInOut(duration: 0.2), value: paused)
     }
 
-    private var spokenElapsed: String {
-        let seconds = Int(workout.activeElapsed().rounded())
-        return Duration.seconds(seconds).formatted(.units(allowed: [.hours, .minutes, .seconds], width: .wide))
-    }
 }
 
 // MARK: Signal notices
+
+/// Reads the two live signals every two seconds and hands what it found to `content`. A signal going quiet publishes
+/// nothing (no reading arrives), so it has to be asked on a clock. The pills, the tiles and the zone rail all read
+/// through this, so none of them can show a number at full strength that another has already called stale.
+struct LiveWorkoutSignalReader<Content: View>: View {
+    @ObservedObject var workout: AppModel.ActiveWorkout
+    @ObservedObject var recorder: GpsWorkoutRecorder
+    @ViewBuilder let content: (LiveWorkoutSignals.Snapshot) -> Content
+
+    var body: some View {
+        let tracksRoute = recorder.isRecording && recorder.canRecordRoute
+        TimelineView(.periodic(from: .now, by: 2)) { context in
+            content(LiveWorkoutSignals.Snapshot(
+                heartRateIsStale: LiveWorkoutSignals.heartRateIsStale(
+                    lastReadingAt: workout.lastReadingAt, workoutStart: workout.start,
+                    isPaused: workout.isPaused, now: context.date),
+                gps: tracksRoute ? recorder.signalState(now: context.date) : nil))
+        }
+    }
+}
 
 /// Pills for a heart-rate strap or a GPS fix that has gone quiet. Nothing is drawn while both are fine.
 struct LiveWorkoutSignalNotices: View {
@@ -57,13 +76,8 @@ struct LiveWorkoutSignalNotices: View {
     @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
-        let tracksRoute = recorder.isRecording && recorder.canRecordRoute
-        TimelineView(.periodic(from: .now, by: 2)) { context in
-            let notices = LiveWorkoutSignals.notices(
-                heartRateIsStale: LiveWorkoutSignals.heartRateIsStale(
-                    lastReadingAt: workout.lastReadingAt, workoutStart: workout.start,
-                    isPaused: workout.isPaused, now: context.date),
-                gps: tracksRoute ? recorder.signalState(now: context.date) : nil)
+        LiveWorkoutSignalReader(workout: workout, recorder: recorder) { signals in
+            let notices = LiveWorkoutSignals.notices(heartRateIsStale: signals.heartRateIsStale, gps: signals.gps)
             if !notices.isEmpty {
                 let layout = typeSize.isAccessibilitySize
                     ? AnyLayout(VStackLayout(alignment: .leading, spacing: NoopMetrics.space2))
@@ -116,20 +130,27 @@ struct LiveWorkoutTileGrid: View {
         let columns = typeSize.isAccessibilitySize
             ? [GridItem(.flexible())]
             : [GridItem(.flexible(), spacing: NoopMetrics.space3), GridItem(.flexible())]
-        LazyVGrid(columns: columns, spacing: NoopMetrics.space3) {
-            ForEach(tiles) { tile in
-                StatTile(
-                    label: Self.label(tile.kind),
-                    value: tile.value,
-                    accent: Self.accent(tile.kind),
-                    systemImage: Self.symbol(tile.kind),
-                    tint: Self.tint(tile.kind),
-                    unit: tile.unit)
+        LiveWorkoutSignalReader(workout: workout, recorder: recorder) { signals in
+            LazyVGrid(columns: columns, spacing: NoopMetrics.space3) {
+                ForEach(tiles) { tile in
+                    StatTile(
+                        label: Self.label(tile.kind),
+                        value: tile.value,
+                        accent: Self.accent(tile.kind),
+                        systemImage: Self.symbol(tile.kind),
+                        tint: Self.tint(tile.kind),
+                        unit: tile.unit)
+                        // A reading whose source has gone quiet keeps its last number, quieter, never at full strength.
+                        .opacity(LiveWorkoutTiles.isStale(tile.kind, signals: signals) ? Self.staleOpacity : 1)
+                }
             }
         }
         // A frozen reading is not a live one: the tiles keep their numbers but step back.
         .opacity(workout.isPaused ? 0.7 : 1)
     }
+
+    /// How far a stale reading steps back: the island's "not updating" strength.
+    private static let staleOpacity = 0.6
 
     private static func label(_ kind: LiveWorkoutTiles.Kind) -> LocalizedStringKey {
         switch kind {
@@ -174,13 +195,17 @@ struct LiveWorkoutTileGrid: View {
 struct LiveWorkoutZoneSection: View {
     @ObservedObject var workout: AppModel.ActiveWorkout
     @ObservedObject var profile: ProfileStore
+    @ObservedObject var recorder: GpsWorkoutRecorder
 
     var body: some View {
         FlatSection("Heart-rate zone", systemImage: "waveform.path.ecg", tint: .heart) {
-            LiveZoneRail(
-                bpm: workout.currentBPM,
-                thresholds: ProfileStore.hrZoneThresholds(override: profile.hrMaxOverride, age: profile.age),
-                isDimmed: workout.isPaused)
+            LiveWorkoutSignalReader(workout: workout, recorder: recorder) { signals in
+                LiveZoneRail(
+                    bpm: workout.currentBPM,
+                    thresholds: ProfileStore.hrZoneThresholds(override: profile.hrMaxOverride, age: profile.age),
+                    // The same rule as the Live Activity: a paused or silent heart rate is the last reading, quieter.
+                    isDimmed: workout.isPaused || signals.heartRateIsStale)
+            }
         }
     }
 }
@@ -197,7 +222,7 @@ struct LiveWorkoutStrainSection: View {
             FlatSection("Live strain", systemImage: "flame.fill", tint: .strain,
                         trailing: .pill("Building", tone: .neutral)) {
                 VStack(alignment: .leading, spacing: NoopMetrics.space3) {
-                    HeroValue(value: Self.clock(coverageSeconds), unit: "of 10:00")
+                    HeroValue(value: Self.clock(coverageSeconds), unit: String(localized: "of 10:00"))
                     ProgressView(value: min(1, Double(coverageSeconds) / Double(StrainScorerV2.minCoverageSeconds)))
                         .tint(StrandPalette.strainAccent)
                         .accessibilityHidden(true)
@@ -276,8 +301,16 @@ struct LiveWorkoutRouteSection: View {
 /// never scans the complete retained workout.
 struct LiveWorkoutHeartSection: View {
     @ObservedObject var workout: AppModel.ActiveWorkout
+    @ObservedObject var recorder: GpsWorkoutRecorder
 
     var body: some View {
+        LiveWorkoutSignalReader(workout: workout, recorder: recorder) { signals in
+            // The number beside the title is the latest reading; with the strap silent it steps back like the tile does.
+            section.opacity(signals.heartRateIsStale ? 0.6 : 1)
+        }
+    }
+
+    @ViewBuilder private var section: some View {
         let projection = workout.chartProjection
         FlatSection("Heart rate", systemImage: "heart.fill", tint: .heart,
                     trailing: .text(workout.currentBPM.map { "\($0) bpm" } ?? WidgetMetrics.missingValue)) {

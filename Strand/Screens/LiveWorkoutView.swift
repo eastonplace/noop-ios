@@ -53,10 +53,10 @@ private struct StableLiveWorkoutContent: View, @preconcurrency Equatable {
                         LiveWorkoutControls(model: model, workout: workout)
                     }
                     LiveWorkoutTileGrid(workout: workout, recorder: model.gpsRecorder)
-                    LiveWorkoutZoneSection(workout: workout, profile: model.profile)
+                    LiveWorkoutZoneSection(workout: workout, profile: model.profile, recorder: model.gpsRecorder)
                     LiveWorkoutStrainSection(workout: workout)
                     LiveWorkoutRouteSection(recorder: model.gpsRecorder)
-                    LiveWorkoutHeartSection(workout: workout)
+                    LiveWorkoutHeartSection(workout: workout, recorder: model.gpsRecorder)
                 }
             }
             .screenPadding()
@@ -90,15 +90,19 @@ private struct StableLiveWorkoutContent: View, @preconcurrency Equatable {
 // MARK: - Header
 
 /// The recording eyebrow with its pulse, and the screen's single close control (modals carry no system navigation bar).
-/// The pulse stops when the workout is paused: the recording is still open, but nothing is being counted.
+/// When the workout is paused the eyebrow says so, as the Live Activity's does: a yellow pause glyph that does not pulse
+/// and "Paused". The recording is still open, but nothing is being counted.
 private struct LiveWorkoutHeader: View {
     @ObservedObject var workout: AppModel.ActiveWorkout
     let onClose: () -> Void
 
     var body: some View {
+        let paused = workout.isPaused
+        let title: LocalizedStringKey = paused ? "Paused" : "Recording"
         HStack(spacing: NoopMetrics.space2) {
-            EyebrowPulseIcon(systemName: "waveform.path.ecg", color: StrandPalette.liveRed, pulses: !workout.isPaused)
-            Text("Recording")
+            EyebrowPulseIcon(systemName: paused ? "pause.fill" : "waveform.path.ecg",
+                             color: paused ? StrandPalette.statusWarning : StrandPalette.liveRed, pulses: !paused)
+            Text(title)
                 .strandOverlineFitted()
                 .lineLimit(2)
                 .accessibilityAddTraits(.isHeader)
@@ -121,10 +125,14 @@ private struct LiveWorkoutControls: View {
 
     var body: some View {
         let saving = model.workoutFinishState == .saving
+        // A finish that was tried and failed leaves the workout frozen at the moment it ended: it can be ended again, and
+        // a Pause that silently did nothing would only look broken.
+        let finishing = saving || model.isWorkoutFinishPending
         let paused = workout.isPaused
         let pauseTitle: LocalizedStringKey = paused ? "Resume" : "Pause"
         let pauseLabel: LocalizedStringKey = paused ? "Resume workout" : "Pause workout"
         let endTitle: LocalizedStringKey = saving ? "Saving…" : "End"
+        let endLabel: LocalizedStringKey = saving ? "Saving…" : "End workout"
         let layout = typeSize.isAccessibilitySize
             ? AnyLayout(VStackLayout(spacing: NoopMetrics.space3))
             : AnyLayout(HStackLayout(spacing: NoopMetrics.space3))
@@ -136,7 +144,7 @@ private struct LiveWorkoutControls: View {
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(LiveWorkoutPillStyle(kind: .primary))
-            .disabled(saving)
+            .disabled(finishing)
             .accessibilityLabel(pauseLabel)
 
             Button {
@@ -147,7 +155,8 @@ private struct LiveWorkoutControls: View {
             }
             .buttonStyle(LiveWorkoutPillStyle(kind: .end))
             .disabled(saving)
-            .accessibilityLabel("End workout")
+            // The saving state is in the label too: VoiceOver reads what is on screen, "Saving…", not a dimmed "End workout".
+            .accessibilityLabel(endLabel)
         }
         .confirmationDialog("End this workout?", isPresented: $confirmingEnd, titleVisibility: .visible) {
             Button("End and save", role: .destructive) {

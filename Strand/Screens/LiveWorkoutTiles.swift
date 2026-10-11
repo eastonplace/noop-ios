@@ -56,6 +56,22 @@ enum LiveWorkoutTiles {
         return hours > 0 ? String(format: "%d:%02d:%02d", hours, minutes, secs) : String(format: "%d:%02d", minutes, secs)
     }
 
+    /// Whether a tile's number is one the wearer should no longer read as live. A stale number keeps showing, quieter:
+    /// the last reading is better than a gap, but it is never drawn at full strength as if it were current. Totals and
+    /// averages are not live readings, so they are never stale.
+    static func isStale(_ kind: Kind, signals: LiveWorkoutSignals.Snapshot) -> Bool {
+        switch kind {
+        case .heartRate: signals.heartRateIsStale
+        case .pace, .speed: signals.paceIsStale
+        case .distance, .energy, .averageHeartRate, .peakHeartRate: false
+        }
+    }
+
+    /// What VoiceOver reads for the timer: "34 minutes, 12 seconds".
+    static func spokenElapsed(_ seconds: TimeInterval) -> String {
+        Duration.seconds(Int(seconds.rounded())).formatted(.units(allowed: [.hours, .minutes, .seconds], width: .wide))
+    }
+
     /// Four tiles, in reading order. A recorded route leads with distance and pace (speed for a ride); a session without
     /// one leads with heart rate and carries its average and peak instead.
     static func tiles(for input: Input, locale: Locale = .current) -> [Tile] {
@@ -127,6 +143,17 @@ enum LiveWorkoutTiles {
 
 /// When the screen tells the wearer a signal has gone quiet.
 enum LiveWorkoutSignals {
+    /// Both live signals at one moment, read once so the pills, the tiles and the zone rail never disagree about whether
+    /// a number is live.
+    struct Snapshot: Equatable {
+        var heartRateIsStale = false
+        /// nil when the workout records no route.
+        var gps: GpsWorkoutRecorder.SignalState?
+
+        /// The pace or speed is worked out from GPS fixes that have stopped arriving.
+        var paceIsStale: Bool { gps == .lost }
+    }
+
     /// A strap normally reports every second or two; this much silence is worth saying so.
     static let heartRatePatience: TimeInterval = 15
 

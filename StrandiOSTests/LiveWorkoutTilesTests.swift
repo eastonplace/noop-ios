@@ -124,4 +124,37 @@ final class LiveWorkoutTilesTests: XCTestCase {
         XCTAssertEqual(LiveWorkoutSignals.notices(heartRateIsStale: false, gps: .weak), [.gpsWeak])
         XCTAssertEqual(LiveWorkoutSignals.notices(heartRateIsStale: true, gps: .lost), [.heartRate, .gpsLost])
     }
+
+    // MARK: A stale number is never drawn as live
+
+    func testAHeartRateThatWentQuietDimsTheHeartRateTileAndOnlyThat() {
+        let quiet = LiveWorkoutSignals.Snapshot(heartRateIsStale: true, gps: .ok)
+        XCTAssertTrue(LiveWorkoutTiles.isStale(.heartRate, signals: quiet))
+        for kind in [LiveWorkoutTiles.Kind.distance, .pace, .speed, .energy, .averageHeartRate, .peakHeartRate] {
+            XCTAssertFalse(LiveWorkoutTiles.isStale(kind, signals: quiet), "\(kind) does not come from the strap's live reading")
+        }
+    }
+
+    func testALostGpsSignalDimsPaceAndSpeedNotDistanceOrTheHeartTile() {
+        let lost = LiveWorkoutSignals.Snapshot(heartRateIsStale: false, gps: .lost)
+        XCTAssertTrue(LiveWorkoutTiles.isStale(.pace, signals: lost))
+        XCTAssertTrue(LiveWorkoutTiles.isStale(.speed, signals: lost))
+        XCTAssertFalse(LiveWorkoutTiles.isStale(.distance, signals: lost), "the distance so far is still what was covered")
+        XCTAssertFalse(LiveWorkoutTiles.isStale(.heartRate, signals: lost))
+    }
+
+    func testAHealthyOrUntrackedWorkoutDimsNothing() {
+        for gps in [nil, GpsWorkoutRecorder.SignalState.ok, .paused, .searching, .weak, .notRecording] {
+            let live = LiveWorkoutSignals.Snapshot(heartRateIsStale: false, gps: gps)
+            for kind in [LiveWorkoutTiles.Kind.distance, .pace, .speed, .heartRate, .energy, .averageHeartRate, .peakHeartRate] {
+                XCTAssertFalse(LiveWorkoutTiles.isStale(kind, signals: live), "\(kind) with gps \(String(describing: gps))")
+            }
+        }
+    }
+
+    func testTheSpokenTimerIsWholeWordsFromTheTimeThatRan() {
+        XCTAssertEqual(LiveWorkoutTiles.spokenElapsed(0), "0 seconds")
+        XCTAssertEqual(LiveWorkoutTiles.spokenElapsed(34 * 60 + 12), "34 minutes, 12 seconds")
+        XCTAssertEqual(LiveWorkoutTiles.spokenElapsed(3_600 + 5 * 60 + 9), "1 hour, 5 minutes, 9 seconds")
+    }
 }
