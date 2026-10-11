@@ -1,4 +1,5 @@
 import Foundation
+import WhoopStore
 
 // MARK: - Start-workout rules
 //
@@ -119,5 +120,29 @@ enum ManualWorkoutSport {
     /// free-typed name would take a slot neither of them can show.
     static func recordedName(for sport: String) -> String? {
         WorkoutCatalog.sport(named: sport)?.name
+    }
+}
+
+// MARK: - The recent route
+
+/// What the start sheet shows under "Last time".
+enum StartWorkoutRecents {
+    /// A workout and its persisted route, with the drawable segments decoded once.
+    struct Route {
+        let row: WorkoutRow
+        let route: WorkoutRoute
+        let segments: [[RouteMath.LatLng]]
+    }
+
+    /// D15: only a genuinely persisted, decodable route earns a route card. A distance-only workout stays route-less; no map
+    /// placeholder or synthetic production fallback is shown. `routes` is the whole stored map, read once by the caller.
+    static func latestRoute(in rows: [WorkoutRow], routes: [String: WorkoutRoute]) -> Route? {
+        for row in rows {
+            guard let route = routes[RouteStore.key(startTs: row.startTs, sport: row.sport)] else { continue }
+            let segments = route.decodedSegments.filter { $0.count >= 2 }
+            guard !segments.isEmpty else { continue }
+            return Route(row: row, route: route, segments: segments)
+        }
+        return nil
     }
 }

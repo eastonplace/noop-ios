@@ -58,20 +58,20 @@ struct StartWorkoutSheet: View {
 
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var repo: Repository
-    @EnvironmentObject private var model: AppModel
     @AppStorage(UnitPrefs.systemKey) private var unitSystemRaw = UnitSystem.metric.rawValue
     @AppStorage("workoutKeepScreenOn") private var keepScreenOn = false
     @State private var query = ""
     @State private var selected: String
     @State private var recents: [String]
     @State private var recentRows: [WorkoutRow] = []
+    /// The newest workout with a drawable route, worked out once when the rows arrive and never in `body`.
+    @State private var recentRoute: StartWorkoutRecents.Route?
     @State private var showsLift = false
     /// Bumped when a tile in the activity grid is chosen, so the page brings the selection into view.
     @State private var summaryRequest = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverOn
     @Environment(\.dynamicTypeSize) private var typeSize
-    @Environment(\.scenePhase) private var scenePhase
 
     private var unitSystem: UnitSystem { UnitSystem(rawValue: unitSystemRaw) ?? .metric }
     private var selectedSport: WorkoutCatalog.Sport? { WorkoutCatalog.sport(named: selected) }
@@ -91,12 +91,28 @@ struct StartWorkoutSheet: View {
                 mergePicker
             }
         }
-        .task(id: repo.refreshSeq) { recentRows = await repo.workoutRows(days: 365) }
-        // The permission may have been changed in Settings while the app was away.
-        .onAppear { model.gpsRecorder.refreshAvailability() }
-        .onChange(of: scenePhase) { _, phase in
-            if phase == .active { model.gpsRecorder.refreshAvailability() }
+        .task(id: repo.refreshSeq) { await loadRecents() }
+    }
+
+    /// The newest workout (its row is shown in full) and the newest route, read once per refresh and kept in state. The year of
+    /// rows is read without the heart-rate reconciliation, which would read the strap's samples for hundreds of them to show
+    /// one; only the newest row is reconciled, in a window of its own.
+    private func loadRecents() async {
+        var rows = await repo.workoutRows(days: 365, reconcileHR: false)
+        guard !Task.isCancelled else { return }
+        if let newest = rows.first {
+            let window = await repo.workoutRows(from: newest.startTs, to: newest.startTs + 1)
+            if let reconciled = window.first(where: { $0.startTs == newest.startTs && $0.sport == newest.sport }) {
+                rows[0] = reconciled
+            }
         }
+        let found = rows
+        let route = await Task.detached(priority: .userInitiated) {
+            StartWorkoutRecents.latestRoute(in: found, routes: RouteStore.loadMap())
+        }.value
+        guard !Task.isCancelled else { return }
+        recentRows = rows
+        recentRoute = route
     }
 
     /// The pinned button's own action, and where a confirmed choice is remembered.
@@ -278,7 +294,7 @@ struct StartWorkoutSheet: View {
     private var isRouteSport: Bool { selectedSport?.isDistanceSport == true }
 
     private var gpsPill: some View {
-        GpsStatusReader(recorder: model.gpsRecorder) { availability in
+        GpsStatusReader { availability in
             switch availability {
             case .ready: StatePill("GPS ready", tone: .positive)
             case .willAsk: StatePill("GPS", tone: .neutral)
@@ -289,7 +305,7 @@ struct StartWorkoutSheet: View {
     }
 
     private var gpsNote: some View {
-        GpsStatusReader(recorder: model.gpsRecorder) { availability in
+        GpsStatusReader { availability in
             VStack(alignment: .leading, spacing: NoopMetrics.space1) {
                 Group {
                     switch availability {
@@ -384,7 +400,7 @@ struct StartWorkoutSheet: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func routeRow(_ recent: RecentRoute) -> some View {
+    private func routeRow(_ recent: StartWorkoutRecents.Route) -> some View {
         HStack(spacing: NoopMetrics.space3) {
             WorkoutRouteMap(segments: recent.segments, showsEndpoints: false)
                 .frame(width: 104, height: 78)
@@ -404,24 +420,6 @@ struct StartWorkoutSheet: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .accessibilityElement(children: .combine)
-    }
-
-    private struct RecentRoute {
-        let row: WorkoutRow
-        let route: WorkoutRoute
-        let segments: [[RouteMath.LatLng]]
-    }
-
-    /// D15: only a genuinely persisted, decodable route earns a route card. A distance-only workout stays
-    /// route-less; no map placeholder or synthetic production fallback is shown.
-    private var recentRoute: RecentRoute? {
-        for row in recentRows {
-            guard let route = RouteStore.load(startTs: row.startTs, sport: row.sport) else { continue }
-            let segments = route.decodedSegments.filter { $0.count >= 2 }
-            guard !segments.isEmpty else { continue }
-            return RecentRoute(row: row, route: route, segments: segments)
-        }
-        return nil
     }
 
     // MARK: The pinned button
@@ -514,13 +512,31 @@ struct StartWorkoutSheet: View {
     }
 }
 
-/// Reads the recorder's location permission and redraws its content when it changes. The sheet holds the recorder only
-/// as part of the app model, which would not tell it the person had just answered the prompt.
+/// Reads the recorder's location permission and redraws its content when it changes. The sheet holds no model of its own, so
+/// a heart-rate tick from the strap never redraws the page: only this small leaf follows the app model, and the recorder it
+/// reads from. It asks the recorder to look again when it appears and when the app returns, since the permission may have been
+/// changed in Settings while the app was away.
 private struct GpsStatusReader<Content: View>: View {
-    @ObservedObject var recorder: GpsWorkoutRecorder
+    @EnvironmentObject private var model: AppModel
     @ViewBuilder let content: (GpsAvailability) -> Content
 
-    var body: some View { content(recorder.availability) }
+    var body: some View {
+        Observing(recorder: model.gpsRecorder, content: content)
+    }
+
+    private struct Observing: View {
+        @ObservedObject var recorder: GpsWorkoutRecorder
+        let content: (GpsAvailability) -> Content
+        @Environment(\.scenePhase) private var scenePhase
+
+        var body: some View {
+            content(recorder.availability)
+                .onAppear { recorder.refreshAvailability() }
+                .onChange(of: scenePhase) { _, phase in
+                    if phase == .active { recorder.refreshAvailability() }
+                }
+        }
+    }
 }
 
 #if DEBUG
