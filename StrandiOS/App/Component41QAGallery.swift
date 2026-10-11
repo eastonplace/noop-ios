@@ -308,7 +308,7 @@ struct Component41QAShot: View {
         return VStack(spacing: 22) {
             NOOPWorkoutLiveActivityView(
                 title: "Outdoor Run", startedAt: startedAt, pausedAt: pausedAt, frozenAt: frozenAt, bpm: bpm, strain: 6.8,
-                strainBuilding: false, calories: 438, hrSpark: hr, maxHR: maxHR, isStale: stale
+                strainBuilding: false, calories: 438, hrSpark: hr, maxHR: maxHR, isStale: stale, isEnding: finishing
             ) {
                 // The extension wraps this label in a disabled Button(intent:) at 0.35 opacity while the workout is ending.
                 NOOPLivePauseButtonLabel(isPaused: paused).opacity(finishing ? 0.35 : 1)
@@ -380,6 +380,7 @@ struct Component41QAShot: View {
             HStack(spacing: 12) {
                 LiveZoneRail(bpm: bpm, thresholds: HRZoneStyle.Thresholds(hrMax: maxHR),
                              isDimmed: pausedAt != nil || stale, style: .bar)
+                if finishing { NOOPLiveEndingPill() }
                 NOOPLivePauseButtonLabel(isPaused: pausedAt != nil, isCompact: true).opacity(finishing ? 0.35 : 1)
             }
         }

@@ -16,7 +16,7 @@ import WhoopStore
 /// Recovery ⓘ opens it), updates, live-hr, breathe, journal, intervals, start-workout, rhythm, smart-alarm,
 /// hydration, fitness-age, coupled, lab-book, trends-report, coach-workouts-sheet (the Workouts hub at the root of a sheet,
 /// as Coach's plan opens it), live-workout (the in-exercise screen over a synthetic workout; pick its state with
-/// `--demo-live-workout running|paused|stale|indoor`), marker-editor, lift, lift-history, lift-progress, lift-routines.
+/// `--demo-live-workout running|paused|stale|indoor|ending`), marker-editor, lift, lift-history, lift-progress, lift-routines.
 ///
 /// The Lift routes show whatever Lift holds; `--noop-lift-demo <variant>` and `--noop-lift-scene <scene>` (see
 /// `ReceiptLiftDemo` and `LiftQAScene`) load generated data and open a deeper screen.
@@ -125,7 +125,7 @@ enum QARoute: String, CaseIterable {
     /// capture script never takes a frame of the root it fell back to.
     func logDismissed() { NSLog("[qa-route] dismissed %@", rawValue) }
 
-    /// The state `--demo-live-workout running|paused|stale|indoor` names for the `live-workout` route.
+    /// The state `--demo-live-workout running|paused|stale|indoor|ending` names for the `live-workout` route.
     static var liveWorkoutScenario: AppModel.DemoLiveWorkoutScenario {
         let arguments = ProcessInfo.processInfo.arguments
         return arguments.firstIndex(of: "--demo-live-workout")

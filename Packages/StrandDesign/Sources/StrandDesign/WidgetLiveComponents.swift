@@ -36,6 +36,13 @@ struct LivePill: View {
     }
 }
 
+/// "Ending": the workout was ended and is saving, or the save failed and is waiting for a retry. Drawn where "Paused" is, so
+/// a frozen clock and a Pause button that has gone quiet are explained, on the Lock Screen card and in the expanded island.
+public struct NOOPLiveEndingPill: View {
+    public init() {}
+    public var body: some View { LivePill(title: "Ending", tint: StrandPalette.textSecondary) }
+}
+
 /// The elapsed time. Counts up from `startedAt` (the workout's start moved forward by the pauses already over) and
 /// stands still at `pausedAt` while a pause is open.
 public struct NOOPLiveTimerText: View {
@@ -117,11 +124,14 @@ public struct NOOPWorkoutLiveActivityView<Control: View>: View {
     public let isStale: Bool
     /// False while the strap is not connected: the reading is then the last one taken, not a live one.
     public let heartRateIsLive: Bool
+    /// The workout was ended and is saving (or waits for a retry): the eyebrow says "Ending".
+    public let isEnding: Bool
     private let control: Control
 
     public init(title: String, startedAt: Date?, pausedAt: Date? = nil, frozenAt: Date? = nil, bpm: Int?, strain: Double?,
                 strainBuilding: Bool, calories: Int?, hrSpark: [Int]?, maxHR: Double? = nil, isStale: Bool = false,
-                heartRateIsLive: Bool = true, @ViewBuilder control: () -> Control) {
+                heartRateIsLive: Bool = true, isEnding: Bool = false, @ViewBuilder control: () -> Control) {
+        self.isEnding = isEnding
         self.title = title
         self.startedAt = startedAt
         self.pausedAt = pausedAt
@@ -177,12 +187,14 @@ public struct NOOPWorkoutLiveActivityView<Control: View>: View {
         HStack(spacing: 8) {
             EyebrowPulseIcon(systemName: isPaused ? "pause.fill" : "waveform.path.ecg",
                              color: isPaused ? StrandPalette.statusWarning : StrandPalette.liveRed,
-                             pulses: !isPaused && !isStale)
+                             pulses: !isPaused && !isStale && !isEnding)
             Text(verbatim: title).textCase(.uppercase)
                 .font(StrandFont.overline).tracking(1.2)
                 .foregroundStyle(StrandPalette.textSecondary).lineLimit(1)
             Spacer(minLength: 8)
-            if isPaused {
+            if isEnding {
+                NOOPLiveEndingPill()
+            } else if isPaused {
                 LivePill(title: "Paused", tint: StrandPalette.statusWarning)
             } else if isStale {
                 LivePill(title: "Not updating", tint: StrandPalette.textSecondary)
@@ -216,7 +228,7 @@ public struct NOOPWorkoutLiveActivityView<Control: View>: View {
     }
 
     private var summary: String {
-        let state = isPaused ? "paused" : (isStale ? "not updating" : "recording")
+        let state = isEnding ? "ending" : (isPaused ? "paused" : (isStale ? "not updating" : "recording"))
         return "\(title), \(state), heart rate \(bpm.map(String.init) ?? "unavailable"), strain \(liveStrainText(strain, building: strainBuilding))"
     }
 }
@@ -224,10 +236,10 @@ public struct NOOPWorkoutLiveActivityView<Control: View>: View {
 public extension NOOPWorkoutLiveActivityView where Control == EmptyView {
     init(title: String, startedAt: Date?, pausedAt: Date? = nil, frozenAt: Date? = nil, bpm: Int?, strain: Double?,
          strainBuilding: Bool, calories: Int?, hrSpark: [Int]?, maxHR: Double? = nil, isStale: Bool = false,
-         heartRateIsLive: Bool = true) {
+         heartRateIsLive: Bool = true, isEnding: Bool = false) {
         self.init(title: title, startedAt: startedAt, pausedAt: pausedAt, frozenAt: frozenAt, bpm: bpm, strain: strain,
                   strainBuilding: strainBuilding, calories: calories, hrSpark: hrSpark, maxHR: maxHR,
-                  isStale: isStale, heartRateIsLive: heartRateIsLive) { EmptyView() }
+                  isStale: isStale, heartRateIsLive: heartRateIsLive, isEnding: isEnding) { EmptyView() }
     }
 }
 

@@ -9,13 +9,15 @@ import StrandAnalytics
 
 // MARK: Hero
 
-/// The elapsed time, large, and a "Paused" pill when the clock is stopped.
+/// The elapsed time, large, and a "Paused" pill when the clock is stopped, or "Ending" once End has been tried (the clock
+/// stands at the end the save will use).
 struct LiveWorkoutHero: View {
     @ObservedObject var workout: AppModel.ActiveWorkout
     @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
         let paused = workout.isPaused
+        let ending = workout.isEnding
         let layout = typeSize.isAccessibilitySize
             ? AnyLayout(VStackLayout(alignment: .leading, spacing: NoopMetrics.space2))
             : AnyLayout(HStackLayout(alignment: .center, spacing: NoopMetrics.space3))
@@ -36,13 +38,18 @@ struct LiveWorkoutHero: View {
                 .accessibilityLabel(Text("Elapsed time"))
                 .accessibilityValue(Text(verbatim: LiveWorkoutTiles.spokenElapsed(elapsed)))
             }
-            if paused {
+            if ending {
+                Spacer(minLength: 0)
+                StatePill("Ending")
+                    .transition(.opacity)
+            } else if paused {
                 Spacer(minLength: 0)
                 StatePill("Paused", tone: .warning)
                     .transition(.opacity)
             }
         }
         .animation(.easeInOut(duration: 0.2), value: paused)
+        .animation(.easeInOut(duration: 0.2), value: ending)
     }
 
 }

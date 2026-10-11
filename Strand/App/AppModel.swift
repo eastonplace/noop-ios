@@ -288,6 +288,9 @@ final class AppModel: ObservableObject {
 
         func freeze(at time: Date?) { frozenAt = time }
 
+        /// End was tried: the save is running, or it failed and waits for a retry. Every surface says "Ending".
+        var isEnding: Bool { frozenAt != nil }
+
         /// The instant the clocks read as of `now`: `now` itself, or the freeze if the workout has stopped counting.
         func clockEnd(at now: Date) -> Date {
             frozenAt.map { min($0, now) } ?? now
@@ -2037,6 +2040,8 @@ final class AppModel: ObservableObject {
     /// What a screenshot of the live workout screen shows. Set by `--demo-live-workout`.
     enum DemoLiveWorkoutScenario: String {
         case running, paused, stale, indoor
+        /// End was tried and the save failed: the clocks stand at the end a retry will use, and the screen says "Ending".
+        case ending
     }
 
     /// True for a fixture workout: nothing about it is written to disk, so a screenshot run can never leave a
@@ -2069,6 +2074,14 @@ final class AppModel: ObservableObject {
         activeWorkoutIsDemo = true
         activeWorkout = workout
         workoutFinishState = .recording
+        if scenario == .ending {
+            // The state a failed End leaves: frozen at the moment End was tried, awaiting a retry.
+            let stoppedAt = now.addingTimeInterval(-30)
+            workout.freeze(at: stoppedAt)
+            pendingWorkoutEnd = stoppedAt
+            pendingWorkoutSnapshot = workout
+            workoutFinishState = .failed(WorkoutFinishError.storeUnavailable.localizedDescription)
+        }
         if !indoor {
             activeWorkoutIsGps = true
             gpsRecorder.seedDemoRoute(points: Self.demoRoutePoints(), elapsedSeconds: Double(activeSeconds),

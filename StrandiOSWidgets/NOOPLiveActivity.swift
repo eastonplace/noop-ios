@@ -27,7 +27,8 @@ struct NOOPLiveActivity: Widget {
                         hrSpark: context.state.hrTrace,
                         maxHR: liveMaxHR(context.state),
                         isStale: context.isStale,
-                        heartRateIsLive: context.state.heartRateIsLive
+                        heartRateIsLive: context.state.heartRateIsLive,
+                        isEnding: context.state.finishing
                     ) {
                         PauseResumeButton(isPaused: context.state.pausedAt != nil, isCompact: false, isAvailable: !context.state.finishing)
                     }
@@ -70,6 +71,8 @@ struct NOOPLiveActivity: Widget {
                                 thresholds: liveMaxHR(context.state).map { HRZoneStyle.Thresholds(hrMax: $0) } ?? .default,
                                 isDimmed: context.state.pausedAt != nil || context.isStale || !context.state.heartRateIsLive,
                                 style: .bar)
+                            // Why the Pause beside it has gone quiet: the workout is ending.
+                            if context.state.finishing { NOOPLiveEndingPill() }
                             PauseResumeButton(isPaused: context.state.pausedAt != nil, isCompact: true, isAvailable: !context.state.finishing)
                         }
                         .padding(.top, 6)

@@ -91,17 +91,21 @@ private struct StableLiveWorkoutContent: View, @preconcurrency Equatable {
 
 /// The recording eyebrow with its pulse, and the screen's single close control (modals carry no system navigation bar).
 /// When the workout is paused the eyebrow says so, as the Live Activity's does: a yellow pause glyph that does not pulse
-/// and "Paused". The recording is still open, but nothing is being counted.
+/// and "Paused". The recording is still open, but nothing is being counted. Once End has been tried it says "Ending", as
+/// the Live Activity's pill does: the clock has stopped at the end the save will use, whether the save is running or failed
+/// and is waiting for a retry.
 private struct LiveWorkoutHeader: View {
     @ObservedObject var workout: AppModel.ActiveWorkout
     let onClose: () -> Void
 
     var body: some View {
         let paused = workout.isPaused
-        let title: LocalizedStringKey = paused ? "Paused" : "Recording"
+        let ending = workout.isEnding
+        let title: LocalizedStringKey = ending ? "Ending" : (paused ? "Paused" : "Recording")
         HStack(spacing: NoopMetrics.space2) {
             EyebrowPulseIcon(systemName: paused ? "pause.fill" : "waveform.path.ecg",
-                             color: paused ? StrandPalette.statusWarning : StrandPalette.liveRed, pulses: !paused)
+                             color: paused ? StrandPalette.statusWarning : StrandPalette.liveRed,
+                             pulses: !paused && !ending)
             Text(title)
                 .strandOverlineFitted()
                 .lineLimit(2)

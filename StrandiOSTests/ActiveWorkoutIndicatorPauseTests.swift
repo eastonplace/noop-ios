@@ -103,4 +103,22 @@ final class ActiveWorkoutIndicatorPauseTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(ActiveWorkoutIndicatorModel.make(from: w)), live)
         XCTAssertEqual(w.activeElapsed(at: t(500)), 500, accuracy: 0.001)
     }
+
+    func testEveryPendingFinishSurfaceAgreesOnEnding() throws {
+        let w = workout()
+        XCTAssertFalse(w.isEnding)
+        XCTAssertFalse(try XCTUnwrap(ActiveWorkoutIndicatorModel.make(from: w)).isEnding)
+        w.freeze(at: t(120))                           // End tried: the save is running or failed
+        XCTAssertTrue(w.isEnding, "the live screen's eyebrow and hero")
+        XCTAssertTrue(try XCTUnwrap(ActiveWorkoutIndicatorModel.make(from: w)).isEnding, "Today's card")
+        // Ended while paused: still ending, and the card still knows it is paused.
+        let p = workout()
+        XCTAssertTrue(p.setPaused(true, at: t(60)))
+        p.freeze(at: t(60))
+        let model = try XCTUnwrap(ActiveWorkoutIndicatorModel.make(from: p))
+        XCTAssertTrue(model.isEnding)
+        XCTAssertTrue(model.isPaused)
+        w.freeze(at: nil)
+        XCTAssertFalse(w.isEnding, "a finish with nothing to save lifts it again")
+    }
 }

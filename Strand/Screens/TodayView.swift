@@ -75,6 +75,8 @@ struct ActiveWorkoutIndicatorModel: Equatable {
     var frozenAt: Date?
 
     var isPaused: Bool { pauses.isPaused }
+    /// End was tried: the clock is frozen and the card says "Ending".
+    var isEnding: Bool { frozenAt != nil }
 
     static func make(from workout: AppModel.ActiveWorkout?) -> ActiveWorkoutIndicatorModel? {
         guard let workout else { return nil }
@@ -151,7 +153,8 @@ private struct ActiveWorkoutIndicatorCard: View {
     private var sportRow: some View {
         HStack(spacing: NoopMetrics.space2) {
             sportLabel
-            if model.isPaused { StatePill("Paused", tone: .warning) }
+            if model.isEnding { StatePill("Ending") }
+            else if model.isPaused { StatePill("Paused", tone: .warning) }
         }
     }
 
