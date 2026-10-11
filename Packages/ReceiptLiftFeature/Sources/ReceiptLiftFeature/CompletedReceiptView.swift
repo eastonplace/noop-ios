@@ -446,6 +446,8 @@ private struct AnimatedReceiptTotals: View {
   }
 }
 
+/// Share and Workout history side by side; from the largest standard text size up (the Workouts hub rows' rule) they
+/// stack, so neither label is cut.
 private struct CompletedReceiptActionBar: View {
   let showsHistory: Bool
   let onViewReceipts: () -> Void

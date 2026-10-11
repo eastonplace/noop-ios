@@ -176,8 +176,9 @@ private struct MiniRestTimeline: View {
   }
 }
 
-/// The running rest: the countdown (a tap opens the presets) and the three ways to change it. Side by side from regular
-/// text up to the largest standard size; stacked beyond, so the countdown keeps its whole width.
+/// The running rest: the countdown (a tap opens the presets) and the three ways to change it. Side by side below the
+/// largest standard text size; from that size (xxxLarge) up it stacks, the same rule the Workouts hub rows follow
+/// (`WorkoutRowLayout`), so the countdown keeps its whole width.
 private struct MiniRestBarContent: View {
   let endDate: Date
   let now: Date
