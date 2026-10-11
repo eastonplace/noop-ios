@@ -59,16 +59,30 @@ private struct HRChartFrameKey: PreferenceKey {
 // rehydrated from the durable snapshot on launch), so the card auto-appears and auto-clears with no new
 // lifecycle wiring.
 
-/// The Today indicator's value-typed view model: just the sport label + the workout's start, derived from
-/// `AppModel.ActiveWorkout`. Equatable so the leaf below only re-renders when one of these actually changes,
+/// The Today indicator's value-typed view model: the sport label, the workout's start and its pauses so far, derived
+/// from `AppModel.ActiveWorkout`. Equatable so the leaf below only re-renders when one of these actually changes,
 /// and the elapsed clock is formatted from a pure function the tests pin.
+///
+/// The clock is the time the workout RAN, the live screen's number: a paused stretch is left out and the clock stands
+/// still while one is open. Counting wall-clock time here would keep ticking through a pause and stay ahead of the
+/// live screen and the Lock Screen for the rest of the workout.
 struct ActiveWorkoutIndicatorModel: Equatable {
     let sport: String
     let startedAt: Date
+    /// The pauses so far (closed stretches and the one still open).
+    var pauses = WorkoutPauseLedger()
+
+    var isPaused: Bool { pauses.isPaused }
 
     static func make(from workout: AppModel.ActiveWorkout?) -> ActiveWorkoutIndicatorModel? {
         guard let workout else { return nil }
-        return ActiveWorkoutIndicatorModel(sport: workout.sport, startedAt: workout.start)
+        return ActiveWorkoutIndicatorModel(sport: workout.sport, startedAt: workout.start, pauses: workout.pauseLedger)
+    }
+
+    /// The clock at `now`: the time the workout has run, M:SS up to an hour and H:MM:SS after, frozen while paused.
+    func elapsedText(at now: Date) -> String {
+        LiveWorkoutTiles.elapsedText(pauses.activeSeconds(from: startedAt.timeIntervalSince1970,
+                                                          to: now.timeIntervalSince1970))
     }
 
     /// Elapsed time since `start`, formatted M:SS up to an hour and H:MM:SS once an hour has passed (so a
@@ -76,13 +90,7 @@ struct ActiveWorkoutIndicatorModel: Equatable {
     /// Pure + injectable `now` for deterministic tests. (StrandFont.bodyNumber already applies tabular figures,
     /// so the call site does NOT add `.monospacedDigit()`.)
     static func elapsed(since start: Date, now: Date = Date()) -> String {
-        let total = max(0, Int(now.timeIntervalSince(start)))
-        let h = total / 3600
-        let m = (total % 3600) / 60
-        let s = total % 60
-        return h > 0
-            ? String(format: "%d:%02d:%02d", h, m, s)
-            : String(format: "%d:%02d", m, s)
+        LiveWorkoutTiles.elapsedText(now.timeIntervalSince(start))
     }
 }
 
@@ -95,7 +103,8 @@ private struct ActiveWorkoutIndicatorCard: View {
             VStack(alignment: .leading, spacing: NoopMetrics.cardInnerSpacing) {
                 HStack(alignment: .firstTextBaseline, spacing: NoopMetrics.space2) {
                     // Decorative "live" dot, hidden from VoiceOver (the card itself reads the full state).
-                    MicroStatusDot(color: StrandPalette.metricRose, isActive: true)
+                    MicroStatusDot(color: model.isPaused ? StrandPalette.statusWarning : StrandPalette.metricRose,
+                                   isActive: !model.isPaused)
                     Text("WORKOUT IN PROGRESS")
                         .font(StrandFont.overline)
                         .tracking(StrandFont.overlineTracking)
@@ -105,22 +114,23 @@ private struct ActiveWorkoutIndicatorCard: View {
                     // the tick never re-renders the rest of the card (let alone TodayView.body). bodyNumber
                     // already carries `.monospacedDigit()`, so no extra modifier here.
                     TimelineView(.periodic(from: .now, by: 1)) { context in
-                        Text(ActiveWorkoutIndicatorModel.elapsed(since: model.startedAt, now: context.date))
+                        Text(model.elapsedText(at: context.date))
                             .font(StrandFont.bodyNumber)
                             .foregroundStyle(StrandPalette.textPrimary)
+                            .opacity(model.isPaused ? 0.45 : 1)
                     }
                 }
 
                 ViewThatFits(in: .horizontal) {
                     HStack(alignment: .center, spacing: NoopMetrics.cardInnerSpacing) {
-                        sportLabel
+                        sportRow
                         Spacer(minLength: NoopMetrics.space2)
                         NoopButton("Return to workout", systemImage: "arrow.forward.circle.fill",
                                    kind: .primary, action: onReturn)
                     }
 
                     VStack(alignment: .leading, spacing: NoopMetrics.cardInnerSpacing) {
-                        sportLabel
+                        sportRow
                         NoopButton("Return to workout", systemImage: "arrow.forward.circle.fill",
                                    kind: .primary, fullWidth: true, action: onReturn)
                     }
@@ -130,6 +140,14 @@ private struct ActiveWorkoutIndicatorCard: View {
         // Combine the card into one VoiceOver element so the dot + label + clock + button read as a single
         // "Workout in progress" actionable item rather than five separate stops.
         .accessibilityElement(children: .combine)
+    }
+
+    /// The sport, with a "Paused" pill beside it while the clock is stopped.
+    private var sportRow: some View {
+        HStack(spacing: NoopMetrics.space2) {
+            sportLabel
+            if model.isPaused { StatePill("Paused", tone: .warning) }
+        }
     }
 
     private var sportLabel: some View {
@@ -150,12 +168,25 @@ private struct ActiveWorkoutIndicatorSection: View {
     @EnvironmentObject var router: NavRouter
 
     var body: some View {
-        if let model = ActiveWorkoutIndicatorModel.make(from: app.activeWorkout) {
-            ActiveWorkoutIndicatorCard(model: model) {
+        if let workout = app.activeWorkout {
+            ActiveWorkoutIndicatorLeaf(workout: workout) {
                 StrandHaptic.selection.play()
                 router.openActiveWorkout()
             }
             .transition(.opacity)
+        }
+    }
+}
+
+/// Watches the workout itself: a pause or a resume is a change of the workout, not of `AppModel`, and the card has to
+/// redraw on it (a Paused pill, a frozen clock). Like the section above, it is a leaf, so only this card redraws.
+private struct ActiveWorkoutIndicatorLeaf: View {
+    @ObservedObject var workout: AppModel.ActiveWorkout
+    let onReturn: () -> Void
+
+    var body: some View {
+        if let model = ActiveWorkoutIndicatorModel.make(from: workout) {
+            ActiveWorkoutIndicatorCard(model: model, onReturn: onReturn)
         }
     }
 }
