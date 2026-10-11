@@ -13,7 +13,8 @@ import WhoopStore
 /// workout-detail-manual, manual-workout, health, metric-explorer, metric-detail-hrv, compare, trends-explore,
 /// insights, intelligence, scoring-guide, scoring-guide-recovery (the guide opened at its Recovery section, as the
 /// Recovery ⓘ opens it), updates, live-hr, breathe, journal, intervals, start-workout, rhythm, smart-alarm,
-/// hydration, fitness-age, coupled, lab-book, trends-report.
+/// hydration, fitness-age, coupled, lab-book, trends-report, coach-workouts-sheet (the Workouts hub at the root of a sheet,
+/// as Coach's plan opens it).
 ///
 /// The `workout-detail-*` routes open the real detail screen the way the Workouts hub does (a sheet with its own
 /// navigation stack) for one of the demo week's known sessions (`AppleDemoWorkoutFixture`), so they need
@@ -55,6 +56,7 @@ enum QARoute: String, CaseIterable {
     case coupled
     case labBook = "lab-book"
     case trendsReport = "trends-report"
+    case coachWorkoutsSheet = "coach-workouts-sheet"
 
     /// The tab whose navigation stack, cover or sheet presents the route.
     enum Tab: Int { case today = 0, trends = 1, sleep = 2 }
@@ -77,7 +79,7 @@ enum QARoute: String, CaseIterable {
         case .pillarRecovery, .pillarStrain, .sleep:
             return .cover(.today)
         case .scoringGuide, .scoringGuideRecovery, .workoutDetailRun, .workoutDetailStrength, .workoutDetailWhoop,
-             .workoutDetailManual, .manualWorkout:
+             .workoutDetailManual, .manualWorkout, .coachWorkoutsSheet:
             return .sheet(.today)
         case .metricExplorer, .metricDetailHRV, .compare, .trendsExplore, .insights, .intelligence, .labBook:
             return .push(.trends)
@@ -342,6 +344,13 @@ private struct QARouteHost: ViewModifier {
         case .workoutDetailWhoop: QAWorkoutDetailHost(kind: .whoop, onClose: { sheeted = false })
         case .workoutDetailManual: QAWorkoutDetailHost(kind: .manual, onClose: { sheeted = false })
         case .manualWorkout: ManualWorkoutSheet(editing: nil) { _, _ in }
+        case .coachWorkoutsSheet:
+            // The Workouts hub as Coach's plan opens it: the root of a sheet that supplies its own close action.
+            NavigationStack {
+                WorkoutsView()
+                    .sheetScreenScaffoldEnvironment(onClose: { sheeted = false })
+                    .background(StrandPalette.appCanvas.ignoresSafeArea())
+            }
         default: EmptyView()
         }
     }
