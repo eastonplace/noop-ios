@@ -167,7 +167,8 @@ public struct ScrubChart: View {
         return points.map { inset + (width - inset * 2) * CGFloat(ScrubChartGeometry.unitPosition(of: $0.date, in: domain)) }
     }
 
-    private func y(_ value: Double, height: CGFloat) -> CGFloat {
+    /// `axis` is passed in: it is computed from every point, so each point asking for it again made a render quadratic.
+    private func y(_ value: Double, height: CGFloat, axis: TrendsAxis) -> CGFloat {
         // Leave room at the top for the dot's ring and at the bottom for the line's stroke.
         let top: CGFloat = 6
         let usable = max(height - top - 3, 1)
@@ -217,7 +218,8 @@ public struct ScrubChart: View {
     @ViewBuilder
     private func layers(size: CGSize) -> some View {
         let xs = xs(width: size.width)
-        let ys = points.map { y($0.value, height: size.height) }
+        let scale = axis
+        let ys = points.map { y($0.value, height: size.height, axis: scale) }
         let rendered = zip(xs, ys).map { CGPoint(x: $0, y: $1) }
         ZStack {
             switch style {
