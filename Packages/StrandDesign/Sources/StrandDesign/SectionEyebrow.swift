@@ -225,7 +225,9 @@ public struct MetricValueRow: View {
             Image(systemName: systemImage).font(StrandFont.caption).foregroundStyle(tint.accent)
                 .frame(width: WidgetMetrics.metricIconWidth)
                 .accessibilityHidden(true)
-            Text(label).foregroundStyle(StrandPalette.textSecondary).captionLabelFit(lines: 2)
+            // One line at every size short of the accessibility sizes, where the label may take a second.
+            Text(label).foregroundStyle(StrandPalette.textSecondary)
+                .captionLabelFit(lines: 2, standardLines: 1)
             Spacer(minLength: NoopMetrics.space1)
             HStack(alignment: .firstTextBaseline, spacing: 2) {
                 Text(value).font(StrandFont.bodyNumber)
@@ -322,7 +324,7 @@ public struct StatFooter: View {
                         .accessibilityHidden(true)
                 }
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(item.label).foregroundStyle(StrandPalette.textTertiary).microLabelFit()
+                    Text(item.label).foregroundStyle(StrandPalette.textTertiary).microLabelFit(lines: 1, standardLines: 1)
                     Text(item.value)
                         .font(StrandFont.number(size, weight: .semibold))
                         .foregroundStyle(item.value == WidgetMetrics.missingValue ? StrandPalette.textTertiary : StrandPalette.textPrimary)

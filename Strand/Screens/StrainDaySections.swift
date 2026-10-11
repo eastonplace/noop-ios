@@ -175,7 +175,8 @@ private struct StrainScoreRowView: View {
     @Environment(\.dynamicTypeSize) private var typeSize
     /// The symbol's slot scales with its caption-size glyph, so a large symbol stays in its slot and the lines under it
     /// keep lining up with the label.
-    @ScaledMetric(relativeTo: .caption) private var iconWidth: CGFloat = WidgetMetrics.metricIconWidth
+    @ScaledMetric(relativeTo: .caption) private var scaledIconWidth: CGFloat = WidgetMetrics.metricIconWidth
+    private var iconWidth: CGFloat { typeSize.isAccessibilitySize ? scaledIconWidth : WidgetMetrics.metricIconWidth }
     private var tint: Color { DomainTint.strain.accent }
 
     var body: some View {

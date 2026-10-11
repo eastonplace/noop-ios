@@ -18,6 +18,7 @@ public struct NoopScreenHeader<Trailing: View>: View {
     private let onDark: Bool
     private let style: NoopScreenHeaderStyle
     @ViewBuilder private let trailing: () -> Trailing
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     public init(
         title: LocalizedStringKey? = nil,
@@ -76,12 +77,7 @@ public struct NoopScreenHeader<Trailing: View>: View {
                                 .expandedTitleFit()
                         }
                         if let subtitle {
-                            // Wraps between words under the title rather than ending in an ellipsis ("Erholung · Anstre…"),
-                            // and a word wider than the line scales down instead of hyphenating.
-                            Text(subtitle)
-                                .foregroundStyle(secondary)
-                                .captionLabelFit(lines: 3)
-                                .fixedSize(horizontal: false, vertical: true)
+                            headerSubtitle(subtitle, secondary: secondary, wraps: typeSize.isAccessibilitySize)
                         }
                     }
                 } else {
@@ -95,7 +91,7 @@ public struct NoopScreenHeader<Trailing: View>: View {
                         }
                         VStack(alignment: .leading, spacing: 2) {
                             compactTitle(primary: primary, lines: 2)
-                            compactSubtitle(secondary: secondary, wraps: true)
+                            compactSubtitle(secondary: secondary, wraps: typeSize.isAccessibilitySize)
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                     }
@@ -120,12 +116,25 @@ public struct NoopScreenHeader<Trailing: View>: View {
     @ViewBuilder
     private func compactSubtitle(secondary: Color, wraps: Bool = false) -> some View {
         if let subtitle {
-            // One line beside the title; under it (accessibility sizes) it wraps between words rather than ending in an
-            // ellipsis, and a long word scales down instead of hyphenating.
+            headerSubtitle(subtitle, secondary: secondary, wraps: wraps)
+        }
+    }
+
+    /// One truncating line at every size short of the accessibility sizes, exactly as it always was. At an accessibility
+    /// size (`wraps`) the subtitle wraps between words, three lines at most, rather than ending in an ellipsis
+    /// ("Erholung · Anstre…"), and a word wider than the line scales down instead of hyphenating.
+    @ViewBuilder
+    private func headerSubtitle(_ subtitle: LocalizedStringKey, secondary: Color, wraps: Bool) -> some View {
+        if wraps {
             Text(subtitle)
                 .foregroundStyle(secondary)
-                .captionLabelFit(lines: wraps ? 3 : 1)
-                .fixedSize(horizontal: false, vertical: wraps)
+                .captionLabelFit(lines: 3)
+                .fixedSize(horizontal: false, vertical: true)
+        } else {
+            Text(subtitle)
+                .font(StrandFont.caption)
+                .foregroundStyle(secondary)
+                .lineLimit(1)
         }
     }
 }

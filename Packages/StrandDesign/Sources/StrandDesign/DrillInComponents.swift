@@ -29,7 +29,7 @@ public struct ValuePill: View {
         // the width it is given instead of running off the screen.
         let wraps = typeSize.isAccessibilitySize
         Text(verbatim: text)
-            .statePillLabel()
+            .statePillLabel(lines: 3)
             .monospacedDigit()
             .lineLimit(wraps ? 3 : 1)
             .statePillChrome(tint: tint)
@@ -612,12 +612,12 @@ public struct PillarWeekBars: View {
     private let spokenValue: ((Double) -> String)?
 
     @Environment(\.dynamicTypeSize) private var typeSize
-    /// The row above the bars that holds a day's printed value: it grows with the type, and the band and the bar track
-    /// are offset by it. At accessibility sizes a seven-column value no longer fits its column, so the row goes (the
-    /// spoken summary and the hero carry the values).
-    @ScaledMetric(relativeTo: .caption2) private var valueRowBase: CGFloat = 18
+    /// The row above the bars that holds a day's printed value, and the band and the bar track are offset by it. At
+    /// accessibility sizes a seven-column value no longer fits its column, so the row goes (the spoken summary and the
+    /// hero carry the values).
+    private static let valueRowBase: CGFloat = 18
     private var showsValues: Bool { !typeSize.isAccessibilitySize }
-    private var valueRowHeight: CGFloat { showsValues ? valueRowBase : 0 }
+    private var valueRowHeight: CGFloat { showsValues ? Self.valueRowBase : 0 }
     private static let trackHeight: CGFloat = 86
     private var plotHeight: CGFloat { Self.trackHeight + valueRowHeight }
     private static let barWidth: CGFloat = 16

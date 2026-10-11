@@ -114,12 +114,19 @@ extension View {
 private struct ExpandedTitleFit: ViewModifier {
     /// `.title` at the default size, scaled like `.title`.
     @ScaledMetric(relativeTo: .title) private var size: CGFloat = 28
+    @Environment(\.dynamicTypeSize) private var typeSize
 
+    /// `StrandFont.title1` itself short of the accessibility sizes, exactly as it was.
     func body(content: Content) -> some View {
-        content
-            .font(.system(size: size, weight: .bold))
-            .lineLimit(3)
-            .minimumScaleFactor(0.5)
+        if typeSize.isAccessibilitySize {
+            content
+                .font(.system(size: size, weight: .bold))
+                .lineLimit(3)
+                .minimumScaleFactor(0.5)
+        } else {
+            content
+                .font(StrandFont.title1)
+        }
     }
 }
 

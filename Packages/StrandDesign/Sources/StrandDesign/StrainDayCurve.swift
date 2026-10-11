@@ -111,7 +111,8 @@ public struct StrainDayCurve: View {
     @Environment(\.dynamicTypeSize) private var typeSize
     /// Label offsets and width guesses are in points at the default size; this scales them with `.caption2`, the type
     /// the labels are set in.
-    @ScaledMetric(relativeTo: .caption2) private var labelUnit: CGFloat = 1
+    @ScaledMetric(relativeTo: .caption2) private var scaledLabelUnit: CGFloat = 1
+    private var labelUnit: CGFloat { typeSize.isAccessibilitySize ? scaledLabelUnit : 1 }
     @State private var revealed = false
     @State private var scrubIndex: Int?
     @State private var plotWidth: CGFloat = 1

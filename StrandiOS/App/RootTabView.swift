@@ -549,12 +549,15 @@ struct PaperTabLabel: View {
     let title: LocalizedStringKey
     let isActive: Bool
 
-    /// The largest the label grows to; the large content viewer shows it at full size.
+    /// The largest the label grows to at an accessibility size, where the large content viewer shows it at full size.
+    /// Every smaller size is the plain `.caption2` text as it always was (the viewer does not exist there).
     static let ceiling: CGFloat = 15
 
     var body: some View {
         Text(title)
             .microLabelFit(lines: 1, weight: isActive ? .semibold : .regular, ceiling: Self.ceiling)
+            .multilineTextAlignment(.center)
+            .fixedSize(horizontal: false, vertical: true)
     }
 }
 

@@ -502,7 +502,9 @@ public struct TrendsHeroChart: View {
     /// Changes whenever anything that shapes the plot's static layers changes.
     private let layoutToken: Int
 
-    @ScaledMetric(relativeTo: .caption2) private var labelUnit: CGFloat = 1
+    @ScaledMetric(relativeTo: .caption2) private var scaledLabelUnit: CGFloat = 1
+    /// Label offsets scale with the type at an accessibility size only; every smaller size keeps its points.
+    private var labelUnit: CGFloat { typeSize.isAccessibilitySize ? scaledLabelUnit : 1 }
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dynamicTypeSize) private var typeSize
     @State private var revealed = false

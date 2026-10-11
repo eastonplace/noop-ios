@@ -437,7 +437,7 @@ private struct CoachWorkoutFigure: View {
         VStack(alignment: leading ? .leading : .trailing, spacing: 0) {
             Text(value).font(StrandFont.bodyNumber)
                 .foregroundStyle(value == "—" ? StrandPalette.textTertiary : tint).lineLimit(1)
-            Text(label).foregroundStyle(StrandPalette.textTertiary).microLabelFit(lines: 1)
+            Text(label).foregroundStyle(StrandPalette.textTertiary).microLabelFit(lines: 1, standardLines: 1)
         }
         .frame(minWidth: 40, alignment: leading ? .leading : .trailing)
     }
