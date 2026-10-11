@@ -90,8 +90,10 @@ struct CompletedReceiptView: View {
   @State private var shareItem: LiftReceiptShareItem?
   @State private var exportErrorMessage: String?
   @State private var cachedPersonalRecordsBySetID: [UUID: LiftPersonalRecord]?
+  #if DEBUG
   /// QA harness only: the exported image drawn full screen, so each export stock can be captured.
   @State private var qaExportImage: UIImage?
+  #endif
 
   init(
     session: LiftSession,
@@ -152,6 +154,7 @@ struct CompletedReceiptView: View {
       printTask?.cancel()
       printTask = nil
     }
+    #if DEBUG
     .liftQAScene("receipt-export-white", "receipt-export-cream", after: .milliseconds(1_800)) {
       qaExportImage = LiftReceiptExportRenderer.render(
         session: session,
@@ -171,6 +174,7 @@ struct CompletedReceiptView: View {
         .background(Color.gray.opacity(0.35).ignoresSafeArea())
       }
     }
+    #endif
     .sheet(item: $shareItem) { item in
       LiftReceiptActivityView(image: item.image)
     }
