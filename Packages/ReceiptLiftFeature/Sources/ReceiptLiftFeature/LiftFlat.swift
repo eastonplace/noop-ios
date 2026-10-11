@@ -680,10 +680,12 @@ extension View {
 }
 
 /// A 44pt pill for the timer's quick actions (a preset, plus or minus fifteen seconds, skip). Bigger than a chip because
-/// it is tapped between sets, often with a chalky thumb. `title` is already in the person's language.
+/// it is tapped between sets, often with a chalky thumb. `title` is already in the person's language. `fillsWidth` makes
+/// it take the whole column it is placed in, so a grid of presets lines up with the content above and below.
 struct LiftTimerPill: View {
   let title: String
   var isSelected = false
+  var fillsWidth = false
   let accessibilityLabel: Text
   let action: () -> Void
 
@@ -693,7 +695,7 @@ struct LiftTimerPill: View {
         .monospacedDigit()
         .lineLimit(1)
         .minimumScaleFactor(0.8)
-        .frame(minWidth: 40, minHeight: 24)
+        .frame(minWidth: 40, maxWidth: fillsWidth ? .infinity : nil, minHeight: 24)
     }
     .buttonStyle(SecondaryPillButtonStyle())
     .overlay {

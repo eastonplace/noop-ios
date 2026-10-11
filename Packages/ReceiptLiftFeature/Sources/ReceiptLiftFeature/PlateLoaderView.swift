@@ -78,9 +78,10 @@ struct PlateLoaderView: View {
     LiftSheetPage(title: "Plate loader", onClose: { dismiss() }) {
       targetSection
       FlatSectionSeparator()
-      sideSection
-      if !solution.exact {
-        FlatSectionSeparator()
+      // A weight these plates cannot make has no loading to draw, so the person is offered the nearest ones instead.
+      if solution.exact {
+        sideSection
+      } else {
         nearestSection
       }
     }

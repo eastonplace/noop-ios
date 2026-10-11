@@ -118,6 +118,8 @@ struct LiftFormatTests {
   func displayNames() {
     #expect("barbell bench press".liftDisplayName == "Barbell Bench Press")
     #expect("DB curl".liftDisplayName == "DB Curl")
+    #expect("cable fly or pec deck".liftDisplayName == "Cable Fly or Pec Deck")
+    #expect("or else".liftDisplayName == "Or Else")
   }
 }
 

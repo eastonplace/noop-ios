@@ -249,9 +249,8 @@ private struct MiniRestPresetButton: View {
 
   var body: some View {
     LiftTimerPill(
-      title: LiftFormat.duration(seconds), isSelected: isSelected,
+      title: LiftFormat.duration(seconds), isSelected: isSelected, fillsWidth: true,
       accessibilityLabel: Text("Set next rest to \(format.spokenDuration(seconds))"), action: action
     )
-    .frame(maxWidth: .infinity)
   }
 }

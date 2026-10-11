@@ -291,15 +291,20 @@ extension EnvironmentValues {
 
 extension String {
   /// The bundled exercise catalog stores lowercase names ("barbell bench press"). Chrome shows them with
-  /// each lowercase word capitalised, leaving words that already carry capitals ("DB", "EZ") alone.
+  /// each lowercase word capitalised, leaving words that already carry capitals ("DB", "EZ") alone and small joining
+  /// words ("or", "and", "with") lowercase after the first, so "cable fly or pec deck" reads like the routine plans do.
   var liftDisplayName: String {
     split(separator: " ", omittingEmptySubsequences: false)
-      .map { word in
+      .enumerated()
+      .map { index, word in
         guard let first = word.first, first.isLowercase else { return String(word) }
+        if index > 0, Self.liftJoiningWords.contains(String(word)) { return String(word) }
         return first.uppercased() + word.dropFirst()
       }
       .joined(separator: " ")
   }
+
+  private static let liftJoiningWords: Set<String> = ["or", "and", "with", "of", "to", "on", "in", "a", "the"]
 }
 
 /// Bodyweight movements read "BW" at zero load and "+25 lb" with added weight, and have no volume of their own.
