@@ -8,17 +8,12 @@ import StrandDesign
 /// system, so Lift can never drift from the rest of NOOP. The one exception is the receipt artifact
 /// (`Receipt`): the exported receipt image is rendered in an explicit light appearance, so its paper
 /// and ink adapt to the colour scheme they are drawn in. In-app the scheme is always dark, which makes
-/// the on-screen artifact sit on the canvas.
+/// the on-screen artifact a dark slip on the canvas.
 enum LiftTheme {
-  static let paper = StrandPalette.appCanvas
-  static let ink = StrandPalette.textPrimary
-  static let inkSecondary = StrandPalette.textSecondary
-  static let rule = StrandPalette.hairline
-  static let accent = StrandPalette.accent
-  static let onAccent = StrandPalette.onInk
-
   enum Receipt {
-    static let paper = adaptive(light: .white, dark: UIColor(StrandPalette.appCanvas))
+    /// White paper in the light appearance the export renders in; in the app's dark scheme the slip is a step lighter than
+    /// the canvas (the card colour), so it reads as a slip lying on the page.
+    static let paper = adaptive(light: .white, dark: UIColor(StrandPalette.card))
     static let ink = adaptive(light: UIColor(white: 0.067, alpha: 1), dark: UIColor(StrandPalette.textPrimary))
     static let inkSecondary = adaptive(light: UIColor(white: 0.333, alpha: 1), dark: UIColor(StrandPalette.textSecondary))
     static let rule = adaptive(light: UIColor(white: 0.867, alpha: 1), dark: UIColor(StrandPalette.cardBorder))
@@ -62,74 +57,4 @@ extension Font {
   static func receiptArtifact(_ size: CGFloat, weight: Font.Weight = .regular) -> Font {
     StrandFont.mono(size, weight: weight)
   }
-}
-
-extension View {
-  func liftScreenBackground() -> some View {
-    background(LiftTheme.paper.ignoresSafeArea())
-  }
-}
-
-func liftWeight(_ value: Double) -> String {
-  guard value > 0 else { return "BW" }
-  if value.rounded() == value {
-    return "\(Int(value)) lb"
-  }
-  return String(format: "%.1f lb", value)
-}
-
-func liftLoad(_ value: Double, for exercise: LiftExercise?) -> String {
-  let usesBodyweight = exercise.map(liftUsesBodyweightLoad) ?? false
-  if usesBodyweight {
-    guard value > 0 else { return "BW" }
-    return "+\(liftVolume(value))"
-  }
-  return liftVolume(value)
-}
-
-func liftUsesBodyweightLoad(_ exercise: LiftExercise) -> Bool {
-  let name = exercise.name.lowercased()
-  let equipment = exercise.equipment.lowercased()
-  return equipment.contains("bodyweight")
-    || name.contains("pull-up")
-    || name.contains("dead hang")
-    || name.contains("plank")
-    || name.contains("hanging knee raise")
-    || name.contains("russian twist")
-}
-
-func liftVolume(_ value: Double) -> String {
-  guard value > 0 else { return "0 lb" }
-  if value.rounded() == value {
-    return "\(Int(value)) lb"
-  }
-  return String(format: "%.1f lb", value)
-}
-
-func liftMeasuredWeight(_ value: Double) -> String {
-  guard value > 0 else { return "--" }
-  return liftVolume(value)
-}
-
-func liftDuration(_ interval: TimeInterval) -> String {
-  let totalSeconds = max(Int(interval.rounded()), 0)
-  let minutes = totalSeconds / 60
-  let seconds = totalSeconds % 60
-  return String(format: "%d:%02d", minutes, seconds)
-}
-
-func liftClockDuration(_ interval: TimeInterval) -> String {
-  let totalSeconds = max(Int(interval.rounded()), 0)
-  let hours = totalSeconds / 3600
-  let minutes = (totalSeconds % 3600) / 60
-  let seconds = totalSeconds % 60
-  return String(format: "%02d:%02d:%02d", hours, minutes, seconds)
-}
-
-func liftDate(_ date: Date) -> String {
-  date.formatted(.dateTime.month(.abbreviated).day().hour().minute())
-}
-
-func liftReceiptDate(_ date: Date) -> String {
-  date.formatted(.dateTime.month(.abbreviated).day().year().hour().minute())
 }

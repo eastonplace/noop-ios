@@ -8,6 +8,12 @@ struct LiftLogView: View {
     @EnvironmentObject private var lift: NoopReceiptLiftIntegration
     @EnvironmentObject private var repo: Repository
     @Environment(\.dismiss) private var dismiss
+    @AppStorage(UnitPrefs.systemKey) private var unitSystemRaw = UnitSystem.metric.rawValue
+
+    /// Lift stores pounds; the unit setting only changes how loads are drawn and stepped.
+    private var weightUnit: LiftWeightUnit {
+        (UnitSystem(rawValue: unitSystemRaw) ?? .metric).liftWeightUnit
+    }
 
     var body: some View {
         content
@@ -30,6 +36,7 @@ struct LiftLogView: View {
             ReceiptLiftView(
                 coordinator: coordinator,
                 destination: destination,
+                weightUnit: weightUnit,
                 onBack: onBack,
                 onClose: { dismiss() }
             )

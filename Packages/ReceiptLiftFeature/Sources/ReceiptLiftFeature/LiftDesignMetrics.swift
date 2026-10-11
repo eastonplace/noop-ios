@@ -27,7 +27,11 @@ enum LiftDesignMetrics {
 
   enum Receipt {
     static let lineInsertionOffset: CGFloat = -8
+    #if DEBUG
+    static let stampDwellSeconds: TimeInterval = LiftQAScene.holdsStamp ? 3_600 : 1.6
+    #else
     static let stampDwellSeconds: TimeInterval = 1.6
+    #endif
   }
 
   enum PlateLoader {

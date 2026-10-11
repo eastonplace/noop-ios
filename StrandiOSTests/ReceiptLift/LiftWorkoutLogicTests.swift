@@ -291,11 +291,11 @@ struct LiftWorkoutLogicTests {
     let bodyweight = Self.exercise("Pull-Up", equipment: "Bodyweight")
 
     #expect(
-      liftWorkoutStampText(set: Self.set(loaded.id, number: 1, weight: 60), exercise: loaded)
+      liftWorkoutStampText(set: Self.set(loaded.id, number: 1, weight: 60), exercise: loaded, format: Self.pounds)
         == "60 LB × 8 ADDED TO RECEIPT"
     )
     #expect(
-      liftWorkoutStampText(set: Self.set(bodyweight.id, number: 1, weight: 0), exercise: bodyweight)
+      liftWorkoutStampText(set: Self.set(bodyweight.id, number: 1, weight: 0), exercise: bodyweight, format: Self.pounds)
         == "BW × 8 ADDED TO RECEIPT"
     )
   }
@@ -400,12 +400,30 @@ struct LiftWorkoutLogicTests {
     )
 
     #expect(
-      liftWorkoutQueueAccessibilityLabel(row: row, isPrinted: false)
+      liftWorkoutQueueAccessibilityLabel(row: row, isPrinted: false, locale: Self.enUS)
         == "Exercise 2, Pull-Up, 1 of 3 sets, up next, Superset 1"
     )
     #expect(
-      liftWorkoutQueueAccessibilityLabel(row: row, isPrinted: true)
+      liftWorkoutQueueAccessibilityLabel(row: row, isPrinted: true, locale: Self.enUS)
         == "Exercise 2, Pull-Up, 1 of 3 sets, printed, Superset 1"
+    )
+  }
+
+  @Test func queueAccessibilityTextPluralisesSetsWhenThereIsNoTarget() {
+    // An open lift has no targets: the label is a bare count, and one set is "1 set", not "1 sets".
+    let exercise = Self.exercise("Bench Press")
+    func row(_ progress: String) -> LiftWorkoutQueueRowState {
+      LiftWorkoutQueueRowState(
+        id: exercise.id, ordinal: 1, exercise: exercise, progressLabel: progress, isDone: false, supersetLabel: nil)
+    }
+
+    #expect(
+      liftWorkoutQueueAccessibilityLabel(row: row("1"), isPrinted: false, locale: Self.enUS)
+        == "Exercise 1, Bench Press, 1 set, up next"
+    )
+    #expect(
+      liftWorkoutQueueAccessibilityLabel(row: row("3"), isPrinted: false, locale: Self.enUS)
+        == "Exercise 1, Bench Press, 3 sets, up next"
     )
   }
 
@@ -418,7 +436,8 @@ struct LiftWorkoutLogicTests {
         weight: 60,
         reps: 8,
         progress: LiftSetProgress(completed: 1, target: 3),
-        exercise: loaded
+        exercise: loaded,
+        format: Self.pounds
       ) == "60 pounds, 8 reps, set 2 of 3"
     )
     #expect(
@@ -426,7 +445,8 @@ struct LiftWorkoutLogicTests {
         weight: 0,
         reps: 8,
         progress: LiftSetProgress(completed: 1, target: nil),
-        exercise: bodyweight
+        exercise: bodyweight,
+        format: Self.pounds
       ) == "Bodyweight, 8 reps, set 2"
     )
   }
@@ -552,6 +572,9 @@ private extension LiftWorkoutLogicTests {
     await store.loadAndWait()
     return StoreFixture(directory: directory, dataURL: dataURL, store: store)
   }
+
+  static let enUS = Locale(identifier: "en_US")
+  static let pounds = LiftFormat(unit: .pounds, locale: enUS)
 
   static func exercise(_ name: String, equipment: String = "Barbell") -> LiftExercise {
     LiftExercise(

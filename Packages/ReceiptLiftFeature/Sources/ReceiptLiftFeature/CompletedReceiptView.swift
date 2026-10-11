@@ -45,7 +45,8 @@ enum LiftReceiptExportRenderer {
     receiptNumber: String,
     paperStyle: ExportPaperStyle,
     displayScale: CGFloat,
-    personalRecordsBySetID: [UUID: LiftPersonalRecord] = [:]
+    personalRecordsBySetID: [UUID: LiftPersonalRecord] = [:],
+    format: LiftFormat = LiftFormat(unit: .pounds, locale: Locale(identifier: "en_US"))
   ) -> UIImage? {
     let document = CompletedReceiptDocument(
       session: session,
@@ -53,10 +54,13 @@ enum LiftReceiptExportRenderer {
       receiptNumber: receiptNumber,
       paperStyle: paperStyle,
       totalsRevealed: true,
+      showsTopEdge: false,
       personalRecordsBySetID: personalRecordsBySetID
     )
     .frame(width: 390)
     .environment(\.colorScheme, .light)
+    .environment(\.liftWeightUnit, format.unit)
+    .environment(\.locale, format.locale)
 
     let renderer = ImageRenderer(content: document)
     renderer.proposedSize = ProposedViewSize(width: 390, height: nil)
@@ -71,6 +75,7 @@ struct CompletedReceiptView: View {
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @Environment(\.displayScale) private var displayScale
   @Environment(\.dismiss) private var dismiss
+  @Environment(\.liftFormat) private var format
 
   let session: LiftSession
   let presentation: LiftReceiptPresentation
@@ -85,6 +90,10 @@ struct CompletedReceiptView: View {
   @State private var shareItem: LiftReceiptShareItem?
   @State private var exportErrorMessage: String?
   @State private var cachedPersonalRecordsBySetID: [UUID: LiftPersonalRecord]?
+  #if DEBUG
+  /// QA harness only: the exported image drawn full screen, so each export stock can be captured.
+  @State private var qaExportImage: UIImage?
+  #endif
 
   init(
     session: LiftSession,
@@ -104,38 +113,30 @@ struct CompletedReceiptView: View {
   }
 
   var body: some View {
-    ScrollView {
-      VStack(alignment: .leading, spacing: LiftChromeMetrics.blockSpacing) {
-        NoopScreenHeader(
-          title: LocalizedStringKey(session.title),
-          subtitle: LocalizedStringKey(liftReceiptDate(session.startedAt)),
-          backAction: presentation == .settled ? { dismiss() } : nil
-        ) {
-          if presentation == .freshlyCompleted {
-            NoopIconButton("xmark", accessibilityLabel: "Close", action: onClose)
-          }
-        }
-
-        CompletedReceiptDocument(
-          session: session,
-          snapshot: snapshot,
-          receiptNumber: receiptNumber,
-          paperStyle: .white,
-          totalsRevealed: totalsRevealed,
-          personalRecordsBySetID: personalRecordsBySetID
-        )
-        .mask(alignment: .top) {
-          Rectangle()
-            .scaleEffect(y: revealMaskScale, anchor: .top)
-        }
-        .opacity(contentOpacity)
+    LiftPage(
+      title: LocalizedStringKey(userText: session.title),
+      context: format.receiptDate(session.startedAt),
+      backAction: { dismiss() },
+      closeAction: onClose,
+      bottomPadding: NoopMetrics.space6
+    ) {
+      CompletedReceiptDocument(
+        session: session,
+        snapshot: snapshot,
+        receiptNumber: receiptNumber,
+        paperStyle: .white,
+        totalsRevealed: totalsRevealed,
+        showsTopEdge: true,
+        personalRecordsBySetID: personalRecordsBySetID
+      )
+      .mask(alignment: .top) {
+        Rectangle()
+          .scaleEffect(y: revealMaskScale, anchor: .top)
       }
-      .padding(.horizontal, LiftChromeMetrics.gutter)
-      .padding(.bottom, 24)
-      .frame(maxWidth: LiftChromeMetrics.maxColumnWidth, alignment: .leading)
-      .frame(maxWidth: .infinity)
+      .opacity(contentOpacity)
+      .padding(.top, NoopMetrics.space2)
     }
-    .scrollIndicators(.hidden)
+    .environment(\.liftScreenRole, presentation == .settled ? .pushed : .sheet)
     .safeAreaInset(edge: .bottom, spacing: 0) {
       CompletedReceiptActionBar(
         showsHistory: presentation == .freshlyCompleted,
@@ -143,8 +144,6 @@ struct CompletedReceiptView: View {
         onShare: exportReceipt
       )
     }
-    .toolbar(.hidden, for: .navigationBar)
-    .liftScreenBackground()
     .onAppear {
       if cachedPersonalRecordsBySetID == nil {
         cachedPersonalRecordsBySetID = recomputedPersonalRecordsBySetID
@@ -155,16 +154,37 @@ struct CompletedReceiptView: View {
       printTask?.cancel()
       printTask = nil
     }
+    #if DEBUG
+    .liftQAScene("receipt-export-white", "receipt-export-cream", after: .milliseconds(1_800)) {
+      qaExportImage = LiftReceiptExportRenderer.render(
+        session: session,
+        snapshot: snapshot,
+        receiptNumber: receiptNumber,
+        paperStyle: LiftQAScene.current == "receipt-export-cream" ? .cream : .white,
+        displayScale: displayScale,
+        personalRecordsBySetID: personalRecordsBySetID,
+        format: format
+      )
+    }
+    .overlay {
+      if let qaExportImage {
+        ScrollView {
+          Image(uiImage: qaExportImage).resizable().scaledToFit().frame(maxWidth: .infinity)
+        }
+        .background(Color.gray.opacity(0.35).ignoresSafeArea())
+      }
+    }
+    #endif
     .sheet(item: $shareItem) { item in
       LiftReceiptActivityView(image: item.image)
     }
-    .alert("Couldn’t Share Receipt", isPresented: exportErrorPresentation) {
-      Button("Try Again", action: exportReceipt)
+    .alert("Couldn’t share receipt", isPresented: exportErrorPresentation) {
+      Button("Try again", action: exportReceipt)
       Button("Cancel", role: .cancel) {
         exportErrorMessage = nil
       }
     } message: {
-      Text(exportErrorMessage ?? "The receipt image was not readable. Your workout is still saved.")
+      Text(exportErrorMessage ?? String(localized: "The receipt image was not readable. Your workout is still saved."))
     }
   }
 
@@ -172,7 +192,8 @@ struct CompletedReceiptView: View {
     LiftReceiptSnapshot.make(
       session: session,
       exercisesByID: Dictionary(uniqueKeysWithValues: store.exercises.map { ($0.id, $0) }),
-      targetSetsByExerciseID: [:]
+      targetSetsByExerciseID: [:],
+      format: format
     )
   }
 
@@ -250,7 +271,8 @@ struct CompletedReceiptView: View {
       receiptNumber: receiptNumber,
       paperStyle: store.settings.exportPaperStyle,
       displayScale: displayScale,
-      personalRecordsBySetID: personalRecordsBySetID
+      personalRecordsBySetID: personalRecordsBySetID,
+      format: format
     ) else {
       failExport(.missingImage)
       return
@@ -272,11 +294,11 @@ struct CompletedReceiptView: View {
   private func failExport(_ validation: LiftReceiptExportValidation) {
     switch validation {
     case .missingImage:
-      exportErrorMessage = "Lift couldn’t render this receipt image. Your workout is still saved."
+      exportErrorMessage = String(localized: "Lift couldn’t render this receipt image. Your workout is still saved.")
     case .tooSmall:
-      exportErrorMessage = "The rendered receipt was too small to read. Try sharing it again."
+      exportErrorMessage = String(localized: "The rendered receipt was too small to read. Try sharing it again.")
     case .emptyData:
-      exportErrorMessage = "The rendered receipt contained no readable image data. Try again."
+      exportErrorMessage = String(localized: "The rendered receipt contained no readable image data. Try again.")
     case .readable:
       exportErrorMessage = nil
     }
@@ -289,14 +311,21 @@ private struct CompletedReceiptDocument: View {
   let receiptNumber: String
   let paperStyle: ExportPaperStyle
   let totalsRevealed: Bool
+  /// The torn edge above the slip, drawn on screen only: the exported image is the paper itself.
+  let showsTopEdge: Bool
   let personalRecordsBySetID: [UUID: LiftPersonalRecord]
+
+  @Environment(\.liftFormat) private var format
 
   var body: some View {
     VStack(spacing: 0) {
+      if showsTopEdge {
+        ReceiptEdge(flipped: true)
+      }
       ReceiptSheet {
         ReceiptHeader(
-          title: "Lift Receipt",
-          subtitle: liftReceiptDate(session.startedAt),
+          title: String(localized: "Lift Receipt"),
+          subtitle: format.receiptDate(session.startedAt),
           trailing: receiptNumber
         )
         Text(session.title.uppercased())
@@ -304,12 +333,8 @@ private struct CompletedReceiptDocument: View {
           .foregroundStyle(LiftTheme.Receipt.ink)
           .fixedSize(horizontal: false, vertical: true)
         ReceiptDashedRule()
-        ReceiptColumns([
-          ("#", .leading),
-          ("Exercise", .leading),
-          ("Sets", .trailing),
-          ("Volume (lb)", .trailing),
-        ])
+        ReceiptColumns(
+          title: String(localized: "Exercise"), value: String(localized: "Volume (\(format.unitSymbol))"))
         ReceiptDashedRule()
         CompletedReceiptRows(
           snapshot: snapshot,
@@ -317,7 +342,8 @@ private struct CompletedReceiptDocument: View {
         )
         AnimatedReceiptTotals(snapshot: snapshot, isRevealed: totalsRevealed)
         ReceiptDashedRule()
-        Text("THANK YOU FOR SHOWING UP.")
+        Text("Thank you for showing up.")
+          .textCase(.uppercase)
           .font(.receiptArtifact(11, weight: .black))
           .tracking(1.1)
           .foregroundStyle(LiftTheme.Receipt.ink)
@@ -362,7 +388,8 @@ private struct CompletedReceiptRows: View {
 
   var body: some View {
     if snapshot.lines.isEmpty {
-      Text("NO SETS WERE LOGGED ON THIS RECEIPT.")
+      Text("No sets were logged on this receipt.")
+        .textCase(.uppercase)
         .font(.receiptArtifact(11, weight: .bold))
         .foregroundStyle(LiftTheme.Receipt.inkSecondary)
         .frame(maxWidth: .infinity, alignment: .center)
@@ -374,7 +401,7 @@ private struct CompletedReceiptRows: View {
           index: line.ordinal,
           title: line.exerciseName,
           detail: line.detailLabel,
-          value: record == nil ? line.volumeLabel : "\(line.volumeLabel) · PR"
+          value: record == nil ? line.volumeLabel : "\(line.volumeLabel) · \(String(localized: "PR"))"
         )
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(line.accessibilityLabel)
@@ -391,12 +418,14 @@ private struct AnimatedReceiptTotals: View {
   let snapshot: LiftReceiptSnapshot
   let isRevealed: Bool
 
+  @Environment(\.liftFormat) private var format
+
   var body: some View {
     VStack(spacing: 7) {
       ReceiptRule()
-      totalRow(title: "Sets", value: isRevealed ? "\(snapshot.workingSetCount)" : "0")
-      totalRow(title: "Total volume", value: liftVolume(isRevealed ? snapshot.totalVolume : 0))
-      totalRow(title: "Duration", value: liftClockDuration(isRevealed ? snapshot.duration : 0))
+      totalRow(title: String(localized: "Sets"), value: (isRevealed ? snapshot.workingSetCount : 0).formatted(.number.locale(format.locale)))
+      totalRow(title: String(localized: "Total volume"), value: format.volume(pounds: isRevealed ? snapshot.totalVolume : 0))
+      totalRow(title: String(localized: "Duration"), value: LiftFormat.clockDuration(isRevealed ? snapshot.duration : 0))
     }
     .animation(LiftMotion.printLine, value: isRevealed)
     .accessibilityElement(children: .combine)
@@ -417,19 +446,37 @@ private struct AnimatedReceiptTotals: View {
   }
 }
 
+/// Share and Workout history side by side; from the largest standard text size up (the Workouts hub rows' rule) they
+/// stack, so neither label is cut.
 private struct CompletedReceiptActionBar: View {
   let showsHistory: Bool
   let onViewReceipts: () -> Void
   let onShare: () -> Void
 
+  @Environment(\.dynamicTypeSize) private var typeSize
+
   var body: some View {
-    HStack(spacing: 8) {
-      if showsHistory {
-        NoopButton("Workout history", kind: .secondary, fullWidth: true, action: onViewReceipts)
+    Group {
+      if showsHistory && typeSize >= .xxxLarge {
+        VStack(spacing: NoopMetrics.space3) { share; history }
+      } else {
+        HStack(spacing: NoopMetrics.space3) {
+          if showsHistory { history }
+          share
+        }
       }
-      NoopButton("Share", systemImage: "square.and.arrow.up", kind: .primary, fullWidth: true, action: onShare)
     }
     .liftFooterBar()
+  }
+
+  private var history: some View {
+    Button(action: onViewReceipts) { Text("Workout history").liftPillLabel() }
+      .buttonStyle(SecondaryPillButtonStyle())
+  }
+
+  private var share: some View {
+    Button(action: onShare) { Label("Share", systemImage: "square.and.arrow.up").liftPillLabel() }
+      .buttonStyle(PrimaryPillButtonStyle())
   }
 }
 

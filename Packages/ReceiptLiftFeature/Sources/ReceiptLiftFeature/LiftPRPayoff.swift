@@ -5,37 +5,32 @@ enum LiftPRPresentation {
   nonisolated static func stampText(
     outcome: LiftSetOutcome,
     exercise: LiftExercise,
-    enabled: Bool
+    enabled: Bool,
+    format: LiftFormat
   ) -> String {
     let set = outcome.set
-    let load = liftLoad(set.weight, for: exercise).uppercased()
-    let suffix = enabled && outcome.personalRecord != nil ? " \u{00B7} PR" : ""
-    return "\(load) \u{00D7} \(set.reps) ADDED TO RECEIPT\(suffix)"
+    let load = format.load(pounds: set.weight, for: exercise)
+    let base = String(localized: "\(load) × \(set.reps) added to receipt").uppercased()
+    guard enabled, outcome.personalRecord != nil else { return base }
+    return LiftFormat.facts([base, String(localized: "PR")])
   }
 
   nonisolated static func label(for record: LiftPersonalRecord) -> String {
     switch record.kind {
     case .estimatedOneRepMax:
-      "PR (EST. 1RM)"
+      String(localized: "PR (est. 1RM)")
     case .reps:
-      "PR (REPS)"
+      String(localized: "PR (reps)")
     }
   }
 
-  nonisolated static func valueText(for record: LiftPersonalRecord) -> String {
+  nonisolated static func valueText(for record: LiftPersonalRecord, format: LiftFormat) -> String {
     switch record.kind {
     case .estimatedOneRepMax:
-      liftVolume(record.value).uppercased()
+      format.weight(pounds: record.value)
     case .reps:
-      "\(wholeOrDecimal(record.value)) REPS"
+      String(localized: "\(Int(record.value.rounded())) reps")
     }
-  }
-
-  private nonisolated static func wholeOrDecimal(_ value: Double) -> String {
-    if value.rounded() == value {
-      return String(Int(value))
-    }
-    return String(format: "%.1f", value)
   }
 }
 
@@ -44,7 +39,7 @@ struct LiftPRBadge: View {
   let record: LiftPersonalRecord
 
   var body: some View {
-    LiftBadge(text: LiftPRPresentation.label(for: record))
+    LiftTag(text: LocalizedStringKey(LiftPRPresentation.label(for: record)))
       .accessibilityLabel(LiftPRPresentation.label(for: record))
   }
 }
@@ -55,6 +50,8 @@ struct LiftPRPayoffView: View {
   let record: LiftPersonalRecord
   var artifact = false
 
+  @Environment(\.liftFormat) private var format
+
   var body: some View {
     if artifact {
       artifactBody
@@ -64,21 +61,25 @@ struct LiftPRPayoffView: View {
   }
 
   private var chromeBody: some View {
-    HStack(alignment: .firstTextBaseline, spacing: 8) {
+    HStack(alignment: .center, spacing: NoopMetrics.space3) {
       Image(systemName: "trophy.fill")
-        .font(.system(size: 12, weight: .semibold))
-        .foregroundStyle(StrandPalette.accent)
+        .font(.system(size: 13, weight: .semibold))
+        .foregroundStyle(DomainTint.workout.accent)
+        .frame(width: 32, height: 32)
+        .background(Circle().fill(DomainTint.workout.accent.opacity(0.14)))
         .accessibilityHidden(true)
-      Text(LiftPRPresentation.label(for: record))
-        .font(StrandFont.caption.weight(.semibold))
-        .foregroundStyle(StrandPalette.textPrimary)
-      Spacer(minLength: 8)
-      Text(LiftPRPresentation.valueText(for: record).lowercased())
-        .font(StrandFont.number(14))
-        .foregroundStyle(StrandPalette.textPrimary)
+      VStack(alignment: .leading, spacing: 2) {
+        Text(verbatim: LiftPRPresentation.label(for: record))
+          .font(StrandFont.caption.weight(.semibold))
+          .foregroundStyle(StrandPalette.textSecondary)
+        LiftScaledValue(value: LiftPRPresentation.valueText(for: record, format: format))
+      }
+      Spacer(minLength: 0)
     }
-    .padding(.vertical, 8)
-    .accessibilityElement(children: .combine)
+    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+    .accessibilityElement(children: .ignore)
+    .accessibilityLabel(LiftPRPresentation.label(for: record))
+    .accessibilityValue(LiftPRPresentation.valueText(for: record, format: format))
   }
 
   private var artifactBody: some View {
@@ -86,11 +87,11 @@ struct LiftPRPayoffView: View {
       Image(systemName: "trophy.fill")
         .font(.system(size: 11, weight: .black))
         .accessibilityHidden(true)
-      Text(LiftPRPresentation.label(for: record))
+      Text(LiftPRPresentation.label(for: record).uppercased())
         .font(.receiptArtifact(10, weight: .black))
         .tracking(0.4)
       Spacer(minLength: 8)
-      Text(LiftPRPresentation.valueText(for: record))
+      Text(LiftPRPresentation.valueText(for: record, format: format).uppercased())
         .font(.receiptArtifact(12, weight: .black))
         .monospacedDigit()
     }
