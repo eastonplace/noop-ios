@@ -94,6 +94,13 @@ struct LiftRootView: View {
     .sheet(isPresented: $showsSettings) { SettingsView().environmentObject(store) }
     .tint(LiftTheme.accent)
     .task { await autoResumeActiveSessionIfNeeded() }
+    .liftQAScene("routine-preview") {
+      previewRoutine = store.routines.first { $0.name == "Upper A" } ?? store.routines.first
+    }
+    .liftQAScene("settings") { showsSettings = true }
+    .liftQAScene("receipt") {
+      printedSession = store.sessions.filter { $0.endedAt != nil }.max { $0.startedAt < $1.startedAt }
+    }
     .fullScreenCover(isPresented: workoutPresentation) {
       LiveWorkoutView(
         onDismiss: { isWorkoutPresented = false },

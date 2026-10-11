@@ -1539,7 +1539,7 @@ final class LiftStore: ObservableObject {
   }
 }
 
-private enum LiftRoutineBank {
+enum LiftRoutineBank {
   struct RoutineTemplate {
     var name: String
     var notes: String

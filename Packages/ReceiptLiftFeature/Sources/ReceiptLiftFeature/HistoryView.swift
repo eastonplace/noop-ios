@@ -78,6 +78,9 @@ struct HistoryView: View {
           .environmentObject(store)
       }
     }
+    .liftQAScene("exercise", "exercise-info") {
+      selectedExerciseID = progressSnapshot.topExercises.first?.exerciseID ?? store.preferredExerciseID
+    }
     .onChange(of: scenePhase) {
       guard scenePhase == .active, activeSegment == .progress else { return }
       referenceNow = Date()

@@ -385,6 +385,11 @@ struct LiveWorkoutView: View {
     .onChange(of: activeExercises.map(\.id), initial: true) { _, exerciseIDs in
       reconcileComposer(with: exerciseIDs)
     }
+    .liftQAScene("live-rest-options") { activeSheet = .restOptions }
+    .liftQAScene("live-receipt") { activeSheet = store.activeSession.map { .receipt($0) } }
+    .liftQAScene("live-library") { presentExercisePicker() }
+    .liftQAScene("live-superset") { activeSheet = composerExerciseID.map { .superset($0) } }
+    .liftQAScene("live-exercise") { activeSheet = composerExerciseID.map { .history($0) } }
     .onDisappear {
       stampDismissTask?.cancel()
       stampDismissTask = nil
@@ -912,6 +917,9 @@ private struct ExerciseLogRow: View {
     .onAppear {
       onComposed(exercise.id)
     }
+    .liftQAScene("live-plates") { weight = 225; showsPlateLoader = true }
+    .liftQAScene("live-warmup") { isWarmupSuggestionPresented = true }
+    .liftQAScene("live-pr", after: .milliseconds(1_400)) { weight += 20; logCurrentSet() }
     .sheet(isPresented: $isWarmupSuggestionPresented) {
       WarmupSuggestionSheet(
         exercise: exercise,

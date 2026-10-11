@@ -1,6 +1,7 @@
 #if DEBUG && os(iOS)
 import SwiftUI
 import StrandDesign
+import ReceiptLiftFeature
 import WhoopStore
 
 /// Screenshot/QA harness, DEBUG only: `--noop-qa-route <route>` opens a deep screen straight from launch so
@@ -13,7 +14,10 @@ import WhoopStore
 /// workout-detail-manual, manual-workout, health, metric-explorer, metric-detail-hrv, compare, trends-explore,
 /// insights, intelligence, scoring-guide, scoring-guide-recovery (the guide opened at its Recovery section, as the
 /// Recovery ⓘ opens it), updates, live-hr, breathe, journal, intervals, start-workout, rhythm, smart-alarm,
-/// hydration, fitness-age, coupled, lab-book, trends-report.
+/// hydration, fitness-age, coupled, lab-book, trends-report, lift, lift-history, lift-progress, lift-routines.
+///
+/// The Lift routes show whatever Lift holds; `--noop-lift-demo <variant>` and `--noop-lift-scene <scene>` (see
+/// `ReceiptLiftDemo` and `LiftQAScene`) load generated data and open a deeper screen.
 ///
 /// The `workout-detail-*` routes open the real detail screen the way the Workouts hub does (a sheet with its own
 /// navigation stack) for one of the demo week's known sessions (`AppleDemoWorkoutFixture`), so they need
@@ -55,6 +59,10 @@ enum QARoute: String, CaseIterable {
     case coupled
     case labBook = "lab-book"
     case trendsReport = "trends-report"
+    case lift
+    case liftHistory = "lift-history"
+    case liftProgress = "lift-progress"
+    case liftRoutines = "lift-routines"
 
     /// The tab whose navigation stack, cover or sheet presents the route.
     enum Tab: Int { case today = 0, trends = 1, sleep = 2 }
@@ -77,7 +85,7 @@ enum QARoute: String, CaseIterable {
         case .pillarRecovery, .pillarStrain, .sleep:
             return .cover(.today)
         case .scoringGuide, .scoringGuideRecovery, .workoutDetailRun, .workoutDetailStrength, .workoutDetailWhoop,
-             .workoutDetailManual, .manualWorkout:
+             .workoutDetailManual, .manualWorkout, .lift, .liftHistory, .liftProgress, .liftRoutines:
             return .sheet(.today)
         case .metricExplorer, .metricDetailHRV, .compare, .trendsExplore, .insights, .intelligence, .labBook:
             return .push(.trends)
@@ -341,6 +349,11 @@ private struct QARouteHost: ViewModifier {
         case .workoutDetailWhoop: QAWorkoutDetailHost(kind: .whoop, onClose: { sheeted = false })
         case .workoutDetailManual: QAWorkoutDetailHost(kind: .manual, onClose: { sheeted = false })
         case .manualWorkout: ManualWorkoutSheet(editing: nil) { _, _ in }
+        // The Lift screens, presented as the Workouts hub presents them (a sheet over the tab).
+        case .lift: LiftLogView(destination: .start)
+        case .liftHistory: LiftLogView(destination: .history)
+        case .liftProgress: LiftLogView(destination: .progress)
+        case .liftRoutines: LiftLogView(destination: .routines)
         default: EmptyView()
         }
     }

@@ -36,6 +36,10 @@ struct ScheduleView: View {
         editorRoute = .create
       }
     }
+    .liftQAScene("routine-editor") { editorRoute = .create }
+    .liftQAScene("routine-edit") { editorRoute = store.routines.first.map { .edit($0) } }
+    .liftQAScene("schedule-editor") { scheduleRoute = .create(prefill: store.nextSuggestedRoutine?.id) }
+    .liftQAScene("library") { showsLibrary = true }
     .sheet(isPresented: $showsLibrary) {
       NavigationStack { ExerciseLibraryView() }
         .environmentObject(store)

@@ -80,6 +80,7 @@ struct ExerciseProgressView: View {
       }
     }
     .onAppear { referenceNow = Date() }
+    .liftQAScene("exercise-info") { showsInformation = true }
     .onChange(of: selectedRange) { selectedDate = nil }
     .onChange(of: selectedMode) { selectedDate = nil }
   }
