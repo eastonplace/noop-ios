@@ -12,7 +12,7 @@ struct LiftLogView: View {
 
     /// Lift stores pounds; the unit setting only changes how loads are drawn and stepped.
     private var weightUnit: LiftWeightUnit {
-        (UnitSystem(rawValue: unitSystemRaw) ?? .metric) == .imperial ? .pounds : .kilograms
+        (UnitSystem(rawValue: unitSystemRaw) ?? .metric).liftWeightUnit
     }
 
     var body: some View {

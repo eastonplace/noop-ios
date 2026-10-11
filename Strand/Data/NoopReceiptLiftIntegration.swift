@@ -3,6 +3,11 @@ import Combine
 import ReceiptLiftFeature
 import WhoopStore
 
+extension UnitSystem {
+    /// Lift stores pounds; the unit setting only changes how loads are drawn and stepped.
+    var liftWeightUnit: LiftWeightUnit { self == .imperial ? .pounds : .kilograms }
+}
+
 /// Keeps a lifting session attached to its original NOOP source across source switches.
 @MainActor
 final class NoopReceiptLiftIntegration: ObservableObject {
@@ -83,7 +88,9 @@ final class NoopReceiptLiftIntegration: ObservableObject {
                             _ = await model.repo.refresh(.currentDay)
                     }
                 }
-            }, canStart: { [weak model] in model?.activeWorkout == nil })
+            }, canStart: { [weak model] in model?.activeWorkout == nil },
+            // Before load(): a restored session redraws its Live Activity as part of loading.
+            weightUnit: UnitSystem.stored.liftWeightUnit)
         guard model.repo.deviceId == source else { return }
         owner = source
         selectedSourceOwner = sourceOwner

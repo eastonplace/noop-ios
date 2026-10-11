@@ -36,3 +36,17 @@ struct LiftLiveActivityStateTests {
     #expect(abs(state.volume - session.totalVolume) < 1e-9)
   }
 }
+
+@Suite("Lift unit handed over before load")
+@MainActor
+struct LiftCoordinatorUnitTests {
+  @Test("The store has the person's unit before load() runs, so a restored session's first Live Activity sync is in it")
+  func coordinatorHandsTheUnitToTheStoreAtCreation() {
+    let metric = ReceiptLiftCoordinator(load: { nil }, save: { _, _ in }, weightUnit: .kilograms)
+    #expect(metric.store.weightUnit == .kilograms)
+    let imperial = ReceiptLiftCoordinator(load: { nil }, save: { _, _ in }, weightUnit: .pounds)
+    #expect(imperial.store.weightUnit == .pounds)
+    // Left out, it is pounds, Lift's stored unit.
+    #expect(ReceiptLiftCoordinator(load: { nil }, save: { _, _ in }).store.weightUnit == .pounds)
+  }
+}
