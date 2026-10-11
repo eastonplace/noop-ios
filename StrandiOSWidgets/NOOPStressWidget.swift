@@ -8,7 +8,7 @@ struct NOOPStressWidget: Widget {
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: NOOPStressProvider()) { entry in
             NOOPStressWidgetView(snapshot: entry.snapshot, date: entry.date)
-                .containerBackground(StrandPalette.surfaceBase, for: .widget)
+                .containerBackground(for: .widget) { NOOPWidgetBackground(.stress) }
         }
         .configurationDisplayName("NOOP Stress")
         .description("Your recorded daily stress and the time it was last updated.")
@@ -26,21 +26,7 @@ struct NOOPStressWidgetView: View {
     private var hours: [Double?]? { isCurrent ? snapshot.hourlyStress : nil }
     private var hasData: Bool { hours?.contains(where: { $0?.isFinite == true }) == true }
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Label("STRESS", systemImage: "waveform.path")
-                .font(.caption.weight(.semibold)).foregroundStyle(StrandPalette.textSecondary)
-            Spacer(minLength: 0)
-            Text(hasData ? (snapshot.stressSummary ?? "Today's pattern") : "No recent data")
-                .font(.headline).foregroundStyle(StrandPalette.textPrimary)
-            NOOPWidgetStressStrip(values: hours)
-            if hasData {
-                Text(snapshot.updated, style: .time).font(.caption2)
-                    .foregroundStyle(StrandPalette.textSecondary)
-            } else {
-                Text("Open NOOP to refresh").font(.caption2).foregroundStyle(StrandPalette.textSecondary)
-            }
-        }
-        .accessibilityElement(children: .combine)
+        NOOPStressWidgetContent(summary: snapshot.stressSummary, hours: hours, hasData: hasData, updated: snapshot.updated)
     }
 }
 

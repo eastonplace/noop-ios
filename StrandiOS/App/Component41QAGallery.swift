@@ -22,7 +22,7 @@ struct Component41QAGallery: View {
             LazyVStack(alignment: .leading, spacing: 28) {
                 title
                 section("HOME · SMALL") {
-                    widgetStage(width: 158, height: 158) {
+                    widgetStage(width: 158, height: 158, tint: .recovery(score: Double(recovery))) {
                         NOOPRecoverySmallWidgetView(
                             recovery: recovery, delta: 6, sleepMinutes: 432, batteryPercentage: 82)
                     }
@@ -40,7 +40,7 @@ struct Component41QAGallery: View {
                             date: now, recovery: recovery, strain: strain, sleep: sleep, bpm: bpm,
                             hrSpark: hr, stressHours: stress, stressSummary: "Moderate · easing",
                             batteryPercentage: 82, hrv: 64, restingHeartRate: 52,
-                            steps: 11_204, calories: 2_140)
+                            steps: 11_204, calories: 2_140, maxHR: 187)
                     }
                 }
                 section("LOCK SCREEN · ACCESSORIES") {
@@ -49,12 +49,12 @@ struct Component41QAGallery: View {
                             lockStage(width: 62, height: 62) {
                                 NOOPAccessoryCircularGaugeView(
                                     value: Double(recovery), maximum: 100, accent: .white,
-                                    accessibilityName: "Recovery")
+                                    accessibilityName: NOOPWidgetLabel.recovery)
                             }
                             lockStage(width: 62, height: 62) {
                                 NOOPAccessoryCircularGaugeView(
                                     value: strain, maximum: 21, accent: .white,
-                                    accessibilityName: "Strain", decimal: true)
+                                    accessibilityName: NOOPWidgetLabel.strain, decimal: true)
                             }
                         }
                         lockStage(width: 172, height: 72) {
@@ -102,14 +102,14 @@ struct Component41QAGallery: View {
                 }
                 section("HONEST MISSING STATE") {
                     HStack(spacing: 14) {
-                        widgetStage(width: 158, height: 158) {
+                        widgetStage(width: 158, height: 158, tint: .recovery(score: nil)) {
                             NOOPRecoverySmallWidgetView(
                                 recovery: nil, delta: nil, sleepMinutes: nil, batteryPercentage: nil)
                         }
                         lockStage(width: 62, height: 62) {
                             NOOPAccessoryCircularGaugeView(
                                 value: nil, maximum: 21, accent: .white,
-                                accessibilityName: "Strain", decimal: true)
+                                accessibilityName: NOOPWidgetLabel.strain, decimal: true)
                         }
                     }
                 }
@@ -140,11 +140,11 @@ struct Component41QAGallery: View {
         }
     }
 
-    private func widgetStage<Content: View>(width: CGFloat, height: CGFloat,
+    private func widgetStage<Content: View>(width: CGFloat, height: CGFloat, tint: DomainTint = .neutral,
                                             @ViewBuilder content: () -> Content) -> some View {
         // Simulate WidgetKit's ~16 pt home-screen content margins; the widget views carry none.
         content().padding(16).frame(width: width, height: height)
-            .background(StrandPalette.surfaceBase)
+            .background(NOOPWidgetBackground(tint))
             .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous)
                 .strokeBorder(StrandPalette.hairline, lineWidth: 1))
@@ -167,7 +167,7 @@ struct Component41QAGallery: View {
 /// One-screen capture plates used by the simulator gate. Splitting the long gallery prevents
 /// off-screen content from being mistaken for visual QA.
 struct Component41QAShot: View {
-    enum Kind { case home, large, lock, live, livePaused, liveStale, lift, liftRest, liftStale }
+    enum Kind { case home, large, largeZones, stress, lock, live, livePaused, liveStale, lift, liftRest, liftStale }
 
     /// Narrow DEBUG launch route for rendered Simulator proof. This avoids restoring the obsolete
     /// all-screen demo router while keeping the production widget/ActivityKit views directly auditable.
@@ -178,6 +178,8 @@ struct Component41QAShot: View {
         return switch arguments[index + 1].lowercased() {
         case "home": .home
         case "large": .large
+        case "large-zones": .largeZones
+        case "stress": .stress
         case "lock": .lock
         case "live": .live
         case "live-paused": .livePaused
@@ -211,7 +213,7 @@ struct Component41QAShot: View {
         switch kind {
         case .home:
             VStack(spacing: 18) {
-                qaWidget(width: 158, height: 158) {
+                qaWidget(width: 158, height: 158, tint: .recovery(score: 78)) {
                     NOOPRecoverySmallWidgetView(recovery: 78, delta: 6, sleepMinutes: 432, batteryPercentage: 82)
                 }
                 qaWidget(width: 338, height: 158) {
@@ -224,18 +226,47 @@ struct Component41QAShot: View {
                 NOOPTodayLargeWidgetView(date: Date(), recovery: 78, strain: 8.2, sleep: 86, bpm: 152,
                                          hrSpark: hr, stressHours: stress, stressSummary: "Moderate · easing",
                                          batteryPercentage: 82, hrv: 64, restingHeartRate: 52,
-                                         steps: 11_204, calories: 2_140)
+                                         steps: 11_204, calories: 2_140, maxHR: 187)
+            }
+        case .largeZones:
+            // The same 120 bpm reading against the wearer's own maximum (187: steady) and the fixed split (push).
+            VStack(spacing: 14) {
+                ForEach([Optional(187.0), nil], id: \.self) { maxHR in
+                    qaWidget(width: 338, height: 354) {
+                        NOOPTodayLargeWidgetView(date: Date(), recovery: 78, strain: 8.2, sleep: 86, bpm: 120,
+                                                 hrSpark: hr, stressHours: stress, stressSummary: "Moderate · easing",
+                                                 batteryPercentage: 82, hrv: 64, restingHeartRate: 52,
+                                                 steps: 11_204, calories: 2_140, maxHR: maxHR)
+                    }
+                    .scaleEffect(0.62).frame(width: 338 * 0.62, height: 354 * 0.62)
+                }
+            }
+        case .stress:
+            VStack(spacing: 18) {
+                HStack(spacing: 14) {
+                    qaWidget(width: 158, height: 158, tint: .stress) {
+                        NOOPStressWidgetContent(summary: "Moderate · easing", hours: stress, hasData: true,
+                                                updated: Date())
+                    }
+                    qaWidget(width: 158, height: 158, tint: .stress) {
+                        NOOPStressWidgetContent(summary: nil, hours: nil, hasData: false, updated: Date())
+                    }
+                }
+                qaWidget(width: 338, height: 158, tint: .stress) {
+                    NOOPStressWidgetContent(summary: "Moderate · easing", hours: stress, hasData: true,
+                                            updated: Date())
+                }
             }
         case .lock:
             VStack(spacing: 22) {
                 HStack(spacing: 34) {
                     qaLock(width: 62, height: 62) {
                         NOOPAccessoryCircularGaugeView(value: 78, maximum: 100, accent: .white,
-                                                        accessibilityName: "Recovery")
+                                                        accessibilityName: NOOPWidgetLabel.recovery)
                     }
                     qaLock(width: 62, height: 62) {
                         NOOPAccessoryCircularGaugeView(value: 8.2, maximum: 21, accent: .white,
-                                                        accessibilityName: "Strain", decimal: true)
+                                                        accessibilityName: NOOPWidgetLabel.strain, decimal: true)
                     }
                 }
                 qaLock(width: 172, height: 72) {
@@ -353,6 +384,8 @@ struct Component41QAShot: View {
         switch kind {
         case .home: "HOME"
         case .large: "LARGE"
+        case .largeZones: "LARGE · PERSONAL ZONES"
+        case .stress: "STRESS"
         case .lock: "LOCK SCREEN"
         case .live: "LIVE + ISLAND"
         case .livePaused: "LIVE + ISLAND · PAUSED"
@@ -363,12 +396,12 @@ struct Component41QAShot: View {
         }
     }
 
-    private func qaWidget<Content: View>(width: CGFloat, height: CGFloat,
+    private func qaWidget<Content: View>(width: CGFloat, height: CGFloat, tint: DomainTint = .neutral,
                                          @ViewBuilder content: () -> Content) -> some View {
         // Simulate WidgetKit's family-aware content margins (~16 pt on the home screen). The
         // widget views deliberately carry no internal padding — hosting them bare clips the edges
         // and misrepresents what WidgetKit renders.
-        content().padding(16).frame(width: width, height: height).background(StrandPalette.surfaceBase)
+        content().padding(16).frame(width: width, height: height).background(NOOPWidgetBackground(tint))
             .clipShape(RoundedRectangle(cornerRadius: 24))
             .overlay(RoundedRectangle(cornerRadius: 24).stroke(StrandPalette.hairline))
     }

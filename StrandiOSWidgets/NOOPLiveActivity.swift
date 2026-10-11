@@ -24,7 +24,7 @@ struct NOOPLiveActivity: Widget {
                         strainBuilding: context.state.strainBuilding == true,
                         calories: context.state.calories,
                         hrSpark: context.state.hrTrace,
-                        maxHR: context.state.maxHR,
+                        maxHR: liveMaxHR(context.state),
                         isStale: context.isStale
                     ) {
                         PauseResumeButton(isPaused: context.state.pausedAt != nil, isCompact: false)
@@ -45,14 +45,14 @@ struct NOOPLiveActivity: Widget {
                             startedAt: context.state.workoutStartedAt,
                             pausedAt: context.state.pausedAt)
                     } else {
-                        NOOPDynamicIslandHeartRateView(bpm: context.state.bpm)
+                        NOOPDynamicIslandHeartRateView(bpm: context.state.bpm, maxHR: liveMaxHR(context.state))
                     }
                 }
                 DynamicIslandExpandedRegion(.trailing) {
                     if context.state.isWorkout {
                         NOOPDynamicIslandVitalsView(
                             bpm: context.state.bpm, strain: context.state.effort,
-                            building: context.state.strainBuilding == true, maxHR: context.state.maxHR,
+                            building: context.state.strainBuilding == true, maxHR: liveMaxHR(context.state),
                             isDimmed: context.state.pausedAt != nil || context.isStale)
                     } else if let recovery = context.state.recovery {
                         Text("Recovery \(recovery)")
@@ -64,7 +64,7 @@ struct NOOPLiveActivity: Widget {
                         HStack(spacing: 12) {
                             LiveZoneRail(
                                 bpm: context.state.bpm,
-                                thresholds: context.state.maxHR.map { HRZoneStyle.Thresholds(hrMax: $0) } ?? .default,
+                                thresholds: liveMaxHR(context.state).map { HRZoneStyle.Thresholds(hrMax: $0) } ?? .default,
                                 isDimmed: context.state.pausedAt != nil || context.isStale,
                                 style: .bar)
                             PauseResumeButton(isPaused: context.state.pausedAt != nil, isCompact: true)
@@ -78,13 +78,13 @@ struct NOOPLiveActivity: Widget {
             } compactLeading: {
                 if context.state.isWorkout {
                     NOOPDynamicIslandHeartRateView(
-                        bpm: context.state.bpm, maxHR: context.state.maxHR, isPaused: context.state.pausedAt != nil)
+                        bpm: context.state.bpm, maxHR: liveMaxHR(context.state), isPaused: context.state.pausedAt != nil)
                 } else {
                     // Passive HR is shown in compactTrailing. Repeating it here
                     // crowds the compact island and clips the duplicate digits.
                     Image(systemName: "heart.fill")
                         .font(.system(size: 10, weight: .bold))
-                        .foregroundStyle(context.state.bpm.map { HRZoneStyle.color(for: Double($0)) }
+                        .foregroundStyle(context.state.bpm.map { HRZoneStyle.color(for: Double($0), thresholds: liveThresholds(context.state)) }
                                          ?? Color.white.opacity(0.5))
                 }
             } compactTrailing: {
@@ -99,16 +99,26 @@ struct NOOPLiveActivity: Widget {
             } minimal: {
                 if context.state.isWorkout {
                     NOOPDynamicIslandMinimalView(
-                        bpm: context.state.bpm, maxHR: context.state.maxHR, isPaused: context.state.pausedAt != nil)
+                        bpm: context.state.bpm, maxHR: liveMaxHR(context.state), isPaused: context.state.pausedAt != nil)
                 } else {
                     Image(systemName: "heart.fill")
-                        .foregroundStyle(context.state.bpm.map { HRZoneStyle.color(for: Double($0)) }
+                        .foregroundStyle(context.state.bpm.map { HRZoneStyle.color(for: Double($0), thresholds: liveThresholds(context.state)) }
                                          ?? Color.white.opacity(0.5))
                 }
             }
             .widgetURL(context.state.isWorkout ? WorkoutDeepLink.activeRun.url : nil)
         }
     }
+}
+
+/// The wearer's maximum heart rate: the one the app put in the activity, else the one it shared with the widgets, else nil
+/// (the fixed 60 / 110 split).
+private func liveMaxHR(_ state: NOOPActivityAttributes.ContentState) -> Double? {
+    state.maxHR ?? WidgetPersonalZones.hrMax()
+}
+
+private func liveThresholds(_ state: NOOPActivityAttributes.ContentState) -> HRZoneStyle.Thresholds {
+    liveMaxHR(state).map { HRZoneStyle.Thresholds(hrMax: $0) } ?? .default
 }
 
 /// The button that pauses a running workout and resumes a paused one.

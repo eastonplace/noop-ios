@@ -71,6 +71,8 @@ struct StrandiOSApp: App {
             return true
         }
         WorkoutPauseCommand.drain()
+        // Widgets colour heart rate by the wearer's own zones: hand them the maximum now and on every profile change.
+        WidgetPersonalZonesSync.start(profile: model.profile)
         _receiptLift = StateObject(wrappedValue: receiptLift)
         let alarmMode = SmartAlarmAdaptiveModeStore(legacy: model.behavior)
         let alarmRuntime = SmartAlarmRuntimeController(model: model, modeStore: alarmMode)
