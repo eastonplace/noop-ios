@@ -328,13 +328,14 @@ public struct ChipRow<Content: View>: View {
     }
 
     public var body: some View {
-        // Side by side the chips are 8pt apart, so each reaches 4pt sideways; stacked they are 20pt apart, so each
-        // reaches 10pt up and down, which makes every chip 44pt tall to the finger.
+        // A chip is about 19pt tall, so it needs 13pt above and below to reach 44pt. Side by side the chips are 8pt
+        // apart, so each reaches 4pt sideways (and 13pt up and down); stacked they are 26pt apart, so each reaches the
+        // full 13pt up and down and neighbouring areas meet without overlapping.
         ViewThatFits(in: .horizontal) {
             HStack(spacing: NoopMetrics.space2) { content() }
                 .environment(\.chipHitInsets, ChipHitInsets(horizontal: NoopMetrics.space2 / 2, vertical: 13))
-            VStack(alignment: .leading, spacing: 20) { content() }
-                .environment(\.chipHitInsets, ChipHitInsets(horizontal: 13, vertical: 10))
+            VStack(alignment: .leading, spacing: 26) { content() }
+                .environment(\.chipHitInsets, ChipHitInsets(horizontal: 13, vertical: 13))
         }
     }
 }
