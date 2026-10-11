@@ -7,11 +7,11 @@ private let liftWorkoutPerformanceLog = OSLog(
   category: .pointsOfInterest
 )
 
-private nonisolated func liftWorkoutUptime() -> TimeInterval {
+nonisolated func liftWorkoutUptime() -> TimeInterval {
   ProcessInfo.processInfo.systemUptime
 }
 
-private nonisolated func liftWorkoutPerformanceEvent(
+nonisolated func liftWorkoutPerformanceEvent(
   _ name: StaticString,
   startedAt: TimeInterval
 ) {
@@ -24,46 +24,54 @@ private nonisolated func liftWorkoutPerformanceEvent(
   )
 }
 
-nonisolated func liftWorkoutStampText(set: LiftSet, exercise: LiftExercise) -> String {
-  "\(liftLoad(set.weight, for: exercise).uppercased()) × \(set.reps) ADDED TO RECEIPT"
+nonisolated func liftWorkoutStampText(set: LiftSet, exercise: LiftExercise, format: LiftFormat) -> String {
+  String(localized: "\(format.load(pounds: set.weight, for: exercise)) × \(set.reps) added to receipt").uppercased()
 }
 
 nonisolated func liftWorkoutStampText(
   outcome: LiftSetOutcome,
   exercise: LiftExercise,
-  prDetectionEnabled: Bool
+  prDetectionEnabled: Bool,
+  format: LiftFormat
 ) -> String {
   LiftPRPresentation.stampText(
     outcome: outcome,
     exercise: exercise,
-    enabled: prDetectionEnabled
+    enabled: prDetectionEnabled,
+    format: format
   )
 }
 
 nonisolated func liftWorkoutQueueAccessibilityLabel(
   row: LiftWorkoutQueueRowState,
-  isPrinted: Bool
+  isPrinted: Bool,
+  locale: Locale = .autoupdatingCurrent
 ) -> String {
-  let state = isPrinted ? "printed" : "up next"
-  let superset = row.supersetLabel.map { ", \($0)" } ?? ""
-  return "Exercise \(row.ordinal), \(row.exercise.name), \(liftWorkoutSpokenProgress(row.progressLabel)) sets, \(state)\(superset)"
+  let state = isPrinted ? String(localized: "printed") : String(localized: "up next")
+  let progress = liftWorkoutSpokenProgress(row.progressLabel)
+  return LiftFormat.spoken(
+    [
+      String(localized: "Exercise \(row.ordinal)"),
+      row.exercise.name,
+      String(localized: "\(progress) sets"),
+      state,
+      row.supersetLabel ?? "",
+    ],
+    locale: locale)
 }
 
 nonisolated func liftWorkoutComposerAccessibilitySummary(
   weight: Double,
   reps: Int,
   progress: LiftSetProgress,
-  exercise: LiftExercise
+  exercise: LiftExercise,
+  format: LiftFormat
 ) -> String {
-  let load: String
-  if liftUsesBodyweightLoad(exercise) {
-    load = weight > 0 ? "Bodyweight plus \(liftWorkoutSpokenPounds(weight))" : "Bodyweight"
-  } else {
-    load = liftWorkoutSpokenPounds(weight)
-  }
-
-  let set = progress.target.map { "set \(progress.current) of \($0)" } ?? "set \(progress.current)"
-  return "\(load), \(reps) reps, \(set)"
+  let set = progress.target.map { String(localized: "set \(progress.current) of \($0)") }
+    ?? String(localized: "set \(progress.current)")
+  return LiftFormat.spoken(
+    [format.spokenLoad(pounds: weight, for: exercise), String(localized: "\(reps) reps"), set],
+    locale: format.locale)
 }
 
 nonisolated func liftShouldOfferWarmupSuggestion(completedWorkingSets: Int) -> Bool {
@@ -83,20 +91,14 @@ struct LiftExerciseDoneAction: Equatable {
 }
 
 nonisolated func liftExerciseDoneAction(isDone: Bool) -> LiftExerciseDoneAction {
-  LiftExerciseDoneAction(title: isDone ? "Reopen" : "Done", nextValue: !isDone)
+  LiftExerciseDoneAction(
+    title: isDone ? String(localized: "Reopen") : String(localized: "Done"), nextValue: !isDone)
 }
 
 private nonisolated func liftWorkoutSpokenProgress(_ label: String) -> String {
   let parts = label.split(separator: "/", omittingEmptySubsequences: false)
   guard parts.count == 2 else { return label }
-  return "\(parts[0]) of \(parts[1])"
-}
-
-private nonisolated func liftWorkoutSpokenPounds(_ weight: Double) -> String {
-  let value = weight.rounded() == weight
-    ? String(Int(weight))
-    : String(format: "%.1f", weight)
-  return "\(value) \(weight == 1 ? "pound" : "pounds")"
+  return String(localized: "\(String(parts[0])) of \(String(parts[1]))")
 }
 
 struct LiftWorkoutQueueRowState: Identifiable, Equatable, Sendable {
@@ -120,39 +122,61 @@ struct LiftWorkoutQueueRowContent: View, Equatable {
       && lhs.reduceMotion == rhs.reduceMotion
   }
 
+  @Environment(\.dynamicTypeSize) private var typeSize
+
   var body: some View {
-    HStack(alignment: .center, spacing: 12) {
-      Text(String(format: "%02d", row.ordinal))
-        .font(StrandFont.number(12, weight: .medium))
-        .foregroundStyle(StrandPalette.textTertiary)
-        .frame(width: 24, alignment: .leading)
-      queueArtwork
-      VStack(alignment: .leading, spacing: 2) {
-        Text(row.exercise.name.liftDisplayName)
-          .font(StrandFont.body)
-          .foregroundStyle(StrandPalette.textPrimary)
-        Text(row.supersetLabel ?? (isPrinted ? "Done" : "Tap to log sets"))
-          .font(StrandFont.caption)
-          .foregroundStyle(StrandPalette.textSecondary)
+    Group {
+      if LiftListRow<EmptyView, EmptyView>.stacks(typeSize) {
+        VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+          HStack(spacing: NoopMetrics.space3) {
+            queueArtwork
+            Spacer(minLength: 0)
+            progress
+          }
+          texts
+        }
+      } else {
+        HStack(alignment: .center, spacing: NoopMetrics.space3) {
+          queueArtwork
+          texts
+            .frame(maxWidth: .infinity, alignment: .leading)
+          progress
+        }
       }
-      .frame(maxWidth: .infinity, alignment: .leading)
-      Text(row.progressLabel)
-        .font(StrandFont.number(14))
-        .foregroundStyle(StrandPalette.textPrimary)
     }
-    .padding(.vertical, 4)
-    .frame(minHeight: 52)
+    .padding(.vertical, NoopMetrics.space2)
+    .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
     .contentShape(Rectangle())
     .opacity(isPrinted ? 0.58 : 1)
+  }
+
+  private var texts: some View {
+    VStack(alignment: .leading, spacing: 2) {
+      Text(row.exercise.name.liftDisplayName)
+        .font(StrandFont.body.weight(.semibold))
+        .foregroundStyle(StrandPalette.textPrimary)
+        .fixedSize(horizontal: false, vertical: true)
+      Text(row.supersetLabel ?? (isPrinted ? String(localized: "Done") : String(localized: "Tap to log sets")))
+        .font(StrandFont.footnote)
+        .foregroundStyle(StrandPalette.textSecondary)
+        .fixedSize(horizontal: false, vertical: true)
+    }
+  }
+
+  private var progress: some View {
+    Text(verbatim: row.progressLabel)
+      .font(StrandFont.number(17, weight: .semibold))
+      .foregroundStyle(StrandPalette.textPrimary)
+      .fixedSize()
   }
 
   @ViewBuilder
   private var queueArtwork: some View {
     if reduceMotion {
-      LiftExerciseThumb(exercise: row.exercise, size: 40, showsBorder: false)
+      LiftExerciseThumb(exercise: row.exercise, size: 44)
         .transition(.opacity)
     } else {
-      LiftExerciseThumb(exercise: row.exercise, size: 40, showsBorder: false)
+      LiftExerciseThumb(exercise: row.exercise, size: 44)
         .matchedGeometryEffect(id: row.exercise.id, in: continuityNamespace)
     }
   }
@@ -180,7 +204,7 @@ private struct LiftWorkoutQueueActionRow: View {
         Label(action.title, systemImage: row.isDone ? "arrow.uturn.left" : "checkmark")
           .labelStyle(.titleAndIcon)
           .font(StrandFont.caption.weight(.semibold))
-          .foregroundStyle(StrandPalette.onInk)
+          .foregroundStyle(StrandPalette.appCanvas)
           .frame(width: actionWidth)
           .frame(maxHeight: .infinity)
           .frame(minHeight: 52)
@@ -193,7 +217,7 @@ private struct LiftWorkoutQueueActionRow: View {
         continuityContent
       }
       .buttonStyle(.plain)
-      .background(LiftTheme.paper)
+      .background(StrandPalette.appCanvas)
       .offset(x: revealOffset)
       .contentShape(Rectangle())
       .gesture(
@@ -222,10 +246,14 @@ private struct LiftWorkoutQueueActionRow: View {
           onSetDone(action.nextValue)
         }
       }
-      .accessibilityLabel("Exercise \(row.ordinal), \(row.exercise.name)")
+      .accessibilityLabel(String(localized: "Exercise \(row.ordinal), \(row.exercise.name)"))
       .accessibilityValue(
-        liftWorkoutQueueAccessibilityLabel(row: row, isPrinted: isPrinted)
-          .replacingOccurrences(of: "Exercise \(row.ordinal), \(row.exercise.name), ", with: "")
+        LiftFormat.spoken(
+          [
+            String(localized: "\(liftWorkoutSpokenProgress(row.progressLabel)) sets"),
+            isPrinted ? String(localized: "printed") : String(localized: "up next"),
+            row.supersetLabel ?? "",
+          ])
       )
       .accessibilityHint("Shows this exercise in the set composer")
       .accessibilityAction(named: Text(action.title)) {
@@ -268,13 +296,25 @@ private struct LiftWorkoutQueueActionRow: View {
   }
 }
 
+/// What the composer holds for the set about to be logged. It lives in the workout view, so the pinned "Log set" button
+/// and the composer read the same figures.
+struct LiveComposerDraft: Equatable {
+  var weight: Double
+  var reps: Int
+  var rpe: Double = 8
+  var isWarmup = false
+}
+
 struct LiveWorkoutView: View {
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @Environment(\.liftFormat) private var format
+  @Environment(\.dynamicTypeSize) private var typeSize
   @EnvironmentObject private var store: LiftStore
   let onDismiss: () -> Void
   let onSessionSaved: (LiftSession) -> Void
   @State private var activeSheet: LiveWorkoutSheet?
   @State private var composerExerciseID: UUID?
+  @State private var draft = LiveComposerDraft(weight: 0, reps: 8)
   @State private var confirmationStamp: WorkoutConfirmationStamp?
   @State private var stampDismissTask: Task<Void, Never>?
   @State private var isLibrarySelectionPending = false
@@ -295,101 +335,72 @@ struct LiveWorkoutView: View {
     let upNextRows = queueRows.filter { $0.id != composerExerciseID && !$0.isDone }
     let printedRows = queueRows.filter { $0.id != composerExerciseID && $0.isDone }
 
-    ZStack(alignment: .top) {
-      ScrollView {
-        LazyVStack(alignment: .leading, spacing: 0) {
-          if let session = store.activeSession {
-            LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
-              Section {
-                VStack(alignment: .leading, spacing: LiftChromeMetrics.blockSpacing) {
-                  if let composerExercise, let ordinal = composerOrdinal {
-                    LiftSection(title: "Current exercise") {
-                      ExerciseLogRow(
-                        exercise: composerExercise,
-                        store: store,
-                        index: ordinal,
-                        continuityNamespace: workspaceContinuityNamespace,
-                        reduceMotion: reduceMotion,
-                        onLogged: handleLoggedOutcome,
-                        onPresentSwap: presentSwapPicker,
-                        onPresentSuperset: presentSupersetPicker,
-                        onPresentHistory: presentExerciseHistory,
-                        onPresentRestOptions: presentRestOptions,
-                        onComposed: composerDidRender
-                      )
-                      .id(composerExercise.id)
-                    }
-                  } else {
-                    emptyQueue
-                  }
-
-                  queueSection(title: "Up next", rows: upNextRows, isPrinted: false)
-                  queueSection(title: "Done", rows: printedRows, isPrinted: true)
-                }
-                .padding(.top, 12)
-              } header: {
-                workspaceHeader(session, queueRows: queueRows)
-                  .background(LiftTheme.paper)
-                  .zIndex(1)
-              }
-            }
-            .padding(.horizontal, LiftChromeMetrics.gutter)
+    ScrollView {
+      VStack(alignment: .leading, spacing: 0) {
+        if store.activeSession != nil {
+          if let composerExercise, let ordinal = composerOrdinal {
+            LiveComposerSection(
+              exercise: composerExercise,
+              store: store,
+              index: ordinal,
+              draft: $draft,
+              continuityNamespace: workspaceContinuityNamespace,
+              reduceMotion: reduceMotion,
+              onPresentSwap: presentSwapPicker,
+              onPresentSuperset: presentSupersetPicker,
+              onPresentHistory: presentExerciseHistory,
+              onPresentWarmup: { activeSheet = .warmup(composerExercise.id) },
+              onPresentPlates: { activeSheet = .plateLoader(composerExercise.id) },
+              onComposed: composerDidRender
+            )
+            .id(composerExercise.id)
           } else {
-            inactiveReceipt
+            emptyQueue
           }
+          queueSection(title: "Up next", symbol: "list.number", rows: upNextRows, isPrinted: false)
+          queueSection(title: "Done", symbol: "checkmark.circle", rows: printedRows, isPrinted: true)
+          addExerciseChip
+        } else {
+          inactiveReceipt
         }
-        .padding(.bottom, 32)
       }
-      .scrollIndicators(.hidden)
-
-      WorkoutTopSafeAreaScrim()
+      .padding(.horizontal, LiftChromeMetrics.gutter)
+      .padding(.top, NoopMetrics.space2)
+      .padding(.bottom, NoopMetrics.space6)
+      .frame(maxWidth: LiftChromeMetrics.maxColumnWidth, alignment: .leading)
+      .frame(maxWidth: .infinity)
+    }
+    .scrollIndicators(.hidden)
+    .scrollDismissesKeyboard(.interactively)
+    .background(StrandPalette.appCanvas.ignoresSafeArea())
+    .safeAreaInset(edge: .top, spacing: 0) {
+      if let session = store.activeSession {
+        workspaceHeader(session, queueRows: queueRows)
+      }
+    }
+    .safeAreaInset(edge: .bottom, spacing: 0) {
+      footer(hasComposer: composerExercise != nil)
     }
     .disabled(store.isFinishing)
     .interactiveDismissDisabled(store.isFinishing)
-    .liftScreenBackground()
-    .safeAreaInset(edge: .bottom) {
-      if let error = store.databaseSaveError {
-        HStack(spacing: 12) {
-          Text("Not saved yet: \(error)")
-            .font(StrandFont.caption)
-            .foregroundStyle(StrandPalette.textSecondary)
-            .frame(maxWidth: .infinity, alignment: .leading)
-          ChipButton("Retry save") { store.flushPendingSave() }
-        }
-        .liftFooterBar()
-      }
-    }
-    .overlay(alignment: .top) {
-      if let confirmationStamp {
-        WorkoutConfirmationStampView(
-          setID: confirmationStamp.setID,
-          text: confirmationStamp.text,
-          onRendered: {
-            liftWorkoutPerformanceEvent(
-              "LogToConfirmationSurface",
-              startedAt: confirmationStamp.startedAt
-            )
-          }
-        )
-          .id(confirmationStamp.setID)
-          .padding(.horizontal, 16)
-          .padding(.top, 8)
-          .transition(
-            reduceMotion
-              ? .opacity
-              : .move(edge: .top).combined(with: .opacity)
-          )
-          .allowsHitTesting(false)
-      }
-    }
     .onChange(of: activeExercises.map(\.id), initial: true) { _, exerciseIDs in
       reconcileComposer(with: exerciseIDs)
     }
+    .onChange(of: composerExerciseID, initial: true) { resetDraft() }
     .liftQAScene("live-rest-options") { activeSheet = .restOptions }
     .liftQAScene("live-receipt") { activeSheet = store.activeSession.map { .receipt($0) } }
     .liftQAScene("live-library") { presentExercisePicker() }
     .liftQAScene("live-superset") { activeSheet = composerExerciseID.map { .superset($0) } }
     .liftQAScene("live-exercise") { activeSheet = composerExerciseID.map { .history($0) } }
+    .liftQAScene("live-plates") {
+      draft.weight = 225
+      activeSheet = composerExerciseID.map { .plateLoader($0) }
+    }
+    .liftQAScene("live-warmup") { activeSheet = composerExerciseID.map { .warmup($0) } }
+    .liftQAScene("live-pr", after: .milliseconds(1_400)) {
+      draft.weight += 20
+      logCurrentSet()
+    }
     .onDisappear {
       stampDismissTask?.cancel()
       stampDismissTask = nil
@@ -400,7 +411,7 @@ struct LiveWorkoutView: View {
       case .restOptions:
         MiniRestOptionsSheet()
           .environmentObject(store)
-          .presentationDetents([.height(400)])
+          .presentationDetents([.medium, .large])
           .presentationDragIndicator(.visible)
       case .receipt(let receiptSession):
         LiveReceiptView(session: receiptSession)
@@ -418,8 +429,6 @@ struct LiveWorkoutView: View {
         if let exercise = store.exercise(for: exerciseID) {
           SupersetPairingSheet(exercise: exercise)
             .environmentObject(store)
-            .presentationDetents([.medium, .large])
-            .presentationDragIndicator(.visible)
         }
       case .history(let exerciseID):
         if store.exercise(for: exerciseID) != nil {
@@ -430,9 +439,114 @@ struct LiveWorkoutView: View {
           .presentationDetents([.large])
           .presentationDragIndicator(.visible)
         }
+      case .warmup(let exerciseID):
+        if let exercise = store.exercise(for: exerciseID) {
+          WarmupSuggestionSheet(
+            exercise: exercise,
+            plan: store.warmupPlan(
+              for: exercise, workingWeight: draft.weight, workingReps: draft.reps, unit: format.unit),
+            draft: $draft
+          )
+        }
+      case .plateLoader(let exerciseID):
+        if let exercise = store.exercise(for: exerciseID) {
+          PlateLoaderView(targetWeight: $draft.weight, exercise: exercise)
+        }
       }
     }
   }
+
+  // MARK: Header
+
+  private func workspaceHeader(
+    _ session: LiftSession,
+    queueRows: [LiftWorkoutQueueRowState]
+  ) -> some View {
+    HStack(alignment: .center, spacing: NoopMetrics.space2) {
+      HeaderChipButton("chevron.down", accessibilityLabel: "Close workout", action: onDismiss)
+      VStack(alignment: .leading, spacing: 0) {
+        Text(verbatim: session.title)
+          .font(StrandFont.headline)
+          .foregroundStyle(StrandPalette.textPrimary)
+          .lineLimit(2)
+          .minimumScaleFactor(0.7)
+          .accessibilityAddTraits(.isHeader)
+        ElapsedWorkoutClock(startedAt: session.startedAt, setTotal: sessionSetTotal(queueRows: queueRows, session: session))
+      }
+      Spacer(minLength: NoopMetrics.space2)
+      HeaderChipButton("ticket", accessibilityLabel: "Receipt") { activeSheet = .receipt(session) }
+      Menu {
+        Button("Add exercise", systemImage: "plus") {
+          presentExercisePicker()
+        }
+        Button("Finish workout", systemImage: "checkmark") {
+          finishWorkout()
+        }
+        Button("Discard workout", systemImage: "trash", role: .destructive) {
+          discardWorkout()
+        }
+      } label: {
+        HeaderChipGlyph(systemImage: "ellipsis")
+      }
+      .accessibilityLabel("Workout actions")
+    }
+    .frame(minHeight: 44)
+    .padding(.horizontal, LiftChromeMetrics.gutter)
+    .padding(.top, NoopMetrics.space2)
+    .padding(.bottom, NoopMetrics.space1)
+    .frame(maxWidth: LiftChromeMetrics.maxColumnWidth + LiftChromeMetrics.gutter * 2)
+    .frame(maxWidth: .infinity)
+    .background(StrandPalette.appCanvas.ignoresSafeArea(edges: .top))
+  }
+
+  // MARK: Footer
+
+  @ViewBuilder
+  private func footer(hasComposer: Bool) -> some View {
+    let error = store.databaseSaveError
+    let isResting = store.restTimerEndDate != nil
+    if hasComposer || error != nil || isResting || confirmationStamp != nil {
+      VStack(spacing: NoopMetrics.space3) {
+        if let error {
+          HStack(spacing: NoopMetrics.space3) {
+            Text("Not saved yet: \(error)")
+              .font(StrandFont.caption)
+              .foregroundStyle(StrandPalette.textSecondary)
+              .frame(maxWidth: .infinity, alignment: .leading)
+            ChoiceChipButton(title: "Retry save") { store.flushPendingSave() }
+          }
+        }
+        if let confirmationStamp {
+          WorkoutConfirmationStampView(
+            setID: confirmationStamp.setID,
+            text: confirmationStamp.text,
+            isPersonalRecord: confirmationStamp.isPersonalRecord,
+            onRendered: {
+              liftWorkoutPerformanceEvent(
+                "LogToConfirmationSurface",
+                startedAt: confirmationStamp.startedAt
+              )
+            }
+          )
+          .id(confirmationStamp.setID)
+          .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
+          .allowsHitTesting(false)
+        }
+        if isResting {
+          MiniRestBar(onPresentOptions: presentRestOptions)
+        }
+        if hasComposer {
+          Button(action: logCurrentSet) {
+            Label("Log set", systemImage: "plus").liftPillLabel()
+          }
+          .buttonStyle(PrimaryPillButtonStyle())
+        }
+      }
+      .liftFooterBar()
+    }
+  }
+
+  // MARK: Queue
 
   private func makeQueueRows(
     exercises: [LiftExercise],
@@ -471,59 +585,19 @@ struct LiveWorkoutView: View {
     }
   }
 
-  private func workspaceHeader(
-    _ session: LiftSession,
-    queueRows: [LiftWorkoutQueueRowState]
-  ) -> some View {
-    VStack(alignment: .leading, spacing: 8) {
-      NoopScreenHeader(
-        title: LocalizedStringKey(session.title),
-        subtitle: LocalizedStringKey(sessionSetTotal(queueRows: queueRows, session: session)),
-        style: .compact
-      ) {
-        NoopIconButton("chevron.down", accessibilityLabel: "Close workout", action: onDismiss)
-      }
-
-      HStack(spacing: 8) {
-        ElapsedWorkoutClock(startedAt: session.startedAt)
-        Spacer(minLength: 8)
-        ChipButton("Receipt", systemImage: "ticket") {
-          activeSheet = .receipt(session)
-        }
-        Menu {
-          Button("Add exercise", systemImage: "plus") {
-            presentExercisePicker()
-          }
-          Button("Finish workout", systemImage: "checkmark") {
-            finishWorkout()
-          }
-          Button("Discard workout", systemImage: "trash", role: .destructive) {
-            discardWorkout()
-          }
-        } label: {
-          Image(systemName: "ellipsis")
-            .font(.system(size: 16, weight: .semibold))
-            .foregroundStyle(StrandPalette.textPrimary)
-            .frame(width: 44, height: 44)
-            .contentShape(Rectangle())
-        }
-        .accessibilityLabel("Workout actions")
-      }
-
-      LiftDivider()
-    }
-  }
-
   @ViewBuilder
   private func queueSection(
-    title: String,
+    title: LocalizedStringKey,
+    symbol: String,
     rows: [LiftWorkoutQueueRowState],
     isPrinted: Bool
   ) -> some View {
     if !rows.isEmpty {
-      LiftSection(title: LocalizedStringKey(title)) {
+      FlatSectionSeparator()
+      LiftFlatSection(title, systemImage: symbol, trailing: .text(rows.count.formatted()), contentSpacing: 0) {
         LazyVStack(alignment: .leading, spacing: 0) {
-          ForEach(rows) { row in
+          ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
+            if index > 0 { FlatRowSeparator(leadingInset: 44 + NoopMetrics.space3) }
             LiftWorkoutQueueActionRow(
               row: row,
               isPrinted: isPrinted,
@@ -531,27 +605,38 @@ struct LiveWorkoutView: View {
               onSelect: { selectComposer(row.id) },
               onSetDone: { isDone in setExerciseDone(row.id, isDone: isDone) }
             )
-
-            LiftDivider()
           }
         }
       }
     }
   }
 
+  private var addExerciseChip: some View {
+    ChipRow {
+      WidgetChipButton(
+        title: "Add exercise", systemImage: "plus", accessibilityLabel: "Add exercise",
+        action: presentExercisePicker)
+    }
+    .padding(.top, NoopMetrics.space3)
+  }
+
   private var emptyQueue: some View {
-    LiftSection(title: "Current exercise") {
-      LiftEmptyNote(text: "No exercises in this workout yet. Add only the movements you plan to log.")
-      NoopButton("Add exercise", systemImage: "plus", kind: .primary, fullWidth: true, action: presentExercisePicker)
+    LiftFlatSection("Current exercise") {
+      VStack(alignment: .leading, spacing: WidgetMetrics.contentSpacing) {
+        LiftNote(text: "No exercises in this workout yet. Add only the movements you plan to log.")
+        Button(action: presentExercisePicker) { Label("Add exercise", systemImage: "plus") }
+          .buttonStyle(PrimaryPillButtonStyle())
+      }
     }
   }
 
   private var inactiveReceipt: some View {
-    VStack(alignment: .leading, spacing: LiftChromeMetrics.blockSpacing) {
-      NoopScreenHeader(title: "Workout closed", subtitle: "Return to Lift to begin")
-      NoopButton("Close", systemImage: "chevron.down", kind: .secondary, fullWidth: true, action: onDismiss)
-    }
-    .padding(.horizontal, LiftChromeMetrics.gutter)
+    LiftMessage(
+      title: "Workout closed",
+      message: "Return to Lift to begin",
+      actionTitle: "Close",
+      action: onDismiss
+    )
   }
 
   private func sessionSetTotal(
@@ -565,17 +650,28 @@ struct LiveWorkoutView: View {
       return Int(parts[1])
     }
     guard !queueRows.isEmpty, targets.count == queueRows.count else {
-      return "\(completed) sets"
+      return LiftFormat.setCount(completed)
     }
     let target = targets.reduce(0, +)
-    return "\(min(completed, target))/\(target) sets"
+    return String(localized: "\(min(completed, target))/\(target) sets")
   }
+
+  // MARK: Composer
 
   private func reconcileComposer(with exerciseIDs: [UUID]) {
     if let composerExerciseID, exerciseIDs.contains(composerExerciseID) {
       return
     }
     self.composerExerciseID = store.nextUnfinishedExerciseID(after: nil) ?? exerciseIDs.first
+  }
+
+  /// A fresh composer for the exercise now showing: its last working weight and reps, in the person's unit.
+  private func resetDraft() {
+    guard let composerExerciseID else { return }
+    draft = LiveComposerDraft(
+      weight: format.unit.canonicalPounds(store.suggestedWeight(for: composerExerciseID)),
+      reps: store.suggestedReps(for: composerExerciseID)
+    )
   }
 
   private func selectComposer(_ exerciseID: UUID) {
@@ -657,6 +753,27 @@ struct LiveWorkoutView: View {
     activeSheet = nil
   }
 
+  // MARK: Logging
+
+  private func logCurrentSet() {
+    guard let exercise = store.activeExercises.first(where: { $0.id == composerExerciseID }) else { return }
+    let startedAt = liftWorkoutUptime()
+    let progress = store.setProgress(for: exercise.id)
+    let wasIncompleteWorkingTarget = !draft.isWarmup && progress.target != nil && !progress.isComplete
+    guard let outcome = store.logSet(
+      exercise: exercise,
+      weight: draft.weight,
+      reps: draft.reps,
+      rpe: draft.rpe,
+      isWarmup: draft.isWarmup,
+      restSeconds: store.restSecondsForNextSet(for: exercise.id)
+    ) else { return }
+
+    let completedTarget = wasIncompleteWorkingTarget && store.setProgress(for: exercise.id).isComplete
+    draft.isWarmup = false
+    handleLoggedOutcome(outcome, exercise: exercise, completedTarget: completedTarget, startedAt: startedAt)
+  }
+
   private func handleLoggedOutcome(
     _ outcome: LiftSetOutcome,
     exercise: LiftExercise,
@@ -690,8 +807,10 @@ struct LiveWorkoutView: View {
       text: liftWorkoutStampText(
         outcome: outcome,
         exercise: exercise,
-        prDetectionEnabled: LiftStore.prDetectionEnabled
+        prDetectionEnabled: LiftStore.prDetectionEnabled,
+        format: format
       ),
+      isPersonalRecord: LiftStore.prDetectionEnabled && outcome.personalRecord != nil,
       startedAt: startedAt
     )
     stampDismissTask?.cancel()
@@ -730,55 +849,52 @@ struct LiveWorkoutView: View {
   }
 }
 
-private struct WorkoutTopSafeAreaScrim: View {
-  var body: some View {
-    GeometryReader { proxy in
-      VStack(spacing: 0) {
-        LiftTheme.paper
-          .frame(height: proxy.safeAreaInsets.top)
-          .ignoresSafeArea(edges: .top)
-        Spacer(minLength: 0)
-      }
-      .allowsHitTesting(false)
-    }
-  }
-}
-
 private struct WorkoutConfirmationStamp: Equatable {
   let setID: UUID
   let text: String
+  let isPersonalRecord: Bool
   let startedAt: TimeInterval
 }
 
+/// The line that confirms a logged set: a check (a trophy for a personal record) and what was added to the receipt.
 private struct WorkoutConfirmationStampView: View {
   let setID: UUID
   let text: String
+  let isPersonalRecord: Bool
   let onRendered: () -> Void
   @State private var reportedSetID: UUID?
 
   var body: some View {
-    Text(text)
-      .font(StrandFont.caption.weight(.semibold))
-      .foregroundStyle(StrandPalette.textPrimary)
-      .multilineTextAlignment(.center)
-      .lineLimit(2)
-      .minimumScaleFactor(0.72)
-      .padding(.horizontal, 14)
-      .frame(maxWidth: .infinity, minHeight: 44)
-      .background(
-        StrandPalette.card,
-        in: RoundedRectangle(cornerRadius: NoopMetrics.radius2, style: .continuous)
-      )
-      .overlay {
-        RoundedRectangle(cornerRadius: NoopMetrics.radius2, style: .continuous)
-          .strokeBorder(StrandPalette.cardBorder, lineWidth: 1)
-      }
-      .accessibilityLabel(text)
-      .onAppear {
-        guard reportedSetID != setID else { return }
-        reportedSetID = setID
-        onRendered()
-      }
+    HStack(spacing: NoopMetrics.space2) {
+      Image(systemName: isPersonalRecord ? "trophy.fill" : "checkmark.circle.fill")
+        .font(.system(size: 14, weight: .semibold))
+        .foregroundStyle(DomainTint.workout.accent)
+        .accessibilityHidden(true)
+      Text(verbatim: text)
+        .font(StrandFont.caption.weight(.semibold))
+        .foregroundStyle(StrandPalette.textPrimary)
+        .multilineTextAlignment(.leading)
+        .lineLimit(2)
+        .minimumScaleFactor(0.72)
+      Spacer(minLength: 0)
+    }
+    .padding(.horizontal, 14)
+    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+    .background(
+      DomainTint.workout.accent.opacity(isPersonalRecord ? 0.2 : 0.12),
+      in: RoundedRectangle(cornerRadius: NoopMetrics.radius2, style: .continuous)
+    )
+    .overlay {
+      RoundedRectangle(cornerRadius: NoopMetrics.radius2, style: .continuous)
+        .strokeBorder(DomainTint.workout.accent.opacity(isPersonalRecord ? 0.7 : 0.35), lineWidth: 1)
+    }
+    .accessibilityElement(children: .ignore)
+    .accessibilityLabel(text)
+    .onAppear {
+      guard reportedSetID != setID else { return }
+      reportedSetID = setID
+      onRendered()
+    }
   }
 }
 
@@ -800,6 +916,8 @@ private enum LiveWorkoutSheet: Identifiable {
   case exercisePickerMode(ExercisePickerMode)
   case superset(UUID)
   case history(UUID)
+  case warmup(UUID)
+  case plateLoader(UUID)
 
   var id: String {
     switch self {
@@ -808,582 +926,29 @@ private enum LiveWorkoutSheet: Identifiable {
     case .exercisePickerMode(let mode): "exercisePicker-\(mode.id)"
     case .superset(let exerciseID): "superset-\(exerciseID.uuidString)"
     case .history(let exerciseID): "history-\(exerciseID.uuidString)"
+    case .warmup(let exerciseID): "warmup-\(exerciseID.uuidString)"
+    case .plateLoader(let exerciseID): "plates-\(exerciseID.uuidString)"
     }
   }
 }
 
+/// How long the workout has run and how far through its sets, under the title: "22:10 · 5/21 sets".
 private struct ElapsedWorkoutClock: View {
   let startedAt: Date
+  let setTotal: String
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 2) {
-      Text("Elapsed").strandOverline()
+    HStack(spacing: 6) {
       Text(timerInterval: startedAt...Date.distantFuture, countsDown: false)
-        .font(StrandFont.number(18, weight: .bold))
-        .foregroundStyle(StrandPalette.textPrimary)
+        .monospacedDigit()
+      Text(verbatim: "·")
+      Text(verbatim: setTotal)
     }
-    .accessibilityElement(children: .combine)
-  }
-}
-
-private struct ExerciseLogRow: View {
-  let exercise: LiftExercise
-  let store: LiftStore
-  let index: Int
-  let onLogged: (LiftSetOutcome, LiftExercise, Bool, TimeInterval) -> Void
-  let onPresentSwap: (LiftExercise) -> Void
-  let onPresentSuperset: (LiftExercise) -> Void
-  let onPresentHistory: (LiftExercise) -> Void
-  let onPresentRestOptions: () -> Void
-  let onComposed: (UUID) -> Void
-  let continuityNamespace: Namespace.ID
-  let reduceMotion: Bool
-
-  @State private var weight: Double
-  @State private var reps: Int
-  @State private var rpe: Double = 8
-  @State private var isWarmup = false
-  @State private var isEffortExpanded = false
-  @State private var isWarmupSuggestionPresented = false
-  @State private var showsPlateLoader = false
-
-  init(
-    exercise: LiftExercise,
-    store: LiftStore,
-    index: Int,
-    continuityNamespace: Namespace.ID,
-    reduceMotion: Bool,
-    onLogged: @escaping (LiftSetOutcome, LiftExercise, Bool, TimeInterval) -> Void,
-    onPresentSwap: @escaping (LiftExercise) -> Void,
-    onPresentSuperset: @escaping (LiftExercise) -> Void,
-    onPresentHistory: @escaping (LiftExercise) -> Void,
-    onPresentRestOptions: @escaping () -> Void,
-    onComposed: @escaping (UUID) -> Void
-  ) {
-    self.exercise = exercise
-    self.store = store
-    self.index = index
-    self.continuityNamespace = continuityNamespace
-    self.reduceMotion = reduceMotion
-    self.onLogged = onLogged
-    self.onPresentSwap = onPresentSwap
-    self.onPresentSuperset = onPresentSuperset
-    self.onPresentHistory = onPresentHistory
-    self.onPresentRestOptions = onPresentRestOptions
-    self.onComposed = onComposed
-    _weight = State(initialValue: store.suggestedWeight(for: exercise.id))
-    _reps = State(initialValue: store.suggestedReps(for: exercise.id))
-  }
-
-  var body: some View {
-    VStack(alignment: .leading, spacing: 16) {
-      composerHeader
-      lastSetsLine
-      setProgressLine
-      loadReadout
-
-      if LiftPlateLoaderEligibility.isEligible(exercise) {
-        NoopButton("Plate loader", systemImage: "scalemass", kind: .secondary, fullWidth: true) {
-          showsPlateLoader = true
-        }
-        .accessibilityHint("Shows plates for the current composer weight")
-      }
-
-      VStack(spacing: 10) {
-        LiftStepper(
-          title: "Weight",
-          value: liftLoad(weight, for: exercise),
-          decrement: { weight = max(0, weight - 5) },
-          increment: { weight += 5 },
-          decrementLarge: { weight = max(0, weight - 25) },
-          incrementLarge: { weight += 25 }
-        )
-        LiftStepper(
-          title: "Reps",
-          value: "\(reps)",
-          decrement: { reps = max(1, reps - 1) },
-          increment: { reps += 1 }
-        )
-      }
-
-      effortEditor
-      if liftShouldOfferWarmupSuggestion(completedWorkingSets: setProgress.completed) {
-        warmupSuggestionChip
-      }
-      warmupChip
-
-      NoopButton("Log set", systemImage: "plus", kind: .primary, fullWidth: true, action: logCurrentSet)
-    }
-    .onAppear {
-      onComposed(exercise.id)
-    }
-    .liftQAScene("live-plates") { weight = 225; showsPlateLoader = true }
-    .liftQAScene("live-warmup") { isWarmupSuggestionPresented = true }
-    .liftQAScene("live-pr", after: .milliseconds(1_400)) { weight += 20; logCurrentSet() }
-    .sheet(isPresented: $isWarmupSuggestionPresented) {
-      WarmupSuggestionSheet(
-        exercise: exercise,
-        plan: store.warmupPlan(for: exercise, workingWeight: weight, workingReps: reps),
-        weight: $weight,
-        reps: $reps,
-        isWarmup: $isWarmup
-      )
-      .presentationDetents([.medium, .large])
-      .presentationDragIndicator(.visible)
-    }
-    .sheet(isPresented: $showsPlateLoader) {
-      PlateLoaderView(targetWeight: $weight, exercise: exercise)
-        .presentationDetents([.medium, .large])
-        .presentationDragIndicator(.visible)
-    }
-  }
-
-  private var composerHeader: some View {
-    ViewThatFits(in: .horizontal) {
-      HStack(alignment: .top, spacing: 12) {
-        VStack(alignment: .leading, spacing: LiftDesignMetrics.Composer.restInlineSpacing) {
-          composerIdentityAndTools
-          composerQuickActions
-          composerInlineRest
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        composerArtwork
-      }
-      VStack(alignment: .leading, spacing: 10) {
-        composerIdentityAndTools
-        composerQuickActions
-        HStack(alignment: .top, spacing: 8) {
-          composerInlineRest
-          Spacer(minLength: 8)
-          composerArtwork
-        }
-      }
-    }
-  }
-
-  @ViewBuilder
-  private var composerInlineRest: some View {
-    if store.restTimerEndDate != nil {
-      MiniRestBar(compact: true, onPresentOptions: onPresentRestOptions)
-        .environmentObject(store)
-    }
-  }
-
-  private var composerIdentityAndTools: some View {
-    HStack(alignment: .top, spacing: 8) {
-      Button { onPresentHistory(exercise) } label: { composerIdentity }
-        .buttonStyle(.plain)
-        .accessibilityHint("Opens exercise details and progress")
-      Spacer(minLength: 4)
-      composerToolsMenu
-    }
-  }
-
-  private var composerIdentity: some View {
-    VStack(alignment: .leading, spacing: 4) {
-      Text(String(format: "%02d / %02d", index + 1, max(store.activeExercises.count, 1)))
-        .font(StrandFont.number(12, weight: .medium))
-        .foregroundStyle(StrandPalette.textTertiary)
-      Text(exercise.name.liftDisplayName)
-        .font(StrandFont.title2)
-        .foregroundStyle(StrandPalette.textPrimary)
-        .multilineTextAlignment(.leading)
-        .lineLimit(3)
-        .minimumScaleFactor(0.8)
-    }
-  }
-
-  @ViewBuilder
-  private var composerArtwork: some View {
-    Button { onPresentHistory(exercise) } label: { composerArtworkImage }
-      .buttonStyle(.plain)
-      .accessibilityLabel("View \(exercise.name) photo and muscles")
-  }
-
-  @ViewBuilder
-  private var composerArtworkImage: some View {
-    if reduceMotion {
-      LiftExerciseThumb(
-        exercise: exercise,
-        size: LiftDesignMetrics.Composer.artworkSize
-      )
-      .transition(.opacity)
-      .accessibilityHidden(true)
-    } else {
-      LiftExerciseThumb(
-        exercise: exercise,
-        size: LiftDesignMetrics.Composer.artworkSize
-      )
-      .matchedGeometryEffect(id: exercise.id, in: continuityNamespace)
-      .accessibilityHidden(true)
-    }
-  }
-
-  private var composerQuickActions: some View {
-    HStack(spacing: 8) {
-      ChipButton("Swap", systemImage: "arrow.triangle.2.circlepath") { onPresentSwap(exercise) }
-      ChipButton("Superset", systemImage: "link") { onPresentSuperset(exercise) }
-    }
-    .padding(.vertical, 6)
-  }
-
-  private var composerToolsMenu: some View {
-    Menu {
-      Button("Details & progress", systemImage: "clock.arrow.circlepath") {
-        onPresentHistory(exercise)
-      }
-      Button("Swap exercise", systemImage: "arrow.triangle.2.circlepath") {
-        onPresentSwap(exercise)
-      }
-      Button("Superset", systemImage: "link") {
-        onPresentSuperset(exercise)
-      }
-    } label: {
-      Image(systemName: "ellipsis")
-        .font(.system(size: 16, weight: .semibold))
-        .foregroundStyle(StrandPalette.textPrimary)
-        .frame(width: 44, height: 44)
-        .contentShape(Rectangle())
-    }
-    .accessibilityLabel("Exercise tools")
-  }
-
-  private var savedWorkingSets: [LiftSet] {
-    Array(
-      store.sets(for: exercise.id, includeActive: false)
-        .filter { !$0.isWarmup }
-        .prefix(LiftDesignMetrics.Composer.lastSetLimit)
-    )
-  }
-
-  private var lastSetsLine: some View {
-    HStack(alignment: .firstTextBaseline, spacing: 10) {
-      Text("Last").strandOverline()
-      Text(lastSetsText)
-        .font(StrandFont.number(13, weight: .medium))
-        .foregroundStyle(savedWorkingSets.isEmpty ? StrandPalette.textTertiary : StrandPalette.textPrimary)
-        .lineLimit(2)
-        .minimumScaleFactor(0.68)
-      Spacer(minLength: 0)
-    }
-    .accessibilityElement(children: .combine)
-  }
-
-  private var lastSetsText: String {
-    guard !savedWorkingSets.isEmpty else { return "No saved sets" }
-    return savedWorkingSets.map {
-      "\(liftLoad($0.weight, for: exercise)) × \($0.reps)"
-    }
-    .joined(separator: "   ")
-  }
-
-  private var setProgress: LiftSetProgress {
-    store.setProgress(for: exercise.id)
-  }
-
-  private var setProgressLine: some View {
-    Text(setProgressText)
-      .font(StrandFont.caption.weight(.semibold))
-      .foregroundStyle(StrandPalette.textSecondary)
-      .monospacedDigit()
-  }
-
-  private var setProgressText: String {
-    guard let target = setProgress.target else {
-      return "Set \(setProgress.completed + 1)"
-    }
-    return "Set \(min(setProgress.completed + 1, target)) of \(target)"
-  }
-
-  private var loadReadout: some View {
-    ViewThatFits(in: .horizontal) {
-      loadReadoutLine(
-        loadSize: LiftDesignMetrics.Composer.loadFontSize,
-        multiplierSize: LiftDesignMetrics.Composer.multiplierFontSize
-      )
-      loadReadoutLine(loadSize: 34, multiplierSize: 26)
-    }
-    .foregroundStyle(StrandPalette.textPrimary)
+    .font(StrandFont.caption)
+    .foregroundStyle(StrandPalette.textTertiary)
     .lineLimit(1)
     .accessibilityElement(children: .ignore)
-    .accessibilityLabel(
-      liftWorkoutComposerAccessibilitySummary(
-        weight: weight,
-        reps: reps,
-        progress: setProgress,
-        exercise: exercise
-      )
-    )
-    .accessibilityHint("Swipe up or down to adjust weight. Use the reps controls to adjust reps.")
-    .accessibilityAdjustableAction { direction in
-      switch direction {
-      case .increment:
-        weight += 5
-      case .decrement:
-        weight = max(0, weight - 5)
-      @unknown default:
-        break
-      }
-    }
-  }
-
-  private func loadReadoutLine(loadSize: CGFloat, multiplierSize: CGFloat) -> some View {
-    HStack(alignment: .firstTextBaseline, spacing: 8) {
-      Text(liftLoad(weight, for: exercise))
-        .font(StrandFont.number(loadSize, weight: .bold))
-        .contentTransition(.numericText())
-        .minimumScaleFactor(0.62)
-      Text("×")
-        .font(StrandFont.number(multiplierSize, weight: .medium))
-        .foregroundStyle(StrandPalette.textSecondary)
-      Text("\(reps)")
-        .font(StrandFont.number(loadSize, weight: .bold))
-        .contentTransition(.numericText())
-      Spacer(minLength: 0)
-    }
-  }
-
-  private var effortSelection: Binding<Int> {
-    Binding(get: { Int(rpe) }, set: { rpe = Double($0) })
-  }
-
-  private var effortEditor: some View {
-    VStack(alignment: .leading, spacing: 8) {
-      Button {
-        isEffortExpanded.toggle()
-      } label: {
-        HStack(spacing: 8) {
-          Text("Effort")
-            .font(StrandFont.subhead)
-            .foregroundStyle(StrandPalette.textPrimary)
-          Spacer()
-          Text(rpe.formatted(.number.precision(.fractionLength(0))))
-            .font(StrandFont.number(15))
-            .foregroundStyle(StrandPalette.textPrimary)
-          Image(systemName: isEffortExpanded ? "chevron.up" : "chevron.right")
-            .font(.system(size: 13, weight: .semibold))
-            .foregroundStyle(StrandPalette.textTertiary)
-        }
-        .frame(minHeight: 44)
-        .contentShape(Rectangle())
-      }
-      .buttonStyle(.plain)
-      .accessibilityLabel("Effort \(Int(rpe))")
-      .accessibilityHint(isEffortExpanded ? "Collapses effort choices" : "Expands effort choices")
-
-      if isEffortExpanded {
-        SegmentedPillControl(Array(6...10), selection: effortSelection) { "\($0)" }
-          .frame(maxWidth: .infinity, alignment: .leading)
-      }
-    }
-  }
-
-  private var warmupChip: some View {
-    Button {
-      isWarmup.toggle()
-    } label: {
-      HStack(spacing: 8) {
-        Image(systemName: isWarmup ? "checkmark.square.fill" : "square")
-          .foregroundStyle(isWarmup ? StrandPalette.accent : StrandPalette.textSecondary)
-        Text("Warm-up")
-          .font(StrandFont.subhead)
-          .foregroundStyle(StrandPalette.textPrimary)
-        Spacer(minLength: 0)
-      }
-      .padding(.horizontal, LiftDesignMetrics.Composer.warmupChipHorizontalPadding)
-      .frame(maxWidth: .infinity, minHeight: 44)
-      .contentShape(Rectangle())
-      .overlay(
-        RoundedRectangle(cornerRadius: NoopMetrics.radius2, style: .continuous)
-          .strokeBorder(isWarmup ? StrandPalette.accent : StrandPalette.cardBorder, lineWidth: 1)
-      )
-    }
-    .buttonStyle(.plain)
-    .accessibilityLabel("Warm-up")
-    .accessibilityValue(isWarmup ? "On" : "Off")
-  }
-
-  private var warmupSuggestionChip: some View {
-    Button {
-      isWarmupSuggestionPresented = true
-    } label: {
-      HStack(spacing: 8) {
-        Image(systemName: "figure.strengthtraining.traditional")
-          .foregroundStyle(StrandPalette.accent)
-        Text("Suggest a warm-up")
-          .font(StrandFont.subhead)
-          .foregroundStyle(StrandPalette.textPrimary)
-        Spacer(minLength: 0)
-        Image(systemName: "chevron.right")
-          .font(.system(size: 13, weight: .semibold))
-          .foregroundStyle(StrandPalette.textTertiary)
-      }
-      .frame(maxWidth: .infinity, minHeight: 44)
-      .contentShape(Rectangle())
-    }
-    .buttonStyle(.plain)
-    .accessibilityLabel("Warm-up suggestion")
-    .accessibilityHint("Shows suggested warm-up sets")
-  }
-
-  private func logCurrentSet() {
-    let startedAt = liftWorkoutUptime()
-    let wasIncompleteWorkingTarget = !isWarmup && setProgress.target != nil && !setProgress.isComplete
-    guard let outcome = store.logSet(
-      exercise: exercise,
-      weight: weight,
-      reps: reps,
-      rpe: rpe,
-      isWarmup: isWarmup,
-      restSeconds: store.restSecondsForNextSet(for: exercise.id)
-    ) else { return }
-
-    let completedTarget = wasIncompleteWorkingTarget && store.setProgress(for: exercise.id).isComplete
-    isWarmup = false
-    onLogged(outcome, exercise, completedTarget, startedAt)
-  }
-}
-
-private struct WarmupSuggestionSheet: View {
-  @Environment(\.dismiss) private var dismiss
-  let exercise: LiftExercise
-  let plan: LiftWarmupPlan
-  @Binding var weight: Double
-  @Binding var reps: Int
-  @Binding var isWarmup: Bool
-
-  var body: some View {
-    LiftScreen(
-      title: "Warm-up?",
-      subtitle: LocalizedStringKey(exercise.name.liftDisplayName),
-      trailing: {
-        NoopIconButton("xmark", accessibilityLabel: "Close warm-up suggestion") { dismiss() }
-      }
-    ) {
-      VStack(alignment: .leading, spacing: 4) {
-        Text(plan.title)
-          .font(StrandFont.headline)
-          .foregroundStyle(StrandPalette.textPrimary)
-        Text(plan.reason)
-          .font(StrandFont.subhead)
-          .foregroundStyle(StrandPalette.textSecondary)
-          .fixedSize(horizontal: false, vertical: true)
-      }
-
-      if plan.hasSets {
-        VStack(spacing: 0) {
-          ForEach(plan.sets) { set in
-            WarmupSuggestionRow(set: set, exercise: exercise) {
-              weight = set.weight
-              reps = set.reps
-              isWarmup = true
-              dismiss()
-            }
-          }
-        }
-      } else {
-        LiftEmptyNote(text: "No loaded ramp needed.")
-      }
-    }
-  }
-}
-
-private struct WarmupSuggestionRow: View {
-  let set: LiftWarmupSet
-  let exercise: LiftExercise
-  let onUse: () -> Void
-
-  var body: some View {
-    Button(action: onUse) {
-      LiftRow(
-        title: "\(liftLoad(set.weight, for: exercise)) × \(set.reps)",
-        detail: rowSubtitle,
-        value: "Use"
-      ) {
-        LiftRowIndex(index: set.sequence)
-      }
-    }
-    .buttonStyle(.plain)
-    .accessibilityLabel(
-      "Use warm-up set \(set.sequence), \(liftLoad(set.weight, for: exercise)), \(set.reps) reps"
-    )
-  }
-
-  private var rowSubtitle: String {
-    if let percent = set.percent {
-      return "\(Int((percent * 100).rounded()))% · \(set.note)"
-    }
-    return set.note
-  }
-}
-
-private struct SupersetPairingSheet: View {
-  @Environment(\.dismiss) private var dismiss
-  @EnvironmentObject private var store: LiftStore
-  let exercise: LiftExercise
-
-  private var candidates: [LiftExercise] {
-    let ids = liftSupersetCandidateIDs(
-      activeExerciseIDs: store.activeExercises.map(\.id),
-      currentExerciseID: exercise.id
-    )
-    return ids.compactMap(store.exercise(for:))
-  }
-
-  var body: some View {
-    LiftScreen(
-      title: "Superset",
-      subtitle: LocalizedStringKey(exercise.name.liftDisplayName),
-      trailing: {
-        NoopIconButton("xmark", accessibilityLabel: "Close superset pairing") { dismiss() }
-      }
-    ) {
-      if let label = store.supersetLabel(for: exercise.id) {
-        HStack(spacing: 10) {
-          LiftBadge(text: label)
-          Text(currentPartnerText)
-            .font(StrandFont.subhead)
-            .foregroundStyle(StrandPalette.textPrimary)
-          Spacer(minLength: 0)
-        }
-        NoopButton("Clear pairing", systemImage: "xmark", kind: .secondary, fullWidth: true) {
-          store.clearSuperset(for: exercise.id)
-          dismiss()
-        }
-      }
-
-      if candidates.isEmpty {
-        LiftEmptyNote(text: "Add another active exercise to make a superset.")
-      } else {
-        VStack(spacing: 0) {
-          ForEach(candidates) { candidate in
-            Button {
-              store.setSuperset(exercise.id, with: candidate.id)
-              dismiss()
-            } label: {
-              LiftRow(
-                title: candidate.name.liftDisplayName,
-                detail: store.supersetLabel(for: candidate.id) ?? "Pair for this workout",
-                value: "Pair"
-              ) {
-                LiftRowIndex(index: candidateOrdinal(candidate))
-                LiftExerciseThumb(exercise: candidate, size: 40, showsBorder: false)
-              }
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Pair \(exercise.name) with \(candidate.name)")
-          }
-        }
-      }
-    }
-  }
-
-  private var currentPartnerText: String {
-    let names = store.supersetPartners(for: exercise.id).map(\.name)
-    return names.isEmpty ? "No current partner" : "With " + names.joined(separator: " + ")
-  }
-
-  private func candidateOrdinal(_ candidate: LiftExercise) -> Int {
-    (store.activeExercises.firstIndex { $0.id == candidate.id } ?? 0) + 1
+    .accessibilityLabel("Elapsed")
+    .accessibilityValue(Text(timerInterval: startedAt...Date.distantFuture, countsDown: false))
   }
 }
