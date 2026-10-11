@@ -2299,12 +2299,14 @@ struct TodayView: View {
             Group {
                 switch kind {
                 case .rest:
-                    SleepView()
+                    // Its own stack, like the Recovery and Strain pages carry: a cover with no stack has no edge swipe
+                    // back (`EdgeSwipeBack` needs the stack's recogniser), and the chevron is then its only way out.
+                    NavigationStack { SleepView() }
                 case .stress:
                     // Nothing sets .stress any more (paperStressCard pushes stressDetail directly);
                     // this case only keeps a future setter from resurrecting the retired
                     // PaperPillarDetailView stress surface instead of the canonical StressView.
-                    stressDetail
+                    NavigationStack { stressDetail }
                 case .charge, .effort:
                     PaperPillarDetailView(kind: kind, anchorDayKey: selectedDayKey)
                 }

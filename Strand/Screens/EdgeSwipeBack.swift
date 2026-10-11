@@ -32,7 +32,11 @@ struct EdgeSwipeBack: UIViewControllerRepresentable {
 
     @MainActor
     final class Probe: UIViewController {
-        var rootBackAction: (() -> Void)?
+        var rootBackAction: (() -> Void)? {
+            didSet { attach() }
+        }
+        /// The stack this probe is registered on, so it can be withdrawn after the stack no longer has a parent for it.
+        private weak var attachedStack: UINavigationController?
 
         override func viewDidLoad() {
             super.viewDidLoad()
@@ -52,9 +56,27 @@ struct EdgeSwipeBack: UIViewControllerRepresentable {
             attach()
         }
 
+        override func viewDidDisappear(_ animated: Bool) {
+            super.viewDidDisappear(animated)
+            // Gone from the stack's top (popped, covered): it must not answer a swipe on its stack any more.
+            EdgeSwipeBackInstaller.shared.forget(self, on: attachedStack)
+        }
+
         private func attach() {
             guard let stack = navigationController else { return }
+            attachedStack = stack
             EdgeSwipeBackInstaller.install(on: stack, probe: self)
+        }
+
+        /// Whether this probe belongs to the screen showing on top of `stack` now.
+        func isShowing(in stack: UINavigationController) -> Bool {
+            guard navigationController === stack, let top = stack.topViewController else { return false }
+            var node: UIViewController? = self
+            while let current = node {
+                if current === top { return true }
+                node = current.parent
+            }
+            return false
         }
     }
 }
@@ -64,15 +86,32 @@ struct EdgeSwipeBack: UIViewControllerRepresentable {
 final class EdgeSwipeBackInstaller: NSObject, UIGestureRecognizerDelegate {
     static let shared = EdgeSwipeBackInstaller()
 
-    /// The probe of the screen showing now, so the root swipe runs the visible screen's own back action.
-    private weak var visibleProbe: EdgeSwipeBack.Probe?
+    /// The probe of the screen showing on each stack, so a root swipe runs the back action of the screen that was
+    /// swiped on and never another stack's (the tabs each have a stack). Weak both ways: a screen owns its probe and a
+    /// stack its screens.
+    private let probes = NSMapTable<UINavigationController, EdgeSwipeBack.Probe>.weakToWeakObjects()
 
     static func install(on stack: UINavigationController, probe: EdgeSwipeBack.Probe) {
-        shared.visibleProbe = probe
+        shared.probes.setObject(probe, forKey: stack)
         if let pop = stack.interactivePopGestureRecognizer, pop.delegate !== shared {
             pop.delegate = shared
         }
-        shared.installRootBackRecognizer(on: stack)
+        // Only a stack whose root screen has a back action of its own (a pillar opened as a cover) needs the root
+        // swipe; a tab's stack, and a pushed screen's, never get it.
+        if stack.viewControllers.count == 1, probe.rootBackAction != nil {
+            shared.installRootBackRecognizer(on: stack)
+        }
+    }
+
+    func forget(_ probe: EdgeSwipeBack.Probe, on stack: UINavigationController?) {
+        guard let stack, probes.object(forKey: stack) === probe else { return }
+        probes.removeObject(forKey: stack)
+    }
+
+    /// The probe of the screen showing on top of `stack`, nil when none is.
+    private func visibleProbe(in stack: UINavigationController) -> EdgeSwipeBack.Probe? {
+        guard let probe = probes.object(forKey: stack), probe.isShowing(in: stack) else { return nil }
+        return probe
     }
 
     // MARK: Root of a modal stack
@@ -96,7 +135,9 @@ final class EdgeSwipeBackInstaller: NSObject, UIGestureRecognizerDelegate {
         let velocity = recognizer.velocity(in: view).x
         let direction: CGFloat = recognizer.edges == .right ? -1 : 1
         guard translation * direction > 70 || velocity * direction > 600 else { return }
-        visibleProbe?.rootBackAction?()
+        guard let stack = (view.next as? UINavigationController) ?? (view.next as? UIViewController)?.navigationController
+        else { return }
+        visibleProbe(in: stack)?.rootBackAction?()
     }
 
     // MARK: UIGestureRecognizerDelegate
@@ -107,7 +148,7 @@ final class EdgeSwipeBackInstaller: NSObject, UIGestureRecognizerDelegate {
         // Starting a pop while the stack is still pushing or popping leaves it stuck between screens.
         guard stack.transitionCoordinator == nil else { return false }
         if gestureRecognizer is RootBackRecognizer {
-            return stack.viewControllers.count == 1 && visibleProbe?.rootBackAction != nil
+            return stack.viewControllers.count == 1 && visibleProbe(in: stack)?.rootBackAction != nil
         }
         return stack.viewControllers.count > 1
     }
