@@ -28,6 +28,7 @@ struct MarkerEditorView: View {
 
     @EnvironmentObject var repo: Repository
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     // Marker selection.
     @State private var selection: MarkerDefinition?
@@ -72,7 +73,24 @@ struct MarkerEditorView: View {
         #endif
         .background(StrandPalette.surfaceBase)
         .keyboardDoneToolbar($focused)
+        #if DEBUG
+        .onAppear(perform: qaPreselectMarker)
+        #endif
     }
+
+    #if DEBUG
+    /// Screenshot harness only: `--noop-qa-marker <key>` opens the editor with that catalog marker already chosen (and no
+    /// keyboard up), so the reading form can be captured without UI automation.
+    private func qaPreselectMarker() {
+        let arguments = ProcessInfo.processInfo.arguments
+        guard selection == nil, let index = arguments.firstIndex(of: "--noop-qa-marker"),
+              arguments.indices.contains(index + 1),
+              let def = MarkerCatalog.definition(for: arguments[index + 1]) else { return }
+        selection = def
+        unit = def.canonicalUnit
+        unitChoice = 0
+    }
+    #endif
 
     // MARK: - Marker picker
 
@@ -260,13 +278,17 @@ struct MarkerEditorView: View {
 
     private var valueField: some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text("Value").strandOverline()
-                Spacer()
-                if unitOptions.count > 1 {
-                    // The transparent unit switcher (e.g. mmol/L ↔ mg/dL).
-                    SegmentedPillControl(Array(unitOptions.indices), selection: $unitChoice) { unitOptions[$0] }
-                        .accessibilityLabel("Unit")
+            if typeSize.isAccessibilitySize {
+                // At an accessibility size the unit switcher cannot sit beside its label: it stacks under it.
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Value").strandOverline()
+                    if unitOptions.count > 1 { unitSwitcher }
+                }
+            } else {
+                HStack {
+                    Text("Value").strandOverline()
+                    Spacer()
+                    if unitOptions.count > 1 { unitSwitcher }
                 }
             }
             HStack(spacing: 8) {
@@ -287,6 +309,12 @@ struct MarkerEditorView: View {
                     .foregroundStyle(StrandPalette.textTertiary)
             }
         }
+    }
+
+    /// The transparent unit switcher (e.g. mmol/L ↔ mg/dL).
+    private var unitSwitcher: some View {
+        SegmentedPillControl(Array(unitOptions.indices), selection: $unitChoice) { unitOptions[$0] }
+            .accessibilityLabel("Unit")
     }
 
     private var bloodPressureFields: some View {

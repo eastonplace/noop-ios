@@ -47,14 +47,20 @@ try:
         "samples.min(by:",
         "samples.max(by:",
     )
+    # The live screen's heart-rate section lives in LiveWorkoutSections.swift (it was LiveWorkoutView.swift).
     require(
-        "Strand/Screens/LiveWorkoutView.swift",
+        "Strand/Screens/LiveWorkoutSections.swift",
         "workout.chartProjection",
         "range: projection.range",
-        'Text("HEART RATE")',
+        'FlatSection("Heart rate"',
         'projection.observedSeconds',
         'min window',
         'workout.currentBPM.map',
+    )
+    forbid(
+        "Strand/Screens/LiveWorkoutSections.swift",
+        "samples.suffix(360)",
+        "range: 100...180",
     )
     forbid(
         "Strand/Screens/LiveWorkoutView.swift",

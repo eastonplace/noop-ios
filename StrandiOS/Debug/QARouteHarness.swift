@@ -59,6 +59,7 @@ enum QARoute: String, CaseIterable {
     case trendsReport = "trends-report"
     case coachWorkoutsSheet = "coach-workouts-sheet"
     case liveWorkout = "live-workout"
+    case markerEditor = "marker-editor"
 
     /// The tab whose navigation stack, cover or sheet presents the route.
     enum Tab: Int { case today = 0, trends = 1, sleep = 2 }
@@ -81,7 +82,7 @@ enum QARoute: String, CaseIterable {
         case .pillarRecovery, .pillarStrain, .sleep:
             return .cover(.today)
         case .scoringGuide, .scoringGuideRecovery, .workoutDetailRun, .workoutDetailStrength, .workoutDetailWhoop,
-             .workoutDetailManual, .manualWorkout, .coachWorkoutsSheet:
+             .workoutDetailManual, .manualWorkout, .coachWorkoutsSheet, .markerEditor:
             return .sheet(.today)
         case .metricExplorer, .metricDetailHRV, .compare, .trendsExplore, .insights, .intelligence, .labBook:
             return .push(.trends)
@@ -355,6 +356,7 @@ private struct QARouteHost: ViewModifier {
         case .workoutDetailWhoop: QAWorkoutDetailHost(kind: .whoop, onClose: { sheeted = false })
         case .workoutDetailManual: QAWorkoutDetailHost(kind: .manual, onClose: { sheeted = false })
         case .manualWorkout: ManualWorkoutSheet(editing: nil) { _, _ in }
+        case .markerEditor: MarkerEditorView { _ in }
         case .coachWorkoutsSheet:
             // The Workouts hub as Coach's plan opens it: the root of a sheet that supplies its own close action.
             NavigationStack {

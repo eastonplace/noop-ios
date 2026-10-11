@@ -566,6 +566,7 @@ private struct PaperTabBar: View {
     @Binding var selection: Int
     var onReselect: (Int) -> Void = { _ in }
     var onQuickActions: () -> Void = {}
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     private struct Item: Identifiable {
         let title: LocalizedStringKey
@@ -585,10 +586,15 @@ private struct PaperTabBar: View {
     var body: some View {
         VStack(spacing: 0) {
             Rectangle().fill(StrandPalette.hairline).frame(height: 1)
-            HStack(spacing: 0) {
-                ForEach(nav.prefix(2)) { tabButton($0) }
-                quickActionsButton
-                ForEach(nav.dropFirst(2)) { tabButton($0) }
+            // Every size short of the accessibility sizes keeps six equal slots, exactly as before. At the accessibility
+            // sizes the labels are larger, and a long one ("Einstellungen") would be squeezed to half size in an equal
+            // slot, so the slots are shared out by what their labels need instead.
+            Group {
+                if typeSize.isAccessibilitySize {
+                    TabSlotLayout { slots }
+                } else {
+                    HStack(spacing: 0) { slots }
+                }
             }
             // A label is one line that scales down to fit its slot (`PaperTabLabel`), so the bar's height does not
             // depend on the user's text size; the large content viewer carries the full-size label.
@@ -597,6 +603,12 @@ private struct PaperTabBar: View {
         .background(StrandPalette.card)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("app.bottomNavigation")
+    }
+
+    @ViewBuilder private var slots: some View {
+        ForEach(nav.prefix(2)) { tabButton($0) }
+        quickActionsButton
+        ForEach(nav.dropFirst(2)) { tabButton($0) }
     }
 
     private var quickActionsButton: some View {
@@ -640,6 +652,46 @@ private struct PaperTabBar: View {
         .accessibilityShowsLargeContentViewer { Label(item.title, systemImage: item.icon) }
         .accessibilityIdentifier("app.tab.\(item.tag)")
         .accessibilityAddTraits(active ? [.isButton, .isSelected] : .isButton)
+    }
+}
+
+/// The tab bar's row at the accessibility sizes: each slot is as wide as its label wants, in proportion, so the whole
+/// row is filled and no slot is squeezed while another has room to spare.
+private struct TabSlotLayout: Layout {
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let ideals = subviews.map { $0.sizeThatFits(.unspecified).width }
+        let height = proposal.height ?? subviews.map { $0.sizeThatFits(.unspecified).height }.max() ?? 0
+        return CGSize(width: proposal.width ?? ideals.reduce(0, +), height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let ideals = subviews.map { $0.sizeThatFits(.unspecified).width }
+        let widths = TabSlotWidths.widths(ideals: ideals, total: bounds.width)
+        var x = bounds.minX
+        for (subview, width) in zip(subviews, widths) {
+            subview.place(at: CGPoint(x: x, y: bounds.minY), anchor: .topLeading,
+                          proposal: ProposedViewSize(width: width, height: bounds.height))
+            x += width
+        }
+    }
+}
+
+/// How the accessibility-size tab bar divides its width. Pure, so the rule is tested without a view.
+enum TabSlotWidths {
+    /// The least a slot is given while the row has the room: the size of a touch target.
+    static let minimumSlot: CGFloat = 44
+    /// Air kept between one label and the next.
+    static let gutter: CGFloat = 8
+
+    /// A width per slot, in proportion to what each one needs (its ideal width plus the gutter, never under the touch
+    /// target), scaled so they fill `total` exactly. When what they need is more than `total`, every slot is scaled
+    /// down by the same fraction and the labels shrink to fit.
+    static func widths(ideals: [CGFloat], total: CGFloat) -> [CGFloat] {
+        guard !ideals.isEmpty else { return [] }
+        let needs = ideals.map { max($0 + gutter, minimumSlot) }
+        let sum = needs.reduce(0, +)
+        guard total > 0, sum > 0 else { return Array(repeating: max(total, 0) / CGFloat(ideals.count), count: ideals.count) }
+        return needs.map { $0 * total / sum }
     }
 }
 #endif

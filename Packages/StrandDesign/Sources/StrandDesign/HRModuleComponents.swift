@@ -55,6 +55,7 @@ public struct HRLiveModuleCard: View {
     var onOpen: () -> Void = {}
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var typeSize
     @State private var revealed = false
     @State private var scrubIndex: Int? = nil
     @State private var plotWidth: CGFloat = 1
@@ -126,26 +127,49 @@ public struct HRLiveModuleCard: View {
     /// The widget eyebrow: a beating heart in the live red, the caps title, and the zone word as a tone pill.
     /// The pill is the Coach "Stale" pill's exact size and its height is part of the row, so this header is
     /// as tall as the Stress one and nothing overhangs it into the air above.
-    private var header: some View {
-        HStack(spacing: NoopMetrics.space2) {
-            // The live heart: a heart in the live red whose ghost swells and fades at the wearer's cadence (the
-            // old dot's breathing halo, in the shape of the symbol). It holds still under Reduce Motion.
-            EyebrowPulseIcon(systemName: "heart.fill",
-                             color: samples.isEmpty ? StrandPalette.textTertiary : HRModuleTint.live,
-                             period: breathPeriod,
-                             pulses: !samples.isEmpty)
-            Text("Live Heart Rate")
-                .strandOverline()
-                .lineLimit(1)
-            Spacer(minLength: NoopMetrics.space2)
-            if displayed != nil {
-                HRZonePill(word: zoneWord)
-                    .contentTransition(.opacity)
-            } else {
-                // Waiting for a first reading: keep the row as tall as it will be, so the pill arriving
-                // does not push the module down.
-                HRZonePill(word: String(localized: "Steady")).hidden()
+    ///
+    /// At an accessibility size the title and the pill cannot share a row ("LIVE H…"), so the pill drops under the
+    /// title and the title wraps instead of truncating. Every smaller size is the one-row header exactly as it was.
+    @ViewBuilder private var header: some View {
+        if typeSize.isAccessibilitySize {
+            VStack(alignment: .leading, spacing: NoopMetrics.space1) {
+                HStack(spacing: NoopMetrics.space2) {
+                    liveHeart
+                    Text("Live Heart Rate")
+                        .strandOverlineFitted()
+                        .lineLimit(3)
+                }
+                zonePill
             }
+        } else {
+            HStack(spacing: NoopMetrics.space2) {
+                liveHeart
+                Text("Live Heart Rate")
+                    .strandOverline()
+                    .lineLimit(1)
+                Spacer(minLength: NoopMetrics.space2)
+                zonePill
+            }
+        }
+    }
+
+    /// The live heart: a heart in the live red whose ghost swells and fades at the wearer's cadence (the old dot's
+    /// breathing halo, in the shape of the symbol). It holds still under Reduce Motion.
+    private var liveHeart: some View {
+        EyebrowPulseIcon(systemName: "heart.fill",
+                         color: samples.isEmpty ? StrandPalette.textTertiary : HRModuleTint.live,
+                         period: breathPeriod,
+                         pulses: !samples.isEmpty)
+    }
+
+    @ViewBuilder private var zonePill: some View {
+        if displayed != nil {
+            HRZonePill(word: zoneWord)
+                .contentTransition(.opacity)
+        } else {
+            // Waiting for a first reading: keep the row as tall as it will be, so the pill arriving
+            // does not push the module down.
+            HRZonePill(word: String(localized: "Steady")).hidden()
         }
     }
 
