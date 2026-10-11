@@ -66,9 +66,7 @@ struct StrandiOSApp: App {
         // The Pause / Resume button on the workout's Live Activity runs in this process. The workout was restored by
         // `AppModel.init`, so a request that woke a relaunched app is applied here, before the first frame.
         WorkoutPauseCommand.apply = { [weak model] paused in
-            guard let model, model.activeWorkout != nil else { return false }
-            model.setWorkoutPaused(paused)
-            return true
+            model?.applyWorkoutPauseRequest(paused) ?? false
         }
         WorkoutPauseCommand.drain()
         // Widgets colour heart rate by the wearer's own zones: hand them the maximum now and on every profile change.
@@ -335,7 +333,11 @@ struct StrandiOSApp: App {
     private func driveLiveActivity(connected: Bool? = nil, workoutReading: Int? = nil) {
         let isConnected = connected ?? model.live.connected
         liveActivity.update(
-            bpm: isConnected ? (model.activeWorkout.map { workoutReading ?? $0.currentBPM } ?? (model.bpm ?? model.live.heartRate)) : nil,
+            bpm: LiveActivityHeartRate.value(
+                workoutIsActive: model.activeWorkout != nil,
+                workoutBPM: model.activeWorkout.flatMap { workoutReading ?? $0.currentBPM },
+                connected: isConnected,
+                passiveBPM: model.bpm ?? model.live.heartRate),
             recovery: externalSurface?.recovery,
             connected: isConnected,
             effort: externalSurface?.effort,
@@ -447,9 +449,11 @@ struct StrandiOSApp: App {
         let workoutState = model.activeWorkout.map {
             workoutProjection.state(workout: $0, profile: model.profile)
         }
-        let bpm = connected
-            ? (model.activeWorkout.map { $0.currentBPM } ?? (model.bpm ?? model.live.heartRate))
-            : nil
+        let bpm = LiveActivityHeartRate.value(
+            workoutIsActive: model.activeWorkout != nil,
+            workoutBPM: model.activeWorkout?.currentBPM,
+            connected: connected,
+            passiveBPM: model.bpm ?? model.live.heartRate)
         liveActivity.update(
             bpm: bpm,
             recovery: surface?.recovery,

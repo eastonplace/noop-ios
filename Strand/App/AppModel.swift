@@ -2127,6 +2127,21 @@ final class AppModel: ObservableObject {
     /// Bumped on every real pause or resume so external surfaces update at once instead of on the next heart-rate tick.
     @Published private(set) var workoutPauseEdge = 0
 
+    /// A request to pause or resume from outside the app (the Live Activity's button). Returns whether there was a workout
+    /// to answer it. When the workout is already in the requested state the request changes nothing, but it proves the
+    /// button that sent it is out of date: the same edge a real toggle raises is raised, so the Lock Screen and the
+    /// Dynamic Island are rewritten from the workout's true state instead of staying wrong until something else updates.
+    @discardableResult
+    func applyWorkoutPauseRequest(_ paused: Bool, at time: Date = Date()) -> Bool {
+        guard activeWorkout != nil else { return false }
+        if !setWorkoutPaused(paused, at: time) { workoutPauseEdge &+= 1 }
+        return true
+    }
+
+    /// A workout whose End was tried and has not completed (the save failed) is frozen at the moment it ended: it can be
+    /// ended again, not paused or resumed.
+    var isWorkoutFinishPending: Bool { pendingWorkoutSnapshot != nil }
+
     /// Emit one Workouts & GPS test-mode line tagged `.workouts` iff the mode is on. The cheap
     /// `TestCentre.active(.workouts)` gate is checked BEFORE the @autoclosure builds the line, so nothing is
     /// constructed when the mode is off. Diagnostic only - the session lifecycle is unchanged.

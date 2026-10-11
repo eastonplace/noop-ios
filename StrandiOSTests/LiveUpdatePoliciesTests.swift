@@ -315,6 +315,69 @@ final class LiveUpdatePoliciesTests: XCTestCase {
         XCTAssertEqual(try JSONDecoder().decode(WidgetSnapshot.self, from: data), value)
     }
 
+    // MARK: Pause edge
+
+    func testAnEdgeIsPendingUntilAWriteBuiltAfterItGoesOut() {
+        var latch = PauseEdgeLatch()
+        XCTAssertFalse(latch.isPending)
+        latch.noteEdge()
+        XCTAssertTrue(latch.isPending)
+        latch.delivered(builtAt: latch.generation)
+        XCTAssertFalse(latch.isPending)
+    }
+
+    /// The race itself: a write is built (the workout is running), suspends at `await activity.update`, the person taps
+    /// Pause, and the write returns. It carried the old state, so the edge the tap raised must still be pending, or the
+    /// write that follows would be throttled away and the Lock Screen would keep a running clock under a paused workout.
+    func testAWriteInFlightWhenTheEdgeArrivesDoesNotClearIt() {
+        var latch = PauseEdgeLatch()
+        let builtAt = latch.generation          // state built from the running workout
+        latch.noteEdge()                        // Pause tapped during the await
+        latch.delivered(builtAt: builtAt)       // the in-flight write returns
+        XCTAssertTrue(latch.isPending, "the paused state has not been written yet")
+
+        let rebuiltAt = latch.generation        // the follow-up write builds from the paused workout
+        latch.delivered(builtAt: rebuiltAt)
+        XCTAssertFalse(latch.isPending)
+    }
+
+    func testPauseThenResumeDuringOneWriteStaysPendingUntilTheLastEdgeIsCarried() {
+        var latch = PauseEdgeLatch()
+        let builtAt = latch.generation
+        latch.noteEdge()                        // Pause
+        latch.noteEdge()                        // Resume, quickly after
+        latch.delivered(builtAt: builtAt)
+        XCTAssertTrue(latch.isPending)
+        let middle = latch.generation
+        latch.noteEdge()                        // another tap while the second write is in flight
+        latch.delivered(builtAt: middle)
+        XCTAssertTrue(latch.isPending, "an edge newer than the write's state is still owed")
+        latch.delivered(builtAt: latch.generation)
+        XCTAssertFalse(latch.isPending)
+    }
+
+    func testResetForgetsWhatIsOwedToAnActivityThatIsGone() {
+        var latch = PauseEdgeLatch()
+        latch.noteEdge()
+        latch.reset()
+        XCTAssertFalse(latch.isPending)
+    }
+
+    // MARK: Heart rate on the activity
+
+    func testAWorkoutKeepsItsLastReadingWhenTheStrapIsNotConnected() {
+        XCTAssertEqual(LiveActivityHeartRate.value(workoutIsActive: true, workoutBPM: 152, connected: false, passiveBPM: nil), 152)
+        XCTAssertEqual(LiveActivityHeartRate.value(workoutIsActive: true, workoutBPM: 152, connected: true, passiveBPM: 99), 152,
+                       "the workout's own reading, not the passive one")
+        XCTAssertNil(LiveActivityHeartRate.value(workoutIsActive: true, workoutBPM: nil, connected: true, passiveBPM: 99),
+                     "no reading yet is a dash, never another source's number")
+    }
+
+    func testWithNoWorkoutAnUnconnectedStrapHasNoReading() {
+        XCTAssertNil(LiveActivityHeartRate.value(workoutIsActive: false, workoutBPM: nil, connected: false, passiveBPM: 80))
+        XCTAssertEqual(LiveActivityHeartRate.value(workoutIsActive: false, workoutBPM: nil, connected: true, passiveBPM: 80), 80)
+    }
+
     private func snapshot(bpm: Int?, sparkline: [Int]?, effort: Double = 10.5) -> WidgetSnapshot {
         WidgetSnapshot(
             recovery: 70,

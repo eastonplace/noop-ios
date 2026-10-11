@@ -307,7 +307,7 @@ struct Component41QAShot: View {
                 NOOPLivePauseButtonLabel(isPaused: paused)
             }
             .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-            islandCompact(startedAt: startedAt, pausedAt: pausedAt, bpm: bpm, maxHR: maxHR)
+            islandCompact(startedAt: startedAt, pausedAt: pausedAt, bpm: bpm, maxHR: maxHR, stale: stale)
             islandExpanded(startedAt: startedAt, pausedAt: pausedAt, bpm: bpm, maxHR: maxHR, stale: stale)
             islandMinimal(bpm: bpm, maxHR: maxHR, paused: paused)
         }
@@ -346,9 +346,10 @@ struct Component41QAShot: View {
         }
     }
 
-    private func islandCompact(startedAt: Date, pausedAt: Date?, bpm: Int, maxHR: Double) -> some View {
+    private func islandCompact(startedAt: Date, pausedAt: Date?, bpm: Int, maxHR: Double, stale: Bool) -> some View {
         HStack(spacing: 0) {
-            NOOPDynamicIslandHeartRateView(bpm: bpm, maxHR: maxHR, isPaused: pausedAt != nil).padding(.leading, 12)
+            NOOPDynamicIslandHeartRateView(bpm: bpm, maxHR: maxHR, isPaused: pausedAt != nil, isDimmed: pausedAt != nil || stale)
+                .padding(.leading, 12)
             Spacer(minLength: 0)
             Capsule().fill(Color(white: 0.08)).frame(width: 90, height: 24)
             Spacer(minLength: 0)

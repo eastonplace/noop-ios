@@ -112,11 +112,13 @@ public struct NOOPWorkoutLiveActivityView<Control: View>: View {
     public let maxHR: Double?
     /// ActivityKit's own staleness: the app has not updated this activity for a while.
     public let isStale: Bool
+    /// False while the strap is not connected: the reading is then the last one taken, not a live one.
+    public let heartRateIsLive: Bool
     private let control: Control
 
     public init(title: String, startedAt: Date?, pausedAt: Date? = nil, bpm: Int?, strain: Double?,
                 strainBuilding: Bool, calories: Int?, hrSpark: [Int]?, maxHR: Double? = nil, isStale: Bool = false,
-                @ViewBuilder control: () -> Control) {
+                heartRateIsLive: Bool = true, @ViewBuilder control: () -> Control) {
         self.title = title
         self.startedAt = startedAt
         self.pausedAt = pausedAt
@@ -127,11 +129,15 @@ public struct NOOPWorkoutLiveActivityView<Control: View>: View {
         self.hrSpark = hrSpark
         self.maxHR = maxHR
         self.isStale = isStale
+        self.heartRateIsLive = heartRateIsLive
         self.control = control()
     }
 
     private var isPaused: Bool { pausedAt != nil }
     private var tint: Color { liveHeartTint(bpm: bpm, maxHR: maxHR) }
+    /// One rule on every surface: a heart rate that is not live (paused, not updating, strap not connected) is the last
+    /// reading, shown quieter. It is "—" only when there has never been one.
+    private var heartIsDimmed: Bool { isPaused || isStale || !heartRateIsLive }
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -142,7 +148,7 @@ public struct NOOPWorkoutLiveActivityView<Control: View>: View {
                     Sparkline(values: hrSpark.map(Double.init), gradient: Gradient(colors: [tint.opacity(0.4), tint]),
                               lineWidth: 1.6, showsArea: false, showsHead: false, showsHover: false)
                         .frame(height: 22).frame(maxWidth: .infinity)
-                        .opacity(isPaused || isStale ? 0.4 : 1)
+                        .opacity(heartIsDimmed ? 0.4 : 1)
                         .accessibilityHidden(true)
                 } else {
                     Spacer(minLength: 0)
@@ -155,7 +161,7 @@ public struct NOOPWorkoutLiveActivityView<Control: View>: View {
                 Spacer(minLength: 6)
                 control
             }
-            LiveZoneRail(bpm: bpm, thresholds: liveThresholds(maxHR: maxHR), isDimmed: isPaused || isStale, style: .bar)
+            LiveZoneRail(bpm: bpm, thresholds: liveThresholds(maxHR: maxHR), isDimmed: heartIsDimmed, style: .bar)
         }
         .padding(14)
         .background(Color.black)
@@ -193,7 +199,7 @@ public struct NOOPWorkoutLiveActivityView<Control: View>: View {
         .lineLimit(1)
         .fixedSize(horizontal: true, vertical: false)
         .layoutPriority(1)
-        .opacity(isPaused || isStale ? 0.6 : 1)
+        .opacity(heartIsDimmed ? 0.6 : 1)
     }
 
     private func fact(label: Text, value: String, tint: Color) -> some View {
@@ -213,22 +219,25 @@ public struct NOOPWorkoutLiveActivityView<Control: View>: View {
 
 public extension NOOPWorkoutLiveActivityView where Control == EmptyView {
     init(title: String, startedAt: Date?, pausedAt: Date? = nil, bpm: Int?, strain: Double?, strainBuilding: Bool,
-         calories: Int?, hrSpark: [Int]?, maxHR: Double? = nil, isStale: Bool = false) {
+         calories: Int?, hrSpark: [Int]?, maxHR: Double? = nil, isStale: Bool = false, heartRateIsLive: Bool = true) {
         self.init(title: title, startedAt: startedAt, pausedAt: pausedAt, bpm: bpm, strain: strain,
                   strainBuilding: strainBuilding, calories: calories, hrSpark: hrSpark, maxHR: maxHR,
-                  isStale: isStale) { EmptyView() }
+                  isStale: isStale, heartRateIsLive: heartRateIsLive) { EmptyView() }
     }
 }
 
-/// Compact leading: the heart in its zone's colour and the reading. A paused workout shows the pause glyph instead.
+/// Compact leading: the heart in its zone's colour and the reading. A paused workout shows the pause glyph instead, and a
+/// reading that is no longer live (paused, stale, strap not bonded) is dimmed like the other surfaces dim it.
 public struct NOOPDynamicIslandHeartRateView: View {
     public let bpm: Int?
     public let maxHR: Double?
     public let isPaused: Bool
-    public init(bpm: Int?, maxHR: Double? = nil, isPaused: Bool = false) {
+    public let isDimmed: Bool
+    public init(bpm: Int?, maxHR: Double? = nil, isPaused: Bool = false, isDimmed: Bool = false) {
         self.bpm = bpm
         self.maxHR = maxHR
         self.isPaused = isPaused
+        self.isDimmed = isDimmed
     }
     public var body: some View {
         HStack(spacing: 4) {
@@ -238,6 +247,7 @@ public struct NOOPDynamicIslandHeartRateView: View {
             Text(verbatim: bpm.map(String.init) ?? WidgetMetrics.missingValue)
                 .font(StrandFont.number(13, weight: .bold)).monospacedDigit()
                 .foregroundStyle(StrandPalette.textPrimary)
+                .opacity(isDimmed ? 0.6 : 1)
         }
     }
 }

@@ -25,7 +25,8 @@ struct NOOPLiveActivity: Widget {
                         calories: context.state.calories,
                         hrSpark: context.state.hrTrace,
                         maxHR: liveMaxHR(context.state),
-                        isStale: context.isStale
+                        isStale: context.isStale,
+                        heartRateIsLive: context.state.bonded
                     ) {
                         PauseResumeButton(isPaused: context.state.pausedAt != nil, isCompact: false)
                     }
@@ -53,7 +54,7 @@ struct NOOPLiveActivity: Widget {
                         NOOPDynamicIslandVitalsView(
                             bpm: context.state.bpm, strain: context.state.effort,
                             building: context.state.strainBuilding == true, maxHR: liveMaxHR(context.state),
-                            isDimmed: context.state.pausedAt != nil || context.isStale)
+                            isDimmed: context.state.pausedAt != nil || context.isStale || !context.state.bonded)
                     } else if let recovery = context.state.recovery {
                         Text("Recovery \(recovery)")
                             .font(.caption.weight(.semibold)).foregroundStyle(.white)
@@ -65,7 +66,7 @@ struct NOOPLiveActivity: Widget {
                             LiveZoneRail(
                                 bpm: context.state.bpm,
                                 thresholds: liveMaxHR(context.state).map { HRZoneStyle.Thresholds(hrMax: $0) } ?? .default,
-                                isDimmed: context.state.pausedAt != nil || context.isStale,
+                                isDimmed: context.state.pausedAt != nil || context.isStale || !context.state.bonded,
                                 style: .bar)
                             PauseResumeButton(isPaused: context.state.pausedAt != nil, isCompact: true)
                         }
@@ -78,7 +79,8 @@ struct NOOPLiveActivity: Widget {
             } compactLeading: {
                 if context.state.isWorkout {
                     NOOPDynamicIslandHeartRateView(
-                        bpm: context.state.bpm, maxHR: liveMaxHR(context.state), isPaused: context.state.pausedAt != nil)
+                        bpm: context.state.bpm, maxHR: liveMaxHR(context.state), isPaused: context.state.pausedAt != nil,
+                        isDimmed: context.state.pausedAt != nil || context.isStale || !context.state.bonded)
                 } else {
                     // Passive HR is shown in compactTrailing. Repeating it here
                     // crowds the compact island and clips the duplicate digits.

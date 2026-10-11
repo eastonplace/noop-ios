@@ -73,16 +73,20 @@ final class LiveActivityController {
     private static let staleAfter: TimeInterval = 120
     private static let unchangedHeartbeatInterval: TimeInterval = 30
 
-    /// Set when the workout was paused or resumed. Live updates coalesce, so this lives here rather than in the payload:
-    /// whichever update runs next skips the push throttle and the projection cache, and the activity is rewritten with the
-    /// new state at once.
-    private var publishesImmediately = false
+    /// Raised when the workout was paused or resumed. Live updates coalesce, so this lives here rather than in the
+    /// payload: whichever update runs next skips the push throttle and the projection cache, and the activity is
+    /// rewritten with the new state at once. It counts edges rather than holding a flag, so a write already in flight
+    /// when an edge arrives cannot clear it (`PauseEdgeLatch`).
+    private var pauseEdges = PauseEdgeLatch()
 
-    /// The workout's pause state just changed. The next update bypasses the throttle that spaces heart-rate pushes.
+    /// The workout's pause state just changed, or a surface asked for a state the workout was already in (a Lock Screen
+    /// button that was out of date). The next update bypasses the throttle that spaces heart-rate pushes, and rewrites
+    /// the activity even when the state it builds equals the last one this controller sent.
     func noteWorkoutPauseEdge() {
-        publishesImmediately = true
+        pauseEdges.noteEdge()
         cachedWorkoutState = nil
         lastWorkoutProjectionAt = .distantPast
+        lastContentState = nil
     }
 
     func update(
@@ -166,7 +170,7 @@ final class LiveActivityController {
         let desiredModeIsWorkout = input.workoutIsActive
         var now = Date()
         let connectionChanged = lastContentState.map { $0.bonded != input.connected } ?? false
-        guard connectionChanged || publishesImmediately || LiveActivityPushPolicy.shouldPush(
+        guard connectionChanged || pauseEdges.isPending || LiveActivityPushPolicy.shouldPush(
             activityExists: activity != nil,
             currentModeIsWorkout: lastModeWasWorkout,
             desiredModeIsWorkout: desiredModeIsWorkout,
@@ -182,6 +186,9 @@ final class LiveActivityController {
             now = Date()
         }
 
+        // The edges this write will carry are the ones that have happened by now: nothing below suspends until the
+        // write itself, so a state built from here on already has every one of them in it.
+        let edgesCarried = pauseEdges.generation
         if desiredModeIsWorkout {
             if LiveActivityWorkoutProjectionPolicy.shouldRebuild(
                 workoutIsActive: true,
@@ -235,6 +242,8 @@ final class LiveActivityController {
                heartbeatElapsed < Self.unchangedHeartbeatInterval {
                 if let expectedToken,
                    !recordVerifiedGeneration(input, token: expectedToken) { return .superseded }
+                // The activity already shows exactly this state, so an edge it was built after has been carried.
+                pauseEdges.delivered(builtAt: edgesCarried)
                 return .alreadyCurrent
             }
             await activity.update(ActivityContent(state: state, staleDate: staleDate))
@@ -243,7 +252,7 @@ final class LiveActivityController {
             lastPush = now
             lastContentState = state
             lastModeWasWorkout = desiredModeIsWorkout
-            publishesImmediately = false
+            pauseEdges.delivered(builtAt: edgesCarried)
             return .published
         } else {
             do {
@@ -269,7 +278,7 @@ final class LiveActivityController {
                 lastPush = now
                 lastContentState = state
                 lastModeWasWorkout = desiredModeIsWorkout
-                publishesImmediately = false
+                pauseEdges.delivered(builtAt: edgesCarried)
                 return .published
             } catch {
                 resetCachedState()
@@ -406,7 +415,7 @@ final class LiveActivityController {
     }
 
     private func resetCachedState() {
-        publishesImmediately = false
+        pauseEdges.reset()
         activity = nil
         lastModeWasWorkout = nil
         cachedWorkoutState = nil
