@@ -75,6 +75,7 @@ public struct ScrubChart: View {
     private let calendar: Calendar
     private let locale: Locale
     private let summary: String
+    private let stepHint: LocalizedStringKey
     private let spokenValue: (ScrubChartPoint) -> String
     @Binding private var selection: Int?
 
@@ -89,6 +90,7 @@ public struct ScrubChart: View {
     ///   - selection: the index of the point under the finger, nil when none.
     ///   - maxGapDays: a longer stretch with no reading breaks the line instead of bridging it.
     ///   - summary: what VoiceOver says the chart is.
+    ///   - stepHint: how VoiceOver says one swipe moves along the points (days by default; a weekly chart says weeks).
     ///   - spokenValue: what VoiceOver says for the selected point.
     public init(
         points: [ScrubChartPoint],
@@ -101,6 +103,7 @@ public struct ScrubChart: View {
         calendar: Calendar = .autoupdatingCurrent,
         locale: Locale = .autoupdatingCurrent,
         summary: String,
+        stepHint: LocalizedStringKey = "Swipe up or down to step through days",
         spokenValue: @escaping (ScrubChartPoint) -> String
     ) {
         self.points = points
@@ -115,6 +118,7 @@ public struct ScrubChart: View {
         self.calendar = calendar
         self.locale = locale
         self.summary = summary
+        self.stepHint = stepHint
         self.spokenValue = spokenValue
     }
 
@@ -187,7 +191,7 @@ public struct ScrubChart: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(summary)
         .accessibilityValue(selection.flatMap { points.indices.contains($0) ? spokenValue(points[$0]) : nil } ?? "")
-        .accessibilityHint(Text("Swipe up or down to step through days"))
+        .accessibilityHint(Text(stepHint))
         .accessibilityAdjustableAction { direction in
             guard !points.isEmpty else { return }
             let current = selection ?? points.count - 1

@@ -110823,6 +110823,46 @@
         }
       }
     },
+    "Swipe up or down to step through weeks": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nach oben oder unten wischen, um durch die Wochen zu gehen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desliza hacia arriba o abajo para recorrer las semanas"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scorri verso l'alto o verso il basso per passare da una settimana all'altra"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Deslize para cima ou para baixo para percorrer as semanas"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "向上或向下轻扫以逐周查看"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "向上或向下輕掃以逐週查看"
+          }
+        }
+      }
+    },
     "SYNCING %lld": {
       "localizations": {
         "de": {

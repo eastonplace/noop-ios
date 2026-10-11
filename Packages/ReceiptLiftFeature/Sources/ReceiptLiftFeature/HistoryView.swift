@@ -286,6 +286,7 @@ private struct LiftProgressOverview: View {
             calendar: .current,
             locale: format.locale,
             summary: String(localized: "Weekly training volume, \(range.caption), \(format.spokenWeight(pounds: snapshot.metrics.workDone)) total"),
+            stepHint: "Swipe up or down to step through weeks",
             spokenValue: { point in
               let week = weeks.first { $0.weekStart == point.date }
               return LiftFormat.facts([

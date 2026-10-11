@@ -105,7 +105,8 @@ public struct HeaderChipGlyph: View {
 }
 
 /// The title row of a modal sheet's first page: the title in the sheet-title face, then the page's own header
-/// buttons. The title wraps before it truncates, and keeps its words whole.
+/// buttons. The title and the buttons share a row while the title fits whole; when it would not (the largest text
+/// sizes, a long translation) the buttons take a row of their own above it, so no word is ever broken across lines.
 public struct NoopSheetTitleRow<Trailing: View>: View {
     private let title: LocalizedStringKey
     @ViewBuilder private let trailing: () -> Trailing
@@ -116,19 +117,32 @@ public struct NoopSheetTitleRow<Trailing: View>: View {
     }
 
     public var body: some View {
-        HStack(alignment: .center, spacing: NoopMetrics.space2) {
-            Text(title)
-                .font(StrandFont.title2)
-                .foregroundStyle(StrandPalette.textPrimary)
-                // A long word scales down before it would be broken across lines.
-                .lineLimit(3)
-                .minimumScaleFactor(0.5)
-                .fixedSize(horizontal: false, vertical: true)
-                .accessibilityAddTraits(.isHeader)
-            Spacer(minLength: NoopMetrics.space2)
-            trailing()
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .center, spacing: NoopMetrics.space2) {
+                titleText
+                Spacer(minLength: NoopMetrics.space2)
+                trailing()
+            }
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(spacing: 0) {
+                    Spacer(minLength: 0)
+                    trailing()
+                }
+                titleText
+            }
         }
         .frame(minHeight: 44)
+    }
+
+    private var titleText: some View {
+        Text(title)
+            .font(StrandFont.title2)
+            .foregroundStyle(StrandPalette.textPrimary)
+            // A long word scales down before it would be broken across lines.
+            .lineLimit(3)
+            .minimumScaleFactor(0.5)
+            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityAddTraits(.isHeader)
     }
 }
 
