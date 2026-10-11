@@ -542,9 +542,27 @@ private struct QuickActionSheet: View {
     }
 }
 
-private struct PaperTabBar: View {
-    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+/// A tab's name: one line, never broken inside a word. The slot is about 60 pt wide, so a long word ("Einstellungen")
+/// is wider than it even at the default text size, and SwiftUI would hyphenate it ("Einstellun-gen") when the type is
+/// a Dynamic Type text style. A fixed size that scales with Dynamic Type (up to a ceiling) shrinks instead.
+struct PaperTabLabel: View {
+    let title: LocalizedStringKey
+    let isActive: Bool
+    /// `.caption2` at the default size, scaled like `.caption2`.
+    @ScaledMetric(relativeTo: .caption2) private var size: CGFloat = 11
 
+    /// The largest the label grows to; the large content viewer shows it at full size.
+    static let ceiling: CGFloat = 15
+
+    var body: some View {
+        Text(title)
+            .font(.system(size: min(size, Self.ceiling), weight: isActive ? .semibold : .regular))
+            .lineLimit(1)
+            .minimumScaleFactor(0.5)
+    }
+}
+
+private struct PaperTabBar: View {
     @Binding var selection: Int
     var onReselect: (Int) -> Void = { _ in }
     var onQuickActions: () -> Void = {}
@@ -572,9 +590,9 @@ private struct PaperTabBar: View {
                 quickActionsButton
                 ForEach(nav.dropFirst(2)) { tabButton($0) }
             }
-            // Larger accessibility categories need vertical room for the user's actual label size.
-            // The old app-wide cap hid this fixed-height collision instead of fixing it.
-            .frame(height: dynamicTypeSize.isAccessibilitySize ? 92 : NoopMetrics.navBarHeight)
+            // A label is one line that scales down to fit its slot (`PaperTabLabel`), so the bar's height does not
+            // depend on the user's text size; the large content viewer carries the full-size label.
+            .frame(height: NoopMetrics.navBarHeight)
         }
         .background(StrandPalette.card)
         .accessibilityElement(children: .contain)
@@ -610,10 +628,7 @@ private struct PaperTabBar: View {
             VStack(spacing: 3) {
                 Image(systemName: item.icon)
                     .font(.system(size: 18, weight: active ? .semibold : .regular))
-                Text(item.title)
-                    .font(StrandFont.micro.weight(active ? .semibold : .regular))
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
+                PaperTabLabel(title: item.title, isActive: active)
             }
             .foregroundStyle(active ? StrandPalette.ink : StrandPalette.textTertiary)
             .frame(maxWidth: .infinity)
@@ -622,6 +637,7 @@ private struct PaperTabBar: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(item.title)
+        .accessibilityShowsLargeContentViewer { Label(item.title, systemImage: item.icon) }
         .accessibilityIdentifier("app.tab.\(item.tag)")
         .accessibilityAddTraits(active ? [.isButton, .isSelected] : .isButton)
     }

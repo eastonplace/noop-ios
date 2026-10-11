@@ -103,6 +103,29 @@ public extension Text {
     }
 }
 
+public extension Text {
+    /// `strandOverline()` for a title that must never break inside a word. SwiftUI hyphenates a word wider than the
+    /// line ("TAGESAN-STRENGUNG") before it scales when the type is a Dynamic Type text style, so this sets the same
+    /// size and weight as `.caption2` bold through `ScaledMetric` instead, which scales the type down to fit the word.
+    /// The caller bounds the lines (`lineLimit`); the ink, case and tracking are `strandOverline()`'s.
+    func strandOverlineFitted() -> some View {
+        self.tracking(StrandFont.overlineTracking).modifier(OverlineFit())
+    }
+}
+
+private struct OverlineFit: ViewModifier {
+    /// `.caption2` at the default size, scaled like `.caption2`.
+    @ScaledMetric(relativeTo: .caption2) private var size: CGFloat = 11
+
+    func body(content: Content) -> some View {
+        content
+            .font(.system(size: size, weight: .bold, design: .default))
+            .textCase(.uppercase)
+            .foregroundStyle(StrandPalette.textSecondary)
+            .minimumScaleFactor(0.5)
+    }
+}
+
 public extension View {
     static func strandOverline(_ string: String) -> some View {
         Text(string).strandOverline()

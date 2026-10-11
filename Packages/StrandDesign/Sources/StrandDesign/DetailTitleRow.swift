@@ -103,6 +103,26 @@ extension View {
     }
 }
 
+extension View {
+    /// The expanded screen title (`StrandFont.title1`: `.title`, bold) that scales down to fit a long word instead of
+    /// hyphenating it, for the same reason as `headerTitleFit`. It wraps between words, three lines at most.
+    func expandedTitleFit() -> some View {
+        modifier(ExpandedTitleFit())
+    }
+}
+
+private struct ExpandedTitleFit: ViewModifier {
+    /// `.title` at the default size, scaled like `.title`.
+    @ScaledMetric(relativeTo: .title) private var size: CGFloat = 28
+
+    func body(content: Content) -> some View {
+        content
+            .font(.system(size: size, weight: .bold))
+            .lineLimit(3)
+            .minimumScaleFactor(0.5)
+    }
+}
+
 private struct HeaderTitleFit: ViewModifier {
     let lines: Int
     /// `.caption2` at the default size, scaled like `.caption2`.

@@ -69,13 +69,14 @@ public struct SectionEyebrow: View {
     /// One row at ordinary sizes. The title wraps to a second line before it truncates (a long German title with a
     /// date beside it) and the trailing date or pill keeps its full width, so a record's date is never the thing
     /// that gives way. At accessibility sizes the trailing item drops under the title so both wrap freely.
-    /// A title that fits on one line lays out exactly as it always did.
+    /// A title that fits on one line lays out exactly as it always did. A word wider than the row scales the title down
+    /// (down to half) instead of hyphenating it, at every size (`strandOverlineFitted`).
     public var body: some View {
         if typeSize.isAccessibilitySize {
             VStack(alignment: .leading, spacing: NoopMetrics.space1) {
                 HStack(spacing: NoopMetrics.space2) {
                     leadingSymbol
-                    titleText.strandOverline().accessibilityAddTraits(.isHeader)
+                    titleText.strandOverlineFitted().lineLimit(3).accessibilityAddTraits(.isHeader)
                     Spacer(minLength: NoopMetrics.space2)
                     chevron
                 }
@@ -86,7 +87,7 @@ public struct SectionEyebrow: View {
         } else {
             HStack(spacing: NoopMetrics.space2) {
                 leadingSymbol
-                titleText.strandOverline().lineLimit(2).layoutPriority(1).accessibilityAddTraits(.isHeader)
+                titleText.strandOverlineFitted().lineLimit(2).layoutPriority(1).accessibilityAddTraits(.isHeader)
                 Spacer(minLength: NoopMetrics.space2)
                 trailingView
                 chevron

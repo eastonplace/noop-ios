@@ -72,8 +72,8 @@ public struct NoopScreenHeader<Trailing: View>: View {
                     VStack(alignment: .leading, spacing: 4) {
                         if let title {
                             Text(title)
-                                .font(StrandFont.title1)
                                 .foregroundStyle(primary)
+                                .expandedTitleFit()
                         }
                         if let subtitle {
                             Text(subtitle)
@@ -93,7 +93,7 @@ public struct NoopScreenHeader<Trailing: View>: View {
                         }
                         VStack(alignment: .leading, spacing: 2) {
                             compactTitle(primary: primary, lines: 2)
-                            compactSubtitle(secondary: secondary)
+                            compactSubtitle(secondary: secondary, wraps: true)
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                     }
@@ -116,12 +116,14 @@ public struct NoopScreenHeader<Trailing: View>: View {
     }
 
     @ViewBuilder
-    private func compactSubtitle(secondary: Color) -> some View {
+    private func compactSubtitle(secondary: Color, wraps: Bool = false) -> some View {
         if let subtitle {
             Text(subtitle)
                 .font(StrandFont.caption)
                 .foregroundStyle(secondary)
-                .lineLimit(1)
+                // One line beside the title; under it (accessibility sizes) it wraps rather than ends in an ellipsis.
+                .lineLimit(wraps ? nil : 1)
+                .fixedSize(horizontal: false, vertical: wraps)
         }
     }
 }
