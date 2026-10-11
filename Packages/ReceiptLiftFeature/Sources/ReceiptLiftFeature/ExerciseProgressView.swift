@@ -4,7 +4,6 @@ import SwiftUI
 /// One exercise: its best set, how to do it, its progress over time and the sets behind it.
 struct ExerciseProgressView: View {
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
-  @Environment(\.liftScreenRole) private var inheritedRole
   @Environment(\.liftFormat) private var format
   @Environment(\.dynamicTypeSize) private var typeSize
   @EnvironmentObject private var store: LiftStore
@@ -58,7 +57,9 @@ struct ExerciseProgressView: View {
         )
       }
     }
-    .environment(\.liftScreenRole, closesModal ? .sheet : inheritedRole)
+    // Never the root of a stack unless it is its own modal: wherever it is pushed from (a library sheet opened over a root
+    // page included), it wears the compact row with its back chip rather than inheriting the presenter's root header.
+    .environment(\.liftScreenRole, closesModal ? .sheet : .pushed)
     .onAppear {
       referenceNow = Date()
       refresh()
