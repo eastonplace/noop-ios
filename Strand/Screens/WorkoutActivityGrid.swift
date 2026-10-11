@@ -134,6 +134,26 @@ struct WorkoutSheetHeader: View {
     }
 }
 
+// MARK: - The quiet Cancel
+
+/// Cancel beside a sheet's primary action. Its 44pt height and its tap shape belong to the label, so the whole of that area
+/// answers, not only the word. `fillsWidth` is for the stacked footer at accessibility text sizes.
+struct WorkoutCancelButton: View {
+    var fillsWidth = false
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        Button { dismiss() } label: {
+            Text("Cancel")
+                .font(StrandFont.subhead.weight(.semibold))
+                .foregroundStyle(StrandPalette.textSecondary)
+                .frame(maxWidth: fillsWidth ? .infinity : nil, minHeight: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
 // MARK: - The grid in a sheet of its own
 
 /// "All activities" as a sheet, for a screen that has no room for the grid inline (the manual log). Choosing a tile

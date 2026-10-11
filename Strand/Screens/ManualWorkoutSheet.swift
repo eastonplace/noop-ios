@@ -255,24 +255,16 @@ struct ManualWorkoutSheet: View {
                 // Stacked, the primary action first and as wide as the sheet, so neither label wraps.
                 VStack(spacing: NoopMetrics.space2) {
                     saveButton.frame(maxWidth: .infinity)
-                    cancelButton
+                    WorkoutCancelButton(fillsWidth: true)
                 }
             } else {
                 HStack(spacing: NoopMetrics.space3) {
-                    cancelButton
+                    WorkoutCancelButton()
                     Spacer()
                     saveButton
                 }
             }
         }
-    }
-
-    private var cancelButton: some View {
-        Button("Cancel") { dismiss() }
-            .buttonStyle(.plain)
-            .font(StrandFont.subhead.weight(.semibold))
-            .foregroundStyle(StrandPalette.textSecondary)
-            .frame(minHeight: 44)
     }
 
     private var saveButton: some View {

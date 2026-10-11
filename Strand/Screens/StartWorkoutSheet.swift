@@ -489,11 +489,7 @@ struct StartWorkoutSheet: View {
             .overlay(inputShape.strokeBorder(StrandPalette.hairline, lineWidth: 1))
 
             HStack(spacing: NoopMetrics.space3) {
-                Button("Cancel") { dismiss() }
-                    .buttonStyle(.plain)
-                    .font(StrandFont.subhead.weight(.semibold))
-                    .foregroundStyle(StrandPalette.textSecondary)
-                    .frame(minHeight: 44)
+                WorkoutCancelButton()
                 Spacer()
                 Button(action: confirm) {
                     Label("Merge as \(selected)", systemImage: "arrow.triangle.merge")

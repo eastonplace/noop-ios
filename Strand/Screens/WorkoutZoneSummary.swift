@@ -51,10 +51,15 @@ struct WorkoutZoneSummary: View {
                     selection: canExplore ? $selectedZone : nil,
                     rowHint: canExplore ? String(localized: "Shows where this zone fell on the timeline") : nil)
                 if selectedZone != nil {
-                    Button("Show all") { selectedZone = nil }
-                        .font(StrandFont.caption)
-                        .foregroundStyle(StrandPalette.textSecondary)
-                        .frame(minHeight: 44)
+                    // The 44pt height and its tap shape are the label's own, so the whole of it answers, not only the words.
+                    Button { selectedZone = nil } label: {
+                        Text("Show all")
+                            .font(StrandFont.caption)
+                            .foregroundStyle(StrandPalette.textSecondary)
+                            .frame(minHeight: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
                 } else if canExplore && !imported {
                     footnote("Tap a zone to explore your effort.")
                 }
