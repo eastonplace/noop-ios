@@ -745,60 +745,6 @@ public struct MetricTile: View {
     }
 }
 
-public struct ZoneBarItem {
-    public let zone: Int
-    public let fraction: Double
-    public let duration: String
-    /// Exact engine-derived bpm range when max HR is known; nil keeps the honest
-    /// fixed %-of-max fallback for callers without a usable profile boundary.
-    public let bpmRange: String?
-    public init(zone: Int, fraction: Double, duration: String, bpmRange: String? = nil) {
-        self.zone = zone; self.fraction = fraction; self.duration = duration
-        self.bpmRange = bpmRange
-    }
-}
-
-public struct ZoneBars: View {
-    private let items: [ZoneBarItem]
-    public init(_ items: [ZoneBarItem]) { self.items = items.sorted { $0.zone > $1.zone } }
-
-    /// WHOOP's fixed %-of-max bands per zone (C14).
-    private static let bandLabel: [Int: String] = [5: "90–100%", 4: "80–90%", 3: "70–80%",
-                                                   2: "60–70%", 1: "50–60%"]
-
-    public var body: some View {
-        // C14 + D14: each zone reads like WHOOP's row — "Z5 (161+ bpm)" when
-        // the zones engine supplied real boundaries, otherwise "Z5 (90–100%)".
-        // The bar carries the zone colour; the numeric share remains readable ink (F4).
-        VStack(spacing: 12) {
-            ForEach(items, id: \.zone) { item in
-                VStack(spacing: 5) {
-                    HStack(spacing: 6) {
-                        Text("Z\(item.zone) (\(item.bpmRange ?? Self.bandLabel[item.zone] ?? ""))")
-                            .font(.system(size: 10, weight: .medium))
-                            .foregroundStyle(StrandPalette.textSecondary)
-                        Text("\(Int((item.fraction * 100).rounded()))%")
-                            .font(StrandFont.micro.weight(.semibold))
-                            .foregroundStyle(StrandPalette.textSecondary)
-                        Spacer(minLength: 8)
-                        Text(item.duration)
-                            .font(StrandFont.captionNumber.weight(.semibold))
-                            .foregroundStyle(StrandPalette.textPrimary)
-                    }
-                    GeometryReader { geo in
-                        ZStack(alignment: .leading) {
-                            Capsule().fill(StrandPalette.inset)
-                            Capsule().fill(StrandPalette.hrZoneColor(item.zone))
-                                .frame(width: geo.size.width * min(max(item.fraction, 0), 1))
-                        }
-                    }
-                    .frame(height: 8)
-                }
-            }
-        }
-    }
-}
-
 public struct SplitRow {
     public let mile: String
     public let pace: String

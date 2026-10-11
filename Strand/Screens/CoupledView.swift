@@ -1364,14 +1364,8 @@ struct PaperPillarDetailView: View {
                 ))
             )
             if let minutes = resolvedZoneMinutes, minutes.reduce(0, +) > 0 {
-                let total = minutes.reduce(0, +)
-                ZoneBars((1...5).map { zone in
-                    let zoneMinutes = minutes[zone - 1]
-                    return ZoneBarItem(zone: zone,
-                                       fraction: zoneMinutes / total,
-                                       duration: shortDuration(zoneMinutes),
-                                       bpmRange: zoneSet?.bpmRangeLabel(forZone: zone))
-                })
+                // The same distribution the Workouts hub and a workout's summary draw, so the zones read alike.
+                HRZoneDistribution(zones: WorkoutZoneRows.zones(minutes: minutes, zoneSet: zoneSet))
             } else {
                 Text("Heart-rate zone time will appear after a workout records zone data.")
                     .font(StrandFont.subhead)
@@ -1708,11 +1702,6 @@ struct PaperPillarDetailView: View {
 
     private func mean(_ values: [Double]) -> Double? {
         values.isEmpty ? nil : values.reduce(0, +) / Double(values.count)
-    }
-
-    private func shortDuration(_ minutes: Double) -> String {
-        let total = Int(minutes.rounded())
-        return total >= 60 ? "\(total / 60)h\(total % 60)m" : "\(total)m"
     }
 
     private func sleepDuration(_ minutes: Double?) -> String {
