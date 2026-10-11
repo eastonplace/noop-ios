@@ -196,7 +196,7 @@ struct LiveComposerSection: View {
         withAnimation(reduceMotion ? LiftMotion.reducedCrossfade : LiftMotion.surface) { isEffortExpanded.toggle() }
       } label: {
         HStack(spacing: NoopMetrics.space2) {
-          Text("Effort")
+          Text("lift.composer.effort")
             .font(StrandFont.subhead)
             .foregroundStyle(StrandPalette.textPrimary)
           Spacer()
@@ -213,7 +213,7 @@ struct LiveComposerSection: View {
         .contentShape(Rectangle())
       }
       .buttonStyle(.plain)
-      .accessibilityLabel("Effort \(Int(draft.rpe))")
+      .accessibilityLabel("lift.composer.effortValue \(Int(draft.rpe))")
       .accessibilityHint(isEffortExpanded ? Text("Collapses effort choices") : Text("Expands effort choices"))
 
       if isEffortExpanded {
