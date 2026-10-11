@@ -117,8 +117,12 @@ enum AppleDemoSeeder {
             catch { NSLog("AppleDemoSeeder: seed failed — \(error)") }
         }
         // The Workouts screens' known week. It replaces what it owns on every launch, so a demo database that was
-        // seeded before it existed gets it too.
-        await AppleDemoWorkoutFixture.seed(into: store)
+        // seeded before it existed gets it too. A Strain scenario owns today's workouts and heart rate (each one is a
+        // state of the day, "no workouts" or "three workouts"), and this fixture deletes and rewrites exactly those, so
+        // a scenario launch keeps its own database as the scenario shaped it.
+        if StrainDemoScenario.requested == nil {
+            await AppleDemoWorkoutFixture.seed(into: store)
+        }
     }
 
     /// Audit-only preferences that unlock low-risk conditional surfaces. Pre-sleep HR is deliberately
