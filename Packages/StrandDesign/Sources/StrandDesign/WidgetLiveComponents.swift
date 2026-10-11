@@ -232,7 +232,8 @@ public extension NOOPWorkoutLiveActivityView where Control == EmptyView {
 }
 
 /// Compact leading: the heart in its zone's colour and the reading. A paused workout shows the pause glyph instead, and a
-/// reading that is no longer live (paused, stale, strap not bonded) is dimmed like the other surfaces dim it.
+/// reading that is no longer live (paused, stale, strap not bonded) is dimmed like the other surfaces dim it: the heart
+/// and the digits together, as the Lock Screen and the expanded island dim theirs.
 public struct NOOPDynamicIslandHeartRateView: View {
     public let bpm: Int?
     public let maxHR: Double?
@@ -249,6 +250,8 @@ public struct NOOPDynamicIslandHeartRateView: View {
             Image(systemName: isPaused ? "pause.fill" : "heart.fill")
                 .font(.system(size: 10, weight: .bold))
                 .foregroundStyle(isPaused ? StrandPalette.statusWarning : liveHeartTint(bpm: bpm, maxHR: maxHR))
+                // The pause glyph is the state itself and keeps its strength; a heart is a reading, and a stale one is quiet.
+                .opacity(isDimmed && !isPaused ? 0.6 : 1)
             Text(verbatim: bpm.map(String.init) ?? WidgetMetrics.missingValue)
                 .font(StrandFont.number(13, weight: .bold)).monospacedDigit()
                 .foregroundStyle(StrandPalette.textPrimary)
@@ -285,20 +288,24 @@ public struct NOOPDynamicIslandStrainView: View {
     }
 }
 
-/// Minimal: one glyph, the heart in its zone's colour, or the pause glyph while paused.
+/// Minimal: one glyph, the heart in its zone's colour, or the pause glyph while paused. A heart whose reading is no longer
+/// live (the strap not connected, or gone quiet) is dimmed like the reading is on every other surface.
 public struct NOOPDynamicIslandMinimalView: View {
     public let bpm: Int?
     public let maxHR: Double?
     public let isPaused: Bool
-    public init(bpm: Int?, maxHR: Double? = nil, isPaused: Bool = false) {
+    public let isDimmed: Bool
+    public init(bpm: Int?, maxHR: Double? = nil, isPaused: Bool = false, isDimmed: Bool = false) {
         self.bpm = bpm
         self.maxHR = maxHR
         self.isPaused = isPaused
+        self.isDimmed = isDimmed
     }
     public var body: some View {
         Image(systemName: isPaused ? "pause.fill" : "heart.fill")
             .font(.system(size: 12, weight: .bold))
             .foregroundStyle(isPaused ? StrandPalette.statusWarning : liveHeartTint(bpm: bpm, maxHR: maxHR))
+            .opacity(isDimmed && !isPaused ? 0.6 : 1)
     }
 }
 

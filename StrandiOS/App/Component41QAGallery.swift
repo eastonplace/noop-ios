@@ -317,7 +317,7 @@ struct Component41QAShot: View {
             islandCompact(startedAt: startedAt, pausedAt: pausedAt, frozenAt: frozenAt, bpm: bpm, maxHR: maxHR, stale: stale)
             islandExpanded(startedAt: startedAt, pausedAt: pausedAt, frozenAt: frozenAt, bpm: bpm, maxHR: maxHR,
                            stale: stale, finishing: finishing)
-            islandMinimal(bpm: bpm, maxHR: maxHR, paused: paused)
+            islandMinimal(bpm: bpm, maxHR: maxHR, paused: paused, stale: stale)
         }
     }
 
@@ -387,8 +387,8 @@ struct Component41QAShot: View {
         .background(RoundedRectangle(cornerRadius: 30).fill(Color.black))
     }
 
-    private func islandMinimal(bpm: Int, maxHR: Double, paused: Bool) -> some View {
-        NOOPDynamicIslandMinimalView(bpm: bpm, maxHR: maxHR, isPaused: paused)
+    private func islandMinimal(bpm: Int, maxHR: Double, paused: Bool, stale: Bool) -> some View {
+        NOOPDynamicIslandMinimalView(bpm: bpm, maxHR: maxHR, isPaused: paused, isDimmed: stale)
             .frame(width: 36, height: 36).background(Circle().fill(Color.black))
     }
 

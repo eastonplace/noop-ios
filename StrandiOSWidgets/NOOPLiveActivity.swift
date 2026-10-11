@@ -104,7 +104,8 @@ struct NOOPLiveActivity: Widget {
             } minimal: {
                 if context.state.isWorkout {
                     NOOPDynamicIslandMinimalView(
-                        bpm: context.state.bpm, maxHR: liveMaxHR(context.state), isPaused: context.state.pausedAt != nil)
+                        bpm: context.state.bpm, maxHR: liveMaxHR(context.state), isPaused: context.state.pausedAt != nil,
+                        isDimmed: context.isStale || !context.state.heartRateIsLive)
                 } else {
                     Image(systemName: "heart.fill")
                         .foregroundStyle(context.state.bpm.map { HRZoneStyle.color(for: Double($0), thresholds: liveThresholds(context.state)) }
