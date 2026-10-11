@@ -20,14 +20,24 @@ public struct NOOPActivityAttributes: ActivityAttributes, Sendable {
         public var hrTrace: [Int]?
         public var zoneSeconds: [Int]?
         public var maxHR: Double?
+        /// The workout is paused: the clock is stopped and nothing is being counted. nil reads as running, so an activity
+        /// started by an older build still decodes.
+        public var isPaused: Bool?
+        /// When the open pause began. The timer freezes there (`Text(timerInterval:pauseTime:)`), so the Lock Screen clock
+        /// stops on its own, with no push needed to keep it still.
+        public var pausedAt: Date?
 
         public var isWorkout: Bool { sport != nil && workoutStartedAt != nil }
+        public var paused: Bool { isPaused == true }
 
         public init(bpm: Int?, recovery: Int?, bonded: Bool, effort: Double? = nil,
                     sport: String? = nil, workoutStartedAt: Date? = nil,
                     strainBuilding: Bool? = nil, calories: Int? = nil,
-                    hrTrace: [Int]? = nil, zoneSeconds: [Int]? = nil, maxHR: Double? = nil) {
+                    hrTrace: [Int]? = nil, zoneSeconds: [Int]? = nil, maxHR: Double? = nil,
+                    isPaused: Bool? = nil, pausedAt: Date? = nil) {
             self.maxHR = maxHR
+            self.isPaused = isPaused
+            self.pausedAt = pausedAt
             self.bpm = bpm
             self.recovery = recovery
             self.bonded = bonded

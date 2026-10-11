@@ -73,6 +73,18 @@ final class LiveActivityController {
     private static let staleAfter: TimeInterval = 120
     private static let unchangedHeartbeatInterval: TimeInterval = 30
 
+    /// Set when the workout was paused or resumed. Live updates coalesce, so this lives here rather than in the payload:
+    /// whichever update runs next skips the push throttle and the projection cache, and the activity is rewritten with the
+    /// new state at once.
+    private var publishesImmediately = false
+
+    /// The workout's pause state just changed. The next update bypasses the throttle that spaces heart-rate pushes.
+    func noteWorkoutPauseEdge() {
+        publishesImmediately = true
+        cachedWorkoutState = nil
+        lastWorkoutProjectionAt = .distantPast
+    }
+
     func update(
         bpm: Int?,
         recovery: Int?,
@@ -154,7 +166,7 @@ final class LiveActivityController {
         let desiredModeIsWorkout = input.workoutIsActive
         var now = Date()
         let connectionChanged = lastContentState.map { $0.bonded != input.connected } ?? false
-        guard connectionChanged || LiveActivityPushPolicy.shouldPush(
+        guard connectionChanged || publishesImmediately || LiveActivityPushPolicy.shouldPush(
             activityExists: activity != nil,
             currentModeIsWorkout: lastModeWasWorkout,
             desiredModeIsWorkout: desiredModeIsWorkout,
@@ -203,7 +215,9 @@ final class LiveActivityController {
             calories: workoutState?.calories,
             hrTrace: workoutState?.hrTrace,
             zoneSeconds: workoutState?.zoneSeconds,
-            maxHR: workoutState?.maxHR
+            maxHR: workoutState?.maxHR,
+            isPaused: workoutState.map { $0.pausedAt != nil },
+            pausedAt: workoutState?.pausedAt
         )
         let staleDate = now.addingTimeInterval(Self.staleAfter)
 
@@ -229,6 +243,7 @@ final class LiveActivityController {
             lastPush = now
             lastContentState = state
             lastModeWasWorkout = desiredModeIsWorkout
+            publishesImmediately = false
             return .published
         } else {
             do {
@@ -254,6 +269,7 @@ final class LiveActivityController {
                 lastPush = now
                 lastContentState = state
                 lastModeWasWorkout = desiredModeIsWorkout
+                publishesImmediately = false
                 return .published
             } catch {
                 resetCachedState()
@@ -390,6 +406,7 @@ final class LiveActivityController {
     }
 
     private func resetCachedState() {
+        publishesImmediately = false
         activity = nil
         lastModeWasWorkout = nil
         cachedWorkoutState = nil
@@ -399,7 +416,8 @@ final class LiveActivityController {
     }
 
     #if DEBUG
-    func startComponent41QA() async {
+    /// `paused` starts the fixture already paused (three minutes ago), for the Lock Screen's paused state.
+    func startComponent41QA(paused: Bool = false) async {
         guard authInfo.areActivitiesEnabled else { return }
         await end()
         serializedPublication.setConnectivityAvailable(true)
@@ -411,11 +429,14 @@ final class LiveActivityController {
             bonded: true,
             effort: 6.8,
             sport: "Outdoor Run",
-            workoutStartedAt: Date().addingTimeInterval(-2_734),
+            workoutStartedAt: Date().addingTimeInterval(-2_052),
             strainBuilding: false,
             calories: 438,
             hrTrace: [88, 96, 108, 121, 115, 132, 146, 139, 152, 144, 158, 152],
-            zoneSeconds: [180, 620, 1_180, 650, 104]
+            zoneSeconds: [180, 620, 1_180, 650, 104],
+            maxHR: 187,
+            isPaused: paused ? true : nil,
+            pausedAt: paused ? Date().addingTimeInterval(-180) : nil
         )
         do {
             activity = try Activity.request(

@@ -63,6 +63,14 @@ struct StrandiOSApp: App {
         model.discardLiftForDeletedSource = { [weak receiptLift] owner in receiptLift?.discardSource(owner) }
         model.hasActiveReceiptLift = { [weak receiptLift] in receiptLift?.coordinator?.hasActiveSession == true }
         ActiveSessionGate.isActive = { [weak model] in model?.hasActiveWorkoutSession == true }
+        // The Pause / Resume button on the workout's Live Activity runs in this process. The workout was restored by
+        // `AppModel.init`, so a request that woke a relaunched app is applied here, before the first frame.
+        WorkoutPauseCommand.apply = { [weak model] paused in
+            guard let model, model.activeWorkout != nil else { return false }
+            model.setWorkoutPaused(paused)
+            return true
+        }
+        WorkoutPauseCommand.drain()
         _receiptLift = StateObject(wrappedValue: receiptLift)
         let alarmMode = SmartAlarmAdaptiveModeStore(legacy: model.behavior)
         let alarmRuntime = SmartAlarmRuntimeController(model: model, modeStore: alarmMode)
@@ -581,6 +589,12 @@ struct StrandiOSApp: App {
                     driveLiveActivity(workoutReading: reading)
                 }
                 .onReceive(model.live.$connected) { driveLiveActivity(connected: $0) }
+                // A pause or resume reaches the Lock Screen and the Dynamic Island at once, not on the next heart-rate tick,
+                // so the activity and the app never disagree about whether the workout is running.
+                .onReceive(model.$workoutPauseEdge.dropFirst()) { _ in
+                    liveActivity.noteWorkoutPauseEdge()
+                    driveLiveActivity()
+                }
                 .onReceive(model.live.$connectSettled.removeDuplicates().dropFirst()) { settled in
                     guard settled != 0 else { return }
                     Task { await model.correctSeededWhoopModelIfNeeded() }
@@ -686,7 +700,8 @@ struct StrandiOSApp: App {
                     await externalPublicationWorker.signal()
                     #if DEBUG
                     if CommandLine.arguments.contains("--component41-live-qa") {
-                        await liveActivity.startComponent41QA()
+                        await liveActivity.startComponent41QA(
+                            paused: CommandLine.arguments.contains("--component41-live-qa-paused"))
                     }
                     #endif
                 }
@@ -719,6 +734,7 @@ struct StrandiOSApp: App {
             model.setApplicationActiveOptimized(phase == .active)
             if phase == .active {
                 model.drainPendingIntents()
+                WorkoutPauseCommand.drain()
                 alarmRuntime.handleForeground()
                 // A historical offload holds the strap link for about a minute and suspends the realtime-HR
                 // keep-alive re-arm while it runs (BLEManager `guard !backfilling`). Unlocking mid-workout

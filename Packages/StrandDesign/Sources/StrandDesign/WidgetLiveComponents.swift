@@ -497,119 +497,258 @@ public struct NOOPAccessoryInlineView: View {
 }
 
 // MARK: Live Activity and Dynamic Island
+//
+// The workout's Lock Screen card and Dynamic Island, in the widget language: a recording eyebrow with its pulse, the
+// elapsed time as the hero, the heart rate in its zone's colour, strain and energy as quiet facts, and the wearer's own
+// Rest / Steady / Push rail. The timer is `Text(timerInterval:pauseTime:)`, so a paused workout's clock stops on the
+// Lock Screen by itself. The Pause / Resume control is supplied by the caller: the widget extension wraps it in a
+// `Button(intent:)`, which these shared views, also drawn by the simulator QA gallery, must not know about.
 
-public struct NOOPWorkoutLiveActivityView: View {
+/// What the workout's heart-rate colours and rail are measured against: the wearer's own maximum when the activity carries
+/// it, the fixed split otherwise.
+private func liveThresholds(maxHR: Double?) -> HRZoneStyle.Thresholds {
+    maxHR.map { HRZoneStyle.Thresholds(hrMax: $0) } ?? .default
+}
+
+private func liveHeartTint(bpm: Int?, maxHR: Double?) -> Color {
+    guard let bpm else { return StrandPalette.textTertiary }
+    return HRZoneStyle.color(for: Double(bpm), thresholds: liveThresholds(maxHR: maxHR))
+}
+
+private func liveStrainText(_ strain: Double?, building: Bool) -> String {
+    if building { return String(localized: "Building", bundle: .module) }
+    return strain.map { String(format: "%.1f", $0) } ?? WidgetMetrics.missingValue
+}
+
+/// A state pill whose word comes from this package's string table, so it is translated in the widget extension too (which
+/// carries no string table of its own).
+struct LivePill: View {
+    let title: LocalizedStringKey
+    let tint: Color
+
+    var body: some View {
+        Text(title, bundle: .module).statePillLabel().statePillChrome(tint: tint)
+    }
+}
+
+/// The elapsed time. Counts up from `startedAt` (the workout's start moved forward by the pauses already over) and
+/// stands still at `pausedAt` while a pause is open.
+public struct NOOPLiveTimerText: View {
+    public let startedAt: Date?
+    public let pausedAt: Date?
+    public let size: CGFloat
+    public let isDimmed: Bool
+
+    public init(startedAt: Date?, pausedAt: Date? = nil, size: CGFloat, isDimmed: Bool = false) {
+        self.startedAt = startedAt
+        self.pausedAt = pausedAt
+        self.size = size
+        self.isDimmed = isDimmed
+    }
+
+    public var body: some View {
+        Group {
+            if let startedAt {
+                Text(timerInterval: startedAt...Date.distantFuture,
+                     pauseTime: pausedAt.map { max($0, startedAt) },
+                     countsDown: false)
+            } else {
+                Text(verbatim: "—:—").foregroundStyle(StrandPalette.textTertiary)
+            }
+        }
+        .font(StrandFont.number(size, weight: .bold))
+        .monospacedDigit()
+        .foregroundStyle(StrandPalette.textPrimary)
+        .lineLimit(1)
+        .minimumScaleFactor(0.6)
+        .opacity(isDimmed ? 0.45 : 1)
+    }
+}
+
+/// The face of the Pause / Resume button, for the caller to put inside a `Button(intent:)`.
+public struct NOOPLivePauseButtonLabel: View {
+    public let isPaused: Bool
+    /// `compact` is the icon-only face for the Dynamic Island's crowded regions.
+    public let isCompact: Bool
+
+    public init(isPaused: Bool, isCompact: Bool = false) {
+        self.isPaused = isPaused
+        self.isCompact = isCompact
+    }
+
+    public var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: isPaused ? "play.fill" : "pause.fill")
+                .font(.system(size: isCompact ? 14 : 12, weight: .bold))
+            if !isCompact {
+                Text(isPaused ? "Resume" : "Pause", bundle: .module)
+                    .font(.system(size: 14, weight: .bold))
+            }
+        }
+        .foregroundStyle(StrandPalette.onInk)
+        .padding(.horizontal, isCompact ? 14 : 16)
+        .frame(height: isCompact ? 34 : 36)
+        .background(Capsule(style: .continuous).fill(StrandPalette.ink))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(isPaused ? "Resume workout" : "Pause workout", bundle: .module))
+    }
+}
+
+/// The Lock Screen and banner card.
+public struct NOOPWorkoutLiveActivityView<Control: View>: View {
     public let title: String
     public let startedAt: Date?
+    public let pausedAt: Date?
     public let bpm: Int?
     public let strain: Double?
     public let strainBuilding: Bool
     public let calories: Int?
     public let hrSpark: [Int]?
     public let maxHR: Double?
+    /// ActivityKit's own staleness: the app has not updated this activity for a while.
+    public let isStale: Bool
+    private let control: Control
 
-    @State private var pulsing = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    public init(title: String, startedAt: Date?, bpm: Int?, strain: Double?, strainBuilding: Bool,
-                calories: Int?, hrSpark: [Int]?, maxHR: Double? = nil) {
+    public init(title: String, startedAt: Date?, pausedAt: Date? = nil, bpm: Int?, strain: Double?,
+                strainBuilding: Bool, calories: Int?, hrSpark: [Int]?, maxHR: Double? = nil, isStale: Bool = false,
+                @ViewBuilder control: () -> Control) {
         self.title = title
         self.startedAt = startedAt
+        self.pausedAt = pausedAt
         self.bpm = bpm
         self.strain = strain
         self.strainBuilding = strainBuilding
         self.calories = calories
         self.hrSpark = hrSpark
         self.maxHR = maxHR
+        self.isStale = isStale
+        self.control = control()
     }
 
+    private var isPaused: Bool { pausedAt != nil }
+    private var tint: Color { liveHeartTint(bpm: bpm, maxHR: maxHR) }
+
     public var body: some View {
-        VStack(spacing: 9) {
-            HStack(spacing: 8) {
-                Image(systemName: "figure.run")
-                    .font(.system(size: 12, weight: .semibold)).foregroundStyle(StrandPalette.strainAccent)
-                    .frame(width: 26, height: 26)
-                    .background(RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .fill(StrandPalette.strainAccent.opacity(0.22)))
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(title.uppercased()).font(.system(size: 10, weight: .bold, design: .rounded))
-                        .tracking(0.8).foregroundStyle(.white)
-                    Text("LIVE · NOOP").font(.system(size: 8, weight: .bold, design: .rounded))
-                        .tracking(0.8).foregroundStyle(.white.opacity(0.5))
-                }
-                Spacer(minLength: 8)
-                if let startedAt {
-                    Text(timerInterval: startedAt...Date.distantFuture, countsDown: false)
-                        .font(.system(size: 20, weight: .bold, design: .rounded)).monospacedDigit()
-                        .foregroundStyle(.white)
-                } else {
-                    Text("—:—").font(.system(size: 20, weight: .bold, design: .rounded)).foregroundStyle(.white.opacity(0.5))
-                }
-            }
-            HStack(spacing: 10) {
-                HStack(spacing: 6) {
-                    ZStack {
-                        Circle().fill(hrTint).frame(width: 8, height: 8)
-                        if bpm != nil && !reduceMotion {
-                            Circle().stroke(hrTint.opacity(0.4), lineWidth: 2)
-                                .frame(width: 8, height: 8)
-                                .scaleEffect(pulsing ? 2.2 : 1).opacity(pulsing ? 0 : 0.9)
-                        }
-                    }
-                    Text(bpm.map(String.init) ?? "—")
-                        .font(.system(size: 24, weight: .bold, design: .rounded)).monospacedDigit()
-                        .foregroundStyle(.white)
-                    Text("BPM").font(.system(size: 9, weight: .bold, design: .rounded))
-                        .foregroundStyle(.white.opacity(0.5))
-                }
+        VStack(alignment: .leading, spacing: 8) {
+            eyebrow
+            HStack(alignment: .center, spacing: 12) {
+                NOOPLiveTimerText(startedAt: startedAt, pausedAt: pausedAt, size: 38, isDimmed: isPaused || isStale)
                 if let hrSpark, hrSpark.count > 1 {
-                    Sparkline(values: hrSpark.map(Double.init), gradient: Gradient(colors: [hrTint.opacity(0.4), hrTint]),
-                              lineWidth: 1.8, showsArea: false, showsHead: false, showsHover: false)
-                        .frame(height: 24).accessibilityHidden(true)
-                } else { Spacer(minLength: 0) }
-                VStack(alignment: .trailing, spacing: 1) {
-                    Text(strainLabel).font(.system(size: 15, weight: .bold, design: .rounded))
-                        .monospacedDigit().foregroundStyle(StrandPalette.strainAccent)
-                    Text(calories.map { "\($0) CAL" } ?? "CAL —")
-                        .font(.system(size: 8, weight: .bold, design: .rounded)).monospacedDigit()
-                        .foregroundStyle(.white.opacity(0.5))
+                    Sparkline(values: hrSpark.map(Double.init), gradient: Gradient(colors: [tint.opacity(0.4), tint]),
+                              lineWidth: 1.6, showsArea: false, showsHead: false, showsHover: false)
+                        .frame(height: 22).frame(maxWidth: .infinity)
+                        .opacity(isPaused || isStale ? 0.4 : 1)
+                        .accessibilityHidden(true)
+                } else {
+                    Spacer(minLength: 0)
                 }
+                heartReading
             }
-        }
-        .safeAreaInset(edge: .bottom, spacing: 8) {
-            if let maxHR {
-                NOOPHeartRateZoneRail(bpm: bpm, maxHR: maxHR)
-                    .foregroundStyle(.white).padding(.horizontal, 14)
+            HStack(alignment: .center, spacing: 14) {
+                fact(label: Text("Strain", bundle: .module), value: liveStrainText(strain, building: strainBuilding), tint: StrandPalette.strainAccent)
+                fact(label: Text(verbatim: "kcal"), value: calories.map(String.init) ?? WidgetMetrics.missingValue, tint: StrandPalette.textPrimary)
+                Spacer(minLength: 6)
+                control
             }
+            LiveZoneRail(bpm: bpm, thresholds: liveThresholds(maxHR: maxHR), isDimmed: isPaused || isStale, style: .bar)
         }
         .padding(14)
         .background(Color.black)
-        .onAppear {
-            guard !reduceMotion else { return }
-            withAnimation(.easeOut(duration: 1).repeatForever(autoreverses: false)) { pulsing = true }
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(title) live, heart rate \(bpm.map(String.init) ?? "unavailable"), strain \(strainLabel)")
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(Text(verbatim: summary))
     }
 
-    private var hrTint: Color { bpm == nil ? Color.white.opacity(0.35) : StrandPalette.liveRed }
-    private var strainLabel: String {
-        if strainBuilding { return "Building" }
-        return strain.map { "+\(String(format: "%.1f", $0))" } ?? "—"
+    private var eyebrow: some View {
+        HStack(spacing: 8) {
+            EyebrowPulseIcon(systemName: isPaused ? "pause.fill" : "waveform.path.ecg",
+                             color: isPaused ? StrandPalette.statusWarning : StrandPalette.liveRed,
+                             pulses: !isPaused && !isStale)
+            Text(verbatim: title).textCase(.uppercase)
+                .font(StrandFont.overline).tracking(1.2)
+                .foregroundStyle(StrandPalette.textSecondary).lineLimit(1)
+            Spacer(minLength: 8)
+            if isPaused {
+                LivePill(title: "Paused", tint: StrandPalette.statusWarning)
+            } else if isStale {
+                LivePill(title: "Not updating", tint: StrandPalette.textSecondary)
+            }
+        }
+    }
+
+    private var heartReading: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 3) {
+            Image(systemName: "heart.fill").font(.system(size: 13, weight: .bold)).foregroundStyle(tint)
+                .accessibilityHidden(true)
+            Text(verbatim: bpm.map(String.init) ?? WidgetMetrics.missingValue)
+                .font(StrandFont.number(30, weight: .bold)).monospacedDigit()
+                .foregroundStyle(bpm == nil ? StrandPalette.textTertiary : StrandPalette.textPrimary)
+            Text("bpm", bundle: .module).font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
+        }
+        // The reading is never what gives way: the trace beside it shrinks first.
+        .lineLimit(1)
+        .fixedSize(horizontal: true, vertical: false)
+        .layoutPriority(1)
+        .opacity(isPaused || isStale ? 0.6 : 1)
+    }
+
+    private func fact(label: Text, value: String, tint: Color) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            label.textCase(.uppercase).font(.system(size: 9, weight: .bold)).tracking(0.8)
+                .foregroundStyle(StrandPalette.textTertiary)
+            Text(verbatim: value).font(StrandFont.number(16, weight: .semibold)).monospacedDigit()
+                .foregroundStyle(value == WidgetMetrics.missingValue ? StrandPalette.textTertiary : tint)
+        }
+    }
+
+    private var summary: String {
+        let state = isPaused ? "paused" : (isStale ? "not updating" : "recording")
+        return "\(title), \(state), heart rate \(bpm.map(String.init) ?? "unavailable"), strain \(liveStrainText(strain, building: strainBuilding))"
     }
 }
 
+public extension NOOPWorkoutLiveActivityView where Control == EmptyView {
+    init(title: String, startedAt: Date?, pausedAt: Date? = nil, bpm: Int?, strain: Double?, strainBuilding: Bool,
+         calories: Int?, hrSpark: [Int]?, maxHR: Double? = nil, isStale: Bool = false) {
+        self.init(title: title, startedAt: startedAt, pausedAt: pausedAt, bpm: bpm, strain: strain,
+                  strainBuilding: strainBuilding, calories: calories, hrSpark: hrSpark, maxHR: maxHR,
+                  isStale: isStale) { EmptyView() }
+    }
+}
+
+/// Compact leading: the heart in its zone's colour and the reading. A paused workout shows the pause glyph instead.
 public struct NOOPDynamicIslandHeartRateView: View {
     public let bpm: Int?
-    public init(bpm: Int?) { self.bpm = bpm }
+    public let maxHR: Double?
+    public let isPaused: Bool
+    public init(bpm: Int?, maxHR: Double? = nil, isPaused: Bool = false) {
+        self.bpm = bpm
+        self.maxHR = maxHR
+        self.isPaused = isPaused
+    }
     public var body: some View {
         HStack(spacing: 4) {
-            Image(systemName: "heart.fill").font(.system(size: 10, weight: .bold)).foregroundStyle(tint)
-            Text(bpm.map(String.init) ?? "—")
-                .font(.system(size: 13, weight: .bold, design: .rounded)).monospacedDigit().foregroundStyle(.white)
+            Image(systemName: isPaused ? "pause.fill" : "heart.fill")
+                .font(.system(size: 10, weight: .bold))
+                .foregroundStyle(isPaused ? StrandPalette.statusWarning : liveHeartTint(bpm: bpm, maxHR: maxHR))
+            Text(verbatim: bpm.map(String.init) ?? WidgetMetrics.missingValue)
+                .font(StrandFont.number(13, weight: .bold)).monospacedDigit()
+                .foregroundStyle(StrandPalette.textPrimary)
         }
     }
-    private var tint: Color { bpm.map { HRZoneStyle.color(for: Double($0)) } ?? Color.white.opacity(0.5) }
+}
+
+/// Compact trailing: the elapsed time, stopped and dimmed while paused.
+public struct NOOPDynamicIslandTimerView: View {
+    public let startedAt: Date?
+    public let pausedAt: Date?
+    public init(startedAt: Date?, pausedAt: Date? = nil) {
+        self.startedAt = startedAt
+        self.pausedAt = pausedAt
+    }
+    public var body: some View {
+        NOOPLiveTimerText(startedAt: startedAt, pausedAt: pausedAt, size: 13, isDimmed: pausedAt != nil)
+            .frame(maxWidth: 56, alignment: .trailing)
+    }
 }
 
 public struct NOOPDynamicIslandStrainView: View {
@@ -617,50 +756,88 @@ public struct NOOPDynamicIslandStrainView: View {
     public let building: Bool
     public init(strain: Double?, building: Bool) { self.strain = strain; self.building = building }
     public var body: some View {
-        Text(building ? "Building" : strain.map { "+\(String(format: "%.1f", $0))" } ?? "—")
-            .font(.system(size: 13, weight: .bold, design: .rounded)).monospacedDigit()
+        Text(verbatim: liveStrainText(strain, building: building))
+            .font(StrandFont.number(13, weight: .bold)).monospacedDigit()
             .foregroundStyle(StrandPalette.strainAccent).lineLimit(1).minimumScaleFactor(0.65)
     }
 }
 
+/// Minimal: one glyph, the heart in its zone's colour, or the pause glyph while paused.
+public struct NOOPDynamicIslandMinimalView: View {
+    public let bpm: Int?
+    public let maxHR: Double?
+    public let isPaused: Bool
+    public init(bpm: Int?, maxHR: Double? = nil, isPaused: Bool = false) {
+        self.bpm = bpm
+        self.maxHR = maxHR
+        self.isPaused = isPaused
+    }
+    public var body: some View {
+        Image(systemName: isPaused ? "pause.fill" : "heart.fill")
+            .font(.system(size: 12, weight: .bold))
+            .foregroundStyle(isPaused ? StrandPalette.statusWarning : liveHeartTint(bpm: bpm, maxHR: maxHR))
+    }
+}
+
+/// Expanded leading: the sport as an eyebrow over the elapsed time.
 public struct NOOPDynamicIslandIdentityView: View {
     public let sport: String
     public let startedAt: Date?
-    public init(sport: String, startedAt: Date?) { self.sport = sport; self.startedAt = startedAt }
+    public let pausedAt: Date?
+    public init(sport: String, startedAt: Date?, pausedAt: Date? = nil) {
+        self.sport = sport
+        self.startedAt = startedAt
+        self.pausedAt = pausedAt
+    }
     public var body: some View {
-        VStack(alignment: .leading, spacing: 1) {
-            Text(sport.uppercased()).font(.system(size: 10, weight: .bold, design: .rounded))
-                .tracking(0.8).foregroundStyle(.white).lineLimit(1)
-            if let startedAt {
-                Text(timerInterval: startedAt...Date.distantFuture, countsDown: false)
-                    .font(.system(size: 22, weight: .bold, design: .rounded)).monospacedDigit().foregroundStyle(.white)
-            } else {
-                Text("—:—").font(.system(size: 22, weight: .bold, design: .rounded)).foregroundStyle(.white.opacity(0.5))
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 5) {
+                EyebrowPulseIcon(systemName: pausedAt == nil ? "waveform.path.ecg" : "pause.fill",
+                                 color: pausedAt == nil ? StrandPalette.liveRed : StrandPalette.statusWarning,
+                                 pulses: pausedAt == nil)
+                Text(verbatim: sport).textCase(.uppercase)
+                    .font(StrandFont.overline).tracking(1.0)
+                    .foregroundStyle(StrandPalette.textSecondary).lineLimit(1)
             }
+            NOOPLiveTimerText(startedAt: startedAt, pausedAt: pausedAt, size: 26, isDimmed: pausedAt != nil)
         }
     }
 }
 
+/// Expanded trailing: the reading in its zone's colour over strain.
 public struct NOOPDynamicIslandVitalsView: View {
     public let bpm: Int?
     public let strain: Double?
     public let building: Bool
-    public init(bpm: Int?, strain: Double?, building: Bool) {
-        self.bpm = bpm; self.strain = strain; self.building = building
+    public let maxHR: Double?
+    public let isDimmed: Bool
+    public init(bpm: Int?, strain: Double?, building: Bool, maxHR: Double? = nil, isDimmed: Bool = false) {
+        self.bpm = bpm
+        self.strain = strain
+        self.building = building
+        self.maxHR = maxHR
+        self.isDimmed = isDimmed
     }
     public var body: some View {
-        VStack(alignment: .trailing, spacing: 1) {
-            HStack(spacing: 4) {
-                Image(systemName: "heart.fill").font(.system(size: 10, weight: .bold)).foregroundStyle(hrTint)
-                Text(bpm.map(String.init) ?? "—")
-                    .font(.system(size: 22, weight: .bold, design: .rounded)).monospacedDigit().foregroundStyle(.white)
+        VStack(alignment: .trailing, spacing: 2) {
+            HStack(alignment: .firstTextBaseline, spacing: 3) {
+                Image(systemName: "heart.fill").font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(liveHeartTint(bpm: bpm, maxHR: maxHR)).accessibilityHidden(true)
+                Text(verbatim: bpm.map(String.init) ?? WidgetMetrics.missingValue)
+                    .font(StrandFont.number(26, weight: .bold)).monospacedDigit()
+                    .foregroundStyle(bpm == nil ? StrandPalette.textTertiary : StrandPalette.textPrimary)
             }
-            Text(building ? "BUILDING STRAIN" : strain.map { "+\(String(format: "%.1f", $0)) STRAIN" } ?? "STRAIN —")
-                .font(.system(size: 8, weight: .bold, design: .rounded)).monospacedDigit()
-                .foregroundStyle(StrandPalette.strainAccent).lineLimit(1)
+            HStack(spacing: 4) {
+                Text("Strain", bundle: .module).textCase(.uppercase)
+                    .font(.system(size: 9, weight: .bold)).tracking(0.8)
+                    .foregroundStyle(StrandPalette.textTertiary)
+                Text(verbatim: liveStrainText(strain, building: building))
+                    .font(StrandFont.number(13, weight: .semibold)).monospacedDigit()
+                    .foregroundStyle(StrandPalette.strainAccent).lineLimit(1)
+            }
         }
+        .opacity(isDimmed ? 0.6 : 1)
     }
-    private var hrTint: Color { bpm.map { HRZoneStyle.color(for: Double($0)) } ?? Color.white.opacity(0.5) }
 }
 
 public struct NOOPZoneSplitView: View {

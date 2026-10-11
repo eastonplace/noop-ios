@@ -167,7 +167,7 @@ struct Component41QAGallery: View {
 /// One-screen capture plates used by the simulator gate. Splitting the long gallery prevents
 /// off-screen content from being mistaken for visual QA.
 struct Component41QAShot: View {
-    enum Kind { case home, large, lock, live }
+    enum Kind { case home, large, lock, live, livePaused, liveStale, lift, liftRest, liftStale }
 
     /// Narrow DEBUG launch route for rendered Simulator proof. This avoids restoring the obsolete
     /// all-screen demo router while keeping the production widget/ActivityKit views directly auditable.
@@ -180,6 +180,11 @@ struct Component41QAShot: View {
         case "large": .large
         case "lock": .lock
         case "live": .live
+        case "live-paused": .livePaused
+        case "live-stale": .liveStale
+        case "lift": .lift
+        case "lift-rest": .liftRest
+        case "lift-stale": .liftStale
         default: nil
         }
     }
@@ -242,35 +247,120 @@ struct Component41QAShot: View {
                 }
             }
         case .live:
-            VStack(spacing: 24) {
-                NOOPWorkoutLiveActivityView(title: "Outdoor Run", startedAt: Date().addingTimeInterval(-2_734),
-                                            bpm: 152, strain: 6.8, strainBuilding: false,
-                                            calories: 438, hrSpark: hr)
-                    .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-                HStack(spacing: 0) {
-                    NOOPDynamicIslandHeartRateView(bpm: 152).padding(.leading, 12)
-                    Spacer(minLength: 0)
-                    Capsule().fill(Color(white: 0.08)).frame(width: 90, height: 24)
-                    Spacer(minLength: 0)
-                    NOOPDynamicIslandStrainView(strain: 6.8, building: false).padding(.trailing, 12)
-                }
-                .frame(width: 250, height: 36).background(Capsule().fill(Color.black))
-                VStack(spacing: 10) {
-                    HStack(alignment: .firstTextBaseline) {
-                        NOOPDynamicIslandIdentityView(sport: "Outdoor Run", startedAt: Date().addingTimeInterval(-2_734))
-                        Spacer(minLength: 8)
-                        NOOPDynamicIslandVitalsView(bpm: 152, strain: 6.8, building: false)
-                    }
-                    NOOPZoneSplitView(seconds: [180, 620, 1_180, 650, 104])
-                }
-                .padding(16).frame(width: 356)
-                .background(RoundedRectangle(cornerRadius: 30).fill(Color.black))
-            }
+            liveSpecimens(paused: false, stale: false)
+        case .livePaused:
+            liveSpecimens(paused: true, stale: false)
+        case .liveStale:
+            liveSpecimens(paused: false, stale: true)
+        case .lift:
+            liftSpecimens(resting: false, stale: false)
+        case .liftRest:
+            liftSpecimens(resting: true, stale: false)
+        case .liftStale:
+            liftSpecimens(resting: false, stale: true)
         }
     }
 
+    /// The workout Live Activity on every surface, at real point sizes: the Lock Screen card, the Dynamic Island compact,
+    /// expanded and minimal. The pause button is the shared label; the extension wraps the same label in `Button(intent:)`.
+    private func liveSpecimens(paused: Bool, stale: Bool) -> some View {
+        let startedAt = Date().addingTimeInterval(-2_052)
+        let pausedAt: Date? = paused ? Date().addingTimeInterval(-180) : nil
+        let maxHR = 187.0
+        let bpm = 152
+        return VStack(spacing: 22) {
+            NOOPWorkoutLiveActivityView(
+                title: "Outdoor Run", startedAt: startedAt, pausedAt: pausedAt, bpm: bpm, strain: 6.8,
+                strainBuilding: false, calories: 438, hrSpark: hr, maxHR: maxHR, isStale: stale
+            ) {
+                NOOPLivePauseButtonLabel(isPaused: paused)
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+            islandCompact(startedAt: startedAt, pausedAt: pausedAt, bpm: bpm, maxHR: maxHR)
+            islandExpanded(startedAt: startedAt, pausedAt: pausedAt, bpm: bpm, maxHR: maxHR, stale: stale)
+            islandMinimal(bpm: bpm, maxHR: maxHR, paused: paused)
+        }
+    }
+
+    /// The strength Live Activity on every surface, at real point sizes.
+    private func liftSpecimens(resting: Bool, stale: Bool) -> some View {
+        let startedAt = Date().addingTimeInterval(-1_374)
+        let restEndsAt: Date? = resting ? Date().addingTimeInterval(74) : nil
+        return VStack(spacing: 22) {
+            NOOPLiftLiveActivityView(
+                workoutName: "Upper Body A", startedAt: startedAt, move: "Incline Press", setProgress: "7/18",
+                volume: 4_820, restEndsAt: restEndsAt, isStale: stale)
+                .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+            HStack(spacing: 0) {
+                NOOPLiftIslandGlyph(isResting: resting).padding(.leading, 12)
+                Spacer(minLength: 0)
+                Capsule().fill(Color(white: 0.08)).frame(width: 90, height: 24)
+                Spacer(minLength: 0)
+                NOOPLiftIslandClock(startedAt: startedAt, restEndsAt: restEndsAt).padding(.trailing, 12)
+            }
+            .frame(width: 250, height: 36).background(Capsule().fill(Color.black))
+            VStack(spacing: 10) {
+                HStack(alignment: .center) {
+                    NOOPLiftIslandGlyph(isResting: resting).font(.system(size: 20, weight: .bold))
+                    NOOPLiftIslandTitle(workoutName: "Upper Body A", move: "Incline Press")
+                    Spacer(minLength: 8)
+                    NOOPLiftIslandClock(startedAt: startedAt, restEndsAt: restEndsAt, size: 22)
+                }
+                NOOPLiftFacts(move: nil, setProgress: "7/18", volume: 4_820)
+            }
+            .padding(16).frame(width: 356)
+            .background(RoundedRectangle(cornerRadius: 30).fill(Color.black))
+            NOOPLiftIslandGlyph(isResting: resting)
+                .frame(width: 36, height: 36).background(Circle().fill(Color.black))
+        }
+    }
+
+    private func islandCompact(startedAt: Date, pausedAt: Date?, bpm: Int, maxHR: Double) -> some View {
+        HStack(spacing: 0) {
+            NOOPDynamicIslandHeartRateView(bpm: bpm, maxHR: maxHR, isPaused: pausedAt != nil).padding(.leading, 12)
+            Spacer(minLength: 0)
+            Capsule().fill(Color(white: 0.08)).frame(width: 90, height: 24)
+            Spacer(minLength: 0)
+            NOOPDynamicIslandTimerView(startedAt: startedAt, pausedAt: pausedAt).padding(.trailing, 12)
+        }
+        .frame(width: 250, height: 36).background(Capsule().fill(Color.black))
+    }
+
+    private func islandExpanded(startedAt: Date, pausedAt: Date?, bpm: Int, maxHR: Double, stale: Bool) -> some View {
+        VStack(spacing: 10) {
+            HStack(alignment: .firstTextBaseline) {
+                NOOPDynamicIslandIdentityView(sport: "Outdoor Run", startedAt: startedAt, pausedAt: pausedAt)
+                Spacer(minLength: 8)
+                NOOPDynamicIslandVitalsView(bpm: bpm, strain: 6.8, building: false, maxHR: maxHR,
+                                            isDimmed: pausedAt != nil || stale)
+            }
+            HStack(spacing: 12) {
+                LiveZoneRail(bpm: bpm, thresholds: HRZoneStyle.Thresholds(hrMax: maxHR),
+                             isDimmed: pausedAt != nil || stale, style: .bar)
+                NOOPLivePauseButtonLabel(isPaused: pausedAt != nil, isCompact: true)
+            }
+        }
+        .padding(16).frame(width: 356)
+        .background(RoundedRectangle(cornerRadius: 30).fill(Color.black))
+    }
+
+    private func islandMinimal(bpm: Int, maxHR: Double, paused: Bool) -> some View {
+        NOOPDynamicIslandMinimalView(bpm: bpm, maxHR: maxHR, isPaused: paused)
+            .frame(width: 36, height: 36).background(Circle().fill(Color.black))
+    }
+
     private var title: String {
-        switch kind { case .home: "HOME"; case .large: "LARGE"; case .lock: "LOCK SCREEN"; case .live: "LIVE + ISLAND" }
+        switch kind {
+        case .home: "HOME"
+        case .large: "LARGE"
+        case .lock: "LOCK SCREEN"
+        case .live: "LIVE + ISLAND"
+        case .livePaused: "LIVE + ISLAND · PAUSED"
+        case .liveStale: "LIVE + ISLAND · STALE"
+        case .lift: "LIFT + ISLAND"
+        case .liftRest: "LIFT + ISLAND · REST"
+        case .liftStale: "LIFT + ISLAND · STALE"
+        }
     }
 
     private func qaWidget<Content: View>(width: CGFloat, height: CGFloat,
