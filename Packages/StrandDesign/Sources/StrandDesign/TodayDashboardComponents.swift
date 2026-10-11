@@ -606,6 +606,7 @@ private struct HealthMonitorEyebrowIcon: View {
 public struct HealthDashboardTile: View {
     public let model: HealthDashboardTileModel
     public init(model: HealthDashboardTileModel) { self.model = model }
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     /// A number reads in the primary ink and the missing dash in the tertiary. A value with no digit in it
     /// (a word such as "Calibrating") is a status, not a measurement, so it reads in the secondary ink.
@@ -638,7 +639,14 @@ public struct HealthDashboardTile: View {
                     .foregroundStyle(valueInk)
                     .lineLimit(1).minimumScaleFactor(0.65)
                 if let unit = model.unit, model.value != WidgetMetrics.missingValue {
-                    Text(verbatim: unit).font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
+                    let unitText = Text(verbatim: unit).font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
+                    if typeSize.isAccessibilitySize {
+                        // A unit is one word: at an accessibility size it keeps its line and scales down before it breaks
+                        // ("rp / m"), and the number beside it gives way first.
+                        unitText.lineLimit(1).minimumScaleFactor(0.5).layoutPriority(1)
+                    } else {
+                        unitText
+                    }
                 }
             }
             if model.spark.count > 1 {
