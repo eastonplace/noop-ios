@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 import Testing
 @testable import ReceiptLiftFeature
 
@@ -156,5 +157,22 @@ struct RoutinePreviewRowTests {
 
     #expect(rows.map(\.title) == ["Barbell Bench Press", "Cable Fly or Pec Deck"])
     #expect(rows[0].accessibilityLabel.contains("Barbell Bench Press"))
+  }
+}
+
+@Suite("Lift titles that are somebody's own text")
+struct LiftUserTextTitleTests {
+  /// What a `LocalizedStringKey` will be looked up as in the catalog.
+  private static func key(_ key: LocalizedStringKey) -> String? {
+    Mirror(reflecting: key).children.first { $0.label == "key" }?.value as? String
+  }
+
+  @Test("A routine called Back is not looked up as the catalog's Back")
+  func userTextIsNeverACatalogKey() {
+    // The control: a plain string is its own key, which is how "Back" became "Zurück".
+    #expect(Self.key(LocalizedStringKey("Back")) == "Back")
+    for name in ["Back", "Push", "Lower", "Upper A", "Push *heavy*", "run"] {
+      #expect(Self.key(LocalizedStringKey(userText: name)) == "%@", "\(name) must be an argument, not a key")
+    }
   }
 }

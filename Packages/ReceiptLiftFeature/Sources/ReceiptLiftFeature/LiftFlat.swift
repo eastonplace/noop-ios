@@ -45,10 +45,11 @@ extension EnvironmentValues {
 // MARK: Page
 
 extension LocalizedStringKey {
-  /// A title that is somebody's own text (a routine, session or exercise name). It goes through the catalog's "%@" entry,
-  /// so it is drawn as typed and never looked up as a key: a seeded routine called "Upper A" must not pick up the
-  /// translation of the name-field placeholder.
-  init(userText: String) { self.init("\(userText)") }
+  /// A title that is somebody's own text (a routine, session or exercise name). The key is built as an interpolation, so
+  /// it is "%@" with the text as its argument: the text is never looked up as a catalog key (a routine called "Back"
+  /// stays "Back", not "Zurück") and never read as markdown. Writing `self.init("\(text)")` would not do this: that
+  /// literal is typed as a String, which makes the text itself the key.
+  init(userText: String) { self = "\(userText)" }
 }
 
 /// A scrolling Lift page: the pinned title row, a 16pt gutter and flat sections on the canvas.
