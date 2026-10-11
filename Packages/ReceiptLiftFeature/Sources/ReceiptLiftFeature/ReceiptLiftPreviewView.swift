@@ -64,7 +64,7 @@ public struct ReceiptLiftPreviewView: View {
                     if let session = store.sessions.first { CompletedReceiptView(session: session, onClose: {}) }
                 default: LiftRootView()
                 }
-            } else { LiftStateMessage(isLoading: true, title: "Preparing sample workout…") }
+            } else { LiftMessage(isLoading: true, title: "Preparing sample workout…") }
         }
         .environmentObject(store)
         .contentSurfacePresentation(.flat)

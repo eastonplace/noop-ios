@@ -57,23 +57,25 @@ struct ReceiptHeader: View {
   }
 }
 
+/// The slip's column heads: the row number, the exercise and the figure at the trailing end. They line up with the
+/// printed lines beneath them.
 struct ReceiptColumns: View {
-  let columns: [(String, Alignment)]
-
-  init(_ columns: [(String, Alignment)]) {
-    self.columns = columns
-  }
+  let title: String
+  let value: String
 
   var body: some View {
-    HStack(spacing: 8) {
-      ForEach(Array(columns.enumerated()), id: \.offset) { _, column in
-        Text(column.0.uppercased())
-          .font(.receiptArtifact(9, weight: .bold))
-          .tracking(0.5)
-          .foregroundStyle(LiftTheme.Receipt.inkSecondary)
-          .frame(maxWidth: .infinity, alignment: column.1)
-      }
+    HStack(spacing: 9) {
+      head("#").frame(width: 24, alignment: .leading)
+      head(title).frame(maxWidth: .infinity, alignment: .leading)
+      head(value).fixedSize(horizontal: true, vertical: false)
     }
+  }
+
+  private func head(_ text: String) -> some View {
+    Text(text.uppercased())
+      .font(.receiptArtifact(9, weight: .bold))
+      .tracking(0.5)
+      .foregroundStyle(LiftTheme.Receipt.inkSecondary)
   }
 }
 
@@ -87,7 +89,7 @@ struct ReceiptLine: View {
   var body: some View {
     HStack(alignment: .top, spacing: 9) {
       if let index {
-        Text(String(format: "%02d", index))
+        Text(index.formatted(.number.precision(.integerLength(2...))))
           .font(.receiptArtifact(11, weight: .bold))
           .foregroundStyle(LiftTheme.Receipt.inkSecondary)
           .lineLimit(1)
@@ -96,7 +98,7 @@ struct ReceiptLine: View {
           .frame(width: 24, alignment: .leading)
       }
       if let thumb {
-        LiftExerciseThumb(exercise: thumb, size: 40, showsBorder: false)
+        LiftExerciseThumb(exercise: thumb, size: 40, style: .paper)
       }
       VStack(alignment: .leading, spacing: 3) {
         Text(title.uppercased())
@@ -171,7 +173,10 @@ struct ReceiptTotals: View {
   }
 }
 
+/// The torn edge of the slip: a row of teeth. Below the slip by default; `flipped` is the same edge above it.
 struct ReceiptEdge: View {
+  var flipped = false
+
   nonisolated static func toothCount(for width: CGFloat) -> Int {
     max(Int(ceil(width / 8)), 1)
   }
@@ -193,7 +198,9 @@ struct ReceiptEdge: View {
       context.fill(path, with: .color(LiftTheme.Receipt.paper))
     }
     .frame(height: 8)
+    .scaleEffect(y: flipped ? -1 : 1)
     .drawingGroup()
+    .accessibilityHidden(true)
   }
 }
 
@@ -271,37 +278,46 @@ struct ReceiptSectionLabel: View {
   }
 }
 
+/// An exercise's illustration. The pictures are drawn on white, so on the dark canvas it sits in a calm tile (see
+/// `ExerciseArtTile`); `.paper` keeps the bare picture for the printed receipt's cream and white stocks, where the white
+/// is the paper.
 struct LiftExerciseThumb: View {
+  enum Style { case tile, paper }
+
   let exercise: LiftExercise?
   var size: CGFloat = 66
-  var showsBorder = true
+  var style: Style = .tile
 
-  init(exercise: LiftExercise?, size: CGFloat = 66, showsBorder: Bool = true) {
+  init(exercise: LiftExercise?, size: CGFloat = 66, style: Style = .tile) {
     self.exercise = exercise
     self.size = size
-    self.showsBorder = showsBorder
+    self.style = style
   }
 
-  init(name: String, size: CGFloat = 66, showsBorder: Bool = true) {
+  init(name: String, size: CGFloat = 66, style: Style = .tile) {
     self.exercise = LiftExercise(id: UUID(), name: name, muscleGroup: "", equipment: "", instructions: "")
     self.size = size
-    self.showsBorder = showsBorder
+    self.style = style
   }
 
   var body: some View {
-    Group {
-      if let exercise, let asset = LiftMedia.imageName(for: exercise) {
-        Image(asset, bundle: .module)
-          .resizable()
-          .interpolation(.high)
-          .scaledToFit()
-      } else {
-        Image(systemName: "figure.strengthtraining.traditional")
-          .font(.system(size: size * 0.42, weight: .bold))
-          .foregroundStyle(StrandPalette.textTertiary)
-      }
+    switch style {
+    case .tile: ExerciseArtTile(size: size) { art }
+    case .paper: art.frame(width: size, height: size)
     }
-    .frame(width: size, height: size)
+  }
+
+  @ViewBuilder private var art: some View {
+    if let exercise, let asset = LiftMedia.imageName(for: exercise) {
+      Image(asset, bundle: .module)
+        .resizable()
+        .interpolation(.high)
+        .scaledToFit()
+    } else {
+      Image(systemName: "figure.strengthtraining.traditional")
+        .font(.system(size: size * 0.42, weight: .bold))
+        .foregroundStyle(StrandPalette.textTertiary)
+    }
   }
 }
 
@@ -321,7 +337,7 @@ private struct ReceiptLivePreview: View {
       ReceiptSheet {
         ReceiptHeader(title: title, subtitle: "Jul 10 · 44:18", trailing: "#000241")
         ReceiptDashedRule()
-        ReceiptColumns([("#", .leading), ("Exercise", .leading), ("Volume", .trailing)])
+        ReceiptColumns(title: "Exercise", value: "Volume")
         PrintedSetLine(
           index: 1,
           title: "Incline DB Press",
@@ -362,7 +378,7 @@ struct ReceiptLabPreviewGallery: View {
         ReceiptHeader(title: "Lift Receipt", subtitle: "Design Lab · monochrome", trailing: "#000241")
         ReceiptDashedRule()
         ReceiptSectionLabel(title: "Live receipt")
-        ReceiptColumns([("#", .leading), ("Exercise", .leading), ("Volume", .trailing)])
+        ReceiptColumns(title: "Exercise", value: "Volume")
         PrintedSetLine(
           index: 1,
           title: "Incline DB Press",
@@ -398,7 +414,7 @@ struct ReceiptLabPreviewGallery: View {
 
 #Preview("Receipt Columns + Line") {
   ReceiptSheet {
-    ReceiptColumns([("#", .leading), ("Exercise", .leading), ("Value", .trailing)])
+    ReceiptColumns(title: "Exercise", value: "Value")
     ReceiptLine(index: 1, title: "Machine Chest Press", detail: "3 / 3 sets", value: "840 lb")
   }
 }
