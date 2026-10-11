@@ -87,7 +87,9 @@ final class WorkoutLiveProjectionCache {
 
         // The timer's anchor moves forward by the pauses already over, and a pause still open freezes it where it began:
         // the Lock Screen clock counts the time the workout ran, exactly as the app's own does.
-        let now = Date()
+        // Once a finish is pending the clock stops where the save will end the workout (`frozenAt`), so the pauses are
+        // counted up to that moment, not to now.
+        let now = workout.clockEnd(at: Date())
         let closedPause = pauses.pausedSeconds(
             from: workout.start.timeIntervalSince1970,
             to: pauses.openSince ?? now.timeIntervalSince1970)
@@ -101,7 +103,8 @@ final class WorkoutLiveProjectionCache {
                 ? Int(projection.caloriesKcal.rounded()) : nil,
             hrTrace: projection.hrTrace,
             zoneSeconds: projection.zoneSeconds.map { Int($0.rounded()) },
-            maxHR: Double(profile.hrMax)
+            maxHR: Double(profile.hrMax),
+            frozenAt: workout.frozenAt
         )
     }
 

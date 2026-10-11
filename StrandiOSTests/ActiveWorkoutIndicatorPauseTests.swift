@@ -59,4 +59,48 @@ final class ActiveWorkoutIndicatorPauseTests: XCTestCase {
         XCTAssertNotEqual(paused, resumed)
         XCTAssertNotEqual(running, resumed, "the closed pause is part of the model")
     }
+
+    // MARK: A finish that is pending stops every clock at the end the save will use
+
+    func testOnceAFinishIsPendingTheHeroAndTheTodayCardStopAtTheEnd() throws {
+        let w = workout()
+        w.freeze(at: t(1_800))                         // End was tapped 30 minutes in; the save failed
+        let model = try XCTUnwrap(ActiveWorkoutIndicatorModel.make(from: w))
+        for later in [1_801.0, 1_900, 3_600, 36_000] {
+            XCTAssertEqual(w.activeElapsed(at: t(later)), 1_800, accuracy: 0.001, "the hero stays at the saved duration")
+            XCTAssertEqual(model.elapsedText(at: t(later)), "30:00", "so does the Today card")
+        }
+        XCTAssertEqual(model.elapsedText(at: t(600)), "10:00", "before the freeze they read the live time")
+        XCTAssertEqual(w.activeElapsed(at: t(600)), 600, accuracy: 0.001)
+    }
+
+    func testTheFrozenClockMatchesTheDurationTheRetrySaves() throws {
+        let w = workout()
+        XCTAssertTrue(w.setPaused(true, at: t(600)))
+        XCTAssertTrue(w.setPaused(false, at: t(780)))   // three minutes paused
+        w.freeze(at: t(1_800))
+        XCTAssertEqual(w.activeElapsed(at: t(9_999)), w.pauseLedger.activeSeconds(
+            from: start.timeIntervalSince1970, to: t(1_800).timeIntervalSince1970), accuracy: 0.001)
+        XCTAssertEqual(w.activeElapsed(at: t(9_999)), 1_620, accuracy: 0.001, "27 minutes ran")
+    }
+
+    func testEndedWhilePausedTheClockStaysWhereThePauseBegan() throws {
+        let w = workout()
+        XCTAssertTrue(w.setPaused(true, at: t(900)))
+        w.freeze(at: t(900))                           // an end while paused stops at the moment it was paused
+        let model = try XCTUnwrap(ActiveWorkoutIndicatorModel.make(from: w))
+        XCTAssertEqual(model.elapsedText(at: t(5_000)), "15:00")
+        XCTAssertEqual(w.activeElapsed(at: t(5_000)), 900, accuracy: 0.001)
+    }
+
+    func testAFreezeChangesTheModelSoTheCardRedrawsAndItCanBeLifted() throws {
+        let w = workout()
+        let live = try XCTUnwrap(ActiveWorkoutIndicatorModel.make(from: w))
+        w.freeze(at: t(60))
+        let frozen = try XCTUnwrap(ActiveWorkoutIndicatorModel.make(from: w))
+        XCTAssertNotEqual(live, frozen)
+        w.freeze(at: nil)                              // nothing to save: the workout carries on
+        XCTAssertEqual(try XCTUnwrap(ActiveWorkoutIndicatorModel.make(from: w)), live)
+        XCTAssertEqual(w.activeElapsed(at: t(500)), 500, accuracy: 0.001)
+    }
 }

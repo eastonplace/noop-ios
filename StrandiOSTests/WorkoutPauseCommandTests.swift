@@ -94,6 +94,34 @@ final class WorkoutPauseCommandTests: XCTestCase {
         XCTAssertTrue(decoded.isWorkout)
         XCTAssertFalse(decoded.finishing, "an activity from an older build is not finishing")
         XCTAssertNil(decoded.isFinishing)
+        XCTAssertNil(decoded.frozenAt, "an older build's activity has no frozen clock")
+        XCTAssertNil(decoded.heartRateIsStale)
+        XCTAssertTrue(decoded.heartRateIsLive, "bonded, and not known to be quiet")
+    }
+
+    func testTheFrozenClockAndTheQuietStrapRoundTripAndDifferFromARunningState() throws {
+        let started = Date(timeIntervalSince1970: 1_000_000)
+        let frozen = Date(timeIntervalSince1970: 1_000_900)
+        let running = NOOPActivityAttributes.ContentState(
+            bpm: 140, recovery: nil, bonded: true, sport: "Running", workoutStartedAt: started, isPaused: false)
+        let ending = NOOPActivityAttributes.ContentState(
+            bpm: 140, recovery: nil, bonded: true, sport: "Running", workoutStartedAt: started, isPaused: false,
+            isFinishing: true, frozenAt: frozen)
+        let quiet = NOOPActivityAttributes.ContentState(
+            bpm: 140, recovery: nil, bonded: true, sport: "Running", workoutStartedAt: started, isPaused: false,
+            heartRateIsStale: true)
+        XCTAssertNotEqual(ending, running, "the controller's unchanged-state dedupe must not swallow the freeze")
+        XCTAssertNotEqual(quiet, running, "nor the strap going quiet")
+        for state in [ending, quiet] {
+            let decoded = try JSONDecoder().decode(
+                NOOPActivityAttributes.ContentState.self, from: JSONEncoder().encode(state))
+            XCTAssertEqual(decoded, state)
+        }
+        XCTAssertEqual(ending.frozenAt, frozen)
+        XCTAssertFalse(quiet.heartRateIsLive, "a quiet strap is not a live reading even while bonded")
+        XCTAssertTrue(running.heartRateIsLive)
+        let unbonded = NOOPActivityAttributes.ContentState(bpm: 140, recovery: nil, bonded: false)
+        XCTAssertFalse(unbonded.heartRateIsLive)
     }
 
     func testAFinishingActivityRoundTripsAndDiffersFromARunningOne() throws {

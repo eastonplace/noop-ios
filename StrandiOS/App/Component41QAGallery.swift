@@ -300,20 +300,23 @@ struct Component41QAShot: View {
     private func liveSpecimens(paused: Bool, stale: Bool, finishing: Bool = false) -> some View {
         let startedAt = Date().addingTimeInterval(-2_052)
         let pausedAt: Date? = paused ? Date().addingTimeInterval(-180) : nil
+        // While the workout is ending every clock stands at the moment the save will end it (a minute ago here), however
+        // long the retry takes.
+        let frozenAt: Date? = finishing ? Date().addingTimeInterval(-60) : nil
         let maxHR = 187.0
         let bpm = 152
         return VStack(spacing: 22) {
             NOOPWorkoutLiveActivityView(
-                title: "Outdoor Run", startedAt: startedAt, pausedAt: pausedAt, bpm: bpm, strain: 6.8,
+                title: "Outdoor Run", startedAt: startedAt, pausedAt: pausedAt, frozenAt: frozenAt, bpm: bpm, strain: 6.8,
                 strainBuilding: false, calories: 438, hrSpark: hr, maxHR: maxHR, isStale: stale
             ) {
                 // The extension wraps this label in a disabled Button(intent:) at 0.35 opacity while the workout is ending.
                 NOOPLivePauseButtonLabel(isPaused: paused).opacity(finishing ? 0.35 : 1)
             }
             .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-            islandCompact(startedAt: startedAt, pausedAt: pausedAt, bpm: bpm, maxHR: maxHR, stale: stale)
-            islandExpanded(startedAt: startedAt, pausedAt: pausedAt, bpm: bpm, maxHR: maxHR, stale: stale,
-                           finishing: finishing)
+            islandCompact(startedAt: startedAt, pausedAt: pausedAt, frozenAt: frozenAt, bpm: bpm, maxHR: maxHR, stale: stale)
+            islandExpanded(startedAt: startedAt, pausedAt: pausedAt, frozenAt: frozenAt, bpm: bpm, maxHR: maxHR,
+                           stale: stale, finishing: finishing)
             islandMinimal(bpm: bpm, maxHR: maxHR, paused: paused)
         }
     }
@@ -351,23 +354,25 @@ struct Component41QAShot: View {
         }
     }
 
-    private func islandCompact(startedAt: Date, pausedAt: Date?, bpm: Int, maxHR: Double, stale: Bool) -> some View {
+    private func islandCompact(startedAt: Date, pausedAt: Date?, frozenAt: Date? = nil, bpm: Int, maxHR: Double,
+                               stale: Bool) -> some View {
         HStack(spacing: 0) {
             NOOPDynamicIslandHeartRateView(bpm: bpm, maxHR: maxHR, isPaused: pausedAt != nil, isDimmed: pausedAt != nil || stale)
                 .padding(.leading, 12)
             Spacer(minLength: 0)
             Capsule().fill(Color(white: 0.08)).frame(width: 90, height: 24)
             Spacer(minLength: 0)
-            NOOPDynamicIslandTimerView(startedAt: startedAt, pausedAt: pausedAt).padding(.trailing, 12)
+            NOOPDynamicIslandTimerView(startedAt: startedAt, pausedAt: pausedAt, frozenAt: frozenAt).padding(.trailing, 12)
         }
         .frame(width: 250, height: 36).background(Capsule().fill(Color.black))
     }
 
-    private func islandExpanded(startedAt: Date, pausedAt: Date?, bpm: Int, maxHR: Double, stale: Bool,
-                                finishing: Bool = false) -> some View {
+    private func islandExpanded(startedAt: Date, pausedAt: Date?, frozenAt: Date? = nil, bpm: Int, maxHR: Double,
+                                stale: Bool, finishing: Bool = false) -> some View {
         VStack(spacing: 10) {
             HStack(alignment: .firstTextBaseline) {
-                NOOPDynamicIslandIdentityView(sport: "Outdoor Run", startedAt: startedAt, pausedAt: pausedAt)
+                NOOPDynamicIslandIdentityView(sport: "Outdoor Run", startedAt: startedAt, pausedAt: pausedAt,
+                                              frozenAt: frozenAt)
                 Spacer(minLength: 8)
                 NOOPDynamicIslandVitalsView(bpm: bpm, strain: 6.8, building: false, maxHR: maxHR,
                                             isDimmed: pausedAt != nil || stale)

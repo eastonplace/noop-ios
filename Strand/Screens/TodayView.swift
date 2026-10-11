@@ -71,18 +71,23 @@ struct ActiveWorkoutIndicatorModel: Equatable {
     let startedAt: Date
     /// The pauses so far (closed stretches and the one still open).
     var pauses = WorkoutPauseLedger()
+    /// Set while a finish is pending: the clock stops at the end the save will use, like the live screen's.
+    var frozenAt: Date?
 
     var isPaused: Bool { pauses.isPaused }
 
     static func make(from workout: AppModel.ActiveWorkout?) -> ActiveWorkoutIndicatorModel? {
         guard let workout else { return nil }
-        return ActiveWorkoutIndicatorModel(sport: workout.sport, startedAt: workout.start, pauses: workout.pauseLedger)
+        return ActiveWorkoutIndicatorModel(sport: workout.sport, startedAt: workout.start, pauses: workout.pauseLedger,
+                                           frozenAt: workout.frozenAt)
     }
 
-    /// The clock at `now`: the time the workout has run, M:SS up to an hour and H:MM:SS after, frozen while paused.
+    /// The clock at `now`: the time the workout has run, M:SS up to an hour and H:MM:SS after, frozen while paused and
+    /// once a finish is pending.
     func elapsedText(at now: Date) -> String {
-        LiveWorkoutTiles.elapsedText(pauses.activeSeconds(from: startedAt.timeIntervalSince1970,
-                                                          to: now.timeIntervalSince1970))
+        let end = frozenAt.map { min($0, now) } ?? now
+        return LiveWorkoutTiles.elapsedText(pauses.activeSeconds(from: startedAt.timeIntervalSince1970,
+                                                                 to: end.timeIntervalSince1970))
     }
 
     /// Elapsed time since `start`, formatted M:SS up to an hour and H:MM:SS once an hour has passed (so a

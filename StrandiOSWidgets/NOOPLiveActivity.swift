@@ -19,6 +19,7 @@ struct NOOPLiveActivity: Widget {
                         title: context.state.sport ?? "Workout",
                         startedAt: context.state.workoutStartedAt,
                         pausedAt: context.state.pausedAt,
+                        frozenAt: context.state.frozenAt,
                         bpm: context.state.bpm,
                         strain: context.state.effort,
                         strainBuilding: context.state.strainBuilding == true,
@@ -26,7 +27,7 @@ struct NOOPLiveActivity: Widget {
                         hrSpark: context.state.hrTrace,
                         maxHR: liveMaxHR(context.state),
                         isStale: context.isStale,
-                        heartRateIsLive: context.state.bonded
+                        heartRateIsLive: context.state.heartRateIsLive
                     ) {
                         PauseResumeButton(isPaused: context.state.pausedAt != nil, isCompact: false, isAvailable: !context.state.finishing)
                     }
@@ -44,7 +45,8 @@ struct NOOPLiveActivity: Widget {
                         NOOPDynamicIslandIdentityView(
                             sport: context.state.sport ?? "Workout",
                             startedAt: context.state.workoutStartedAt,
-                            pausedAt: context.state.pausedAt)
+                            pausedAt: context.state.pausedAt,
+                            frozenAt: context.state.frozenAt)
                     } else {
                         NOOPDynamicIslandHeartRateView(bpm: context.state.bpm, maxHR: liveMaxHR(context.state))
                     }
@@ -54,7 +56,7 @@ struct NOOPLiveActivity: Widget {
                         NOOPDynamicIslandVitalsView(
                             bpm: context.state.bpm, strain: context.state.effort,
                             building: context.state.strainBuilding == true, maxHR: liveMaxHR(context.state),
-                            isDimmed: context.state.pausedAt != nil || context.isStale || !context.state.bonded)
+                            isDimmed: context.state.pausedAt != nil || context.isStale || !context.state.heartRateIsLive)
                     } else if let recovery = context.state.recovery {
                         Text("Recovery \(recovery)")
                             .font(.caption.weight(.semibold)).foregroundStyle(.white)
@@ -66,7 +68,7 @@ struct NOOPLiveActivity: Widget {
                             LiveZoneRail(
                                 bpm: context.state.bpm,
                                 thresholds: liveMaxHR(context.state).map { HRZoneStyle.Thresholds(hrMax: $0) } ?? .default,
-                                isDimmed: context.state.pausedAt != nil || context.isStale || !context.state.bonded,
+                                isDimmed: context.state.pausedAt != nil || context.isStale || !context.state.heartRateIsLive,
                                 style: .bar)
                             PauseResumeButton(isPaused: context.state.pausedAt != nil, isCompact: true, isAvailable: !context.state.finishing)
                         }
@@ -80,7 +82,7 @@ struct NOOPLiveActivity: Widget {
                 if context.state.isWorkout {
                     NOOPDynamicIslandHeartRateView(
                         bpm: context.state.bpm, maxHR: liveMaxHR(context.state), isPaused: context.state.pausedAt != nil,
-                        isDimmed: context.state.pausedAt != nil || context.isStale || !context.state.bonded)
+                        isDimmed: context.state.pausedAt != nil || context.isStale || !context.state.heartRateIsLive)
                 } else {
                     // Passive HR is shown in compactTrailing. Repeating it here
                     // crowds the compact island and clips the duplicate digits.
@@ -92,7 +94,8 @@ struct NOOPLiveActivity: Widget {
             } compactTrailing: {
                 if context.state.isWorkout {
                     NOOPDynamicIslandTimerView(
-                        startedAt: context.state.workoutStartedAt, pausedAt: context.state.pausedAt)
+                        startedAt: context.state.workoutStartedAt, pausedAt: context.state.pausedAt,
+                        frozenAt: context.state.frozenAt)
                 } else {
                     Text(context.state.bpm.map(String.init) ?? "—")
                         .font(.system(size: 13, weight: .bold, design: .rounded))

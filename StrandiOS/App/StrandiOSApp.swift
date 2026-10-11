@@ -26,6 +26,8 @@ struct StrandiOSApp: App {
     @StateObject private var router = NavRouter()
     @State private var liveActivity = LiveActivityController()
     @State private var workoutProjection = WorkoutLiveProjectionCache()
+    /// The strap-went-quiet verdict the activity was last driven with, so the check below drives it only when it changes.
+    @State private var activityHeartRateWasStale = false
     @State private var externalSurface: ExternalSurfaceProjection?
     @State private var externalPublicationWorker: ExternalPublicationWorker
     private let sourcePrivacyCleanupCoordinator: SourcePrivacyCleanupCoordinator
@@ -190,20 +192,14 @@ struct StrandiOSApp: App {
                     guard let expected = model.repo.activeVerifiedSinkContextId else {
                         return .superseded
                     }
-                    return try await liveActivityController.publishVerified(
+                    return try await LiveActivityFeed.current(
+                        model: model, projections: workoutProjectionCache, liveActivity: liveActivityController
+                    ).publishVerified(
+                        liveActivityController,
                         projection: projection,
                         expectedActiveContextId: expected,
-                        bpm: model.bpm ?? model.live.heartRate,
                         recovery: surface.recovery,
-                        connected: model.live.connected,
-                        effort: surface.effort,
-                        workoutIsActive: model.activeWorkout != nil,
-                        workoutProjection: {
-                            model.activeWorkout.map {
-                                workoutProjectionCache.state(workout: $0, profile: model.profile)
-                            }
-                        }
-                    )
+                        effort: surface.effort)
                 },
                 publishHealthKitWriteOnly: { payload in
                     guard let store = await model.repo.storeHandle() else {
@@ -318,13 +314,6 @@ struct StrandiOSApp: App {
         )
     }
 
-    private var workoutActivityState: WorkoutLiveActivityState? {
-        guard let workout = model.activeWorkout else { return nil }
-        var state = workoutProjection.state(workout: workout, profile: model.profile)
-        state.isFinishing = model.isWorkoutFinishPending
-        return state
-    }
-
     private var workoutBPMUpdates: AnyPublisher<Int?, Never> {
         model.$activeWorkout.map { workout -> AnyPublisher<Int?, Never> in
             guard let workout else { return Just<Int?>(nil).eraseToAnyPublisher() }
@@ -333,21 +322,15 @@ struct StrandiOSApp: App {
     }
 
     private func driveLiveActivity(connected: Bool? = nil, workoutReading: Int? = nil) {
-        let isConnected = connected ?? model.live.connected
-        liveActivity.update(
-            bpm: LiveActivityHeartRate.value(
-                workoutIsActive: model.activeWorkout != nil,
-                workoutBPM: model.activeWorkout.flatMap { workoutReading ?? $0.currentBPM },
-                connected: isConnected,
-                passiveBPM: model.bpm ?? model.live.heartRate),
+        LiveActivityFeed.current(
+            model: model, projections: workoutProjection, liveActivity: liveActivity,
+            connected: connected, workoutReading: workoutReading
+        ).update(
+            liveActivity,
             recovery: externalSurface?.recovery,
-            connected: isConnected,
             effort: externalSurface?.effort,
             verifiedContextId: externalSurface?.contextId,
-            verifiedProjectionGeneration: externalSurface?.generation,
-            workoutIsActive: model.activeWorkout != nil,
-            workout: workoutActivityState
-        )
+            verifiedProjectionGeneration: externalSurface?.generation)
     }
 
     private func refreshExternalSurface() {
@@ -447,25 +430,12 @@ struct StrandiOSApp: App {
     ) async -> Bool {
         guard await model.repo.refresh(days: 1) else { return false }
         let surface = model.repo.verifiedHealthProjection.map(ExternalSurfaceProjection.init)
-        let connected = model.live.connected
-        let workoutState = model.activeWorkout.map {
-            workoutProjection.state(workout: $0, profile: model.profile)
-        }
-        let bpm = LiveActivityHeartRate.value(
-            workoutIsActive: model.activeWorkout != nil,
-            workoutBPM: model.activeWorkout?.currentBPM,
-            connected: connected,
-            passiveBPM: model.bpm ?? model.live.heartRate)
-        liveActivity.update(
-            bpm: bpm,
+        LiveActivityFeed.current(model: model, projections: workoutProjection, liveActivity: liveActivity).update(
+            liveActivity,
             recovery: surface?.recovery,
-            connected: connected,
             effort: surface?.effort,
             verifiedContextId: surface?.contextId,
-            verifiedProjectionGeneration: surface?.generation,
-            workoutIsActive: model.activeWorkout != nil,
-            workout: workoutState
-        )
+            verifiedProjectionGeneration: surface?.generation)
         _ = await WidgetSnapshot.publish(from: model)
         await externalPublicationWorker.signal()
         return true
@@ -601,6 +571,18 @@ struct StrandiOSApp: App {
                 // once, not on the next heart-rate tick, so the activity and the app never disagree about whether the
                 // workout is running or can be paused.
                 .onReceive(model.$workoutPauseEdge.dropFirst()) { _ in
+                    liveActivity.noteWorkoutPauseEdge()
+                    driveLiveActivity()
+                }
+                // A strap that stops sending publishes nothing, so nothing would ever tell the activity its reading has gone
+                // stale. The app decides that on a clock (`LiveWorkoutSignals.heartRateIsStale`, the rule its own tiles use)
+                // and the activity is rewritten when the verdict changes, through the same throttle bypass a pause edge uses.
+                .onReceive(Timer.publish(every: 5, on: .main, in: .common).autoconnect()) { _ in
+                    let stale = model.activeWorkout != nil && LiveActivityFeed.current(
+                        model: model, projections: workoutProjection, liveActivity: liveActivity).heartRateIsStale
+                    guard stale != activityHeartRateWasStale else { return }
+                    activityHeartRateWasStale = stale
+                    guard model.activeWorkout != nil else { return }
                     liveActivity.noteWorkoutPauseEdge()
                     driveLiveActivity()
                 }

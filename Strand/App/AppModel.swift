@@ -281,9 +281,21 @@ final class AppModel: ObservableObject {
         func seedDemoLastReading(_ time: Date?) { lastReadingAt = time }
         #endif
 
-        /// Seconds the workout has actually run: the timer's value, frozen while paused.
+        /// While a finish is pending (End was tried and the save is running or failed and waits for a retry), the moment
+        /// the workout stopped counting. The retry saves a workout that ended then, so every clock stops there rather than
+        /// running on past a time the saved workout will not have. nil while the workout is live.
+        @Published private(set) var frozenAt: Date?
+
+        func freeze(at time: Date?) { frozenAt = time }
+
+        /// The instant the clocks read as of `now`: `now` itself, or the freeze if the workout has stopped counting.
+        func clockEnd(at now: Date) -> Date {
+            frozenAt.map { min($0, now) } ?? now
+        }
+
+        /// Seconds the workout has actually run: the timer's value, frozen while paused and once a finish is pending.
         func activeElapsed(at now: Date = Date()) -> TimeInterval {
-            pauseLedger.activeSeconds(from: start.timeIntervalSince1970, to: now.timeIntervalSince1970)
+            pauseLedger.activeSeconds(from: start.timeIntervalSince1970, to: clockEnd(at: now).timeIntervalSince1970)
         }
 
         init(sessionID: UUID = UUID(), start: Date, sport: String, maxHR: Double,
@@ -2383,9 +2395,13 @@ final class AppModel: ObservableObject {
         defer { PerformanceTrace.end(trace, changedRows: lastWorkout == nil ? 0 : 1) }
         workoutFinishState = .saving
         if pendingWorkoutSnapshot == nil {
-            pendingWorkoutSnapshot = current
             // Ended while paused, the workout stops at the moment it was paused: the time since is not part of it.
-            pendingWorkoutEnd = current.pauseLedger.openSince.map(Date.init(timeIntervalSince1970:)) ?? Date()
+            let stoppedAt = current.pauseLedger.openSince.map(Date.init(timeIntervalSince1970:)) ?? Date()
+            pendingWorkoutEnd = stoppedAt
+            // Every clock stops at the end the save (and any retry) will use. Set before the snapshot, whose assignment
+            // raises the edge that rewrites the Lock Screen: the activity is then built with the freeze already in it.
+            current.freeze(at: stoppedAt)
+            pendingWorkoutSnapshot = current
             pendingWorkoutWasGps = activeWorkoutIsGps
         }
         let wasGps = pendingWorkoutWasGps
@@ -2411,6 +2427,8 @@ final class AppModel: ObservableObject {
                 event: "discarded", sportKey: WorkoutSource.traceSportKey(w.sport),
                 hrSamples: samples.count, gpsPoints: route == nil ? 0 : nil))
             lastWorkout = nil
+            // Nothing to save: the workout is still the one in progress, so its clocks run again.
+            current.freeze(at: nil)
             pendingWorkoutSnapshot = nil
             pendingWorkoutEnd = nil
             pendingWorkoutRoute = nil

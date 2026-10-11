@@ -104,6 +104,9 @@ public struct NOOPWorkoutLiveActivityView<Control: View>: View {
     public let title: String
     public let startedAt: Date?
     public let pausedAt: Date?
+    /// Set while the workout is being ended: the clock stops here, with no Paused pill, because the workout is not paused,
+    /// it is finished and saving.
+    public let frozenAt: Date?
     public let bpm: Int?
     public let strain: Double?
     public let strainBuilding: Bool
@@ -116,12 +119,13 @@ public struct NOOPWorkoutLiveActivityView<Control: View>: View {
     public let heartRateIsLive: Bool
     private let control: Control
 
-    public init(title: String, startedAt: Date?, pausedAt: Date? = nil, bpm: Int?, strain: Double?,
+    public init(title: String, startedAt: Date?, pausedAt: Date? = nil, frozenAt: Date? = nil, bpm: Int?, strain: Double?,
                 strainBuilding: Bool, calories: Int?, hrSpark: [Int]?, maxHR: Double? = nil, isStale: Bool = false,
                 heartRateIsLive: Bool = true, @ViewBuilder control: () -> Control) {
         self.title = title
         self.startedAt = startedAt
         self.pausedAt = pausedAt
+        self.frozenAt = frozenAt
         self.bpm = bpm
         self.strain = strain
         self.strainBuilding = strainBuilding
@@ -143,7 +147,7 @@ public struct NOOPWorkoutLiveActivityView<Control: View>: View {
         VStack(alignment: .leading, spacing: 8) {
             eyebrow
             HStack(alignment: .center, spacing: 12) {
-                NOOPLiveTimerText(startedAt: startedAt, pausedAt: pausedAt, size: 38, isDimmed: isPaused || isStale)
+                NOOPLiveTimerText(startedAt: startedAt, pausedAt: pausedAt ?? frozenAt, size: 38, isDimmed: isPaused || isStale)
                 if let hrSpark, hrSpark.count > 1 {
                     Sparkline(values: hrSpark.map(Double.init), gradient: Gradient(colors: [tint.opacity(0.4), tint]),
                               lineWidth: 1.6, showsArea: false, showsHead: false, showsHover: false)
@@ -218,9 +222,10 @@ public struct NOOPWorkoutLiveActivityView<Control: View>: View {
 }
 
 public extension NOOPWorkoutLiveActivityView where Control == EmptyView {
-    init(title: String, startedAt: Date?, pausedAt: Date? = nil, bpm: Int?, strain: Double?, strainBuilding: Bool,
-         calories: Int?, hrSpark: [Int]?, maxHR: Double? = nil, isStale: Bool = false, heartRateIsLive: Bool = true) {
-        self.init(title: title, startedAt: startedAt, pausedAt: pausedAt, bpm: bpm, strain: strain,
+    init(title: String, startedAt: Date?, pausedAt: Date? = nil, frozenAt: Date? = nil, bpm: Int?, strain: Double?,
+         strainBuilding: Bool, calories: Int?, hrSpark: [Int]?, maxHR: Double? = nil, isStale: Bool = false,
+         heartRateIsLive: Bool = true) {
+        self.init(title: title, startedAt: startedAt, pausedAt: pausedAt, frozenAt: frozenAt, bpm: bpm, strain: strain,
                   strainBuilding: strainBuilding, calories: calories, hrSpark: hrSpark, maxHR: maxHR,
                   isStale: isStale, heartRateIsLive: heartRateIsLive) { EmptyView() }
     }
@@ -256,12 +261,15 @@ public struct NOOPDynamicIslandHeartRateView: View {
 public struct NOOPDynamicIslandTimerView: View {
     public let startedAt: Date?
     public let pausedAt: Date?
-    public init(startedAt: Date?, pausedAt: Date? = nil) {
+    /// Set while the workout is being ended: the clock stops here (not dimmed, it is not a pause).
+    public let frozenAt: Date?
+    public init(startedAt: Date?, pausedAt: Date? = nil, frozenAt: Date? = nil) {
         self.startedAt = startedAt
         self.pausedAt = pausedAt
+        self.frozenAt = frozenAt
     }
     public var body: some View {
-        NOOPLiveTimerText(startedAt: startedAt, pausedAt: pausedAt, size: 13, isDimmed: pausedAt != nil)
+        NOOPLiveTimerText(startedAt: startedAt, pausedAt: pausedAt ?? frozenAt, size: 13, isDimmed: pausedAt != nil)
             .frame(maxWidth: 56, alignment: .trailing)
     }
 }
@@ -299,10 +307,13 @@ public struct NOOPDynamicIslandIdentityView: View {
     public let sport: String
     public let startedAt: Date?
     public let pausedAt: Date?
-    public init(sport: String, startedAt: Date?, pausedAt: Date? = nil) {
+    /// Set while the workout is being ended: the clock stops here.
+    public let frozenAt: Date?
+    public init(sport: String, startedAt: Date?, pausedAt: Date? = nil, frozenAt: Date? = nil) {
         self.sport = sport
         self.startedAt = startedAt
         self.pausedAt = pausedAt
+        self.frozenAt = frozenAt
     }
     public var body: some View {
         VStack(alignment: .leading, spacing: 2) {
@@ -314,7 +325,7 @@ public struct NOOPDynamicIslandIdentityView: View {
                     .font(StrandFont.overline).tracking(1.0)
                     .foregroundStyle(StrandPalette.textSecondary).lineLimit(1)
             }
-            NOOPLiveTimerText(startedAt: startedAt, pausedAt: pausedAt, size: 26, isDimmed: pausedAt != nil)
+            NOOPLiveTimerText(startedAt: startedAt, pausedAt: pausedAt ?? frozenAt, size: 26, isDimmed: pausedAt != nil)
         }
     }
 }
