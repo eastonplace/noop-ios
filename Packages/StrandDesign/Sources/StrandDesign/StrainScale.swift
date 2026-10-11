@@ -8,12 +8,18 @@ public enum StrainBand: String, CaseIterable, Sendable {
     case high
     case allOut
 
+    /// Keys of their own, because "Light" is also a sleep stage ("light sleep" in Chinese) and a band word must never borrow
+    /// that translation.
     public var title: String {
         switch self {
-        case .light: return String(localized: "Light", bundle: .module)
-        case .moderate: return String(localized: "Moderate", bundle: .module)
-        case .high: return String(localized: "High", bundle: .module)
-        case .allOut: return String(localized: "All Out", bundle: .module)
+        case .light: return String(localized: "strain.band.light", defaultValue: "Light", bundle: .module,
+                                   comment: "Strain band for a light day or workout, the lowest")
+        case .moderate: return String(localized: "strain.band.moderate", defaultValue: "Moderate", bundle: .module,
+                                      comment: "Strain band for a moderate day or workout")
+        case .high: return String(localized: "strain.band.high", defaultValue: "High", bundle: .module,
+                                  comment: "Strain band for a high-strain day or workout")
+        case .allOut: return String(localized: "strain.band.allOut", defaultValue: "All Out", bundle: .module,
+                                    comment: "Strain band for the hardest day or workout, the highest")
         }
     }
 }

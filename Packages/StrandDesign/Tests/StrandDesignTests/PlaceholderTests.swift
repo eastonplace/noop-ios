@@ -127,6 +127,11 @@ final class StrandDesignTests: XCTestCase {
         XCTAssertEqual(StrainScale.badgeText(fromStored: nil), "–")
     }
 
+    /// A band word has a key of its own: "Light" the strain band is not "Light" the sleep stage.
+    func testStrainBandTitlesAreTheEnglishWordsWithTheirOwnKeys() {
+        XCTAssertEqual(StrainBand.allCases.map(\.title), ["Light", "Moderate", "High", "All Out"])
+    }
+
     func testStrainBandBoundariesUseDisplayScale() {
         XCTAssertEqual(StrainScale.band(0), .light)
         XCTAssertEqual(StrainScale.band(9.9), .light)
