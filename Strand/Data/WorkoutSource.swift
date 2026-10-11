@@ -324,13 +324,39 @@ enum WorkoutSource: Equatable {
     /// zonesJSON, notes) over from the row being edited. A v1.67 live-tracked session has real
     /// captured strain/maxHr; rebuilding the row from the sheet's inputs alone would silently wipe
     /// them on an edit. No-op for a fresh add (`old == nil`).
-    static func preservingCaptured(_ row: WorkoutRow, from old: WorkoutRow?) -> WorkoutRow {
+    ///
+    /// `pausedSeconds` is how much of the edited row's window was paused (`pausedSeconds(of:ledger:)`; 0 for a row that
+    /// was never paused). A paused recording stores two different spans: `durationS` is the time it ran, `endTs` is the
+    /// wall clock it ended at, and the pause sits between them. The sheet edits the running time, so without this a
+    /// rename would write `endTs = start + running time` and cut the paused stretch off the end of the window.
+    static func preservingCaptured(_ row: WorkoutRow, from old: WorkoutRow?, pausedSeconds: Double = 0) -> WorkoutRow {
         guard let old else { return row }
-        return row.replacing(
+        let kept = row.replacing(
             maxHr: .some(old.maxHr), strain: .some(old.strain), distanceM: .some(old.distanceM),
             zonesJSON: .some(old.zonesJSON), notes: .some(old.notes),
             strainVersion: .some(old.strainVersion)
         )
+        guard pausedSeconds > 0 else { return kept }
+        let unchanged = kept.startTs == old.startTs
+            && Int(((kept.durationS ?? 0) / 60).rounded()) == editableDurationMin(old)
+        if unchanged {
+            // Nothing about the time was touched (a rename, an Avg HR or calories edit): the row keeps its exact window
+            // and its exact running time, not the whole minutes the stepper shows.
+            return kept.replacing(endTs: old.endTs, durationS: .some(old.durationS))
+        }
+        // The start or the running time was changed on purpose: the window is that running time plus the pause inside it.
+        return kept.replacing(endTs: kept.startTs + Int(kept.durationS ?? 0) + Int(pausedSeconds.rounded()))
+    }
+
+    /// The whole minutes the add/edit sheet's duration stepper starts from: the time the workout ran. A recorded
+    /// workout's `durationS` already leaves its pauses out, so for one that was paused this is shorter than its window.
+    static func editableDurationMin(_ row: WorkoutRow) -> Int {
+        max(1, Int(((row.durationS ?? Double(row.endTs - row.startTs)) / 60).rounded()))
+    }
+
+    /// Seconds of `row`'s window that were paused, from the pauses kept for it. 0 when it had none.
+    static func pausedSeconds(of row: WorkoutRow, ledger: WorkoutPauseLedger?) -> Double {
+        ledger?.pausedSeconds(from: Double(row.startTs), to: Double(row.endTs)) ?? 0
     }
 
     /// Build a retroactive manual workout (source "manual", persisted under the strap deviceId by the
