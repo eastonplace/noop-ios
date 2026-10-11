@@ -555,30 +555,38 @@ public struct SegmentedPillControl<T: Hashable>: View {
     let isEnabled: (T) -> Bool
     /// Optional per-segment accessibility identifier (for UI automation). nil = none, the default.
     let identifier: ((T) -> String)?
+    /// Whether the segments stack into one column at the accessibility text sizes. A caller that already puts the control in a
+    /// horizontal `ScrollView` (a pinned header, a row of presets) passes false: stacked, the control would grow tall inside it.
+    let stacksAtAccessibilitySizes: Bool
     @Binding var selection: T
     @Namespace private var selectionThumb
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    public init(_ items: [T], selection: Binding<T>, label: @escaping (T) -> String) {
-        self.init(items, selection: selection, isEnabled: { _ in true }, label: label)
-    }
-    public init(_ items: [T], selection: Binding<T>, isEnabled: @escaping (T) -> Bool,
+    public init(_ items: [T], selection: Binding<T>, stacksAtAccessibilitySizes: Bool = true,
                 label: @escaping (T) -> String) {
+        self.init(items, selection: selection, stacksAtAccessibilitySizes: stacksAtAccessibilitySizes,
+                  isEnabled: { _ in true }, label: label)
+    }
+    public init(_ items: [T], selection: Binding<T>, stacksAtAccessibilitySizes: Bool = true,
+                isEnabled: @escaping (T) -> Bool, label: @escaping (T) -> String) {
         self.items = items; self._selection = selection; self.isEnabled = isEnabled; self.label = label
         self.identifier = nil
+        self.stacksAtAccessibilitySizes = stacksAtAccessibilitySizes
     }
     /// Same control with a stable accessibility identifier per segment, so a screen that exposes the
     /// segments as tabs keeps its UI-test hooks when it adopts the canonical control.
-    public init(_ items: [T], selection: Binding<T>, identifier: @escaping (T) -> String,
-                label: @escaping (T) -> String) {
+    public init(_ items: [T], selection: Binding<T>, stacksAtAccessibilitySizes: Bool = true,
+                identifier: @escaping (T) -> String, label: @escaping (T) -> String) {
         self.items = items; self._selection = selection; self.isEnabled = { _ in true }; self.label = label
         self.identifier = identifier
+        self.stacksAtAccessibilitySizes = stacksAtAccessibilitySizes
     }
     @Environment(\.dynamicTypeSize) private var typeSize
 
     public var body: some View {
         // Side by side the labels share one line. From the accessibility sizes up they would be cut, so the segments
-        // stack, one full-width row each, and a label may take as many lines as it needs.
-        let stacked = typeSize.isAccessibilitySize
+        // stack, one full-width row each, and a label may take as many lines as it needs. A control inside a sideways
+        // scroll view opts out and keeps its single row.
+        let stacked = stacksAtAccessibilitySizes && typeSize.isAccessibilitySize
         Group {
             if stacked {
                 VStack(alignment: .leading, spacing: 4) {
@@ -626,7 +634,8 @@ public struct SegmentedPillControl<T: Hashable>: View {
                 // Fill the segment height so the selected pill has EQUAL margins to the track
                 // on every side. (The old compact pill inside a taller 44pt touch frame left
                 // more vertical margin than horizontal — it read as off-centre.)
-                .frame(minWidth: 26, maxWidth: stacked ? .infinity : nil, maxHeight: .infinity)
+                // (Stacked rows are only as tall as their label: a greedy height would stretch a pinned header.)
+                .frame(minWidth: 26, maxWidth: stacked ? .infinity : nil, maxHeight: stacked ? nil : .infinity)
                 .padding(.horizontal, 9)
                 .padding(.vertical, stacked ? 10 : 0)
                 .background(
@@ -641,9 +650,10 @@ public struct SegmentedPillControl<T: Hashable>: View {
                         }
                     }
                 )
-                // A finger gets 44 pt of height though the segment is drawn 32: the touch shape reaches 6 pt
-                // above and below it, which changes nothing in the layout.
-                .contentShape(SegmentTouchShape())
+                // Side by side, a finger gets 44 pt of height though the segment is drawn 32: the touch shape reaches 6 pt
+                // above and below it, which changes nothing in the layout. Stacked rows are 44 pt already and sit 4 pt
+                // apart, so they keep their own bounds and neighbouring touch areas never overlap.
+                .contentShape(stacked ? AnyShape(Rectangle()) : AnyShape(SegmentTouchShape()))
         }
         .buttonStyle(.plain)
         .modifier(SegmentHeight(stacked: stacked))

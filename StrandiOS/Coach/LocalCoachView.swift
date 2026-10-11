@@ -203,7 +203,8 @@ struct LocalCoachView: View {
     }
 
     /// The canonical segmented control. If the four titles ever outgrow the width (small phones, large
-    /// Dynamic Type) the control scrolls horizontally instead of truncating.
+    /// Dynamic Type) the control scrolls horizontally instead of truncating. It never stacks: this sits in
+    /// the pinned header, and four stacked rows would take the transcript's room.
     private var sectionPicker: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             SegmentedPillControl(
@@ -215,6 +216,7 @@ struct LocalCoachView: View {
                         screen = item
                     }
                 ),
+                stacksAtAccessibilitySizes: false,
                 identifier: { "coach.tab.\($0.rawValue)" },
                 label: { $0.title }
             )
