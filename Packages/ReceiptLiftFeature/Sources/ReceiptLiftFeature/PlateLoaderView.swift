@@ -134,7 +134,7 @@ struct PlateLoaderView: View {
             .font(StrandFont.number(15))
             .foregroundStyle(StrandPalette.textTertiary)
             .frame(minWidth: 34, alignment: .leading)
-          UnitValueText(value: format.weight(inUnit: group.plate), size: 17)
+          LiftScaledValue(value: format.weight(inUnit: group.plate))
           Spacer(minLength: 0)
         }
         .frame(minHeight: 44)

@@ -334,7 +334,7 @@ struct LiftListRow<Leading: View, Accessory: View>: View {
 
   @ViewBuilder private var figure: some View {
     if let value {
-      UnitValueText(value: value, size: 17)
+      LiftScaledValue(value: value)
         .fixedSize(horizontal: true, vertical: false)
         .layoutPriority(2)
     }
@@ -706,6 +706,15 @@ struct LiftTimerPill: View {
     .accessibilityLabel(accessibilityLabel)
     .accessibilityAddTraits(isSelected ? .isSelected : [])
   }
+}
+
+/// A figure with its muted unit, the figure scaling with Dynamic Type like the unit beside it (the design system's
+/// `UnitValueText` takes a fixed point size, so on its own the unit would outgrow the number at the largest sizes).
+struct LiftScaledValue: View {
+  let value: String
+  @ScaledMetric(relativeTo: .body) private var size: CGFloat = 17
+
+  var body: some View { UnitValueText(value: value, size: size) }
 }
 
 // MARK: Key-value row

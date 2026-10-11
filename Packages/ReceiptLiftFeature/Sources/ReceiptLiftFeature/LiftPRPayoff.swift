@@ -72,7 +72,7 @@ struct LiftPRPayoffView: View {
         Text(verbatim: LiftPRPresentation.label(for: record))
           .font(StrandFont.caption.weight(.semibold))
           .foregroundStyle(StrandPalette.textSecondary)
-        UnitValueText(value: LiftPRPresentation.valueText(for: record, format: format), size: 17)
+        LiftScaledValue(value: LiftPRPresentation.valueText(for: record, format: format))
       }
       Spacer(minLength: 0)
     }

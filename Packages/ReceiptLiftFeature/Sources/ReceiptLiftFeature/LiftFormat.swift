@@ -235,9 +235,10 @@ struct LiftFormat: Sendable {
     parts.filter { !$0.isEmpty }.formatted(.list(type: .and, width: .narrow).locale(locale))
   }
 
-  /// Quiet facts about one thing, in a line ("8 exercises · 55 min"). Empty entries are dropped.
+  /// Quiet facts about one thing, in a line ("8 exercises · 55 min"). Empty entries are dropped. The dot is tied to the
+  /// fact before it with a no-break space, so when a line wraps at large text sizes the dot ends a line and never opens one.
   static func facts(_ parts: [String]) -> String {
-    parts.filter { !$0.isEmpty }.joined(separator: " · ")
+    parts.filter { !$0.isEmpty }.joined(separator: "\u{00A0}· ")
   }
 
   // MARK: Dates

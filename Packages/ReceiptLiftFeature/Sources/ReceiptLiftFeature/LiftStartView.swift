@@ -167,7 +167,7 @@ struct LiftLastLiftLine: View {
         .font(StrandFont.body.weight(.semibold))
         .foregroundStyle(StrandPalette.textPrimary)
         .fixedSize(horizontal: false, vertical: true)
-      Text(verbatim: facts.joined(separator: " · "))
+      Text(verbatim: LiftFormat.facts(facts))
         .font(StrandFont.footnote)
         .foregroundStyle(StrandPalette.textSecondary)
         .fixedSize(horizontal: false, vertical: true)

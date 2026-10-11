@@ -461,18 +461,54 @@ struct LiveWorkoutView: View {
     _ session: LiftSession,
     queueRows: [LiftWorkoutQueueRowState]
   ) -> some View {
-    HStack(alignment: .center, spacing: NoopMetrics.space2) {
-      HeaderChipButton("chevron.down", accessibilityLabel: "Close workout", action: onDismiss)
-      VStack(alignment: .leading, spacing: 0) {
-        Text(verbatim: session.title)
-          .font(StrandFont.headline)
-          .foregroundStyle(StrandPalette.textPrimary)
-          .lineLimit(2)
-          .minimumScaleFactor(0.7)
-          .accessibilityAddTraits(.isHeader)
-        ElapsedWorkoutClock(startedAt: session.startedAt, setTotal: sessionSetTotal(queueRows: queueRows, session: session))
+    // At the largest text sizes the title and the clock get the whole width: the chips sit on a row of their own above.
+    Group {
+      if typeSize.isAccessibilitySize {
+        VStack(alignment: .leading, spacing: NoopMetrics.space1) {
+          HStack(spacing: NoopMetrics.space2) {
+            headerCloseChip
+            Spacer(minLength: NoopMetrics.space2)
+            headerTrailingChips(session)
+          }
+          headerTitle(session, queueRows: queueRows)
+        }
+      } else {
+        HStack(alignment: .center, spacing: NoopMetrics.space2) {
+          headerCloseChip
+          headerTitle(session, queueRows: queueRows)
+          Spacer(minLength: NoopMetrics.space2)
+          headerTrailingChips(session)
+        }
       }
-      Spacer(minLength: NoopMetrics.space2)
+    }
+    .frame(minHeight: 44)
+    .padding(.horizontal, LiftChromeMetrics.gutter)
+    .padding(.top, NoopMetrics.space2)
+    .padding(.bottom, NoopMetrics.space1)
+    .frame(maxWidth: LiftChromeMetrics.maxColumnWidth + LiftChromeMetrics.gutter * 2)
+    .frame(maxWidth: .infinity)
+    .background(StrandPalette.appCanvas.ignoresSafeArea(edges: .top))
+  }
+
+  private var headerCloseChip: some View {
+    HeaderChipButton("chevron.down", accessibilityLabel: "Close workout", action: onDismiss)
+  }
+
+  private func headerTitle(_ session: LiftSession, queueRows: [LiftWorkoutQueueRowState]) -> some View {
+    VStack(alignment: .leading, spacing: 0) {
+      Text(verbatim: session.title)
+        .font(StrandFont.headline)
+        .foregroundStyle(StrandPalette.textPrimary)
+        .lineLimit(typeSize.isAccessibilitySize ? nil : 2)
+        .minimumScaleFactor(typeSize.isAccessibilitySize ? 1 : 0.7)
+        .fixedSize(horizontal: false, vertical: true)
+        .accessibilityAddTraits(.isHeader)
+      ElapsedWorkoutClock(startedAt: session.startedAt, setTotal: sessionSetTotal(queueRows: queueRows, session: session))
+    }
+  }
+
+  private func headerTrailingChips(_ session: LiftSession) -> some View {
+    HStack(spacing: 0) {
       HeaderChipButton("ticket", accessibilityLabel: "Receipt") { activeSheet = .receipt(session) }
       Menu {
         Button("Add exercise", systemImage: "plus") {
@@ -489,13 +525,6 @@ struct LiveWorkoutView: View {
       }
       .accessibilityLabel("Workout actions")
     }
-    .frame(minHeight: 44)
-    .padding(.horizontal, LiftChromeMetrics.gutter)
-    .padding(.top, NoopMetrics.space2)
-    .padding(.bottom, NoopMetrics.space1)
-    .frame(maxWidth: LiftChromeMetrics.maxColumnWidth + LiftChromeMetrics.gutter * 2)
-    .frame(maxWidth: .infinity)
-    .background(StrandPalette.appCanvas.ignoresSafeArea(edges: .top))
   }
 
   // MARK: Footer
@@ -936,18 +965,33 @@ private struct ElapsedWorkoutClock: View {
   let startedAt: Date
   let setTotal: String
 
+  @Environment(\.dynamicTypeSize) private var typeSize
+
   var body: some View {
-    HStack(spacing: 6) {
-      Text(timerInterval: startedAt...Date.distantFuture, countsDown: false)
-        .monospacedDigit()
-      Text(verbatim: "·")
-      Text(verbatim: setTotal)
+    Group {
+      if typeSize.isAccessibilitySize {
+        VStack(alignment: .leading, spacing: 0) {
+          clock
+          Text(verbatim: setTotal)
+        }
+      } else {
+        HStack(spacing: 6) {
+          clock
+          Text(verbatim: "·")
+          Text(verbatim: setTotal)
+        }
+        .lineLimit(1)
+      }
     }
     .font(StrandFont.caption)
     .foregroundStyle(StrandPalette.textTertiary)
-    .lineLimit(1)
     .accessibilityElement(children: .ignore)
     .accessibilityLabel("Elapsed")
     .accessibilityValue(Text(timerInterval: startedAt...Date.distantFuture, countsDown: false))
+  }
+
+  private var clock: some View {
+    Text(timerInterval: startedAt...Date.distantFuture, countsDown: false)
+      .monospacedDigit()
   }
 }
