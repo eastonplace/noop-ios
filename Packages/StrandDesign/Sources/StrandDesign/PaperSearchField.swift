@@ -87,7 +87,7 @@ public struct PaperSearchField: View {
             }
         }
         .padding(.horizontal, 14)
-        .frame(height: height)
+        .frame(minHeight: height)
         .background(
             StrandPalette.surfaceInset,
             in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)

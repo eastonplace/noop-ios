@@ -102,9 +102,13 @@ enum AppleDemoSeeder {
             }
             _ = try? await store.upsertMetricSeries(points, deviceId: "\(whoop)-noop")
         }
-        guard existing.isEmpty else { return }
-        do { try await seed(into: store) }
-        catch { NSLog("AppleDemoSeeder: seed failed — \(error)") }
+        if existing.isEmpty {
+            do { try await seed(into: store) }
+            catch { NSLog("AppleDemoSeeder: seed failed — \(error)") }
+        }
+        // The Workouts screens' known week. It replaces what it owns on every launch, so a demo database that was
+        // seeded before it existed gets it too.
+        await AppleDemoWorkoutFixture.seed(into: store)
     }
 
     /// Audit-only preferences that unlock low-risk conditional surfaces. Pre-sleep HR is deliberately

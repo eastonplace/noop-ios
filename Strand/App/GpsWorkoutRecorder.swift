@@ -338,6 +338,29 @@ protocol GpsBackgroundActivity: AnyObject {
 extension CLBackgroundActivitySession: GpsBackgroundActivity {}
 #endif
 
+/// What a start screen can truthfully say about route capture, from the location permission as it stands.
+enum GpsAvailability: Equatable {
+    /// Authorised (while using the app, or always): a route will record.
+    case ready
+    /// Not decided yet: starting a workout asks once, so nothing is promised until the person answers.
+    case willAsk
+    /// The person said no, or Location Services is off for the whole device (CoreLocation reports both as denied). They
+    /// can turn it on in Settings.
+    case denied
+    /// Restricted (screen-time limits or device management): the person cannot change it here.
+    case restricted
+
+    static func of(status: CLAuthorizationStatus) -> GpsAvailability {
+        switch status {
+        case .authorizedWhenInUse, .authorizedAlways: return .ready
+        case .notDetermined: return .willAsk
+        case .denied: return .denied
+        case .restricted: return .restricted
+        @unknown default: return .willAsk
+        }
+    }
+}
+
 /// Records the route of an in-flight GPS workout from CoreLocation. Thin and fail-safe: requests
 /// When-In-Use authorization, streams fixes through `TrackFilter`, and accumulates the route + live
 /// distance/pace. The owning `AppModel` starts it when a distance-type sport is begun and reads the final
@@ -370,6 +393,9 @@ final class GpsWorkoutRecorder: NSObject, ObservableObject {
     /// Location off). The route still records, but fixes are kilometres coarse and TrackFilter's 50 m
     /// accuracy gate will reject most of them, so a screen can explain the sparse route.
     @Published private(set) var isReducedAccuracy = false
+    /// What the location permission allows right now, kept current as the person answers the prompt or changes it in
+    /// Settings, so a start screen never claims GPS is ready before it is.
+    @Published private(set) var availability: GpsAvailability = .willAsk
 
     private let manager: CLLocationManager
     /// Keeps a When-In-Use app's location updates alive while the screen is locked (iOS 17+). Held from the
@@ -428,6 +454,7 @@ final class GpsWorkoutRecorder: NSObject, ObservableObject {
         self.makeBackgroundActivity = makeBackgroundActivity
         super.init()
         manager.delegate = self
+        refreshAvailability()
         manager.desiredAccuracy = kCLLocationAccuracyBest
         // ~5 m between callbacks; TrackFilter still gates on accuracy + speed. Matches the cadence intent
         // of Android's 2 s / 0 m platform request (let the filter, not the platform, do the gating).
@@ -442,6 +469,14 @@ final class GpsWorkoutRecorder: NSObject, ObservableObject {
         // The system's blue "NOOP is using your location" pill, which also lets the user tap back into the app.
         manager.showsBackgroundLocationIndicator = true
         #endif
+    }
+
+    /// Re-read the location permission. The authorization callback keeps `availability` current while the app runs; a
+    /// screen calls this when it appears or the app returns to the foreground, in case the change was made in Settings
+    /// while the app was suspended.
+    func refreshAvailability() {
+        let next = GpsAvailability.of(status: manager.authorizationStatus)
+        if next != availability { availability = next }
     }
 
     /// The production session factory. nil off iOS, where `CLBackgroundActivitySession` does not exist.
@@ -668,6 +703,7 @@ final class GpsWorkoutRecorder: NSObject, ObservableObject {
 extension GpsWorkoutRecorder: @preconcurrency CLLocationManagerDelegate {
 
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        refreshAvailability()
         guard isRecording else { return }
         refreshAccuracyAuthorization()
         switch manager.authorizationStatus {

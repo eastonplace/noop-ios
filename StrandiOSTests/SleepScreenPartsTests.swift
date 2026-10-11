@@ -2,48 +2,9 @@ import XCTest
 import StrandDesign
 @testable import NOOP
 
-/// The pure rules behind the Sleep tab's presentation: value splitting, the balance strip's scale, the "on typical"
+/// The pure rules behind the Sleep tab's presentation: the balance strip's scale, the "on typical"
 /// flag, the shares of the night, the score bands, the stage timeline and the spoken durations.
 final class SleepScreenPartsTests: XCTestCase {
-    // MARK: SleepValueSplit
-
-    func testValueSplitSeparatesAUnitFromItsNumber() {
-        let en = Locale(identifier: "en_US")
-        XCTAssertTrue(SleepValueSplit.parts("55 bpm", locale: en) == ("55", "bpm"))
-        XCTAssertTrue(SleepValueSplit.parts("7:00 AM", locale: en) == ("7:00", "AM"))
-        // The narrow no-break space ICU puts before AM/PM is treated as the space it is.
-        XCTAssertTrue(SleepValueSplit.parts("7:00\u{202F}PM", locale: en) == ("7:00", "PM"))
-    }
-
-    func testValueSplitKeepsCompoundsWhole() {
-        let en = Locale(identifier: "en_US")
-        XCTAssertTrue(SleepValueSplit.parts("6h 49m", locale: en) == ("6h 49m", nil))
-        XCTAssertTrue(SleepValueSplit.parts("12 of 21", locale: en) == ("12 of 21", nil))
-        XCTAssertTrue(SleepValueSplit.parts("—", locale: en) == ("—", nil))
-        XCTAssertTrue(SleepValueSplit.parts("Unavailable", locale: en) == ("Unavailable", nil))
-    }
-
-    func testValueSplitMatchesTheLocalesOwnDayPeriodSymbols() {
-        // Spanish writes "a. m." / "p. m.", two tokens: the old "last word" rule would have cut "7:00 a." / "m.".
-        let es = Locale(identifier: "es_ES")
-        let formatter = DateFormatter()
-        formatter.locale = es
-        func plain(_ text: String) -> String {
-            text.replacingOccurrences(of: "\u{00A0}", with: " ").replacingOccurrences(of: "\u{202F}", with: " ")
-        }
-        let am = plain(formatter.amSymbol ?? "a. m.")
-        let pm = plain(formatter.pmSymbol ?? "p. m.")
-        XCTAssertTrue(am.contains(" "), "Spanish day periods are multi-token; this test needs that")
-        XCTAssertTrue(SleepValueSplit.parts("7:00 \(am)", locale: es) == ("7:00", am))
-        XCTAssertTrue(SleepValueSplit.parts("11:30\u{202F}\(pm)", locale: es) == ("11:30", pm))
-    }
-
-    func testValueSplitShowsNoUnitOnA24HourClock() {
-        let de = Locale(identifier: "de_DE")
-        XCTAssertTrue(SleepValueSplit.parts("06:49", locale: de) == ("06:49", nil))
-        XCTAssertTrue(SleepValueSplit.parts("19:05", locale: de) == ("19:05", nil))
-    }
-
     // MARK: Balance strip scale
 
     func testBalanceGeometryGivesSurplusAndDebtOneScale() {

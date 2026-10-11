@@ -40,21 +40,21 @@ struct MissedSleepRecoveryCard: View {
     let onSetWindow: () -> Void
 
     var body: some View {
-        SleepSection(emptyDetail == nil ? "Today's sleep" : "Your sleep", systemImage: "moon.zzz.fill", tint: .sleep,
+        FlatSection(emptyDetail == nil ? "Today's sleep" : "Your sleep", systemImage: "moon.zzz.fill", tint: .sleep,
                      trailing: .pill(emptyDetail == nil ? "Not recorded yet" : "No nights yet", tone: .neutral)) {
             Text(emptyDetail.map { LocalizedStringKey($0) }
                  ?? "If you've finished sleeping, sync your strap or review the sleep window.")
                 .font(StrandFont.subhead)
                 .foregroundStyle(StrandPalette.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
-            SleepChipRow {
+            ChipRow {
                 // The spoken name always contains the visible words, so Voice Control's "tap Retry detection" works.
-                SleepChipButton(title: isRetrying ? "Reviewing sleep…" : "Retry detection",
+                WidgetChipButton(title: isRetrying ? "Reviewing sleep…" : "Retry detection",
                                 systemImage: "arrow.clockwise",
                                 accessibilityLabel: isRetrying ? "Reviewing sleep…" : "Retry detection",
                                 accessibilityHint: "Runs sleep detection again", action: onRetry)
                     .disabled(isRetrying)
-                SleepChipButton(title: "Set sleep window", systemImage: "moon.stars",
+                WidgetChipButton(title: "Set sleep window", systemImage: "moon.stars",
                                 accessibilityLabel: "Set sleep window", action: onSetWindow)
                     .disabled(isRetrying)
             }

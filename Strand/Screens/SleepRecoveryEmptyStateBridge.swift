@@ -12,7 +12,7 @@ func sleepRecoveryEmptyState(what: String) -> some View {
         // No night at all: the card carries the guidance the placeholder message would have shown.
         MissedSleepRecoveryBridge(emptyDetail: what)
     } else {
-        SleepSection("Sleep", systemImage: "moon.zzz.fill", tint: .sleep) {
+        FlatSection("Sleep", systemImage: "moon.zzz.fill", tint: .sleep) {
             HStack(spacing: NoopMetrics.space2) {
                 ProgressView().tint(StrandPalette.restColor).accessibilityHidden(true)
                 Text(LocalizedStringKey(what))

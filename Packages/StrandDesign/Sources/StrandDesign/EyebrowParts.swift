@@ -71,8 +71,11 @@ struct EyebrowPulseIcon: View {
 /// `.isSelected` accessibility trait to the button that wraps it.
 public struct WidgetChip: View {
     private let title: LocalizedStringKey?
+    /// A title that is already text in the person's language (a sport, a source), never looked up.
+    private let verbatimTitle: String?
     private let systemImage: String?
     private let showsChevron: Bool
+    private let chevronSymbol: String
     private let overhangs: Bool
     private let isSelected: Bool
     /// Where `title` is looked up: this package's string table for the Today chips, or the app's (`nil`).
@@ -81,12 +84,14 @@ public struct WidgetChip: View {
     /// The height of one line of the chip's title, so an icon-only chip is as tall as a titled one.
     @ScaledMetric(relativeTo: .caption2) private var lineHeight: CGFloat = 13
 
-    private init(title: LocalizedStringKey?, bundle: Bundle?, systemImage: String?, showsChevron: Bool,
-                 overhangs: Bool, isSelected: Bool) {
+    private init(title: LocalizedStringKey?, verbatimTitle: String? = nil, bundle: Bundle?, systemImage: String?,
+                 showsChevron: Bool, chevronSymbol: String = "chevron.right", overhangs: Bool, isSelected: Bool) {
         self.title = title
+        self.verbatimTitle = verbatimTitle
         self.bundle = bundle
         self.systemImage = systemImage
         self.showsChevron = showsChevron
+        self.chevronSymbol = chevronSymbol
         self.overhangs = overhangs
         self.isSelected = isSelected
     }
@@ -104,6 +109,15 @@ public struct WidgetChip: View {
                   overhangs: overhangs, isSelected: isSelected)
     }
 
+    /// A chip whose title is text already in the person's language (the current choice of a filter), with a
+    /// down-pointing chevron when it opens a menu.
+    public init(verbatimTitle: String, systemImage: String? = nil, showsChevron: Bool = true,
+                opensMenu: Bool = false, overhangs: Bool = false, isSelected: Bool = false) {
+        self.init(title: nil, verbatimTitle: verbatimTitle, bundle: nil, systemImage: systemImage,
+                  showsChevron: showsChevron, chevronSymbol: opensMenu ? "chevron.down" : "chevron.right",
+                  overhangs: overhangs, isSelected: isSelected)
+    }
+
     public var body: some View {
         HStack(spacing: 4) {
             if let systemImage {
@@ -111,19 +125,24 @@ public struct WidgetChip: View {
                     .font(.system(size: 10, weight: .semibold))
                     .accessibilityHidden(true)
             }
-            if let title {
+            if let verbatimTitle {
+                Text(verbatim: verbatimTitle)
+                    .font(StrandFont.micro.weight(.semibold))
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+            } else if let title {
                 Text(title, bundle: bundle)
                     .font(StrandFont.micro.weight(.semibold))
                     .lineLimit(1)
                     .fixedSize(horizontal: true, vertical: false)
             }
             if showsChevron {
-                Image(systemName: "chevron.right")
+                Image(systemName: chevronSymbol)
                     .font(.system(size: 10, weight: .semibold))
                     .accessibilityHidden(true)
             }
         }
-        .frame(minHeight: title == nil && systemImage != nil ? lineHeight : nil)
+        .frame(minHeight: title == nil && verbatimTitle == nil && systemImage != nil ? lineHeight : nil)
         .foregroundStyle(isSelected ? StrandPalette.onInk : StrandPalette.textSecondary)
         .padding(.horizontal, 8)
         .padding(.vertical, 3)
@@ -133,10 +152,43 @@ public struct WidgetChip: View {
     }
 }
 
+/// How far a chip's tap area reaches past its drawn capsule, horizontally and vertically. A lone chip reaches 13pt
+/// on every side (44pt for a 18pt chip). Chips in a `ChipRow` reach only as far as half the gap to their neighbour on
+/// that axis, so neighbouring tap areas meet and never overlap a neighbour's visible edge.
+struct ChipHitInsets: Equatable {
+    var horizontal: CGFloat = 13
+    var vertical: CGFloat = 13
+}
+
+private struct ChipHitInsetsKey: EnvironmentKey {
+    static let defaultValue = ChipHitInsets()
+}
+
+extension EnvironmentValues {
+    var chipHitInsets: ChipHitInsets {
+        get { self[ChipHitInsetsKey.self] }
+        set { self[ChipHitInsetsKey.self] = newValue }
+    }
+}
+
+private struct ChipHitShape: Shape {
+    let insets: ChipHitInsets
+    func path(in rect: CGRect) -> Path {
+        Path(rect.insetBy(dx: -insets.horizontal, dy: -insets.vertical))
+    }
+}
+
+private struct ChipHitTarget: ViewModifier {
+    @Environment(\.chipHitInsets) private var insets
+    func body(content: Content) -> some View {
+        content.contentShape(ChipHitShape(insets: insets))
+    }
+}
+
 public extension View {
     /// Grows a small chip's tap area to the 44pt minimum without moving anything: the hit region reaches past the
-    /// chip's layout bounds on every side.
+    /// chip's layout bounds. Inside a `ChipRow` it stops short of the chip's neighbours.
     func chipHitTarget() -> some View {
-        contentShape(Rectangle().inset(by: -13))
+        modifier(ChipHitTarget())
     }
 }

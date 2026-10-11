@@ -4703,19 +4703,33 @@ final class Repository: ObservableObject {
         return await hrBuckets(from: from, to: to, bucketSeconds: bucket)
     }
 
-    /// Raw HR samples binned into per-zone MINUTES for a workout window, using the age-derived
-    /// (Tanaka) %HRmax zones , the same display zone model `WorkoutsView` already uses for imported
-    /// zone percentages, but computed here from the strap's own samples so a session WITHOUT imported
-    /// `zonesJSON` still gets a real time-in-zone split. Returns nil when the window carries no HR (so
-    /// the view shows nothing rather than five empty bars). `age <= 0` falls back to a 30 y default ,
-    /// the zones are approximate either way and clearly labelled as such in the UI.
-    func workoutZoneMinutes(from: Int, to: Int, age: Int) async -> [Double]? {
+    /// Samples read for a workout's zone split. A long session at about 1 Hz holds far more than `hrSamples`' default
+    /// 8,000 (2 h 13 min), and a cap would silently drop the end of it and understate the late zones.
+    nonisolated static let workoutZoneSampleLimit = 200_000
+
+    /// Raw HR samples binned into per-zone MINUTES for a workout window. The zones come from the profile's max heart
+    /// rate: the person's own override when they set one, else the age-derived (Tanaka) estimate, the same rule the
+    /// workout screens use. This is computed from the strap's own samples so a session WITHOUT imported `zonesJSON`
+    /// still gets a real time-in-zone split. Returns nil when the window carries no HR (so the view shows nothing
+    /// rather than five empty bars). `age <= 0` falls back to a 30 y default; the zones are approximate either way
+    /// and clearly labelled as such in the UI. `hrMaxOverride` is read from the saved profile when not given.
+    func workoutZoneMinutes(from: Int, to: Int, age: Int, hrMaxOverride: Int? = nil) async -> [Double]? {
         guard to > from else { return nil }
-        let samples = await hrSamples(from: from, to: to)
+        let samples = await hrSamples(from: from, to: to, limit: Self.workoutZoneSampleLimit)
+        let override = hrMaxOverride ?? ProfileStore.storedHrMaxOverride()
+        // Up to 200,000 readings: the binning runs off the main actor, like `reduceWorkoutHr`.
+        return await Task.detached(priority: .userInitiated) {
+            Self.zoneMinutes(samples: samples, age: age, hrMaxOverride: override)
+        }.value
+    }
+
+    /// Per-zone minutes (zones 1...5) for HR samples against the profile's max heart rate, or nil when there are no
+    /// samples or none reaches Zone 1.
+    nonisolated static func zoneMinutes(samples: [HRSample], age: Int, hrMaxOverride: Int) -> [Double]? {
         guard !samples.isEmpty else { return nil }
-        let zoneSet = HRZones.zones(age: age > 0 ? Double(age) : 30)
-        let tiz = HRZones.timeInZone(samples, zoneSet: zoneSet)
-        let minutes = tiz.seconds.map { $0 / 60.0 }
+        let maxHR = ProfileStore.hrMax(age: age > 0 ? age : 30, override: hrMaxOverride)
+        let zoneSet = HRZones.zones(maxHR: Double(maxHR), source: hrMaxOverride > 0 ? "manual" : "tanaka")
+        let minutes = HRZones.timeInZone(samples, zoneSet: zoneSet).seconds.map { $0 / 60.0 }
         return minutes.contains(where: { $0 > 0 }) ? minutes : nil
     }
 

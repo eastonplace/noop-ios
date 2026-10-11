@@ -222,7 +222,7 @@ struct SleepView: View {
                     // motion genuinely viewport-triggered.
                     //
                     // The page is flat sections on the canvas with one hairline between each pair, like Today:
-                    // spacing 0 here, the air lives in `SleepSectionSeparator`. A section that is only
+                    // spacing 0 here, the air lives in `FlatSectionSeparator`. A section that is only
                     // sometimes there (the missed-night prompt, the invalid-window notice, the V2 need, the
                     // typical comparison) carries its own separator so the page never shows a stray one.
                     LazyVStack(alignment: .leading, spacing: 0) {
@@ -233,7 +233,7 @@ struct SleepView: View {
                                     now: context.date) {
                                     VStack(alignment: .leading, spacing: 0) {
                                         MissedSleepRecoveryBridge()
-                                        SleepSectionSeparator()
+                                        FlatSectionSeparator.sleep
                                     }
                                 }
                             }
@@ -250,17 +250,17 @@ struct SleepView: View {
                             hasStageData: displayedNight.hasStageData
                         )
                         .staggeredAppear(index: 0)
-                        SleepSectionSeparator()
+                        FlatSectionSeparator.sleep
                         // Full editor, bound to the same BehaviorStore and actuation lane as Alarms.
                         SleepAlarmEditorSection()
                             .staggeredAppear(index: 2)
-                        SleepSectionSeparator()
+                        FlatSectionSeparator.sleep
                         paperSleepStages(
                             night: displayedNight.night,
                             hasStageData: displayedNight.hasStageData
                         )
                         .staggeredAppear(index: 2)
-                        SleepSectionSeparator()
+                        FlatSectionSeparator.sleep
                         SleepHeartRateContrastSection(
                             sleepStart: displayedNight.night.session.effectiveStartTs,
                             sleepEnd: displayedNight.night.session.endTs,
@@ -269,7 +269,7 @@ struct SleepView: View {
                             sessionsRevision: sleepHistoryRevision
                         )
                         .staggeredAppear(index: 4)
-                        SleepSectionSeparator()
+                        FlatSectionSeparator.sleep
                         PreSleepHeartRateFeedbackSection(
                             wakeDay: SleepView.wakeDayKey(for: displayedNight.night),
                             sleepStart: displayedNight.night.session.effectiveStartTs,
@@ -279,17 +279,17 @@ struct SleepView: View {
                             sessionsRevision: sleepHistoryRevision
                         )
                         .staggeredAppear(index: 5)
-                        SleepSectionSeparator()
+                        FlatSectionSeparator.sleep
                         sleepRhythmEntry.staggeredAppear(index: 6)
-                        SleepSectionSeparator()
+                        FlatSectionSeparator.sleep
                         napSection(
                             displayedNight.night,
                             hasStageData: displayedNight.hasStageData
                         )
                         .staggeredAppear(index: 6)
-                        SleepSectionSeparator()
+                        FlatSectionSeparator.sleep
                         metricGrid(resolved, night: displayedNight.night).staggeredAppear(index: 7)
-                        SleepSectionSeparator()
+                        FlatSectionSeparator.sleep
                         sleepDebtLedger(resolved)
                             .staggeredAppear(index: 8)
                         // T702 / plan doc G2: the real V2 need breakdown for the DISPLAYED wake day.
@@ -301,21 +301,21 @@ struct SleepView: View {
                             .staggeredAppear(index: 9)
                         if displayedNight.hasStageData {
                             VStack(alignment: .leading, spacing: 0) {
-                                SleepSectionSeparator()
+                                FlatSectionSeparator.sleep
                                 stagesVsTypical(resolved, night: displayedNight.night)
                             }
                             .staggeredAppear(index: 10)
                         }
-                        SleepSectionSeparator()
+                        FlatSectionSeparator.sleep
                         durationTrend(resolved).staggeredAppear(index: 11)
                     }
                 } else {
                     // Nothing recorded yet: the explanation comes first, then the tools that still work.
                     LazyVStack(alignment: .leading, spacing: 0) {
                         emptyState
-                        SleepSectionSeparator()
+                        FlatSectionSeparator.sleep
                         SleepAlarmEditorSection()
-                        SleepSectionSeparator()
+                        FlatSectionSeparator.sleep
                         sleepRhythmEntry
                     }
                 }
@@ -469,15 +469,15 @@ struct SleepView: View {
     /// closes with its own separator because it only exists some of the time.
     private var invalidSleepWindowNotice: some View {
         VStack(alignment: .leading, spacing: 0) {
-            SleepSection("Sleep window needs review", systemImage: "exclamationmark.triangle.fill",
+            FlatSection("Sleep window needs review", systemImage: "exclamationmark.triangle.fill",
                          tint: .custom(StrandPalette.statusWarning)) {
                 Text("NOOP excluded \(invalidSessions.count) saved sleep window\(invalidSessions.count == 1 ? "" : "s") outside 30 minutes–16 hours from recovery, sleep scoring, and your usual-sleep timing. Your data is still saved; review or delete it before relying on that day.")
                     .font(StrandFont.subhead)
                     .foregroundStyle(StrandPalette.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
-                SleepChipRow {
+                ChipRow {
                     ForEach(Array(invalidSessions.enumerated()), id: \.offset) { _, session in
-                        SleepChipButton(title: "Review saved window", systemImage: "pencil",
+                        WidgetChipButton(title: "Review saved window", systemImage: "pencil",
                                         accessibilityLabel: "Review saved window") {
                             wakeEdit = WakeEdit(detectedStartTs: session.startTs,
                                                 bedTs: session.effectiveStartTs,
@@ -488,7 +488,7 @@ struct SleepView: View {
                     }
                 }
             }
-            SleepSectionSeparator()
+            FlatSectionSeparator.sleep
         }
     }
 
@@ -607,9 +607,9 @@ struct SleepView: View {
             headline: score.map { "\(sleepScoreWord($0)) Sleep" } ?? String(localized: "Calibrating"),
             message: sleepScoreMessage(score),
             facts: [
-                SleepFact("Duration", value: hasStageData ? durationText(night.stages.asleep) : "—"),
-                SleepFact("Efficiency", value: paperEfficiencyText(night, day: day)),
-                SleepFact("Resting HR", value: restingHR.map { "\($0) bpm" } ?? "—"),
+                FactStrip.Fact("Duration", value: hasStageData ? durationText(night.stages.asleep) : "—"),
+                FactStrip.Fact("Efficiency", value: paperEfficiencyText(night, day: day)),
+                FactStrip.Fact("Resting HR", value: restingHR.map { "\($0) bpm" } ?? "—"),
             ],
             source: nightSource(night)
         )
@@ -649,12 +649,12 @@ struct SleepView: View {
             sessionEndTs: night.session.endTs
         )
 
-        return SleepSection("Sleep stages", systemImage: "bed.double.fill", tint: .sleep,
+        return FlatSection("Sleep stages", systemImage: "bed.double.fill", tint: .sleep,
                             trailing: .custom(AnyView(windowChips(night)))) {
-            SleepFactStrip(facts: [
-                SleepFact("Asleep", value: night.onsetText),
-                SleepFact("Woke", value: night.wakeText),
-                SleepFact("In bed", value: presentation.inBedDuration),
+            FactStrip(facts: [
+                FactStrip.Fact("Asleep", value: night.onsetText),
+                FactStrip.Fact("Woke", value: night.wakeText),
+                FactStrip.Fact("In bed", value: presentation.inBedDuration),
             ])
             if night.stageTimeline.isEmpty {
                 Text("No stage timeline was recorded for this night.")
@@ -679,7 +679,7 @@ struct SleepView: View {
     private func windowChips(_ night: Night) -> some View {
         HStack(spacing: NoopMetrics.space2) {
             if let reason = mainSleepReasonText(night) {
-                SleepChipButton(systemImage: "info.circle", accessibilityLabel: "Why this is your main sleep") {
+                WidgetChipButton(systemImage: "info.circle", accessibilityLabel: "Why this is your main sleep") {
                     showMainSleepWhy.toggle()
                 }
                 .popover(isPresented: $showMainSleepWhy, arrowEdge: .bottom) {
@@ -687,7 +687,7 @@ struct SleepView: View {
                 }
             }
             if let target = night.editTarget {
-                SleepChipButton(systemImage: "pencil",
+                WidgetChipButton(systemImage: "pencil",
                                 accessibilityLabel: target.userEdited ? "Edit sleep times (edited)" : "Edit sleep times") {
                     wakeEdit = WakeEdit(detectedStartTs: target.startTs,
                                         bedTs: target.effectiveStartTs,
@@ -740,9 +740,9 @@ struct SleepView: View {
             .sorted { $0.effectiveStartTs < $1.effectiveStartTs }
         let mainMin = night.stages.total
         let napMin = naps.reduce(0.0) { $0 + Double($1.endTs - $1.effectiveStartTs) / 60.0 }
-        SleepSection("Naps", systemImage: "powersleep", tint: .sleep,
+        FlatSection("Naps", systemImage: "powersleep", tint: .sleep,
                      trailing: .custom(AnyView(
-                        SleepChipButton(title: "Add nap", systemImage: "plus", accessibilityLabel: "Add nap",
+                        WidgetChipButton(title: "Add nap", systemImage: "plus", accessibilityLabel: "Add nap",
                                          accessibilityHint: "Adds a missed nap to this day") {
                             addNap = AddNapSeed(forNight: night)
                         }))) {
@@ -769,10 +769,10 @@ struct SleepView: View {
     /// total is explainable at a glance. Minutes formatted with the shared `durationText`. (#518)
     @ViewBuilder
     private func napSummaryRow(mainMin: Double, napMin: Double) -> some View {
-        SleepFactStrip(facts: [
-            SleepFact("Main sleep", value: durationText(mainMin)),
-            SleepFact("Nap(s)", value: durationText(napMin)),
-            SleepFact("Total", value: durationText(mainMin + napMin)),
+        FactStrip(facts: [
+            FactStrip.Fact("Main sleep", value: durationText(mainMin)),
+            FactStrip.Fact("Nap(s)", value: durationText(napMin)),
+            FactStrip.Fact("Total", value: durationText(mainMin + napMin)),
         ])
     }
 
@@ -794,7 +794,7 @@ struct SleepView: View {
             // C1 — "why this is a nap" explainer: the nap-row nudge that everything other than the chosen
             // main block is logged as a nap, with the Edit next-step. Keyed by the nap's stable startTs so
             // one popover shows at a time across several nap rows. (spec 2026-06-20)
-            SleepChipButton(systemImage: "info.circle", accessibilityLabel: "Why this is logged as a nap") {
+            WidgetChipButton(systemImage: "info.circle", accessibilityLabel: "Why this is logged as a nap") {
                 napWhyStartTs = (napWhyStartTs == nap.startTs) ? nil : nap.startTs
             }
             .popover(isPresented: Binding(
@@ -802,7 +802,7 @@ struct SleepView: View {
                 set: { if !$0 { napWhyStartTs = nil } }), arrowEdge: .bottom) {
                 whyPopover(text: "", napSuffix: true)
             }
-            SleepChipButton(systemImage: "pencil",
+            WidgetChipButton(systemImage: "pencil",
                             accessibilityLabel: isEdited ? "Edit nap times (edited)" : "Edit nap times") {
                 wakeEdit = WakeEdit(detectedStartTs: nap.startTs,
                                     bedTs: nap.effectiveStartTs,
@@ -982,7 +982,7 @@ struct SleepView: View {
         let rest = DomainTint.custom(StrandPalette.sleepREM)
         let breath = DomainTint.custom(StrandPalette.metricCyan)
 
-        SleepSection("Night detail", systemImage: "moon.zzz.fill", tint: .sleep) {
+        FlatSection("Night detail", systemImage: "moon.zzz.fill", tint: .sleep) {
             SleepMetricGrid(tiles: [
                 SleepMetricTile(label: "Asleep", value: asleep > 0 ? durationText(asleep) : "—",
                                 caption: model.typicalTotalMin.map { String(localized: "Typical \(durationText($0))") },
@@ -1027,7 +1027,7 @@ struct SleepView: View {
     private func sleepDebtLedger(_ model: SleepModel) -> some View {
         let ledger = model.sleepDebtLedger
         let hasLedger = !needsLoading && !needsFailed && ledger.nightCount > 0
-        SleepSection("Sleep balance", systemImage: "hourglass", tint: .sleep,
+        FlatSection("Sleep balance", systemImage: "hourglass", tint: .sleep,
                      trailing: hasLedger ? .pill(LocalizedStringKey(debtTag(ledger)), tone: debtTone(ledger))
                                          : .text(String(localized: "Last 14 nights"))) {
             if needsLoading {
@@ -1052,10 +1052,10 @@ struct SleepView: View {
                     .foregroundStyle(StrandPalette.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
                 debtDeltaBars(ledger)
-                SleepFactStrip(facts: [
-                    SleepFact("Balance", value: debtSigned(ledger.balanceMin)),
-                    SleepFact("Avg target", value: durationText(ledger.needMin)),
-                    SleepFact("Nights", value: "\(ledger.nightCount)"),
+                FactStrip(facts: [
+                    FactStrip.Fact("Balance", value: debtSigned(ledger.balanceMin)),
+                    FactStrip.Fact("Avg target", value: durationText(ledger.needMin)),
+                    FactStrip.Fact("Nights", value: "\(ledger.nightCount)"),
                 ])
                 Text("Counts nights with a computed target. Repayment is excluded from the target so existing debt is not counted twice.")
                     .font(StrandFont.micro)
@@ -1091,7 +1091,7 @@ struct SleepView: View {
         let s = night.stages
         // Per-stage typical means are computed ONCE in the model build (each a full pass
         // over repo.days) and read here.
-        SleepSection("Stages vs typical", systemImage: "chart.bar.doc.horizontal", tint: .sleep,
+        FlatSection("Stages vs typical", systemImage: "chart.bar.doc.horizontal", tint: .sleep,
                      trailing: .text(nightOffset == 0 ? String(localized: "Last night") : String(localized: "Selected night"))) {
             // The same shared-out shares as the legend above, so a stage reads the same percent in both places.
             let shares = SleepStageShares.percents(minutes: [s.deep, s.rem, s.light, s.awake])
@@ -1158,7 +1158,7 @@ struct SleepView: View {
         let avg = values.isEmpty ? nil : values.reduce(0, +) / Double(values.count)
         let domain = trendRange(pts)
         let tint = DomainTint.sleep
-        SleepSection("Sleep duration", systemImage: "chart.line.uptrend.xyaxis", tint: tint,
+        FlatSection("Sleep duration", systemImage: "chart.line.uptrend.xyaxis", tint: tint,
                      trailing: .text(String(localized: "Last 30 days"))) {
             if pts.count > 1 {
                 HeroValue(value: avg.map { String(format: "%.1f", $0) } ?? "—", unit: String(localized: "h avg"),
@@ -1175,10 +1175,10 @@ struct SleepView: View {
                            accessibilityLabel: String(localized: "Hours asleep trend"),
                            yDomain: domain,
                            xAxisLabelCount: dynamicTypeSize >= .xxLarge ? 3 : WidgetMetrics.maxXAxisLabels)
-                SleepFactStrip(facts: [
-                    SleepFact("Low", value: values.min().map { String(format: "%.1f h", $0) } ?? "—"),
-                    SleepFact("Latest", value: values.last.map { String(format: "%.1f h", $0) } ?? "—"),
-                    SleepFact("High", value: values.max().map { String(format: "%.1f h", $0) } ?? "—"),
+                FactStrip(facts: [
+                    FactStrip.Fact("Low", value: values.min().map { String(format: "%.1f h", $0) } ?? "—"),
+                    FactStrip.Fact("Latest", value: values.last.map { String(format: "%.1f h", $0) } ?? "—"),
+                    FactStrip.Fact("High", value: values.max().map { String(format: "%.1f h", $0) } ?? "—"),
                 ])
             } else {
                 sparsePlaceholder
@@ -2004,10 +2004,10 @@ private struct SleepNeedBreakdownSection: View {
             Color.clear.frame(height: 0).accessibilityHidden(true)
             if isVisible {
                 if let breakdown, breakdown.day == wakeDay {
-                    SleepSectionSeparator()
+                    FlatSectionSeparator.sleep
                     needSection(breakdown)
                 } else if loadedDay == wakeDay {
-                    SleepSectionSeparator()
+                    FlatSectionSeparator.sleep
                     calibratingSection
                 }
             }
@@ -2031,7 +2031,7 @@ private struct SleepNeedBreakdownSection: View {
     /// its own colour. Every line is a real stored component; nothing here is invented.
     private func needSection(_ breakdown: SleepNeedBreakdown) -> some View {
         let lines = Self.lines(for: breakdown)
-        return SleepSection("Tonight's need", systemImage: "target", tint: .sleep) {
+        return FlatSection("Tonight's need", systemImage: "target", tint: .sleep) {
             HeroValue(value: SleepAlarmTime.hoursMinutes(breakdown.totalMinutes), unit: "h",
                       caption: String(localized: "Sleep need"), captionPlacement: .below)
             VStack(alignment: .leading, spacing: NoopMetrics.space3) {
@@ -2046,7 +2046,7 @@ private struct SleepNeedBreakdownSection: View {
     }
 
     private var calibratingSection: some View {
-        SleepSection("Tonight's need", systemImage: "target", tint: .sleep,
+        FlatSection("Tonight's need", systemImage: "target", tint: .sleep,
                      trailing: .pill("Calibrating", tone: .neutral)) {
             Text("NOOP hasn't computed this night's dynamic Sleep Need breakdown yet — it needs enough scored history first.")
                 .font(StrandFont.subhead)

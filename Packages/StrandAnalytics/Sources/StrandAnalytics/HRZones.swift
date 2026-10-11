@@ -69,18 +69,23 @@ public struct HRZoneSet: Equatable, Sendable {
         return 0
     }
 
-    /// Integer bpm label for one of the exact intervals used by `zoneNumber(forBPM:)`.
-    /// The lower edge is inclusive and each non-top upper edge is exclusive, so
-    /// rounding must describe the integer readings that truly enter that bucket:
-    /// `[149.6, 168.3)` becomes `150–168 bpm`, not a separately invented band.
-    public func bpmRangeLabel(forZone number: Int) -> String? {
+    /// The whole-bpm band of one of the exact intervals used by `zoneNumber(forBPM:)`: the first and last integer
+    /// reading that lands in it (`upper` nil for the top zone, which has no ceiling). The lower edge is inclusive
+    /// and each non-top upper edge is exclusive, so rounding describes the readings that truly enter that bucket:
+    /// `[149.6, 168.3)` is `150...168`, not a separately invented band. A caller writes the band in its own
+    /// language; `bpmRangeLabel` is the English form.
+    public func integerBpmRange(forZone number: Int) -> (lower: Int, upper: Int?)? {
         guard let zone = zones.first(where: { $0.number == number }) else { return nil }
         let firstIncludedBPM = Int(ceil(zone.lower))
-        if number == 5 {
-            return "\(firstIncludedBPM)+ bpm"
-        }
-        let lastIncludedBPM = max(firstIncludedBPM, Int(ceil(zone.upper)) - 1)
-        return "\(firstIncludedBPM)–\(lastIncludedBPM) bpm"
+        if number == 5 { return (firstIncludedBPM, nil) }
+        return (firstIncludedBPM, max(firstIncludedBPM, Int(ceil(zone.upper)) - 1))
+    }
+
+    /// The band as English text ("150–168 bpm", "169+ bpm").
+    public func bpmRangeLabel(forZone number: Int) -> String? {
+        guard let range = integerBpmRange(forZone: number) else { return nil }
+        guard let upper = range.upper else { return "\(range.lower)+ bpm" }
+        return "\(range.lower)–\(upper) bpm"
     }
 }
 

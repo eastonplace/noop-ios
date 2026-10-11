@@ -281,7 +281,7 @@ struct SleepAlarmEditorSection: View {
             } label: {
                 TimelineView(.periodic(from: .now, by: 60)) { context in
                     let schedule = SleepAlarmEditorSupport.schedule(at: context.date, behavior: behavior)
-                    let clock = SleepValueSplit.parts(schedule?.wakeClock() ?? SleepAlarmTime.clock(behavior.smartAlarmMinutes))
+                    let clock = ValueUnitSplit.parts(schedule?.wakeClock() ?? SleepAlarmTime.clock(behavior.smartAlarmMinutes))
                     let status = behavior.smartAlarmEnabled
                         ? (schedule?.dayLabel ?? String(localized: "No enabled day"))
                         : String(localized: "Off")

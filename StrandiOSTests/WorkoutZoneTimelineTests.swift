@@ -1,9 +1,10 @@
 import XCTest
 import WhoopProtocol
+import StrandAnalytics
 @testable import NOOP
 
 final class WorkoutZoneTimelineTests: XCTestCase {
-    func testGapIsNotCreditedAndGraphSegmentsAreSeparated() {
+    func testGapIsNotCreditedAndStretchesAreSeparated() {
         let result = WorkoutZoneTimeline.make(samples: [
             HRSample(ts: 100, bpm: 120), HRSample(ts: 101, bpm: 120),
             HRSample(ts: 200, bpm: 180), HRSample(ts: 201, bpm: 180)
@@ -11,7 +12,6 @@ final class WorkoutZoneTimelineTests: XCTestCase {
         XCTAssertEqual(result.minutes[1], 2.0 / 60, accuracy: 0.0001)
         XCTAssertEqual(result.minutes[4], 2.0 / 60, accuracy: 0.0001)
         XCTAssertEqual(result.unobservedSeconds, 98)
-        XCTAssertEqual(Set(result.points.map(\.segment)).count, 2)
         XCTAssertEqual(result.intervals.count, 2)
     }
 
@@ -21,18 +21,31 @@ final class WorkoutZoneTimelineTests: XCTestCase {
             HRSample(ts: 100, bpm: 160), HRSample(ts: 101, bpm: 900),
             HRSample(ts: 102, bpm: 160), HRSample(ts: 103, bpm: 180)
         ], start: 100, end: 103, maxHR: 200)
-        XCTAssertEqual(result.points.map(\.bpm), [160, 160])
+        // The duplicate second keeps its last reading and the invalid one is dropped, so one stretch in zone 4 remains.
+        XCTAssertEqual(result.intervals.map(\.zone), [4])
+        XCTAssertEqual(result.intervals.map(\.start), [100])
+        XCTAssertEqual(result.intervals.map(\.end), [103])
         XCTAssertEqual(result.minutes[3], 3.0 / 60, accuracy: 0.0001)
         XCTAssertEqual(result.minutes[4], 0)
     }
 
-    func testLongWorkoutRetainsPeakWithBoundedCurveAndExactZoneTime() {
+    func testLongWorkoutKeepsOneSecondPeakAsItsOwnStretchAndExactZoneTime() {
         let samples = (100..<10_100).map { HRSample(ts: $0, bpm: $0 == 5432 ? 200 : 120) }
         let result = WorkoutZoneTimeline.make(samples: samples, start: 100, end: 10_100, maxHR: 200)
-        XCTAssertLessThanOrEqual(result.points.count, 1600)
-        XCTAssertEqual(result.points.map(\.bpm).max(), 200)
+        XCTAssertEqual(result.intervals.count, 3)
         XCTAssertEqual(result.minutes[4], 1.0 / 60, accuracy: 0.0001)
         XCTAssertEqual(result.unobservedSeconds, 0)
+    }
+
+    func testSpansMarkWhereAZoneFellInSecondsFromTheStart() {
+        let samples = (100..<400).map { HRSample(ts: $0, bpm: ($0 >= 200 && $0 < 250) || $0 >= 350 ? 190 : 120) }
+        let result = WorkoutZoneTimeline.make(samples: samples, start: 100, end: 400, maxHR: 200)
+        XCTAssertEqual(result.spans(inZone: 5, from: 100), [100...150, 250...300])
+        let easy = HRZones.zones(maxHR: 200).zoneNumber(forBPM: 120)
+        XCTAssertEqual(result.spans(inZone: easy, from: 100), [0...100, 150...250])
+        // A stretch is never narrower than a second, so a single reading is still something to draw.
+        let single = WorkoutZoneTimeline.make(samples: [HRSample(ts: 100, bpm: 190)], start: 100, end: 101, maxHR: 200)
+        XCTAssertEqual(single.spans(inZone: 5, from: 100), [0...1])
     }
 
     func testBelowZoneOneIsKeptSeparate() {

@@ -203,7 +203,8 @@ struct LocalCoachView: View {
     }
 
     /// The canonical segmented control. If the four titles ever outgrow the width (small phones, large
-    /// Dynamic Type) the control scrolls horizontally instead of truncating.
+    /// Dynamic Type) the control scrolls horizontally instead of truncating. It never stacks: this sits in
+    /// the pinned header, and four stacked rows would take the transcript's room.
     private var sectionPicker: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             SegmentedPillControl(
@@ -215,6 +216,7 @@ struct LocalCoachView: View {
                         screen = item
                     }
                 ),
+                stacksAtAccessibilitySizes: false,
                 identifier: { "coach.tab.\($0.rawValue)" },
                 label: { $0.title }
             )
@@ -263,20 +265,20 @@ struct LocalCoachView: View {
                 if coach.isPreview { LocalCoachFixtureLabel().padding(.bottom, NoopMetrics.space3) }
                 outlook
                 if !coach.snapshot.metrics.isEmpty {
-                    CoachSectionSeparator()
+                    FlatSectionSeparator.coach
                     CoachMetricStrip(metrics: Array(coach.snapshot.metrics.prefix(3)))
                 }
                 if !coach.preferences.usePersonalData {
-                    CoachSectionSeparator()
+                    FlatSectionSeparator.coach
                     consentSection
                 }
-                CoachSectionSeparator()
+                FlatSectionSeparator.coach
                 topicSection
-                CoachSectionSeparator()
+                FlatSectionSeparator.coach
                 planEntry
-                CoachSectionSeparator()
+                FlatSectionSeparator.coach
                 briefSection
-                CoachSectionSeparator()
+                FlatSectionSeparator.coach
                 sourcesEntry
             }
             .padding(.horizontal, NoopMetrics.space4)
@@ -291,7 +293,7 @@ struct LocalCoachView: View {
     /// The daily outlook: headline, the brief under it, and the model's state as a pill. The record's real date
     /// sits at the eyebrow's trailing edge, as it does on the Coach cards.
     private var outlook: some View {
-        CoachSection("Your daily outlook", systemImage: "sun.horizon", tint: .accent,
+        FlatSection("Your daily outlook", systemImage: "sun.horizon", tint: .accent,
                      trailing: CoachRecordDate.trailing(day: coach.snapshot.latestDay)) {
             VStack(alignment: .leading, spacing: NoopMetrics.space2) {
                 Text(coach.preferences.usePersonalData ? "Your day, in focus." : "Start with your goals.")
@@ -318,7 +320,7 @@ struct LocalCoachView: View {
     }
 
     private var consentSection: some View {
-        CoachSection("Make it personal", systemImage: "lock.shield", tint: .accent) {
+        FlatSection("Make it personal", systemImage: "lock.shield", tint: .accent) {
             Text("Allow Coach to read your selected NOOP records on this iPhone. Your local coach does not send them to a cloud model.")
                 .font(StrandFont.subhead).lineSpacing(3)
                 .foregroundStyle(StrandPalette.textSecondary)
@@ -327,13 +329,13 @@ struct LocalCoachView: View {
             } label: {
                 Text("Use my local records")
             }
-            .buttonStyle(CoachPrimaryPillStyle())
+            .buttonStyle(PrimaryPillButtonStyle())
             .accessibilityIdentifier("coach.allowRecords")
         }
     }
 
     private var topicSection: some View {
-        CoachSection("Explore with Coach", systemImage: "bubble.left.and.text.bubble.right", tint: .accent) {
+        FlatSection("Explore with Coach", systemImage: "bubble.left.and.text.bubble.right", tint: .accent) {
             CoachChipRow(bleed: NoopMetrics.space4) {
                 ForEach(LocalCoachTopic.allCases) { topic in
                     let selected = selectedTopic == topic
@@ -374,7 +376,7 @@ struct LocalCoachView: View {
     }
 
     private var briefSection: some View {
-        CoachSection("Your rhythm", systemImage: "calendar.badge.clock", tint: .accent) {
+        FlatSection("Your rhythm", systemImage: "calendar.badge.clock", tint: .accent) {
             Text("A moment to check in")
                 .font(StrandFont.subhead).foregroundStyle(StrandPalette.textSecondary)
             CoachChipRow(bleed: NoopMetrics.space4) {
@@ -458,8 +460,8 @@ struct LocalCoachView: View {
                     .foregroundStyle(StrandPalette.textSecondary)
                 if !coach.isPreview && availability != .available { unavailableNotice }
             }
-            CoachSectionSeparator()
-            CoachSection("Try asking", systemImage: "text.bubble", tint: .accent) {
+            FlatSectionSeparator.coach
+            FlatSection("Try asking", systemImage: "text.bubble", tint: .accent) {
                 VStack(spacing: 0) {
                     ForEach(Array(Self.starterTopics.enumerated()), id: \.element) { index, topic in
                         if index > 0 {

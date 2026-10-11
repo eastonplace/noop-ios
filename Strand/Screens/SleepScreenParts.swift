@@ -1,6 +1,5 @@
 import SwiftUI
 import StrandDesign
-import os
 
 // MARK: - Sleep tab building blocks
 //
@@ -20,183 +19,12 @@ enum SleepRhythm {
     static let airBelow: CGFloat = 14
     /// Space under the night navigator before the first section.
     static let navigatorToContent: CGFloat = 16
-    /// Air either side of the hairline between two rows of tiles.
-    static let rowAir: CGFloat = 12
 }
 
-/// The one hairline between two Sleep sections (Today's own separator, so the weight and colour cannot drift).
-struct SleepSectionSeparator: View {
-    var above: CGFloat = SleepRhythm.airAbove
-    var below: CGFloat = SleepRhythm.airBelow
-
-    var body: some View {
-        TodaySectionSeparator(above: above, below: below)
-    }
-}
-
-/// A flat section: eyebrow header over free-form content, spaced like the Coach cards' interiors.
-struct SleepSection<Content: View>: View {
-    let title: LocalizedStringKey
-    let systemImage: String
-    var tint: DomainTint = .sleep
-    var trailing: EyebrowTrailing = .none
-    @ViewBuilder var content: () -> Content
-
-    init(_ title: LocalizedStringKey, systemImage: String, tint: DomainTint = .sleep,
-         trailing: EyebrowTrailing = .none, @ViewBuilder content: @escaping () -> Content) {
-        self.title = title
-        self.systemImage = systemImage
-        self.tint = tint
-        self.trailing = trailing
-        self.content = content
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: WidgetMetrics.contentSpacing) {
-            SectionEyebrow(title, systemImage: systemImage, tint: tint, trailing: trailing)
-            content()
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
-
-// MARK: - Values with muted units
-
-enum SleepValueSplit {
-    /// "55 bpm" -> ("55", "bpm"), "7:00 AM" -> ("7:00", "AM"), "7:00 a. m." -> ("7:00", "a. m."). A compound like
-    /// "6h 49m" or "12 of 21" stays whole: the tail of a unit has no digit in it. A clock's day period is matched
-    /// against the locale's own AM/PM symbols (which can be several tokens), never guessed from "the last word";
-    /// a 24-hour clock has none, so it shows no unit.
-    static func parts(_ raw: String, locale: Locale = .autoupdatingCurrent) -> (number: String, unit: String?) {
-        let value = normalizingSpaces(raw)
-        for symbol in dayPeriodSymbols(for: locale) where value.hasSuffix(symbol) {
-            let head = String(value.dropLast(symbol.count)).trimmingCharacters(in: .whitespaces)
-            if head.contains(where: \.isNumber) { return (head, symbol) }
-        }
-        guard let split = value.lastIndex(of: " ") else { return (value, nil) }
-        let head = value[..<split].trimmingCharacters(in: .whitespaces)
-        let tail = value[value.index(after: split)...].trimmingCharacters(in: .whitespaces)
-        guard head.contains(where: \.isNumber), !tail.isEmpty, tail.count <= 4,
-              !tail.contains(where: \.isNumber) else { return (value, nil) }
-        return (head, tail)
-    }
-
-    /// The locale's AM and PM symbols with every kind of space folded to a plain one, longest first.
-    static func dayPeriodSymbols(for locale: Locale) -> [String] {
-        let key = locale.identifier
-        if let hit = symbolCache.withLock({ $0[key] }) { return hit }
-        let formatter = DateFormatter()
-        formatter.locale = locale
-        let symbols = [formatter.amSymbol, formatter.pmSymbol]
-            .compactMap { $0 }
-            .map(normalizingSpaces)
-            .filter { !$0.isEmpty }
-            .sorted { $0.count > $1.count }
-        symbolCache.withLock { $0[key] = symbols }
-        return symbols
-    }
-
-    private static let symbolCache = OSAllocatedUnfairLock<[String: [String]]>(initialState: [:])
-
-    private static func normalizingSpaces(_ text: String) -> String {
-        text.replacingOccurrences(of: "\u{00A0}", with: " ")
-            .replacingOccurrences(of: "\u{202F}", with: " ")
-            .trimmingCharacters(in: .whitespaces)
-    }
-}
-
-/// A bright value with its unit small and muted beside it; a missing value is a tertiary dash.
-struct SleepValueText: View {
-    let value: String
-    var size: CGFloat = WidgetMetrics.statValueSize
-    var weight: Font.Weight = .semibold
-
-    var body: some View {
-        let parts = SleepValueSplit.parts(value)
-        let missing = value == WidgetMetrics.missingValue
-        HStack(alignment: .firstTextBaseline, spacing: 3) {
-            Text(parts.number)
-                .font(StrandFont.number(size, weight: weight))
-                .foregroundStyle(missing ? StrandPalette.textTertiary : StrandPalette.textPrimary)
-                .lineLimit(1)
-                // "Unavailable" at tile size in a half-width column shrinks instead of truncating.
-                .minimumScaleFactor(0.6)
-            if let unit = parts.unit, !missing {
-                Text(unit)
-                    .font(StrandFont.caption)
-                    .foregroundStyle(StrandPalette.textTertiary)
-                    .lineLimit(1)
-            }
-        }
-    }
-}
-
-// MARK: - Fact strip
-
-struct SleepFact {
-    let label: LocalizedStringKey
-    let value: String
-
-    init(_ label: LocalizedStringKey, value: String) {
-        self.label = label
-        self.value = value
-    }
-}
-
-/// Label-over-value columns with hairline dividers, the shape of `StatFooter(.prominent)` with the unit muted.
-/// Equal columns, labels on one line, values on one baseline; steps down in size and then stacks as rows before
-/// anything truncates.
-struct SleepFactStrip: View {
-    let facts: [SleepFact]
-    @ScaledMetric(relativeTo: .title3) private var valueSize: CGFloat = WidgetMetrics.statValueSize
-    @Environment(\.dynamicTypeSize) private var typeSize
-
-    var body: some View {
-        if typeSize.isAccessibilitySize {
-            stacked
-        } else {
-            ViewThatFits(in: .horizontal) {
-                columns(size: valueSize)
-                columns(size: valueSize * 0.85)
-                columns(size: valueSize * 0.72)
-                stacked
-            }
-        }
-    }
-
-    private func columns(size: CGFloat) -> some View {
-        HStack(alignment: .top, spacing: 0) {
-            ForEach(Array(facts.enumerated()), id: \.offset) { index, fact in
-                if index > 0 {
-                    Rectangle().fill(StrandPalette.hairline).frame(width: 1, height: 36)
-                        .accessibilityHidden(true)
-                }
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(fact.label).font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary).lineLimit(1)
-                    SleepValueText(value: fact.value, size: size)
-                        // One-line sizes report their full width, so ViewThatFits moves to the next size
-                        // rather than truncating one column.
-                        .fixedSize(horizontal: true, vertical: false)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.leading, index == 0 ? 0 : NoopMetrics.space3)
-                .padding(.trailing, index == facts.count - 1 ? 0 : NoopMetrics.space3)
-                .accessibilityElement(children: .combine)
-            }
-        }
-    }
-
-    private var stacked: some View {
-        VStack(alignment: .leading, spacing: NoopMetrics.space3) {
-            ForEach(Array(facts.enumerated()), id: \.offset) { _, fact in
-                HStack(alignment: .firstTextBaseline, spacing: NoopMetrics.space2) {
-                    Text(fact.label).font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
-                    Spacer(minLength: NoopMetrics.space2)
-                    SleepValueText(value: fact.value, size: valueSize)
-                }
-                .accessibilityElement(children: .combine)
-            }
-        }
+extension FlatSectionSeparator {
+    /// The separator between two Sleep sections, at Sleep's tuned air.
+    static var sleep: FlatSectionSeparator {
+        FlatSectionSeparator(above: SleepRhythm.airAbove, below: SleepRhythm.airBelow)
     }
 }
 
@@ -283,7 +111,7 @@ struct SleepHeroSection: View {
     let score: Double?
     let headline: String?
     let message: String
-    let facts: [SleepFact]
+    let facts: [FactStrip.Fact]
     let source: String?
 
     var body: some View {
@@ -306,58 +134,10 @@ struct SleepHeroSection: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            SleepFactStrip(facts: facts)
+            FactStrip(facts: facts)
                 .padding(.top, NoopMetrics.space1)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
-
-// MARK: - Chips
-
-/// A small action: the shared `WidgetChip` with a 44pt tap area, an optional title and symbol.
-struct SleepChipButton: View {
-    var title: LocalizedStringKey?
-    var systemImage: String?
-    var showsChevron: Bool = false
-    let accessibilityLabel: LocalizedStringKey
-    var accessibilityHint: LocalizedStringKey?
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            chip.chipHitTarget()
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(accessibilityLabel)
-        .modifier(OptionalHint(hint: accessibilityHint))
-    }
-
-    @ViewBuilder private var chip: some View {
-        if let title {
-            WidgetChip(appTitle: title, systemImage: systemImage, showsChevron: showsChevron, overhangs: false)
-        } else {
-            WidgetChip(systemImage: systemImage, showsChevron: showsChevron, overhangs: false)
-        }
-    }
-
-    private struct OptionalHint: ViewModifier {
-        let hint: LocalizedStringKey?
-        @ViewBuilder func body(content: Content) -> some View {
-            if let hint { content.accessibilityHint(hint) } else { content }
-        }
-    }
-}
-
-/// Chips side by side, dropping to a column when they no longer fit.
-struct SleepChipRow<Content: View>: View {
-    @ViewBuilder var content: () -> Content
-
-    var body: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: NoopMetrics.space2) { content() }
-            VStack(alignment: .leading, spacing: NoopMetrics.space2) { content() }
-        }
     }
 }
 
@@ -726,7 +506,7 @@ struct SleepMetricTile: View {
                     .foregroundStyle(StrandPalette.textSecondary)
                     .lineLimit(1)
             }
-            SleepValueText(value: value, size: valueSize, weight: .bold)
+            UnitValueText(value: value, size: valueSize, weight: .bold)
             if let series, series.count > 1 {
                 Sparkline(values: series,
                           gradient: Gradient(colors: [tint.accent.opacity(0.55), tint.accent]),
@@ -770,8 +550,8 @@ struct SleepMetricGrid: View {
                         Color.clear.frame(maxWidth: .infinity, maxHeight: 1)
                     }
                 }
-                .padding(.top, rowIndex > 0 ? SleepRhythm.rowAir : 0)
-                .padding(.bottom, rowIndex < rows.count - 1 ? SleepRhythm.rowAir : 0)
+                .padding(.top, rowIndex > 0 ? FlatSectionRhythm.rowAir : 0)
+                .padding(.bottom, rowIndex < rows.count - 1 ? FlatSectionRhythm.rowAir : 0)
             }
         }
     }
