@@ -179,3 +179,101 @@ public struct ExerciseArtTile<Art: View>: View {
             .accessibilityHidden(true)
     }
 }
+
+// MARK: Choice chips
+
+/// A chip that is one of a set of choices or a switch: the shared `WidgetChip` with a 44pt tap area, filled with the
+/// brand ink while `isSelected` and carrying the selected accessibility trait. A titled chip reads its title.
+public struct ChoiceChipButton: View {
+    private let chip: WidgetChip
+    private let label: Text
+    private let hint: LocalizedStringKey?
+    private let isSelected: Bool
+    private let action: () -> Void
+
+    /// A chip whose title is looked up in the app's string table.
+    public init(
+        title: LocalizedStringKey,
+        systemImage: String? = nil,
+        isSelected: Bool = false,
+        accessibilityHint: LocalizedStringKey? = nil,
+        action: @escaping () -> Void
+    ) {
+        self.chip = WidgetChip(appTitle: title, systemImage: systemImage, showsChevron: false, overhangs: false,
+                               isSelected: isSelected)
+        self.label = Text(title)
+        self.hint = accessibilityHint
+        self.isSelected = isSelected
+        self.action = action
+    }
+
+    /// A chip whose title is already text in the person's language (a duration, a number, a name).
+    public init(
+        verbatimTitle: String,
+        systemImage: String? = nil,
+        isSelected: Bool = false,
+        accessibilityLabel: Text? = nil,
+        accessibilityHint: LocalizedStringKey? = nil,
+        action: @escaping () -> Void
+    ) {
+        self.chip = WidgetChip(verbatimTitle: verbatimTitle, systemImage: systemImage, showsChevron: false,
+                               overhangs: false, isSelected: isSelected)
+        self.label = accessibilityLabel ?? Text(verbatim: verbatimTitle)
+        self.hint = accessibilityHint
+        self.isSelected = isSelected
+        self.action = action
+    }
+
+    public var body: some View {
+        Button(action: action) { chip.chipHitTarget() }
+            .buttonStyle(.plain)
+            .accessibilityLabel(label)
+            .accessibilityAddTraits(isSelected ? .isSelected : [])
+            .modifier(ChoiceChipHint(hint: hint))
+    }
+
+    private struct ChoiceChipHint: ViewModifier {
+        let hint: LocalizedStringKey?
+        @ViewBuilder func body(content: Content) -> some View {
+            if let hint { content.accessibilityHint(hint) } else { content }
+        }
+    }
+}
+
+/// A chip that opens a menu: its current choice in the chip, a down chevron and a 44pt tap area. The title is text
+/// already in the person's language.
+public struct ChipMenu<Content: View>: View {
+    private let title: String
+    private let systemImage: String?
+    private let isSelected: Bool
+    private let label: LocalizedStringKey
+    private let value: String
+    @ViewBuilder private let content: () -> Content
+
+    public init(
+        verbatimTitle: String,
+        systemImage: String? = nil,
+        isSelected: Bool = false,
+        accessibilityLabel: LocalizedStringKey,
+        accessibilityValue: String,
+        @ViewBuilder content: @escaping () -> Content
+    ) {
+        self.title = verbatimTitle
+        self.systemImage = systemImage
+        self.isSelected = isSelected
+        self.label = accessibilityLabel
+        self.value = accessibilityValue
+        self.content = content
+    }
+
+    public var body: some View {
+        Menu {
+            content()
+        } label: {
+            WidgetChip(verbatimTitle: title, systemImage: systemImage, opensMenu: true, isSelected: isSelected)
+                .chipHitTarget()
+        }
+        .accessibilityLabel(label)
+        .accessibilityValue(Text(verbatim: value))
+    }
+}
