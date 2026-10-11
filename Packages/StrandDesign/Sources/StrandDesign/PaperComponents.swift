@@ -76,10 +76,11 @@ public struct NoopScreenHeader<Trailing: View>: View {
                                 .expandedTitleFit()
                         }
                         if let subtitle {
-                            // Wraps under the title rather than ending in an ellipsis ("Erholung · Anstre…").
+                            // Wraps between words under the title rather than ending in an ellipsis ("Erholung · Anstre…"),
+                            // and a word wider than the line scales down instead of hyphenating.
                             Text(subtitle)
-                                .font(StrandFont.caption)
                                 .foregroundStyle(secondary)
+                                .captionLabelFit(lines: 3)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
                     }
@@ -119,11 +120,11 @@ public struct NoopScreenHeader<Trailing: View>: View {
     @ViewBuilder
     private func compactSubtitle(secondary: Color, wraps: Bool = false) -> some View {
         if let subtitle {
+            // One line beside the title; under it (accessibility sizes) it wraps between words rather than ending in an
+            // ellipsis, and a long word scales down instead of hyphenating.
             Text(subtitle)
-                .font(StrandFont.caption)
                 .foregroundStyle(secondary)
-                // One line beside the title; under it (accessibility sizes) it wraps rather than ends in an ellipsis.
-                .lineLimit(wraps ? nil : 1)
+                .captionLabelFit(lines: wraps ? 3 : 1)
                 .fixedSize(horizontal: false, vertical: wraps)
         }
     }
