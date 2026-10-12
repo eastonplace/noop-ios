@@ -2246,6 +2246,9 @@ final class Repository: ObservableObject {
     /// #833: the computed dictionaries + activity costs InsightsView.load() last built, so a same-seq re-mount
     /// RESTORES them in-memory (no store queries) instead of re-running the heavy load. Not @Published.
     var insightsCache: InsightsLoadCache?
+    /// ORG-10: bumped by every journal write so screen caches can key on user-data changes that don't move
+    /// `refreshSeq`. Not @Published: nothing re-renders on it.
+    private(set) var dataVersion = 0
 
     /// #833/v7.7.2 (Apple Health per-source freeze): macOS cold-mounts the NavigationSplitView detail on every
     /// sidebar switch (RootView keys it with `.id`), tearing down AppleHealthView's `@State` so its `load()`
@@ -4362,6 +4365,14 @@ final class Repository: ObservableObject {
         _ = try? await store.upsertJournal(
             [JournalEntry(day: day, question: question, answeredYes: answeredYes, notes: notes)],
             deviceId: Self.journalDeviceId)
+        journalDidChange()
+    }
+
+    /// ORG-10: a journal write doesn't move `refreshSeq`, so the Insights same-seq cache restored the old
+    /// answers when the classic journal reopened. Drop it and bump the data version.
+    private func journalDidChange() {
+        insightsCache = nil
+        dataVersion &+= 1
     }
 
     /// Write one native NUMERIC answer (#322): stores the value AND answeredYes=true, so the existing
@@ -4373,6 +4384,7 @@ final class Repository: ObservableObject {
             [JournalEntry(day: day, question: question, answeredYes: true, notes: notes,
                           numericValue: value)],
             deviceId: Self.journalDeviceId)
+        journalDidChange()
     }
 
     /// Per-question numeric series (question → [day: value]) over the imported ∪ native union, native
@@ -4393,6 +4405,7 @@ final class Repository: ObservableObject {
     func clearJournalAnswer(day: String, question: String) async {
         guard let store = await ensureStore() else { return }
         _ = try? await store.deleteJournal(deviceId: Self.journalDeviceId, day: day, question: question)
+        journalDidChange()
     }
 
     /// Log one coaching stack without creating a parallel behavior path. Checked items fan out through
