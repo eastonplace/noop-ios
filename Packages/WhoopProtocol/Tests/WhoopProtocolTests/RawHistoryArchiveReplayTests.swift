@@ -1,7 +1,5 @@
 import XCTest
-@testable import Strand
 import WhoopProtocol
-import WhoopStore
 
 /// `RawHistoryArchive.replay` re-decodes the durable reject archive through the CURRENT decoder and
 /// inserts whatever now decodes — the only path by which already-acked banked history backfills after
@@ -9,85 +7,18 @@ import WhoopStore
 /// archived as undecodable; under the current decoder each yields a gravity sample.
 final class RawHistoryArchiveReplayTests: XCTestCase {
 
-    /// Minimal BackfillStoreWriting that only records how many gravity samples were handed to insert.
-    private final class CaptureStore: BackfillStoreWriting {
+    /// Records how many gravity samples were handed to the injected insert. An actor so the
+    /// `@Sendable` insert closure can mutate it.
+    private actor CaptureStore {
         private(set) var insertedGravity = 0
-        func commitHistoricalChunk(
-            streams: Streams,
-            deviceId: String,
-            trim: Int,
-            chunkEndUnix: Int,
-            rawBatch: HistoricalRawBatch?,
-            committedAt: Int,
-            scope: HistoricalCursorScope,
-            fingerprint: String,
-            fingerprintInput: HistoricalReceivedFrameFingerprintInput,
-            rawCaptureStatus: HistoricalRawCaptureStatus?,
-            rawRange: HistoricalRawRangeEvidence?,
-            burst: HistoricalDataCommitBurst?,
-            timestampHeal: HistoricalTimestampHeal?,
-            isFinal: Bool
-        ) async throws -> HistoricalDataCommitReceipt {
-            HistoricalDataCommitReceipt(
-                receiptId: "capture-\(trim)",
-                generation: Int64(trim),
-                databaseInstanceId: "test-db",
-                deviceId: deviceId,
-                trim: trim,
-                chunkEndUnix: chunkEndUnix,
-                committedAt: committedAt,
-                rawBatchId: rawBatch?.meta.batchId,
-                insertedRows: HistoricalStreamInsertCounts(),
-                fingerprint: fingerprint,
-                lineage: scope.lineage,
-                cursorEpoch: scope.cursorEpoch,
-                trimScope: scope.trimScope,
-                rawStatus: rawCaptureStatus,
-                rawRange: rawRange ?? fingerprintInput.rawRangeEvidence,
-                burst: burst,
-                timestampHeal: timestampHeal,
-                isFinal: isFinal
-            )
-        }
-
-        @discardableResult
-        func insert(_ streams: Streams, deviceId: String) async throws
-            -> (hr: Int, rr: Int, events: Int, battery: Int,
-                spo2: Int, skinTemp: Int, resp: Int, gravity: Int) {
+        func insert(_ streams: Streams) -> Int {
             insertedGravity += streams.gravity.count
-            return (0, 0, 0, 0, 0, 0, 0, streams.gravity.count)
+            return streams.gravity.count
         }
-        func enqueueRawBatch(_ meta: RawBatchMeta, frames: [[UInt8]]) async throws {}
-        func setCursor(_ name: String, _ value: Int) async throws {}
-        func cursor(_ name: String) async throws -> Int? { nil }
     }
 
-    /// A store whose insert always fails — stands in for a transient DB error during replay. (#152)
-    private final class ThrowingStore: BackfillStoreWriting {
-        struct Boom: Error {}
-        func commitHistoricalChunk(
-            streams: Streams,
-            deviceId: String,
-            trim: Int,
-            chunkEndUnix: Int,
-            rawBatch: HistoricalRawBatch?,
-            committedAt: Int,
-            scope: HistoricalCursorScope,
-            fingerprint: String,
-            fingerprintInput: HistoricalReceivedFrameFingerprintInput,
-            rawCaptureStatus: HistoricalRawCaptureStatus?,
-            rawRange: HistoricalRawRangeEvidence?,
-            burst: HistoricalDataCommitBurst?,
-            timestampHeal: HistoricalTimestampHeal?,
-            isFinal: Bool
-        ) async throws -> HistoricalDataCommitReceipt { throw Boom() }
-        func insert(_ streams: Streams, deviceId: String) async throws
-            -> (hr: Int, rr: Int, events: Int, battery: Int,
-                spo2: Int, skinTemp: Int, resp: Int, gravity: Int) { throw Boom() }
-        func enqueueRawBatch(_ meta: RawBatchMeta, frames: [[UInt8]]) async throws {}
-        func setCursor(_ name: String, _ value: Int) async throws {}
-        func cursor(_ name: String) async throws -> Int? { nil }
-    }
+    /// Stands in for a transient DB error during replay. (#152)
+    private struct Boom: Error {}
 
     private func bytes(_ s: String) -> [UInt8] {
         var out = [UInt8](); out.reserveCapacity(s.count / 2); var i = s.startIndex
@@ -117,9 +48,10 @@ final class RawHistoryArchiveReplayTests: XCTestCase {
         XCTAssertEqual(archive.readAll().count, 3, "every archived line should read back")
 
         let store = CaptureStore()
-        let rows = try await archive.replay(into: store, deviceId: "test")
+        let rows = try await archive.replay(subLagInterp: false) { streams in await store.insert(streams) }
         XCTAssertEqual(rows, 3, "all three v25 records should retro-decode to a gravity sample")
-        XCTAssertEqual(store.insertedGravity, 3, "decoded gravity should be forwarded to the store")
+        let inserted = await store.insertedGravity
+        XCTAssertEqual(inserted, 3, "decoded gravity should be forwarded to the store")
     }
 
     func testReplayOnEmptyArchiveIsNoOp() async throws {
@@ -127,7 +59,8 @@ final class RawHistoryArchiveReplayTests: XCTestCase {
             .appendingPathComponent("noop-replay-empty-\(UUID().uuidString)", isDirectory: true)
         let archive = RawHistoryArchive(directory: dir)
         XCTAssertEqual(archive.readAll().count, 0)
-        let rows = try await archive.replay(into: CaptureStore(), deviceId: "test")
+        let store = CaptureStore()
+        let rows = try await archive.replay(subLagInterp: false) { streams in await store.insert(streams) }
         XCTAssertEqual(rows, 0)
     }
 
@@ -146,9 +79,9 @@ final class RawHistoryArchiveReplayTests: XCTestCase {
         }
 
         do {
-            _ = try await archive.replay(into: ThrowingStore(), deviceId: "test")
+            _ = try await archive.replay(subLagInterp: false) { _ in throw Boom() }
             XCTFail("replay must rethrow a store-insert failure")
-        } catch is ThrowingStore.Boom {
+        } catch is Boom {
             // expected — bootstrapStore's catch leaves the gate un-advanced.
         }
     }

@@ -2,7 +2,7 @@ import Foundation
 
 /// What prompted a sync attempt. Mirrors WHOOP (15-min periodic floor + event-triggered "process now"
 /// syncs + the strap's own prompt events + manual), adapted to iOS.
-enum BackfillTrigger {
+public enum BackfillTrigger: Sendable {
     case periodic      // the repeating timer while connected+bonded
     case connect       // a (re)connect / bond confirmation
     case foreground    // the app became active (scenePhase .active)
@@ -17,15 +17,15 @@ enum BackfillTrigger {
 
 /// Pure rate-limiter for historical-offload kicks. No BLE/store deps. Floors match WHOOP
 /// (observed: ~15-min periodic + expedited event syncs).
-enum BackfillPolicy {
-    static let periodicFloorSeconds: TimeInterval = 900   // 15 min
-    static let lowPowerPeriodicFloorSeconds: TimeInterval = 2_700 // 45 min
-    static let eventFloorSeconds: TimeInterval = 90       // absorbs reconnect-flaps / event bursts
+public enum BackfillPolicy {
+    public static let periodicFloorSeconds: TimeInterval = 900   // 15 min
+    public static let lowPowerPeriodicFloorSeconds: TimeInterval = 2_700 // 45 min
+    public static let eventFloorSeconds: TimeInterval = 90       // absorbs reconnect-flaps / event bursts
 
     /// The timer and limiter must use the same periodic cadence. Keeping this decision here prevents a
     /// 45-minute low-power timer from repeatedly hitting an unrelated 60-minute floor and becoming an
     /// accidental 90-minute sync gap.
-    static func periodicFloorSeconds(powerSaving: Bool, emptyStreak: Int = 0) -> TimeInterval {
+    public static func periodicFloorSeconds(powerSaving: Bool, emptyStreak: Int = 0) -> TimeInterval {
         // Empty, replay-only, and stalled attempts add no user data but keep the radio active. Back off
         // automatic retries through 15 -> 30 -> 60 minutes. Low-power mode keeps its existing 45-minute
         // minimum, then joins the same 60-minute ceiling after two empty attempts.
@@ -36,7 +36,7 @@ enum BackfillPolicy {
     /// Absolute wall-clock deadline for the next periodic attempt. The deadline stays anchored to the
     /// last actual offload attempt when the power-saving floor changes. Re-arming a timer at minute 15
     /// after a 15 -> 45 minute transition therefore waits only the remaining 30 minutes, not a fresh 45.
-    static func periodicDeadline(now: TimeInterval, lastBackfillAt: TimeInterval?,
+    public static func periodicDeadline(now: TimeInterval, lastBackfillAt: TimeInterval?,
                                  powerSaving: Bool, emptyStreak: Int = 0) -> TimeInterval {
         (lastBackfillAt ?? now) + periodicFloorSeconds(
             powerSaving: powerSaving,
@@ -46,7 +46,7 @@ enum BackfillPolicy {
 
     /// Remaining delay for the absolute periodic deadline. A 45 -> 15 minute transition whose shorter
     /// deadline has already passed returns zero so the scheduler can attempt immediately.
-    static func periodicDelaySeconds(now: TimeInterval, lastBackfillAt: TimeInterval?,
+    public static func periodicDelaySeconds(now: TimeInterval, lastBackfillAt: TimeInterval?,
                                      powerSaving: Bool,
                                      emptyStreak: Int = 0,
                                      minimumDelaySeconds: TimeInterval = 0) -> TimeInterval {
@@ -68,7 +68,7 @@ enum BackfillPolicy {
     /// SKIPPED ENTIRELY while the clock is untrusted — the per-connection `.connect` pass still runs, so a
     /// clock that later self-corrects is picked up on the next connection (or a manual sync). As with
     /// `.connect` still gets one per-connection attempt; manual and bounded auto-continue are unaffected.
-    static func shouldRun(trigger: BackfillTrigger, now: TimeInterval,
+    public static func shouldRun(trigger: BackfillTrigger, now: TimeInterval,
                           lastBackfillAt: TimeInterval?, emptyStreak: Int = 0,
                           clockUntrusted: Bool = false,
                           powerSaving: Bool = false) -> Bool {
@@ -103,12 +103,12 @@ enum BackfillPolicy {
 /// Selects the hard radio ceiling for one connected history burst. The normal path stays at three
 /// minutes. A larger catch-up window is available only while durable backlog remains and both devices
 /// have enough power to finish useful work without turning background sync into an energy drain.
-enum HistoricalRadioBudgetPolicy {
-    static let standardBudgetSeconds: TimeInterval = 3 * 60
-    static let poweredCatchUpBudgetSeconds: TimeInterval = 10 * 60
-    static let minimumHealthyStrapBatteryPct = 30
+public enum HistoricalRadioBudgetPolicy {
+    public static let standardBudgetSeconds: TimeInterval = 3 * 60
+    public static let poweredCatchUpBudgetSeconds: TimeInterval = 10 * 60
+    public static let minimumHealthyStrapBatteryPct = 30
 
-    static func budgetSeconds(
+    public static func budgetSeconds(
         backlogRemains: Bool,
         phoneExternallyPowered: Bool,
         phoneLowPowerMode: Bool,
@@ -127,61 +127,5 @@ enum HistoricalRadioBudgetPolicy {
             return standardBudgetSeconds
         }
         return poweredCatchUpBudgetSeconds
-    }
-}
-
-/// Pure scheduling decision for the discretionary iOS background fallback. It never creates a tighter
-/// cadence than the existing 15/45/60-minute offload policy, including when a disconnected or protected
-/// store prevents the requested work from starting.
-enum HistoricalSyncBackgroundSchedulingPolicy {
-    enum Plan: Equatable, Sendable {
-        case cancel
-        case schedule(after: TimeInterval)
-    }
-
-    static let minimumRetrySeconds: TimeInterval = BackfillPolicy.periodicFloorSeconds
-
-    static func plan(
-        backlogRemains: Bool,
-        syncActive: Bool,
-        connectionReady: Bool,
-        now: TimeInterval,
-        lastBackfillAt: TimeInterval?,
-        powerSaving: Bool,
-        emptyStreak: Int
-    ) -> Plan {
-        guard backlogRemains, !syncActive else { return .cancel }
-        let policyDelay = BackfillPolicy.periodicDelaySeconds(
-            now: now,
-            lastBackfillAt: lastBackfillAt,
-            powerSaving: powerSaving,
-            emptyStreak: emptyStreak
-        )
-        if !connectionReady {
-            return .schedule(after: max(minimumRetrySeconds, policyDelay))
-        }
-        return .schedule(after: policyDelay)
-    }
-}
-
-struct HistoricalSyncBackgroundSnapshot: Equatable, Sendable {
-    let backlogRemains: Bool
-    let syncActive: Bool
-    let connectionReady: Bool
-    let now: TimeInterval
-    let lastBackfillAt: TimeInterval?
-    let powerSaving: Bool
-    let emptyStreak: Int
-
-    var plan: HistoricalSyncBackgroundSchedulingPolicy.Plan {
-        HistoricalSyncBackgroundSchedulingPolicy.plan(
-            backlogRemains: backlogRemains,
-            syncActive: syncActive,
-            connectionReady: connectionReady,
-            now: now,
-            lastBackfillAt: lastBackfillAt,
-            powerSaving: powerSaving,
-            emptyStreak: emptyStreak
-        )
     }
 }

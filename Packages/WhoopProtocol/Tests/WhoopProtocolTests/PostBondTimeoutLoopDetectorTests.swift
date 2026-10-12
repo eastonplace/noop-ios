@@ -1,5 +1,5 @@
 import XCTest
-@testable import Strand
+import WhoopProtocol
 
 /// Pins the #617 bond-loop detection: a WHOOP 4 strap bonds successfully, then the encrypted link drops
 /// ~1s later with a connection timeout, the auto-rescan reconnects, it bonds again, and dies again — an

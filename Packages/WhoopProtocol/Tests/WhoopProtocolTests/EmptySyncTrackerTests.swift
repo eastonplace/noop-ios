@@ -1,5 +1,5 @@
 import XCTest
-@testable import Strand
+import WhoopProtocol
 
 /// Pins the #126 false-alarm guard on the #77/#91/#120 "your strap's clock has lost sync" banner. The
 /// banner used to fire on a SINGLE completed sync that handed over only the strap's console/diagnostic

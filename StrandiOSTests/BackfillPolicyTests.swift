@@ -2,6 +2,7 @@ import XCTest
 import CoreBluetooth
 @testable import NOOP
 import NoopPhase34Core
+import WhoopProtocol
 import WhoopStore
 
 @MainActor

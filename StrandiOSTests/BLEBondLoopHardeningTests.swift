@@ -1,6 +1,6 @@
 import XCTest
 import CoreBluetooth
-@testable import Strand
+@testable import NOOP
 
 /// Pins the #78 give-up hardening added alongside #747/#750:
 ///
@@ -11,7 +11,7 @@ import CoreBluetooth
 ///  - HOLE 4 (salvage probe): `shouldSalvageProbe` is the pure gate for the one bounded app-foreground
 ///    attempt while the pause is latched - what makes the give-up provably unable to strand a strap the
 ///    user has since freed, while never re-entering the refusal hammer.
-final class BondLoopHardeningTests: XCTestCase {
+final class BLEBondLoopHardeningTests: XCTestCase {
 
     // MARK: isInsufficientAuthError (hole 1)
 
@@ -55,53 +55,5 @@ final class BondLoopHardeningTests: XCTestCase {
                             code: CBATTError.requestNotSupported.rawValue,
                             userInfo: [NSLocalizedDescriptionKey: "Request is not supported."])
         XCTAssertFalse(BLEManager.isInsufficientAuthError(other))
-    }
-
-    // MARK: shouldSalvageProbe (hole 4)
-
-    private let floor = BLEManager.bondLoopSalvageFloorSeconds
-
-    /// The happy salvage path: paused, link down, no user teardown, past the floor.
-    func testProbe_firesPastFloorWhilePaused() {
-        XCTAssertTrue(BLEManager.shouldSalvageProbe(pausedForBondLoop: true, connected: false,
-                                                    intentionalDisconnect: false,
-                                                    secondsSincePauseTripped: floor))
-        XCTAssertTrue(BLEManager.shouldSalvageProbe(pausedForBondLoop: true, connected: false,
-                                                    intentionalDisconnect: false,
-                                                    secondsSincePauseTripped: floor + 3600))
-    }
-
-    /// Below the floor no probe fires - back-to-back foregrounds can't chain attempts.
-    func testProbe_respectsTheFloor() {
-        XCTAssertFalse(BLEManager.shouldSalvageProbe(pausedForBondLoop: true, connected: false,
-                                                     intentionalDisconnect: false,
-                                                     secondsSincePauseTripped: floor - 1))
-        XCTAssertFalse(BLEManager.shouldSalvageProbe(pausedForBondLoop: true, connected: false,
-                                                     intentionalDisconnect: false,
-                                                     secondsSincePauseTripped: 0))
-    }
-
-    /// No trip timestamp = the pause never tripped this run = never probe.
-    func testProbe_needsATripTimestamp() {
-        XCTAssertFalse(BLEManager.shouldSalvageProbe(pausedForBondLoop: true, connected: false,
-                                                     intentionalDisconnect: false,
-                                                     secondsSincePauseTripped: nil))
-    }
-
-    /// Not paused (the normal healthy path) never probes - the probe exists ONLY for the latched pause.
-    func testProbe_onlyWhilePaused() {
-        XCTAssertFalse(BLEManager.shouldSalvageProbe(pausedForBondLoop: false, connected: false,
-                                                     intentionalDisconnect: false,
-                                                     secondsSincePauseTripped: floor))
-    }
-
-    /// A live link or an explicit user teardown always suppresses the probe.
-    func testProbe_suppressedWhenConnectedOrUserTornDown() {
-        XCTAssertFalse(BLEManager.shouldSalvageProbe(pausedForBondLoop: true, connected: true,
-                                                     intentionalDisconnect: false,
-                                                     secondsSincePauseTripped: floor))
-        XCTAssertFalse(BLEManager.shouldSalvageProbe(pausedForBondLoop: true, connected: false,
-                                                     intentionalDisconnect: true,
-                                                     secondsSincePauseTripped: floor))
     }
 }

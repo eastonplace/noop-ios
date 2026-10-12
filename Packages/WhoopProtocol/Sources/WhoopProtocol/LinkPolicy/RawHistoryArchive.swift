@@ -1,5 +1,4 @@
 import Foundation
-import WhoopProtocol
 
 /// Append-only on-disk archive of HISTORICAL_DATA record frames that FAILED decode (#77 / #91).
 ///
@@ -15,25 +14,25 @@ import WhoopProtocol
 ///   {"capturedAtMs":Double,"trim":Int,"family":"whoop4"|"whoop5","frameHex":String}
 /// Frames carry sensor payloads, not identifiers — no serials/MACs land here. The companion Android
 /// archive uses the same record shape so one mapping toolchain reads both.
-struct RawHistoryArchive {
+public struct RawHistoryArchive: Sendable {
     /// File name under `<AppSupport>/com.noopapp.noop/`.
-    static let fileName = "rejected_history.jsonl"
+    public static let fileName = "rejected_history.jsonl"
     /// Soft cap (~5 MB). When appending would push the file past this, the archive EVICTS oldest
     /// surplus lines to make room rather than refusing the write — but only down to a per-version
     /// retention floor (see `perVersionFloor`), so a brand-new layout version is never binned merely
     /// because common versions filled the file. Only when the incoming frames alone can't fit even an
     /// empty archive does `archive` skip them (reported as unarchived). (#344)
-    static let maxBytes = 5 * 1024 * 1024
+    public static let maxBytes = 5 * 1024 * 1024
 
     /// Per distinct layout VERSION, keep at least this many of the newest archived lines, immune to
     /// cap eviction. A never-seen version (WHOOP 4 v19, WHOOP 5 v20/v21 — `frame[5]` / `frame[9]`,
     /// the hist_version byte) emits only a handful of frames, so this floor guarantees those rare
     /// samples survive while the most-populous versions shed their oldest surplus. Bounded: the floor
     /// can hold at most `floor × distinctVersions` lines, a tiny set. (#344)
-    static let perVersionFloor = 64
+    public static let perVersionFloor = 64
 
     /// Outcome of an archive attempt.
-    enum Result {
+    public enum Result: Equatable, Sendable {
         /// Frames were durably written (fsynced). `count` is how many lines were appended.
         case written(count: Int)
         /// The archive is full; nothing was written but the caller may still ack. `count` frames
@@ -51,7 +50,7 @@ struct RawHistoryArchive {
     private let perVersionFloor: Int
 
     /// Default location: `<AppSupport>/com.noopapp.noop/`, created on demand. Overridable for tests.
-    init(directory: URL? = nil,
+    public init(directory: URL? = nil,
          maxBytes: Int = RawHistoryArchive.maxBytes,
          perVersionFloor: Int = RawHistoryArchive.perVersionFloor) {
         if let directory {
@@ -68,12 +67,12 @@ struct RawHistoryArchive {
     }
 
     /// The archive file URL (does not create anything).
-    var fileURL: URL { directory.appendingPathComponent(RawHistoryArchive.fileName) }
+    public var fileURL: URL { directory.appendingPathComponent(RawHistoryArchive.fileName) }
 
     /// The hist_version byte distinguishing one historical layout from another: `frame[5]` on WHOOP 4,
     /// `frame[9]` on WHOOP 5/MG (the puffin envelope is 4 bytes longer). Same indices the reject filter
     /// uses. Frames too short to carry it fall back to a sentinel so they still form their own bucket.
-    static func versionByte(_ frame: [UInt8], family: DeviceFamily) -> Int {
+    public static func versionByte(_ frame: [UInt8], family: DeviceFamily) -> Int {
         let idx = family == .whoop5 ? 9 : 5
         return frame.count > idx ? Int(frame[idx]) : -1
     }
@@ -94,7 +93,7 @@ struct RawHistoryArchive {
     /// lines of any distinct version, so a rare never-seen layout is never binned just because common
     /// versions filled the archive. The file is rewritten atomically in that case. Only when the
     /// incoming frames alone can't fit even an empty archive are they skipped (`.capReached`).
-    func archive(_ frames: [[UInt8]], trim: UInt32, family: DeviceFamily) -> Result {
+    public func archive(_ frames: [[UInt8]], trim: UInt32, family: DeviceFamily) -> Result {
         guard !frames.isEmpty else { return .written(count: 0) }
         let url = fileURL
         let capturedAtMs = Date().timeIntervalSince1970 * 1000
@@ -186,7 +185,7 @@ struct RawHistoryArchive {
     /// when common versions fill the archive. Bounded: if everything left is floor-protected it stops
     /// even if still over cap (the floor wins — `floor × distinctVersions` is tiny). Mirrors the Android
     /// RawHistoryArchive.evictLines.
-    static func evictLines(_ lines: [String], maxBytes: Int, floor: Int) -> [String] {
+    public static func evictLines(_ lines: [String], maxBytes: Int, floor: Int) -> [String] {
         // Mark the newest `floor` indices of each version as protected (scan newest→oldest). Malformed
         // lines (nil key) are never protected — they are evicted before any real, floor-kept line.
         let keys = lines.map { lineVersionKey($0) }
@@ -212,7 +211,7 @@ struct RawHistoryArchive {
     /// Every archived frame with its strap family, oldest first — the read-back of the JSONL that
     /// `archive` writes. Malformed lines are skipped; an absent/empty file yields []. (Hand-parsed to
     /// match the hand-built writer: the only dynamic fields are `family` and the [0-9a-f] `frameHex`.)
-    func readAll() -> [(frame: [UInt8], family: DeviceFamily)] {
+    public func readAll() -> [(frame: [UInt8], family: DeviceFamily)] {
         guard let text = try? String(contentsOf: fileURL, encoding: .utf8) else { return [] }
         return text.split(separator: "\n").compactMap { line in
             guard let fr = line.range(of: "\"family\":\""),
@@ -230,28 +229,32 @@ struct RawHistoryArchive {
         }
     }
 
-    /// Re-decode every archived frame through the CURRENT decoder and insert whatever now decodes.
-    /// The strap freed these records when they were acked, so this archive is the ONLY way banked
-    /// history backfills after a newly-landed layout (e.g. WHOOP 4.0 v25). Idempotent: offloaded rows
-    /// dedupe by (deviceId, ts), so a re-run can't double-insert. Returns rows recovered (for logging).
-    /// Throws if a store insert fails — the caller MUST NOT advance the replay gate in that case, or
-    /// these records (whose only surviving copy is this archive) would never be retried. (#152)
+    /// Re-decode every archived frame through the CURRENT decoder and hand whatever now decodes to
+    /// `insert`, which returns the rows it ACTUALLY inserted. The strap freed these records when they
+    /// were acked, so this archive is the ONLY way banked history backfills after a newly-landed layout
+    /// (e.g. WHOOP 4.0 v25). Idempotent when `insert` dedupes by (deviceId, ts), so a re-run can't
+    /// double-insert. Returns rows recovered (for logging). Rethrows an insert failure — the caller MUST
+    /// NOT advance the replay gate in that case, or these records (whose only surviving copy is this
+    /// archive) would never be retried. (#152)
+    ///
+    /// `subLagInterp` threads the opt-in HR-from-PPG sub-lag interpolation flag (Test Centre →
+    /// Experimental algorithms) so the replay re-derives v26 HR with the same variant the live offload
+    /// uses. The caller owns that setting; this package stays free of app preferences.
     @discardableResult
-    func replay(into store: BackfillStoreWriting, deviceId: String) async throws -> Int {
+    public func replay(subLagInterp: Bool,
+                       insert: @Sendable (Streams) async throws -> Int) async throws -> Int {
         let archived = readAll()
         var rows = 0
         for family in Set(archived.map(\.family)) {
             let parsed = archived.filter { $0.family == family }.map { parseFrame($0.frame, family: family) }
             // type-47 records carry their own real-unix ts (clock offset ignored), so an identity
-            // clock ref is correct here — the same fallback the Backfiller uses when clockRef is nil. Thread
-            // the opt-in HR-from-PPG sub-lag interpolation flag (Test Centre → Experimental algorithms) so the
-            // archive replay re-derives v26 HR with the same variant the live offload uses. Default OFF.
+            // clock ref is correct here — the same fallback the Backfiller uses when clockRef is nil.
             let streams = extractHistoricalStreams(parsed, family: family, deviceClockRef: 0, wallClockRef: 0,
-                                                   subLagInterp: PuffinExperiment.ppgHrSubLagInterpEnabled)
-            // Count rows ACTUALLY inserted, not decoded: under the per-app-version gate the archive
-            // replays every release, and dedupe makes those re-runs insert 0 — counting decoded rows
-            // would log a false "retro-decoded N" success on every update. (#152)
-            rows += (try await store.insert(streams, deviceId: deviceId)).gravity
+                                                   subLagInterp: subLagInterp)
+            // Count rows ACTUALLY inserted, not decoded: under the replay gate the archive replays on
+            // every gate change, and dedupe makes those re-runs insert 0 — counting decoded rows would
+            // log a false "retro-decoded N" success. (#152)
+            rows += try await insert(streams)
         }
         return rows
     }

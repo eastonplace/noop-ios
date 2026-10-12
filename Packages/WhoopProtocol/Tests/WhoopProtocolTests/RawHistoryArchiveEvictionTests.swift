@@ -1,5 +1,4 @@
 import XCTest
-@testable import Strand
 import WhoopProtocol
 
 /// #344: the reject archive has a byte cap. Before this fix, a full archive simply stopped accepting
