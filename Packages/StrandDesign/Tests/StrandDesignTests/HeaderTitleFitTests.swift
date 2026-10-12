@@ -2,6 +2,23 @@ import SwiftUI
 import XCTest
 @testable import StrandDesign
 
+/// Which word of a header title the fit protects: the longest piece between spaces, hyphens and slashes.
+final class HeaderTitleWordsTests: XCTestCase {
+    func testTheLongestWordIsTheLongestPieceBetweenBreakPoints() {
+        XCTAssertEqual(HeaderTitleWords.longest(in: "Herzfrequenzvariabilit\u{00E4}t"), "Herzfrequenzvariabilit\u{00E4}t")
+        XCTAssertEqual(HeaderTitleWords.longest(in: "Heart Rate Variability"), "Variability")
+        XCTAssertEqual(HeaderTitleWords.longest(in: "Durchschnittliche Herzfrequenz"), "Durchschnittliche")
+        // Text wraps at a hyphen or a slash, so the pieces either side are the words.
+        XCTAssertEqual(HeaderTitleWords.longest(in: "Anti-Aging Kardiovaskul\u{00E4}r"), "Kardiovaskul\u{00E4}r")
+        XCTAssertEqual(HeaderTitleWords.longest(in: "A/B"), "A")
+    }
+
+    func testAnEmptyTitleHasNoWord() {
+        XCTAssertNil(HeaderTitleWords.longest(in: ""))
+        XCTAssertNil(HeaderTitleWords.longest(in: "  - "))
+    }
+}
+
 #if canImport(AppKit)
 import AppKit
 
