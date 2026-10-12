@@ -136,6 +136,11 @@ final class Collector {
         assert(parsed == parseFrame(frame, family: family),
                "Collector.ingest: threaded ParsedFrame != fresh parse (#47 parse-once invariant)")
         #endif
+        // BLE-4: frames `extractStreams` ignores (chiefly the type-43 R10/R11 raw stream) decode to no
+        // rows, so hold them only while raw capture will persist them.
+        guard LiveFrameRetention.shouldBuffer(typeName: parsed.typeName,
+                                              rawCaptureActive: enableRawCapture
+                                                  || rawCapture.isActive(at: monotonic())) else { return }
         buffer.append((frame, parsed))
         // Pre-clock only: bound memory if GET_CLOCK never lands while data keeps flowing.
         // Drop OLDEST beyond the cap (keep most recent). Post-clock this branch is skipped —

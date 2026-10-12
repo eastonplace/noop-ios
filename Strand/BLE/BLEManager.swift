@@ -3815,9 +3815,13 @@ public final class BLEManager: NSObject, ObservableObject {
         guard selectedModel.deviceFamily == .whoop4 else { return }
         // Never re-arm the heavy R10/R11 burst once the marginal-radio fallback has tripped (#80) — that
         // would just re-trigger the drop the keep-alive is meant to prevent. 0x2A37 keeps the HR flowing.
-        if wantsRealtime && !standardHRFallback {
+        // BLE-4: the burst is a Live-screen want only. Continuous capture holds just the TOGGLE.
+        let arm = RealtimeArmPolicy(screenWantsRealtime: screenWantsRealtime,
+                                    continuousCaptureWantsNow: continuousCaptureWantsNow(),
+                                    standardHRFallback: standardHRFallback)
+        if arm.wantsHrToggle && !standardHRFallback {
             realtimeArmed = true   // keep reconcileRealtime()'s edge tracking in sync with the re-arm
-            send(.sendR10R11Realtime, payload: [0x01])
+            if arm.wantsRawBurst { send(.sendR10R11Realtime, payload: [0x01]) }
             send(.toggleRealtimeHR, payload: [0x01])
         }   // re-arm so it can't lapse
         keepAliveTick += 1
@@ -5705,9 +5709,16 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
             } else {
                 log("Realtime HR: arming after bond")
                 realtimeArmed = true   // keep reconcileRealtime()'s edge tracking in sync with the arm
-                send(.sendR10R11Realtime, payload: [0x01])
+                // BLE-4: only a Live screen wants the heavy R10/R11 burst; continuous capture rides the
+                // TOGGLE (and the 0x2A37 R-R stream) alone.
+                let arm = RealtimeArmPolicy(screenWantsRealtime: screenWantsRealtime,
+                                            continuousCaptureWantsNow: continuousCaptureWantsNow(),
+                                            standardHRFallback: standardHRFallback)
+                if arm.wantsRawBurst {
+                    send(.sendR10R11Realtime, payload: [0x01])
+                    realtimeArmedAt = Date()   // start the arm→drop stopwatch for the marginal-radio detector
+                }
                 send(.toggleRealtimeHR, payload: [0x01])
-                realtimeArmedAt = Date()   // start the arm→drop stopwatch for the marginal-radio detector
             }
         }
         // #34: the handshake body above (hello, SET_CLOCK, notify-resubscribe requests) has now been
