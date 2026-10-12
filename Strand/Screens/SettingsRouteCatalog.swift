@@ -154,7 +154,7 @@ enum SettingsRouteCatalog {
             title: "Recovery baseline",
             breadcrumb: "Profile › Personal profile",
             route: .personalProfile,
-            keywords: ["baseline", "calibration", "recalibrate", "HRV", "recovery", "score", "scoring"]
+            keywords: ["baseline", "baselines", "Scoring & baselines", "calibration", "recalibrate", "HRV", "recovery", "score", "scoring"]
         ),
         .init(
             id: "step-calibration",
@@ -203,7 +203,7 @@ enum SettingsRouteCatalog {
             title: "Data Sources",
             breadcrumb: "Health & Data",
             route: .dataSources,
-            keywords: ["imports", "source priority", "cleanup", "fused record", "WHOOP export", "broadcast", "heart rate"]
+            keywords: ["imports", "source priority", "cleanup", "fused record", "WHOOP export", "broadcast", "heart rate", "Data Sources & Storage"]
         ),
         .init(
             id: "fused-record",
@@ -224,7 +224,7 @@ enum SettingsRouteCatalog {
             title: "Notifications & alerts",
             breadcrumb: "App Preferences",
             route: .notificationsAlerts,
-            keywords: ["notification", "reminders", "stress alert", "inactivity", "coaching", "automation", "double tap", "rules"]
+            keywords: ["notification", "reminders", "stress alert", "inactivity", "coaching", "automation", "Automations", "Automations & Shortcuts", "triggers", "double tap", "rules"]
         ),
         .init(
             id: "appearance",
@@ -245,7 +245,7 @@ enum SettingsRouteCatalog {
             title: "Workout detection",
             breadcrumb: "App Preferences › Workouts",
             route: .workouts,
-            keywords: ["auto detect", "workout", "hydration", "keep screen on"]
+            keywords: ["auto detect", "workout", "hydration", "keep screen on", "Workout & feature preferences", "Features"]
         ),
         .init(
             id: "live-activity",
@@ -287,7 +287,7 @@ enum SettingsRouteCatalog {
             title: "Storage",
             breadcrumb: "Advanced › Diagnostics & Experimental",
             route: .diagnosticsExperimental,
-            keywords: ["disk", "space", "database", "clean up", "free up"]
+            keywords: ["disk", "space", "database", "clean up", "free up", "Data Sources & Storage"]
         ),
         .init(
             id: "experimental",

@@ -55,6 +55,24 @@ final class SettingsLocalizationTests: XCTestCase {
         XCTAssertEqual(untranslated, [], "root strings with no entry in a shipped language")
     }
 
+    /// The search terms kept for the pages that were merged away are translated like every other keyword, so a query
+    /// typed in the person's language finds the row too.
+    func testTheSearchTermsKeptForMergedPagesAreTranslatedEverywhere() throws {
+        let marker = "§missing§"
+        let keys = [
+            "Automations", "Automations & Shortcuts", "triggers", "baselines", "Scoring & baselines",
+            "Data Sources & Storage", "Workout & feature preferences", "Features",
+        ]
+        var untranslated: [String] = []
+        for language in Self.shippedLanguages {
+            let table = try table(for: language)
+            for key in keys where table.localizedString(forKey: key, value: marker, table: nil) == marker {
+                untranslated.append("\(language): \(key)")
+            }
+        }
+        XCTAssertEqual(untranslated, [], "search terms with no entry in a shipped language")
+    }
+
     /// The breadcrumb under a search result keeps its separators and translates each part on its own.
     func testABreadcrumbIsTranslatedPartByPart() throws {
         let german = try table(for: "de")

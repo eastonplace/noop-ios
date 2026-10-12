@@ -95,7 +95,8 @@ final class SettingsRouteCatalogTests: XCTestCase {
     func testTheMergedPagesAreFoundWhereTheyMoved() {
         XCTAssertEqual(SettingsRouteCatalog.search("recovery baseline").map(\.route), [.personalProfile])
         XCTAssertEqual(SettingsRouteCatalog.search("step calibration").map(\.route), [.personalProfile])
-        XCTAssertEqual(SettingsRouteCatalog.search("storage").map(\.route), [.diagnosticsExperimental])
+        // "Storage" is also half of the old Data Sources & Storage page, so Data Sources answers it too.
+        XCTAssertEqual(SettingsRouteCatalog.search("storage").map(\.route), [.dataSources, .diagnosticsExperimental])
         XCTAssertEqual(SettingsRouteCatalog.search("dynamic island").map(\.route), [.workouts])
         XCTAssertEqual(SettingsRouteCatalog.search("siri").map(\.route), [.siriShortcuts])
         XCTAssertEqual(SettingsRouteCatalog.search("hydration").map(\.route), [.workouts])
@@ -103,6 +104,30 @@ final class SettingsRouteCatalogTests: XCTestCase {
         XCTAssertFalse(titles.contains("Scoring & baselines"))
         XCTAssertFalse(titles.contains("Automations & Shortcuts"))
         XCTAssertFalse(titles.contains("Data Sources & Storage"))
+    }
+
+    /// The names of the pages that were merged away (and quoted by older What's New entries) still find where their
+    /// content lives now. Matching is by substring, so a singular keyword never found the plural name.
+    func testEveryOldPageNameStillFindsItsNewHome() {
+        let oldNames: [(name: String, home: Set<SettingsRouteID>)] = [
+            ("Automations", [.notificationsAlerts]),
+            ("Automations & Shortcuts", [.notificationsAlerts]),
+            ("automations shortcuts", [.notificationsAlerts]),
+            ("triggers", [.notificationsAlerts]),
+            ("baselines", [.personalProfile]),
+            ("Scoring & baselines", [.personalProfile]),
+            ("scoring baselines", [.personalProfile]),
+            ("Data Sources & Storage", [.dataSources]),
+            ("data sources storage", [.dataSources]),
+            ("storage", [.diagnosticsExperimental]),
+            ("Workout & feature preferences", [.workouts]),
+            ("workout feature preferences", [.workouts]),
+            ("features", [.workouts]),
+        ]
+        for (name, home) in oldNames {
+            let found = Set(SettingsRouteCatalog.search(name).map(\.route))
+            XCTAssertTrue(home.isSubset(of: found), "\(name) should find \(home), found \(found)")
+        }
     }
 
     /// Every row the root shows has a tile symbol and colour, so no row falls back to a bare label.
