@@ -15,10 +15,16 @@ enum WidgetCorePublication {
             bundle: bundle,
             bpm: model.bpm ?? model.live.heartRate,
             batteryPct: model.live.batteryPct,
-            bonded: model.live.bonded,
+            bonded: widgetBonded(model.live),
             now: now
         )
     }
+
+    /// CORE-10: the one widget "bonded" definition, shared with the live lane: the strap link is up. The
+    /// core used `live.bonded` (set only after the bond handshake) while the live lane used `connected`, so
+    /// the two lanes could write opposite values for the same moment. `connected` matches the Live
+    /// Activity's connection flag and the live lane's connection-edge publishing.
+    static func widgetBonded(_ live: LiveState) -> Bool { live.connected }
 
     /// Pure regression seam for the immutable core-to-Widget mapping.
     static func makeCoreSnapshot(

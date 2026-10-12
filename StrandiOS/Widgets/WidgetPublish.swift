@@ -149,17 +149,21 @@ extension WidgetSnapshot {
             snapshot: snap,
             defaults: defaults
         )
+        let commitKey = WidgetEnrichmentKey(
+            epoch: token.epoch,
+            contextId: verifiedProjection.contextId,
+            generation: verifiedProjection.generation)
         switch result {
         case .published:
             WidgetLivePublishGate.notePublished(snap, at: now)
-            WidgetCenter.shared.reloadAllTimelines()
+            WidgetTimelineReloads.afterVerifiedCommit(result, key: commitKey)
             scheduleOptionalWidgetEnrichment(from: model, bundle: verifiedBundle, token: token)
             return .published
         case .alreadyCurrent:
             WidgetLivePublishGate.notePublished(snap, at: now)
             // The shared snapshot can already contain this generation while WidgetKit still holds an
-            // older empty timeline. Full publication is low-frequency, so always request a timeline read.
-            WidgetCenter.shared.reloadAllTimelines()
+            // older empty timeline, so a generation this process hasn't requested yet is still read once.
+            WidgetTimelineReloads.afterVerifiedCommit(result, key: commitKey)
             scheduleOptionalWidgetEnrichment(from: model, bundle: verifiedBundle, token: token)
             return .alreadyCurrent
         case .superseded:
@@ -275,7 +279,8 @@ extension WidgetSnapshot {
         )
         guard result == .published || result == .alreadyCurrent else { return }
         WidgetLivePublishGate.notePublished(enriched, at: Date())
-        WidgetCenter.shared.reloadAllTimelines()
+        WidgetTimelineReloads.afterVerifiedCommit(result, key: WidgetEnrichmentKey(
+            epoch: token.epoch, contextId: projection.contextId, generation: projection.generation))
     }
 
     /// Read exact immutable namespaces. Repository's canonical `my-whoop`
@@ -358,7 +363,7 @@ extension WidgetSnapshot {
         var next = previous ?? base
         next.bpm = model.bpm ?? model.live.heartRate
         next.batteryPct = model.live.batteryPct.map { Int($0.rounded()) }
-        next.bonded = model.live.connected
+        next.bonded = WidgetCorePublication.widgetBonded(model.live)
         next.updated = now
         next.hrSparkline = sparkline
         if model.activeWorkout == nil { next.hrSparkline = nil }
@@ -368,7 +373,7 @@ extension WidgetSnapshot {
             generation: verified.generation,
             bpm: model.bpm ?? model.live.heartRate,
             batteryPct: model.live.batteryPct.map { Int($0.rounded()) },
-            bonded: model.live.connected,
+            bonded: WidgetCorePublication.widgetBonded(model.live),
             hrSparkline: sparkline,
             updated: now)
         guard WidgetLivePublishGate.shouldPublish(previous: previous, next: next, now: now) else { return }
@@ -378,7 +383,7 @@ extension WidgetSnapshot {
             defaults: defaults,
             overlay: overlay) else { return }
         WidgetLivePublishGate.notePublished(next, at: now)
-        WidgetCenter.shared.reloadAllTimelines()
+        WidgetTimelineReloads.afterLivePublish(previous: previous, next: next)
     }
 
     static func verifiedStressInput(
