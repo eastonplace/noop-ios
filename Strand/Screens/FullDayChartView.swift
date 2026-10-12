@@ -57,8 +57,10 @@ struct FullDayChartView: View {
     /// The visible window the chart's gestures mutate. nil → full day (the chart falls back to `dayBounds`).
     @State private var zoomDomain: ClosedRange<Date>? = nil
     @State private var loading = true
-    /// Bumped on every settled zoom/metric change so the re-read task re-runs at the new resolution.
-    @State private var reloadTick = 0
+    /// UIP-1: the zoom window as of the last settled gesture. Only a settle, a day step or a reset moves it,
+    /// so the store read keys on it and never restarts on every pan or pinch frame. Mid-gesture, the chart
+    /// draws from the points already loaded.
+    @State private var settledWindow: ClosedRange<Date>? = nil
 
     private var nextDayStart: Date {
         Repository.dateByAddingCalendarDays(1, to: dayStart)
@@ -76,9 +78,6 @@ struct FullDayChartView: View {
     private var panBounds: ClosedRange<Date> {
         Repository.dateByAddingCalendarDays(-2, to: dayStart)...nextDayStart
     }
-
-    /// The currently-visible window (zoomed or the whole day).
-    private var visibleWindow: ClosedRange<Date> { zoomDomain ?? dayBounds }
 
     var body: some View {
         ScreenScaffold(title: "Deep Timeline") {
@@ -107,13 +106,15 @@ struct FullDayChartView: View {
         "\(Int(dayStart.timeIntervalSince1970))|\(repo.refreshSeq)"
     }
 
+    /// The window the data read covers: the last settled zoom, or the whole day.
+    private var readWindow: ClosedRange<Date> { settledWindow ?? dayBounds }
+
     /// Re-read whenever the metric, the day, the source scope, the settled zoom window, or fresh strap
-    /// data changes. The window is bucketed to whole seconds so micro-jitter during a drag doesn't thrash
-    /// the DB — the chart redraws smoothly from the in-hand domain while the data settles.
+    /// data changes. Never the live window: that moved on every gesture frame and restarted the read each time.
     private var taskKey: String {
-        let lo = Int(visibleWindow.lowerBound.timeIntervalSince1970)
-        let hi = Int(visibleWindow.upperBound.timeIntervalSince1970)
-        return "\(metric.rawValue)|\(Int(dayStart.timeIntervalSince1970))|\(ownedOnly)|\(lo)|\(hi)|\(repo.refreshSeq)|\(reloadTick)"
+        let lo = Int(readWindow.lowerBound.timeIntervalSince1970)
+        let hi = Int(readWindow.upperBound.timeIntervalSince1970)
+        return "\(metric.rawValue)|\(Int(dayStart.timeIntervalSince1970))|\(ownedOnly)|\(lo)|\(hi)|\(repo.refreshSeq)"
     }
 
     /// Time in range is a fact about the day: it re-reads when the day, the source scope or fresh strap data changes,
@@ -206,6 +207,7 @@ struct FullDayChartView: View {
         withAnimation(StrandMotion.interactive) {
             dayStart = next
             zoomDomain = nil
+            settledWindow = nil
         }
     }
 
@@ -276,7 +278,11 @@ struct FullDayChartView: View {
                 }
             ),
             zoomBounds: panBounds.lowerBound.timeIntervalSince1970...panBounds.upperBound.timeIntervalSince1970,
-            onSettledWindow: { _ in reloadTick &+= 1 }
+            onSettledWindow: { window in
+                settledWindow = window.map {
+                    Date(timeIntervalSince1970: $0.lowerBound)...Date(timeIntervalSince1970: $0.upperBound)
+                }
+            }
         )
     }
 
@@ -329,7 +335,10 @@ struct FullDayChartView: View {
                 HStack {
                     Spacer(minLength: 0)
                     Button {
-                        withAnimation(StrandMotion.interactive) { zoomDomain = nil }
+                        withAnimation(StrandMotion.interactive) {
+                            zoomDomain = nil
+                            settledWindow = nil
+                        }
                     } label: {
                         WidgetChip(appTitle: "Reset", showsChevron: false, overhangs: false).chipHitTarget()
                     }
@@ -509,7 +518,7 @@ struct FullDayChartView: View {
 
     private func reload() async {
         loading = true
-        let window = visibleWindow
+        let window = readWindow
         let result = await repo.timelineSeries(
             metric: metric,
             from: Int(window.lowerBound.timeIntervalSince1970),

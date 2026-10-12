@@ -2279,6 +2279,7 @@ final class Repository: ObservableObject {
         }
         refreshGen &+= 1
         let myGen = refreshGen
+        registryFamilyCache = nil
         let now = todayHealthSnapshotNow()
         let boundedDays = min(Self.dashboardWindowDays, max(1, nDays))
         let fromDate = Self.dateByAddingCalendarDays(-boundedDays, to: now)
@@ -3855,8 +3856,11 @@ final class Repository: ObservableObject {
                 // the main actor and can't beach-ball a dense day. Mirrors `restageFromRaw`.
                 var perId: [[HRSample]] = []
                 for id in unionIds {
+                    // UIP-1: a gesture cancels this read; stop before queuing more store work.
+                    guard !Task.isCancelled else { return .empty }
                     perId.append((try? await store.hrSamples(deviceId: id, from: from, to: to, limit: 200_000)) ?? [])
                 }
+                guard !Task.isCancelled else { return .empty }
                 let points = await Task.detached(priority: .utility) {
                     Self.dedupSortRawHr(perId)
                 }.value
@@ -3864,6 +3868,7 @@ final class Repository: ObservableObject {
             }
             var byStart: [Int: HRBucket] = [:]
             for id in unionIds {
+                guard !Task.isCancelled else { return .empty }
                 for b in (try? await store.hrBuckets(deviceId: id, from: from, to: to, bucketSeconds: bucket)) ?? [] where byStart[b.ts] == nil { byStart[b.ts] = b }
             }
             return TimelineSeries(points: byStart.values.sorted { $0.ts < $1.ts }.map {
@@ -3879,12 +3884,14 @@ final class Repository: ObservableObject {
         // #938: resolve each source id's strap family ONCE (skin-temp raw→°C is family-specific: 5/MG
         // centidegrees vs a 4.0 v24 raw ADC). Cheap registry snapshot; a positively-identified 4.0 maps to
         // `.whoop4`, everything else (5/MG, imports, unknown) to `.whoop5` — the prior /100 behaviour.
-        let familyById = Self.skinTempFamilies(store: store, ids: unionIds)
+        let familyById = skinTempFamilies(store: store, ids: unionIds)
         var perId: [[TrendPoint]] = []
         for id in unionIds {
+            guard !Task.isCancelled else { return .empty }
             perId.append(await timelineRawMetric(metric: metric, store: store, source: id,
                                                  family: familyById[id] ?? .whoop5, from: from, to: to))
         }
+        guard !Task.isCancelled else { return .empty }
         let points = await Task.detached(priority: .utility) {
             Self.dedupSortDownsampleRaw(perId, isRaw: isRaw, bucketSeconds: bucket)
         }.value
@@ -3893,17 +3900,28 @@ final class Repository: ObservableObject {
     }
 
     /// Map each device id to the strap family that wrote its rows (#938), for the family-aware skin-temp
-    /// raw→°C conversion. Reads the registry ONCE; the model-label → family mapping (and the `.whoop5`
-    /// fallback for unknowns) lives in `DeviceFamily.forRegistryModel` (#171). Best-effort: an unreadable
-    /// registry yields an empty map, so every caller falls back to `.whoop5`.
-    private static func skinTempFamilies(store: WhoopStore, ids: [String]) -> [String: DeviceFamily] {
-        let devices = (try? DeviceRegistryStore(dbQueue: store.registryWriter).all()) ?? []
+    /// raw→°C conversion. The model-label → family mapping (and the `.whoop5` fallback for unknowns) lives in
+    /// `DeviceFamily.forRegistryModel` (#171). UIP-1: the registry is read only for ids this refresh
+    /// generation hasn't resolved yet, not synchronously on the main actor for every timeline read. An
+    /// unreadable registry is not cached; every caller then falls back to `.whoop5`.
+    private func skinTempFamilies(store: WhoopStore, ids: [String]) -> [String: DeviceFamily] {
+        var cache = registryFamilyCache ?? [:]
+        if ids.contains(where: { cache[$0] == nil }) {
+            let devices = try? DeviceRegistryStore(dbQueue: store.registryWriter).all()
+            for id in ids where cache[id] == nil {
+                cache[id] = DeviceFamily.forRegistryModel(devices?.first(where: { $0.id == id })?.model)
+            }
+            if devices != nil { registryFamilyCache = cache }
+        }
         var out: [String: DeviceFamily] = [:]
         for id in ids {
-            out[id] = DeviceFamily.forRegistryModel(devices.first(where: { $0.id == id })?.model)
+            out[id] = cache[id] ?? DeviceFamily.forRegistryModel(nil)
         }
         return out
     }
+
+    /// Device id → strap family for ids already resolved. Cleared at the start of every refresh.
+    private var registryFamilyCache: [String: DeviceFamily]?
 
     /// Raw points for a non-HR timeline metric, mapped to display units (skin temp → °C DEVICE-FAMILY-AWARE
     /// via `skinTempCelsius`: 5/MG centidegrees (#156), WHOOP 4.0 v24 raw ADC (#938); HRV → per-RR
