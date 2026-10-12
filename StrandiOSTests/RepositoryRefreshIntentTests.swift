@@ -297,5 +297,84 @@ final class RepositoryRefreshIntentTests: XCTestCase {
         barrier.releaseExclusive(next)
         XCTAssertFalse(barrier.blocksRefreshes)
     }
+
+    private func seedComputedDays(_ count: Int, into store: WhoopStore, strain: Double = 64) async throws -> [String] {
+        let now = Date()
+        let keys = (0..<count).map {
+            Repository.localDayKey(Repository.dateByAddingCalendarDays(-$0, to: now))
+        }
+        try await store.upsertDailyMetrics(keys.map { key in
+            DailyMetric(day: key, totalSleepMin: 440, efficiency: 0.9, deepMin: 90, remMin: 100,
+                        lightMin: 250, disturbances: 3, restingHr: 52, avgHrv: 63, recovery: 78,
+                        strain: strain, exerciseCount: 1, strainVersion: 2)
+        }, deviceId: Repository.whoopSource + "-noop")
+        return keys.sorted()
+    }
+
+    /// DL-01: a current-day refresh used to replace every 30-day cache with its own 2-day window, so Trends,
+    /// the step sparkline and the baselines collapsed to about 3 days after every sync or HealthKit wake.
+    func testCurrentDayRefreshSplicesIntoTheThirtyDayDashboard() async throws {
+        let store = try await WhoopStore.inMemory()
+        let keys = try await seedComputedDays(30, into: store)
+        let repository = Repository(deviceId: Repository.whoopSource)
+        repository.setStoreForTesting(store)
+
+        let loaded = await repository.refresh(days: 30)
+        XCTAssertTrue(loaded)
+        XCTAssertEqual(repository.days.count, 30)
+        XCTAssertEqual(repository.days.first?.day, keys.first)
+        XCTAssertEqual(repository.freshness.computedDays, 30)
+
+        // New data lands for today only; the narrow refresh must publish it without dropping history.
+        try await store.upsertDailyMetrics([
+            DailyMetric(day: keys.last!, totalSleepMin: 440, efficiency: 0.9, deepMin: 90, remMin: 100,
+                        lightMin: 250, disturbances: 3, restingHr: 52, avgHrv: 63, recovery: 78,
+                        strain: 120, exerciseCount: 1, strainVersion: 2)
+        ], deviceId: Repository.whoopSource + "-noop")
+        let narrow = await repository.refresh(days: 2)
+        XCTAssertTrue(narrow)
+        XCTAssertEqual(repository.days.count, 30, "a narrow refresh never shrinks the dashboard caches")
+        XCTAssertEqual(repository.days.first?.day, keys.first)
+        XCTAssertEqual(repository.days.last?.strain, 120, "the refreshed window still publishes")
+        XCTAssertEqual(repository.freshness.computedDays, 30)
+        XCTAssertEqual(repository.vitalRows.count, 30)
+    }
+
+    /// DL-01: the typed `.currentDay` path (analysis tail, 15-minute tick, BLE sync) keeps the 30-day window.
+    func testTypedCurrentDayRefreshKeepsDayCountAndEarliestDay() async throws {
+        let store = try await WhoopStore.inMemory()
+        let keys = try await seedComputedDays(30, into: store)
+        let repository = Repository(deviceId: Repository.whoopSource)
+        repository.setStoreForTesting(store)
+        _ = await repository.refresh(days: 30)
+        XCTAssertEqual(repository.days.count, 30)
+
+        _ = await repository.refresh(.currentDay)
+        XCTAssertEqual(repository.days.count, 30)
+        XCTAssertEqual(repository.days.first?.day, keys.first)
+    }
+
+    /// DL-09: a sleep edit publishes through the typed refresh, so while a source owns the publication fence
+    /// it is deferred and replayed when the fence opens, instead of tearing that source's generation.
+    func testSleepEditWhileTheFenceIsHeldIsDeferredUntilItOpens() async throws {
+        let store = try await WhoopStore.inMemory()
+        _ = try await seedComputedDays(3, into: store)
+        let repository = Repository(deviceId: Repository.whoopSource)
+        repository.setStoreForTesting(store)
+        _ = await repository.refresh(days: 30)
+        XCTAssertTrue(repository.sleeps.isEmpty)
+
+        let barrier = RepositoryPublicationBarrier.shared
+        let ownership = try await barrier.acquireExclusive()
+        let end = Int(Date().timeIntervalSince1970) - 3_600
+        await repository.addManualNap(startTs: end - 2_700, endTs: end)
+        XCTAssertTrue(repository.sleeps.isEmpty, "the edit's refresh waits behind the held fence")
+
+        barrier.releaseExclusive(ownership)
+        for _ in 0..<500 where repository.sleeps.isEmpty {
+            try await Task.sleep(nanoseconds: 2_000_000)
+        }
+        XCTAssertEqual(repository.sleeps.map(\.endTs), [end], "the deferred refresh replays once the fence opens")
+    }
 }
 #endif

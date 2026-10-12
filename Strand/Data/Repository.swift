@@ -119,8 +119,6 @@ struct RepositoryFreshness: Equatable, Sendable {
     var importedDays: Int = 0
     var computedDays: Int = 0
     var appleDays: Int = 0
-    var importedSleeps: Int = 0
-    var computedSleeps: Int = 0
     var earliestDay: String?
     var latestDay: String?
 
@@ -2175,8 +2173,8 @@ final class Repository: ObservableObject {
         let importedStrainByDay: [String: ResolvedStrain]
     }
 
-    /// Reload the dashboard caches over the last `nDays`, merging imported history with the
-    /// on-device computed scores so a strap-only user still gets a populated dashboard.
+    /// Re-read the last `nDays` and splice them into the 30-day dashboard caches (DL-01), merging imported
+    /// history with the on-device computed scores so a strap-only user still gets a populated dashboard.
     ///
     /// FIX 3: a fresh-import / first-launch analyze tail fires `refresh()` many times in quick succession.
     /// Two costs made each one expensive: (1) the `mergeDaily`/`mergeSleep`/`sourceRows` O(n log n) sorts
@@ -2268,7 +2266,7 @@ final class Repository: ObservableObject {
         refreshGen &+= 1
         let myGen = refreshGen
         let now = todayHealthSnapshotNow()
-        let boundedDays = min(30, max(1, nDays))
+        let boundedDays = min(Self.dashboardWindowDays, max(1, nDays))
         let fromDate = Self.dateByAddingCalendarDays(-boundedDays, to: now)
         let toDate = Self.dateByAddingCalendarDays(1, to: now)
         let fromDay = Self.dayString(fromDate)
@@ -2348,7 +2346,7 @@ final class Repository: ObservableObject {
         // Merge + sort OFF the main actor (FIX 3): the figures build, the two O(n log n) daily/sleep merges,
         // the source-row sort, and the freshness counts are all pure over the rows just read, so they run in
         // a detached task and the main actor stays free for SwiftUI during a deep-history refresh.
-        let merged: MergedCaches = await Task.detached(priority: .utility) {
+        let windowCaches: MergedCaches = await Task.detached(priority: .utility) {
             var fig: [String: ImportedSleepFigures] = [:]
             for p in perf { fig[p.day, default: ImportedSleepFigures()].performancePct = p.value }
             for p in cons { fig[p.day, default: ImportedSleepFigures()].consistencyPct = p.value }
@@ -2395,8 +2393,7 @@ final class Repository: ObservableObject {
                     imported: imported, computed: computed, apple: apple, userEditedDays: editedDays,
                     importedSourceByDay: importedSourceByDay,
                     computedSourceByDay: computedSourceByDay),
-                freshness: Self.computeFreshness(imported: imported, computed: computed, apple: apple,
-                                                 importedSleeps: impSleep, computedSleeps: compSleep),
+                freshness: .empty,
                 persistedStrainByDay: persistedStrain.compactMapValues { $0 },
                 importedStrainByDay: importedStrain.compactMapValues { $0 })
         }.value
@@ -2423,6 +2420,26 @@ final class Repository: ObservableObject {
         ), extent != historyExtent {
             historyExtent = extent
         }
+
+        // DL-01: this read covers only [fromDay, toDay]. Splice it into the current caches, which always span
+        // the fixed 30-day dashboard window, instead of replacing them: a current-day, HealthKit or analysis
+        // refresh must never shrink Trends, the step sparkline or the baselines to its own narrow window. No
+        // suspension separates this splice from the publish below.
+        let merged = Self.splice(
+            window: windowCaches,
+            into: MergedCaches(
+                importedSleep: importedSleep,
+                days: days,
+                sleeps: sleeps,
+                vitalRows: vitalRows,
+                todayHealthMetricSources: todayHealthMetricSources,
+                freshness: freshness,
+                persistedStrainByDay: persistedStrainByDay,
+                importedStrainByDay: importedStrainByDay),
+            window: DashboardSpliceWindow(
+                fromDate: fromDate,
+                toDate: toDate,
+                retainedFromDay: Self.dayString(Self.dateByAddingCalendarDays(-Self.dashboardWindowDays, to: now))))
 
         // DIFF before publishing (FIX 3): if this refresh produced byte-identical caches AND we've already
         // loaded once, skip the re-publish and the `refreshSeq` bump entirely , assigning an equal value to
@@ -2639,19 +2656,102 @@ final class Repository: ObservableObject {
         })
     }
 
-    nonisolated private static func computeFreshness(imported: [DailyMetric], computed: [DailyMetric],
-                                         apple: [DailyMetric], importedSleeps: [CachedSleepSession],
-                                         computedSleeps: [CachedSleepSession]) -> RepositoryFreshness {
-        let days = (imported + computed + apple).map(\.day)
-        return RepositoryFreshness(
-            importedDays: imported.count,
-            computedDays: computed.count,
-            appleDays: apple.count,
-            importedSleeps: importedSleeps.count,
-            computedSleeps: computedSleeps.count,
-            earliestDay: days.min(),
-            latestDay: days.max()
-        )
+    /// Coverage of the dashboard cache, counted from its per-source vital rows (one row per day and source).
+    nonisolated static func computeFreshness(vitalRows: [SourcedDailyMetric]) -> RepositoryFreshness {
+        var freshness = RepositoryFreshness()
+        for row in vitalRows {
+            switch row.source {
+            case .whoopImport: freshness.importedDays += 1
+            case .noopComputed: freshness.computedDays += 1
+            case .appleHealth: freshness.appleDays += 1
+            case .localCache: break
+            }
+        }
+        let dayKeys = vitalRows.map(\.metric.day)
+        freshness.earliestDay = dayKeys.min()
+        freshness.latestDay = dayKeys.max()
+        return freshness
+    }
+
+    /// The fixed span the dashboard caches cover. Every refresh splices into it; none can shrink it.
+    nonisolated static let dashboardWindowDays = 30
+
+    /// The day range one `refresh(days:)` read, and the floor of the retained dashboard window.
+    struct DashboardSpliceWindow: Equatable, Sendable {
+        let fromDate: Date
+        let toDate: Date
+        let retainedFromDay: String
+    }
+
+    /// DL-01: splice one refresh window into the existing dashboard caches.
+    /// - Day-keyed caches: every day in the window is authoritative, present in the read or not, so a day
+    ///   whose rows were deleted disappears.
+    /// - Sleeps: keyed by local wake day. The sleep read returns sessions overlapping [fromDate, toDate], so
+    ///   a night that woke on the first window day before `fromDate` may be missing from it; that day stays
+    ///   owned by the existing cache.
+    /// - Anything older than `retainedFromDay` drops out, so the caches never outgrow the 30-day window.
+    private static func splice(
+        window incoming: MergedCaches,
+        into existing: MergedCaches,
+        window range: DashboardSpliceWindow
+    ) -> MergedCaches {
+        typealias Merge = RepositoryExactAuthoritativeMerge
+        var dayKeys = Set<String>()
+        var cursor = range.fromDate
+        let lastDay = dayString(range.toDate)
+        while dayString(cursor) <= lastDay, dayKeys.count <= dashboardWindowDays + 2 {
+            dayKeys.insert(dayString(cursor))
+            cursor = dateByAddingCalendarDays(1, to: cursor)
+        }
+        let sleepWakeDays = dayKeys.subtracting([dayString(range.fromDate)])
+        let floor = range.retainedFromDay
+        func retained<Value>(_ values: [String: Value]) -> [String: Value] {
+            values.filter { $0.key >= floor }
+        }
+
+        let days = Merge.replaceAuthoritative(
+            existing: existing.days, incoming: incoming.days, authoritativeKeys: dayKeys,
+            key: \.day, areInIncreasingOrder: { $0.day < $1.day }
+        ).filter { $0.day >= floor }
+        let sleeps = Merge.replaceAuthoritative(
+            existing: existing.sleeps,
+            incoming: incoming.sleeps.filter { sleepWakeDays.contains(localWakeDay($0)) },
+            authoritativeKeys: sleepWakeDays,
+            key: localWakeDay,
+            areInIncreasingOrder: {
+                ($0.effectiveStartTs, $0.endTs, $0.startTs) < ($1.effectiveStartTs, $1.endTs, $1.startTs)
+            }
+        ).filter { localWakeDay($0) >= floor }
+        let vitalRows = Merge.replaceAuthoritative(
+            existing: existing.vitalRows, incoming: incoming.vitalRows, authoritativeKeys: dayKeys,
+            key: { $0.metric.day },
+            areInIncreasingOrder: {
+                if $0.metric.day == $1.metric.day { return $0.source.vitalPriority < $1.source.vitalPriority }
+                return $0.metric.day < $1.metric.day
+            }
+        ).filter { $0.metric.day >= floor }
+        return MergedCaches(
+            importedSleep: retained(Merge.replaceAuthoritative(
+                existing: existing.importedSleep, incoming: incoming.importedSleep, authoritativeKeys: dayKeys)),
+            days: days,
+            sleeps: sleeps,
+            vitalRows: vitalRows,
+            todayHealthMetricSources: retained(Merge.replaceAuthoritative(
+                existing: existing.todayHealthMetricSources, incoming: incoming.todayHealthMetricSources,
+                authoritativeKeys: dayKeys)),
+            freshness: computeFreshness(vitalRows: vitalRows),
+            persistedStrainByDay: retained(Merge.replaceAuthoritative(
+                existing: existing.persistedStrainByDay, incoming: incoming.persistedStrainByDay,
+                authoritativeKeys: dayKeys)),
+            importedStrainByDay: retained(Merge.replaceAuthoritative(
+                existing: existing.importedStrainByDay, incoming: incoming.importedStrainByDay,
+                authoritativeKeys: dayKeys)))
+    }
+
+    /// The local wake day `mergeSleep` attributes a session to.
+    nonisolated private static func localWakeDay(_ session: CachedSleepSession) -> String {
+        let offsetSec = TimeZone.current.secondsFromGMT(for: Date(timeIntervalSince1970: TimeInterval(session.endTs)))
+        return AnalyticsEngine.dayString(session.endTs, offsetSec: offsetSec)
     }
 
     /// Imported daily values win field-by-field; computed rows fill only nil imported fields.
@@ -3205,7 +3305,9 @@ final class Repository: ObservableObject {
             wakeTimestamps: [oldEndTs, safeEndTs]
         )
         await invalidateTodayHealthSnapshot()
-        await refresh()
+        // DL-09: a user edit publishes through the typed refresh and the publication fence, so it can't tear a
+        // HealthKit or historical generation or supersede the fence owner's refresh.
+        _ = await refresh(.userEdit)
     }
 
     /// Delete ONE sleep session: the `editSleepTimes` path minus the re-stage/re-insert, so the user can
@@ -3262,7 +3364,9 @@ final class Repository: ObservableObject {
             wakeTimestamps: affectedWakeTimestamps
         )
         await invalidateTodayHealthSnapshot()
-        await refresh()
+        // DL-09: a user edit publishes through the typed refresh and the publication fence, so it can't tear a
+        // HealthKit or historical generation or supersede the fence owner's refresh.
+        _ = await refresh(.userEdit)
         return snapshot
     }
 
@@ -3301,7 +3405,9 @@ final class Repository: ObservableObject {
             wakeTimestamps: [snapshot.session.endTs]
         )
         await invalidateTodayHealthSnapshot()
-        await refresh()
+        // DL-09: a user edit publishes through the typed refresh and the publication fence, so it can't tear a
+        // HealthKit or historical generation or supersede the fence owner's refresh.
+        _ = await refresh(.userEdit)
     }
 
     /// Read the single owned sleep row for `detectedStartTs`, resolving the namespace exactly as
@@ -3406,7 +3512,9 @@ final class Repository: ObservableObject {
             wakeTimestamps: [safeEndTs]
         )
         await invalidateTodayHealthSnapshot()
-        await refresh()
+        // DL-09: a user edit publishes through the typed refresh and the publication fence, so it can't tear a
+        // HealthKit or historical generation or supersede the fence owner's refresh.
+        _ = await refresh(.userEdit)
     }
 
     /// Asleep fraction (light+deep+rem ÷ total in-bed) of a segment-array `stagesJSON`, or nil when the

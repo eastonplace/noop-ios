@@ -12,6 +12,8 @@ enum RepositoryRefreshIntent: Equatable, Sendable, CustomStringConvertible {
     case recentDashboard(days: Int)
     case postBackfill
     case initialLoad
+    /// A sleep or workout edit. It goes through the publication fence like every other typed refresh (DL-09).
+    case userEdit
     case activeDeviceChanged
     case postImport
     case fullHistoryMigration
@@ -22,7 +24,7 @@ enum RepositoryRefreshIntent: Equatable, Sendable, CustomStringConvertible {
             return 1
         case .recentDashboard(let days):
             return min(30, max(1, days))
-        case .activeDeviceChanged, .postImport, .fullHistoryMigration:
+        case .userEdit, .activeDeviceChanged, .postImport, .fullHistoryMigration:
             return 30
         }
     }
@@ -35,6 +37,7 @@ enum RepositoryRefreshIntent: Equatable, Sendable, CustomStringConvertible {
         case .recentDashboard: return "recent-\(days)"
         case .postBackfill: return "post-backfill"
         case .initialLoad: return "initial-load"
+        case .userEdit: return "user-edit"
         case .activeDeviceChanged: return "active-device-changed"
         case .postImport: return "post-import"
         case .fullHistoryMigration: return "full-history-migration"
@@ -49,6 +52,7 @@ enum RepositoryRefreshIntent: Equatable, Sendable, CustomStringConvertible {
         case .recentDashboard: return "repository_refresh_recent_dashboard"
         case .postBackfill: return "repository_refresh_post_backfill"
         case .initialLoad: return "repository_refresh_initial_load"
+        case .userEdit: return "repository_refresh_user_edit"
         case .activeDeviceChanged: return "repository_refresh_active_device_changed"
         case .postImport: return "repository_refresh_post_import"
         case .fullHistoryMigration: return "repository_refresh_full_history_migration"
@@ -75,9 +79,10 @@ enum RepositoryRefreshIntent: Equatable, Sendable, CustomStringConvertible {
         case .recentDashboard: return 1
         case .postBackfill: return 2
         case .initialLoad: return 3
-        case .activeDeviceChanged: return 4
-        case .postImport: return 5
-        case .fullHistoryMigration: return 6
+        case .userEdit: return 4
+        case .activeDeviceChanged: return 5
+        case .postImport: return 6
+        case .fullHistoryMigration: return 7
         }
     }
 
@@ -88,6 +93,7 @@ enum RepositoryRefreshIntent: Equatable, Sendable, CustomStringConvertible {
         case .recentDashboard(let days): return .recentDashboardRequest(days: days)
         case .postBackfill: return .currentDayRequest
         case .initialLoad: return .initialLoadRequest
+        case .userEdit: return .recentDashboardRequest(days: 30)
         case .activeDeviceChanged: return .activeDeviceChangedRequest
         case .postImport: return .postImportRequest
         case .fullHistoryMigration:
