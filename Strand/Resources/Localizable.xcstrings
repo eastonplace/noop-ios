@@ -879,6 +879,180 @@
         }
       }
     },
+    "%@ on high %@ days": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@, wenn %2$@ über dem Median liegt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ on high %@ days"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ cuando %2$@ está por encima de la mediana"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ les jours où %2$@ dépasse la médiane"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ nei giorni in cui %2$@ è sopra la mediana"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ nos dias em que %2$@ está acima da mediana"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ в дни, когда %2$@ выше медианы"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$@ 高于中位数的日子里的 %1$@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$@ 高於中位數的日子裡的 %1$@"
+          }
+        }
+      }
+    },
+    "%@ on low %@ days": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@, wenn %2$@ unter dem Median liegt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ on low %@ days"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ cuando %2$@ está por debajo de la mediana"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ les jours où %2$@ reste sous la médiane"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ nei giorni in cui %2$@ è sotto la mediana"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ nos dias em que %2$@ está abaixo da mediana"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ в дни, когда %2$@ ниже медианы"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$@ 低于中位数的日子里的 %1$@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$@ 低於中位數的日子裡的 %1$@"
+          }
+        }
+      }
+    },
+    "%@ readings over time": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: Messwerte im Zeitverlauf"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ readings over time"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lecturas de %@ a lo largo del tiempo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mesures de %@ dans le temps"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Letture di %@ nel tempo"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leituras de %@ ao longo do tempo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Измерения %@ во времени"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 的读数随时间变化"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 的讀數隨時間變化"
+          }
+        }
+      }
+    },
     "%@ Strain": {
       "localizations": {
         "de": {
@@ -955,6 +1129,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ 摘要"
+          }
+        }
+      }
+    },
+    "%@ versus %@, %@ correlation %@, %lld days": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ gegenüber %2$@, Korrelation %4$@ (%3$@), %5$lld Tage"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ versus %@, %@ correlation %@, %lld days"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ frente a %2$@, correlación %4$@ (%3$@), %5$lld días"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ par rapport à %2$@, corrélation %4$@ (%3$@), %5$lld jours"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ rispetto a %2$@, correlazione %4$@ (%3$@), %5$lld giorni"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ versus %2$@, correlação %4$@ (%3$@), %5$lld dias"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ и %2$@: корреляция %4$@ (%3$@), %5$lld дн."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 与 %2$@，相关系数 %4$@（%3$@），%5$lld 天"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 與 %2$@，相關係數 %4$@（%3$@），%5$lld 天"
           }
         }
       }
@@ -4389,6 +4621,12 @@
             "value": "%@, %@, %@"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@, %@, %@"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -4398,6 +4636,12 @@
         "pt-PT": {
           "stringUnit": {
             "state": "needs_review",
+            "value": "%@, %@, %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
             "value": "%@, %@, %@"
           }
         },
@@ -4907,6 +5151,12 @@
             "value": "%@, última %@, %lld lecturas"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@, dernière valeur %2$@, %3$lld mesures"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -4917,6 +5167,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "%@, última %@, %lld leituras"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@, последнее значение %2$@, измерений: %3$lld"
           }
         },
         "zh-Hans": {
@@ -9295,6 +9551,160 @@
         }
       }
     },
+    "%lld overlapping days": {
+      "localizations": {
+        "de": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld überlappender Tag"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld überlappende Tage"
+                }
+              }
+            }
+          }
+        },
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld overlapping day"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld overlapping days"
+                }
+              }
+            }
+          }
+        },
+        "es": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld día solapado"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld días solapados"
+                }
+              }
+            }
+          }
+        },
+        "fr": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld jour en commun"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld jours en commun"
+                }
+              }
+            }
+          }
+        },
+        "it": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld giorno sovrapposto"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld giorni sovrapposti"
+                }
+              }
+            }
+          }
+        },
+        "pt-PT": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld dia sobreposto"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld dias sobrepostos"
+                }
+              }
+            }
+          }
+        },
+        "ru": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld общий день"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld общих дня"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld общих дней"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld общего дня"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 个重叠日"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 個重疊日"
+          }
+        }
+      }
+    },
     "%lld overlapping days · %@ %@ correlation": {
       "localizations": {
         "de": {
@@ -9353,6 +9763,160 @@
         }
       }
     },
+    "%lld paired days": {
+      "localizations": {
+        "de": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld gepaarter Tag"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld gepaarte Tage"
+                }
+              }
+            }
+          }
+        },
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld paired day"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld paired days"
+                }
+              }
+            }
+          }
+        },
+        "es": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld día emparejado"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld días emparejados"
+                }
+              }
+            }
+          }
+        },
+        "fr": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld jour apparié"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld jours appariés"
+                }
+              }
+            }
+          }
+        },
+        "it": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld giorno abbinato"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld giorni abbinati"
+                }
+              }
+            }
+          }
+        },
+        "pt-PT": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld dia emparelhado"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld dias emparelhados"
+                }
+              }
+            }
+          }
+        },
+        "ru": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld парный день"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld парных дня"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld парных дней"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld парного дня"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 个配对日"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 個配對日"
+          }
+        }
+      }
+    },
     "%lld pairs": {
       "localizations": {
         "de": {
@@ -9367,6 +9931,24 @@
             "value": "%lld pares"
           }
         },
+        "fr": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld paire"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld paires"
+                }
+              }
+            }
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -9377,6 +9959,36 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "%lld pares"
+          }
+        },
+        "ru": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld пара"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld пары"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld пар"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld пары"
+                }
+              }
+            }
           }
         },
         "zh-Hans": {
@@ -9997,6 +10609,12 @@
             "value": "%lld lecturas coinciden hasta ahora, no es suficiente para leer una tendencia todavía (NOOP espera %lld)."
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld mesures concordent pour l'instant, ce n'est pas encore assez pour lire une tendance (NOOP en attend %2$lld)."
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -10005,8 +10623,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "%lld leituras coinciden até agora, no es suficiente para leer uma tendência todavía (NOOP espera %lld)."
+            "state": "translated",
+            "value": "%1$lld leituras coincidem até agora, ainda não é suficiente para ler uma tendência (o NOOP espera %2$lld)."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пока совпало измерений: %1$lld — для тренда этого мало (NOOP ждёт %2$lld)."
           }
         },
         "zh-Hans": {
@@ -10037,6 +10661,12 @@
             "value": "%lld lecturas coinciden, pero no hay suficiente variación para calcular una relación."
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld mesures concordent, mais il n'y a pas assez de variation pour calculer une relation."
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -10045,8 +10675,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "%lld leituras coinciden, mas não há suficiente variación para calcular uma relação."
+            "state": "translated",
+            "value": "%lld leituras coincidem, mas não há variação suficiente para calcular uma relação."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Совпало измерений: %lld, но вариации недостаточно, чтобы вычислить связь."
           }
         },
         "zh-Hans": {
@@ -10083,6 +10719,12 @@
             "value": "%lld lecturas usadas · asociación %@ %@. Son tus propios datos puestos lado a lado. No es un hallazgo médico, y muestra asociación, no causa."
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld mesures utilisées · association %2$@ %3$@. Ce sont vos propres données côte à côte. Ce n'est pas un constat médical, et cela montre une association, pas une cause."
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -10091,8 +10733,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "%lld leituras usadas · asociación %@ %@. Son os teus próprios dados puestos lado a lado. No es um hallazgo médico, e muestra asociación, no causa."
+            "state": "translated",
+            "value": "%1$lld leituras usadas · associação %2$@ %3$@. São os teus próprios dados lado a lado. Não é um achado médico e mostra associação, não causa."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Использовано измерений: %1$lld · %2$@ %3$@ связь. Это ваши собственные данные, сопоставленные рядом. Это не медицинское заключение: показана связь, а не причина."
           }
         },
         "zh-Hans": {
@@ -10105,6 +10753,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "使用了 %1$lld 筆讀數 · %2$@ %3$@ 關聯。這是你自己的資料並排呈現，它不是醫學結論，只顯示關聯，而非因果。"
+          }
+        }
+      }
+    },
+    "%lld readings used · %@ association. This is your own data sitting side by side. It's not a medical finding, and it shows association, not cause.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld Messwerte verwendet · Assoziation: %2$@. Das sind deine eigenen Daten im direkten Vergleich. Es ist kein medizinischer Befund und zeigt Zusammenhang, nicht Ursache."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld readings used · %@ association. This is your own data sitting side by side. It's not a medical finding, and it shows association, not cause."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld lecturas usadas · asociación: %2$@. Son tus propios datos puestos lado a lado. No es un hallazgo médico y muestra asociación, no causa."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld mesures utilisées · association : %2$@. Ce sont vos propres données côte à côte. Ce n'est pas un constat médical, et cela montre une association, pas une cause."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld letture usate · associazione: %2$@. Sono i tuoi dati messi uno accanto all'altro. Non è un riscontro medico e mostra un'associazione, non una causa."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld leituras usadas · associação: %2$@. São os teus próprios dados lado a lado. Não é um achado médico e mostra associação, não causa."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Использовано измерений: %1$lld · связь: %2$@. Это ваши собственные данные, сопоставленные рядом. Это не медицинское заключение: показана связь, а не причина."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用了 %1$lld 个读数 · 关联：%2$@。这是你自己的数据并排对比。这不是医学结论，只显示关联，不代表因果。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用了 %1$lld 個讀數 · 關聯：%2$@。這是你自己的資料並排對比。這不是醫學結論，只顯示關聯，不代表因果。"
           }
         }
       }
@@ -10227,6 +10933,24 @@
             "value": "%lld lecturas · tus propias entradas"
           }
         },
+        "fr": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld mesure · vos propres saisies"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld mesures · vos propres saisies"
+                }
+              }
+            }
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -10235,8 +10959,38 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "%lld leituras · os teus próprias entradas"
+            "state": "translated",
+            "value": "%lld leituras · as tuas próprias entradas"
+          }
+        },
+        "ru": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld измерение · ваши собственные записи"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld измерения · ваши собственные записи"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld измерений · ваши собственные записи"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld измерения · ваши собственные записи"
+                }
+              }
+            }
           }
         },
         "zh-Hans": {
@@ -10477,6 +11231,24 @@
             "value": "%lld filas omitidas"
           }
         },
+        "fr": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld ligne ignorée"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld lignes ignorées"
+                }
+              }
+            }
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -10485,8 +11257,38 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "%lld filas omitidas"
+            "state": "translated",
+            "value": "%lld linhas ignoradas"
+          }
+        },
+        "ru": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Пропущена %lld строка"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Пропущено %lld строки"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Пропущено %lld строк"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Пропущено %lld строки"
+                }
+              }
+            }
           }
         },
         "zh-Hans": {
@@ -10563,6 +11365,24 @@
             "value": "%lld series"
           }
         },
+        "fr": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld série"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld séries"
+                }
+              }
+            }
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -10571,8 +11391,38 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "%lld series"
+            "state": "translated",
+            "value": "%lld séries"
+          }
+        },
+        "ru": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld серия"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld серии"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld серий"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld серии"
+                }
+              }
+            }
           }
         },
         "zh-Hans": {
@@ -14451,6 +15301,12 @@
             "value": "1 par"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 paire"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -14461,6 +15317,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "1 par"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 пара"
           }
         },
         "zh-Hans": {
@@ -14583,6 +15445,12 @@
             "value": "1 lectura coincide hasta ahora, no es suficiente para leer una tendencia todavía (NOOP espera %lld)."
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Une mesure concorde pour l'instant, ce n'est pas encore assez pour lire une tendance (NOOP en attend %lld)."
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -14591,8 +15459,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "1 leitura coincide até agora, no es suficiente para leer uma tendência todavía (NOOP espera %lld)."
+            "state": "translated",
+            "value": "1 leitura coincide até agora, ainda não é suficiente para ler uma tendência (o NOOP espera %lld)."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пока совпало 1 измерение — для тренда этого мало (NOOP ждёт %lld)."
           }
         },
         "zh-Hans": {
@@ -14715,6 +15589,12 @@
             "value": "1 lectura · tus propias entradas"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 mesure · vos propres saisies"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -14723,8 +15603,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "1 leitura · os teus próprias entradas"
+            "state": "translated",
+            "value": "1 leitura · a tua própria entrada"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 измерение · ваши собственные записи"
           }
         },
         "zh-Hans": {
@@ -14755,6 +15641,12 @@
             "value": "1 fila omitida"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 ligne ignorée"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -14763,8 +15655,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "1 fila omitida"
+            "state": "translated",
+            "value": "1 linha ignorada"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 строка пропущена"
           }
         },
         "zh-Hans": {
@@ -15275,6 +16173,12 @@
             "value": "14 días"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "14 jours"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -15285,6 +16189,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "14 dias"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "14 дней"
           }
         },
         "zh-Hans": {
@@ -15355,6 +16265,12 @@
             "value": "14d"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "14 j"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -15365,6 +16281,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "14d"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "14 дн."
           }
         },
         "zh-Hans": {
@@ -15767,6 +16689,12 @@
             "value": "30 días"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "30 jours"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -15777,6 +16705,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "30 dias"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "30 дней"
           }
         },
         "zh-Hans": {
@@ -15847,6 +16781,12 @@
             "value": "30d"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "30 j"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -15857,6 +16797,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "30d"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "30 дн."
           }
         },
         "zh-Hans": {
@@ -16243,6 +17189,12 @@
             "value": "7 días"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "7 jours"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -16253,6 +17205,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "7 dias"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "7 дней"
           }
         },
         "zh-Hans": {
@@ -16363,6 +17321,12 @@
             "value": "7d"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "7 j"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -16373,6 +17337,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "7d"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "7 дн."
           }
         },
         "zh-Hans": {
@@ -17879,6 +18849,12 @@
             "value": "Un cuaderno privado, no un servicio médico."
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un carnet privé, pas un service médical."
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -17887,8 +18863,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Um cuaderno privado, no um servicio médico."
+            "state": "translated",
+            "value": "Um caderno privado, não um serviço médico."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Личный блокнот, а не медицинская услуга."
           }
         },
         "zh-Hans": {
@@ -18665,6 +19647,238 @@
         }
       }
     },
+    "Across this window, %@ and %@ mostly move independently.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In diesem Zeitraum bewegen sich %1$@ und %2$@ größtenteils unabhängig voneinander."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Across this window, %@ and %@ mostly move independently."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En este periodo, %1$@ y %2$@ se mueven en su mayoría de forma independiente."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sur cette période, %1$@ et %2$@ évoluent surtout indépendamment."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In questo periodo, %1$@ e %2$@ si muovono per lo più in modo indipendente."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neste período, %1$@ e %2$@ movem-se sobretudo de forma independente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "За этот период %1$@ и %2$@ в основном изменяются независимо друг от друга."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在此时间范围内，%1$@ 与 %2$@ 大多各自独立变化。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在此時間範圍內，%1$@ 與 %2$@ 大多各自獨立變化。"
+          }
+        }
+      }
+    },
+    "Add a metric": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eine Metrik hinzufügen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add a metric"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Añadir una métrica"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajouter une métrique"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aggiungi una metrica"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adicionar uma métrica"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добавить метрику"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添加指标"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增指標"
+          }
+        }
+      }
+    },
+    "Add a second metric": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zweite Metrik hinzufügen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add a second metric"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Añade una segunda métrica"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajoutez une deuxième métrique"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aggiungi una seconda metrica"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adiciona uma segunda métrica"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добавьте вторую метрику"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添加第二个指标"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增第二個指標"
+          }
+        }
+      }
+    },
+    "Add marker": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Marker hinzufügen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add marker"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Añadir marcador"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajouter un marqueur"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aggiungi indicatore"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adicionar marcador"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добавить маркер"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添加标记"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增標記"
+          }
+        }
+      }
+    },
     "ADVANCED": {
       "localizations": {
         "de": {
@@ -19137,6 +20351,64 @@
         }
       }
     },
+    "At least three overlapping, varying days are required for Pearson correlation.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Für die Pearson-Korrelation werden mindestens drei überlappende Tage mit unterschiedlichen Werten benötigt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "At least three overlapping, varying days are required for Pearson correlation."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se necesitan al menos tres días solapados y con valores distintos para la correlación de Pearson."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il faut au moins trois jours qui se recoupent et varient pour calculer la corrélation de Pearson."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Servono almeno tre giorni sovrapposti e variabili per la correlazione di Pearson."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "São necessários pelo menos três dias sobrepostos e com valores diferentes para a correlação de Pearson."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Для корреляции Пирсона нужно не менее трёх совпадающих дней с различающимися значениями."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "皮尔逊相关至少需要三个重叠且有变化的日期。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "皮爾遜相關至少需要三個重疊且有變化的日期。"
+          }
+        }
+      }
+    },
     "AVG": {
       "localizations": {
         "de": {
@@ -19529,6 +20801,12 @@
             "value": "Acerca de Lab Book"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "À propos du Carnet de laboratoire"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -19537,8 +20815,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Acerca de Lab Book"
+            "state": "translated",
+            "value": "Sobre o Caderno de laboratório"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "О лабораторном журнале"
           }
         },
         "zh-Hans": {
@@ -20889,6 +22173,12 @@
             "value": "Añadir un marcador personalizado"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajouter un marqueur personnalisé"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -20899,6 +22189,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Adicionar um marcador personalizado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добавить свой маркер"
           }
         },
         "zh-Hans": {
@@ -21209,6 +22505,12 @@
             "value": "Añadir una lectura de marcador"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajouter une mesure de marqueur"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -21219,6 +22521,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Adicionar uma leitura de marcador"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добавить измерение маркера"
           }
         },
         "zh-Hans": {
@@ -21269,8 +22577,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Añade uma métrica para comparar"
+            "state": "translated",
+            "value": "Adiciona uma métrica para comparar"
           }
         },
         "ru": {
@@ -21347,6 +22655,12 @@
             "value": "Añadir una lectura"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajouter une mesure"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -21357,6 +22671,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Adicionar uma leitura"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добавить измерение"
           }
         },
         "zh-Hans": {
@@ -23209,6 +24529,12 @@
             "value": "Confía siempre en tu médico, farmacéutico o un profesional cualificado para interpretar resultados y tomar decisiones. Si un número te preocupa, habla con ellos, no con una app."
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fiez-vous toujours à votre médecin, à votre pharmacien ou à un professionnel qualifié pour interpréter les résultats et prendre des décisions. Si un chiffre vous inquiète, parlez-en à eux, pas à une application."
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -23217,8 +24543,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Confía sempre en o teu médico, farmacéutico o um profesional cualificado para interpretar resultados e tomar decisiones. Si um número te preocupa, habla com ellos, no com uma app."
+            "state": "translated",
+            "value": "Confia sempre no teu médico, farmacêutico ou num profissional qualificado para interpretar resultados e tomar decisões. Se um número te preocupar, fala com eles, não com uma app."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Для интерпретации результатов и принятия решений всегда полагайтесь на врача, фармацевта или другого квалифицированного специалиста. Если какое-то число вас тревожит, обсудите его с ними, а не с приложением."
           }
         },
         "zh-Hans": {
@@ -23827,6 +25159,12 @@
             "value": "Todo lo que ves aquí (incluida cualquier tendencia comparada) es tu propia información mostrada de vuelta. Es una asociación, nunca una causa, y nunca un hallazgo médico."
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tout ce que vous voyez ici (y compris toute tendance côte à côte) correspond à vos propres informations, renvoyées telles quelles. C'est une association, jamais une cause, et jamais un constat médical."
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -23835,8 +25173,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Tudo lo que ves aquí (incluida qualquer tendência comparada) es o teu própria información mostrada de vuelta. Es uma asociación, nunca uma causa, e nunca um hallazgo médico."
+            "state": "translated",
+            "value": "Tudo o que vês aqui (incluindo qualquer tendência lado a lado) são os teus próprios dados mostrados de volta. É uma associação, nunca uma causa, e nunca um achado médico."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Всё, что вы здесь видите (включая любые сопоставления рядом), — это ваши собственные данные, показанные вам обратно. Это связь, а не причина, и никогда не медицинское заключение."
           }
         },
         "zh-Hans": {
@@ -27387,6 +28731,12 @@
             "value": "Volver a la lista de marcadores"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retour à la liste des marqueurs"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -27395,8 +28745,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "voltar à lista de marcadores"
+            "state": "translated",
+            "value": "Voltar à lista de marcadores"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Назад к списку маркеров"
           }
         },
         "zh-Hans": {
@@ -29673,6 +31029,12 @@
             "value": "Análisis de sangre"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bilan sanguin"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -29681,8 +31043,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Análisis de sangre"
+            "state": "translated",
+            "value": "Análises ao sangue"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Анализ крови"
           }
         },
         "zh-Hans": {
@@ -29713,6 +31081,12 @@
             "value": "Presión arterial"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tension artérielle"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -29721,8 +31095,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Presión arterial"
+            "state": "translated",
+            "value": "Tensão arterial"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Артериальное давление"
           }
         },
         "zh-Hans": {
@@ -29753,6 +31133,12 @@
             "value": "Cuerpo"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Corps"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -29761,8 +31147,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Cuerpo"
+            "state": "translated",
+            "value": "Corpo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тело"
           }
         },
         "zh-Hans": {
@@ -30975,6 +32367,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "每分鐘呼吸次數"
+          }
+        }
+      }
+    },
+    "Bring in readings from a markers CSV": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Messwerte aus einer Marker-CSV übernehmen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bring in readings from a markers CSV"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importa lecturas desde un CSV de marcadores"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importer des mesures depuis un CSV de marqueurs"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importa letture da un CSV di indicatori"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importa leituras de um CSV de marcadores"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Загрузить измерения из CSV с маркерами"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从标记 CSV 导入读数"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "從標記 CSV 匯入讀數"
           }
         }
       }
@@ -33153,6 +34603,122 @@
         }
       }
     },
+    "Choose a markers CSV file to import": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Marker-CSV-Datei zum Importieren auswählen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose a markers CSV file to import"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elige un archivo CSV de marcadores para importar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choisissez un fichier CSV de marqueurs à importer"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scegli un file CSV di indicatori da importare"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escolhe um ficheiro CSV de marcadores para importar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выберите CSV-файл с маркерами для импорта"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择要导入的标记 CSV 文件"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選擇要匯入的標記 CSV 檔案"
+          }
+        }
+      }
+    },
+    "Choose a signal": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Signal auswählen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose a signal"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elige una señal"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choisir un signal"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scegli un segnale"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escolhe um sinal"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выберите сигнал"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择信号"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選擇訊號"
+          }
+        }
+      }
+    },
     "CLOUD SHAPE": {
       "localizations": {
         "de": {
@@ -33469,6 +35035,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "控制中心"
+          }
+        }
+      }
+    },
+    "correlation, not causation": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Korrelation, keine Kausalität"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "correlation, not causation"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "correlación, no causalidad"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "corrélation, pas causalité"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "correlazione, non causalità"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "correlação, não causalidade"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "корреляция, а не причинность"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "相关，不等于因果"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "相關，不等於因果"
           }
         }
       }
@@ -34989,6 +36613,12 @@
             "value": "Cancelar"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Annuler"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -34999,6 +36629,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Cancelar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отмена"
           }
         },
         "zh-Hans": {
@@ -35483,6 +37119,12 @@
             "value": "Cambiar"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modifier"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -35491,8 +37133,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "mudar"
+            "state": "translated",
+            "value": "Alterar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Изменить"
           }
         },
         "zh-Hans": {
@@ -35563,6 +37211,12 @@
             "value": "Cambiar marcador"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Changer de marqueur"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -35571,8 +37225,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "mudar marcador"
+            "state": "translated",
+            "value": "Alterar marcador"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сменить маркер"
           }
         },
         "zh-Hans": {
@@ -36283,6 +37943,12 @@
             "value": "Elige una señal del wearable para comparar"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choisir un signal à comparer"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -36291,8 +37957,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Escolhe uma sinal do wearable para comparar"
+            "state": "translated",
+            "value": "Escolhe um sinal do wearable para comparar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выберите сигнал для сравнения"
           }
         },
         "zh-Hans": {
@@ -37049,8 +38721,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Apagar"
+            "state": "translated",
+            "value": "Limpar"
           }
         },
         "ru": {
@@ -38767,8 +40439,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Comparar precisa al menos dos métricas com histórico. Importa primeiro o teu exportação de WHOOP en fontes de dados."
+            "state": "translated",
+            "value": "Comparar precisa de pelo menos duas métricas com histórico. Importa primeiro a tua exportação do WHOOP em Fontes de dados."
           }
         },
         "ru": {
@@ -38845,6 +40517,12 @@
             "value": "Comparar con una señal"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comparer avec un signal"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -38853,8 +40531,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Comparar com uma sinal"
+            "state": "translated",
+            "value": "Comparar com um sinal"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сравнить с сигналом"
           }
         },
         "zh-Hans": {
@@ -41623,6 +43307,12 @@
             "value": "No se pudo abrir el almacén local."
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible d'ouvrir le stockage local."
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -41631,8 +43321,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "No se pudo abrir el almacén local."
+            "state": "translated",
+            "value": "Não foi possível abrir o armazenamento local."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось открыть локальное хранилище."
           }
         },
         "zh-Hans": {
@@ -42401,6 +44097,12 @@
             "value": "Personalizado"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Personnalisé"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -42411,6 +44113,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Personalizado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Свои"
           }
         },
         "zh-Hans": {
@@ -42481,6 +44189,12 @@
             "value": "Nombre del marcador personalizado"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nom du marqueur personnalisé"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -42489,8 +44203,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Nombre do marcador personalizado"
+            "state": "translated",
+            "value": "Nome do marcador personalizado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Название своего маркера"
           }
         },
         "zh-Hans": {
@@ -42521,6 +44241,12 @@
             "value": "Unidad del marcador personalizado"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unité du marqueur personnalisé"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -42529,8 +44255,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "unidade do marcador personalizado"
+            "state": "translated",
+            "value": "Unidade do marcador personalizado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Единица своего маркера"
           }
         },
         "zh-Hans": {
@@ -43197,6 +44929,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "刪除 %@？"
+          }
+        }
+      }
+    },
+    "Delete this reading?": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diesen Messwert löschen?"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete this reading?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Eliminar esta lectura?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Supprimer cette mesure ?"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eliminare questa lettura?"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eliminar esta leitura?"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Удалить это измерение?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "删除此读数？"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "刪除此讀數？"
           }
         }
       }
@@ -43949,6 +45739,12 @@
             "value": "Fecha y hora de la toma"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Date et heure de la mesure"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -43957,8 +45753,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "data e hora da toma"
+            "state": "translated",
+            "value": "Data e hora da medição"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дата и время измерения"
           }
         },
         "zh-Hans": {
@@ -43989,6 +45791,12 @@
             "value": "Fecha de la toma"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Date de la mesure"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -43997,8 +45805,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "data da toma"
+            "state": "translated",
+            "value": "Data da medição"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дата измерения"
           }
         },
         "zh-Hans": {
@@ -44879,6 +46693,12 @@
             "value": "Eliminar"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Supprimer"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -44889,6 +46709,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Eliminar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Удалить"
           }
         },
         "zh-Hans": {
@@ -45245,6 +47071,12 @@
             "value": "Eliminar esta lectura"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Supprimer cette mesure"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -45255,6 +47087,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Eliminar esta leitura"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Удалить это измерение"
           }
         },
         "zh-Hans": {
@@ -45863,6 +47701,12 @@
             "value": "Diastólica"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diastolique"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -45873,6 +47717,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Diastólica"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Диастолическое"
           }
         },
         "zh-Hans": {
@@ -45903,6 +47753,12 @@
             "value": "Presión arterial diastólica en mmHg"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tension diastolique en mmHg"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -45911,8 +47767,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Presión arterial diastólica en mmHg"
+            "state": "translated",
+            "value": "Tensão arterial diastólica em mmHg"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Диастолическое давление в мм рт. ст."
           }
         },
         "zh-Hans": {
@@ -50411,6 +52273,12 @@
             "value": "Introducidos juntos; guardados como dos marcadores para que cada uno se alinee limpiamente con tus señales."
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saisie conjointe ; enregistrée sous la forme de deux marqueurs, afin que chacun puisse être comparé nettement à vos signaux."
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -50419,8 +52287,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Introducidos juntos; guardados como dos marcadores para que cada uno se alinee limpiamente com os teus sinais."
+            "state": "translated",
+            "value": "Introduzidos em conjunto; guardados como dois marcadores para que cada um se alinhe bem com os teus sinais."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вводятся вместе; сохраняются как два маркера, чтобы каждый можно было чётко сопоставить с вашими сигналами."
           }
         },
         "zh-Hans": {
@@ -57899,6 +59773,122 @@
         }
       }
     },
+    "Higher %@, higher %@": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Je höher %1$@, desto höher %2$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Higher %@, higher %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuanto mayor %1$@, mayor %2$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quand %1$@ monte, %2$@ monte"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quando %1$@ sale, %2$@ sale"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quando %1$@ sobe, %2$@ sobe"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чем выше %1$@, тем выше %2$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 越高，%2$@ 越高"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 越高，%2$@ 越高"
+          }
+        }
+      }
+    },
+    "Higher %@, lower %@": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Je höher %1$@, desto niedriger %2$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Higher %@, lower %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuanto mayor %1$@, menor %2$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quand %1$@ monte, %2$@ baisse"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quando %1$@ sale, %2$@ scende"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quando %1$@ sobe, %2$@ desce"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чем выше %1$@, тем ниже %2$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 越高，%2$@ 越低"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 越高，%2$@ 越低"
+          }
+        }
+      }
+    },
     "How completely and efficiently you met your dynamic Sleep Need, led by sleep sufficiency. On-device preview series; not yet the Sleep tab's headline score.": {
       "localizations": {
         "de": {
@@ -62559,8 +64549,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Como se mueven juntas"
+            "state": "translated",
+            "value": "Como se movem em conjunto"
           }
         },
         "ru": {
@@ -64181,6 +66171,180 @@
         }
       }
     },
+    "Important": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wichtig"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Important"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importante"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Important"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importante"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importante"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Важно"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重要"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重要"
+          }
+        }
+      }
+    },
+    "Important. NOOP is for personal tracking and insights only. Read the full note.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wichtig. NOOP dient nur der persönlichen Erfassung und Auswertung. Den ganzen Hinweis lesen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Important. NOOP is for personal tracking and insights only. Read the full note."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importante. NOOP es solo para seguimiento personal e información. Lee la nota completa."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Important. NOOP sert uniquement au suivi personnel et aux analyses. Lire la note complète."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importante. NOOP è solo per il monitoraggio personale e le analisi. Leggi la nota completa."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importante. O NOOP serve apenas para acompanhamento pessoal e informação. Lê a nota completa."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Важно. NOOP предназначен только для личного учёта и аналитики. Прочитать полную заметку."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重要。NOOP 仅用于个人追踪和洞察。阅读完整说明。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重要。NOOP 僅用於個人追蹤和洞察。閱讀完整說明。"
+          }
+        }
+      }
+    },
+    "Imported %lld readings (%lld markers)": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld Messwerte importiert (%2$lld Marker)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Imported %lld readings (%lld markers)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld lecturas importadas (%2$lld marcadores)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld mesures importées (%2$lld marqueurs)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld letture importate (%2$lld indicatori)"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld leituras importadas (%2$lld marcadores)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Импортировано измерений: %1$lld (маркеров: %2$lld)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已导入 %1$lld 个读数（%2$lld 个标记）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已匯入 %1$lld 個讀數（%2$lld 個標記）"
+          }
+        }
+      }
+    },
     "In range": {
       "localizations": {
         "de": {
@@ -64687,6 +66851,12 @@
             "value": "Imagenología"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Imagerie"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -64695,8 +66865,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Imagenología"
+            "state": "translated",
+            "value": "Imagiologia"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Визуализация"
           }
         },
         "zh-Hans": {
@@ -64767,6 +66943,12 @@
             "value": "Importar"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importer"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -64777,6 +66959,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Importar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Импорт"
           }
         },
         "zh-Hans": {
@@ -65127,6 +67315,12 @@
             "value": "La importación falló: %@"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Échec de l'import : %@"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -65135,8 +67329,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "A importação falló: %@"
+            "state": "translated",
+            "value": "A importação falhou: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось импортировать: %@"
           }
         },
         "zh-Hans": {
@@ -65167,6 +67367,12 @@
             "value": "Importar lecturas"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importer des mesures"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -65177,6 +67383,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Importar leituras"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Импортировать измерения"
           }
         },
         "zh-Hans": {
@@ -68878,6 +71090,12 @@
             "value": "El Cuaderno de laboratorio guarda tus propios números. No los analiza, interpreta ni juzga, y no es consejo médico. Todo permanece en %@."
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le Carnet de laboratoire conserve vos propres chiffres. Il ne les teste pas, ne les lit pas, ne les juge pas, et ce n'est pas un avis médical. Tout reste sur %@."
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -68886,8 +71104,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "El Cuaderno de laboratorio guarda os teus próprios números. No os analiza, interpreta ni juzga, e no es consejo médico. Tudo permanece en %@."
+            "state": "translated",
+            "value": "O Caderno de laboratório guarda os teus próprios números. Não os testa, não os interpreta nem os avalia, e não é aconselhamento médico. Tudo fica em %@."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Лабораторный журнал хранит ваши собственные числа. Он не проверяет, не читает и не оценивает их и не является медицинским советом. Всё остаётся на %@."
           }
         },
         "zh-Hans": {
@@ -70540,6 +72764,12 @@
             "value": "Última entrada: %@."
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dernière saisie : %@."
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -70550,6 +72780,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Última entrada: %@."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Последняя запись: %@."
           }
         },
         "zh-Hans": {
@@ -72250,6 +74486,12 @@
             "value": "Alineándolos…"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mise en correspondance…"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -72258,8 +74500,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Alineándolos…"
+            "state": "translated",
+            "value": "A alinhar…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сопоставляю…"
           }
         },
         "zh-Hans": {
@@ -76530,6 +78778,12 @@
             "value": "Marcador"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Marqueur"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -76538,8 +78792,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "marcador"
+            "state": "translated",
+            "value": "Marcador"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Маркер"
           }
         },
         "zh-Hans": {
@@ -76590,8 +78850,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "marcadores"
+            "state": "translated",
+            "value": "Marcadores"
           }
         },
         "ru": {
@@ -76746,8 +79006,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Máx 4"
+            "state": "translated",
+            "value": "Máx. 4"
           }
         },
         "ru": {
@@ -77548,6 +79808,122 @@
           "stringUnit": {
             "state": "translated",
             "value": "指標"
+          }
+        }
+      }
+    },
+    "Metric A": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Metrik A"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Metric A"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Métrica A"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Métrique A"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Metrica A"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Métrica A"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Метрика A"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "指标 A"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "指標 A"
+          }
+        }
+      }
+    },
+    "Metric B": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Metrik B"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Metric B"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Métrica B"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Métrique B"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Metrica B"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Métrica B"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Метрика B"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "指标 B"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "指標 B"
           }
         }
       }
@@ -79612,6 +81988,180 @@
         }
       }
     },
+    "next-morning lag": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Versatz auf den nächsten Morgen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "next-morning lag"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "desfase a la mañana siguiente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "décalage au lendemain matin"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sfasamento alla mattina dopo"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "desfasamento para a manhã seguinte"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "сдвиг на следующее утро"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "次日早晨滞后"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "次日早晨落後"
+          }
+        }
+      }
+    },
+    "No clear %@-%@ link": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kein klarer Zusammenhang zwischen %1$@ und %2$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No clear %@-%@ link"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sin relación clara entre %1$@ y %2$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun lien net entre %1$@ et %2$@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessun legame chiaro tra %1$@ e %2$@"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sem relação clara entre %1$@ e %2$@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Явной связи между %1$@ и %2$@ нет"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 与 %2$@ 之间没有明显关联"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 與 %2$@ 之間沒有明顯關係"
+          }
+        }
+      }
+    },
+    "No clear relationship. They move largely independently.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kein klarer Zusammenhang. Sie bewegen sich weitgehend unabhängig."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No clear relationship. They move largely independently."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sin relación clara. Se mueven en gran medida de forma independiente."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucune relation nette. Elles évoluent en grande partie indépendamment."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessuna relazione chiara. Si muovono in gran parte in modo indipendente."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sem relação clara. Movem-se em grande parte de forma independente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Явной связи нет. Показатели в основном меняются независимо."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有明显关系。两者基本各自变化。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有明顯關係。兩者大致各自變化。"
+          }
+        }
+      }
+    },
     "No current partner": {
       "localizations": {
         "de": {
@@ -79706,6 +82256,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "無資料"
+          }
+        }
+      }
+    },
+    "No data for these metrics in this range. Widen the range or pick metrics you've logged.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine Daten für diese Metriken in diesem Bereich. Erweitere den Bereich oder wähle Metriken, die du erfasst hast."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No data for these metrics in this range. Widen the range or pick metrics you've logged."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No hay datos para estas métricas en este rango. Amplía el rango o elige métricas que hayas registrado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pas de données pour ces métriques dans cette plage. Élargissez la plage ou choisissez des métriques que vous avez enregistrées."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessun dato per queste metriche in questo intervallo. Amplia l'intervallo o scegli metriche che hai registrato."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não há dados para estas métricas neste intervalo. Alarga o intervalo ou escolhe métricas que tenhas registado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нет данных по этим метрикам за этот период. Расширьте диапазон или выберите метрики, которые уже записывались."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此范围内这些指标没有数据。请扩大范围，或选择你已记录的指标。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此範圍內這些指標沒有資料。請擴大範圍，或選擇你已記錄的指標。"
           }
         }
       }
@@ -79842,6 +82450,122 @@
         }
       }
     },
+    "No markers yet": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Noch keine Marker"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No markers yet"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aún no hay marcadores"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pas encore de marqueurs"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ancora nessun indicatore"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ainda sem marcadores"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Маркеров пока нет"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "还没有标记"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尚無標記"
+          }
+        }
+      }
+    },
+    "No metrics match": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine passenden Metriken"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No metrics match"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ninguna métrica coincide"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucune métrique ne correspond"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessuna metrica corrisponde"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhuma métrica corresponde"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подходящих метрик нет"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有匹配的指标"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有符合的指標"
+          }
+        }
+      }
+    },
     "No reading": {
       "localizations": {
         "de": {
@@ -79890,6 +82614,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "無讀數"
+          }
+        }
+      }
+    },
+    "No usable rows found. Check the file has date, marker and value columns.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine verwertbaren Zeilen gefunden. Prüfe, ob die Datei Spalten für Datum, Marker und Wert hat."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No usable rows found. Check the file has date, marker and value columns."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se encontraron filas utilizables. Comprueba que el archivo tenga columnas de fecha, marcador y valor."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucune ligne exploitable. Vérifiez que le fichier contient des colonnes date, marqueur et valeur."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessuna riga utilizzabile. Controlla che il file abbia colonne di data, indicatore e valore."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foram encontradas linhas utilizáveis. Verifica se o ficheiro tem colunas de data, marcador e valor."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подходящих строк не найдено. Проверьте, что в файле есть столбцы даты, маркера и значения."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未找到可用的行。请检查文件是否包含日期、标记和数值列。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "找不到可用的列。請檢查檔案是否包含日期、標記和數值欄。"
           }
         }
       }
@@ -80046,6 +82828,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "NOOP %@ 來了。點擊查看新功能。"
+          }
+        }
+      }
+    },
+    "NOOP is for personal tracking and insights only. It is not medical advice or a diagnostic tool.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NOOP dient nur der persönlichen Erfassung und Auswertung. Es ist keine medizinische Beratung und kein Diagnosewerkzeug."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NOOP is for personal tracking and insights only. It is not medical advice or a diagnostic tool."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NOOP es solo para seguimiento personal e información. No es consejo médico ni una herramienta de diagnóstico."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NOOP sert uniquement au suivi personnel et aux analyses. Ce n'est ni un avis médical ni un outil de diagnostic."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NOOP è solo per il monitoraggio personale e le analisi. Non è un consiglio medico né uno strumento diagnostico."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O NOOP serve apenas para acompanhamento pessoal e informação. Não é aconselhamento médico nem uma ferramenta de diagnóstico."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NOOP предназначен только для личного учёта и аналитики. Это не медицинская консультация и не диагностический инструмент."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NOOP 仅用于个人追踪和洞察。它不是医疗建议，也不是诊断工具。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NOOP 僅用於個人追蹤和洞察。它不是醫療建議，也不是診斷工具。"
           }
         }
       }
@@ -80682,6 +83522,12 @@
             "value": "NOOP nunca decide si un valor es \"normal\", \"alto\" o \"bajo\". Cualquier rango de referencia mostrado es exactamente lo que escribiste de tu propio informe."
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NOOP ne décide jamais si une valeur est « normale », « haute » ou « basse ». Toute plage de référence affichée est exactement celle que vous avez saisie d'après votre propre compte rendu."
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -80690,8 +83536,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "NOOP nunca decide si um valor es \"normal\", \"alto\" o \"baixo\". qualquer rango de referencia mostrado es exactamente lo que escribiste de o teu próprio informe."
+            "state": "translated",
+            "value": "O NOOP nunca decide se um valor é «normal», «alto» ou «baixo». Qualquer intervalo de referência mostrado é exatamente o que escreveste a partir do teu próprio relatório."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NOOP никогда не решает, «нормальное» значение, «высокое» или «низкое». Любой показанный референсный диапазон — ровно тот, который вы ввели из своего отчёта."
           }
         },
         "zh-Hans": {
@@ -80722,6 +83574,12 @@
             "value": "NOOP nunca rellena esto. Solo muestra exactamente lo que escribes de tu propio informe."
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NOOP ne remplit jamais ce champ. Il ne renvoie que ce que vous saisissez d'après votre propre compte rendu."
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -80730,8 +83588,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "NOOP nunca rellena isto. Só muestra exactamente lo que escribes de o teu próprio informe."
+            "state": "translated",
+            "value": "O NOOP nunca preenche isto. Só mostra de volta exatamente o que escreves a partir do teu próprio relatório."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NOOP никогда не заполняет это поле. Он лишь показывает то, что вы вводите из своего отчёта."
           }
         },
         "zh-Hans": {
@@ -81248,6 +84112,12 @@
             "value": "NOOP almacena y organiza los números que introduces tú mismo. No te hace pruebas, no lee tus resultados, no da consejos médicos ni diagnostica nada."
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NOOP enregistre et met en regard les chiffres que vous saisissez vous-même. Il ne vous teste pas, ne lit pas vos résultats, ne donne pas de conseil médical et ne pose aucun diagnostic."
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -81256,8 +84126,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "NOOP armazena e organiza os números que introduces tú mesmo. No te há pruebas, no lê os teus resultados, no da consejos médicos ni diagnostica nada."
+            "state": "translated",
+            "value": "O NOOP guarda e alinha os números que introduzes tu próprio. Não te faz testes, não lê os teus resultados, não dá aconselhamento médico nem diagnostica nada."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NOOP хранит и сопоставляет числа, которые вы вводите сами. Он не проводит тесты, не читает ваши результаты, не даёт медицинских советов и ничего не диагностирует."
           }
         },
         "zh-Hans": {
@@ -81659,6 +84535,12 @@
             "value": "Nombre"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nom"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -81667,8 +84549,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Nombre"
+            "state": "translated",
+            "value": "Nome"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Название"
           }
         },
         "zh-Hans": {
@@ -82763,6 +85651,12 @@
             "value": "Mañana siguiente"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lendemain matin"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -82771,8 +85665,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "amanhã seguinte"
+            "state": "translated",
+            "value": "Manhã seguinte"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Следующее утро"
           }
         },
         "zh-Hans": {
@@ -85027,6 +87927,12 @@
             "value": "Sin coincidencias. Añádelo como marcador personalizado abajo."
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun résultat. Ajoutez-le ci-dessous comme marqueur personnalisé."
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -85035,8 +87941,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Sem coincidencias. Añádelo como marcador personalizado abajo."
+            "state": "translated",
+            "value": "Sem resultados. Adiciona-o abaixo como marcador personalizado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ничего не найдено. Добавьте его ниже как свой маркер."
           }
         },
         "zh-Hans": {
@@ -85485,6 +88397,12 @@
             "value": "Aún no hay lecturas numéricas."
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pas encore de mesures numériques."
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -85493,8 +88411,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ainda não há leituras numéricas."
+            "state": "translated",
+            "value": "Ainda não há leituras numéricas."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Числовых измерений пока нет."
           }
         },
         "zh-Hans": {
@@ -85565,6 +88489,12 @@
             "value": "Aún no hay solapamiento entre este marcador y %@. Registra unas cuantas lecturas más (y sigue llevando tu pulsera)."
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pas encore de recoupement entre ce marqueur et %@. Enregistrez quelques mesures de plus (et continuez à porter votre bracelet)."
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -85573,8 +88503,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ainda não há solapamiento entre este marcador e %@. Registra unas cuantas leituras mais (y sigue a levar o teu bracelete)."
+            "state": "translated",
+            "value": "Ainda não há sobreposição entre este marcador e %@. Regista mais algumas leituras (e continua a usar a pulseira)."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пока нет пересечения между этим маркером и %@. Добавьте ещё несколько измерений (и продолжайте носить браслет)."
           }
         },
         "zh-Hans": {
@@ -88203,6 +91139,64 @@
         }
       }
     },
+    "Not enough dated readings for this pair in this range. Widen the range.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Für dieses Paar gibt es in diesem Bereich nicht genug datierte Messwerte. Erweitere den Bereich."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not enough dated readings for this pair in this range. Widen the range."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No hay suficientes lecturas con fecha para este par en este rango. Amplía el rango."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pas assez de mesures datées pour cette paire dans cette plage. Élargissez la plage."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non ci sono abbastanza letture datate per questa coppia in questo intervallo. Amplia l'intervallo."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não há leituras datadas suficientes para este par neste intervalo. Alarga o intervalo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Для этой пары в этом диапазоне недостаточно датированных измерений. Расширьте диапазон."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此范围内这对指标的带日期读数不足。请扩大范围。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此範圍內這組指標的帶日期讀數不足。請擴大範圍。"
+          }
+        }
+      }
+    },
     "Not enough days to chart a trend yet.": {
       "localizations": {
         "de": {
@@ -88435,6 +91429,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ 內這些指標之間的重疊天數不足。請擴大範圍。"
+          }
+        }
+      }
+    },
+    "Not enough overlapping days between these metrics in this range. Widen the range.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In diesem Bereich überlappen sich diese Metriken an zu wenigen Tagen. Erweitere den Bereich."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not enough overlapping days between these metrics in this range. Widen the range."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No hay suficientes días solapados entre estas métricas en este rango. Amplía el rango."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pas assez de jours en commun entre ces métriques dans cette plage. Élargissez la plage."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non ci sono abbastanza giorni sovrapposti tra queste metriche in questo intervallo. Amplia l'intervallo."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não há dias sobrepostos suficientes entre estas métricas neste intervalo. Alarga o intervalo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В этом диапазоне у этих метрик слишком мало общих дней. Расширьте диапазон."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此范围内这些指标重叠的日期不足。请扩大范围。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此範圍內這些指標重疊的日期不足。請擴大範圍。"
           }
         }
       }
@@ -89147,6 +92199,12 @@
             "value": "Nota (opcional)"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Note (facultatif)"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -89157,6 +92215,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Nota (opcional)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Заметка (необязательно)"
           }
         },
         "zh-Hans": {
@@ -89187,6 +92251,12 @@
             "value": "Notas"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notes"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -89197,6 +92267,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Notas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Заметки"
           }
         },
         "zh-Hans": {
@@ -89843,8 +92919,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ainda não há nada seleccionado."
+            "state": "translated",
+            "value": "Ainda não há nada selecionado."
           }
         },
         "ru": {
@@ -91607,6 +94683,12 @@
             "value": "Una lectura hasta ahora: %@ %@. Registra algunas más para ver una tendencia."
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Une seule mesure pour l'instant : %1$@ %2$@. Enregistrez-en quelques autres pour voir une tendance."
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -91615,8 +94697,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Uma leitura até agora: %@ %@. Registra algumas mais para ver uma tendência."
+            "state": "translated",
+            "value": "Uma leitura até agora: %1$@ %2$@. Regista mais algumas para ver uma tendência."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пока одно измерение: %1$@ %2$@. Добавьте ещё несколько, чтобы увидеть тренд."
           }
         },
         "zh-Hans": {
@@ -93145,6 +96233,64 @@
         }
       }
     },
+    "Opens the metric picker": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Öffnet die Metrikauswahl"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opens the metric picker"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abre el selector de métricas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvre le sélecteur de métriques"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apre il selettore di metriche"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abre o seletor de métricas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Открывает выбор метрики"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开指标选择器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開啟指標選擇器"
+          }
+        }
+      }
+    },
     "Opens this workout": {
       "localizations": {
         "de": {
@@ -93399,6 +96545,12 @@
             "value": "Nota opcional"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Note facultative"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -93409,6 +96561,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Nota opcional"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Необязательная заметка"
           }
         },
         "zh-Hans": {
@@ -94235,6 +97393,12 @@
             "value": "En tus lecturas, %@ y %@ se mueven en gran medida de forma independiente. Sin relación clara."
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sur vos mesures, %1$@ et %2$@ évoluent en grande partie indépendamment. Aucune relation nette."
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -94243,8 +97407,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "En os teus leituras, %@ e %@ se mueven en gran medida de forma independiente. Sem relação clara."
+            "state": "translated",
+            "value": "Nas tuas leituras, %1$@ e %2$@ movem-se em grande parte de forma independente. Sem relação clara."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "По вашим измерениям %1$@ и %2$@ в основном изменяются независимо. Явной связи нет."
           }
         },
         "zh-Hans": {
@@ -94295,8 +97465,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Superposición"
+            "state": "translated",
+            "value": "Sobreposição"
           }
         },
         "ru": {
@@ -94373,6 +97543,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "疊加 2–4 個訊號"
+          }
+        }
+      }
+    },
+    "Overlay chart of %@": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Überlagerungsdiagramm von %@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Overlay chart of %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gráfico superpuesto de %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Graphique superposé de %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grafico sovrapposto di %@"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gráfico sobreposto de %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Наложенный график: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 的叠加图表"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 的疊加圖表"
           }
         }
       }
@@ -94463,8 +97691,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Superpón sinais, saca conclusiones."
+            "state": "translated",
+            "value": "Sobrepõe sinais, tira conclusões."
           }
         },
         "ru": {
@@ -94967,6 +98195,64 @@
         }
       }
     },
+    "Pairing": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zuordnung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pairing"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Emparejamiento"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Appariement"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abbinamento"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Emparelhamento"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сопоставление"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "配对方式"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "配對方式"
+          }
+        }
+      }
+    },
     "Pause workout": {
       "localizations": {
         "de": {
@@ -95147,6 +98433,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "最高心率"
+          }
+        }
+      }
+    },
+    "Pearson r over the visible window": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pearson-r über den sichtbaren Zeitraum"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pearson r over the visible window"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "r de Pearson sobre la ventana visible"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "r de Pearson sur la fenêtre visible"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "r di Pearson sull'intervallo visibile"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "r de Pearson na janela visível"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "r Пирсона в видимом окне"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "可见窗口内的皮尔逊 r"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "可見視窗內的皮爾遜 r"
           }
         }
       }
@@ -95359,6 +98703,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "PR（次數）"
+          }
+        }
+      }
+    },
+    "Private health notebook": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Privates Gesundheitsnotizbuch"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Private health notebook"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuaderno de salud privado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Carnet de santé privé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Taccuino di salute privato"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Caderno de saúde privado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Личный дневник здоровья"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "私人健康笔记本"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "私人健康筆記本"
           }
         }
       }
@@ -97047,6 +100449,12 @@
             "value": "Elige una señal del wearable (FC en reposo, VFC, sueño, Recuperación, peso…) para compararla con este marcador. NOOP promedia la señal durante los %@ previos a cada lectura."
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choisissez un signal du capteur (FC au repos, VFC, sommeil, récupération, poids…) à comparer à ce marqueur. NOOP fait la moyenne du signal sur les %@ précédant chaque mesure."
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "needs_review",
@@ -97055,8 +100463,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Escolhe uma sinal do wearable (FC en repouso, VFC, sono, Recuperação, peso…) para compararla com este marcador. NOOP promedia a sinal durante os %@ previos a cada leitura."
+            "state": "translated",
+            "value": "Escolhe um sinal do wearable (FC em repouso, VFC, sono, recuperação, peso…) para o comparar com este marcador. O NOOP faz a média do sinal durante os %@ anteriores a cada leitura."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выберите сигнал с устройства (пульс покоя, ВСР, сон, восстановление, вес…), чтобы сопоставить его с этим маркером. NOOP усредняет сигнал за %@ до каждого измерения."
           }
         },
         "zh-Hans": {
@@ -100349,6 +103763,64 @@
         }
       }
     },
+    "Recent Readings": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Letzte Messwerte"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recent Readings"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lecturas recientes"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mesures récentes"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Letture recenti"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leituras recentes"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Недавние измерения"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最近读数"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最近讀數"
+          }
+        }
+      }
+    },
     "RECORDING": {
       "localizations": {
         "de": {
@@ -102382,7 +105854,13 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Leyendo"
+            "value": "Lectura"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mesure"
           }
         },
         "it": {
@@ -102393,8 +105871,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Leyendo"
+            "state": "translated",
+            "value": "Leitura"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Измерение"
           }
         },
         "zh-Hans": {
@@ -102911,8 +106395,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Leyendo o teu histórico…"
+            "state": "translated",
+            "value": "A ler o teu histórico…"
           }
         },
         "ru": {
@@ -103007,6 +106491,12 @@
             "value": "Leyendo tu registro…"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lecture de votre carnet…"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -103015,8 +106505,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Leyendo o teu registo…"
+            "state": "translated",
+            "value": "A ler o teu registo…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чтение вашего журнала…"
           }
         },
         "zh-Hans": {
@@ -106201,6 +109697,12 @@
             "value": "Rango de referencia de mi informe (opcional)"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plage de référence de mon compte rendu (facultatif)"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -106209,8 +109711,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Rango de referencia de mi informe (opcional)"
+            "state": "translated",
+            "value": "Intervalo de referência do meu relatório (opcional)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Референсный диапазон из моего отчёта (необязательно)"
           }
         },
         "zh-Hans": {
@@ -106241,6 +109749,12 @@
             "value": "Rango de referencia de tu propio informe, opcional"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plage de référence de votre propre compte rendu, facultative"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -106249,8 +109763,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Rango de referencia de o teu próprio informe, opcional"
+            "state": "translated",
+            "value": "Intervalo de referência do teu próprio relatório, opcional"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Референсный диапазон из вашего отчёта, необязательно"
           }
         },
         "zh-Hans": {
@@ -106823,8 +110343,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Eliminar %@"
+            "state": "translated",
+            "value": "Remover %@"
           }
         },
         "ru": {
@@ -111165,6 +114685,122 @@
         }
       }
     },
+    "Same day": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Am selben Tag"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Same day"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El mismo día"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Même jour"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stesso giorno"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No mesmo dia"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В тот же день"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同一天"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同一天"
+          }
+        }
+      }
+    },
+    "same day": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "am selben Tag"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "same day"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "el mismo día"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "même jour"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "stesso giorno"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "no mesmo dia"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "в тот же день"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同一天"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同一天"
+          }
+        }
+      }
+    },
     "Save exercise": {
       "localizations": {
         "de": {
@@ -111413,6 +115049,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "SD2 · 毫秒"
+          }
+        }
+      }
+    },
+    "Search metrics": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Metriken durchsuchen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search metrics"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Buscar métricas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rechercher des métriques"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cerca metriche"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Procurar métricas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поиск метрик"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "搜索指标"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "搜尋指標"
           }
         }
       }
@@ -112575,6 +116269,64 @@
         }
       }
     },
+    "sparse series widened": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "lückenhafte Reihen erweitert"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sparse series widened"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "series dispersas ampliadas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "séries éparses élargies"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "serie sparse ampliate"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "séries dispersas alargadas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "данных мало, диапазон расширен"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "稀疏序列已扩展"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "稀疏序列已擴展"
+          }
+        }
+      }
+    },
     "sparse, widened to 3 months": {
       "localizations": {
         "de": {
@@ -113521,6 +117273,12 @@
             "value": "Cambiar"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inverser"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -113533,6 +117291,12 @@
             "value": "Trocar"
           }
         },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поменять"
+          }
+        },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
@@ -113543,6 +117307,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "替換"
+          }
+        }
+      }
+    },
+    "Swap comparison axes": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vergleichsachsen tauschen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Swap comparison axes"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Intercambiar los ejes de comparación"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inverser les axes de comparaison"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scambia gli assi del confronto"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trocar os eixos da comparação"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поменять оси сравнения"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "交换对比坐标轴"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "交換對比座標軸"
           }
         }
       }
@@ -113583,6 +117405,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "替換動作"
+          }
+        }
+      }
+    },
+    "Swipe up or down to step through readings": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nach oben oder unten wischen, um durch die Messwerte zu schalten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Swipe up or down to step through readings"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desliza hacia arriba o abajo para recorrer las lecturas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Balayez vers le haut ou le bas pour parcourir les mesures"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scorri su o giù per passare da una lettura all'altra"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desliza para cima ou para baixo para percorrer as leituras"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Проведите вверх или вниз, чтобы перейти между измерениями"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上下滑动以逐个查看读数"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上下滑動以逐個查看讀數"
           }
         }
       }
@@ -113921,6 +117801,12 @@
             "value": "Guardar"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enregistrer"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -113931,6 +117817,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Guardar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сохранить"
           }
         },
         "zh-Hans": {
@@ -114299,6 +118191,12 @@
             "value": "Guardar lectura"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enregistrer la mesure"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -114309,6 +118207,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Guardar leitura"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сохранить измерение"
           }
         },
         "zh-Hans": {
@@ -115515,6 +119419,12 @@
             "value": "Buscar marcadores"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rechercher des marqueurs"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -115523,8 +119433,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Buscar marcadores"
+            "state": "translated",
+            "value": "Procurar marcadores"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поиск маркеров"
           }
         },
         "zh-Hans": {
@@ -115555,6 +119471,12 @@
             "value": "Buscar marcadores (p. ej. LDL, ferritina)"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rechercher des marqueurs (p. ex. LDL, ferritine)"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -115563,8 +119485,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Buscar marcadores (p. ej. LDL, ferritina)"
+            "state": "translated",
+            "value": "Procurar marcadores (p. ex. LDL, ferritina)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поиск маркеров (например, ЛПНП, ферритин)"
           }
         },
         "zh-Hans": {
@@ -123947,6 +127875,12 @@
             "value": "Guardado como %@. %@"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enregistré en %1$@. %2$@"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -123955,8 +127889,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Guardado como %@. %@"
+            "state": "translated",
+            "value": "Guardado como %1$@. %2$@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Хранится как %1$@. %2$@"
           }
         },
         "zh-Hans": {
@@ -126783,6 +130723,12 @@
             "value": "Desliza hacia arriba o abajo para recorrer los días"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Balayez vers le haut ou le bas pour parcourir les jours"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -126793,6 +130739,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Deslize para cima ou para baixo para percorrer os dias"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Проведите вверх или вниз, чтобы переходить по дням"
           }
         },
         "zh-Hans": {
@@ -127361,6 +131313,12 @@
             "value": "Sistólica"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Systolique"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -127371,6 +131329,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Sistólica"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Систолическое"
           }
         },
         "zh-Hans": {
@@ -127401,6 +131365,12 @@
             "value": "Presión arterial sistólica en mmHg"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tension systolique en mmHg"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -127409,8 +131379,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Presión arterial sistólica en mmHg"
+            "state": "translated",
+            "value": "Tensão arterial sistólica em mmHg"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Систолическое давление в мм рт. ст."
           }
         },
         "zh-Hans": {
@@ -127543,6 +131519,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "感謝你的到場。"
+          }
+        }
+      }
+    },
+    "That file is too large for a markers CSV import.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Datei ist für einen Marker-CSV-Import zu groß."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That file is too large for a markers CSV import."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ese archivo es demasiado grande para importar un CSV de marcadores."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce fichier est trop volumineux pour un import CSV de marqueurs."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quel file è troppo grande per l'importazione di un CSV di indicatori."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esse ficheiro é demasiado grande para importar um CSV de marcadores."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Этот файл слишком велик для импорта CSV с маркерами."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "该文件过大，无法导入标记 CSV。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "該檔案過大，無法匯入標記 CSV。"
           }
         }
       }
@@ -127907,6 +131941,64 @@
         }
       }
     },
+    "The verdict": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Urteil"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The verdict"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El veredicto"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le verdict"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il verdetto"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O veredicto"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вывод"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "结论"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "結論"
+          }
+        }
+      }
+    },
     "TIME": {
       "localizations": {
         "de": {
@@ -127995,6 +132087,122 @@
           "stringUnit": {
             "state": "translated",
             "value": "今晚的計算需求：基準值，加上昨天的消耗與睡眠債償還，減去小睡抵扣。"
+          }
+        }
+      }
+    },
+    "Touch and hold, then drag, to read a day": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Berühren und halten, dann ziehen, um einen Tag abzulesen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Touch and hold, then drag, to read a day"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantén pulsado y arrastra para leer un día"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Appuyez longuement puis faites glisser pour lire un jour"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tieni premuto e trascina per leggere un giorno"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantém premido e arrasta para ler um dia"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нажмите и удерживайте, затем проведите, чтобы увидеть день"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "长按并拖动以查看某一天"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "長按並拖動以查看某一天"
+          }
+        }
+      }
+    },
+    "Track what matters to you. Add a marker to get started.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verfolge, was dir wichtig ist. Füge einen Marker hinzu, um zu beginnen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Track what matters to you. Add a marker to get started."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Haz seguimiento de lo que te importa. Añade un marcador para empezar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suivez ce qui compte pour vous. Ajoutez un marqueur pour commencer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tieni traccia di ciò che conta per te. Aggiungi un indicatore per iniziare."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Acompanha o que importa para ti. Adiciona um marcador para começar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отслеживайте то, что важно для вас. Добавьте маркер, чтобы начать."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "追踪对你重要的数据。添加一个标记即可开始。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "追蹤對你重要的資料。新增一個標記即可開始。"
           }
         }
       }
@@ -131011,6 +135219,12 @@
             "value": "Son tus propios números mostrados de vuelta. NOOP no decide si algún valor es normal, alto o bajo."
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce sont vos propres chiffres, renvoyés tels quels. NOOP ne décide pas si une valeur est normale, haute ou basse."
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -131019,8 +135233,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Son os teus próprios números mostrados de vuelta. NOOP no decide si algún valor es normal, alto o baixo."
+            "state": "translated",
+            "value": "São os teus próprios números mostrados de volta. O NOOP não decide se um valor é normal, alto ou baixo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Это ваши собственные числа, показанные вам обратно. NOOP не решает, нормально ли значение, высокое оно или низкое."
           }
         },
         "zh-Hans": {
@@ -134863,6 +139083,12 @@
             "value": "Ventana móvil"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fenêtre glissante"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -134871,8 +139097,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "janela móvil"
+            "state": "translated",
+            "value": "Janela móvel"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скользящее окно"
           }
         },
         "zh-Hans": {
@@ -135295,8 +139527,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "tendência"
+            "state": "translated",
+            "value": "Tendência"
           }
         },
         "ru": {
@@ -136331,6 +140563,12 @@
             "value": "Escribe un número de tu propio informe. Se queda en %@."
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saisissez un chiffre de votre propre compte rendu. Il reste sur %@."
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -136339,8 +140577,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Escribe um número de o teu próprio informe. Se queda en %@."
+            "state": "translated",
+            "value": "Escreve um número do teu próprio relatório. Fica em %@."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Введите число из вашего собственного отчёта. Оно остаётся на %@."
           }
         },
         "zh-Hans": {
@@ -136623,6 +140867,12 @@
             "value": "Unidad"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unité"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -136631,8 +140881,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "unidade"
+            "state": "translated",
+            "value": "Unidade"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Единица"
           }
         },
         "zh-Hans": {
@@ -138175,6 +142431,12 @@
             "value": "Valor"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Valeur"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -138185,6 +142447,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Valor"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Значение"
           }
         },
         "zh-Hans": {
@@ -139163,6 +143431,238 @@
           "stringUnit": {
             "state": "translated",
             "value": "新增內容"
+          }
+        }
+      }
+    },
+    "When %@ rises, %@ tends to fall in the selected pairing.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wenn %1$@ steigt, sinkt %2$@ in der gewählten Zuordnung tendenziell."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When %@ rises, %@ tends to fall in the selected pairing."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuando %1$@ sube, %2$@ tiende a bajar en el emparejamiento elegido."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quand %1$@ monte, %2$@ a tendance à baisser dans l'appariement choisi."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quando %1$@ sale, %2$@ tende a scendere nell'abbinamento scelto."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quando %1$@ sobe, %2$@ tende a descer no emparelhamento escolhido."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Когда %1$@ растёт, %2$@ в выбранном сопоставлении обычно падает."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在所选配对下，%1$@ 上升时，%2$@ 往往下降。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在所選配對下，%1$@ 上升時，%2$@ 往往下降。"
+          }
+        }
+      }
+    },
+    "When %@ rises, %@ tends to fall.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wenn %1$@ steigt, sinkt %2$@ tendenziell."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When %@ rises, %@ tends to fall."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuando %1$@ sube, %2$@ tiende a bajar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quand %1$@ monte, %2$@ a tendance à baisser."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quando %1$@ sale, %2$@ tende a scendere."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quando %1$@ sobe, %2$@ tende a descer."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Когда %1$@ растёт, %2$@ обычно падает."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 上升时，%2$@ 往往下降。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 上升時，%2$@ 往往下降。"
+          }
+        }
+      }
+    },
+    "When %@ rises, %@ tends to rise in the selected pairing.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wenn %1$@ steigt, steigt %2$@ in der gewählten Zuordnung tendenziell auch."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When %@ rises, %@ tends to rise in the selected pairing."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuando %1$@ sube, %2$@ tiende a subir en el emparejamiento elegido."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quand %1$@ monte, %2$@ a tendance à monter dans l'appariement choisi."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quando %1$@ sale, %2$@ tende a salire nell'abbinamento scelto."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quando %1$@ sobe, %2$@ tende a subir no emparelhamento escolhido."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Когда %1$@ растёт, %2$@ в выбранном сопоставлении обычно тоже растёт."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在所选配对下，%1$@ 上升时，%2$@ 往往也上升。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在所選配對下，%1$@ 上升時，%2$@ 往往也上升。"
+          }
+        }
+      }
+    },
+    "When %@ rises, %@ tends to rise.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wenn %1$@ steigt, steigt %2$@ tendenziell auch."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When %@ rises, %@ tends to rise."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuando %1$@ sube, %2$@ tiende a subir."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quand %1$@ monte, %2$@ a tendance à monter."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quando %1$@ sale, %2$@ tende a salire."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quando %1$@ sobe, %2$@ tende a subir."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Когда %1$@ растёт, %2$@ обычно тоже растёт."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 上升时，%2$@ 往往也上升。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 上升時，%2$@ 往往也上升。"
           }
         }
       }
@@ -143771,6 +148271,12 @@
             "value": "Cuando %@ es más alto, %@ tiende a ser más alto."
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quand %1$@ monte, %2$@ a tendance à monter."
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -143779,8 +148285,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Quando %@ es mais alto, %@ tende a ser mais alto."
+            "state": "translated",
+            "value": "Quando %1$@ é mais alto, %2$@ tende a ser mais alto."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Когда %1$@ выше, %2$@ обычно тоже выше."
           }
         },
         "zh-Hans": {
@@ -143817,6 +148329,12 @@
             "value": "Cuando %@ es más alto, %@ tiende a ser más bajo."
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quand %1$@ monte, %2$@ a tendance à baisser."
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -143825,8 +148343,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Quando %@ es mais alto, %@ tende a ser mais baixo."
+            "state": "translated",
+            "value": "Quando %1$@ é mais alto, %2$@ tende a ser mais baixo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Когда %1$@ выше, %2$@ обычно ниже."
           }
         },
         "zh-Hans": {
@@ -148069,6 +152593,12 @@
             "value": "Tus últimas %lld lecturas: %@ %@, estable."
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vos %1$lld dernières mesures : %2$@ %3$@, stable."
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -148077,8 +152607,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Os teus últimas %lld leituras: %@ %@, estable."
+            "state": "translated",
+            "value": "As tuas últimas %1$lld leituras: %2$@ %3$@, estável."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ваши последние измерения (%1$lld): %2$@ %3$@, без изменений."
           }
         },
         "zh-Hans": {
@@ -148115,6 +152651,12 @@
             "value": "Tus últimas %lld lecturas: %@ %@, con tendencia a la baja."
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vos %1$lld dernières mesures : %2$@ %3$@, en baisse."
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -148123,8 +152665,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Os teus últimas %lld leituras: %@ %@, com tendência à baixa."
+            "state": "translated",
+            "value": "As tuas últimas %1$lld leituras: %2$@ %3$@, com tendência descendente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ваши последние измерения (%1$lld): %2$@ %3$@, снижение."
           }
         },
         "zh-Hans": {
@@ -148161,6 +152709,12 @@
             "value": "Tus últimas %lld lecturas: %@ %@, con tendencia al alza."
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vos %1$lld dernières mesures : %2$@ %3$@, en hausse."
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -148169,8 +152723,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Os teus últimas %lld leituras: %@ %@, com tendência al alza."
+            "state": "translated",
+            "value": "As tuas últimas %1$lld leituras: %2$@ %3$@, com tendência ascendente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ваши последние измерения (%1$lld): %2$@ %3$@, рост."
           }
         },
         "zh-Hans": {
@@ -148521,6 +153081,12 @@
             "value": "Tus registros nunca salen de %@. No hay cuenta, ni nube, ni servidor de NOOP. Como NOOP es una app independiente que ejecutas tú mismo (no un proveedor de salud), no está \"cubierta por HIPAA\" y esa protección no aplica aquí; la seguridad viene de que los datos son solo locales y tuyos."
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vos données ne quittent jamais %@. Il n'y a ni compte, ni cloud, ni serveur NOOP. NOOP étant une application indépendante que vous exécutez vous-même (et non un prestataire de santé), elle n'est pas « couverte par HIPAA » et cette protection ne s'applique pas ici ; la sécurité vient du fait que les données restent locales et vous appartiennent."
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -148529,8 +153095,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Os teus registos nunca salen de %@. não há cuenta, ni nuvem, ni servidor de NOOP. Como NOOP es uma app independiente que ejecutas tú mesmo (no um fornecedor de saúde), no está \"cubierta por HIPAA\" e esa protección no aplica aquí; a seguridad viene de que os dados son só locales e tuyos."
+            "state": "translated",
+            "value": "Os teus registos nunca saem de %@. Não há conta, nem nuvem, nem servidor do NOOP. Como o NOOP é uma app independente que executas tu próprio (e não um prestador de cuidados de saúde), não está «abrangido pela HIPAA» e essa proteção não se aplica aqui; a segurança vem de os dados serem apenas locais e teus."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ваши записи никогда не покидают %@. Нет ни аккаунта, ни облака, ни сервера NOOP. Поскольку NOOP — независимое приложение, которое вы запускаете сами (а не медицинская организация), на него не распространяется «HIPAA», и эта защита здесь неприменима; безопасность обеспечивается тем, что данные хранятся только локально и принадлежат вам."
           }
         },
         "zh-Hans": {
@@ -151687,6 +156259,12 @@
             "value": "p. ej. 2.0–5.0 (el rango de tu propio informe)"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "p. ex. 2,0–5,0 (la plage de votre compte rendu)"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -151697,6 +156275,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "p. ej. 2.0–5.0 (el rango de o teu próprio informe)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "например, 2,0–5,0 (диапазон из вашего отчёта)"
           }
         },
         "zh-Hans": {
@@ -151807,6 +156391,12 @@
             "value": "p. ej. Magnesio"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "p. ex. magnésium"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -151815,8 +156405,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "p. ej. Magnesio"
+            "state": "translated",
+            "value": "p. ex. magnésio"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "например, магний"
           }
         },
         "zh-Hans": {
@@ -151887,6 +156483,12 @@
             "value": "p. ej. en ayunas, extracción matutina"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "p. ex. à jeun, prélèvement du matin"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -151895,8 +156497,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "p. ej. en ayunas, extracción matutina"
+            "state": "translated",
+            "value": "p. ex. em jejum, colheita da manhã"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "например, натощак, утренний забор"
           }
         },
         "zh-Hans": {
@@ -151927,6 +156535,12 @@
             "value": "p. ej. mmol/L"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "p. ex. mmol/L"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -151937,6 +156551,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "p. ej. mmol/L"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "например, ммоль/л"
           }
         },
         "zh-Hans": {
@@ -152173,6 +156793,12 @@
             "value": "todas las lecturas que has introducido"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "toutes les mesures que vous avez saisies"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -152181,8 +156807,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "todas as leituras que has introducido"
+            "state": "translated",
+            "value": "todas as leituras que introduziste"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "все введённые вами измерения"
           }
         },
         "zh-Hans": {
@@ -152453,6 +157085,12 @@
             "value": "de tu informe"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "d'après votre compte rendu"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -152461,8 +157099,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "de o teu informe"
+            "state": "translated",
+            "value": "do teu relatório"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "из вашего отчёта"
           }
         },
         "zh-Hans": {
@@ -153341,6 +157985,12 @@
             "value": "última toma %@"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "dernière mesure le %@"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -153349,8 +157999,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "última toma %@"
+            "state": "translated",
+            "value": "última medição em %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "последнее измерение: %@"
           }
         },
         "zh-Hans": {
@@ -154187,8 +158843,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "moderado"
+            "state": "translated",
+            "value": "moderada"
           }
         },
         "ru": {
@@ -154661,6 +159317,12 @@
             "value": "negativo"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "négative"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -154669,8 +159331,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "negativo"
+            "state": "translated",
+            "value": "negativa"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "отрицательная"
           }
         },
         "zh-Hans": {
@@ -154715,8 +159383,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "insignificante"
+            "state": "translated",
+            "value": "desprezável"
           }
         },
         "ru": {
@@ -155313,6 +159981,12 @@
             "value": "sin lectura"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "aucune mesure"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -155323,6 +159997,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "sem leitura"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "нет измерения"
           }
         },
         "zh-Hans": {
@@ -155433,6 +160113,12 @@
             "value": "aún sin lecturas"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "aucune mesure pour l'instant"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -155443,6 +160129,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "ainda sem leituras"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "измерений пока нет"
           }
         },
         "zh-Hans": {
@@ -156481,6 +161173,12 @@
             "value": "positivo"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "positive"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -156489,8 +161187,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "positivo"
+            "state": "translated",
+            "value": "positiva"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "положительная"
           }
         },
         "zh-Hans": {
@@ -156951,6 +161655,12 @@
             "value": "lado a lado · %@ antes de cada lectura"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "côte à côte · %@ avant chaque mesure"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -156961,6 +161671,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "lado a lado · %@ antes de cada leitura"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "рядом · %@ до каждого измерения"
           }
         },
         "zh-Hans": {
@@ -157445,7 +162161,7 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "forte"
           }
         },
@@ -157603,6 +162319,12 @@
             "value": "esa señal"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ce signal"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -157611,8 +162333,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "esa sinal"
+            "state": "translated",
+            "value": "esse sinal"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "этим сигналом"
           }
         },
         "zh-Hans": {
@@ -158659,7 +163387,7 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "muito forte"
           }
         },
@@ -159123,7 +163851,7 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "fraca"
           }
         },
@@ -159999,6 +164727,12 @@
             "value": "× %@ al guardar."
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "× %@ à l'enregistrement."
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -160007,8 +164741,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "× %@ al guardar."
+            "state": "translated",
+            "value": "× %@ ao guardar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "× %@ при сохранении."
           }
         },
         "zh-Hans": {
