@@ -80,9 +80,16 @@ try:
         "dismissAfterStart",
         "private func confirm()",
     )
+    # Start is the journey's setup page: the same sheet, hosted in the full-screen cover, which advances to the live
+    # screen itself (so the sheet never dismisses after Start).
+    require(
+        "Strand/Screens/WorkoutJourneyView.swift",
+        "StartWorkoutSheet(",
+        "dismissAfterStart: false",
+    )
     require(
         "StrandiOS/App/RootTabView.swift",
-        "StartWorkoutSheet(dismissAfterStart: false)",
+        ".fullScreenCover(item: $journey",
     )
     require(
         "StrandiOS/App/StrandiOSApp.swift",
