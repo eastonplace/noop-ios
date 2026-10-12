@@ -130,6 +130,15 @@ final class SettingsRouteCatalogTests: XCTestCase {
         }
     }
 
+    /// Appearance & units shows Theme, Chart colors and the Strain scale again, so searching for what the page shows
+    /// finds the page.
+    func testTheAppearanceAndUnitsRowsAreSearchable() {
+        for word in ["theme", "dark", "light", "system", "chart colors", "charts", "strain scale", "strain"] {
+            let found = SettingsRouteCatalog.search(word).map(\.route)
+            XCTAssertEqual(found, [.appearanceUnits], "\(word) finds Appearance & units")
+        }
+    }
+
     /// Every row the root shows has a tile symbol and colour, so no row falls back to a bare label.
     func testEveryRouteHasATileSymbol() {
         for route in SettingsRouteID.allCases {

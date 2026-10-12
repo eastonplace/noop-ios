@@ -231,14 +231,14 @@ enum SettingsRouteCatalog {
             title: "Appearance",
             breadcrumb: "App Preferences › Appearance & units",
             route: .appearanceUnits,
-            keywords: ["app icon", "navy", "clock", "12-hour", "24-hour"]
+            keywords: ["app icon", "navy", "clock", "12-hour", "24-hour", "Theme", "dark", "light", "System", "Chart colors", "charts"]
         ),
         .init(
             id: "units",
             title: "Units",
             breadcrumb: "App Preferences › Appearance & units",
             route: .appearanceUnits,
-            keywords: ["US", "metric", "imperial", "temperature", "Celsius", "Fahrenheit", "°C", "°F"]
+            keywords: ["US", "metric", "imperial", "temperature", "Celsius", "Fahrenheit", "°C", "°F", "Strain scale", "Strain"]
         ),
         .init(
             id: "workout-detection",
