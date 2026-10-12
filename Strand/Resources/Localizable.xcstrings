@@ -1445,6 +1445,12 @@
             "value": "%@ ppm"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ bpm"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -1455,6 +1461,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "%@ bpm"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ уд/мин"
           }
         },
         "zh-Hans": {
@@ -3499,6 +3511,58 @@
           "stringUnit": {
             "state": "translated",
             "value": "%1$@ · 每項指標的最佳訊號，來自 %2$lld 個來源。一切都留在 %3$@ 上。"
+          }
+        }
+      }
+    },
+    "%@ · GPS locked": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ · GPS bereit"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ · GPS fijado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ · GPS verrouillé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ · GPS agganciato"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ · GPS fixo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ · GPS захвачен"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ · GPS 已锁定"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ · GPS 已鎖定"
           }
         }
       }
@@ -13627,6 +13691,12 @@
             "value": "/km"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/km"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -13637,6 +13707,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "/km"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/км"
           }
         },
         "zh-Hans": {
@@ -13667,6 +13743,12 @@
             "value": "/mi"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/mi"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -13677,6 +13759,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "/mi"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/миля"
           }
         },
         "zh-Hans": {
@@ -18839,6 +18927,110 @@
         }
       }
     },
+    "Allow location": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ortung erlauben"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permitir ubicación"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autoriser la localisation"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Consenti posizione"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permitir localização"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Разрешить геолокацию"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允许定位"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允許定位"
+          }
+        }
+      }
+    },
+    "Already %@ · above today's %lld–%lld": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schon %@ · über dem heutigen Ziel %lld–%lld"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ya %@ · por encima del objetivo de hoy %lld–%lld"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Déjà %@ · au-dessus de l’objectif du jour %lld–%lld"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Già %@ · sopra l’obiettivo di oggi %lld–%lld"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Já %@ · acima do objetivo de hoje %lld–%lld"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Уже %@ · выше сегодняшней цели %lld–%lld"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已达 %@ · 高于今日目标 %lld–%lld"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已達 %@ · 高於今日目標 %lld–%lld"
+          }
+        }
+      }
+    },
     "AM": {
       "localizations": {
         "de": {
@@ -22545,6 +22737,12 @@
             "value": "Todas las actividades"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toutes les activités"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -22555,6 +22753,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Todas as atividades"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Все занятия"
           }
         },
         "zh-Hans": {
@@ -26187,6 +26391,12 @@
             "value": "FC media"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "FC moy."
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -26197,6 +26407,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "FC media"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Средн. пульс"
           }
         },
         "zh-Hans": {
@@ -26267,6 +26483,12 @@
             "value": "Ritmo medio"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allure moy."
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -26277,6 +26499,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Ritmo medio"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Средн. темп"
           }
         },
         "zh-Hans": {
@@ -26307,6 +26535,12 @@
             "value": "Velocidad media"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vitesse moy."
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -26317,6 +26551,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Velocidade média"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Средн. скорость"
           }
         },
         "zh-Hans": {
@@ -26827,6 +27067,58 @@
           "stringUnit": {
             "state": "translated",
             "value": "低於 %@"
+          }
+        }
+      }
+    },
+    "Big number": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Große Zahl"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Número grande"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grand chiffre"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Numero grande"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Número grande"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Крупное число"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "大数字"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "大數字"
           }
         }
       }
@@ -33121,6 +33413,58 @@
         }
       }
     },
+    "Connected · %lld bpm": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbunden · %lld bpm"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conectado · %lld bpm"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connecté · %lld bpm"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Collegata · %lld bpm"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ligado · %lld bpm"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подключено · %lld уд/мин"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已连接 · %lld bpm"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已連接 · %lld bpm"
+          }
+        }
+      }
+    },
     "CONNECTING": {
       "localizations": {
         "de": {
@@ -33473,6 +33817,58 @@
           "stringUnit": {
             "state": "translated",
             "value": "無法分享收據"
+          }
+        }
+      }
+    },
+    "Countdown": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Countdown"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuenta atrás"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compte à rebours"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conto alla rovescia"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contagem decrescente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Обратный отсчёт"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "倒计时"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "倒數計時"
           }
         }
       }
@@ -34901,6 +35297,12 @@
             "value": "Cancelar"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Annuler"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -34911,6 +35313,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Cancelar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отмена"
           }
         },
         "zh-Hans": {
@@ -36103,6 +36511,12 @@
             "value": "Elige una rutina y registra series, repeticiones y peso."
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choisissez une routine et suivez séries, répétitions et poids."
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -36113,6 +36527,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Escolha uma rotina e registe séries, repetições e carga."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выберите программу и записывайте подходы, повторения и вес."
           }
         },
         "zh-Hans": {
@@ -39267,6 +39687,12 @@
             "value": "Conectar"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connecter"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -39277,6 +39703,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Ligar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подключить"
           }
         },
         "zh-Hans": {
@@ -43247,6 +43679,12 @@
             "value": "¿Descartar este entrenamiento?"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abandonner cette séance ?"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -43257,6 +43695,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Descartar este treino?"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отменить эту тренировку?"
           }
         },
         "zh-Hans": {
@@ -43287,6 +43731,12 @@
             "value": "Descartar entrenamiento"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abandonner la séance"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -43297,6 +43747,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Descartar treino"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отменить тренировку"
           }
         },
         "zh-Hans": {
@@ -46277,6 +46733,12 @@
             "value": "Distancia"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Distance"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -46287,6 +46749,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Distancia"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дистанция"
           }
         },
         "zh-Hans": {
@@ -53909,6 +54377,58 @@
         }
       }
     },
+    "Focus": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fokus"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Principal"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Principal"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Principale"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Principal"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Главная"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主要"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主要"
+          }
+        }
+      }
+    },
     "FULL BOND": {
       "localizations": {
         "de": {
@@ -56337,6 +56857,12 @@
             "value": "GPS"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GPS"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -56346,6 +56872,12 @@
         "pt-PT": {
           "stringUnit": {
             "state": "needs_review",
+            "value": "GPS"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
             "value": "GPS"
           }
         },
@@ -56415,6 +56947,58 @@
         }
       }
     },
+    "GPS has had no fix for a while. NOOP keeps recording, and where there was no fix the route has a gap.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das GPS hat seit einiger Zeit keinen Standort. NOOP zeichnet weiter auf, und wo es keinen Standort gab, hat die Route eine Lücke."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El GPS lleva un rato sin posición. NOOP sigue grabando y donde no hubo posición la ruta tendrá un hueco."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le GPS n’a plus de position depuis un moment. NOOP continue d’enregistrer, et là où il n’y avait pas de position, le parcours comporte un trou."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il GPS non ha una posizione da un po’. NOOP continua a registrare e dove non c’era posizione il percorso ha un buco."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O GPS está sem posição há algum tempo. O NOOP continua a gravar e onde não houve posição o percurso tem uma falha."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GPS уже некоторое время не определяет положение. NOOP продолжает запись, а там, где положения не было, в маршруте будет пропуск."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GPS 已有一段时间无法定位。NOOP 会继续记录，没有定位的路段在路线中会出现空缺。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GPS 已有一段時間無法定位。NOOP 會繼續記錄，沒有定位的路段在路線中會出現空缺。"
+          }
+        }
+      }
+    },
     "GPS ready": {
       "localizations": {
         "de": {
@@ -56429,6 +57013,12 @@
             "value": "GPS listo"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GPS prêt"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -56439,6 +57029,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "GPS pronto"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GPS готов"
           }
         },
         "zh-Hans": {
@@ -57629,6 +58225,58 @@
         }
       }
     },
+    "Heart": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Herz"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Corazón"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cœur"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuore"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coração"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пульс"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "心率"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "心率"
+          }
+        }
+      }
+    },
     "HEART RATE": {
       "localizations": {
         "de": {
@@ -57683,6 +58331,58 @@
           "stringUnit": {
             "state": "translated",
             "value": "心率"
+          }
+        }
+      }
+    },
+    "Heart-rate history will draw as the workout records.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Herzfrequenzverlauf wird während der Aufzeichnung gezeichnet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El historial de frecuencia cardíaca se dibujará a medida que se grabe el entrenamiento."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’historique de fréquence cardiaque se dessinera au fil de l’enregistrement."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lo storico della frequenza cardiaca verrà disegnato durante la registrazione."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O histórico de frequência cardíaca será desenhado à medida que o treino for gravado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "История пульса отобразится по мере записи тренировки."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "心率记录会随锻炼的进行逐步绘制。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "心率記錄會隨運動的進行逐步繪製。"
           }
         }
       }
@@ -57815,6 +58515,58 @@
           "stringUnit": {
             "state": "translated",
             "value": "高"
+          }
+        }
+      }
+    },
+    "Hold Start to skip the countdown.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zum Überspringen des Countdowns Start gedrückt halten."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantén pulsado Iniciar para saltar la cuenta atrás."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maintenez Démarrer pour passer le compte à rebours."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tieni premuto Avvia per saltare il conto alla rovescia."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantém premido Iniciar para saltar a contagem decrescente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Удерживайте «Начать», чтобы пропустить отсчёт."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按住“开始”可跳过倒计时。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按住「開始」可略過倒數計時。"
           }
         }
       }
@@ -59725,6 +60477,12 @@
             "value": "Frecuencia cardíaca"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fréquence cardiaque"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -59735,6 +60493,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Frequência cardíaca"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пульс"
           }
         },
         "zh-Hans": {
@@ -61335,6 +62099,12 @@
             "value": "Excursión"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Randonnée"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -61345,6 +62115,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Caminhada"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поход"
           }
         },
         "zh-Hans": {
@@ -65902,6 +66678,12 @@
             "value": "Entrenamiento en interior"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Séance en intérieur"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -65912,6 +66694,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Treino em espaço interior"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тренировка в помещении"
           }
         },
         "zh-Hans": {
@@ -67522,6 +68310,12 @@
             "value": "Mantener la pantalla encendida"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Garder l’écran allumé"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -67532,6 +68326,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Manter o ecrã ligado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не выключать экран"
           }
         },
         "zh-Hans": {
@@ -68018,6 +68818,58 @@
         }
       }
     },
+    "Last %@": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zuletzt: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Último: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dernier : %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ultimo: %@"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Último: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Прошлый раз: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上次%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上次%@"
+          }
+        }
+      }
+    },
     "last 12 weeks": {
       "localizations": {
         "de": {
@@ -68094,6 +68946,58 @@
           "stringUnit": {
             "state": "translated",
             "value": "昨晚"
+          }
+        }
+      }
+    },
+    "Lift weights instead": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stattdessen Gewichte heben"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Levantar pesas en su lugar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Soulever des poids à la place"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solleva pesi invece"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fazer treino de pesos em alternativa"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вместо этого — силовая тренировка"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "改为举重训练"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "改為重量訓練"
           }
         }
       }
@@ -68442,6 +69346,162 @@
         }
       }
     },
+    "Locating…": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ortung läuft …"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Localizando…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Localisation…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Localizzazione…"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A localizar…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Определение положения…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在定位…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在定位…"
+          }
+        }
+      }
+    },
+    "Location is off": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ortung ist aus"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ubicación desactivada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Localisation désactivée"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Posizione disattivata"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Localização desativada"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Геолокация выключена"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "定位已关闭"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "定位已關閉"
+          }
+        }
+      }
+    },
+    "Location is off for NOOP, so this workout records no route and no distance. Turn it on in Settings to record one next time.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Ortung ist für NOOP aus, daher zeichnet dieses Workout weder Route noch Distanz auf. Schalte sie in den Einstellungen ein, um beim nächsten Mal eine aufzuzeichnen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La ubicación está desactivada para NOOP, así que este entrenamiento no graba ruta ni distancia. Actívala en Ajustes para grabarlas la próxima vez."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La localisation est désactivée pour NOOP : cet entraînement n’enregistre ni parcours ni distance. Activez-la dans les Réglages pour en enregistrer un la prochaine fois."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La posizione è disattivata per NOOP, quindi questo allenamento non registra né percorso né distanza. Attivala in Impostazioni per registrarli la prossima volta."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A localização está desativada para o NOOP, por isso este treino não grava percurso nem distância. Ativa-a nas Definições para gravar da próxima vez."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Геолокация для NOOP выключена, поэтому эта тренировка не записывает ни маршрут, ни дистанцию. Включите её в настройках, чтобы записывать их в следующий раз."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NOOP 的定位已关闭，因此本次锻炼不会记录路线和距离。请在“设置”中开启，以便下次记录。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NOOP 的定位已關閉，因此本次運動不會記錄路線和距離。請在「設定」中開啟，以便下次記錄。"
+          }
+        }
+      }
+    },
     "Location is off · no route": {
       "localizations": {
         "de": {
@@ -68490,6 +69550,58 @@
           "stringUnit": {
             "state": "translated",
             "value": "定位已關閉 · 無路線"
+          }
+        }
+      }
+    },
+    "Locked ±%lld m": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fix ±%lld m"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fijado ±%lld m"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verrouillé ±%lld m"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agganciato ±%lld m"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fixo ±%lld m"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Захвачено ±%lld м"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已锁定 ±%lld 米"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已鎖定 ±%lld 公尺"
           }
         }
       }
@@ -70060,6 +71172,12 @@
             "value": "La última vez"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La dernière fois"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -70070,6 +71188,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Da última vez"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В прошлый раз"
           }
         },
         "zh-Hans": {
@@ -70180,6 +71304,12 @@
             "value": "Último entrenamiento"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dernière séance"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -70190,6 +71320,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Último treino"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Последняя тренировка"
           }
         },
         "zh-Hans": {
@@ -71568,6 +72704,12 @@
             "value": "Levantar pesas"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Soulever des poids"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -71578,6 +72720,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Levantar pesos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Силовая тренировка"
           }
         },
         "zh-Hans": {
@@ -73198,6 +74346,12 @@
             "value": "La ubicación está desactivada para NOOP, así que este entrenamiento no registrará una ruta. Actívala en Ajustes."
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La localisation est désactivée pour NOOP : cette séance n’enregistrera pas de parcours. Activez-la dans les Réglages."
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -73208,6 +74362,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "A localização está desativada para o NOOP, por isso este treino não vai registar um percurso. Ative-a em Definições."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Геолокация для NOOP выключена, поэтому эта тренировка не запишет маршрут. Включите её в настройках."
           }
         },
         "zh-Hans": {
@@ -73238,6 +74398,12 @@
             "value": "La ubicación está restringida en este dispositivo, así que este entrenamiento no registrará una ruta."
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La localisation est restreinte sur cet appareil : cette séance n’enregistrera pas de parcours."
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -73248,6 +74414,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "A localização está restringida neste dispositivo, por isso este treino não vai registar um percurso."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Геолокация на этом устройстве ограничена, поэтому эта тренировка не запишет маршрут."
           }
         },
         "zh-Hans": {
@@ -73278,6 +74450,12 @@
             "value": "Ubicación desactivada"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Localisation désactivée"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -73288,6 +74466,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Localização desativada"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Геолокация выключена"
           }
         },
         "zh-Hans": {
@@ -74970,6 +76154,58 @@
         }
       }
     },
+    "Make focus": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hauptwert wählen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elegir número principal"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choisir le chiffre principal"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scegli il numero principale"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escolher o número principal"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Главный показатель"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "设为主要数字"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設為主要數字"
+          }
+        }
+      }
+    },
     "MEDIUM": {
       "localizations": {
         "de": {
@@ -75768,6 +77004,12 @@
             "value": "Gestionar dispositivos"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gérer les appareils"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -75778,6 +77020,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Gestionar dispositivos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Управление устройствами"
           }
         },
         "zh-Hans": {
@@ -77238,6 +78486,12 @@
             "value": "Combinar como %@"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fusionner en %@"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -77248,6 +78502,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Combinar como %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Объединить как %@"
           }
         },
         "zh-Hans": {
@@ -79726,6 +80986,110 @@
         }
       }
     },
+    "No strap has connected to this workout. Without heart rate, NOOP may have nothing to save for this sport.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mit diesem Workout hat sich kein Strap verbunden. Ohne Herzfrequenz hat NOOP bei dieser Sportart eventuell nichts zu speichern."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ninguna pulsera se ha conectado a este entrenamiento. Sin frecuencia cardíaca, NOOP puede no tener nada que guardar para este deporte."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun bracelet ne s’est connecté à cet entraînement. Sans fréquence cardiaque, NOOP risque de n’avoir rien à enregistrer pour ce sport."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessuna fascia si è collegata a questo allenamento. Senza frequenza cardiaca, NOOP potrebbe non avere nulla da salvare per questo sport."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhuma bracelete se ligou a este treino. Sem frequência cardíaca, o NOOP pode não ter nada para guardar neste desporto."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "К этой тренировке не подключён ни один браслет. Без пульса NOOP может не сохранить эту тренировку."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此次锻炼没有连接任何手环。没有心率的话，NOOP 可能无法保存这项运动。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此次運動沒有連接任何手環。沒有心率的話，NOOP 可能無法儲存這項運動。"
+          }
+        }
+      }
+    },
+    "No target yet · recovery isn't scored": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Noch kein Ziel · Erholung wird nicht bewertet"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aún sin objetivo · la recuperación no está puntuada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pas encore d’objectif · la récupération n’est pas évaluée"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessun obiettivo · il recupero non è valutato"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ainda sem objetivo · a recuperação não está pontuada"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цели пока нет · восстановление не оценено"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "暂无目标 · 恢复尚未评分"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "暫無目標 · 恢復尚未評分"
+          }
+        }
+      }
+    },
     "No workout is recording.": {
       "localizations": {
         "de": {
@@ -79934,6 +81298,58 @@
         }
       }
     },
+    "NOOP is still looking for a GPS fix. The route starts as soon as it finds one.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NOOP sucht noch nach einem GPS-Signal. Die Route beginnt, sobald eines gefunden ist."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NOOP todavía busca señal GPS. La ruta empieza en cuanto la encuentre."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NOOP cherche encore un signal GPS. Le parcours commence dès qu’il en trouve un."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NOOP sta ancora cercando il segnale GPS. Il percorso inizia appena ne trova uno."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O NOOP ainda está a procurar sinal GPS. O percurso começa assim que encontrar um."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NOOP всё ещё ищет сигнал GPS. Маршрут начнётся, как только он будет найден."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NOOP 仍在搜索 GPS 信号，找到后路线会立即开始。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NOOP 仍在搜尋 GPS 訊號，找到後路線會立即開始。"
+          }
+        }
+      }
+    },
     "NOOP needs heart rate or a GPS route to save a workout.": {
       "localizations": {
         "de": {
@@ -80040,6 +81456,12 @@
             "value": "NOOP te pedirá tu ubicación al empezar. Tu ruta se guarda solo en este dispositivo."
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NOOP demande votre position au démarrage. Votre parcours n’est enregistré que sur cet appareil."
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -80050,6 +81472,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "O NOOP pede a sua localização quando começar. O seu percurso é guardado apenas neste dispositivo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "При старте NOOP запросит вашу геопозицию. Маршрут сохраняется только на этом устройстве."
           }
         },
         "zh-Hans": {
@@ -81755,6 +83183,12 @@
             "value": "Nombra la sesión combinada"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nommer la séance fusionnée"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -81765,6 +83199,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Dê um nome à sessão combinada"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Назовите объединённую тренировку"
           }
         },
         "zh-Hans": {
@@ -85003,6 +86443,12 @@
             "value": "Ninguna actividad coincide"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucune activité correspondante"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -85013,6 +86459,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Nenhuma atividade correspondente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подходящих занятий нет"
           }
         },
         "zh-Hans": {
@@ -86485,6 +87937,12 @@
             "value": "Sin pulsera conectada"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun bracelet connecté"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -86495,6 +87953,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Sem bracelete conectada"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Браслет не подключён"
           }
         },
         "zh-Hans": {
@@ -87769,6 +89233,12 @@
             "value": "No conectado"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non connecté"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -87779,6 +89249,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Não ligado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не подключено"
           }
         },
         "zh-Hans": {
@@ -90481,6 +91957,58 @@
         }
       }
     },
+    "Off in Low Power Mode": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Im Stromsparmodus aus"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desactivado en modo de bajo consumo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Désactivé en mode économie d’énergie"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disattivato in modalità risparmio energia"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desativado no Modo de pouca energia"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выключено в режиме энергосбережения"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "低电量模式下已关闭"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "低耗電模式下已關閉"
+          }
+        }
+      }
+    },
     "OFFLINE": {
       "localizations": {
         "de": {
@@ -92271,6 +93799,12 @@
             "value": "Abrir Ajustes"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvrir les Réglages"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -92281,6 +93815,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Abrir Definições"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Открыть настройки"
           }
         },
         "zh-Hans": {
@@ -94119,6 +95659,12 @@
             "value": "Exterior"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Extérieur"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -94129,6 +95675,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Ao ar livre"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "На улице"
           }
         },
         "zh-Hans": {
@@ -94159,6 +95711,12 @@
             "value": "Entrenamiento al aire libre"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Séance en extérieur"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -94169,6 +95727,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Treino ao ar livre"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тренировка на улице"
           }
         },
         "zh-Hans": {
@@ -99535,6 +101099,12 @@
             "value": "Empuje"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Intense"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -99545,6 +101115,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Empuje"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нагрузка"
           }
         },
         "zh-Hans": {
@@ -100375,6 +101951,58 @@
         }
       }
     },
+    "Recovery %lld · target %lld–%lld": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erholung %lld · Ziel %lld–%lld"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recuperación %lld · objetivo %lld–%lld"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Récupération %lld · objectif %lld–%lld"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recupero %lld · obiettivo %lld–%lld"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recuperação %lld · objetivo %lld–%lld"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Восстановление %lld · цель %lld–%lld"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "恢复 %lld · 目标 %lld–%lld"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "恢復 %lld · 目標 %lld–%lld"
+          }
+        }
+      }
+    },
     "REL.": {
       "localizations": {
         "de": {
@@ -100909,6 +102537,58 @@
           "stringUnit": {
             "state": "translated",
             "value": "還原入門訓練計劃"
+          }
+        }
+      }
+    },
+    "Restricted by Screen Time": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Durch Bildschirmzeit eingeschränkt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restringido por Tiempo en pantalla"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restreint par Temps d’écran"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Limitato da Tempo di utilizzo"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restringido pelo Tempo de ecrã"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ограничено функцией «Экранное время»"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "受“屏幕使用时间”限制"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "受「螢幕使用時間」限制"
           }
         }
       }
@@ -103433,6 +105113,12 @@
             "value": "Reciente"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Récents"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -103443,6 +105129,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "recente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Недавние"
           }
         },
         "zh-Hans": {
@@ -103571,6 +105263,12 @@
             "value": "Ruta reciente"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parcours récent"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -103581,6 +105279,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Percurso recente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Недавний маршрут"
           }
         },
         "zh-Hans": {
@@ -104607,6 +106311,12 @@
             "value": "Registra una ruta GPS"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enregistre un parcours GPS"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -104617,6 +106327,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Regista um percurso GPS"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Записывает маршрут GPS"
           }
         },
         "zh-Hans": {
@@ -108305,6 +110021,12 @@
             "value": "Reposo"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repos"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -108315,6 +110037,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Repouso"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Покой"
           }
         },
         "zh-Hans": {
@@ -109457,6 +111185,12 @@
             "value": "Reanudar"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reprendre"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -109467,6 +111201,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Retomar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Продолжить"
           }
         },
         "zh-Hans": {
@@ -110035,6 +111775,12 @@
             "value": "Salida en bici"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sortie à vélo"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -110045,6 +111791,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Passeio de bicicleta"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Велопоездка"
           }
         },
         "zh-Hans": {
@@ -110355,6 +112107,12 @@
             "value": "Ruta"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parcours"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -110365,6 +112123,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Ruta"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Маршрут"
           }
         },
         "zh-Hans": {
@@ -110515,6 +112279,12 @@
             "value": "Carrera"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Course"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -110525,6 +112295,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Corrida"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Бег"
           }
         },
         "zh-Hans": {
@@ -110835,6 +112611,12 @@
             "value": "Tipo de carrera"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Type de course"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -110845,6 +112627,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Tipo de corrida"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тип бега"
           }
         },
         "zh-Hans": {
@@ -111231,6 +113019,58 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ 後評分"
+          }
+        }
+      }
+    },
+    "Screen stays on": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bildschirm bleibt an"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La pantalla sigue encendida"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’écran reste allumé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lo schermo resta acceso"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O ecrã fica ligado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Экран не гаснет"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "屏幕保持常亮"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "螢幕保持常亮"
           }
         }
       }
@@ -112433,6 +114273,110 @@
         }
       }
     },
+    "Skip the countdown": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Countdown überspringen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saltar la cuenta atrás"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Passer le compte à rebours"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Salta il conto alla rovescia"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saltar a contagem decrescente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пропустить отсчёт"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "跳过倒计时"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "略過倒數計時"
+          }
+        }
+      }
+    },
+    "Skips setup": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ohne Einrichtung"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sin configuración"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sans réglages"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Senza configurazione"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sem configuração"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Без настройки"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "跳过设置"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "略過設定"
+          }
+        }
+      }
+    },
     "SLEEP": {
       "localizations": {
         "de": {
@@ -112469,6 +114413,58 @@
           "stringUnit": {
             "state": "translated",
             "value": "睡眠"
+          }
+        }
+      }
+    },
+    "so far %@": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "bisher %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "hasta ahora %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "jusqu’ici %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "finora %@"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "até agora %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "сейчас %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目前 %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目前 %@"
           }
         }
       }
@@ -112641,6 +114637,266 @@
           "stringUnit": {
             "state": "translated",
             "value": "運動"
+          }
+        }
+      }
+    },
+    "Start %@ without route": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ohne Route starten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iniciar %@ sin ruta"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Démarrer %@ sans parcours"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avvia %@ senza percorso"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iniciar %@ sem percurso"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Начать: %@ без маршрута"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "开始%@（无路线）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開始%@（無路線）"
+          }
+        }
+      }
+    },
+    "Start without countdown": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ohne Countdown starten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iniciar sin cuenta atrás"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Démarrer sans compte à rebours"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avvia senza conto alla rovescia"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iniciar sem contagem decrescente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Начать без отсчёта"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "跳过倒计时开始"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "略過倒數計時開始"
+          }
+        }
+      }
+    },
+    "Start without heart rate": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ohne Herzfrequenz starten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iniciar sin frecuencia cardíaca"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Démarrer sans fréquence cardiaque"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avvia senza frequenza cardiaca"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iniciar sem frequência cardíaca"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Начать без пульса"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不带心率开始"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不含心率開始"
+          }
+        }
+      }
+    },
+    "Started": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gestartet"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iniciado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Démarré"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avviato"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iniciado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Начато"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已开始"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已開始"
+          }
+        }
+      }
+    },
+    "Starting in %lld": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start in %lld"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Empieza en %lld"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Démarrage dans %lld"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Si parte tra %lld"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Começa em %lld"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Старт через %lld"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 秒后开始"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 秒後開始"
           }
         }
       }
@@ -114607,6 +116863,12 @@
             "value": "Guardando…"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enregistrement…"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -114617,6 +116879,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Guardando…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сохранение…"
           }
         },
         "zh-Hans": {
@@ -115387,6 +117655,12 @@
             "value": "Buscar deporte"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rechercher un sport"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -115397,6 +117671,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Buscar deporte"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Найти вид спорта"
           }
         },
         "zh-Hans": {
@@ -116723,6 +119003,12 @@
             "value": "Configuración"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Réglages"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -116733,6 +119019,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Configuração"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Настройка"
           }
         },
         "zh-Hans": {
@@ -121897,6 +124189,12 @@
             "value": "Iniciar %@"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Démarrer %@"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -121907,6 +124205,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Iniciar %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Начать: %@"
           }
         },
         "zh-Hans": {
@@ -122057,6 +124361,12 @@
             "value": "Iniciar un entrenamiento"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Démarrer une séance"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -122067,6 +124377,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Iniciar um treino"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Начать тренировку"
           }
         },
         "zh-Hans": {
@@ -122619,6 +124935,12 @@
             "value": "Estable"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stable"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -122629,6 +124951,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Estável"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Стабильно"
           }
         },
         "zh-Hans": {
@@ -123541,6 +125869,12 @@
             "value": "Evita que la pantalla se atenúe mientras se registra un entrenamiento"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Empêche l’écran de s’assombrir pendant l’enregistrement d’une séance"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -123551,6 +125885,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Evita que a ecrã se atenúe enquanto se registra um treino"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не даёт экрану гаснуть, пока записывается тренировка"
           }
         },
         "zh-Hans": {
@@ -127135,6 +129475,58 @@
         }
       }
     },
+    "Tap to skip": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zum Überspringen tippen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toca para saltar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Touchez pour passer"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tocca per saltare"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toca para saltar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нажмите, чтобы пропустить"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "轻点跳过"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "輕點略過"
+          }
+        }
+      }
+    },
     "TEST MODES": {
       "localizations": {
         "de": {
@@ -127331,6 +129723,58 @@
           "stringUnit": {
             "state": "translated",
             "value": "基礎資訊"
+          }
+        }
+      }
+    },
+    "The GPS fix is weak, so distance and pace may be less exact until it improves.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das GPS-Signal ist schwach, daher können Distanz und Pace ungenauer sein, bis es besser wird."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La señal GPS es débil, así que la distancia y el ritmo pueden ser menos exactos hasta que mejore."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le signal GPS est faible : la distance et l’allure peuvent être moins précises jusqu’à ce qu’il s’améliore."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il segnale GPS è debole, quindi distanza e passo possono essere meno precisi finché non migliora."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O sinal GPS é fraco, por isso a distância e o ritmo podem ser menos exatos até melhorar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сигнал GPS слабый, поэтому дистанция и темп могут быть менее точными, пока он не улучшится."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GPS 信号较弱，在改善之前，距离和配速可能不够准确。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GPS 訊號較弱，在改善之前，距離和配速可能不夠準確。"
           }
         }
       }
@@ -127575,6 +130019,58 @@
         }
       }
     },
+    "The strap has stopped sending heart rate. Check that it is worn snugly and within range. NOOP keeps recording.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Strap sendet keine Herzfrequenz mehr. Prüfe, ob er fest sitzt und in Reichweite ist. NOOP zeichnet weiter auf."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La pulsera ha dejado de enviar la frecuencia cardíaca. Comprueba que esté bien ajustada y al alcance. NOOP sigue grabando."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le bracelet n’envoie plus la fréquence cardiaque. Vérifiez qu’il est bien ajusté et à portée. NOOP continue d’enregistrer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La fascia ha smesso di inviare la frequenza cardiaca. Controlla che sia ben aderente e a portata. NOOP continua a registrare."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A bracelete deixou de enviar a frequência cardíaca. Verifica se está bem ajustada e ao alcance. O NOOP continua a gravar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Браслет перестал передавать пульс. Проверьте, что он плотно надет и находится в зоне действия. NOOP продолжает запись."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手环已停止发送心率。请检查是否佩戴紧贴且在连接范围内。NOOP 会继续记录。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手環已停止傳送心率。請檢查是否佩戴貼合且在連線範圍內。NOOP 會繼續記錄。"
+          }
+        }
+      }
+    },
     "THE THREE SCORES": {
       "localizations": {
         "de": {
@@ -127755,6 +130251,58 @@
           "stringUnit": {
             "state": "translated",
             "value": "時間"
+          }
+        }
+      }
+    },
+    "Time in zone": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeit in der Zone"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tiempo en la zona"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Temps par zone"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tempo in zona"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tempo na zona"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Время в зоне"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "各区间用时"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "各區間用時"
           }
         }
       }
@@ -130961,6 +133509,12 @@
             "value": "Estas sesiones aún no tienen deporte. Elige uno para la sesión combinada."
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ces séances n’ont pas encore de sport. Choisissez-en un pour la séance fusionnée."
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -130971,6 +133525,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Estas sessões ainda não têm desporto. Escolha um para a sessão combinada."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "У этих тренировок пока нет вида спорта. Выберите его для объединённой тренировки."
           }
         },
         "zh-Hans": {
@@ -132483,6 +135043,12 @@
             "value": "Hora"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Durée"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -132493,6 +135059,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "hora"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Время"
           }
         },
         "zh-Hans": {
@@ -134955,6 +137527,12 @@
             "value": "Cinta"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tapis de course"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -134965,6 +137543,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Passadeira"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Беговая дорожка"
           }
         },
         "zh-Hans": {
@@ -137322,6 +139906,12 @@
             "value": "Usar «%@» como deporte"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utiliser « %@ » comme sport"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -137332,6 +139922,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Usar «%@» como desporto"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Использовать «%@» как вид спорта"
           }
         },
         "zh-Hans": {
@@ -139789,6 +142385,58 @@
           "stringUnit": {
             "state": "translated",
             "value": "搭配 %@"
+          }
+        }
+      }
+    },
+    "Without heart rate there is nothing to save for this sport. You can still discard it.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ohne Herzfrequenz gibt es bei dieser Sportart nichts zu speichern. Du kannst das Workout trotzdem verwerfen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sin frecuencia cardíaca no hay nada que guardar en este deporte. Aun así, puedes descartarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sans fréquence cardiaque, il n’y a rien à enregistrer pour ce sport. Vous pouvez quand même l’abandonner."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Senza frequenza cardiaca non c’è nulla da salvare per questo sport. Puoi comunque scartarlo."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sem frequência cardíaca não há nada para guardar neste desporto. Podes, mesmo assim, descartá-lo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Без пульса для этого вида спорта нечего сохранять. Тренировку всё равно можно отменить."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有心率，这项运动就没有可保存的内容。你仍可以放弃本次锻炼。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有心率，這項運動就沒有可儲存的內容。你仍可以捨棄本次運動。"
           }
         }
       }
@@ -148495,6 +151143,12 @@
             "value": "Tu ruta se guarda solo en este dispositivo."
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Votre parcours n’est enregistré que sur cet appareil."
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -148505,6 +151159,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "O seu percurso é guardado apenas neste dispositivo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Маршрут сохраняется только на этом устройстве."
           }
         },
         "zh-Hans": {
@@ -152743,6 +155403,12 @@
             "value": "kcal"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "kcal"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -152753,6 +155419,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "kcal"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ккал"
           }
         },
         "zh-Hans": {
@@ -157213,6 +159885,12 @@
             "value": "objetivo"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "objectif"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -157223,6 +159901,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "objetivo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "цель"
           }
         },
         "zh-Hans": {
