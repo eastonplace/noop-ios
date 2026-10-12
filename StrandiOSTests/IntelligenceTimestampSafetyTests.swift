@@ -74,9 +74,12 @@ final class IntelligenceTimestampSafetyTests: XCTestCase {
         XCTAssertEqual(windows[2].nextStart - windows[2].start, 25 * 3_600)
     }
 
-    /// DL-05 (N2-1b): a Buddhist current calendar still yields Gregorian "yyyy-MM-dd" keys at local midnight,
-    /// not "2569-10-12", which no import, HealthKit row or refresh window matches.
+    /// DL-05 (N2-1b): a Buddhist current calendar should yield Gregorian "yyyy-MM-dd" keys at local midnight,
+    /// not "2569-10-12", which no import, HealthKit row or refresh window matches. Deferred: the engine half
+    /// must ship together with N3-4 (the store's Gregorian localDayKey and the journal/hydration re-key), or
+    /// engine and store keys disagree. Re-apply 78d0670e's civilDayWindows change and remove this skip then.
     func testCivilDayWindowsUseGregorianKeysUnderABuddhistCalendar() throws {
+        try XCTSkipIf(true, "DL-05 is deferred until N3-4 ships; see the doc comment above")
         var buddhist = Calendar(identifier: .buddhist)
         buddhist.timeZone = try XCTUnwrap(TimeZone(identifier: "Asia/Bangkok"))
         let reference = Date(timeIntervalSince1970: 1_791_738_000 + 6 * 3_600)   // 2026-10-12 06:00 Bangkok

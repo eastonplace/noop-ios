@@ -114,11 +114,7 @@ final class IntelligenceEngine: ObservableObject {
         calendar inputCalendar: Calendar
     ) -> [CivilDayWindow] {
         guard startOffset >= 0, count > 0 else { return [] }
-        // DL-05: day keys are Gregorian "yyyy-MM-dd" in the analysis time zone, whatever the device
-        // calendar. A Buddhist or Japanese current calendar wrote keys like "2569-10-12" no import,
-        // HealthKit row or refresh window ever matches.
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = inputCalendar.timeZone
+        let calendar = inputCalendar
         let today = calendar.startOfDay(for: reference)
         return (startOffset..<(startOffset + count)).compactMap { offset in
             guard let start = calendar.date(byAdding: .day, value: -offset, to: today),
