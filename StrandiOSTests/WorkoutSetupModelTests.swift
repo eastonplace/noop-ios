@@ -131,6 +131,24 @@ final class WorkoutSetupModelTests: XCTestCase {
         XCTAssertEqual(facts[1], "52m")
     }
 
+    /// VoiceOver says the last-time line in words: "5.0 kilometers", "6:00 per kilometer", never "km" and "/km" letter by letter.
+    func testTheLastTimeLineIsSpokenWithUnitsAsWords() {
+        let now = Date(timeIntervalSince1970: 2_000_000)
+        let ran = row("Running", start: Int(now.timeIntervalSince1970) - 90_000, seconds: 1_800, meters: 5_000)
+        let spoken = WorkoutSetupLastTime.spokenFacts(for: ran, title: "Run", system: .metric, now: now,
+                                                      calendar: .current, locale: Locale(identifier: "en_US"))
+        XCTAssertEqual(spoken.count, 4, "\(spoken)")
+        XCTAssertTrue(spoken[1].contains("kilometers"), spoken[1])
+        XCTAssertEqual(spoken[2], WorkoutFormat.spokenPace("6:00", system: .metric))
+        for fact in spoken { XCTAssertFalse(fact.contains(" km") || fact.contains("/km"), fact) }
+        let miles = WorkoutSetupLastTime.spokenFacts(for: ran, title: "Run", system: .imperial, now: now,
+                                                     calendar: .current, locale: Locale(identifier: "en_US"))
+        XCTAssertTrue(miles[1].contains("miles"), miles[1])
+        let lift = row("Strength Training", start: Int(now.timeIntervalSince1970) - 600, seconds: 3_120, meters: nil)
+        XCTAssertEqual(WorkoutSetupLastTime.spokenFacts(for: lift, title: "Strength", system: .metric, now: now)[1],
+                       WorkoutFormat.spokenDuration(3_120))
+    }
+
     func testTheCountdownPreferenceIsOnUnlessTurnedOff() {
         XCTAssertTrue(WorkoutPrefs.countdownOnDefault)
         XCTAssertEqual(WorkoutPrefs.countdownOnKey, "workoutCountdownOn")

@@ -13,8 +13,8 @@ import WhoopStore
 //  • Ready: the strap, the GPS for a route sport, the day's strain target, the screen, the countdown;
 //  • which number the live screen leads with, and the last time in this sport;
 //  • a lifting session is its own flow, one row away;
-//  • one pinned 88 pt Start that says what it will do. Tap it to start (with the countdown, when that is on); press and
-//    hold it to start straight away.
+//  • one pinned solid-mint 88 pt Start circle. Tap it to start (with the countdown, when that is on); press and hold it to
+//    start straight away, the ring filling as it is held. Pure black, quiet rows, no rules between them.
 
 struct WorkoutSetupPage: View, @preconcurrency Equatable {
     let initialSport: String?
@@ -63,8 +63,6 @@ private struct WorkoutSetupContent: View {
     @State private var showsActivities = false
     @State private var showsDevices = false
     @State private var lowPowerMode = ProcessInfo.processInfo.isLowPowerModeEnabled
-    /// Set when a press on Start became a hold, so the tap that ends it does not start a second time.
-    @State private var startedByHold = false
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dynamicTypeSize) private var typeSize
 
@@ -109,47 +107,78 @@ private struct WorkoutSetupContent: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 selectionSection
-                FlatSectionSeparator()
-                recentSection
-                FlatSectionSeparator()
+                recentSection.padding(.top, Self.sectionGap)
                 WorkoutReadinessStrip(
                     showsGps: isRouteSport, probe: probe, live: model.live, today: today,
                     keepScreenOn: $keepScreenOn, countdownOn: $countdownOn, lowPowerMode: lowPowerMode,
-                    onConnect: { showsDevices = true })
-                FlatSectionSeparator()
-                bigNumberSection
-                // At the accessibility sizes the pinned bar is the button alone; what Start will not record reads here.
+                    imperial: unitSystem == .imperial, onConnect: { showsDevices = true })
+                    .padding(.top, Self.sectionGap)
+                bigNumberSection.padding(.top, Self.sectionGap)
+                // At the accessibility sizes the pinned bar is the circle alone; what Start will not record reads here.
                 if typeSize.isAccessibilitySize, let caption = presentation.captionText {
-                    FlatSectionSeparator()
-                    startCaption(caption).padding(.vertical, NoopMetrics.space3)
+                    startCaption(caption).padding(.top, NoopMetrics.space3)
                 }
-                FlatSectionSeparator()
-                liftRow
+                liftRow.padding(.top, Self.sectionGap)
             }
             .padding(.horizontal, NoopMetrics.space4)
             .padding(.bottom, NoopMetrics.space4)
         }
-        .background(StrandPalette.surfaceBase.ignoresSafeArea())
-        .safeAreaInset(edge: .top, spacing: 0) { WorkoutSheetHeader(title: "Start a workout", onClose: onClose) }
+        .background(LivePalette.canvas.ignoresSafeArea())
+        .safeAreaInset(edge: .top, spacing: 0) { setupHeader }
         .safeAreaInset(edge: .bottom, spacing: 0) { startBar }
         .sheet(isPresented: $showsActivities) {
             WorkoutActivityPickerSheet(selected: selected, onSelect: { selected = $0 })
         }
         .sheet(isPresented: $showsDevices) { WorkoutDevicesSheet(onClose: { showsDevices = false }) }
         .onAppear {
-            probe.start()
+            updateProbe()
             model.startRealtimeHR()
         }
         .onDisappear {
             probe.stop()
             model.stopRealtimeHR()
         }
-        .onChange(of: scenePhase) { _, phase in
-            if phase == .active { probe.start() } else { probe.stop() }
-        }
+        // Only a sport that records a route needs the GPS: a treadmill run or a lift never wakes location.
+        .onChange(of: isRouteSport) { _, _ in updateProbe() }
+        .onChange(of: scenePhase) { _, _ in updateProbe() }
         // Posted on whatever thread noticed the change.
         .onReceive(NotificationCenter.default.publisher(for: .NSProcessInfoPowerStateDidChange)
             .receive(on: DispatchQueue.main)) { _ in lowPowerMode = ProcessInfo.processInfo.isLowPowerModeEnabled }
+    }
+
+    /// The gap between sections: air, not a rule.
+    private static let sectionGap: CGFloat = 30
+
+    /// Listens to the GPS only while the page is up, in the foreground, for a sport with a route.
+    private func updateProbe() {
+        if isRouteSport && scenePhase == .active { probe.start() } else { probe.stop() }
+    }
+
+    /// Close on the left in a dark circle, the title in the middle: the live screen's header, one step earlier.
+    private var setupHeader: some View {
+        HStack(alignment: .center, spacing: NoopMetrics.space2) {
+            Button(action: onClose) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(StrandPalette.textPrimary)
+                    .frame(width: 44, height: 44)
+                    .background(Circle().fill(LivePalette.fill))
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Close")
+            Text("Start a workout")
+                .foregroundStyle(StrandPalette.textPrimary)
+                .liveText(17, weight: .semibold, maxSize: 24, lines: 2)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity)
+                .accessibilityAddTraits(.isHeader)
+            Color.clear.frame(width: 44, height: 44)
+        }
+        .padding(.horizontal, NoopMetrics.space4)
+        .padding(.top, NoopMetrics.space2)
+        .padding(.bottom, NoopMetrics.space1)
+        .background(LivePalette.canvas)
     }
 
     private func load() async {
@@ -215,16 +244,23 @@ private struct WorkoutSetupContent: View {
 
     private var recentSection: some View {
         let sports = StartWorkoutChoices.recentSports(from: recents).map(\.name)
-        return FlatSection("Recent", systemImage: "clock.arrow.circlepath", tint: .workout) {
-            VStack(alignment: .leading, spacing: NoopMetrics.space2) {
-                if !sports.isEmpty {
-                    WorkoutRecentSportChips(sports: sports, selected: selected) { selected = $0 }
-                }
-                WidgetChipButton(title: "All activities", systemImage: "square.grid.2x2", showsChevron: true,
-                                 accessibilityLabel: "All activities") { showsActivities = true }
-                    .frame(maxWidth: .infinity, alignment: .leading)
+        return VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+            sectionTitle("Recent")
+            if !sports.isEmpty {
+                WorkoutRecentSportChips(sports: sports, selected: selected) { selected = $0 }
             }
+            WidgetChipButton(title: "All activities", systemImage: "square.grid.2x2", showsChevron: true,
+                             accessibilityLabel: "All activities") { showsActivities = true }
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+
+    /// A quiet heading: grey words, not tracked capitals.
+    private func sectionTitle(_ title: LocalizedStringKey) -> some View {
+        Text(title)
+            .foregroundStyle(LivePalette.secondaryText)
+            .liveText(15, weight: .semibold, maxSize: 22, lines: 2)
+            .accessibilityAddTraits(.isHeader)
     }
 
     // MARK: Big number, last time
@@ -269,15 +305,15 @@ private struct WorkoutSetupContent: View {
             .frame(minHeight: 44)
             if let last = Self.lastLine(rows: rows, sport: selected, title: title, system: unitSystem) {
                 Text(verbatim: last)
-                    .font(StrandFont.caption)
-                    .foregroundStyle(StrandPalette.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                    .foregroundStyle(LivePalette.secondaryText)
+                    .liveText(14, weight: .regular, maxSize: 20, lines: 3)
+                    .accessibilityLabel(Text(verbatim: Self.spokenLastLine(rows: rows, sport: selected, title: title, system: unitSystem) ?? last))
             }
         }
     }
 
     private var bigNumberLabel: some View {
-        Text("Big number").strandOverlineFitted().lineLimit(2)
+        sectionTitle("Big number")
     }
 
     private func bigNumberMenu(_ current: Glance.Metric) -> some View {
@@ -292,12 +328,24 @@ private struct WorkoutSetupContent: View {
                 }
             }
         } label: {
-            WidgetChip(verbatimTitle: Glance.name(of: current), showsChevron: true, opensMenu: true)
-                .frame(minHeight: 44)
-                .contentShape(Rectangle())
+            HStack(spacing: 6) {
+                Text(verbatim: Glance.name(of: current))
+                    .foregroundStyle(StrandPalette.textPrimary)
+                    .liveText(17, weight: .semibold, maxSize: 24, lines: 2)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(LivePalette.secondaryText)
+            }
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
         }
         .accessibilityLabel(Text("Big number"))
         .accessibilityValue(Text(verbatim: Glance.name(of: current)))
+    }
+
+    static func spokenLastLine(rows: [WorkoutRow], sport: String, title: String, system: UnitSystem) -> String? {
+        guard let row = WorkoutSetupLastTime.newest(of: sport, in: rows) else { return nil }
+        return WorkoutSetupLastTime.spokenFacts(for: row, title: title, system: system).joined(separator: ", ")
     }
 
     static func lastLine(rows: [WorkoutRow], sport: String, title: String, system: UnitSystem) -> String? {
@@ -351,43 +399,44 @@ private struct WorkoutSetupContent: View {
         let presentation = presentation
         return VStack(spacing: NoopMetrics.space3) {
             if blockedByLift { liftBlockRow }
-            Button {
-                // The tap that ends a hold already started.
-                if startedByHold { startedByHold = false; return }
-                start(countdown: countdownOn)
-            } label: {
-                Label(presentation.labelText, systemImage: "play.fill")
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(GlanceActionButtonStyle(.primary))
-            .disabled(blockedByLift)
-            // Press and hold Start for half a second: straight in, no countdown.
-            .simultaneousGesture(LongPressGesture(minimumDuration: 0.5).onEnded { _ in
-                guard !blockedByLift else { return }
-                startedByHold = true
-                start(countdown: false)
-            })
-            .accessibilityAction(named: Text("Start without countdown")) {
-                if !blockedByLift { start(countdown: false) }
-            }
+            // The one solid-mint control: tap to start (with the countdown, when it is on), hold for half a second to start
+            // straight away, the ring filling as it is held.
+            LiveStartCircle(title: String(localized: "Start"), isEnabled: !blockedByLift,
+                            previewProgress: previewHoldProgress,
+                            onTap: { start(countdown: countdownOn) },
+                            onHold: { start(countdown: false) })
+                .accessibilityLabel(Text(verbatim: presentation.labelText))
+                .accessibilityAction(named: Text("Start without countdown")) {
+                    if !blockedByLift { start(countdown: false) }
+                }
             if !typeSize.isAccessibilitySize, let caption = presentation.captionText {
                 startCaption(caption)
             }
         }
         .padding(.horizontal, NoopMetrics.space4)
         .padding(.vertical, NoopMetrics.space3)
-        // Opaque, so what scrolls beneath it never shows through the button's surroundings.
-        .background(StrandPalette.surfaceBase.ignoresSafeArea(edges: .bottom))
-        .overlay(alignment: .top) { Rectangle().fill(StrandPalette.hairline).frame(height: 1).accessibilityHidden(true) }
+        // Opaque and edge to edge, so what scrolls beneath it never shows through or is cut off beside the circle.
+        .frame(maxWidth: .infinity)
+        .background(LivePalette.canvas.ignoresSafeArea(edges: .bottom))
+    }
+
+    /// QA only: draws the Start ring filled to this share (`--demo-hold-progress 0.55`).
+    private var previewHoldProgress: Double? {
+        #if DEBUG
+        let arguments = ProcessInfo.processInfo.arguments
+        guard let flag = arguments.firstIndex(of: "--demo-hold-progress"), arguments.indices.contains(flag + 1) else { return nil }
+        return Double(arguments[flag + 1])
+        #else
+        return nil
+        #endif
     }
 
     private func startCaption(_ caption: String) -> some View {
         Text(verbatim: caption)
-            .font(StrandFont.micro)
-            .foregroundStyle(StrandPalette.textTertiary)
+            .foregroundStyle(LivePalette.secondaryText)
+            .liveText(13, weight: .regular, maxSize: 19, lines: 4)
             .multilineTextAlignment(typeSize.isAccessibilitySize ? .leading : .center)
             .frame(maxWidth: .infinity, alignment: typeSize.isAccessibilitySize ? .leading : .center)
-            .fixedSize(horizontal: false, vertical: true)
     }
 
     /// Why Start would do nothing, and what to do instead. Side by side while both fit on one line; stacked when a longer
@@ -407,11 +456,18 @@ private struct WorkoutSetupContent: View {
         }
     }
 
-    private var liftBlockPill: some View { StatePill("Finish your lift first", tone: .warning) }
+    private var liftBlockPill: some View {
+        Text("Finish your lift first")
+            .foregroundStyle(LivePalette.amber)
+            .liveText(14, weight: .semibold, maxSize: 20, lines: 2)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .background(Capsule(style: .continuous).fill(LivePalette.amber.opacity(0.16)))
+    }
 
     private var liftBlockAction: some View {
-        Button(action: onOpenLift) { Text("Open lift") }
-            .buttonStyle(SecondaryPillButtonStyle())
+        LiveCapsuleButton(String(localized: "Open lift"), action: onOpenLift)
+            .fixedSize(horizontal: true, vertical: false)
     }
 }
 

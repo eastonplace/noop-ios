@@ -10,6 +10,9 @@ enum GpsReadiness: Equatable, Sendable {
     case locating
     /// A fix at least as good as `goodAccuracyMeters`; its accuracy in whole metres.
     case locked(accuracyMeters: Int)
+    /// Allowed, but only roughly: Precise Location is off for NOOP, so every fix is kilometres wide and none will ever be good
+    /// enough to lock. Settings can turn Precise Location on.
+    case approximate
     /// Denied, or Location Services is off for the whole device: Settings can turn it on.
     case off
     /// Restricted (Screen Time, device management): the wearer cannot change it here.
@@ -20,8 +23,19 @@ enum GpsReadiness: Equatable, Sendable {
     /// A fix older than this no longer says where the wearer is.
     static let freshFixSeconds: TimeInterval = 20
 
+    /// "±6 m", or "±20 ft" in imperial: the accuracy in the person's unit, the unit written by the system in their language.
+    static func accuracyText(meters: Int, imperial: Bool, locale: Locale = .current) -> String {
+        let measurement = Measurement(value: Double(meters), unit: UnitLength.meters)
+        let shown = imperial ? measurement.converted(to: .feet) : measurement
+        let style = Measurement<UnitLength>.FormatStyle(width: .abbreviated, usage: .asProvided,
+                                                        numberFormatStyle: .number.precision(.fractionLength(0)))
+        return "±" + shown.formatted(style.locale(locale))
+    }
+
     /// Pure. `accuracy` is the freshest fix's horizontal accuracy (negative means invalid) and `fixAge` how old it is.
-    static func make(status: CLAuthorizationStatus, servicesEnabled: Bool, accuracy: Double?, fixAge: TimeInterval?) -> GpsReadiness {
+    /// `reducedAccuracy` is true when Precise Location is off for the app (CoreLocation's `.reducedAccuracy`).
+    static func make(status: CLAuthorizationStatus, servicesEnabled: Bool, reducedAccuracy: Bool = false, accuracy: Double?,
+                     fixAge: TimeInterval?) -> GpsReadiness {
         guard servicesEnabled else { return .off }
         switch status {
         case .notDetermined: return .allowNeeded
@@ -30,6 +44,8 @@ enum GpsReadiness: Equatable, Sendable {
         case .authorizedWhenInUse, .authorizedAlways: break
         @unknown default: return .allowNeeded
         }
+        // A reduced-accuracy fix is never better than a few kilometres: it would read "Locating…" for ever.
+        if reducedAccuracy { return .approximate }
         guard let accuracy, accuracy >= 0, accuracy <= goodAccuracyMeters,
               let fixAge, fixAge <= freshFixSeconds else { return .locating }
         return .locked(accuracyMeters: Int(accuracy.rounded()))
@@ -38,7 +54,8 @@ enum GpsReadiness: Equatable, Sendable {
     /// The route can be recorded (or will be asked for) from here: everything but a refusal.
     var canRecordRoute: Bool {
         switch self {
-        case .allowNeeded, .locating, .locked: true
+        // An approximate route is a poor one, but location is allowed: the workout asks for no more than that.
+        case .allowNeeded, .locating, .locked, .approximate: true
         case .off, .restricted: false
         }
     }
@@ -63,6 +80,7 @@ final class GpsReadinessProbe: NSObject, ObservableObject {
         self.manager = manager
         readiness = GpsReadiness.make(status: manager.authorizationStatus,
                                       servicesEnabled: CLLocationManager.locationServicesEnabled(),
+                                      reducedAccuracy: manager.accuracyAuthorization == .reducedAccuracy,
                                       accuracy: nil, fixAge: nil)
         super.init()
         manager.delegate = self
@@ -110,6 +128,7 @@ final class GpsReadinessProbe: NSObject, ObservableObject {
     private func refresh() {
         let next = GpsReadiness.make(status: manager.authorizationStatus,
                                      servicesEnabled: CLLocationManager.locationServicesEnabled(),
+                                     reducedAccuracy: manager.accuracyAuthorization == .reducedAccuracy,
                                      accuracy: accuracy, fixAge: fixAt.map { Date().timeIntervalSince($0) })
         if next != readiness { readiness = next }
     }

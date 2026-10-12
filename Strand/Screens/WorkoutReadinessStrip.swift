@@ -5,8 +5,8 @@ import StrandDesign
 // MARK: - Ready
 //
 // What the setup page checks before Start, one row each: the strap, the GPS (for a sport that records a route), what today's
-// strain target is, whether the screen stays on, and whether a countdown comes first. Each row says its state in words, never
-// in colour alone, and each row that can be fixed from here has the button that fixes it.
+// strain target is, whether the screen stays on, and whether a countdown comes first. Quiet rows on black: each says its state in
+// words (coloured, never in colour alone), and each row that can be fixed from here has a mint text button that fixes it.
 
 struct WorkoutReadinessStrip: View {
     /// A sport that records a route shows the GPS row; a treadmill run or a strength session does not.
@@ -18,12 +18,18 @@ struct WorkoutReadinessStrip: View {
     @Binding var countdownOn: Bool
     /// Low Power Mode is on: the screen cannot be held awake, whatever the switch says.
     let lowPowerMode: Bool
+    /// The GPS accuracy is told in the person's unit.
+    var imperial = false
     let onConnect: () -> Void
 
     @Environment(\.openURL) private var openURL
 
     var body: some View {
-        FlatSection("Ready", systemImage: "checkmark.circle", tint: .workout) {
+        VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+            Text("Ready")
+                .foregroundStyle(LivePalette.secondaryText)
+                .liveText(15, weight: .semibold, maxSize: 22, lines: 2)
+                .accessibilityAddTraits(.isHeader)
             VStack(alignment: .leading, spacing: 0) {
                 StrapReadinessRow(live: live, onConnect: onConnect)
                 if showsGps { gpsRow }
@@ -40,18 +46,22 @@ struct WorkoutReadinessStrip: View {
         ReadinessRow(systemImage: "location", title: "GPS") {
             switch probe.readiness {
             case .allowNeeded:
-                Button("Allow location") { probe.requestAuthorization() }
-                    .buttonStyle(SecondaryPillButtonStyle())
+                ReadinessAction("Allow location") { probe.requestAuthorization() }
             case .locating:
-                StatePill("Locating…", tone: .neutral)
+                ReadinessStatus("Locating…", tone: .neutral)
             case .locked(let metres):
-                StatePill("Locked ±\(metres) m", tone: .positive)
+                ReadinessStatus(verbatim: String(localized: "Locked \(GpsReadiness.accuracyText(meters: metres, imperial: imperial))"),
+                                tone: .positive)
+            case .approximate:
+                // Precise Location is off for NOOP: fixes are kilometres wide and never get better, so say so instead of
+                // "Locating…" for ever.
+                ReadinessStatus("Precise Location is off", tone: .warning)
+                ReadinessAction("Open Settings") { openSettings() }
             case .off:
-                StatePill("Location is off", tone: .warning)
-                Button("Open Settings") { openSettings() }
-                    .buttonStyle(SecondaryPillButtonStyle())
+                ReadinessStatus("Location is off", tone: .warning)
+                ReadinessAction("Open Settings") { openSettings() }
             case .restricted:
-                StatePill("Restricted by Screen Time", tone: .warning)
+                ReadinessStatus("Restricted by Screen Time", tone: .warning)
             }
         }
     }
@@ -68,7 +78,7 @@ struct WorkoutReadinessStrip: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Today").font(StrandFont.body).foregroundStyle(StrandPalette.textPrimary)
                 Text(verbatim: today.text())
-                    .foregroundStyle(today.isWarning ? StrandPalette.statusWarning : StrandPalette.textSecondary)
+                    .foregroundStyle(today.isWarning ? LivePalette.amber : LivePalette.secondaryText)
                     .captionLabelFit(lines: 3, weight: .regular, standardLines: 2)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -88,13 +98,13 @@ struct WorkoutReadinessStrip: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Screen stays on").font(StrandFont.body).foregroundStyle(StrandPalette.textPrimary)
                     if lowPowerMode {
-                        Text("Off in Low Power Mode").font(StrandFont.footnote).foregroundStyle(StrandPalette.textTertiary)
+                        Text("Off in Low Power Mode").font(StrandFont.footnote).foregroundStyle(LivePalette.secondaryText)
                     }
                 }
             }
         }
         .toggleStyle(.switch)
-        .tint(StrandPalette.ink)
+        .tint(LivePalette.mint)
         .disabled(lowPowerMode)
         .frame(minHeight: 44)
         .accessibilityHint("Stops the screen dimming while a workout is recording")
@@ -108,7 +118,7 @@ struct WorkoutReadinessStrip: View {
             }
         }
         .toggleStyle(.switch)
-        .tint(StrandPalette.ink)
+        .tint(LivePalette.mint)
         .frame(minHeight: 44)
     }
 }
@@ -122,16 +132,71 @@ private struct StrapReadinessRow: View {
         ReadinessRow(systemImage: "heart", title: "Strap") {
             if live.connected {
                 if let bpm = live.heartRate, bpm > 0 {
-                    StatePill("Connected · \(bpm) bpm", tone: .positive)
+                    ReadinessStatus("Connected · \(bpm) bpm", tone: .positive)
                 } else {
-                    StatePill("Connected", tone: .positive)
+                    ReadinessStatus("Connected", tone: .positive)
                 }
             } else {
-                StatePill("Not connected", tone: .neutral)
-                Button("Connect", action: onConnect)
-                    .buttonStyle(SecondaryPillButtonStyle())
+                ReadinessStatus("Not connected", tone: .neutral)
+                ReadinessAction("Connect", action: onConnect)
             }
         }
+    }
+}
+
+/// A row's state in words, coloured by what it means: mint when ready, grey when waiting, amber when it needs a look.
+private struct ReadinessStatus: View {
+    enum Tone { case positive, neutral, warning }
+
+    private let text: Text
+    private let tone: Tone
+
+    init(_ key: LocalizedStringKey, tone: Tone) {
+        text = Text(key)
+        self.tone = tone
+    }
+
+    init(verbatim: String, tone: Tone) {
+        text = Text(verbatim: verbatim)
+        self.tone = tone
+    }
+
+    var body: some View {
+        text
+            .foregroundStyle(color)
+            .liveText(15, weight: .medium, maxSize: 21, lines: 3)
+            .multilineTextAlignment(.trailing)
+    }
+
+    private var color: Color {
+        switch tone {
+        case .positive: LivePalette.mint
+        case .neutral: LivePalette.secondaryText
+        case .warning: LivePalette.amber
+        }
+    }
+}
+
+/// What fixes a row, as mint words with a 44 pt target: no pill.
+private struct ReadinessAction: View {
+    private let title: LocalizedStringKey
+    private let action: () -> Void
+
+    init(_ title: LocalizedStringKey, action: @escaping () -> Void) {
+        self.title = title
+        self.action = action
+    }
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .foregroundStyle(LivePalette.mint)
+                .liveText(15, weight: .semibold, maxSize: 21, lines: 2)
+                .padding(.horizontal, 4)
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 }
 
@@ -142,7 +207,7 @@ private struct ReadinessIcon: View {
     var body: some View {
         Image(systemName: systemImage)
             .font(.system(size: 14, weight: .medium))
-            .foregroundStyle(StrandPalette.textSecondary)
+            .foregroundStyle(LivePalette.secondaryText)
             .frame(width: 24)
             .accessibilityHidden(true)
     }

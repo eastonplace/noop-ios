@@ -136,6 +136,31 @@ enum WorkoutSetupLastTime {
         facts.append(WorkoutFormat.day(Date(timeIntervalSince1970: TimeInterval(row.startTs)), now: now, calendar: calendar))
         return facts
     }
+
+    /// The same facts as VoiceOver says them: units as words ("5.8 kilometers", "5:49 per kilometer"), never the drawn "km" or
+    /// "/km" read out letter by letter.
+    static func spokenFacts(for row: WorkoutRow, title: String, system: UnitSystem, now: Date = Date(),
+                            calendar: Calendar = .current, locale: Locale = .current) -> [String] {
+        var facts = [String(localized: "Last \(title)")]
+        let seconds = row.durationS ?? Double(max(0, row.endTs - row.startTs))
+        if let meters = row.distanceM, meters > 0 {
+            let imperial = system == .imperial
+            let measurement = Measurement(value: meters, unit: UnitLength.meters)
+            facts.append((imperial ? measurement.converted(to: .miles) : measurement.converted(to: .kilometers))
+                .formatted(.measurement(width: .wide, usage: .asProvided,
+                                        numberFormatStyle: .number.precision(.fractionLength(1)).locale(locale))
+                    .locale(locale)))
+            if seconds > 0 {
+                let secPerKm = seconds / (meters / 1000)
+                let text = LiveWorkoutTiles.paceText(secPerKm: secPerKm, imperial: imperial)
+                if text != LiveWorkoutTiles.missing { facts.append(WorkoutFormat.spokenPace(text, system: system)) }
+            }
+        } else if seconds > 0 {
+            facts.append(WorkoutFormat.spokenDuration(seconds))
+        }
+        facts.append(WorkoutFormat.day(Date(timeIntervalSince1970: TimeInterval(row.startTs)), now: now, calendar: calendar))
+        return facts
+    }
 }
 
 extension WorkoutPrefs {
