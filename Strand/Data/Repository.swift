@@ -985,24 +985,39 @@ final class Repository: ObservableObject {
 
     func importedStrain(for day: String) -> ResolvedStrain? { importedStrainByDay[day] }
 
-    private func setLiveDayStrain(_ value: ResolvedStrain?) {
-        // `asOf` is observational metadata, not new scoring input. Avoid publishing a
-        // different dictionary every refresh tick when the raw frontier and score did
-        // not move; doing so would waste widget/watch/live-activity refresh budgets.
-        if let current = liveDayStrain, let value,
-           current.day == value.day,
-           current.storedValue == value.storedValue,
-           current.version == value.version,
-           current.origin == value.origin,
-           current.sourceId == value.sourceId,
-           current.rawFrontierTs == value.rawFrontierTs {
-            return
-        }
-        guard liveDayStrain != nil || value != nil else { return }
+    /// Internal (not private) so the publish-count test can drive two ticks directly.
+    func setLiveDayStrain(_ value: ResolvedStrain?) {
+        // `asOf` and the raw frontier are observational metadata, not new scoring input. UIP-3: the strap
+        // advances the frontier on every 20 s tick, so publishing on it re-rendered every Repository
+        // observer and spent widget/watch/live-activity refresh budgets while the shown number sat still.
+        guard Self.liveDayStrainNeedsPublish(
+            current: liveDayStrain, candidate: value,
+            persisted: value?.day.flatMap { persistedStrainByDay[$0] }) else { return }
         liveDayStrain = value
         rebuildCanonicalStrain()
         refreshTodayHealthSnapshotFromCurrentCaches(
             now: todayHealthSnapshotNow(), writePolicy: .throttledLiveStrain)
+    }
+
+    /// True when a live Strain tick changes something a person can see: the day, the provenance, the value
+    /// at display precision (one decimal on the 0...21 scale, rounded like the formatter), or which of live
+    /// and persisted wins the freshness race. A held live value keeps its older frontier until then.
+    nonisolated static func liveDayStrainNeedsPublish(
+        current: ResolvedStrain?, candidate: ResolvedStrain?, persisted: ResolvedStrain?
+    ) -> Bool {
+        guard let current, let candidate else { return current != nil || candidate != nil }
+        func tenths(_ stored: Double) -> Double {
+            (StrainScale.displayValue(fromStored: stored) * 10).rounded(.toNearestOrEven)
+        }
+        guard current.day == candidate.day,
+              current.version == candidate.version,
+              current.origin == candidate.origin,
+              current.sourceId == candidate.sourceId,
+              tenths(current.storedValue) == tenths(candidate.storedValue) else { return true }
+        guard let day = candidate.day else { return false }
+        let held = StrainResolver.freshest(persisted: persisted, live: current, day: day)
+        let next = StrainResolver.freshest(persisted: persisted, live: candidate, day: day)
+        return held?.origin != next?.origin
     }
 
     func rebuildCanonicalStrain() {
