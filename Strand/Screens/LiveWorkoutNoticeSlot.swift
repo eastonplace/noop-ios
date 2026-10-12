@@ -125,6 +125,7 @@ struct LiveNoticeSlot: View {
     /// Opens the device manager (a sheet in the journey's cover) for the notices that offer it.
     var onManageDevices: () -> Void = {}
     @ScaledMetric(relativeTo: .caption) private var slotHeight: CGFloat = 28
+    @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.openURL) private var openURL
     @State private var expanded: LiveWorkoutSlotNotice?
     @State private var collapseTask: Task<Void, Never>?
@@ -141,7 +142,9 @@ struct LiveNoticeSlot: View {
                 }
             }
         }
-        .frame(minHeight: slotHeight, alignment: .leading)
+        // The slot keeps its height when empty so a notice never moves the page, except at the accessibility sizes, where that
+        // reserve is a hand's breadth of a short screen: there the page makes room when a notice arrives.
+        .frame(minHeight: typeSize.isAccessibilitySize ? 0 : slotHeight, alignment: .leading)
         .frame(maxWidth: .infinity, alignment: .leading)
         .animation(.easeInOut(duration: 0.2), value: expanded)
         .onDisappear { collapseTask?.cancel() }

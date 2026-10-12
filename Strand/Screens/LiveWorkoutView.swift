@@ -188,7 +188,7 @@ private struct LiveWorkoutHeader: View {
                              color: paused ? StrandPalette.statusWarning : StrandPalette.liveRed,
                              pulses: NOOPLiveWorkoutPulse.isActive(isPaused: paused, isEnding: ending))
             if ending {
-                Text("Ending").strandOverlineFitted().lineLimit(2)
+                Text("Ending").strandOverlineFitted().lineLimit(Self.titleLines("Ending"))
             } else if paused, let since = workout.pauseLedger.openSince {
                 TimelineView(.periodic(from: .now, by: 1)) { context in
                     let seconds = max(0, Int(context.date.timeIntervalSince1970 - since))
@@ -197,14 +197,21 @@ private struct LiveWorkoutHeader: View {
                         .accessibilityLabel(Text("Paused for \(LiveWorkoutTiles.spokenElapsed(TimeInterval(seconds)))"))
                 }
             } else if paused {
-                Text("Paused").strandOverlineFitted().lineLimit(2)
+                Text("Paused").strandOverlineFitted().lineLimit(Self.titleLines("Paused"))
             } else {
-                Text(verbatim: WorkoutSource.displaySport(workout.sport)).strandOverlineFitted().lineLimit(2)
+                let sport = WorkoutSource.displaySport(workout.sport)
+                Text(verbatim: sport).strandOverlineFitted().lineLimit(Self.titleLines(sport))
             }
         }
         .multilineTextAlignment(.center)
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isHeader)
+    }
+
+    /// One word is one line, so a narrow screen at the largest text scales it down instead of breaking it inside ("RUNNIN" /
+    /// "G"); a title of several words may wrap between them.
+    private static func titleLines(_ title: String) -> Int {
+        title.contains(where: \.isWhitespace) ? 2 : 1
     }
 }
 
