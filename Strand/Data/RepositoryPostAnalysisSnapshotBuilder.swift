@@ -62,7 +62,9 @@ enum RepositoryPostAnalysisSnapshotBuilder {
             computed: computedMetrics,
             userEditedDays: editedWakeDays
         )
-        let allDaily = Repository.mergeDaily(imported: importedAndComputed, computed: appleMetrics)
+        let allDaily = Repository.mergeDaily(
+            imported: importedAndComputed,
+            computed: Repository.appleFallbackDaily(appleMetrics, rmssdSources: importedMetrics, computedMetrics))
         let base = allDaily.last(where: { $0.day == displayDay.key })
             ?? emptyDailyMetric(day: displayDay.key)
 

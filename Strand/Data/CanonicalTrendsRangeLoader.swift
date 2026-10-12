@@ -96,7 +96,9 @@ extension Repository {
         let appleDaily = bestDaily(read.dailyRows.filter { $0.sourceId == Self.appleHealthSource })
         let merged = Repository.mergeDaily(
             imported: importedDaily, computed: computedDaily, userEditedDays: editedDays)
-        let canonicalDays = Repository.mergeDaily(imported: merged, computed: appleDaily)
+        let canonicalDays = Repository.mergeDaily(
+            imported: merged,
+            computed: Repository.appleFallbackDaily(appleDaily, rmssdSources: importedDaily, computedDaily))
 
         return TrendsLoadedData(
             loadIdentity: TrendsLoadIdentity(

@@ -2418,7 +2418,7 @@ final class Repository: ObservableObject {
                     into: Self.mergeDaily(
                         imported: Self.mergeDaily(
                             imported: imported, computed: computed, userEditedDays: editedDays),
-                        computed: apple),
+                        computed: Self.appleFallbackDaily(apple, rmssdSources: imported, computed)),
                     activityFile),
                 sleeps: Self.mergeSleep(imported: impSleep, computed: compSleep),
                 vitalRows: Self.sourceRows(imported: imported, computed: computed, apple: apple),
@@ -2811,6 +2811,15 @@ final class Repository: ObservableObject {
             }
         }
         return byDay.values.sorted { $0.day < $1.day }
+    }
+
+    /// DL-11: Apple Health's `avgHrv` is SDNN, a different metric on a different scale from the strap's
+    /// nightly RMSSD. As the final merge fallback it fills HRV only for someone with no RMSSD source in the
+    /// rows at hand; otherwise a strap-less night would switch the HRV tile and trend to SDNN unlabelled.
+    nonisolated static func appleFallbackDaily(_ apple: [DailyMetric],
+                                               rmssdSources: [DailyMetric]...) -> [DailyMetric] {
+        guard rmssdSources.contains(where: { rows in rows.contains { $0.avgHrv != nil } }) else { return apple }
+        return apple.map { $0.avgHrv == nil ? $0 : $0.replacing(avgHrv: .some(nil)) }
     }
 
     nonisolated static func mergeActivityFileSteps(into base: [DailyMetric],
@@ -4179,7 +4188,8 @@ final class Repository: ObservableObject {
     static func appleCompatibleKey(forWhoopKey key: String) -> String? {
         switch key {
         case "rhr":              return "resting_hr"
-        case "hrv", "spo2", "resp_rate", "avg_hr", "max_hr", "in_bed_min", "active_kcal":
+        // DL-11: no "hrv". Apple's HRV is SDNN, not the strap's nightly RMSSD, so it isn't the same quantity.
+        case "spo2", "resp_rate", "avg_hr", "max_hr", "in_bed_min", "active_kcal":
             return key
         case "sleep_total_min":  return "asleep_min"
         case "sleep_deep_min":   return "deep_min"
@@ -5669,7 +5679,7 @@ extension Repository {
                 imported: importedDaily,
                 computed: computedDaily,
                 userEditedDays: exactEditedDays),
-            computed: appleDaily
+            computed: Self.appleFallbackDaily(appleDaily, rmssdSources: importedDaily, computedDaily)
         )
         let exactImportedSource = importedWinners.mapValues(\.sourceId)
         let exactComputedSource = computedWinners.mapValues(\.sourceId)
