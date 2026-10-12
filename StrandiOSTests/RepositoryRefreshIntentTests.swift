@@ -321,6 +321,31 @@ final class RepositoryRefreshIntentTests: XCTestCase {
         XCTAssertFalse(barrier.blocksRefreshes)
     }
 
+    /// Review finding (watchdog clock): the watchdog slept once for the whole limit on a clock that keeps running
+    /// while the process is suspended, so the first wake after a suspension longer than the limit took the fence
+    /// from a healthy owner mid-import. It now counts ticks of running time: a suspension wakes the pending tick
+    /// once, so the hold survives until the full count of ticks has actually elapsed.
+    func testWatchdogCountsTicksSoOneWakeAfterASuspensionCannotReclaimTheFence() async throws {
+        let clock = ManualWatchdogClock()
+        let barrier = RepositoryPublicationBarrier(
+            watchdogLimit: .seconds(600), watchdogTick: .seconds(10),
+            watchdogSleep: { [clock] in await clock.sleep($0) })
+        let ownership = try await barrier.acquireExclusive()
+
+        for tick in 1...60 {
+            try await clock.waitForSleeper()
+            XCTAssertTrue(barrier.blocksRefreshes, "tick \(tick): the hold was reclaimed early")
+            XCTAssertEqual(barrier.watchdogReleaseCount, 0)
+            clock.wakeOne()
+        }
+        for _ in 0..<1_000 where barrier.watchdogReleaseCount == 0 { await Task.yield() }
+        XCTAssertEqual(barrier.watchdogReleaseCount, 1, "60 ticks of 10 s reach the 600 s limit")
+        XCTAssertFalse(barrier.blocksRefreshes)
+        XCTAssertEqual(clock.requested, Array(repeating: .seconds(10), count: 60))
+        barrier.releaseExclusive(ownership)
+        XCTAssertFalse(barrier.blocksRefreshes)
+    }
+
     private func seedComputedDays(_ count: Int, into store: WhoopStore, strain: Double = 64) async throws -> [String] {
         let now = Date()
         let keys = (0..<count).map {
@@ -398,6 +423,27 @@ final class RepositoryRefreshIntentTests: XCTestCase {
             try await Task.sleep(nanoseconds: 2_000_000)
         }
         XCTAssertEqual(repository.sleeps.map(\.endTs), [end], "the deferred refresh replays once the fence opens")
+    }
+}
+/// Hands out watchdog ticks one at a time, the way a suspended process wakes its one pending sleep.
+@MainActor
+private final class ManualWatchdogClock {
+    private var sleepers: [CheckedContinuation<Void, Never>] = []
+    private(set) var requested: [Duration] = []
+
+    func sleep(_ duration: Duration) async {
+        requested.append(duration)
+        await withCheckedContinuation { sleepers.append($0) }
+    }
+
+    func waitForSleeper() async throws {
+        for _ in 0..<1_000 where sleepers.isEmpty { try await Task.sleep(nanoseconds: 1_000_000) }
+        XCTAssertFalse(sleepers.isEmpty, "the watchdog stopped ticking")
+    }
+
+    func wakeOne() {
+        guard !sleepers.isEmpty else { return }
+        sleepers.removeFirst().resume()
     }
 }
 #endif

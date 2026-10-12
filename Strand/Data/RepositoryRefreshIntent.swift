@@ -149,7 +149,9 @@ final class RepositoryPublicationBarrier {
     private var activeRefreshes = 0
     private let exclusiveWaiters = CancellableWaiterQueue<Void>()
     private var ownerGeneration: UInt64 = 0
-    private let watchdogLimit: Duration
+    private let watchdogTick: Duration
+    private let watchdogTicks: Int
+    private let watchdogSleep: @Sendable (Duration) async throws -> Void
     private var watchdog: Task<Void, Never>?
     private struct DeferredRefresh {
         var intent: RepositoryRefreshIntent
@@ -165,8 +167,18 @@ final class RepositoryPublicationBarrier {
 
     /// Ten minutes is far beyond one HealthKit import batch or scoring generation, so the watchdog only fires
     /// for a hung owner. It is a safety net, not a scheduler.
-    init(watchdogLimit: Duration = .seconds(600)) {
-        self.watchdogLimit = watchdogLimit
+    ///
+    /// The limit is counted in short ticks of running time, not measured as one sleep. Every clock Swift offers
+    /// keeps running while iOS suspends the process, so a single ten-minute sleep fired the moment the app
+    /// resumed from any longer suspension and took the fence from an owner still mid-import. A suspension
+    /// wakes the pending tick once, so it costs at most one tick.
+    init(watchdogLimit: Duration = .seconds(600),
+         watchdogTick: Duration = .seconds(10),
+         watchdogSleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }) {
+        let tick = max(.nanoseconds(1), min(watchdogTick, watchdogLimit))
+        self.watchdogTick = tick
+        self.watchdogTicks = max(1, Int((watchdogLimit / tick).rounded(.up)))
+        self.watchdogSleep = watchdogSleep
     }
 
     var blocksRefreshes: Bool {
@@ -259,11 +271,14 @@ final class RepositoryPublicationBarrier {
         ownerGeneration &+= 1
         let generation = ownerGeneration
         watchdog?.cancel()
-        watchdog = Task { @MainActor [weak self, watchdogLimit] in
-            do {
-                try await Task.sleep(for: watchdogLimit)
-            } catch {
-                return
+        watchdog = Task { @MainActor [weak self, watchdogTick, watchdogTicks, watchdogSleep] in
+            for _ in 0..<watchdogTicks {
+                do {
+                    try await watchdogSleep(watchdogTick)
+                } catch {
+                    return
+                }
+                if Task.isCancelled { return }
             }
             self?.watchdogExpired(generation)
         }
