@@ -1,5 +1,5 @@
 import XCTest
-@testable import Strand
+@testable import NOOP
 
 /// Pins the By-Day honesty fix (Sleep overhaul §2.6) + the per-day diagnostic source token (§2.5):
 /// the By-Day card used to hard-code a "NOOP-computed" badge even on days an IMPORT won the dashboard
@@ -7,7 +7,7 @@ import XCTest
 /// resolves the REAL provenance from the imported day-key sets; the badge + log token derive from it.
 /// Pure (no store) — the SAME `classify` the engine ships per day. Mirrors the Android
 /// `IntelligenceDaySourceTest` / `IntelligenceScreenSourceBadge` cases.
-final class IntelligenceDaySourceTests: XCTestCase {
+final class IntelligenceEngineDaySourceTests: XCTestCase {
 
     private typealias DaySource = IntelligenceEngine.DaySource
 

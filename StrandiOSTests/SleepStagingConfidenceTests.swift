@@ -1,5 +1,5 @@
 import XCTest
-@testable import Strand
+@testable import NOOP
 import StrandAnalytics
 
 /// #H9 — the Sleep stage-breakdown LOW-CONFIDENCE badge gate (`SleepView.isStagingLowConfidence`).
@@ -10,6 +10,7 @@ import StrandAnalytics
 /// must NOT flag a healthy night, a genuinely fragmented (low-efficiency) night, or an unstaged night. The
 /// gate delegates to `ScoreConfidence.rest(...)`, so these pin the UI side against the same thresholds the
 /// daily pass uses. Pure → no view, no BLE.
+@MainActor
 final class SleepStagingConfidenceTests: XCTestCase {
 
     /// A high-efficiency night with near-zero deep+REM → flagged low-confidence (likely staging miss).

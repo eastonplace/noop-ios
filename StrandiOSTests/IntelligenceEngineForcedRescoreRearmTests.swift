@@ -1,5 +1,5 @@
 import XCTest
-@testable import Strand
+@testable import NOOP
 
 /// Pins the #899-A forced-rescore re-arm contract in `IntelligenceEngine.analyzeRecent`.
 ///
@@ -21,7 +21,7 @@ import XCTest
 /// non-forced one schedules NONE, and the re-arm can never loop. Mirrors the Android no-op rationale: Android
 /// has no shared `computing` lock (the forced post-backfill rescore runs on its own ioScope coroutine and is
 /// never dropped), so there is nothing to re-arm there.
-final class IntelligenceForcedRescoreRearmTests: XCTestCase {
+final class IntelligenceEngineForcedRescoreRearmTests: XCTestCase {
 
     /// A faithful model of the engine's re-arm state machine. Each method mirrors one decision in
     /// `analyzeRecent`: the entry guard and the `defer`. `reruns` counts how many times the `defer` would
