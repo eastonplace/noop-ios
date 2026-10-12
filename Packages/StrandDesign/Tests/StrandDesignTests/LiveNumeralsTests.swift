@@ -66,6 +66,18 @@ final class LiveNumeralsTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(normal.top, LiveNumeralMetrics.noticeBand)
     }
 
+    // MARK: A figure with no reading
+
+    /// Apple Workout's "--": two hyphens in the numeral face, not the em or en dash a text row would use.
+    func testAFigureWithNoReadingIsDrawnAsTwoHyphens() {
+        XCTAssertEqual(LiveNumeral.missingText, "--")
+        XCTAssertFalse(LiveNumeral.missingText.contains("\u{2013}"))
+        XCTAssertFalse(LiveNumeral.missingText.contains("\u{2014}"))
+        // Short enough to sit beside a unit block at the secondary size.
+        XCTAssertLessThan(LiveNumeralMetrics.numeralWidth(LiveNumeral.missingText, pointSize: 76, tracking: -1.7),
+                          LiveNumeralMetrics.numeralWidth("00:00", pointSize: 76, tracking: -1.7))
+    }
+
     // MARK: Fitting a wide figure
 
     /// A figure wider than its line is scaled by an exact factor worked out from its width, so its digits stay on the baseline.

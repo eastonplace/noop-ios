@@ -257,9 +257,12 @@ public struct LiveNumeral: View {
 
     private var hasUnit: Bool { !unit.isEmpty || micro != nil }
 
-    /// What is drawn: a figure that is not known yet is a short en dash, not the em dash the text rows use (at this size that
-    /// would be a bar a third of the line long).
-    private var displayValue: String { isMissing ? "\u{2013}" : value }
+    /// What is drawn for a figure that is not known yet: two hyphens in the numeral face and the quiet grey, as Apple Workout
+    /// draws it. Not the em dash the text rows use (at this size that would be a bar a third of the line long), and not an en
+    /// dash (a heavy bar that reads as a minus). VoiceOver never reads it: the spoken value says there is no reading.
+    public static let missingText = "--"
+
+    private var displayValue: String { isMissing ? Self.missingText : value }
 
     public var body: some View {
         let nominal = LiveNumeralMetrics.digitHeight(pointSize)
