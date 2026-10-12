@@ -37,6 +37,14 @@ final class WorkoutResumeBarStateTests: XCTestCase {
         XCTAssertFalse(WorkoutResumeBarState.running.isPausedLook)
     }
 
+    /// Nothing is live once the workout is paused or End was tried: only a recording bar keeps the live colour.
+    func testTheBarsTimeIsFrozenGreyWheneverNothingIsLive() {
+        XCTAssertFalse(WorkoutResumeBarState.running.figuresAreFrozen)
+        XCTAssertTrue(WorkoutResumeBarState.paused.figuresAreFrozen)
+        XCTAssertTrue(WorkoutResumeBarState.saving.figuresAreFrozen)
+        XCTAssertTrue(WorkoutResumeBarState.failed.figuresAreFrozen)
+    }
+
     /// A minimized, paused run must not read as one that is recording, and the number the bar shows is part of what it says.
     func testTheSpokenSummaryNamesThePausedStateAndTheMetric() {
         let running = WorkoutResumeBarState.spokenSummary(.running, sport: "Running", spokenElapsed: "12 minutes, 3 seconds",

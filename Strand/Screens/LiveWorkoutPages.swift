@@ -51,7 +51,7 @@ struct LiveHeartPage: View {
             Glance.value(metric, input: input, elapsed: 0, strain: strain, zoneWord: zones.word(for: metric))
         }
         let noStrap = signals.strapNeverConnected && workout.currentBPM == nil
-        let paused = workout.isPaused
+        let paused = workout.isStill
 
         LivePageFrame(naturalHeight: Self.naturalHeight(accessibilitySize: typeSize.isAccessibilitySize, noStrap: noStrap)) { scale in
             VStack(alignment: .leading, spacing: 0) {
@@ -188,7 +188,7 @@ struct LiveRoutePage: View {
         return VStack(alignment: .leading, spacing: 0) {
             ForEach(Array([Glance.Metric.distance, pace, .time].enumerated()), id: \.element) { index, metric in
                 LiveWorkoutFigure(value: Glance.value(metric, input: input, elapsed: elapsed, strain: strain),
-                                  scale: scale, isPaused: workout.isPaused, signals: signals)
+                                  scale: scale, isPaused: workout.isStill, signals: signals)
                     .padding(.top, index == 0 ? 0 : LiveNumeralMetrics.secondaryGap * scale)
             }
         }

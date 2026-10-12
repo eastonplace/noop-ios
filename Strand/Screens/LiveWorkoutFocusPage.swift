@@ -104,7 +104,7 @@ struct LiveFocusPage: View {
 
     private func figure(_ value: Glance.Value, size: LiveNumeral.Size, scale: CGFloat,
                         signals: LiveWorkoutSignals.Snapshot, zone: Int?) -> some View {
-        LiveWorkoutFigure(value: value, size: size, scale: scale, isPaused: workout.isPaused, signals: signals, zone: zone)
+        LiveWorkoutFigure(value: value, size: size, scale: scale, isPaused: workout.isStill, signals: signals, zone: zone)
     }
 
     static func word(_ zone: Int) -> String { LiveZoneRow.word(zone) }

@@ -354,6 +354,10 @@ final class AppModel: ObservableObject {
         /// End was tried: the save is running, or it failed and waits for a retry. Every surface says "Ending".
         var isEnding: Bool { frozenAt != nil }
 
+        /// Nothing on the live screen is live: the workout is paused, or End was tried and it waits on its save (saving, failed,
+        /// nothing to save). The figures are the flat paused grey in both.
+        var isStill: Bool { isPaused || isEnding }
+
         /// The instant the clocks read as of `now`: `now` itself, or the freeze if the workout has stopped counting.
         func clockEnd(at now: Date) -> Date {
             frozenAt.map { min($0, now) } ?? now

@@ -199,10 +199,11 @@ struct WorkoutResumeBar: View {
     private func clock(_ state: WorkoutResumeBarState) -> some View {
         let model = ActiveWorkoutIndicatorModel.make(from: workout)
         return TimelineView(.periodic(from: .now, by: 1)) { context in
-            // Time is mint; a paused workout's is the flat grey of the live screen's frozen figures.
+            // Time is mint; once nothing is live (paused, saving, a save that failed) it is the flat grey of the live screen's
+            // frozen figures.
             Text(model?.elapsedText(at: context.date) ?? "")
                 .font(StrandFont.bodyNumber)
-                .foregroundStyle(state.isPausedLook ? LivePalette.frozenNumeral : LivePalette.time)
+                .foregroundStyle(state.figuresAreFrozen ? LivePalette.frozenNumeral : LivePalette.time)
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
         }
@@ -261,6 +262,8 @@ enum WorkoutResumeBarState: Equatable {
     }
 
     var isPausedLook: Bool { self == .paused }
+    /// Nothing is live: paused, or End was tried (saving, or a save that failed). The bar's time is the flat frozen grey.
+    var figuresAreFrozen: Bool { self != .running }
     /// Pulses as "recording" only while it is: the same rule as every surface (`NOOPLiveWorkoutPulse`).
     var pulses: Bool { NOOPLiveWorkoutPulse.isActive(isPaused: self == .paused, isEnding: self == .saving || self == .failed) }
     /// Pause or Resume is available only when the workout is running or paused.
