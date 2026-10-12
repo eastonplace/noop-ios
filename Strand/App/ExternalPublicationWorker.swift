@@ -1,5 +1,3 @@
-// Add to StrandiOS/App or a shared iOS target. One worker serializes durable downstream side effects.
-
 #if os(iOS)
 import Foundation
 import NoopPhase34Core
@@ -31,6 +29,7 @@ struct ExternalPublicationWorkerDependencies: Sendable {
     let now: @Sendable () -> Date
 }
 
+/// The one worker that serializes durable downstream side effects: widget, Live Activity and HealthKit outbox rows.
 actor ExternalPublicationWorker {
     private let dependencies: ExternalPublicationWorkerDependencies
     private let quiescence = PipelineQuiescence()

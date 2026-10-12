@@ -266,4 +266,41 @@ final class IntelligenceAnalysisCoordinatorTests: XCTestCase {
 
         XCTAssertEqual(runs, [blocker, durable])
     }
+
+    /// CC-2 / CORE-08: BG-task expiry must stop forced analysis, which ignores caller cancellation by design.
+    /// The cancelled batch is not retried, every queued caller resumes with `false`, and the next submit
+    /// starts a fresh runner.
+    func testBackgroundExpiryCancelsForcedWorkWithoutRetryingIt() async throws {
+        let coordinator = IntelligenceAnalysisCoordinator(retryDelay: 0, maximumRetryCount: 2)
+        let owner = Owner()
+        let running = IntelligenceAnalysisRequest(maxDays: 30, startOffset: 0, force: true, refreshRepository: false)
+        let queued = IntelligenceAnalysisRequest(maxDays: 30, startOffset: 400, force: true, refreshRepository: true)
+        var runs = 0
+        var sawCancellation = false
+        let runner: IntelligenceAnalysisCoordinator.Execute = { _ in
+            runs += 1
+            // Models IntelligenceEngine's per-day checkpoints: a cancelled runner stops between days and
+            // reports an incomplete pass.
+            while !Task.isCancelled { await Task.yield() }
+            sawCancellation = true
+            throw IntelligenceAnalysisCoordinatorError.analysisDidNotComplete
+        }
+        let first = Task { @MainActor in await coordinator.submit(owner: owner, request: running, run: runner) }
+        try await waitUntil { runs == 1 }
+        let second = Task { @MainActor in await coordinator.submit(owner: owner, request: queued, run: runner) }
+        try await waitUntil { coordinator.waitingForcedCallerCount(for: owner) == 1 }
+
+        coordinator.cancelRunningWork()
+        let firstCompleted = await first.value
+        let secondCompleted = await second.value
+
+        XCTAssertTrue(sawCancellation)
+        XCTAssertFalse(firstCompleted)
+        XCTAssertFalse(secondCompleted)
+        XCTAssertEqual(runs, 1, "a cancelled forced batch is neither retried nor followed by the queued one")
+        XCTAssertFalse(coordinator.isRunning(for: owner))
+
+        let fresh = await coordinator.submit(owner: owner, request: running) { _ in }
+        XCTAssertTrue(fresh, "the next submit gets a new, uncancelled runner")
+    }
 }

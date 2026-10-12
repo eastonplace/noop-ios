@@ -1,5 +1,3 @@
-// Add to Strand/App. This is the single runtime owner for receipt admission and durable pipeline draining.
-
 import Foundation
 import NoopPhase34Core
 import WhoopStore
@@ -73,8 +71,12 @@ enum HistoricalPipelineRuntimeError: Error {
     case snapshotUnavailable
 }
 
-/// Coalesces launch, foreground, protected-data, CoreBluetooth restoration, and burst-finalization signals.
-/// The durable journal remains the source of truth; a missed in-memory signal is repaired by the next call.
+/// The single runtime owner for receipt admission and durable pipeline draining. It coalesces launch,
+/// foreground, protected-data, CoreBluetooth restoration, and burst-finalization signals. The durable journal
+/// remains the source of truth; a missed in-memory signal is repaired by the next call.
+///
+/// Background-task expiry reports completion at once and quiesces this runtime afterwards. Quiesce cancels the
+/// drain; owned durable leases return to pending through `cancelOwnedLease`, or expire and recover.
 actor HistoricalPipelineRuntime {
     private let dependencies: HistoricalPipelineRuntimeDependencies
     private let quiescence = PipelineQuiescence()
@@ -218,27 +220,3 @@ actor HistoricalPipelineRuntime {
         }
     }
 }
-
-/*
-AppModel wiring:
-
-- Remove `historicalReceiptAnalysisConsumer` and its checkpoint callbacks.
-- Add one lazy `HistoricalPipelineRuntime`.
-- Build `HistoricalPipelineCoordinator` dependencies from:
-    WhoopStore.leaseNextHistoricalAnalysisWork
-    WhoopStore.applyHistoricalAnalysisWorkEvent
-    IntelligenceEngine exact-day analysis plus `recordAnalysisMutation`
-    Repository.verifyAndCommitHistoricalSnapshot
-    Repository.publishVerifiedExactDays
-    WhoopStore.enqueueExternalPublications
-- `admissionContexts` returns all currently valid device/source scopes. Source transitions retire the old scope
-  before returning only the new scope.
-- Call `signal()` from:
-    app launch after store open,
-    finalized receipt watermark,
-    foreground entry,
-    protected data available,
-    CoreBluetooth state restoration,
-    eligible BGProcessing task.
-- Background expiration cancels the task only. Durable leases expire and recover; do not mark completion.
-*/

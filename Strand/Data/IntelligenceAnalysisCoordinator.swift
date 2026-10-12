@@ -119,6 +119,9 @@ final class IntelligenceAnalysisCoordinator {
     }
 
     private var queues: [ObjectIdentifier: QueueState] = [:]
+    /// The unstructured runner per owner. Callers' cancellation never reaches it, by design, so background
+    /// expiry cancels it through `cancelRunningWork()`.
+    private var runners: [ObjectIdentifier: Task<Void, Never>] = [:]
     private let retryDelay: TimeInterval
     private let maximumRetryCount: Int
 
@@ -163,18 +166,32 @@ final class IntelligenceAnalysisCoordinator {
             if shouldStartRunner {
                 // The runner retains the coordinator until every queued batch has either executed or been
                 // coalesced. Individual submitters remain suspended only on their own batch continuation.
-                Task { @MainActor in
+                runners[key] = Task { @MainActor in
                     await self.drain(ownerKey: key)
                 }
             }
         }
     }
 
+    /// CC-2 / CORE-08 cancellation token for background expiry. Forced work ignores caller cancellation, so
+    /// a cancelled BG task used to leave a multi-day rescore burning CPU after its grant ended. This cancels
+    /// every runner: IntelligenceEngine stops at its next per-day checkpoint, nothing is retried, and every
+    /// queued caller resumes with `false`. Durable sources (HealthKit journal, historical work rows) keep
+    /// their own record of the work, so nothing is lost.
+    func cancelRunningWork() {
+        runners.values.forEach { $0.cancel() }
+    }
+
     private func drain(ownerKey key: ObjectIdentifier) async {
         while true {
+            if Task.isCancelled {
+                abandonQueue(ownerKey: key)
+                return
+            }
             guard var state = queues[key],
                   let index = nextBatchIndex(in: state.pending) else {
                 queues.removeValue(forKey: key)
+                runners.removeValue(forKey: key)
                 return
             }
 
@@ -189,7 +206,7 @@ final class IntelligenceAnalysisCoordinator {
                 }
                 completed = true
             } catch IntelligenceAnalysisCoordinatorError.analysisDidNotComplete
-                where batch.request.force && batch.retryCount < maximumRetryCount {
+                where batch.request.force && batch.retryCount < maximumRetryCount && !Task.isCancelled {
                 // The source-change request is durable. Re-read the live queue before appending it: other
                 // callers may have arrived while `run` was suspended, and restoring the pre-run local state
                 // would silently erase those requests. Compatible work can coalesce with this retry and every
@@ -206,6 +223,12 @@ final class IntelligenceAnalysisCoordinator {
             }
             batch.waiters.forEach { $0.resume(returning: completed) }
         }
+    }
+
+    private func abandonQueue(ownerKey key: ObjectIdentifier) {
+        let abandoned = queues.removeValue(forKey: key)?.pending ?? []
+        runners.removeValue(forKey: key)
+        abandoned.forEach { batch in batch.waiters.forEach { $0.resume(returning: false) } }
     }
 
     private func waitBeforeRetry(attempt: Int) async {
@@ -301,8 +324,10 @@ extension IntelligenceEngine {
             // in-engine re-arm task may nevertheless already own `computing`; forced work waits instead of
             // disappearing, while a disposable cadence tick still drops. Once forced work is queued it ignores
             // caller-task cancellation—the durable source change still needs to be scored and published.
+            // Only `cancelRunningWork()` (background expiry) cancels this runner task.
             while self.computing {
                 guard queued.force else { throw IntelligenceAnalysisCoordinatorError.deferred }
+                try Task.checkCancellation()
                 await Self.waitForAnalysisPoll()
             }
             guard queued.force || !Task.isCancelled else { throw IntelligenceAnalysisCoordinatorError.deferred }
