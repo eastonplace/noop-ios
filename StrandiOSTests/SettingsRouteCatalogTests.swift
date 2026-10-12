@@ -9,7 +9,6 @@ final class SettingsRouteCatalogTests: XCTestCase {
             $0.localizedCaseInsensitiveContains("support")
         }))
         XCTAssertEqual(SettingsRouteCatalog.rootSections.map(\.id), [
-            .profile,
             .deviceSync,
             .healthData,
             .appPreferences,
@@ -73,6 +72,46 @@ final class SettingsRouteCatalogTests: XCTestCase {
         XCTAssertTrue(SettingsRouteCatalog.searchItems.allSatisfy {
             known.contains($0.route)
         })
+    }
+
+    /// The Apple-ID-style profile row opens Personal profile, so it is not also a row under a section of its own.
+    func testTheProfileRowIsNotAlsoAListRow() {
+        let rowRoutes = SettingsRouteCatalog.rootSections.flatMap(\.routes).map(\.id)
+        XCTAssertFalse(rowRoutes.contains(.personalProfile))
+        XCTAssertFalse(SettingsRouteCatalog.rootSections.map(\.title).contains("Profile"))
+        XCTAssertEqual(SettingsRouteCatalog.search("personal profile").first?.route, .personalProfile)
+    }
+
+    /// Every page is reachable from the profile row, a root row or a search result, and no row is listed twice.
+    func testEveryRouteIsReachableAndNothingIsListedTwice() {
+        let rows = SettingsRouteCatalog.rootSections.flatMap(\.routes).map(\.id)
+        let reachable = Set(rows).union(SettingsRouteCatalog.searchItems.map(\.route)).union([.personalProfile])
+        XCTAssertEqual(reachable, Set(SettingsRouteID.allCases))
+        XCTAssertEqual(Set(rows).count, rows.count)
+    }
+
+    /// The consolidation: Scoring & baselines is a section of Personal profile, Storage belongs to Advanced, the
+    /// Live Activity toggle to Workouts, and the duplicate Automations page is gone (Siri & Shortcuts keeps its row).
+    func testTheMergedPagesAreFoundWhereTheyMoved() {
+        XCTAssertEqual(SettingsRouteCatalog.search("recovery baseline").map(\.route), [.personalProfile])
+        XCTAssertEqual(SettingsRouteCatalog.search("step calibration").map(\.route), [.personalProfile])
+        XCTAssertEqual(SettingsRouteCatalog.search("storage").map(\.route), [.diagnosticsExperimental])
+        XCTAssertEqual(SettingsRouteCatalog.search("dynamic island").map(\.route), [.workouts])
+        XCTAssertEqual(SettingsRouteCatalog.search("siri").map(\.route), [.siriShortcuts])
+        XCTAssertEqual(SettingsRouteCatalog.search("hydration").map(\.route), [.workouts])
+        let titles = SettingsRouteCatalog.rootSections.flatMap(\.routes).map(\.title)
+        XCTAssertFalse(titles.contains("Scoring & baselines"))
+        XCTAssertFalse(titles.contains("Automations & Shortcuts"))
+        XCTAssertFalse(titles.contains("Data Sources & Storage"))
+    }
+
+    /// Every row the root shows has a tile symbol and colour, so no row falls back to a bare label.
+    func testEveryRouteHasATileSymbol() {
+        for route in SettingsRouteID.allCases {
+            XCTAssertFalse(route.tileSymbol.isEmpty, "\(route) has a symbol")
+        }
+        let symbols = SettingsRouteID.allCases.map(\.tileSymbol)
+        XCTAssertEqual(Set(symbols).count, symbols.count, "each tile shows its own symbol")
     }
 
     // MARK: Search in the person's language

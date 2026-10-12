@@ -221,9 +221,40 @@ try:
         "SettingsRootHost()",
         "struct SettingsDetailHost: View",
         "settingsDestination(",
+        "profileSettingsDetail",
         "displaySettingsDetail",
         "strapSettingsDetail",
-        "recoverySettingsDetail",
+        "syncBatterySettingsDetail",
+        "backupExportSettingsDetail",
+        "diagnosticsExperimentalSettingsDetail",
+        "aboutSettingsDetail",
+    )
+    # Settings is the iOS Settings idiom: native lists, native navigation titles, `.searchable`, and a root of
+    # coloured icon tiles behind an Apple-ID-style profile row. None of the widget-language kit lives here.
+    require(
+        "Strand/Screens/SettingsRootView.swift",
+        "struct SettingsRootView: View",
+        "NativeSettingsList",
+        "SettingsProfileRow()",
+        "SettingsIconTile(",
+        "NavigationLink(value: route)",
+        ".navigationBarTitleDisplayMode(.large)",
+        "searchable(",
+    )
+    forbid(
+        "Strand/Screens/SettingsRootView.swift",
+        "ScreenScaffold(",
+        "SettingsPageRows",
+        "FlatSection",
+        "strandOverline",
+        "NoopButton(",
+        "StatePill(",
+    )
+    forbid(
+        "Strand/Screens/SettingsRootHost.swift",
+        "ScreenScaffold(",
+        "SettingsPageRows",
+        "FlatSection",
     )
     require(
         "Strand/Screens/SettingsRootHost.swift",
@@ -238,6 +269,18 @@ try:
         "static let searchItems",
         "case testCentre",
         "NativeSettingsList",
+        "case dataSources",
+        "case backupExport",
+        "case diagnosticsExperimental",
+        "case siriShortcuts",
+    )
+    # One door per page: the double hops are flattened, so the old two-hop routes are gone.
+    forbid(
+        "Strand/Screens/SettingsRouteCatalog.swift",
+        "case scoringBaselines",
+        "case dataSourcesStorage",
+        "case workoutPreferences",
+        "case automationsShortcuts",
     )
     forbid(
         "Strand/Screens/SettingsView.swift",

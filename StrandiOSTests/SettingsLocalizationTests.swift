@@ -31,4 +31,35 @@ final class SettingsLocalizationTests: XCTestCase {
                               spanish.localizedString(forKey: key, value: nil, table: nil), key)
         }
     }
+
+    /// What the native root shows in every language: the section headers, the row titles, each search result's title and
+    /// every part of its breadcrumb, the profile row and the search field's prompt.
+    func testEverythingTheRootShowsIsTranslatedEverywhere() throws {
+        let marker = "§missing§"
+        var keys: Set<String> = ["Personal profile", "Search Settings", "Search Results", "Settings", "Age", "Max HR"]
+        for section in SettingsRouteCatalog.rootSections {
+            keys.insert(section.title)
+            section.routes.forEach { keys.insert($0.title) }
+        }
+        for item in SettingsRouteCatalog.searchItems {
+            keys.insert(item.title)
+            item.breadcrumb.components(separatedBy: " › ").forEach { keys.insert($0) }
+        }
+        var untranslated: [String] = []
+        for language in Self.shippedLanguages {
+            let table = try table(for: language)
+            for key in keys.sorted() where table.localizedString(forKey: key, value: marker, table: nil) == marker {
+                untranslated.append("\(language): \(key)")
+            }
+        }
+        XCTAssertEqual(untranslated, [], "root strings with no entry in a shipped language")
+    }
+
+    /// The breadcrumb under a search result keeps its separators and translates each part on its own.
+    func testABreadcrumbIsTranslatedPartByPart() throws {
+        let german = try table(for: "de")
+        let shown = SettingsRootView.localizedBreadcrumb("Device & Sync › Sync & battery", in: german)
+        XCTAssertEqual(shown.components(separatedBy: " › ").count, 2)
+        XCTAssertNotEqual(shown, "Device & Sync › Sync & battery")
+    }
 }
