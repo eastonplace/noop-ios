@@ -4085,6 +4085,12 @@
             "value": "%@, %@"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@, %2$@"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -4095,6 +4101,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "%@, %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@, %2$@"
           }
         },
         "zh-Hans": {
@@ -4147,6 +4159,58 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@，%@ %@"
+          }
+        }
+      }
+    },
+    "%@, %@ correlation %@, %lld days": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@, Korrelation %3$@ (%2$@), %4$lld Tage"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@, correlación %3$@ (%2$@), %4$lld días"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@, corrélation %3$@ (%2$@), %4$lld jours"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@, correlazione %3$@ (%2$@), %4$lld giorni"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@, correlação %3$@ (%2$@), %4$lld dias"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@, корреляция %3$@ (%2$@), %4$lld дн."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@，相关性 %3$@（%2$@），%4$lld 天"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@，相關性 %3$@（%2$@），%4$lld 天"
           }
         }
       }
@@ -4457,6 +4521,12 @@
             "value": "%@, %@, sin datos"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@, %2$@, aucune donnée"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -4467,6 +4537,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "%@, %@, sem dados"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@, %2$@, нет данных"
           }
         },
         "zh-Hans": {
@@ -9541,24 +9617,6 @@
     },
     "%lld readings": {
       "localizations": {
-        "en": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "%lld reading"
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "%lld readings"
-                }
-              }
-            }
-          }
-        },
         "de": {
           "variations": {
             "plural": {
@@ -9577,6 +9635,24 @@
             }
           }
         },
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld reading"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld readings"
+                }
+              }
+            }
+          }
+        },
         "es": {
           "variations": {
             "plural": {
@@ -9590,6 +9666,24 @@
                 "stringUnit": {
                   "state": "translated",
                   "value": "%lld lecturas"
+                }
+              }
+            }
+          }
+        },
+        "fr": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld mesure"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld mesures"
                 }
               }
             }
@@ -9626,6 +9720,36 @@
                 "stringUnit": {
                   "state": "needs_review",
                   "value": "%lld leituras"
+                }
+              }
+            }
+          }
+        },
+        "ru": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld измерение"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld измерения"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld измерений"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld измерения"
                 }
               }
             }
@@ -9935,6 +10059,12 @@
             "value": "%lld lecturas · dispersas, ampliadas a %@"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld mesures · données éparses, élargi à %@"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -9943,8 +10073,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "%lld leituras · dispersas, ampliadas a %@"
+            "state": "translated",
+            "value": "%lld leituras · dispersas, alargadas a %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld измерений · данных мало, расширено до %@"
           }
         },
         "zh-Hans": {
@@ -14411,6 +14547,12 @@
             "value": "1 lectura · dispersa, ampliada a %@"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 mesure · données éparses, élargi à %@"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -14419,8 +14561,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "1 leitura · dispersa, ampliada a %@"
+            "state": "translated",
+            "value": "1 leitura · dispersa, alargada a %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 измерение · данных мало, расширено до %@"
           }
         },
         "zh-Hans": {
@@ -15171,6 +15319,12 @@
             "value": "1A"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1A"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -15181,6 +15335,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "1A"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1Г"
           }
         },
         "zh-Hans": {
@@ -15651,6 +15811,12 @@
             "value": "3M"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3M"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -15661,6 +15827,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "3M"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3М"
           }
         },
         "zh-Hans": {
@@ -15811,6 +15983,12 @@
             "value": "6 meses"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "6 mois"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -15821,6 +15999,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "6 meses"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "6 месяцев"
           }
         },
         "zh-Hans": {
@@ -15851,6 +16035,12 @@
             "value": "6M"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "6M"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -15861,6 +16051,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "6M"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "6М"
           }
         },
         "zh-Hans": {
@@ -18407,6 +18603,12 @@
             "value": "TODO"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TOUT"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -18415,8 +18617,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "TODO"
+            "state": "translated",
+            "value": "TUDO"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ВСЁ"
           }
         },
         "zh-Hans": {
@@ -18429,6 +18637,58 @@
           "stringUnit": {
             "state": "translated",
             "value": "全部"
+          }
+        }
+      }
+    },
+    "All metrics": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle Metriken"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Todas las métricas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toutes les métriques"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tutte le metriche"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Todas as métricas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Все метрики"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全部指标"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全部指標"
           }
         }
       }
@@ -18705,6 +18965,58 @@
           "stringUnit": {
             "state": "translated",
             "value": "APPLE WATCH"
+          }
+        }
+      }
+    },
+    "Ask questions grounded in your metrics": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stelle Fragen, die auf deinen Messwerten beruhen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Haz preguntas basadas en tus métricas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Posez des questions fondées sur vos métriques"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fai domande basate sulle tue metriche"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Faz perguntas baseadas nas tuas métricas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Задавайте вопросы на основе ваших метрик"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "基于你的指标提问"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "根據你的指標提問"
           }
         }
       }
@@ -19461,6 +19773,12 @@
             "value": "Energía activa"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Énergie active"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -19471,6 +19789,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Energia ativa"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Активная энергия"
           }
         },
         "zh-Hans": {
@@ -22517,6 +22841,12 @@
             "value": "Todo el tiempo"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tout l'historique"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -22527,6 +22857,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Sempre"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Всё время"
           }
         },
         "zh-Hans": {
@@ -24385,6 +24721,12 @@
             "value": "Tiempo dormido"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Temps de sommeil"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -24393,8 +24735,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "tempo dormido"
+            "state": "translated",
+            "value": "Tempo a dormir"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Время сна"
           }
         },
         "zh-Hans": {
@@ -25569,6 +25917,12 @@
             "value": "Frecuencia cardíaca media"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fréquence cardiaque moyenne"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -25577,8 +25931,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Frequência cardíaca media"
+            "state": "translated",
+            "value": "Frequência cardíaca média"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Средний пульс"
           }
         },
         "zh-Hans": {
@@ -29317,6 +29677,12 @@
             "value": "Edad corporal"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Âge corporel"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -29325,8 +29691,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Edad corporal"
+            "state": "translated",
+            "value": "Idade corporal"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Возраст тела"
           }
         },
         "zh-Hans": {
@@ -29475,8 +29847,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Grasa corporal"
+            "state": "translated",
+            "value": "Gordura corporal"
           }
         },
         "ru": {
@@ -32613,6 +32985,58 @@
         }
       }
     },
+    "Cardiovascular load for the day, on a 0-21 scale.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Herz-Kreislauf-Belastung des Tages auf einer Skala von 0–21."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Carga cardiovascular del día, en una escala de 0-21."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Charge cardiovasculaire de la journée, sur une échelle de 0 à 21."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Carico cardiovascolare della giornata, su una scala da 0 a 21."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Carga cardiovascular do dia, numa escala de 0 a 21."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нагрузка на сердечно-сосудистую систему за день по шкале от 0 до 21."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当天的心血管负荷，范围 0–21。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "當天的心血管負荷，範圍 0–21。"
+          }
+        }
+      }
+    },
     "CLOUD SHAPE": {
       "localizations": {
         "de": {
@@ -34197,6 +34621,12 @@
             "value": "Calorías ingeridas"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Calories consommées"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -34205,8 +34635,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "calorias ingeridas"
+            "state": "translated",
+            "value": "Calorias ingeridas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Потреблено калорий"
           }
         },
         "zh-Hans": {
@@ -34563,6 +34999,12 @@
             "value": "Carbohidratos"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glucides"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -34571,8 +35013,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Carbohidratos"
+            "state": "translated",
+            "value": "Hidratos de carbono"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Углеводы"
           }
         },
         "zh-Hans": {
@@ -43591,6 +44039,12 @@
             "value": "Estrés del día"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stress du jour"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -43599,8 +44053,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Estrés do dia"
+            "state": "translated",
+            "value": "Stress do dia"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Стресс за день"
           }
         },
         "zh-Hans": {
@@ -43987,6 +44447,12 @@
             "value": "Sueño profundo (SWS)"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sommeil profond (SWS)"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -43997,6 +44463,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Sono profundo (SWS)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Глубокий сон (SWS)"
           }
         },
         "zh-Hans": {
@@ -44027,6 +44499,12 @@
             "value": "Cronología profunda"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chronologie détaillée"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -44035,8 +44513,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Cronología profunda"
+            "state": "translated",
+            "value": "Cronologia detalhada"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подробная хронология"
           }
         },
         "zh-Hans": {
@@ -44067,6 +44551,12 @@
             "value": "Cronología profunda, cada segundo de tu día, con zoom"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chronologie détaillée, chaque seconde de votre journée, zoomable"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -44075,8 +44565,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Cronología profunda, cada segundo de o teu dia, com zoom"
+            "state": "translated",
+            "value": "Cronologia detalhada, cada segundo do teu dia, com zoom"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подробная хронология, каждая секунда вашего дня, с масштабированием"
           }
         },
         "zh-Hans": {
@@ -46961,6 +47457,58 @@
           "stringUnit": {
             "state": "translated",
             "value": "在安靜、靜止、休息的時段，NOOP 會查看你心跳之間的時間（R-R 間期）並繪製其龐加萊散點圖。它會根據點雲計算出短軸和長軸（SD1、SD2）以及幾個簡單的規律性數字。運動和有雜訊的時段會被跳過，不予顯示。這些是透明的、已發表的描述性統計，是對你時間節律的一幅圖景，絕非臨床測量。"
+          }
+        }
+      }
+    },
+    "Dynamic Sleep Need": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dynamischer Schlafbedarf"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Necesidad de sueño dinámica"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Besoin de sommeil dynamique"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fabbisogno di sonno dinamico"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Necessidade de sono dinâmica"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Динамическая потребность во сне"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "动态睡眠需求"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "動態睡眠需求"
           }
         }
       }
@@ -50251,6 +50799,12 @@
             "value": "Estimado a partir del movimiento de tu WHOOP, calibrado con tu teléfono. No es un recuento de pasos medido."
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estimé à partir des mouvements de votre WHOOP, calibré sur votre téléphone. Ce n'est pas un nombre de pas mesuré."
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -50259,8 +50813,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Estimado a partir do movimento de o teu WHOOP, calibrado com o teu telemóvel. No es um recuento de passos medido."
+            "state": "translated",
+            "value": "Estimado a partir do movimento do teu WHOOP, calibrado com o teu telemóvel. Não é uma contagem de passos medida."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Оценка по движению вашего WHOOP, откалиброванная по вашему телефону. Это не измеренное число шагов."
           }
         },
         "zh-Hans": {
@@ -51218,6 +51778,12 @@
             "value": "Cada segundo de tu día, con zoom."
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chaque seconde de votre journée, zoomable."
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -51226,8 +51792,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Cada segundo de o teu dia, com zoom."
+            "state": "translated",
+            "value": "Cada segundo do teu dia, com zoom."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Каждая секунда вашего дня с возможностью масштабирования."
           }
         },
         "zh-Hans": {
@@ -53463,6 +54035,12 @@
             "value": "Grasa"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lipides"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -53471,8 +54049,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Grasa"
+            "state": "translated",
+            "value": "Gorduras"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жиры"
           }
         },
         "zh-Hans": {
@@ -54711,8 +55295,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Edad fitness"
+            "state": "translated",
+            "value": "Idade de condição física"
           }
         },
         "ru": {
@@ -56957,6 +57541,58 @@
         }
       }
     },
+    "Heart": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Herz"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Corazón"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cœur"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuore"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coração"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сердце"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "心脏"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "心臟"
+          }
+        }
+      }
+    },
     "HEART RATE": {
       "localizations": {
         "de": {
@@ -57147,6 +57783,58 @@
         }
       }
     },
+    "How completely and efficiently you met your dynamic Sleep Need, led by sleep sufficiency. On-device preview series; not yet the Sleep tab's headline score.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wie vollständig und effizient du deinen dynamischen Schlafbedarf gedeckt hast, angeführt von der Schlafdauer. Vorschaureihe auf dem Gerät; noch nicht der Hauptwert im Schlaf-Tab."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Qué tan completa y eficientemente cubriste tu necesidad de sueño dinámica, guiado por la suficiencia del sueño. Serie de vista previa en el dispositivo; aún no es la puntuación principal de la pestaña Descanso."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "À quel point vous avez couvert, de façon complète et efficace, votre besoin de sommeil dynamique, déterminé surtout par la suffisance du sommeil. Série d'aperçu sur l'appareil ; pas encore le score principal de l'onglet Repos."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quanto hai soddisfatto in modo completo ed efficiente il tuo fabbisogno di sonno dinamico, guidato dalla sufficienza del sonno. Serie di anteprima sul dispositivo; non ancora il punteggio principale della scheda Sonno."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Com que completude e eficiência cumpriste a tua necessidade de sono dinâmica, orientada pela suficiência do sono. Série de pré-visualização no dispositivo; ainda não é a pontuação principal do separador Descanso."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Насколько полно и эффективно вы покрыли динамическую потребность во сне, в первую очередь по достаточности сна. Предварительный ряд на устройстве; пока не главный показатель вкладки «Отдых»."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你在多大程度上完整、高效地满足了动态睡眠需求，主要取决于睡眠是否充足。设备端预览数据系列；尚不是「休息」标签页的主要评分。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你在多大程度上完整、有效率地滿足了動態睡眠需求，主要取決於睡眠是否充足。裝置端預覽資料系列；尚不是「休息」分頁的主要評分。"
+          }
+        }
+      }
+    },
     "HR %@ · Strain %@": {
       "localizations": {
         "de": {
@@ -57299,6 +57987,12 @@
             "value": "Zonas de FC (todas)"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zones de FC (toutes)"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -57307,8 +58001,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "zonas de FC (todas)"
+            "state": "translated",
+            "value": "Zonas de FC (todas)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Зоны пульса (все)"
           }
         },
         "zh-Hans": {
@@ -57321,6 +58021,58 @@
           "stringUnit": {
             "state": "translated",
             "value": "心率區間（全部）"
+          }
+        }
+      }
+    },
+    "HR Zones 1-3": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HF-Zonen 1–3"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zonas de FC 1-3"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zones de FC 1-3"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zone FC 1-3"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zonas de FC 1-3"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Зоны пульса 1–3"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "心率区间 1–3"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "心率區間 1–3"
           }
         }
       }
@@ -57361,6 +58113,58 @@
           "stringUnit": {
             "state": "translated",
             "value": "心率區間 1–3"
+          }
+        }
+      }
+    },
+    "HR Zones 4-5": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HF-Zonen 4–5"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zonas de FC 4-5"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zones de FC 4-5"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zone FC 4-5"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zonas de FC 4-5"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Зоны пульса 4–5"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "心率区间 4–5"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "心率區間 4–5"
           }
         }
       }
@@ -58961,6 +59765,12 @@
             "value": "Variabilidad de la frecuencia cardíaca"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Variabilité de la fréquence cardiaque"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -58971,6 +59781,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Variabilidade da frequência cardíaca"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вариабельность сердечного ритма"
           }
         },
         "zh-Hans": {
@@ -60439,6 +61255,12 @@
             "value": "Alto"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Élevé"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -60449,6 +61271,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Máximo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Высокий"
           }
         },
         "zh-Hans": {
@@ -61125,8 +61953,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "horas vs horas Necesarias"
+            "state": "translated",
+            "value": "Horas vs necessárias"
           }
         },
         "ru": {
@@ -61933,6 +62761,12 @@
             "value": "Qué tan recuperado estás, guiado por la VFC frente a tu línea base personal."
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Votre niveau de récupération, déterminé surtout par la VFC par rapport à votre référence personnelle."
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -61941,8 +62775,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Qué tan recuperado estás, guiado pela VFC versus o teu linha de base personal."
+            "state": "translated",
+            "value": "O teu nível de recuperação, orientado pela VFC face à tua linha de base pessoal."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Насколько вы восстановились, главным образом по ВСР относительно вашего личного базового уровня."
           }
         },
         "zh-Hans": {
@@ -61973,6 +62813,12 @@
             "value": "Qué tan reparador fue tu sueño: duración, eficiencia, profundo+REM, horario."
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "À quel point votre sommeil a été réparateur : durée, efficacité, profond+REM, horaires."
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -61981,8 +62827,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Qué tan reparador fue o teu sono: duração, eficiencia, profundo+REM, horario."
+            "state": "translated",
+            "value": "Quão reparador foi o teu sono: duração, eficiência, profundo+REM, horário."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Насколько восстановительным был ваш сон: длительность, эффективность, глубокий сон + REM, режим."
           }
         },
         "zh-Hans": {
@@ -63209,6 +64061,58 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ 的插圖"
+          }
+        }
+      }
+    },
+    "In range": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Im Bereich"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En rango"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dans la plage"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nel range"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dentro do intervalo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В диапазоне"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在范围内"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在範圍內"
           }
         }
       }
@@ -65502,8 +66406,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Inteligencia"
+            "state": "translated",
+            "value": "Inteligência"
           }
         },
         "ru": {
@@ -65540,6 +66444,12 @@
             "value": "Minutos de intensidad"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minutes d'intensité"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -65548,8 +66458,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "minutos de intensidad"
+            "state": "translated",
+            "value": "Minutos de intensidade"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Минуты интенсивности"
           }
         },
         "zh-Hans": {
@@ -67550,6 +68466,58 @@
         }
       }
     },
+    "Longer ranges unlock as more history builds.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Längere Zeiträume werden freigeschaltet, sobald mehr Verlauf vorliegt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los rangos más largos se desbloquean a medida que se acumula más historial."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les périodes plus longues se débloquent à mesure que l'historique s'étoffe."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gli intervalli più lunghi si sbloccano man mano che si accumula più cronologia."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os intervalos mais longos desbloqueiam-se à medida que o histórico aumenta."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Более длинные периоды откроются по мере накопления истории."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "随着历史记录增多，更长的范围会逐步解锁。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隨著歷史記錄增多，更長的範圍會逐步解鎖。"
+          }
+        }
+      }
+    },
     "LOW": {
       "localizations": {
         "de": {
@@ -67644,6 +68612,12 @@
             "value": "Cuaderno de laboratorio"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Carnet de laboratoire"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -67652,8 +68626,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Cuaderno de laboratorio"
+            "state": "translated",
+            "value": "Caderno de laboratório"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Лабораторный журнал"
           }
         },
         "zh-Hans": {
@@ -67810,6 +68790,12 @@
             "value": "Últimos %lld días"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld derniers jours"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -67820,6 +68806,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Últimos %lld dias"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Последние %lld дн."
           }
         },
         "zh-Hans": {
@@ -69592,6 +70584,12 @@
             "value": "Masa corporal magra"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Masse maigre"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -69600,8 +70598,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Masa corporal magra"
+            "state": "translated",
+            "value": "Massa corporal magra"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Безжировая масса тела"
           }
         },
         "zh-Hans": {
@@ -70980,6 +71984,12 @@
             "value": "Sueño ligero"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sommeil léger"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -70988,8 +71998,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Sono ligero"
+            "state": "translated",
+            "value": "Sono leve"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Лёгкий сон"
           }
         },
         "zh-Hans": {
@@ -73960,6 +74976,12 @@
             "value": "L"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "M"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -73970,6 +74992,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "L"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "М"
           }
         },
         "zh-Hans": {
@@ -75640,6 +76668,12 @@
             "value": "Frecuencia cardíaca máxima"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fréquence cardiaque max."
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -75650,6 +76684,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Frequência cardíaca máxima"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Максимальный пульс"
           }
         },
         "zh-Hans": {
@@ -76514,6 +77554,12 @@
             "value": "Mi Band"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mi Band"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -76523,6 +77569,12 @@
         "pt-PT": {
           "stringUnit": {
             "state": "needs_review",
+            "value": "Mi Band"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
             "value": "Mi Band"
           }
         },
@@ -76652,6 +77704,12 @@
             "value": "Mente"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esprit"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -76662,6 +77720,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Mente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Разум"
           }
         },
         "zh-Hans": {
@@ -77116,6 +78180,12 @@
             "value": "Ánimo"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Humeur"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -77124,8 +78194,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Ánimo"
+            "state": "translated",
+            "value": "Humor"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Настроение"
           }
         },
         "zh-Hans": {
@@ -88911,6 +89987,12 @@
             "value": "Nutrición"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nutrition"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -88919,8 +90001,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Nutrición"
+            "state": "translated",
+            "value": "Nutrição"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Питание"
           }
         },
         "zh-Hans": {
@@ -90473,6 +91561,58 @@
         }
       }
     },
+    "Only one reading in this range. Choose a longer range to see a trend.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nur ein Messwert in diesem Bereich. Wähle einen längeren Bereich, um einen Trend zu sehen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo hay una lectura en este rango. Elige un rango más largo para ver una tendencia."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Une seule mesure sur cette période. Choisissez une période plus longue pour voir une tendance."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una sola lettura in questo intervallo. Scegli un intervallo più lungo per vedere un andamento."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apenas uma leitura neste intervalo. Escolhe um intervalo mais longo para ver uma tendência."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "За этот период только одно измерение. Выберите более длинный период, чтобы увидеть тренд."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此范围内只有一条读数。选择更长的范围以查看趋势。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此範圍內只有一筆讀數。選擇更長的範圍以查看趨勢。"
+          }
+        }
+      }
+    },
     "Only when worn": {
       "localizations": {
         "de": {
@@ -90589,6 +91729,58 @@
           "stringUnit": {
             "state": "translated",
             "value": "打開「備份並同步到資料夾」"
+          }
+        }
+      }
+    },
+    "Open every signal and its history": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jedes Signal und seinen Verlauf öffnen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abre cada señal y su historial"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvrez chaque signal et son historique"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apri ogni segnale e la sua cronologia"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abre cada sinal e o seu histórico"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Откройте любой показатель и его историю"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开每项信号及其历史"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開啟每項訊號及其歷史"
           }
         }
       }
@@ -92695,6 +93887,12 @@
             "value": "Fuera de rango"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hors plage"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -92703,8 +93901,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Fuera de rango"
+            "state": "translated",
+            "value": "Fora do intervalo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вне диапазона"
           }
         },
         "zh-Hans": {
@@ -92879,6 +94083,58 @@
           "stringUnit": {
             "state": "translated",
             "value": "疊加 2–4 個訊號"
+          }
+        }
+      }
+    },
+    "Overlay signals and inspect relationships": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Signale überlagern und Zusammenhänge prüfen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Superpón señales y examina sus relaciones"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Superposez des signaux et examinez leurs relations"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sovrapponi i segnali ed esamina le relazioni"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sobrepõe sinais e examina as relações"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Наложите показатели и изучите связи между ними"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "叠加信号并查看它们之间的关系"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "疊加訊號並檢視它們之間的關係"
           }
         }
       }
@@ -93601,6 +94857,58 @@
           "stringUnit": {
             "state": "translated",
             "value": "最高心率"
+          }
+        }
+      }
+    },
+    "Personal patterns ranked by effect size": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Persönliche Muster, nach Effektstärke geordnet"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Patrones personales ordenados por tamaño del efecto"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schémas personnels classés par taille d'effet"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schemi personali ordinati per intensità dell'effetto"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Padrões pessoais ordenados por tamanho do efeito"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Личные закономерности по силе влияния"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按影响大小排序的个人规律"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "依影響大小排序的個人規律"
           }
         }
       }
@@ -97691,6 +98999,12 @@
             "value": "Proteína"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Protéines"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -97701,6 +99015,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Proteína"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Белки"
           }
         },
         "zh-Hans": {
@@ -98607,6 +99927,58 @@
         }
       }
     },
+    "Reading related metrics…": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwandte Metriken werden gelesen…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leyendo métricas relacionadas…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lecture des métriques associées…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lettura delle metriche correlate…"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A ler métricas relacionadas…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Читаю связанные метрики…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在读取相关指标…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在讀取相關指標…"
+          }
+        }
+      }
+    },
     "Receipt": {
       "localizations": {
         "de": {
@@ -98767,6 +100139,58 @@
         }
       }
     },
+    "Records": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aufzeichnungen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Registros"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dossiers"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Registri"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Registos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Записи"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "记录"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "記錄"
+          }
+        }
+      }
+    },
     "REL.": {
       "localizations": {
         "de": {
@@ -98879,6 +100303,12 @@
             "value": "Sueño REM"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sommeil paradoxal (REM)"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -98889,6 +100319,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Sono REM"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "REM-сон"
           }
         },
         "zh-Hans": {
@@ -99925,6 +101361,12 @@
             "value": "Rango"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Période"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -99933,8 +101375,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Rango"
+            "state": "translated",
+            "value": "Intervalo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Период"
           }
         },
         "zh-Hans": {
@@ -100833,8 +102281,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Leyendo o teu %@…"
+            "state": "translated",
+            "value": "A ler o teu %@…"
           }
         },
         "ru": {
@@ -106599,6 +108047,12 @@
             "value": "Frecuencia respiratoria"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fréquence respiratoire"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -106609,6 +108063,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Frequência respiratória"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Частота дыхания"
           }
         },
         "zh-Hans": {
@@ -107173,6 +108633,12 @@
             "value": "Frecuencia cardíaca en reposo"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fréquence cardiaque au repos"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -107181,8 +108647,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Frequência cardíaca en repouso"
+            "state": "translated",
+            "value": "Frequência cardíaca em repouso"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пульс покоя"
           }
         },
         "zh-Hans": {
@@ -107489,6 +108961,12 @@
             "value": "Sueño reparador"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sommeil réparateur"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -107499,6 +108977,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Sono reparador"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Восстановительный сон"
           }
         },
         "zh-Hans": {
@@ -110709,6 +112193,58 @@
         }
       }
     },
+    "Sleep Performance (V2 preview)": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schlafleistung (V2-Vorschau)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rendimiento del sueño (vista previa V2)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Performance du sommeil (aperçu V2)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prestazione del sonno (anteprima V2)"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desempenho do sono (pré-visualização V2)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Качество сна (предпросмотр V2)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "睡眠表现（V2 预览）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "睡眠表現（V2 預覽）"
+          }
+        }
+      }
+    },
     "SOURCE": {
       "localizations": {
         "de": {
@@ -113043,6 +114579,12 @@
             "value": "Analizando tus datos…"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Analyse de vos données…"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -113051,8 +114593,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Analizando os teus dados…"
+            "state": "translated",
+            "value": "A analisar os teus dados…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сканирую ваши данные…"
           }
         },
         "zh-Hans": {
@@ -116807,6 +118355,12 @@
             "value": "Temperatura de la piel"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Température cutanée"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -116815,8 +118369,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Temperatura da piel"
+            "state": "translated",
+            "value": "Temperatura da pele"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Температура кожи"
           }
         },
         "zh-Hans": {
@@ -117209,6 +118769,12 @@
             "value": "Consistencia del sueño"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Régularité du sommeil"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -117217,8 +118783,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Consistencia do sono"
+            "state": "translated",
+            "value": "Regularidade do sono"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Регулярность сна"
           }
         },
         "zh-Hans": {
@@ -117269,8 +118841,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Deuda de sono"
+            "state": "translated",
+            "value": "Dívida de sono"
           }
         },
         "ru": {
@@ -117307,6 +118879,12 @@
             "value": "Eficiencia del sueño"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Efficacité du sommeil"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -117315,8 +118893,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Eficiencia do sono"
+            "state": "translated",
+            "value": "Eficiência do sono"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Эффективность сна"
           }
         },
         "zh-Hans": {
@@ -117347,6 +118931,12 @@
             "value": "Sueño necesario"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Besoin de sommeil"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -117355,8 +118945,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Sono necesario"
+            "state": "translated",
+            "value": "Sono necessário"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Потребность во сне"
           }
         },
         "zh-Hans": {
@@ -117387,6 +118983,12 @@
             "value": "Puntuación de sueño"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Score de sommeil"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -117395,8 +118997,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Puntuación de sono"
+            "state": "translated",
+            "value": "Pontuação de sono"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Оценка сна"
           }
         },
         "zh-Hans": {
@@ -118997,8 +120605,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "fonte"
+            "state": "translated",
+            "value": "Fonte"
           }
         },
         "zh-Hans": {
@@ -120997,6 +122605,12 @@
             "value": "Pasos (estimados)"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pas (estimés)"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -121005,8 +122619,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "passos (estimados)"
+            "state": "translated",
+            "value": "Passos (estimados)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Шаги (оценка)"
           }
         },
         "zh-Hans": {
@@ -123283,6 +124903,12 @@
             "value": "Tiempo de actividad de fuerza"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Temps d'activité de force"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -123291,8 +124917,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "tempo de atividade de fuerza"
+            "state": "translated",
+            "value": "Tempo de atividade de força"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Время силовой активности"
           }
         },
         "zh-Hans": {
@@ -123383,8 +125015,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Estrés"
+            "state": "translated",
+            "value": "Stress"
           }
         },
         "ru": {
@@ -125731,6 +127363,58 @@
           "stringUnit": {
             "state": "translated",
             "value": "時間"
+          }
+        }
+      }
+    },
+    "Tonight's computed need: baseline, plus yesterday's Strain and sleep-debt repayment, minus nap credit.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Berechneter Bedarf für heute Nacht: Basiswert plus gestrige Anstrengung und Schlafschuld-Ausgleich, minus Nickerchen-Gutschrift."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Necesidad calculada para esta noche: línea base, más el Esfuerzo de ayer y la devolución de la deuda de sueño, menos el crédito de siestas."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Besoin calculé pour cette nuit : référence, plus l'Effort d'hier et le remboursement de la dette de sommeil, moins le crédit de sieste."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fabbisogno calcolato per stanotte: base, più lo Sforzo di ieri e il recupero del debito di sonno, meno il credito dei riposini."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Necessidade calculada para esta noite: referência, mais o Esforço de ontem e a reposição da dívida de sono, menos o crédito de sestas."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Расчётная потребность на эту ночь: базовый уровень плюс вчерашнее Усилие и погашение долга сна, минус зачёт дневного сна."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今晚的计算需求：基线，加上昨天的消耗和睡眠债偿还，减去小睡抵扣。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今晚的計算需求：基準值，加上昨天的消耗與睡眠債償還，減去小睡抵扣。"
           }
         }
       }
@@ -130487,6 +132171,12 @@
             "value": "Tiempo en cama"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Temps passé au lit"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -130495,8 +132185,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "tempo na cama"
+            "state": "translated",
+            "value": "Tempo na cama"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Время в постели"
           }
         },
         "zh-Hans": {
@@ -134215,6 +135911,12 @@
             "value": "Rango típico"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plage typique"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -134223,8 +135925,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Rango típico"
+            "state": "translated",
+            "value": "Intervalo típico"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Типичный диапазон"
           }
         },
         "zh-Hans": {
@@ -135795,6 +137503,12 @@
             "value": "VO₂ Max (estimado)"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VO₂ max (estimée)"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -135803,8 +137517,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "VO₂ Max (estimado)"
+            "state": "translated",
+            "value": "VO₂ máx. (estimado)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VO₂ max (оценка)"
           }
         },
         "zh-Hans": {
@@ -136411,8 +138131,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Vitalidad"
+            "state": "translated",
+            "value": "Vitalidade"
           }
         },
         "ru": {
@@ -136449,6 +138169,12 @@
             "value": "M"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "S"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -136459,6 +138185,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "M"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Н"
           }
         },
         "zh-Hans": {
@@ -140449,6 +142181,12 @@
             "value": "Lo que te mueve"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce qui vous influence"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -140457,8 +142195,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Lo que te move"
+            "state": "translated",
+            "value": "O que te move"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Что на вас влияет"
           }
         },
         "zh-Hans": {
@@ -140629,8 +142373,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Qué se correlaciona"
+            "state": "translated",
+            "value": "O que se correlaciona"
           }
         },
         "ru": {
@@ -143669,6 +145413,58 @@
         }
       }
     },
+    "Your bloods, blood pressure and body numbers": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deine Blutwerte, dein Blutdruck und deine Körperwerte"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tus análisis de sangre, presión arterial y medidas corporales"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vos analyses de sang, votre tension et vos mesures corporelles"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le tue analisi del sangue, la pressione e le misure corporee"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "As tuas análises ao sangue, tensão arterial e medidas corporais"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Анализы крови, давление и показатели тела"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的血液检查、血压和身体数据"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的血液檢查、血壓和身體數據"
+          }
+        }
+      }
+    },
     "YOUR DAILY SCORES": {
       "localizations": {
         "de": {
@@ -144879,6 +146675,58 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "你的恢復評分會隨著時間從你的心率變異性、靜息心率等中學習出一個個人基線。如果糟糕的第一週使它出現偏差，你可以從今晚起重新學習它。你的歷史會保留。"
+          }
+        }
+      }
+    },
+    "Your scored days and tomorrow's Recovery": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deine bewerteten Tage und die Erholung von morgen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tus días puntuados y la Recuperación de mañana"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vos jours notés et la Récupération de demain"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I tuoi giorni valutati e il Recupero di domani"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os teus dias pontuados e a Recuperação de amanhã"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Оценённые дни и Восстановление на завтра"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的已评分日期与明天的恢复"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的已評分日期與明天的恢復"
           }
         }
       }
@@ -147889,6 +149737,12 @@
             "value": "todo el tiempo"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tout l'historique"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -147897,8 +149751,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "tudo el tempo"
+            "state": "translated",
+            "value": "sempre"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "всё время"
           }
         },
         "zh-Hans": {
@@ -147987,6 +149847,12 @@
             "value": "a fecha de %@"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "au %@"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -147995,8 +149861,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "em %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "на %@"
           }
         },
         "zh-Hans": {
@@ -151037,6 +152909,12 @@
             "value": "último · %@"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "dernier · %@"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -151047,6 +152925,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "último · %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "последнее · %@"
           }
         },
         "zh-Hans": {
@@ -151651,6 +153535,12 @@
             "value": "moderado"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "modérée"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -151661,6 +153551,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "moderado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "умеренная"
           }
         },
         "zh-Hans": {
@@ -152155,6 +154051,12 @@
             "value": "insignificante"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "négligeable"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -152165,6 +154067,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "insignificante"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "незначительная"
           }
         },
         "zh-Hans": {
@@ -154861,6 +156769,12 @@
             "value": "fuerte"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "forte"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -154871,6 +156785,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "forte"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "сильная"
           }
         },
         "zh-Hans": {
@@ -156063,6 +157983,12 @@
             "value": "muy fuerte"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "très forte"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -156073,6 +157999,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "muito forte"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "очень сильная"
           }
         },
         "zh-Hans": {
@@ -156303,6 +158235,12 @@
             "value": "vs %@ ant."
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vs %@ préc."
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -156311,8 +158249,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "vs %@ ant."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vs пред. %@"
           }
         },
         "zh-Hans": {
@@ -156503,6 +158447,12 @@
             "value": "débil"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "faible"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -156513,6 +158463,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "fraca"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "слабая"
           }
         },
         "zh-Hans": {

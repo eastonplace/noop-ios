@@ -165,7 +165,7 @@ enum MetricCatalog {
         d("noop_sleep_performance_v2", String(localized: "Sleep Performance (V2 preview)"), "Rest", "%", "my-whoop", "moon.stars.fill", 0, true,
           String(localized: "How completely and efficiently you met your dynamic Sleep Need, led by sleep sufficiency. On-device preview series; not yet the Sleep tab's headline score.")),
         d("noop_sleep_need_v2_min", String(localized: "Dynamic Sleep Need"), "Rest", "min", "my-whoop", "gauge", 0, nil,
-          String(localized: "Tonight's computed need: baseline, plus yesterday's Effort and sleep-debt repayment, minus nap credit.")),
+          String(localized: "Tonight's computed need: baseline, plus yesterday's Strain and sleep-debt repayment, minus nap credit.")),
 
         // ── Effort (was Strain)
         d("strain", String(localized: "Strain"), "Effort", "/21", "my-whoop", "flame", 1, nil,
