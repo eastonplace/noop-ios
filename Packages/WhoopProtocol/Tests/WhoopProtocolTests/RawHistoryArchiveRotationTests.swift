@@ -27,7 +27,8 @@ final class RawHistoryArchiveRotationTests: XCTestCase {
         for i in 0..<400 {
             let result = await archive.archive([whoop4Frame(version: 18, filler: UInt8(i & 0xFF))],
                                                trim: 2, family: .whoop4)
-            XCTAssertEqual(result, .written(count: 1))
+            guard case .written(let count, _) = result else { return XCTFail("\(result)") }
+            XCTAssertEqual(count, 1)
         }
         let back = await archive.readAll()
         XCTAssertTrue(back.contains { $0.frame == rare[0] } && back.contains { $0.frame == rare[1] },
@@ -35,21 +36,47 @@ final class RawHistoryArchiveRotationTests: XCTestCase {
         XCTAssertTrue(back.contains { RawHistoryArchive.versionByte($0.frame, family: .whoop4) == 18 })
         XCTAssertTrue(FileManager.default.fileExists(atPath: archive.previousFileURL.path), "rotation happened")
         let activeSize = (try? FileManager.default.attributesOfItem(atPath: archive.fileURL.path)[.size] as? Int) ?? 0
-        XCTAssertLessThanOrEqual(activeSize, 2_048, "the active segment stays within half the cap")
+        XCTAssertLessThanOrEqual(activeSize, 4_096, "the active segment stays within the cap")
         let total = await archive.totalBytes()
-        XCTAssertLessThanOrEqual(total, 4_096 + 4 * 120)
+        XCTAssertLessThanOrEqual(total, 2 * 4_096 + 4 * 120, "bounded at about twice the cap plus floors")
     }
 
     /// Between rotations an append touches only the active segment; the previous one is not rewritten.
     func testAppendAfterRotationDoesNotRewriteThePreviousSegment() async throws {
         let dir = tmpDir("append"); defer { try? FileManager.default.removeItem(at: dir) }
         let archive = RawHistoryArchive(directory: dir, maxBytes: 4_096, perVersionFloor: 2)
-        for i in 0..<30 {
+        for i in 0..<45 {
             _ = await archive.archive([whoop4Frame(version: 18, filler: UInt8(i))], trim: 1, family: .whoop4)
         }
         let previous = try Data(contentsOf: archive.previousFileURL)
         _ = await archive.archive([whoop4Frame(version: 18, filler: 0xEE)], trim: 2, family: .whoop4)
         XCTAssertEqual(try Data(contentsOf: archive.previousFileURL), previous)
+    }
+
+    /// F3: the archive is the only copy of records the strap already deleted, so a rotation must never
+    /// cut retention below the cap. The old half-cap segments kept only ~cap/2 right after a rotation.
+    func testNewestCapWorthOfRecordsAlwaysSurvivesRotation() async throws {
+        let dir = tmpDir("retain"); defer { try? FileManager.default.removeItem(at: dir) }
+        let cap = 4_096
+        let archive = RawHistoryArchive(directory: dir, maxBytes: cap, perVersionFloor: 2)
+        var frames: [[UInt8]] = []
+        var evictedTotal = 0
+        for i in 0..<400 {
+            let frame = whoop4Frame(version: 18, filler: UInt8(i & 0xFF)) + [UInt8(i >> 8), UInt8(i & 0xFF)]
+            frames.append(frame)
+            let result = await archive.archive([frame], trim: UInt32(i), family: .whoop4)
+            guard case .written(_, let evicted) = result else { return XCTFail("\(result)") }
+            evictedTotal += evicted
+            let lineBytes = try String(contentsOf: archive.fileURL, encoding: .utf8)
+                .split(separator: "\n").last.map { $0.utf8.count + 1 } ?? 1
+            let mustSurvive = min(frames.count, cap / lineBytes)
+            let back = await archive.readAll().map(\.frame)
+            XCTAssertEqual(Array(back.suffix(mustSurvive)), Array(frames.suffix(mustSurvive)),
+                           "the newest \(mustSurvive) records (one cap's worth) must survive, after append \(i)")
+        }
+        XCTAssertGreaterThan(evictedTotal, 0, "evictions happen and are reported so the caller can log them")
+        let survivors = await archive.readAll().count
+        XCTAssertEqual(survivors + evictedTotal, frames.count, "every record is either kept or reported evicted")
     }
 
     func testNewLinesStoreTheVersionAsItsOwnField() async throws {

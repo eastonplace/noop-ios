@@ -45,8 +45,8 @@ final class RawHistoryArchiveEvictionTests: XCTestCase {
         let back = await archive.readAll()
         // The archive must have stayed bounded (eviction happened) …
         let size = await archive.totalBytes()
-        XCTAssertLessThanOrEqual(size, 4_096 + 4 * 120,
-                                 "archive should stay near its cap (plus the floor lines), not grow unbounded")
+        XCTAssertLessThanOrEqual(size, 2 * 4_096 + 4 * 120,
+                                 "archive should stay within two segments (plus the floor lines), not grow unbounded")
         // … yet BOTH rare v19 frames survived despite being the oldest lines in a full archive.
         let survivedRare = back.filter { RawHistoryArchive.versionByte($0.frame, family: .whoop4) == 19 }
         XCTAssertEqual(survivedRare.count, 2, "the floor must keep both rare v19 samples through the flood")

@@ -3333,8 +3333,12 @@ public final class BLEManager: NSObject, ObservableObject {
         let result = await rejectedHistoryArchive.archive(frames, trim: trim, family: family)
         let sessionIsCurrent = archivingSession != nil && archivingSession == currentBackfillDrainToken
         switch result {
-        case .written(let count):
+        case .written(let count, let evicted):
             if sessionIsCurrent { state.rejectedFramesThisSession += count }
+            if evicted > 0 {
+                // F3: these are records the strap already deleted; say so loudly.
+                log("Backfill: WARNING reject archive full — evicted the \(evicted) oldest archived record(s) beyond the retention budget; they can no longer be recovered by a later decoder update")
+            }
             return true
         case .capReached(let count):
             // Cap reached: succeed WITHOUT writing (wedging the offload over a full archive would be

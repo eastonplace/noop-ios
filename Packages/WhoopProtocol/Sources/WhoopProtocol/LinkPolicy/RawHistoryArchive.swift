@@ -20,16 +20,21 @@ import Foundation
 /// ACK), and the cap is enforced by rotating two segment files instead of reading, re-deriving and
 /// rewriting the whole 5 MB file on every chunk once it was full. Appends go to the active segment
 /// (`rejected_history.jsonl`, the original file name, so existing archives carry over). When it would
-/// pass half the cap it becomes the previous segment (`rejected_history.prev.jsonl`), carrying over only
-/// the per-version floor lines of the segment it replaces.
+/// pass `maxBytes` it becomes the previous segment (`rejected_history.prev.jsonl`), and only the segment
+/// it replaces is evicted, except its per-version floor lines.
+///
+/// Retention: each segment holds up to `maxBytes`, so the newest `maxBytes` of records are always kept
+/// (never less than the single-file evictor this replaced) and the disk use is bounded at about twice
+/// that plus the floor lines. Every eviction is reported in `Result.written(evicted:)` so the caller can
+/// log it loudly: these are records the strap has already deleted.
 public actor RawHistoryArchive {
     /// Active segment file name under `<AppSupport>/com.noopapp.noop/` (the pre-rotation file name).
     public static let fileName = "rejected_history.jsonl"
     /// The previous (older) segment.
     public static let previousFileName = "rejected_history.prev.jsonl"
-    /// Soft cap (~5 MB) across both segments, plus at most the per-version floor lines. Each segment
-    /// holds up to half of it. Only a batch that can't fit even an empty segment is skipped (reported as
-    /// unarchived). (#344)
+    /// Guaranteed retention (~5 MB): the newest `maxBytes` of archived records always survive. Each
+    /// segment holds up to this much, so the files total at most about twice it plus the floor lines.
+    /// Only a batch that can't fit even an empty segment is skipped (reported as unarchived). (#344)
     public static let maxBytes = 5 * 1024 * 1024
 
     /// Per distinct layout VERSION, keep at least this many of the newest archived lines, immune to
@@ -41,8 +46,10 @@ public actor RawHistoryArchive {
 
     /// Outcome of an archive attempt.
     public enum Result: Equatable, Sendable {
-        /// Frames were durably written (fsynced). `count` is how many lines were appended.
-        case written(count: Int)
+        /// Frames were durably written (fsynced). `count` is how many lines were appended; `evicted` is
+        /// how many of the oldest archived lines a rotation dropped to make room (log it: the strap no
+        /// longer has those records).
+        case written(count: Int, evicted: Int = 0)
         /// The archive is full; nothing was written but the caller may still ack. `count` frames
         /// were dropped (counted as unarchived so the sync status never claims "saved").
         case capReached(count: Int)
@@ -81,7 +88,7 @@ public actor RawHistoryArchive {
         directory.appendingPathComponent(RawHistoryArchive.previousFileName)
     }
 
-    private var segmentBytes: Int { max(1, maxBytes / 2) }
+    private var segmentBytes: Int { max(1, maxBytes) }
 
     /// The hist_version byte distinguishing one historical layout from another: `frame[5]` on WHOOP 4,
     /// `frame[9]` on WHOOP 5/MG (the puffin envelope is 4 bytes longer). Same indices the reject filter
@@ -116,21 +123,24 @@ public actor RawHistoryArchive {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             let activeSize = (try? FileManager.default.attributesOfItem(atPath: fileURL.path)[.size] as? Int)
                 .flatMap { $0 } ?? 0
+            var evicted = 0
             if activeSize + incomingBytes > segmentBytes {
-                try rotate()
+                evicted = try rotate()
             }
             try appendDurably(Data(newLines.joined().utf8), to: fileURL)
-            return .written(count: frames.count)
+            return .written(count: frames.count, evicted: evicted)
         } catch {
             return .failed
         }
     }
 
-    /// The active segment becomes the previous one. Lines of the replaced previous segment survive only
-    /// while they are within the newest `perVersionFloor` lines of their version across both segments,
-    /// so a rare layout is never binned by a flood of a common one. The new previous segment is written
-    /// durably BEFORE the active one is cleared: a crash in between duplicates lines, never loses them.
-    private func rotate() throws {
+    /// The active segment (up to `maxBytes`, the newest records) becomes the previous one, and only the
+    /// segment it replaces, which is entirely older than `maxBytes` of newer records, is evicted. Its lines
+    /// survive only while they are within the newest `perVersionFloor` lines of their version across both
+    /// segments, so a rare layout is never binned by a flood of a common one. The new previous segment is
+    /// written durably BEFORE the active one is cleared: a crash in between duplicates lines, never loses
+    /// them. Returns how many lines were evicted.
+    private func rotate() throws -> Int {
         let older = Self.readLines(previousFileURL)
         let active = Self.readLines(fileURL)
         let protected = Self.protectedIndices(older + active, floor: perVersionFloor)
@@ -139,6 +149,7 @@ public actor RawHistoryArchive {
         if FileManager.default.fileExists(atPath: fileURL.path) {
             try FileManager.default.removeItem(at: fileURL)
         }
+        return older.count - carried.count
     }
 
     /// Append `data` to `url`, fsyncing before returning so it is durable BEFORE the trim ack.
