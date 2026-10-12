@@ -558,7 +558,12 @@ struct TrendsScreenSnapshot: Sendable {
         case .spo2: candidate = day.spo2Pct
         case .skinTemp: candidate = day.skinTempDevC
         case .steps: candidate = day.steps.map(Double.init) ?? data.appleByDay[day.day]?.steps.map(Double.init)
-        case .calories: candidate = day.activeKcalEst ?? data.appleByDay[day.day]?.activeKcal
+        case .calories:
+            // D3b: every calorie total is TOTAL energy (resting + active), like NOOP's own estimate, so the
+            // Apple fallback adds basal energy. Without basal for the day (e.g. a Shortcuts import), Apple's
+            // active energy is all there is, and that day reads lower.
+            let apple = data.appleByDay[day.day]
+            candidate = day.activeKcalEst ?? apple?.activeKcal.map { $0 + (apple?.basalKcal ?? 0) }
         case .stress: candidate = data.stressByDay[day.day]
         }
         guard let value = finite(candidate), metric.acceptsForDisplay(value) else { return nil }

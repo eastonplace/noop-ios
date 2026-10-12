@@ -391,6 +391,10 @@ public enum AnalyticsEngine {
                                   // supplied by the pass with any readings past the read window. nil (today,
                                   // pure callers) runs the cycle to the last reading.
                                   cycleEnd: CycleEnd? = nil,
+                                  // The pass's "now" (unix seconds). The daily total fills resting energy only
+                                  // up to here, so today isn't credited with hours that haven't happened yet
+                                  // (D3b). nil (pure callers/tests) fills the whole day.
+                                  nowTs: Int? = nil,
                                   // Off-wrist `[start, end)` intervals (unix seconds) for the off-wrist
                                   // sleep backstop (#500), paired from WRIST_OFF/WRIST_ON events by
                                   // `offWristIntervals`. The HR-gap proxy in detectSleep is the always-on
@@ -821,7 +825,10 @@ public enum AnalyticsEngine {
         // Whole-day active+resting energy from the full HR window, using the same resting/active
         // per-second model the per-workout estimate uses (resting BMR below activeThreshold, Keytel
         // active above). effMaxHR + restingHRDaily are the same effective HRmax / resting baseline
-        // strain uses. Nil when there is no HR. A heart-rate ESTIMATE — not cloud/clinical parity.
+        // strain uses. A heart-rate ESTIMATE — not cloud/clinical parity.
+        // D3b: the total covers the whole civil day, as WHOOP and Apple Health count it. Seconds with no
+        // valid HR (off-wrist, no data, dropped 0-bpm rows) get resting BMR, worn seconds keep the per-sample
+        // model, and no second gets both. Today fills only up to `nowTs`.
         // Whole-day additive totals (steps above, calories here) are summed over the full LOCAL
         // calendar day supplied by the caller (dayHr / daySteps), NOT the ~42h sleep-detection
         // window — which, anchored to the current time-of-day, would drop a past day's late hours
@@ -830,9 +837,12 @@ public enum AnalyticsEngine {
         // night-window hr for pure-function callers that don't supply dayHr. Strain keeps the full
         // window (bounded log).
         let dayHrFiltered = (dayHr ?? hr).filter { tsInDay($0.ts) }
-        let activeKcalEst: Double? = dayHrFiltered.isEmpty ? nil : Calories.estimateDayCalories(
-            dayHrFiltered, profile: profile, hrmax: effMaxHR,
-            restingHR: restingHRDaily.map(Double.init))
+        let fillEnd = nowTs.map { min(dayBounds.upperBound, max(dayBounds.lowerBound, $0)) } ?? dayBounds.upperBound
+        let fillWindow = dayBounds.lowerBound..<fillEnd
+        let activeKcalEst: Double? = dayHrFiltered.isEmpty && fillWindow.isEmpty
+            ? nil
+            : Calories.estimateFullDayCalories(dayHrFiltered, fillWindow: fillWindow, profile: profile,
+                                               hrmax: effMaxHR, restingHR: restingHRDaily.map(Double.init))
 
         // ── Canonical Strain V2 (sleep-to-sleep physiological day) ───────────
         // The HR-derived whole-day calorie estimate includes resting energy, so it is NOT a valid

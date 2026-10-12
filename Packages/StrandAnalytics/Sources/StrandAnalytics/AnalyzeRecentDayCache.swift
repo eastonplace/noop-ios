@@ -57,9 +57,14 @@ public enum AnalyzeRecentDayCache {
                                 // cache's whole promise is that a reused night is indistinguishable from a
                                 // freshly-scored one. Costs one day's re-score per rollover, and only while
                                 // a trace mode is on.
-                                hrvWindowDetail: Bool) -> String {
+                                hrvWindowDetail: Bool,
+                                // D3b: where today's resting-energy fill stops (the pass's "now"). nil for a
+                                // past day, which always fills to its end. Today's total grows with the clock
+                                // even when no new heart rate arrives, so it must not replay an older fill.
+                                calorieFillEnd: Int? = nil) -> String {
         let anchor = skinAnchorRaw.map { String($0.bitPattern) } ?? "nil"
         return "\(owner)|\(hrCount):\(hrMaxTs):\(anchor):\(sleepEditFingerprint):\(persistedSleepFingerprint):"
             + "\(cycleFingerprint):\(hrvWindowDetail ? "d" : "s")"
+            + (calorieFillEnd.map { ":f\($0)" } ?? "")
     }
 }

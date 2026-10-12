@@ -292,9 +292,14 @@ final class AnalyticsEngineDSTDayBoundsTests: XCTestCase {
 
             let inDayHr = hr.filter { civil.contains($0.ts) }
             XCTAssertEqual(inDayHr.count, hours * 360, "\(day) \(id): \(hours) h of 10 s samples")
+            // D3b: the samples' own energy plus resting BMR for every second of the 23/25 h day they don't cover.
+            let restingPerSecond = Calories.restingKcalPerS(Calories.resolveCoeffs(profile.sex),
+                                                            weightKg: profile.weightKg,
+                                                            heightCm: profile.heightCm, age: profile.age)
             let expectedKcal = Calories.estimateDayCalories(inDayHr, profile: profile,
                                                             hrmax: StrainScorer.tanakaHRmax(age: 30),
                                                             restingHR: nil)
+                + restingPerSecond * Double(hours * 3_600 - inDayHr.count)
             XCTAssertEqual(try XCTUnwrap(result.daily.activeKcalEst), expectedKcal, accuracy: 1e-9, "\(day) \(id)")
             XCTAssertEqual(result.daily.steps, (hours * 60 - 1) * 7, "\(day) \(id)")
         }

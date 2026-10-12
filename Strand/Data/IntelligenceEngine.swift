@@ -212,7 +212,8 @@ final class IntelligenceEngine: ObservableObject {
     /// watermark, so a semantic change re-scores the window on the next pass instead of replaying old scans
     /// or skipping an unchanged-HR tick. v2 (AN-02): days bucket by their civil interval and own offset.
     /// v3 (AN-05): Effort's cycle runs from the day's main-night onset to the next day's cycle start.
-    nonisolated static let analyzeScanVersion = "cache-v3"
+    /// v4 (D3b): the daily calorie total fills resting energy for the hours without valid heart rate.
+    nonisolated static let analyzeScanVersion = "cache-v4"
 
     private var dayScanCache: [String: CachedDayScan] = [:]
     private var dayScanCacheConfigSignature = ""
@@ -455,7 +456,8 @@ final class IntelligenceEngine: ObservableObject {
     // additional source-backed pass so newly available historical HR receives V2 rows.
     // v3 (N2): one more full-history pass so persisted days pick up the scorer changes that alter stored
     // values: as-of-yesterday Charge baselines (AN-01/AN-04), civil-day DST bucketing (AN-02) and the
-    // sleep-to-sleep Effort cycle (AN-05). Every historical Charge value changes once.
+    // sleep-to-sleep Effort cycle (AN-05). Every historical Charge value changes once. The same pass rewrites
+    // each stored day's calorie total with the resting-energy fill for its off-wrist hours (D3b).
     static let effortRescoreFlagKey = "intelligence.strainV2CalendarHistory.v3.done"
     static let effortRescoreOffsetKey = "intelligence.strainV2CalendarHistory.v3.offset"
     static let effortRescoreDurableProgressKey = "effort-rescore-v3"
@@ -1112,7 +1114,8 @@ final class IntelligenceEngine: ObservableObject {
                         sleepEditFingerprint: sleepEditFingerprint,
                         persistedSleepFingerprint: persistedSleepFingerprint,
                         cycleFingerprint: cycleFingerprint,
-                        hrvWindowDetail: dayStart == currentCivilDayStart)
+                        hrvWindowDetail: dayStart == currentCivilDayStart,
+                        calorieFillEnd: dayInterval.upperBound > now ? now : nil)   // D3b: today fills to now
                     dayCacheKey = key
                     if let cached = cacheSnapshot[day], cached.key == key {
                         // A hit replaces pass 1 only. The cached scan still enters the normal main-actor fold
@@ -1303,6 +1306,7 @@ final class IntelligenceEngine: ObservableObject {
                                                      tzOffsetSeconds: dayOffset,
                                                      dayInterval: dayInterval,   // AN-02
                                                      cycleEnd: cycleEnd,         // AN-05
+                                                     nowTs: now,                 // D3b: today fills to now
                                                      wristOff: wristOff,
                                                      sleepNeedHours: sleepNeedHours,
                                                      sleepConsistency: sleepConsistency,

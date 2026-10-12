@@ -537,4 +537,28 @@ public enum Calories {
         }
         return totalKcal
     }
+
+    /// D3b: TOTAL energy (kcal) for a whole civil day, or for today up to now, counted the way WHOOP and
+    /// Apple Health count it. Every second of `fillWindow` gets exactly one of two rates, never both:
+    /// - a second with a valid HR sample gets that sample's `estimateDayCalories` energy;
+    /// - any other second (off-wrist, no data, or a 0-bpm row `HRValidity` dropped) gets the resting
+    ///   BMR rate, with the same profile fallbacks as `estimateDayCalories`.
+    /// A second carried by more than one sample counts once, at its highest BPM. Samples past the end of
+    /// the fill window (today, after `now`) still count their own energy.
+    public static func estimateFullDayCalories(_ hrSamples: [HRSample],
+                                               fillWindow: Range<Int>,
+                                               profile: UserProfile,
+                                               hrmax: Double?,
+                                               restingHR: Double?) -> Double {
+        let bySecond = Dictionary(hrSamples.map { ($0.ts, $0) },
+                                  uniquingKeysWith: { $0.bpm >= $1.bpm ? $0 : $1 })
+        let sampleKcal = estimateDayCalories(Array(bySecond.values), profile: profile,
+                                             hrmax: hrmax, restingHR: restingHR)
+        let covered = bySecond.keys.reduce(0) { $0 + (fillWindow.contains($1) ? 1 : 0) }
+        let restingRate = restingKcalPerS(resolveCoeffs(profile.sex),
+                                          weightKg: profile.weightKg > 0 ? profile.weightKg : 70.0,
+                                          heightCm: profile.heightCm > 0 ? profile.heightCm : 170.0,
+                                          age: profile.age > 0 ? profile.age : 30.0)
+        return sampleKcal + Double(max(0, fillWindow.count - covered)) * restingRate
+    }
 }

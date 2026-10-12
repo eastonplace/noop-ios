@@ -157,14 +157,15 @@ final class IntelligenceAnalyzeRecentCacheTests: XCTestCase {
         _ harness: Harness,
         maxDays: Int,
         startOffset: Int = 0,
-        sourceContext: ExactWorkSourceContext? = nil
+        sourceContext: ExactWorkSourceContext? = nil,
+        at analysisReference: Date? = nil
     ) async -> Bool {
         await harness.engine.analyzeRecent(
             maxDays: maxDays,
             startOffset: startOffset,
             force: true,
             refreshRepository: false,
-            analysisReference: reference,
+            analysisReference: analysisReference ?? reference,
             analysisCalendar: utcCalendar,
             sourceContext: sourceContext)
     }
@@ -247,6 +248,22 @@ final class IntelligenceAnalyzeRecentCacheTests: XCTestCase {
             Streams(hr: [HRSample(ts: ts, bpm: 61)]), deviceId: "whoop-repaired")
         let moved = await tick()
         XCTAssertTrue(moved, "the re-paired strap's new row moves the watermark")
+    }
+
+    /// D3b: today's calorie total fills resting energy up to now, so a later pass re-scores today even with
+    /// no new heart rate. Past days still reuse their scans.
+    func testTodayRescoresWhenTheClockMovesWithoutNewHeartRate() async throws {
+        let harness = try await makeHarness()
+        let coldCompleted = await run(harness, maxDays: 3)
+        XCTAssertTrue(coldCompleted)
+        let windows = await harness.probe.bundleWindows()
+        XCTAssertEqual(windows.count, 3)
+
+        await harness.probe.resetBundleCalls()
+        let laterCompleted = await run(harness, maxDays: 3, at: reference.addingTimeInterval(600))
+        XCTAssertTrue(laterCompleted)
+        let laterWindows = await harness.probe.bundleWindows()
+        XCTAssertEqual(laterWindows, [try XCTUnwrap(windows.last)], "only today is read again")
     }
 
     func testOneChangedFingerprintReadsOnlyThatDay() async throws {

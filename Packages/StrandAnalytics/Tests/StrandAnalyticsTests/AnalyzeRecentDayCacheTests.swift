@@ -35,6 +35,21 @@ final class AnalyzeRecentDayCacheTests: XCTestCase {
         XCTAssertNotEqual(key("c1700090000:10:1700089990"), key("c1700090000:11:1700089995"))
     }
 
+    // D3b: today's calorie total fills resting energy up to "now", so a later pass must not replay an older
+    // fill. A past day (nil) keeps the key it always had.
+    func testTodayCalorieFillEndInvalidates() {
+        func key(_ fillEnd: Int?) -> String {
+            AnalyzeRecentDayCache.cacheKey(owner: "dev1", hrCount: 178_000, hrMaxTs: 1_700_000_000,
+                                           skinAnchorRaw: 1290, hrvWindowDetail: true, calorieFillEnd: fillEnd)
+        }
+        XCTAssertEqual(key(1_700_050_000), key(1_700_050_000))
+        XCTAssertNotEqual(key(1_700_050_000), key(1_700_050_600))
+        XCTAssertNotEqual(key(nil), key(1_700_050_000))
+        XCTAssertEqual(key(nil), AnalyzeRecentDayCache.cacheKey(owner: "dev1", hrCount: 178_000,
+                                                                hrMaxTs: 1_700_000_000, skinAnchorRaw: 1290,
+                                                                hrvWindowDetail: true))
+    }
+
     // A shifted window-wide skin anchor (another night's skin changed the 4.0 median) must invalidate even
     // when this night's HR fingerprint is identical — the skin conversion changed.
     func testAnchorShiftInvalidates() {

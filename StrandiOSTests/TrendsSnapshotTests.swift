@@ -547,6 +547,33 @@ final class TrendsSnapshotTests: XCTestCase {
         XCTAssertGreaterThan(snapshot.weeklyDigest.summary(.rhr)?.thisWeek.n ?? 0, 0)
     }
 
+    /// D3b: a day NOOP didn't score falls back to Apple Health as TOTAL energy (active + basal), the same
+    /// meaning as NOOP's own total. A day with no Apple basal energy keeps active energy alone.
+    func testCaloriesAppleFallbackIsActivePlusBasal() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        let anchor = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 7, day: 22)))
+        func day(_ key: String) -> DailyMetric {
+            DailyMetric(day: key, totalSleepMin: nil, efficiency: nil, deepMin: nil, remMin: nil,
+                        lightMin: nil, disturbances: nil, restingHr: nil, avgHrv: nil, recovery: nil,
+                        strain: nil, exerciseCount: nil)
+        }
+        func apple(_ key: String, active: Double, basal: Double?) -> AppleDaily {
+            AppleDaily(day: key, steps: nil, activeKcal: active, basalKcal: basal, vo2max: nil,
+                       avgHr: nil, maxHr: nil, walkingHr: nil, weightKg: nil)
+        }
+        let loaded = TrendsLoadedData(
+            revision: 12, anchorDay: "2026-07-22", timeZoneIdentifier: "UTC",
+            canonicalDays: [day("2026-07-21"), day("2026-07-22")],
+            sleepPerfByDay: [:], stressByDay: [:],
+            appleDays: [apple("2026-07-21", active: 500, basal: 1_700), apple("2026-07-22", active: 450, basal: nil)])
+        let snapshot = try XCTUnwrap(TrendsScreenSnapshot.build(
+            key: key(revision: 12, metric: "Calories"), data: loaded, metric: .calories, range: .week,
+            weekOffset: 0, referenceDate: anchor, calendar: calendar, effortDisplayFactor: 1
+        ))
+        XCTAssertEqual(snapshot.selectedPoints.map(\.value), [2_200, 450])
+    }
+
     private func key(
         revision: Int = 7,
         metric: String = "Recovery",
