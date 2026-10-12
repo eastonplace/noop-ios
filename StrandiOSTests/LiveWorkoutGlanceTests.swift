@@ -160,10 +160,10 @@ final class LiveWorkoutSlotNoticeTests: XCTestCase {
         XCTAssertEqual(Notice.pending(.init()), [])
     }
 
-    func testNoticesAreOrderedDurabilityPausedHeartRateGpsStrapLocation() {
-        let all = Notice.Inputs(hasDurabilityWarning: true, isPaused: true, heartRateIsStale: true,
+    func testNoticesAreOrderedDurabilityHeartRateGpsStrapLocation() {
+        let all = Notice.Inputs(hasDurabilityWarning: true, heartRateIsStale: true,
                                 strapNeverConnected: false, gps: .lost, locationIsOff: true, isJustStarted: true)
-        XCTAssertEqual(Notice.pending(all), [.durability, .paused, .heartRate, .gpsLost, .locationOff])
+        XCTAssertEqual(Notice.pending(all), [.durability, .heartRate, .gpsLost, .locationOff])
     }
 
     func testAStrapThatNeverConnectedReplacesNoHeartRateSignal() {
@@ -188,8 +188,11 @@ final class LiveWorkoutSlotNoticeTests: XCTestCase {
         XCTAssertEqual(Notice.pending(.init(locationIsOff: false, isJustStarted: true)), [])
     }
 
-    func testPausedIsANoticeOfItsOwn() {
-        XCTAssertEqual(Notice.pending(.init(isPaused: true)), [.paused])
+    /// The slot is for warnings. "Paused" is the header's to say ("PAUSED · 3:11"); a pill for it would only sit beside the
+    /// Minimize button and say it twice.
+    func testAPausedWorkoutHasNoNoticeOfItsOwn() {
+        XCTAssertEqual(Notice.pending(.init(gps: .paused)), [])
+        XCTAssertFalse(Notice.allCases.map { "\($0)" }.contains("paused"))
     }
 
     func testEveryNoticeHasWordsForTheScreenAndForVoiceOver() {

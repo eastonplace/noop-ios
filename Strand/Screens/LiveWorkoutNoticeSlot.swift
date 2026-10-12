@@ -9,11 +9,10 @@ import StrandDesign
 
 /// One thing the slot can say, highest priority first.
 enum LiveWorkoutSlotNotice: Equatable, Sendable, CaseIterable {
-    case durability, paused, heartRate, gpsLost, gpsWeak, gpsSearching, noStrap, locationOff
+    case durability, heartRate, gpsLost, gpsWeak, gpsSearching, noStrap, locationOff
 
     struct Inputs: Equatable {
         var hasDurabilityWarning = false
-        var isPaused = false
         var heartRateIsStale = false
         var strapNeverConnected = false
         var gps: GpsWorkoutRecorder.SignalState?
@@ -25,13 +24,13 @@ enum LiveWorkoutSlotNotice: Equatable, Sendable, CaseIterable {
     /// How long after the start "Location is off · no route" is spoken before it leaves the glyph to say it.
     static let locationNoticeSeconds: TimeInterval = 10
 
-    /// The notices that apply now, in the order the slot shows them: the durability warning, "Paused", the signals that went
-    /// quiet, a strap that never connected, and a location that is off. A strap that never connected replaces "No
+    /// The notices that apply now, in the order the slot shows them: the durability warning, the signals that went quiet, a
+    /// strap that never connected, and a location that is off. The slot is for warnings only: that the workout is paused is
+    /// the header's to say ("PAUSED · 3:11"), not a pill's. A strap that never connected replaces "No
     /// heart-rate signal": there is no strap to wait for, and the other says what to do.
     static func pending(_ inputs: Inputs) -> [LiveWorkoutSlotNotice] {
         var result: [LiveWorkoutSlotNotice] = []
         if inputs.hasDurabilityWarning { result.append(.durability) }
-        if inputs.isPaused { result.append(.paused) }
         if inputs.heartRateIsStale && !inputs.strapNeverConnected { result.append(.heartRate) }
         switch inputs.gps {
         case .lost: result.append(.gpsLost)
@@ -47,7 +46,6 @@ enum LiveWorkoutSlotNotice: Equatable, Sendable, CaseIterable {
     var title: LocalizedStringKey {
         switch self {
         case .durability: "Not safely recoverable"
-        case .paused: "Paused"
         case .heartRate: "No heart-rate signal"
         case .gpsLost: "GPS signal lost"
         case .gpsWeak: "Weak GPS signal"
@@ -63,7 +61,6 @@ enum LiveWorkoutSlotNotice: Equatable, Sendable, CaseIterable {
     var spoken: String {
         switch self {
         case .durability: String(localized: "Not safely recoverable")
-        case .paused: String(localized: "Paused")
         case .heartRate: String(localized: "No heart-rate signal")
         case .gpsLost: String(localized: "GPS signal lost")
         case .gpsWeak: String(localized: "Weak GPS signal")
@@ -104,7 +101,6 @@ struct LiveNoticeSlot: View {
     private func inputs(_ signals: LiveWorkoutSignals.Snapshot) -> LiveWorkoutSlotNotice.Inputs {
         LiveWorkoutSlotNotice.Inputs(
             hasDurabilityWarning: model.workoutDurabilityWarning != nil,
-            isPaused: workout.isPaused,
             heartRateIsStale: signals.heartRateIsStale,
             strapNeverConnected: signals.strapNeverConnected,
             gps: signals.gps,
@@ -134,10 +130,8 @@ struct LiveNoticeSlot: View {
         }
     }
 
-    /// A notice is read once, as it appears. The paused state is not announced here: the header says it, and the Pause
-    /// button was just pressed.
+    /// A notice is read once, as it appears.
     private func announce(_ notice: LiveWorkoutSlotNotice) {
-        guard notice != .paused else { return }
         AccessibilityNotification.Announcement(notice.spoken).post()
     }
 
