@@ -23,6 +23,12 @@ enum WorkoutFinishState: Equatable {
     case failed(String)
 }
 
+/// Why a new workout cannot be started right now. Mirrors the guard at the top of `AppModel.startWorkout`.
+enum WorkoutStartBlock: Equatable {
+    case workoutActive
+    case liftActive
+}
+
 enum WorkoutFinishError: LocalizedError {
     case noActiveWorkout
     case insufficientEvidence
@@ -204,9 +210,21 @@ final class AppModel: ObservableObject {
     /// "manual"), which then shows in the Workouts view. The day's strain already counts this HR (it's
     /// the same live stream the store persists), so this is a per-session annotation, not a double-count.
     @Published var activeWorkout: ActiveWorkout?
-    /// The just-ended workout, for a brief inline confirmation on Live (cleared on the next start).
+    /// The just-saved workout (cleared on the next start and on a discard). The journey reads the saved row from
+    /// `workoutFinishState`; this stays for the surfaces that only need to know the last one.
     @Published var lastWorkout: WorkoutRow?
-    @Published private(set) var workoutFinishState: WorkoutFinishState = .recording
+    @Published private(set) var workoutFinishState: WorkoutFinishState = .recording {
+        // The hold-to-end button's "confirmed" flag is sticky, so it is rebuilt (`.id(finishAttemptID)`) each time the
+        // finish state comes back to a place where End can be asked for again.
+        didSet {
+            switch workoutFinishState {
+            case .recording, .failed: finishAttemptID &+= 1
+            case .saving, .saved: break
+            }
+        }
+    }
+    /// Bumped whenever `workoutFinishState` returns to `.recording` or `.failed`.
+    @Published private(set) var finishAttemptID = 0
     /// A visible, non-blocking warning whenever the active workout has data that is not yet durable.
     @Published private(set) var workoutDurabilityWarning: String?
 
@@ -221,7 +239,7 @@ final class AppModel: ObservableObject {
     let gpsRecorder = GpsWorkoutRecorder()
     /// True while the active workout is a GPS-type session (drives the End-time route persist). Mirrors
     /// Android's `ActiveWorkout.gpsEnabled`.
-    private var activeWorkoutIsGps = false
+    private(set) var activeWorkoutIsGps = false
     /// The workout End was tried on. Entering or leaving this state is an edge the Lock Screen and Dynamic Island must see
     /// at once (the Pause button there is unavailable while it is set), so it raises `workoutPauseEdge` too.
     private var pendingWorkoutSnapshot: ActiveWorkout? {
@@ -2045,6 +2063,24 @@ final class AppModel: ObservableObject {
         /// The same, with the strap quiet since before End (no reading is taken while a finish is pending): the screen says
         /// "Ending" and nothing else. A pending finish is not waiting for a reading, so it is never "no heart-rate signal".
         case endingQuiet = "ending-quiet"
+        /// A pending finish whose save failed: the failed-save panel with Try again. Same fixture as `ending`.
+        case failed
+        /// A save in progress: End was held and the store has not answered yet.
+        case saving
+        /// End was held with no heart rate and no route: the nothing-to-save panel.
+        case nothingToSave = "nothing-to-save"
+        /// A strength session with no strap that ever connected: no heart rate, no strain.
+        case noStrap = "no-strap"
+        /// A run whose GPS signal has been lost for over a minute.
+        case gpsLost = "gps-lost"
+        /// 1:04:26, to test the numeral's fit.
+        case long
+        /// A ride with a route: the speed layout.
+        case cycling
+        /// A strength session: the indoor layout.
+        case strength
+        /// Paused with nothing that would be saved (no heart rate, no route).
+        case pausedNothing = "paused-nothing"
     }
 
     /// True for a fixture workout: nothing about it is written to disk, so a screenshot run can never leave a
@@ -2056,40 +2092,55 @@ final class AppModel: ObservableObject {
     func seedDemoLiveWorkout(_ scenario: DemoLiveWorkoutScenario, now: Date = Date()) {
         #if targetEnvironment(simulator)
         guard activeWorkout == nil else { return }
-        let activeSeconds = 34 * 60 + 12
-        let pausedFor = scenario == .paused ? 180 : 0
-        let indoor = scenario == .indoor
+        let activeSeconds = scenario == .long ? 64 * 60 + 26 : 34 * 60 + 12
+        let paused = scenario == .paused || scenario == .pausedNothing || scenario == .nothingToSave
+        let pausedFor = paused ? 180 : 0
+        let indoor = scenario == .indoor || scenario == .strength || scenario == .noStrap
+            || scenario == .pausedNothing || scenario == .nothingToSave
         let started = now.addingTimeInterval(-Double(activeSeconds + pausedFor))
         let startTs = Int(started.timeIntervalSince1970)
-        let workout = ActiveWorkout(start: started, sport: indoor ? "Strength" : "Running",
+        let sport = switch scenario {
+        case .cycling: "Cycling"
+        case .strength, .noStrap, .pausedNothing, .nothingToSave: "Strength Training"
+        case .indoor: "Strength"
+        default: "Running"
+        }
+        let workout = ActiveWorkout(start: started, sport: sport,
                                     maxHR: Double(profile.hrMax), energyProfile: workoutEnergyProfile)
-        // A warm-up into a steady block, with a little beat-to-beat wobble.
-        let readings = (2...activeSeconds).map { second -> HRSample in
+        // No strap, or nothing worth saving: no readings at all. Otherwise a warm-up into a steady block, with a little
+        // beat-to-beat wobble.
+        let noReadings = scenario == .noStrap || scenario == .pausedNothing || scenario == .nothingToSave
+        let readings = noReadings ? [] : (2...activeSeconds).map { second -> HRSample in
             let ramp = min(1.0, Double(second) / 600.0)
             let bpm = 96 + 58 * ramp + 9 * sin(Double(second) / 41) + 4 * sin(Double(second) / 7)
             return HRSample(ts: startTs + second, bpm: Int(bpm.rounded()))
         }
         // A paused fixture stopped counting three minutes ago: its open pause began at the last reading.
-        let pauses = scenario == .paused
+        let pauses = paused
             ? WorkoutPauseLedger(openSince: Double(startTs + activeSeconds) + 0.5) : WorkoutPauseLedger()
         workout.restore(samples: readings, pauses: pauses)
-        let quiet = scenario == .stale || scenario == .endingQuiet
-        workout.seedDemoLastReading(now.addingTimeInterval(quiet ? -47 : -2))
+        let quiet = scenario == .stale || scenario == .endingQuiet || noReadings
+        if !noReadings { workout.seedDemoLastReading(now.addingTimeInterval(quiet ? -47 : -2)) }
         activeWorkoutIsDemo = true
         activeWorkout = workout
         workoutFinishState = .recording
-        if scenario == .ending || scenario == .endingQuiet {
+        if scenario == .ending || scenario == .endingQuiet || scenario == .failed || scenario == .saving {
             // The state a failed End leaves: frozen at the moment End was tried, awaiting a retry.
             let stoppedAt = now.addingTimeInterval(-30)
             workout.freeze(at: stoppedAt)
             pendingWorkoutEnd = stoppedAt
             pendingWorkoutSnapshot = workout
-            workoutFinishState = .failed(WorkoutFinishError.storeUnavailable.localizedDescription)
+            workoutFinishState = scenario == .saving
+                ? .saving : .failed(WorkoutFinishError.storeUnavailable.localizedDescription)
+        }
+        if scenario == .nothingToSave {
+            // End was held on a session with nothing in it: still the workout in progress, and the failure says why.
+            workoutFinishState = .failed(WorkoutFinishError.insufficientEvidence.localizedDescription)
         }
         if !indoor {
             activeWorkoutIsGps = true
             gpsRecorder.seedDemoRoute(points: Self.demoRoutePoints(), elapsedSeconds: Double(activeSeconds),
-                                      paused: scenario == .paused, signalLost: scenario == .stale)
+                                      paused: paused, signalLost: scenario == .stale || scenario == .gpsLost)
         }
         // A strap that keeps reporting, so a capture taken a while after launch is not a stale frame by accident.
         // The stale and quiet-ending scenarios are the fixtures that deliberately go quiet.
@@ -2175,6 +2226,76 @@ final class AppModel: ObservableObject {
     /// A workout whose End was tried and has not completed (the save failed) is frozen at the moment it ended: it can be
     /// ended again, not paused or resumed.
     var isWorkoutFinishPending: Bool { pendingWorkoutSnapshot != nil }
+
+    /// What stops a workout from starting now, or nil when one can. Mirrors the guard in `startWorkout(sport:)`, so a
+    /// screen can say why Start would do nothing instead of letting it silently do nothing.
+    var workoutStartBlock: WorkoutStartBlock? {
+        if activeWorkout != nil { return .workoutActive }
+        if liftDoubleTapHandler != nil || hasActiveReceiptLift?() == true { return .liftActive }
+        return nil
+    }
+
+    /// Whether ending the workout in flight right now would save one: it has two heart-rate readings or a recorded route.
+    /// The same gate `endWorkout()` applies, so the paused screen can say what End will do before it is held.
+    var workoutWouldSave: Bool {
+        (activeWorkout?.samples.count ?? 0) >= 2 || (activeWorkoutIsGps && gpsRecorder.pointCount >= 2)
+    }
+
+    /// End was held and there was nothing to save: no heart rate and no route. The workout is still the one in progress.
+    /// The one comparison of the failure text lives here.
+    var finishNeedsMoreEvidence: Bool {
+        !isWorkoutFinishPending
+            && workoutFinishState == .failed(WorkoutFinishError.insufficientEvidence.localizedDescription)
+    }
+
+    /// The person has seen how the last finish went (the summary's Done, or Keep recording): back to `.recording`. A save
+    /// that failed and is waiting for a retry stays as it is, since the workout is still pending.
+    func acknowledgeFinishState() {
+        switch workoutFinishState {
+        case .saved:
+            workoutFinishState = .recording
+        case .failed:
+            if !isWorkoutFinishPending { workoutFinishState = .recording }
+        case .recording, .saving:
+            break
+        }
+    }
+
+    /// Throw the workout in flight away: the success path's clean-up without any store write, so nothing is saved and
+    /// nothing is left to restore on the next launch. Refused while a save is running. Returns whether anything was
+    /// discarded.
+    @discardableResult
+    func discardWorkout() -> Bool {
+        guard let workout = activeWorkout, workoutFinishState != .saving else { return false }
+        let wasGps = activeWorkoutIsGps
+        if wasGps {
+            gpsRecorder.stop()
+            _ = ActiveGpsWorkoutPersistence.flushPendingWrites()
+        }
+        // The same clears, in the same order, as a successful save: an in-flight snapshot write is ordered before them,
+        // so it cannot bring the workout back on the next launch.
+        ActiveWorkoutPersistence.clear()
+        ActiveGpsWorkoutPersistence.clear()
+        ActiveWorkoutPauseStore.clear()
+        activeWorkout = nil
+        releaseWorkoutRealtimeHR()
+        activeWorkoutIsGps = false
+        workoutSnapshotDurabilityFailed = false
+        gpsSnapshotDurabilityFailed = false
+        gpsHadTerminatedGap = false
+        refreshWorkoutDurabilityWarning()
+        pendingWorkoutSnapshot = nil
+        pendingWorkoutEnd = nil
+        pendingWorkoutRoute = nil
+        pendingWorkoutWasGps = false
+        lastWorkout = nil
+        workoutFinishState = .recording
+        emitWorkoutsTrace(WorkoutsTrace.sessionLine(
+            event: "discarded-by-user", sportKey: WorkoutSource.traceSportKey(workout.sport),
+            hrSamples: workout.samples.count, gpsPoints: wasGps ? gpsRecorder.pointCount : nil))
+        replayDeferredSessionWorkIfIdle()
+        return true
+    }
 
     /// Emit one Workouts & GPS test-mode line tagged `.workouts` iff the mode is on. The cheap
     /// `TestCentre.active(.workouts)` gate is checked BEFORE the @autoclosure builds the line, so nothing is
