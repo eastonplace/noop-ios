@@ -367,7 +367,7 @@ final class LiveWorkoutSlotNoticeTests: XCTestCase {
     }
 
     /// Reading or reaching a long message can take longer than six seconds under VoiceOver or Switch Control: it stays open.
-    func testAnOpenNoticeClosesByItselfOnlyWithoutAssistiveTechnology() {
+    @MainActor func testAnOpenNoticeClosesByItselfOnlyWithoutAssistiveTechnology() {
         XCTAssertTrue(LiveNoticeSlot.closesByItself(voiceOver: false, switchControl: false))
         XCTAssertFalse(LiveNoticeSlot.closesByItself(voiceOver: true, switchControl: false))
         XCTAssertFalse(LiveNoticeSlot.closesByItself(voiceOver: false, switchControl: true))
