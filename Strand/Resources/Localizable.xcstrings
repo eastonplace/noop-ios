@@ -15310,7 +15310,7 @@
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "1 paio"
+            "value": "1 coppia"
           }
         },
         "pt-PT": {
@@ -19850,7 +19850,7 @@
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aggiungi indicatore"
+            "value": "Aggiungi marcatore"
           }
         },
         "pt-PT": {
@@ -32400,7 +32400,7 @@
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Importa letture da un CSV di indicatori"
+            "value": "Importa letture da un CSV di marcatori"
           }
         },
         "pt-PT": {
@@ -34632,7 +34632,7 @@
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Scegli un file CSV di indicatori da importare"
+            "value": "Scegli un file CSV di marcatori da importare"
           }
         },
         "pt-PT": {
@@ -66316,7 +66316,7 @@
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$lld letture importate (%2$lld indicatori)"
+            "value": "%1$lld letture importate (%2$lld marcatori)"
           }
         },
         "pt-PT": {
@@ -78845,7 +78845,7 @@
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Indicatori"
+            "value": "Marcatori"
           }
         },
         "pt-PT": {
@@ -82479,7 +82479,7 @@
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ancora nessun indicatore"
+            "value": "Ancora nessun marcatore"
           }
         },
         "pt-PT": {
@@ -82647,7 +82647,7 @@
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nessuna riga utilizzabile. Controlla che il file abbia colonne di data, indicatore e valore."
+            "value": "Nessuna riga utilizzabile. Controlla che il file abbia colonne di data, marcatore e valore."
           }
         },
         "pt-PT": {
@@ -131552,7 +131552,7 @@
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Quel file è troppo grande per l'importazione di un CSV di indicatori."
+            "value": "Quel file è troppo grande per l'importazione di un CSV di marcatori."
           }
         },
         "pt-PT": {
@@ -132236,7 +132236,7 @@
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tieni traccia di ciò che conta per te. Aggiungi un indicatore per iniziare."
+            "value": "Tieni traccia di ciò che conta per te. Aggiungi un marcatore per iniziare."
           }
         },
         "pt-PT": {
