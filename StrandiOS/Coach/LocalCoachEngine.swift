@@ -1,6 +1,7 @@
 #if os(iOS)
 import Foundation
 import Combine
+import UIKit
 #if canImport(FoundationModels)
 import FoundationModels
 #endif
@@ -126,6 +127,11 @@ final class LocalCoachEngine: ObservableObject {
     private var initialized = false
     private var stateReadable = true
     private var settingsReadable = true
+    /// CORE-04: a read failed only because the device was locked (a background launch before first unlock),
+    /// so the load is retried when protected data becomes available instead of latching for the process.
+    private var settingsAwaitUnlock = false
+    private var stateAwaitUnlock = false
+    private var protectedDataObserver: (any NSObjectProtocol)?
     private var storageError: String?
     private var generation: Task<Void, Never>?
     private var operationID: UUID?
@@ -183,7 +189,8 @@ final class LocalCoachEngine: ObservableObject {
 
     init(data: (any LocalCoachDataAccess)?, persistence: LocalCoachPersistence?,
          model: (any LocalCoachModelDriver)?, source: @escaping @MainActor () -> LocalCoachSourceScope,
-         records: @escaping @MainActor () -> String = { "" }, isPreview: Bool = false) {
+         records: @escaping @MainActor () -> String = { "" }, isPreview: Bool = false,
+         notificationCenter: NotificationCenter = .default) {
         self.data = data
         self.persistence = persistence
         self.model = model
@@ -196,6 +203,7 @@ final class LocalCoachEngine: ObservableObject {
             do { preferences = try persistence?.loadPreferences() ?? .init() }
             catch {
                 settingsReadable = false
+                settingsAwaitUnlock = Self.isAwaitingUnlock(error)
                 preferences.enabled = false
                 storageError = LocalCoachErrorPrefix.settingsUnreadable + error.localizedDescription
                 errorText = storageError
@@ -203,6 +211,51 @@ final class LocalCoachEngine: ObservableObject {
             loadSource()
         }
         initialized = true
+        updateAvailability()
+        if !isPreview, persistence != nil {
+            protectedDataObserver = notificationCenter.addObserver(
+                forName: UIApplication.protectedDataDidBecomeAvailableNotification, object: nil, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { self?.retryLoadsAfterUnlock() }
+            }
+        }
+    }
+
+    /// A read refused because the file is protected and the device is locked. Anything else (a decode error,
+    /// an unsupported version, a file that is too large) stays latched so the original file is never
+    /// overwritten.
+    nonisolated static func isAwaitingUnlock(_ error: any Error) -> Bool {
+        let error = error as NSError
+        if error.domain == NSCocoaErrorDomain, error.code == NSFileReadNoPermissionError { return true }
+        if error.domain == NSPOSIXErrorDomain, error.code == Int(EPERM) || error.code == Int(EACCES) { return true }
+        if let underlying = error.userInfo[NSUnderlyingErrorKey] as? NSError { return isAwaitingUnlock(underlying) }
+        return false
+    }
+
+    /// CORE-04: retry what a locked launch couldn't read. Settings are applied as a load, not a user edit (no
+    /// re-save, no cleared conversation). History is then reloaded under the real settings, because the model
+    /// context it restores depends on them.
+    func retryLoadsAfterUnlock() {
+        guard !isPreview, let persistence, settingsAwaitUnlock || stateAwaitUnlock else { return }
+        if settingsAwaitUnlock {
+            do {
+                let loaded = try persistence.loadPreferences()
+                settingsAwaitUnlock = false
+                settingsReadable = true
+                initialized = false
+                preferences = loaded
+                initialized = true
+            } catch {
+                settingsAwaitUnlock = Self.isAwaitingUnlock(error)
+                storageError = LocalCoachErrorPrefix.settingsUnreadable + error.localizedDescription
+                errorText = storageError
+                return
+            }
+        }
+        storageError = nil
+        stateAwaitUnlock = false
+        loadSource()
+        errorText = storageError
         updateAvailability()
     }
 
@@ -682,6 +735,7 @@ final class LocalCoachEngine: ObservableObject {
             }
         } catch {
             stateReadable = false
+            stateAwaitUnlock = Self.isAwaitingUnlock(error)
             storageError = LocalCoachErrorPrefix.historyUnreadable + error.localizedDescription
             errorText = storageError
         }
