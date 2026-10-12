@@ -6,11 +6,18 @@ import XCTest
 final class WatchRecoveryHistoryTests: XCTestCase {
 
     private func key(_ i: Int) -> String {
+        keyFormatter.string(from: Date(timeIntervalSince1970: 1_767_225_600 + TimeInterval(i) * 86_400))  // 2026-01-01
+    }
+
+    /// Gregorian POSIX, like production's key parsing, so the keys don't follow the machine's calendar.
+    private let keyFormatter: DateFormatter = {
         let f = DateFormatter()
+        f.calendar = Calendar(identifier: .gregorian)
+        f.locale = Locale(identifier: "en_US_POSIX")
         f.timeZone = TimeZone(secondsFromGMT: 0)
         f.dateFormat = "yyyy-MM-dd"
-        return f.string(from: Date(timeIntervalSince1970: 1_767_225_600 + TimeInterval(i) * 86_400))  // 2026-01-01
-    }
+        return f
+    }()
 
     private func history(_ n: Int) -> [WatchRecovery.Day] {
         (0..<n).map { i in
@@ -48,10 +55,7 @@ final class WatchRecoveryHistoryTests: XCTestCase {
     /// Days before a manual recalibration no longer feed the baseline (compute ignored the epoch).
     func testRecalibrationEpochRestartsTheImportBaseline() throws {
         let days = history(30)
-        let f = DateFormatter()
-        f.timeZone = TimeZone(secondsFromGMT: 0)
-        f.dateFormat = "yyyy-MM-dd"
-        let epoch = try XCTUnwrap(f.date(from: key(25))).timeIntervalSince1970
+        let epoch = try XCTUnwrap(keyFormatter.date(from: key(25))).timeIntervalSince1970
         let scored = WatchRecovery.scoreHistory(days, hrvEpoch: epoch, recoveryEpoch: epoch)
         XCTAssertNil(scored[29].result.recovery, "the few post-epoch nights are below the 7-night baseline")
         XCTAssertEqual(scored[29].result.confidence, .calibrating)

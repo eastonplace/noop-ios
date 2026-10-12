@@ -10,12 +10,18 @@ final class BaselineAsOfAndRegimeShiftTests: XCTestCase {
     private func key(_ i: Int) -> String {
         let base = Calendar(identifier: .gregorian).date(from: DateComponents(
             timeZone: TimeZone(secondsFromGMT: 0), year: 2026, month: 1, day: 1))!
-        let date = base.addingTimeInterval(TimeInterval(i * 86_400))
+        return keyFormatter.string(from: base.addingTimeInterval(TimeInterval(i * 86_400)))
+    }
+
+    /// Gregorian POSIX, like production's key parsing, so the keys don't follow the machine's calendar.
+    private let keyFormatter: DateFormatter = {
         let f = DateFormatter()
+        f.calendar = Calendar(identifier: .gregorian)
+        f.locale = Locale(identifier: "en_US_POSIX")
         f.timeZone = TimeZone(secondsFromGMT: 0)
         f.dateFormat = "yyyy-MM-dd"
-        return f.string(from: date)
-    }
+        return f
+    }()
 
     private func settled(_ n: Int = 20) -> BaselineState {
         var state: BaselineState?
@@ -126,13 +132,11 @@ final class BaselineAsOfAndRegimeShiftTests: XCTestCase {
     func testAsOfHonoursTheRecalibrationEpoch() throws {
         let values: [Double?] = Array(repeating: 60, count: 12)
         let keys = (0..<12).map(key)
-        let f = DateFormatter()
-        f.timeZone = TimeZone(secondsFromGMT: 0)
-        f.dateFormat = "yyyy-MM-dd"
-        let epoch = try XCTUnwrap(f.date(from: key(8))).timeIntervalSince1970
+        let epoch = try XCTUnwrap(keyFormatter.date(from: key(8))).timeIntervalSince1970
         let timeline = Baselines.foldHistoryAsOf(values, dayKeys: keys, cfg: cfg, baselineEpoch: epoch)
         XCTAssertEqual(timeline.asOf(key(8)).nValid, 0)
         XCTAssertEqual(timeline.asOf(key(11)).nValid, 3)
         XCTAssertEqual(timeline.latest, Baselines.foldHistory(values, dayKeys: keys, cfg: cfg, baselineEpoch: epoch))
     }
+
 }
