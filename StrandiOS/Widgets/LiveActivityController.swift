@@ -85,6 +85,9 @@ final class LiveActivityController {
     private var lastContentState: NOOPActivityAttributes.ContentState?
     /// The token states a drive has already been published without health for, so the Console says so once per process.
     private var loggedHealthStrips: Set<LiveActivityDriveAdmission.TokenState> = []
+    /// Why the last write showed nothing, logged once until the reason changes or an activity starts. Heart rate drives the
+    /// activity every second, so an unchanged reason is not logged again.
+    private var lastLoggedExit: String?
     #if DEBUG
     private var component41QAMode = false
     #endif
@@ -168,7 +171,10 @@ final class LiveActivityController {
             guard input.verifiedContextId == expectedToken.contextId,
                   isCurrentSinkToken(expectedToken) else { return .superseded }
         }
-        guard authInfo.areActivitiesEnabled else { return .notApplicable }
+        guard authInfo.areActivitiesEnabled else {
+            logExit("not shown, Live Activities are off for NOOP in iOS Settings")
+            return .notApplicable
+        }
 
         if activity == nil, let existing = Activity<NOOPActivityAttributes>.activities.first {
             activity = existing
@@ -177,9 +183,13 @@ final class LiveActivityController {
             lastPush = .distantPast
         }
 
+        let enabled = UnitPrefs.liveActivityEnabled()
         guard WorkoutLiveActivityVisibility.shouldRemainVisible(
-            enabled: UnitPrefs.liveActivityEnabled(), connected: input.connected,
+            enabled: enabled, connected: input.connected,
             workoutIsActive: input.workoutIsActive) else {
+            logExit(enabled
+                    ? "not shown, no workout and the strap is not connected"
+                    : "not shown, the in-app Live Activity toggle is off")
             await performEnd()
             return .notApplicable
         }
@@ -279,6 +289,8 @@ final class LiveActivityController {
                     content: ActivityContent(state: state, staleDate: staleDate),
                     pushType: nil
                 )
+                NSLog("NOOP LiveActivity: started (%@)", desiredModeIsWorkout ? "workout" : "heart rate")
+                lastLoggedExit = nil
                 if let expectedToken,
                    !recordVerifiedGeneration(input, token: expectedToken) {
                     await performEnd()
@@ -290,6 +302,9 @@ final class LiveActivityController {
                 pauseEdges.delivered(builtAt: edgesCarried)
                 return .published
             } catch {
+                // ActivityKit refuses a request made from the background, among other reasons: say which.
+                NSLog("NOOP LiveActivity: request failed (%@): %@",
+                      desiredModeIsWorkout ? "workout" : "heart rate", String(describing: error))
                 resetCachedState()
                 throw LiveActivityPublicationError.requestFailed
             }
@@ -423,6 +438,12 @@ final class LiveActivityController {
             await existing.end(nil, dismissalPolicy: .immediate)
         }
         resetCachedState()
+    }
+
+    private func logExit(_ reason: String) {
+        guard reason != lastLoggedExit else { return }
+        lastLoggedExit = reason
+        NSLog("NOOP LiveActivity: %@", reason)
     }
 
     private func resetCachedState() {
