@@ -16,6 +16,8 @@ struct TestCentreView: View {
     /// must not subscribe to every HR/R-R/log publication just because a few child controls issue actions.
     @State private var appModel: AppModel?
     @State private var liveState: LiveState?
+    /// Starting or returning to a workout is the shell's job (one full-screen journey), so this screen only asks.
+    @EnvironmentObject private var router: NavRouter
     #if os(iOS)
     @Environment(\.screenScaffoldNavigationRole) private var navigationRole
     @Environment(\.dismiss) private var dismiss
@@ -42,8 +44,6 @@ struct TestCentreView: View {
     @State private var infoTitle = ""
     @State private var infoMessage = ""
     @State private var showInfo = false
-    @State private var showStartSport = false
-    @State private var showLiveWorkout = false
     @State private var showHRVSnapshot = false
     @State private var showingLiveActions = false
     @State private var toastMessage: String?
@@ -117,8 +117,8 @@ struct TestCentreView: View {
                         model: model,
                         live: live,
                         modeActivationRevision: modeActivationRevision,
-                        onStartWorkout: { showStartSport = true },
-                        onOpenWorkout: { showLiveWorkout = true },
+                        onStartWorkout: { router.beginWorkout() },
+                        onOpenWorkout: { router.openActiveWorkout() },
                         onRefresh: refreshStrap,
                         onEnableWorkoutCapture: enableWorkoutCapture)
                 }
@@ -138,18 +138,6 @@ struct TestCentreView: View {
         .sheet(item: $report.pending) { _ in
             ReportReviewSheet(report: report)
                 .sheetScreenScaffoldEnvironment(onClose: { report.cancel() })
-        }
-        .sheet(isPresented: $showStartSport, onDismiss: {
-            if model.activeWorkout != nil { showLiveWorkout = true }
-        }) {
-            StartWorkoutSheet { name in
-                model.startWorkout(sport: name)
-            }
-        }
-        .sheet(isPresented: $showLiveWorkout) {
-            LiveWorkoutView(onClose: { showLiveWorkout = false })
-                .environmentObject(model)
-                .environmentObject(live)
         }
         .sheet(isPresented: $showHRVSnapshot) {
             HRVSnapshotView(onClose: { showHRVSnapshot = false }, source: hrvSnapshotSource)

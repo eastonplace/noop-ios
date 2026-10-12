@@ -51,154 +51,6 @@ private struct HRChartFrameKey: PreferenceKey {
     }
 }
 
-// MARK: - Active-workout-in-progress indicator (Today)
-//
-// A "workout in progress" card the Today dashboard shows whenever a manual workout is active. Tapping it
-// routes to the Live surface and opens the in-exercise screen (via NavRouter.openActiveWorkout()). Detection
-// reads the single source of truth, `AppModel.activeWorkout`, which already survives an app kill (it's
-// rehydrated from the durable snapshot on launch), so the card auto-appears and auto-clears with no new
-// lifecycle wiring.
-
-/// The Today indicator's value-typed view model: the sport label, the workout's start and its pauses so far, derived
-/// from `AppModel.ActiveWorkout`. Equatable so the leaf below only re-renders when one of these actually changes,
-/// and the elapsed clock is formatted from a pure function the tests pin.
-///
-/// The clock is the time the workout RAN, the live screen's number: a paused stretch is left out and the clock stands
-/// still while one is open. Counting wall-clock time here would keep ticking through a pause and stay ahead of the
-/// live screen and the Lock Screen for the rest of the workout.
-struct ActiveWorkoutIndicatorModel: Equatable {
-    let sport: String
-    let startedAt: Date
-    /// The pauses so far (closed stretches and the one still open).
-    var pauses = WorkoutPauseLedger()
-    /// Set while a finish is pending: the clock stops at the end the save will use, like the live screen's.
-    var frozenAt: Date?
-
-    var isPaused: Bool { pauses.isPaused }
-    /// End was tried: the clock is frozen and the card says "Ending".
-    var isEnding: Bool { frozenAt != nil }
-
-    static func make(from workout: AppModel.ActiveWorkout?) -> ActiveWorkoutIndicatorModel? {
-        guard let workout else { return nil }
-        return ActiveWorkoutIndicatorModel(sport: workout.sport, startedAt: workout.start, pauses: workout.pauseLedger,
-                                           frozenAt: workout.frozenAt)
-    }
-
-    /// The clock at `now`: the time the workout has run, M:SS up to an hour and H:MM:SS after, frozen while paused and
-    /// once a finish is pending.
-    func elapsedText(at now: Date) -> String {
-        let end = frozenAt.map { min($0, now) } ?? now
-        return LiveWorkoutTiles.elapsedText(pauses.activeSeconds(from: startedAt.timeIntervalSince1970,
-                                                                 to: end.timeIntervalSince1970))
-    }
-
-    /// Elapsed time since `start`, formatted M:SS up to an hour and H:MM:SS once an hour has passed (so a
-    /// 90-minute session reads "1:30:00", not "90:00"). Clamped at zero so a clock-skew negative reads 0:00.
-    /// Pure + injectable `now` for deterministic tests. (StrandFont.bodyNumber already applies tabular figures,
-    /// so the call site does NOT add `.monospacedDigit()`.)
-    static func elapsed(since start: Date, now: Date = Date()) -> String {
-        LiveWorkoutTiles.elapsedText(now.timeIntervalSince(start))
-    }
-}
-
-private struct ActiveWorkoutIndicatorCard: View {
-    let model: ActiveWorkoutIndicatorModel
-    let onReturn: () -> Void
-
-    var body: some View {
-        NoopCard(tint: StrandPalette.metricRose) {
-            VStack(alignment: .leading, spacing: NoopMetrics.cardInnerSpacing) {
-                HStack(alignment: .firstTextBaseline, spacing: NoopMetrics.space2) {
-                    // Decorative "live" dot, hidden from VoiceOver (the card itself reads the full state).
-                    MicroStatusDot(color: model.isPaused ? StrandPalette.statusWarning : StrandPalette.metricRose,
-                                   isActive: NOOPLiveWorkoutPulse.isActive(isPaused: model.isPaused, isEnding: model.isEnding))
-                    Text("WORKOUT IN PROGRESS")
-                        .font(StrandFont.overline)
-                        .tracking(StrandFont.overlineTracking)
-                        .foregroundStyle(StrandPalette.textPrimary)
-                    Spacer(minLength: NoopMetrics.space2)
-                    // A per-second live clock. The TimelineView re-evaluates ONLY this Text every second, so
-                    // the tick never re-renders the rest of the card (let alone TodayView.body). bodyNumber
-                    // already carries `.monospacedDigit()`, so no extra modifier here.
-                    TimelineView(.periodic(from: .now, by: 1)) { context in
-                        Text(model.elapsedText(at: context.date))
-                            .font(StrandFont.bodyNumber)
-                            .foregroundStyle(StrandPalette.textPrimary)
-                            .opacity(model.isPaused ? 0.45 : 1)
-                    }
-                }
-
-                ViewThatFits(in: .horizontal) {
-                    HStack(alignment: .center, spacing: NoopMetrics.cardInnerSpacing) {
-                        sportRow
-                        Spacer(minLength: NoopMetrics.space2)
-                        NoopButton("Return to workout", systemImage: "arrow.forward.circle.fill",
-                                   kind: .primary, action: onReturn)
-                    }
-
-                    VStack(alignment: .leading, spacing: NoopMetrics.cardInnerSpacing) {
-                        sportRow
-                        NoopButton("Return to workout", systemImage: "arrow.forward.circle.fill",
-                                   kind: .primary, fullWidth: true, action: onReturn)
-                    }
-                }
-            }
-        }
-        // Combine the card into one VoiceOver element so the dot + label + clock + button read as a single
-        // "Workout in progress" actionable item rather than five separate stops.
-        .accessibilityElement(children: .combine)
-    }
-
-    /// The sport, with a "Paused" pill beside it while the clock is stopped.
-    private var sportRow: some View {
-        HStack(spacing: NoopMetrics.space2) {
-            sportLabel
-            if model.isEnding { StatePill("Ending") }
-            else if model.isPaused { StatePill("Paused", tone: .warning) }
-        }
-    }
-
-    private var sportLabel: some View {
-        Text(model.sport)
-            .font(StrandFont.headline)
-            .foregroundStyle(StrandPalette.textPrimary)
-            .lineLimit(1)
-            .minimumScaleFactor(0.8)
-    }
-}
-
-/// Leaf-isolated so an in-progress workout's ~per-sample `AppModel` churn (the elapsed clock tick + the
-/// rewritten `activeWorkout`) re-renders ONLY this card, never the whole Today dashboard, the same
-/// leaf-isolation pattern the file documents for the live status/sync rows. Renders nothing when no workout
-/// is active, so the card auto-appears/clears purely off `AppModel.activeWorkout`.
-private struct ActiveWorkoutIndicatorSection: View {
-    @EnvironmentObject var app: AppModel
-    @EnvironmentObject var router: NavRouter
-
-    var body: some View {
-        if let workout = app.activeWorkout {
-            ActiveWorkoutIndicatorLeaf(workout: workout) {
-                StrandHaptic.selection.play()
-                router.openActiveWorkout()
-            }
-            .transition(.opacity)
-        }
-    }
-}
-
-/// Watches the workout itself: a pause or a resume is a change of the workout, not of `AppModel`, and the card has to
-/// redraw on it (a Paused pill, a frozen clock). Like the section above, it is a leaf, so only this card redraws.
-private struct ActiveWorkoutIndicatorLeaf: View {
-    @ObservedObject var workout: AppModel.ActiveWorkout
-    let onReturn: () -> Void
-
-    var body: some View {
-        if let model = ActiveWorkoutIndicatorModel.make(from: workout) {
-            ActiveWorkoutIndicatorCard(model: model, onReturn: onReturn)
-        }
-    }
-}
-
 /// A value-fed leaf for Today's largest above-the-fold card. Repository/model observation stays in
 /// `TodayView`; a refresh now rebuilds this subtree only when these rendered values change, rather than
 /// giving the card direct access to either long-lived observable object.
@@ -591,8 +443,6 @@ struct TodayView: View {
     // iOS top-bar state: the date-jump popover and the profile/settings sheet.
     @State private var showDayPicker = false
     @State private var showSettings = false
-    @State private var showStartSport = false
-    @State private var showLiveWorkout = false
     /// The Updates inbox sheet (opened by the header bell). Shared across both platforms.
     @State private var showUpdatesInbox = false
 
@@ -1919,8 +1769,8 @@ struct TodayView: View {
                     }
                 },
                 onOpenWorkouts: { showingTodayWorkouts = true },
-                onStartWorkout: { showStartSport = true },
-                onOpenActiveWorkout: { showLiveWorkout = true }
+                onStartWorkout: { router.beginWorkout() },
+                onOpenActiveWorkout: { router.openActiveWorkout() }
             )
         }
     }
@@ -2191,7 +2041,6 @@ struct TodayView: View {
                 #endif
                 HealthAlertBanner()
                 AutoWorkoutCard()
-                ActiveWorkoutIndicatorSection()
                 // Keep the Recovery empty state honest while a historical offload is still writing. The
                 // score can legitimately trail Sleep until the corresponding R-R frames land, so surface
                 // the in-progress sync instead of leaving a bare "Not rated" that looks final.
@@ -2312,18 +2161,6 @@ struct TodayView: View {
         #else
         // Profile/settings from the top-bar button.
         .sheet(isPresented: $showSettings) { settingsSheet }
-        .sheet(isPresented: $showLiveWorkout) {
-            LiveWorkoutView(onClose: { showLiveWorkout = false })
-                .environmentObject(model.live)
-                .environment(\.appHeaderChromeVisibility, .hidden)
-        }
-        .sheet(isPresented: $showStartSport, onDismiss: {
-            if model.activeWorkout != nil { showLiveWorkout = true }
-        }) {
-            StartWorkoutSheet { name in
-                model.startWorkout(sport: name)
-            }
-        }
         #endif
         // The scoring guide, opened at a specific score from its ⓘ.
         .sheet(item: $guideSection) { section in
@@ -2386,6 +2223,21 @@ struct TodayView: View {
         // A1 (#514/#706): the Charge breakdown, opened by tapping the Today hero Charge ring. The body
         // builds lazily here (#819 lag) from the drivers DERIVED off the displayed row (never a second read).
         .sheet(isPresented: $showChargeBreakdown) { chargeBreakdownSheet }
+        // A workout request (Quick Actions, the Live Activity, a deep link) closes whatever Today is presenting, so the
+        // workout journey's cover can open at the root.
+        #if os(iOS)
+        .collapsesForWorkoutJourney {
+            showDayPicker = false
+            guideSection = nil
+            showGuideTop = false
+            showingDashboardEditor = false
+            showUpdatesInbox = false
+            showStepsCalibration = false
+            showChargeBreakdown = false
+            paperPillarDetail = nil
+            showingTodayWorkouts = false
+        }
+        #endif
         // Honour a "Restore to Today" tap from the inbox: flip the matching dismissed flag back so the
         // card reappears (the inbox also clears the @AppStorage key directly, but this covers an
         // already-mounted Today). Cleared once handled.

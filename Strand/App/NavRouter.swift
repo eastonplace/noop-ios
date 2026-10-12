@@ -13,12 +13,26 @@ import Combine
 // itself (macOS sets the sidebar selection to `.devices`; iOS presents `DevicesView`). Each consumer
 // clears the request once it's handled so the same tap can fire again later. Injected at both app
 // roots (`StrandApp`, `StrandiOSApp`) as an `@EnvironmentObject`.
+/// Where the workout journey opens.
+enum WorkoutJourneyStart: Equatable {
+    /// Pick a sport and start. `initialSport` is the sport the picker opens on; nil opens on the most recent one.
+    case setup(initialSport: String?)
+    /// The workout already recording.
+    case live
+}
+
+/// One presentation of the journey: a fresh identity per request, so the cover rebuilds even for an equal start.
+struct WorkoutJourneyEntry: Identifiable, Equatable {
+    let id = UUID()
+    let start: WorkoutJourneyStart
+}
+
 @MainActor
 final class NavRouter: ObservableObject {
     /// A top-level destination a screen can ask the shell to open. Deliberately minimal — the Devices
     /// manager, the v5 pillar screens the new in-hub rows deep-link to (Insights hub, Lab Book, the
-    /// fused record, the experimental Rhythm visualization), Trends, and the active-workout return route
-    /// the Today indicator card raises.
+    /// fused record, the experimental Rhythm visualization), Trends, and the active-workout deep-link key (the shell
+    /// answers it with `openActiveWorkout()`).
     enum Destination: String, Equatable, Identifiable {
         case devices
         case insightsHub
@@ -49,12 +63,17 @@ final class NavRouter: ObservableObject {
     /// in the iOS shell). The shell presents it, then resets this to false.
     @Published var quickActionsRequested = false
 
-    /// One-shot: `LiveView` reads this on appear to present the in-exercise screen for an already-running
-    /// workout (routing alone only reaches the Live root), then clears it. A normal Live visit is
-    /// unaffected, since the flag is only raised by `openActiveWorkout()` from the Today indicator card.
-    /// The #238 "a workout just started" transition trigger never fires for a session that is already in
-    /// flight, so this is the one path that re-opens the live workout for an existing session.
-    @Published var presentActiveWorkout = false
+    /// Raised by any screen that wants the workout journey (setup, live, summary); consumed (and cleared) by the iOS shell,
+    /// which presents the one full-screen cover. A request for a journey that is already open is dropped.
+    @Published var workoutJourneyRequest: WorkoutJourneyStart?
+
+    /// A line the shell shows as a toast at its root ("Workout discarded"), for an action whose screen has already gone away.
+    /// The shell clears it once shown.
+    @Published var shellToast: String?
+
+    /// Bumped by the shell when it needs every presenter below it to let go of whatever it is presenting, so one full-screen
+    /// cover can present at the root. A presenter applies `collapsesForWorkoutJourney(_:)` to its binding to follow it.
+    @Published private(set) var modalCollapseGeneration = 0
 
     /// Set by the lift Live Activity deep link (`noop://lift/active`). The iOS shell presents the Lift flow
     /// (which resumes an active session on its own), then resets this to false.
@@ -86,10 +105,13 @@ final class NavRouter: ObservableObject {
     func openRhythm() { requestedDestination = .rhythm }
     /// Open the Trends screen (where a "new data" reading deep-links).
     func openTrends() { requestedDestination = .trends }
-    /// Open the active workout: route to the Live surface AND raise the one-shot flag so `LiveView`
-    /// presents the in-exercise screen even when the workout is already running, in one tap from the Today
-    /// indicator card. The flag is consumed (and cleared) by `LiveView.consumeActiveWorkoutRequest()`.
-    func openActiveWorkout() { presentActiveWorkout = true; requestedDestination = .activeWorkout }
+    /// Start a workout: the journey opens on setup. When a workout is already recording the shell opens that one instead (never
+    /// a second setup).
+    func beginWorkout(sport: String? = nil) { workoutJourneyRequest = .setup(initialSport: sport) }
+    /// Return to the recording workout (the Today hero, the resume bar, the Live Activity, auto-present, a deep link).
+    func openActiveWorkout() { workoutJourneyRequest = .live }
+    /// Ask every presenter below the shell to let go of what it is presenting.
+    func collapseModals() { modalCollapseGeneration &+= 1 }
     /// Open the in-flight Lift session (the lift Live Activity's deep link).
     func openActiveLift() { activeLiftRequested = true }
 

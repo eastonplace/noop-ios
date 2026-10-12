@@ -60,6 +60,10 @@ struct LocalCoachPlanView: View {
             .tint(StrandPalette.accent)
             .noopSheetPresentation(largeFirst: true)
         }
+        // A workout request (Quick Actions, the Live Activity, a deep link) closes the Workouts sheet, so the workout
+        // journey's cover can open at the root.
+        .collapsesForWorkoutJourney($showWorkouts)
+        .collapsesForWorkoutJourney($editing)
         .confirmationDialog("Save this plan to NOOP?", isPresented: $confirmSave, titleVisibility: .visible) {
             Button("Save reviewed plan") { Task { await coach.savePlan() } }
             Button("Keep reviewing", role: .cancel) { }

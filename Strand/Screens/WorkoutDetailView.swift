@@ -28,6 +28,9 @@ struct WorkoutDetailView: View {
     @StateObject private var profile = ProfileStore()
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dynamicTypeSize) private var typeSize
+    /// Set when this screen is the summary at the end of the workout journey: the bottom button then says "Done" and ends
+    /// the journey instead of closing a sheet.
+    @Environment(\.workoutJourneyDone) private var journeyDone
 
     @AppStorage(UnitPrefs.systemKey) private var unitSystemRaw = UnitSystem.metric.rawValue
     private var unitSystem: UnitSystem { UnitSystem(rawValue: unitSystemRaw) ?? .metric }
@@ -111,8 +114,17 @@ struct WorkoutDetailView: View {
                 case .heartRate: heartRateSection
                 case .map: mapSections
                 }
-                Button { dismiss() } label: {
-                    Label("Close summary", systemImage: "checkmark").frame(maxWidth: .infinity)
+                Button {
+                    if let journeyDone { journeyDone.perform() } else { dismiss() }
+                } label: {
+                    Group {
+                        if journeyDone == nil {
+                            Label("Close summary", systemImage: "checkmark")
+                        } else {
+                            Label("Done", systemImage: "checkmark")
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(PrimaryPillButtonStyle())
                 .padding(.top, NoopMetrics.space6)

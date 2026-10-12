@@ -23,6 +23,16 @@ struct RootTabView: View {
     /// A routed v5 pillar screen (Insights hub / Lab Book / fused record / Rhythm) presented as a sheet
     /// when a hub row deep-links to it via NavRouter. nil = closed.
     @State private var routedPillar: NavRouter.Destination?
+    /// The workout journey (setup, live, summary), presented once as a full-screen cover that cannot be swiped away. nil =
+    /// closed. Every screen asks for it through `NavRouter.beginWorkout()` / `openActiveWorkout()`.
+    @State private var journey: WorkoutJourneyEntry?
+    /// What Quick Actions asked for; presented once its sheet has fully gone, never while it is still dismissing.
+    @State private var pendingJourneyAfterQuickActions: WorkoutJourneyStart?
+    /// A destination requested while the journey is up (Updates, Devices, Trends, Settings): it never presents underneath
+    /// the cover, it waits for it to close.
+    @State private var pendingDestinationAfterJourney: NavRouter.Destination?
+    /// The lift flow was asked for while the journey is up (the setup page's "Open lift").
+    @State private var liftAfterJourney = false
     /// Selected tab — bound so tab switches can crossfade. Defaults to Today.
     @AppStorage(ClockFormatPreference.defaultsKey) private var clockPreference = ClockFormatPreference.system.rawValue
     @State private var selectedTab: Int
@@ -105,6 +115,7 @@ struct RootTabView: View {
         // Give the bar its own layout space. A TabView can forward an outer safe-area inset
         // inconsistently to nested NavigationStacks, covering a bottom-aligned composer.
             VStack(spacing: 0) {
+            WorkoutResumeBarHost(coverIsUp: journey != nil)
             LiftResumeCard(onResume: { showLift = true }).padding(.horizontal, 16)
             PaperTabBar(selection: $selectedTab, onReselect: { tab in
                 // Only Today owns a current-day data refresh. Reselecting Settings, Trends, or Sleep
@@ -124,7 +135,7 @@ struct RootTabView: View {
         }
         .background {
             ActiveSessionAutoPresenter(
-                otherPresentationActive: quickAction != nil || showDevices || routedPillar != nil || showLift,
+                otherPresentationActive: journey != nil || quickAction != nil || showDevices || routedPillar != nil || showLift,
                 presentLift: { showLift = true })
         }
         #if DEBUG
@@ -144,7 +155,13 @@ struct RootTabView: View {
                 await FolderBackup.catchUpIfDue(checkpoint: { await backupRepo.checkpointForBackup() })
             }
         }
-        .sheet(item: $quickAction) { action in
+        .sheet(item: $quickAction, onDismiss: {
+            // The journey presents only after the sheet is fully gone, so the two never compete for the root.
+            if let pending = pendingJourneyAfterQuickActions {
+                pendingJourneyAfterQuickActions = nil
+                router.workoutJourneyRequest = pending
+            }
+        }) { action in
             quickActionDestination(action)
         }
         .sheet(isPresented: $showDevices) {
@@ -158,7 +175,26 @@ struct RootTabView: View {
         .sheet(item: $routedPillar) { destination in
             pillarScreen(destination)
         }
+        // The workout: one full-screen cover, so nothing is stacked and nothing can be swiped away.
+        .fullScreenCover(item: $journey, onDismiss: journeyDidDismiss) { entry in
+            WorkoutJourneyView(entry: entry, onClose: { journey = nil })
+        }
+        .onChange(of: router.workoutJourneyRequest) { _, request in
+            guard let request else { return }
+            router.workoutJourneyRequest = nil
+            presentJourney(request)
+        }
+        .paperToast(isPresented: shellToastPresented) {
+            PaperToast(LocalizedStringKey(router.shellToast ?? ""), systemImage: "trash",
+                       tint: StrandPalette.textSecondary, announcement: router.shellToast)
+        }
         .onChange(of: router.requestedDestination) { _, destination in
+            // While the journey is up nothing else presents underneath it: the request waits for the cover to close.
+            if journey != nil, let destination, destination != .activeWorkout {
+                pendingDestinationAfterJourney = destination
+                router.requestedDestination = nil
+                return
+            }
             switch destination {
             case .devices:
                 showDevices = true
@@ -173,10 +209,8 @@ struct RootTabView: View {
                 withAnimation(.timingCurve(0.22, 1, 0.36, 1, duration: 0.24)) { selectedTab = 1 }
                 router.requestedDestination = nil
             case .activeWorkout:
-                // iPhone owns a direct active-workout sheet. Clear the legacy LiveView one-shot so a
-                // later diagnostics visit cannot reopen the workout a second time.
-                router.presentActiveWorkout = false
-                withAnimation(Self.sheetEase) { quickAction = .activeWorkout }
+                // The deep-link key for the running workout: the journey opens at the live screen.
+                router.openActiveWorkout()
                 router.requestedDestination = nil
             case .liveSession:
                 withAnimation(.timingCurve(0.22, 1, 0.36, 1, duration: 0.24)) { selectedTab = 0 }
@@ -188,7 +222,13 @@ struct RootTabView: View {
         .onChange(of: router.activeLiftRequested) { _, requested in
             guard requested else { return }
             router.activeLiftRequested = false
-            openLift()
+            if journey != nil {
+                // The lift opens once the journey's cover has closed.
+                liftAfterJourney = true
+                journey = nil
+            } else {
+                openLift()
+            }
         }
         .onChange(of: router.quickActionsRequested) { _, requested in
             if requested {
@@ -208,12 +248,26 @@ struct RootTabView: View {
     /// `--noop-qa-route` for the screens the shell itself presents (quick actions, routed pillars).
     private func presentQAShellRoute() async {
         guard let route = QARoute.requested, case .shell(let target) = route.presentation else { return }
+        if target == .workoutMinimized {
+            // The seeded workout is resumed by the shell's auto-present, as it is at a real launch. This route is the screen
+            // the person lands on after minimizing it: wait for the cover, close it, and let the resume bar be the frame.
+            for _ in 0..<40 where journey == nil { try? await Task.sleep(for: .milliseconds(250)) }
+            try? await Task.sleep(for: .milliseconds(1500))
+            journey = nil
+            try? await Task.sleep(for: .milliseconds(2500))
+            route.logPresented()
+            return
+        }
         // A sheet requested mid-launch can be dropped, so retry until a modal is actually up.
         for attempt in 0..<10 {
             try? await Task.sleep(for: .milliseconds(attempt == 0 ? 1800 : 3500))
-            if QARoute.modalIsPresented { route.logPresented(); return }
-            quickAction = nil
-            routedPillar = nil
+            // The workout routes are presented by the journey cover, whatever else (the lift flow the demo data resumes) is up.
+            let presented = target == .startWorkout || target == .liveWorkout ? journey != nil : QARoute.modalIsPresented
+            if presented { route.logPresented(); return }
+            if target != .startWorkout, target != .liveWorkout {
+                quickAction = nil
+                routedPillar = nil
+            }
             try? await Task.sleep(for: .milliseconds(400))
             switch target {
             case .updates: routedPillar = .updates
@@ -222,12 +276,47 @@ struct RootTabView: View {
             case .breathe: quickAction = .breathe
             case .journal: quickAction = .journal
             case .intervals: quickAction = .intervals
-            case .startWorkout: quickAction = .workout
-            case .liveWorkout: quickAction = .activeWorkout
+            case .startWorkout: router.beginWorkout()
+            case .liveWorkout: router.openActiveWorkout()
+            case .workoutMinimized: break
             }
         }
     }
     #endif
+
+    /// Opens the journey. A cover on the root fails silently while any screen below it presents something, so everything
+    /// is closed first (`ShellModalCollapse`) and the cover presents once nothing is up.
+    private func presentJourney(_ start: WorkoutJourneyStart) {
+        // Already up: only the live screen is ever re-requested while it is open, and it is already where it should be.
+        guard journey == nil else { return }
+        ShellModalCollapse.run(
+            clearShellState: {
+                quickAction = nil
+                showDevices = false
+                routedPillar = nil
+                showLift = false
+                router.collapseModals()
+            },
+            then: {
+                if journey == nil { journey = WorkoutJourneyEntry(start: start) }
+            })
+    }
+
+    /// What was waiting for the cover to close: the lift flow, then a destination someone asked for meanwhile.
+    private func journeyDidDismiss() {
+        if liftAfterJourney {
+            liftAfterJourney = false
+            openLift()
+        }
+        if let destination = pendingDestinationAfterJourney {
+            pendingDestinationAfterJourney = nil
+            router.requestedDestination = destination
+        }
+    }
+
+    private var shellToastPresented: Binding<Bool> {
+        Binding(get: { router.shellToast != nil }, set: { if !$0 { router.shellToast = nil } })
+    }
 
     /// The lift Live Activity's deep link. Any shell sheet already up is closed first, then the Lift flow
     /// opens and (because it lands on its start screen) resumes the active session on its own.
@@ -255,7 +344,7 @@ struct RootTabView: View {
     private func pillarScreen(_ destination: NavRouter.Destination) -> some View {
         // Routed pillars are modal sheets: no system navigation bar and no pinned app chrome, just the
         // screen's own header with one close button. Screens that already draw their own close keep it.
-        let ownsClose = destination == .rhythm || destination == .updates || destination == .activeWorkout
+        let ownsClose = destination == .rhythm || destination == .updates
         NavigationStack {
             Group {
                 switch destination {
@@ -265,7 +354,8 @@ struct RootTabView: View {
                 case .rhythm: RhythmHost(onClose: { routedPillar = nil })
                 case .devices: DevicesView()
                 case .trends: TrendsView()
-                case .activeWorkout: LiveWorkoutView(onClose: { routedPillar = nil })
+                // The running workout is the journey's, never a routed sheet; kept so the switch stays exhaustive.
+                case .activeWorkout: EmptyView()
                 case .liveSession: TodayView()
                 case .settings: SettingsView()
                 case .updates: UpdatesInboxView(onClose: { routedPillar = nil })
@@ -284,20 +374,20 @@ struct RootTabView: View {
     private func quickActionDestination(_ action: QuickAction) -> some View {
         switch action {
         case .menu:
-            QuickActionSheet { picked in
+            QuickActionSheet(onPick: { picked in
                 quickAction = nil
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
                     withAnimation(Self.sheetEase) { quickAction = picked }
                 }
-            }
+            }, onWorkout: { active in
+                // The journey opens after this sheet is gone (`.sheet(item:onDismiss:)` above).
+                pendingJourneyAfterQuickActions = active ? .live : .setup(initialSport: nil)
+                quickAction = nil
+            })
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
         case .live:
             quickScreen(LiveView())
-        case .activeWorkout:
-            quickScreen(LiveWorkoutView(onClose: { quickAction = nil }), ownsClose: true)
-        case .workout:
-            QuickWorkoutFlow(onClose: { quickAction = nil })
         case .journal:
             quickScreen(CoachingRootView())
         case .breathe:
@@ -432,35 +522,16 @@ private struct ActiveSessionAutoPresenter: View {
 }
 
 private enum QuickAction: Int, Identifiable {
-    case menu, live, activeWorkout, workout, journal, breathe, intervals
+    case menu, live, journal, breathe, intervals
     var id: Int { rawValue }
-}
-
-/// The quick-action route is intentionally separate from the history screen. It observes only the active
-/// workout state it needs, chooses a sport once, and then replaces itself with the existing live workout.
-private struct QuickWorkoutFlow: View {
-    @EnvironmentObject private var model: AppModel
-    @EnvironmentObject private var live: LiveState
-    let onClose: () -> Void
-    var body: some View {
-        Group {
-            if model.activeWorkout != nil {
-                LiveWorkoutView(onClose: onClose)
-            } else {
-                StartWorkoutSheet(dismissAfterStart: false) { sport in
-                    model.startWorkout(sport: sport)
-                }
-            }
-        }
-        .onChange(of: model.activeWorkout == nil) { _, gone in
-            if gone { onClose() }
-        }
-    }
 }
 
 private struct QuickActionSheet: View {
     let onPick: (QuickAction) -> Void
+    /// The workout row: `active` is whether a workout is already recording (the row then returns to it).
+    let onWorkout: (_ active: Bool) -> Void
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var model: AppModel
 
     var body: some View {
         VStack(spacing: 0) {
@@ -489,8 +560,13 @@ private struct QuickActionSheet: View {
                 LazyVStack(spacing: 0) {
                     row("Live HR", subtitle: "Start live heart rate", icon: "heart.fill",
                         tint: StrandPalette.liveRed) { onPick(.live) }
-                    row("Start workout", subtitle: "Track a workout", icon: "figure.run",
-                        tint: StrandPalette.ink) { onPick(.workout) }
+                    if let active = model.activeWorkout {
+                        row("Return to workout", subtitle: "\(WorkoutSource.displaySport(active.sport)) · in progress",
+                            icon: "figure.run", tint: StrandPalette.ink) { onWorkout(true) }
+                    } else {
+                        row("Start workout", subtitle: "Track a workout", icon: "figure.run",
+                            tint: StrandPalette.ink) { onWorkout(false) }
+                    }
                     row("Log journal", subtitle: "How are you feeling?", icon: "square.and.pencil",
                         tint: StrandPalette.journalAccent) { onPick(.journal) }
                     row("Breathe", subtitle: "Guided breathing", icon: "wind",
