@@ -408,8 +408,10 @@ struct HealthMetricTrendView: View {
     @EnvironmentObject private var repo: Repository
     @AppStorage(UnitPrefs.systemKey) private var unitSystemRaw = UnitSystem.metric.rawValue
     @AppStorage(UnitPrefs.temperatureKey) private var temperatureRaw = ""
-    /// Phone-imported daily steps and active energy, the fallback Trends and Today read when the strap has none.
+    /// What Today's cards read besides the strap's own daily row: the phone-imported daily steps and active energy, and
+    /// the on-device steps estimate a WHOOP 4.0 has instead of a measured count.
     @State private var appleByDay: [String: AppleDaily] = [:]
+    @State private var stepsEstByDay: [String: Double] = [:]
 
     private var temperatureUnit: TemperatureUnit {
         UnitPrefs.resolveTemperature(system: UnitSystem(rawValue: unitSystemRaw) ?? .metric, override: temperatureRaw)
@@ -422,22 +424,29 @@ struct HealthMetricTrendView: View {
             return BodyVitalSigns.trendPoints(
                 key: Self.vitalKey(metric), sourceRows: repo.vitalMetricRows, temperatureUnit: temperatureUnit)
         case .steps:
-            return Self.merged(repo.days, appleByDay) { $0.steps.map(Double.init) } phone: { $0.steps.map(Double.init) }
+            // The order of Today's Steps card: the strap's count, else the phone's, else the on-device estimate.
+            return Self.merged(repo.days, appleByDay, stepsEstByDay) { strap, phone, estimate in
+                strap?.steps.map(Double.init) ?? phone?.steps.map(Double.init) ?? estimate
+            }
         case .calories:
-            return Self.merged(repo.days, appleByDay) { $0.activeKcalEst } phone: { $0.activeKcal }
+            // The order of Today's Calories card: the phone's active energy, else the strap's estimate.
+            return Self.merged(repo.days, appleByDay, [:]) { strap, phone, _ in
+                phone?.activeKcal ?? strap?.activeKcalEst
+            }
         default:
             return []
         }
     }
 
-    /// One value per day, oldest first: the strap's own, else the phone's, the same order Trends and Today use.
+    /// One value per day, oldest first, picked from the strap's row, the phone's row and an estimate in the order the
+    /// caller's Today card uses, so the page opens on the number the card showed.
     private static func merged(
-        _ days: [DailyMetric], _ apple: [String: AppleDaily],
-        strap: (DailyMetric) -> Double?, phone: (AppleDaily) -> Double?
+        _ days: [DailyMetric], _ apple: [String: AppleDaily], _ estimate: [String: Double],
+        pick: (DailyMetric?, AppleDaily?, Double?) -> Double?
     ) -> [(day: String, value: Double)] {
         let strapByDay = Dictionary(days.map { ($0.day, $0) }, uniquingKeysWith: { _, last in last })
-        return Set(strapByDay.keys).union(apple.keys).sorted().compactMap { day in
-            (strapByDay[day].flatMap(strap) ?? apple[day].flatMap(phone)).map { (day, $0) }
+        return Set(strapByDay.keys).union(apple.keys).union(estimate.keys).sorted().compactMap { day in
+            pick(strapByDay[day], apple[day], estimate[day]).map { (day, $0) }
         }
     }
 
@@ -490,6 +499,10 @@ struct HealthMetricTrendView: View {
             guard metric == .steps || metric == .calories else { return }
             let rows = await repo.appleDailyRows()
             appleByDay = Dictionary(rows.map { ($0.day, $0) }, uniquingKeysWith: { _, last in last })
+            if metric == .steps {
+                let estimate = await repo.exploreSeries(key: "steps_est", source: "my-whoop")
+                stepsEstByDay = Dictionary(estimate.map { ($0.day, $0.value.rounded()) }, uniquingKeysWith: { _, last in last })
+            }
         }
     }
 
