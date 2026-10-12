@@ -35,28 +35,31 @@ public struct DeviceRegistryStore: Sendable {
 
     /// I1: prove the target exists, then promote it and demote the previous active row atomically.
     public func setActive(_ id: String) throws {
-        try dbQueue.write { db in
-            guard let status = try String.fetchOne(
-                db,
-                sql: "SELECT status FROM pairedDevice WHERE id = ?",
-                arguments: [id]
-            ) else {
-                throw DeviceLifecycleStoreError.unknownDevice(id)
-            }
-            guard status != "archived" else {
-                throw DeviceLifecycleStoreError.archivedDevice(id)
-            }
-            try db.execute(sql: """
-                UPDATE pairedDevice
-                SET status = CASE
-                        WHEN id = ? THEN 'active'
-                        WHEN status = 'active' THEN 'paired'
-                        ELSE status
-                    END,
-                    lastSeenAt = CASE WHEN id = ? THEN ? ELSE lastSeenAt END
-                WHERE id = ? OR status = 'active'
-                """, arguments: [id, id, Int(Date().timeIntervalSince1970), id])
+        let now = Int(Date().timeIntervalSince1970)
+        try dbQueue.write { db in try Self.promote(db, id: id, now: now) }
+    }
+
+    private static func promote(_ db: Database, id: String, now: Int) throws {
+        guard let status = try String.fetchOne(
+            db,
+            sql: "SELECT status FROM pairedDevice WHERE id = ?",
+            arguments: [id]
+        ) else {
+            throw DeviceLifecycleStoreError.unknownDevice(id)
         }
+        guard status != "archived" else {
+            throw DeviceLifecycleStoreError.archivedDevice(id)
+        }
+        try db.execute(sql: """
+            UPDATE pairedDevice
+            SET status = CASE
+                    WHEN id = ? THEN 'active'
+                    WHEN status = 'active' THEN 'paired'
+                    ELSE status
+                END,
+                lastSeenAt = CASE WHEN id = ? THEN ? ELSE lastSeenAt END
+            WHERE id = ? OR status = 'active'
+            """, arguments: [id, id, now, id])
     }
 
     public func archive(_ id: String) throws {
@@ -73,30 +76,64 @@ public struct DeviceRegistryStore: Sendable {
 
     /// Adopt (or clear) the stable BLE identity for a registry row. `peripheralId` is the
     /// CBPeripheral.identifier.uuidString on iOS/Mac; passing nil un-adopts it.
+    ///
+    /// CC-4: every historical offload start calls this on the main actor. The unchanged case (nearly every
+    /// call) is answered from a pool reader, which never waits behind the single writer; only a real
+    /// identity change opens a write transaction, which re-checks the value inside it.
     @discardableResult
     public func setPeripheralId(_ id: String, peripheralId: String?) throws -> Bool {
-        try dbQueue.write { db in
-            let previous = try String.fetchOne(
-                db,
-                sql: "SELECT peripheralId FROM pairedDevice WHERE id = ?",
-                arguments: [id]
-            )
-            guard previous != peripheralId else { return false }
-            // Any physical identity transition is a new history lineage, including first adoption from
-            // the legacy no-peripheral state. The old samples remain readable, but a trim from the old
-            // physical source must never suppress a fresh source's offload.
-            try db.execute(
-                sql: """
-                    UPDATE pairedDevice
-                    SET historyLineage = ?, historyCursorEpoch = historyCursorEpoch + 1
-                    WHERE id = ?
-                    """,
-                arguments: [UUID().uuidString, id]
-            )
-            try db.execute(sql: "UPDATE pairedDevice SET peripheralId = ? WHERE id = ?",
-                           arguments: [peripheralId, id])
-            return true
+        let stored = try dbQueue.read { db in try Self.peripheralId(db, id: id) }
+        guard stored != peripheralId else { return false }
+        return try dbQueue.write { db in try Self.adopt(db, id: id, peripheralId: peripheralId) }
+    }
+
+    private static func peripheralId(_ db: Database, id: String) throws -> String? {
+        try String.fetchOne(db, sql: "SELECT peripheralId FROM pairedDevice WHERE id = ?", arguments: [id])
+    }
+
+    private static func adopt(_ db: Database, id: String, peripheralId: String?) throws -> Bool {
+        guard try Self.peripheralId(db, id: id) != peripheralId else { return false }
+        // Any physical identity transition is a new history lineage, including first adoption from
+        // the legacy no-peripheral state. The old samples remain readable, but a trim from the old
+        // physical source must never suppress a fresh source's offload.
+        try db.execute(
+            sql: """
+                UPDATE pairedDevice
+                SET historyLineage = ?, historyCursorEpoch = historyCursorEpoch + 1
+                WHERE id = ?
+                """,
+            arguments: [UUID().uuidString, id]
+        )
+        try db.execute(sql: "UPDATE pairedDevice SET peripheralId = ? WHERE id = ?",
+                       arguments: [peripheralId, id])
+        return true
+    }
+
+    // MARK: - Async variants (CC-4)
+    //
+    // The same operations without blocking the calling thread on the pool's serial writer. Main-actor
+    // callers (DeviceRegistry, BLEManager) adopt these in A2-3; the synchronous forms stay until then.
+
+    public func addAsync(_ d: PairedDevice) async throws {
+        try await dbQueue.write { db in try Self.upsert(db, d) }
+    }
+
+    public func setActiveAsync(_ id: String) async throws {
+        let now = Int(Date().timeIntervalSince1970)
+        try await dbQueue.write { db in try Self.promote(db, id: id, now: now) }
+    }
+
+    public func renameAsync(_ id: String, nickname: String?) async throws {
+        try await dbQueue.write { db in
+            try db.execute(sql: "UPDATE pairedDevice SET nickname = ? WHERE id = ?", arguments: [nickname, id])
         }
+    }
+
+    @discardableResult
+    public func setPeripheralIdAsync(_ id: String, peripheralId: String?) async throws -> Bool {
+        let stored = try await dbQueue.read { db in try Self.peripheralId(db, id: id) }
+        guard stored != peripheralId else { return false }
+        return try await dbQueue.write { db in try Self.adopt(db, id: id, peripheralId: peripheralId) }
     }
 
     /// Stable lineage used to scope historical trim receipts. It changes when the adopted physical
