@@ -117,6 +117,7 @@ final class AppModelWorkoutJourneyTests: XCTestCase {
         XCTAssertTrue(m.discardWorkout())
         XCTAssertNil(ActiveWorkoutPersistence.load())
         XCTAssertNil(ActiveGpsWorkoutPersistence.load())
+        XCTAssertNil(ActiveWorkoutPauseStore.load(sessionID: workout.sessionID))
     }
 
     func testDiscardIsRefusedWhileASaveIsRunning() {
