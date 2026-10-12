@@ -47,7 +47,8 @@ struct NOOPLiveActivity: Widget {
                             sport: context.state.sport ?? "Workout",
                             startedAt: context.state.workoutStartedAt,
                             pausedAt: context.state.pausedAt,
-                            frozenAt: context.state.frozenAt)
+                            frozenAt: context.state.frozenAt,
+                            isEnding: context.state.finishing)
                     } else {
                         NOOPDynamicIslandHeartRateView(bpm: context.state.bpm, maxHR: liveMaxHR(context.state))
                     }

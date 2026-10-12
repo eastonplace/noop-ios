@@ -1,5 +1,6 @@
 import XCTest
 import StrandAnalytics
+import StrandDesign
 @testable import NOOP
 
 /// Today's "Workout in progress" card counts the time the workout ran, like the live screen and the Lock Screen: it stands
@@ -120,5 +121,25 @@ final class ActiveWorkoutIndicatorPauseTests: XCTestCase {
         XCTAssertTrue(model.isPaused)
         w.freeze(at: nil)
         XCTAssertFalse(w.isEnding, "a finish with nothing to save lifts it again")
+    }
+
+    /// Every live-workout indicator (Today's dot, the live screen's eyebrow, the Lock Screen card's eyebrow and the expanded
+    /// island's) asks `NOOPLiveWorkoutPulse`, so none can pulse "recording" next to the Ending pill that another has stopped.
+    func testNothingPulsesAsRecordingWhileEndingOrPaused() throws {
+        let w = workout()
+        let running = try XCTUnwrap(ActiveWorkoutIndicatorModel.make(from: w))
+        XCTAssertTrue(NOOPLiveWorkoutPulse.isActive(isPaused: running.isPaused, isEnding: running.isEnding))
+        XCTAssertTrue(w.setPaused(true, at: t(60)))
+        let paused = try XCTUnwrap(ActiveWorkoutIndicatorModel.make(from: w))
+        XCTAssertFalse(NOOPLiveWorkoutPulse.isActive(isPaused: paused.isPaused, isEnding: paused.isEnding))
+        XCTAssertTrue(w.setPaused(false, at: t(90)))
+        w.freeze(at: t(120))
+        let ending = try XCTUnwrap(ActiveWorkoutIndicatorModel.make(from: w))
+        XCTAssertFalse(NOOPLiveWorkoutPulse.isActive(isPaused: ending.isPaused, isEnding: ending.isEnding),
+                       "Today's dot, with the Ending pill beside it")
+        XCTAssertFalse(NOOPLiveWorkoutPulse.isActive(isPaused: false, isEnding: true, isStale: false),
+                       "the island eyebrow")
+        XCTAssertFalse(NOOPLiveWorkoutPulse.isActive(isPaused: false, isEnding: false, isStale: true),
+                       "a card whose reading has gone stale is not news from a live strap")
     }
 }

@@ -372,7 +372,7 @@ struct Component41QAShot: View {
         VStack(spacing: 10) {
             HStack(alignment: .firstTextBaseline) {
                 NOOPDynamicIslandIdentityView(sport: "Outdoor Run", startedAt: startedAt, pausedAt: pausedAt,
-                                              frozenAt: frozenAt)
+                                              frozenAt: frozenAt, isEnding: finishing)
                 Spacer(minLength: 8)
                 NOOPDynamicIslandVitalsView(bpm: bpm, strain: 6.8, building: false, maxHR: maxHR,
                                             isDimmed: pausedAt != nil || stale)

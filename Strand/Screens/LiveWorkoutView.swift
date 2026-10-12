@@ -105,7 +105,7 @@ private struct LiveWorkoutHeader: View {
         HStack(spacing: NoopMetrics.space2) {
             EyebrowPulseIcon(systemName: paused ? "pause.fill" : "waveform.path.ecg",
                              color: paused ? StrandPalette.statusWarning : StrandPalette.liveRed,
-                             pulses: !paused && !ending)
+                             pulses: NOOPLiveWorkoutPulse.isActive(isPaused: paused, isEnding: ending))
             Text(title)
                 .strandOverlineFitted()
                 .lineLimit(2)

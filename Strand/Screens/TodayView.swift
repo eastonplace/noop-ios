@@ -111,7 +111,7 @@ private struct ActiveWorkoutIndicatorCard: View {
                 HStack(alignment: .firstTextBaseline, spacing: NoopMetrics.space2) {
                     // Decorative "live" dot, hidden from VoiceOver (the card itself reads the full state).
                     MicroStatusDot(color: model.isPaused ? StrandPalette.statusWarning : StrandPalette.metricRose,
-                                   isActive: !model.isPaused)
+                                   isActive: NOOPLiveWorkoutPulse.isActive(isPaused: model.isPaused, isEnding: model.isEnding))
                     Text("WORKOUT IN PROGRESS")
                         .font(StrandFont.overline)
                         .tracking(StrandFont.overlineTracking)

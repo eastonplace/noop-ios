@@ -36,6 +36,16 @@ struct LivePill: View {
     }
 }
 
+/// Whether a live-workout indicator (the eyebrow glyph or a status dot) pulses as "recording". One rule for every surface:
+/// the in-app header, Today's card, the Lock Screen card and the expanded island. A paused workout is not recording, a
+/// pending finish has stopped recording (the Ending pill says so beside it), and a reading that has gone stale is not
+/// news from a live strap.
+public enum NOOPLiveWorkoutPulse {
+    public static func isActive(isPaused: Bool, isEnding: Bool, isStale: Bool = false) -> Bool {
+        !isPaused && !isEnding && !isStale
+    }
+}
+
 /// "Ending": the workout was ended and is saving, or the save failed and is waiting for a retry. Drawn where "Paused" is, so
 /// a frozen clock and a Pause button that has gone quiet are explained, on the Lock Screen card and in the expanded island.
 public struct NOOPLiveEndingPill: View {
@@ -187,7 +197,7 @@ public struct NOOPWorkoutLiveActivityView<Control: View>: View {
         HStack(spacing: 8) {
             EyebrowPulseIcon(systemName: isPaused ? "pause.fill" : "waveform.path.ecg",
                              color: isPaused ? StrandPalette.statusWarning : StrandPalette.liveRed,
-                             pulses: !isPaused && !isStale && !isEnding)
+                             pulses: NOOPLiveWorkoutPulse.isActive(isPaused: isPaused, isEnding: isEnding, isStale: isStale))
             Text(verbatim: title).textCase(.uppercase)
                 .font(StrandFont.overline).tracking(1.2)
                 .foregroundStyle(StrandPalette.textSecondary).lineLimit(1)
@@ -328,18 +338,22 @@ public struct NOOPDynamicIslandIdentityView: View {
     public let pausedAt: Date?
     /// Set while the workout is being ended: the clock stops here.
     public let frozenAt: Date?
-    public init(sport: String, startedAt: Date?, pausedAt: Date? = nil, frozenAt: Date? = nil) {
+    /// The finish is pending: the eyebrow stops pulsing, as the card's and the in-app header's do, so nothing here
+    /// signals a live recording next to the Ending pill.
+    public let isEnding: Bool
+    public init(sport: String, startedAt: Date?, pausedAt: Date? = nil, frozenAt: Date? = nil, isEnding: Bool = false) {
         self.sport = sport
         self.startedAt = startedAt
         self.pausedAt = pausedAt
         self.frozenAt = frozenAt
+        self.isEnding = isEnding
     }
     public var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             HStack(spacing: 5) {
                 EyebrowPulseIcon(systemName: pausedAt == nil ? "waveform.path.ecg" : "pause.fill",
                                  color: pausedAt == nil ? StrandPalette.liveRed : StrandPalette.statusWarning,
-                                 pulses: pausedAt == nil)
+                                 pulses: NOOPLiveWorkoutPulse.isActive(isPaused: pausedAt != nil, isEnding: isEnding))
                 Text(verbatim: sport).textCase(.uppercase)
                     .font(StrandFont.overline).tracking(1.0)
                     .foregroundStyle(StrandPalette.textSecondary).lineLimit(1)
