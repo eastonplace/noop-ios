@@ -10,6 +10,8 @@ import SwiftUI
 public enum GlanceMetricLayout {
     /// The size of every secondary numeral.
     public static let secondaryPointSize: CGFloat = 56
+    /// The size of the numeral that heads a page of its own (the heart page's bpm).
+    public static let pagePointSize: CGFloat = 96
 
     /// How far a frozen number steps back while the workout is paused, and a reading whose source has gone quiet. Every metric
     /// on the screen uses these, so a paused workout dims as one piece.
@@ -39,6 +41,18 @@ public struct GlanceMetricView: View {
         case focus
         /// One of the row beneath it.
         case secondary
+        /// The one number of a page that is not the focus page (the heart page's bpm).
+        case page
+    }
+
+    /// A word beside the numeral, on its baseline, in its own colour: the zone the heart rate is in.
+    public struct Accessory: Sendable {
+        public let text: String
+        public let color: Color
+        public init(_ text: String, color: Color) {
+            self.text = text
+            self.color = color
+        }
     }
 
     /// How current the number is. A reading whose source has gone quiet keeps its last number, quieter.
@@ -67,14 +81,16 @@ public struct GlanceMetricView: View {
     private let micro: String?
     private let spokenLabel: String?
     private let spokenValue: String?
+    private let accessory: Accessory?
 
     /// - Parameters:
     ///   - eyebrow: What the number is, with its unit ("Distance · km"); drawn in capitals.
     ///   - value: The number as shown, or `WidgetMetrics.missingValue` while there is none.
     ///   - micro: A line under the number ("avg 6:13", "no signal").
     ///   - spokenLabel / spokenValue: What VoiceOver reads, when the drawn text is not enough ("Distance" / "5.49 kilometres").
+    ///   - accessory: A word to set beside the numeral ("Push" in the zone's colour).
     public init(eyebrow: String, value: String, size: Size = .focus, state: State = .live, micro: String? = nil,
-                spokenLabel: String? = nil, spokenValue: String? = nil) {
+                spokenLabel: String? = nil, spokenValue: String? = nil, accessory: Accessory? = nil) {
         self.eyebrow = eyebrow
         self.value = value
         self.size = size
@@ -82,6 +98,7 @@ public struct GlanceMetricView: View {
         self.micro = micro
         self.spokenLabel = spokenLabel
         self.spokenValue = spokenValue
+        self.accessory = accessory
     }
 
     private var isMissing: Bool { state == .missing || value == WidgetMetrics.missingValue }
@@ -90,7 +107,16 @@ public struct GlanceMetricView: View {
         switch size {
         case .focus: GlanceMetricLayout.focusPointSize(characterCount: value.count)
         case .secondary: GlanceMetricLayout.secondaryPointSize
+        case .page: GlanceMetricLayout.pagePointSize
         }
+    }
+
+    private var numeral: some View {
+        Text(verbatim: value)
+            .font(StrandFont.number(pointSize, weight: .bold))
+            .foregroundStyle(isMissing ? StrandPalette.textTertiary : StrandPalette.textPrimary)
+            .lineLimit(1)
+            .minimumScaleFactor(0.6)
     }
 
     public var body: some View {
@@ -99,11 +125,19 @@ public struct GlanceMetricView: View {
                 .strandOverlineFitted()
                 .lineLimit(2)
                 .fixedSize(horizontal: false, vertical: true)
-            Text(verbatim: value)
-                .font(StrandFont.number(pointSize, weight: .bold))
-                .foregroundStyle(isMissing ? StrandPalette.textTertiary : StrandPalette.textPrimary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.6)
+            if let accessory {
+                HStack(alignment: .lastTextBaseline, spacing: NoopMetrics.space3) {
+                    numeral
+                    Text(verbatim: accessory.text)
+                        .font(StrandFont.title2)
+                        .foregroundStyle(accessory.color)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                        .layoutPriority(1)
+                }
+            } else {
+                numeral
+            }
             if let micro {
                 Text(verbatim: micro)
                     .foregroundStyle(StrandPalette.textTertiary)
@@ -114,7 +148,7 @@ public struct GlanceMetricView: View {
         .opacity(state.opacity)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(verbatim: spokenLabel ?? eyebrow))
-        .accessibilityValue(Text(verbatim: spokenValue ?? [isMissing ? nil : value, micro].compactMap { $0 }.joined(separator: ", ")))
+        .accessibilityValue(Text(verbatim: spokenValue ?? [isMissing ? nil : value, accessory?.text, micro].compactMap { $0 }.joined(separator: ", ")))
         .accessibilityAddTraits(.updatesFrequently)
     }
 }

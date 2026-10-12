@@ -178,7 +178,7 @@ public struct LiveZoneRail: View {
 
 /// Lays its children side by side, each as wide as its weight's share of the row. The rail and its legend use the same
 /// weights, so every word sits under the start of its own zone.
-private struct ProportionalRow: Layout {
+struct ProportionalRow: Layout {
     let weights: [Double]
     let spacing: CGFloat
 
