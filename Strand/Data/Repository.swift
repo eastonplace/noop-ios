@@ -431,6 +431,17 @@ final class Repository: ObservableObject {
     /// against an in-memory `WhoopStore` without touching the on-disk path. DEBUG-only test seam.
     func setStoreForTesting(_ s: WhoopStore) { self.store = s }
 
+    /// DL-03: where edited days wait for their background rescore. Tests inject their own queue.
+    var editedDayRescoreQueue = EditedDayRescoreQueue.shared
+
+    /// DL-03: queue edited timestamps for the background rescore, which republishes the rescored range here
+    /// (the engine's own closing refresh is current-day, and the splice keeps older cached days).
+    private func enqueueEditedDays(_ timestamps: [Int]) {
+        editedDayRescoreQueue.enqueue(timestamps) { [weak self] days in
+            _ = await self?.refresh(.recentDashboard(days: days))
+        }
+    }
+
     /// Deterministic test seam for the authoritative exact-day Sleep read. It exercises the database-failure
     /// branch without scheduler timing or a damaged shared database. Production always uses `.database`.
     enum TodayHealthSnapshotSleepReadOverride: Equatable {
@@ -3325,7 +3336,7 @@ final class Repository: ObservableObject {
                     store: store,
                     wakeTimestamps: [oldEndTs, safeEndTs]
                 )
-                EditedDayRescoreQueue.shared.enqueue([oldEndTs, safeEndTs])
+                enqueueEditedDays([oldEndTs, safeEndTs])
                 return
             }
         } catch {
@@ -3356,7 +3367,7 @@ final class Repository: ObservableObject {
             wakeTimestamps: [oldEndTs, safeEndTs]
         )
         // DL-03: rescore both the old and the new wake day, not only today.
-        EditedDayRescoreQueue.shared.enqueue([oldEndTs, safeEndTs])
+        enqueueEditedDays([oldEndTs, safeEndTs])
         await invalidateTodayHealthSnapshot()
         // DL-09: a user edit publishes through the typed refresh and the publication fence, so it can't tear a
         // HealthKit or historical generation or supersede the fence owner's refresh.
@@ -3416,7 +3427,7 @@ final class Repository: ObservableObject {
             store: store,
             wakeTimestamps: affectedWakeTimestamps
         )
-        EditedDayRescoreQueue.shared.enqueue(affectedWakeTimestamps)
+        enqueueEditedDays(affectedWakeTimestamps)
         await invalidateTodayHealthSnapshot()
         // DL-09: a user edit publishes through the typed refresh and the publication fence, so it can't tear a
         // HealthKit or historical generation or supersede the fence owner's refresh.
@@ -3458,7 +3469,7 @@ final class Repository: ObservableObject {
             store: store,
             wakeTimestamps: [snapshot.session.endTs]
         )
-        EditedDayRescoreQueue.shared.enqueue([snapshot.session.endTs])
+        enqueueEditedDays([snapshot.session.endTs])
         await invalidateTodayHealthSnapshot()
         // DL-09: a user edit publishes through the typed refresh and the publication fence, so it can't tear a
         // HealthKit or historical generation or supersede the fence owner's refresh.
@@ -3566,7 +3577,7 @@ final class Repository: ObservableObject {
             store: store,
             wakeTimestamps: [safeEndTs]
         )
-        EditedDayRescoreQueue.shared.enqueue([safeEndTs])
+        enqueueEditedDays([safeEndTs])
         await invalidateTodayHealthSnapshot()
         // DL-09: a user edit publishes through the typed refresh and the publication fence, so it can't tear a
         // HealthKit or historical generation or supersede the fence owner's refresh.
@@ -4760,7 +4771,7 @@ final class Repository: ObservableObject {
         }
         _ = try? await store.upsertWorkouts([row], deviceId: deviceId)
         // DL-03: a workout's strain belongs to its day; rescore the old and the new day.
-        EditedDayRescoreQueue.shared.enqueue([row.endTs] + (old.map { [$0.endTs] } ?? []))
+        enqueueEditedDays([row.endTs] + (old.map { [$0.endTs] } ?? []))
     }
 
     /// Re-label a detected bout: copy it to a manual strap row with the chosen sport, then delete the
@@ -4775,7 +4786,7 @@ final class Repository: ObservableObject {
         _ = try? await store.upsertWorkouts([manual], deviceId: deviceId)
         _ = try? await store.deleteWorkouts(deviceId: computedDeviceId, sport: "detected",
                                             from: row.startTs, to: row.startTs)
-        EditedDayRescoreQueue.shared.enqueue([row.endTs])
+        enqueueEditedDays([row.endTs])
     }
 
     /// Dismiss a DETECTED bout the user says isn't a workout. Records its span in the durable dismissed
@@ -4789,7 +4800,7 @@ final class Repository: ObservableObject {
         guard let store = await ensureStore() else { return }
         _ = try? await store.deleteWorkouts(deviceId: computedDeviceId, sport: row.sport,
                                             from: row.startTs, to: row.startTs)
-        EditedDayRescoreQueue.shared.enqueue([row.endTs])
+        enqueueEditedDays([row.endTs])
     }
 
     /// Delete ONE workout by natural key. The read model has no deviceId, so reconstruct it from the
@@ -4800,7 +4811,7 @@ final class Repository: ObservableObject {
         guard let store = await ensureStore() else { return }
         _ = try? await store.deleteWorkouts(deviceId: deviceId, sport: row.sport,
                                             from: row.startTs, to: row.startTs)
-        EditedDayRescoreQueue.shared.enqueue([row.endTs])
+        enqueueEditedDays([row.endTs])
     }
 
     /// #64: merge two-or-more overlapping / adjacent MANUAL or DETECTED sessions into ONE manual session

@@ -117,12 +117,18 @@ extension IntelligenceAnalysisRequest {
 /// previous one wrote and a long range never runs as one uncancellable forced batch. It stops between chunks
 /// when cancelled (BG expiry) or once the app is in the background. A chunk that doesn't complete leaves the
 /// whole taken range queued, and edits that arrive mid-chunk stay queued for the next step.
+///
+/// The chunks don't publish one by one: the engine's closing refresh is current-day only, and the DL-01 splice
+/// keeps older cached days, so a rescored older night never reached Home. When the drain stops after at least
+/// one chunk it publishes one refresh covering the rescored range through the closure Repository enqueued with.
 @MainActor
 final class EditedDayRescoreQueue {
     static let shared = EditedDayRescoreQueue()
     static let chunkDays = 30
 
     typealias Analyze = @MainActor (IntelligenceAnalysisRequest) async -> Bool
+    /// Republishes the dashboard caches over the last `days` days (oldest rescored day through today).
+    typealias Publish = @MainActor (_ days: Int) async -> Void
 
     private(set) var timestamps: Set<Int> = []
     private let now: @MainActor () -> Date
@@ -130,6 +136,7 @@ final class EditedDayRescoreQueue {
     private let isBackgrounded: @MainActor () -> Bool
     private weak var analyzer: AnyObject?
     private var analyze: Analyze?
+    private var publish: Publish?
     private var drainTask: Task<Void, Never>?
     private var lastDrain: Task<Void, Never>?
     private var drainGeneration: UInt64 = 0
@@ -144,8 +151,9 @@ final class EditedDayRescoreQueue {
 
     var isDraining: Bool { drainTask != nil }
 
-    func enqueue(_ edited: [Int]) {
+    func enqueue(_ edited: [Int], publish: Publish? = nil) {
         timestamps.formUnion(edited.filter { $0 > 0 })
+        if let publish { self.publish = publish }
     }
 
     /// Removes and returns everything queued and stops any drain. Tests reset the shared queue with it.
@@ -189,17 +197,28 @@ final class EditedDayRescoreQueue {
     }
 
     private func drain(generation: UInt64) async {
+        var rescoredSpan = 0
         while generation == drainGeneration, !timestamps.isEmpty, let analyze, analyzer != nil {
-            if Task.isCancelled || isBackgrounded() { return }
+            if Task.isCancelled || isBackgrounded() { break }
             let taken = timestamps
             guard let chunk = IntelligenceAnalysisRequest.editedDayChunk(
                 containingTimestamps: taken, chunkDays: Self.chunkDays, now: now(), calendar: calendar()) else {
                 timestamps.subtract(taken)
                 continue
             }
-            guard await analyze(chunk.request) else { return }
+            let request = IntelligenceAnalysisRequest(
+                maxDays: chunk.request.maxDays, startOffset: chunk.request.startOffset, force: true,
+                refreshRepository: publish == nil)
+            guard await analyze(request) else { break }
             timestamps.subtract(taken)
             if let next = chunk.remainderTimestamp { timestamps.insert(next) }
+            rescoredSpan = max(rescoredSpan, request.endOffsetExclusive)
+        }
+        if rescoredSpan > 0, !Task.isCancelled, let publish {
+            // An unstructured task inherits the disposition of whoever scheduled it; this publish is the drain's own.
+            await RepositoryRefreshContext.$disposition.withValue(.allow) {
+                await publish(rescoredSpan)
+            }
         }
     }
 }

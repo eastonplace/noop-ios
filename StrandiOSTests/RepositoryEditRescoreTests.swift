@@ -154,6 +154,62 @@ final class RepositoryEditRescoreTests: XCTestCase {
         XCTAssertEqual(queue.timestamps, [edited])
     }
 
+    func testTheDrainPublishesOnceOverTheWholeRescoredRange() async throws {
+        let calendar = try newYorkCalendar()
+        let now = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 10, day: 12, hour: 15)))
+        let edited = try XCTUnwrap(calendar.date(byAdding: .day, value: -69, to: now))
+        let queue = drainQueue(now: now, calendar: calendar)
+        let recorder = EditedDayAnalyzeRecorder()
+        queue.register(recorder) { request in
+            recorder.requests.append(request)
+            return true
+        }
+
+        queue.enqueue([Int(edited.timeIntervalSince1970)]) { days in recorder.published.append(days) }
+        queue.scheduleDrain()
+        await queue.waitForDrain()
+
+        XCTAssertEqual(recorder.requests.count, 3)
+        XCTAssertFalse(recorder.requests.contains(where: \.refreshRepository), "chunks don't publish one by one")
+        XCTAssertEqual(recorder.published, [70], "one publish from the oldest rescored day through today")
+    }
+
+    /// Review finding (rescored older days never reach the 30-day caches): the engine's closing refresh is
+    /// current-day and the DL-01 splice keeps older cached days, so a rescored night five days back kept its old
+    /// Recovery in Home until some unrelated 30-day refresh.
+    func testARescoredOlderDayReachesTheThirtyDayDashboard() async throws {
+        let store = try await WhoopStore.inMemory()
+        let computedId = Repository.whoopSource + "-noop"
+        let now = Date()
+        let keys = (0..<30).map { Repository.localDayKey(Repository.dateByAddingCalendarDays(-$0, to: now)) }
+        func row(_ day: String, recovery: Double) -> DailyMetric {
+            DailyMetric(day: day, totalSleepMin: 440, efficiency: 0.9, deepMin: 90, remMin: 100, lightMin: 250,
+                        disturbances: 3, restingHr: 52, avgHrv: 63, recovery: recovery, strain: 60,
+                        exerciseCount: 1, strainVersion: 2)
+        }
+        try await store.upsertDailyMetrics(keys.map { row($0, recovery: 70) }, deviceId: computedId)
+        let repository = Repository(deviceId: Repository.whoopSource)
+        repository.setStoreForTesting(store)
+        let queue = EditedDayRescoreQueue(isBackgrounded: { false })
+        repository.editedDayRescoreQueue = queue
+        let loaded = await repository.refresh(days: 30)
+        XCTAssertTrue(loaded)
+        // The rescore (stubbed here) rewrites the edited day's computed row and publishes nothing itself.
+        queue.register(self) { _ in
+            _ = try? await store.upsertDailyMetrics([row(keys[5], recovery: 41)], deviceId: computedId)
+            return true
+        }
+        let napEnd = Int(Repository.dateByAddingCalendarDays(-5, to: now).timeIntervalSince1970)
+
+        await repository.addManualNap(startTs: napEnd - 2_700, endTs: napEnd)
+        queue.scheduleDrain()
+        await queue.waitForDrain()
+
+        XCTAssertEqual(repository.days.first { $0.day == keys[5] }?.recovery, 41,
+                       "the rescored day five nights back stayed stale in the 30-day cache")
+        XCTAssertEqual(repository.days.count, 30)
+    }
+
     func testComputedDailyRowsReadThePersistedNoopRows() async throws {
         let store = try await WhoopStore.inMemory()
         let repository = Repository(deviceId: Repository.whoopSource)
@@ -174,4 +230,5 @@ final class RepositoryEditRescoreTests: XCTestCase {
 @MainActor
 private final class EditedDayAnalyzeRecorder {
     var requests: [IntelligenceAnalysisRequest] = []
+    var published: [Int] = []
 }
