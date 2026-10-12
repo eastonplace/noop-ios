@@ -133,11 +133,7 @@ extension WhoopStore {
     public func upsertSleepSessions(_ sessions: [CachedSleepSession], deviceId: String) async throws -> Int {
         return try syncWrite { db in
             var n = 0
-            for s in sessions {
-                guard SleepSessionWindow.hasPlausibleBounds(start: s.effectiveStartTs, end: s.endTs) else {
-                    continue
-                }
-                try db.execute(sql: """
+            let statement = try db.cachedStatement(sql: """
                     INSERT INTO sleepSession
                         (deviceId, startTs, endTs, efficiency, restingHr, avgHrv, stagesJSON,
                          userEdited, startTsAdjusted)
@@ -160,7 +156,12 @@ extension WhoopStore {
                        OR sleepSession.avgHrv IS NOT excluded.avgHrv
                        OR sleepSession.stagesJSON IS NOT CASE WHEN sleepSession.userEdited THEN sleepSession.stagesJSON ELSE excluded.stagesJSON END
                        OR sleepSession.startTsAdjusted IS NOT CASE WHEN sleepSession.userEdited THEN sleepSession.startTsAdjusted ELSE excluded.startTsAdjusted END
-                    """, arguments: [deviceId, s.startTs, s.endTs, s.efficiency,
+                    """)
+            for s in sessions {
+                guard SleepSessionWindow.hasPlausibleBounds(start: s.effectiveStartTs, end: s.endTs) else {
+                    continue
+                }
+                try statement.execute(arguments: [deviceId, s.startTs, s.endTs, s.efficiency,
                                      s.restingHr, s.avgHrv, s.stagesJSON, s.userEdited, s.startTsAdjusted])
                 n += db.changesCount
             }
@@ -402,8 +403,7 @@ extension WhoopStore {
         _ days: [DailyMetric], deviceId: String, db: Database
     ) throws -> Int {
         var n = 0
-        for d in days {
-                try db.execute(sql: """
+        let statement = try db.cachedStatement(sql: """
                     INSERT INTO dailyMetric
                         (deviceId, day, totalSleepMin, efficiency, deepMin, remMin, lightMin,
                          disturbances, restingHr, avgHrv, recovery, strain, exerciseCount,
@@ -453,7 +453,9 @@ extension WhoopStore {
                        OR dailyMetric.spo2Red IS NOT COALESCE(excluded.spo2Red, dailyMetric.spo2Red)
                        OR dailyMetric.spo2Ir IS NOT COALESCE(excluded.spo2Ir, dailyMetric.spo2Ir)
                        OR dailyMetric.strainVersion IS NOT CASE WHEN dailyMetric.strainVersion = 2 AND COALESCE(excluded.strainVersion, 0) < 2 THEN dailyMetric.strainVersion ELSE excluded.strainVersion END
-                    """, arguments: [deviceId, d.day, d.totalSleepMin, d.efficiency, d.deepMin,
+                    """)
+        for d in days {
+                try statement.execute(arguments: [deviceId, d.day, d.totalSleepMin, d.efficiency, d.deepMin,
                                      d.remMin, d.lightMin, d.disturbances, d.restingHr, d.avgHrv,
                                      d.recovery, d.strain, d.exerciseCount,
                                      d.spo2Pct, d.skinTempDevC, d.respRateBpm,

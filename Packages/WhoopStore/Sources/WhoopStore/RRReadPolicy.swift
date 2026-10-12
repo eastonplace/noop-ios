@@ -26,6 +26,15 @@ public enum RRReadPolicy {
         RRSource(rawValue: raw ?? "") ?? .legacy
     }
 
+    /// `priority(for:)` as a SQL expression over a stored source column. An unknown or NULL label reads as
+    /// `.legacy`, exactly like `source(from:)`. Built from the same table, so the two can't drift.
+    static func sqlPriority(ofColumn column: String) -> String {
+        let arms = RRSource.allCases
+            .map { "WHEN '\($0.rawValue)' THEN \(priority(for: $0))" }
+            .joined(separator: " ")
+        return "(CASE \(column) \(arms) ELSE \(priority(for: .legacy)) END)"
+    }
+
     static func strictWhoop5(model: String?, brand: String?, tagged: Bool) -> Bool {
         if let brand, !brand.isEmpty, brand.lowercased() != "whoop" { return false }
         switch model?.lowercased() {

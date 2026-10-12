@@ -31,15 +31,16 @@ extension WhoopStore {
     public func upsertMetricSeries(_ rows: [MetricPoint], deviceId: String) async throws -> Int {
         try syncWrite { db in
             var n = 0
-            for r in rows {
-                try db.execute(sql: """
+            let statement = try db.cachedStatement(sql: """
                     INSERT INTO metricSeries
                         (deviceId, day, key, value)
                     VALUES (?, ?, ?, ?)
                     ON CONFLICT(deviceId, day, key) DO UPDATE SET
                         value = excluded.value
                     WHERE metricSeries.value IS NOT excluded.value
-                    """, arguments: [deviceId, r.day, r.key, r.value])
+                    """)
+            for r in rows {
+                try statement.execute(arguments: [deviceId, r.day, r.key, r.value])
                 n += db.changesCount
             }
             return n

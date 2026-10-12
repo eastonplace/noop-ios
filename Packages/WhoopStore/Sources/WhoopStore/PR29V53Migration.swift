@@ -74,11 +74,7 @@ public enum PR29V53Migrations {
                 ON historicalDataCommitJournal
                     (databaseInstanceId, deviceId, lineage, cursorEpoch, trimScope, generation)
                 """)
-            try db.execute(sql: """
-                CREATE INDEX idx_historicalDataCommitJournal_scope_generation_v40
-                ON historicalDataCommitJournal
-                    (databaseInstanceId, deviceId, lineage, cursorEpoch, trimScope, generation)
-                """)
+            // DL-15: no second `_v40` copy of the index above; StoreIndexHygieneMigration drops old copies.
 
             let sourceCount = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM historicalDataCommitJournal") ?? -1
             let duplicateCount = try Int.fetchOne(db, sql: """

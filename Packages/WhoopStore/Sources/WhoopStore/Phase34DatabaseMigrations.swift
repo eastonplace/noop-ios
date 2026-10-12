@@ -33,14 +33,8 @@ public enum Phase34DatabaseMigrations {
                     table.add(column: "explicitAffectedDaysJSON", .blob)
                 }
             }
-            try db.create(
-                index: "idx_historicalDataCommitJournal_scope_generation_v40",
-                on: "historicalDataCommitJournal",
-                columns: [
-                    "databaseInstanceId", "deviceId", "lineage", "cursorEpoch", "trimScope", "generation",
-                ],
-                options: [.ifNotExists]
-            )
+            // DL-15: this index duplicated idx_historicalDataCommitJournal_scope_generation. New installs skip
+            // it; StoreIndexHygieneMigration drops it where an earlier build created it.
         }
 
         migrator.registerMigration("v41-phase34-analysis-work") { db in
