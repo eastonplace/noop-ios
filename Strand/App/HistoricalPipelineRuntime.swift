@@ -61,6 +61,13 @@ struct HistoricalPipelineRuntimeResult: Equatable, Sendable {
     }
 }
 
+extension HistoricalPipelineRuntimeResult {
+    /// CORE-01: the pipeline's `commitOutbox` step enqueues widget, Live Activity and HealthKit rows but never
+    /// drains them, and the scene-bound drains don't run while the app is backgrounded. Every pass that
+    /// completed exact work may have committed outbox rows, so it must wake the external-publication worker.
+    var committedExternalPublicationWork: Bool { completedWork > 0 }
+}
+
 enum HistoricalPipelineRuntimeError: Error {
     case storeUnavailable
     case snapshotUnavailable
