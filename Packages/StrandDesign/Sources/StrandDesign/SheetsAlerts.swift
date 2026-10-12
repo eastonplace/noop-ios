@@ -263,6 +263,9 @@ public struct HoldToConfirmButton: View {
                 .contentTransition(.opacity)
         }
         .foregroundStyle(progress > 0.45 || contract.confirmed ? StrandPalette.surfaceRaised : style.tint)
+        // A capsule's ends curve in, so its label keeps the same inset the big action button's does: a long translation
+        // wraps or scales before it meets the curve. The bar's own label has always run edge to edge and still does.
+        .padding(.horizontal, style.shape == .capsule ? NoopMetrics.space5 : 0)
         .frame(maxWidth: .infinity, minHeight: style.height)
         .background {
             ZStack(alignment: .leading) {

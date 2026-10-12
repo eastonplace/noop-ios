@@ -70,6 +70,50 @@ final class HoldToConfirmLegacyLookTests: XCTestCase {
         }
     }
 
+    /// The red of the label and the stop glyph, found in a rendered button: the leftmost and rightmost columns that hold any.
+    private func inkBounds(_ view: some View, width: CGFloat, size: DynamicTypeSize) throws -> (left: CGFloat, right: CGFloat, frameWidth: CGFloat) {
+        let framed = view
+            .frame(width: width)
+            .padding(10)
+            .background(Color.black)
+            .environment(\.dynamicTypeSize, size)
+            .environment(\.colorScheme, .dark)
+        let renderer = ImageRenderer(content: framed)
+        renderer.scale = 2
+        let cg = try XCTUnwrap(renderer.cgImage)
+        let w = cg.width, h = cg.height
+        var data = [UInt8](repeating: 0, count: w * h * 4)
+        let context = try XCTUnwrap(CGContext(
+            data: &data, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+            space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
+        var left = w, right = -1
+        for y in 0..<h {
+            for x in 0..<w {
+                let i = (y * w + x) * 4
+                // The live red at full strength: the background fill is the same red at 12 percent, far darker.
+                if data[i] > 170, data[i + 1] < 90, data[i + 2] < 90 { left = min(left, x); right = max(right, x) }
+            }
+        }
+        return (CGFloat(left) / 2 - 10, CGFloat(right + 1) / 2 - 10, width)
+    }
+
+    /// German, Italian and Russian at the width of one of two side-by-side buttons, and German at AX5 stacked: the label
+    /// (and the stop glyph) stay clear of the capsule's curved ends.
+    func testTheBigEndLabelKeepsAnInsetFromTheCapsuleEnds() throws {
+        let cases: [(String, CGFloat, DynamicTypeSize)] = [
+            ("Zum Beenden halten", 165, .large),
+            ("Tieni premuto per terminare", 165, .large),
+            ("Удерживайте, чтобы завершить", 165, .large),
+            ("Zum Beenden halten", 343, .accessibility5),
+        ]
+        for (title, width, size) in cases {
+            let bounds = try inkBounds(HoldToConfirmButton(title: title, style: .glanceEnd, action: {}), width: width, size: size)
+            XCTAssertGreaterThanOrEqual(bounds.left, NoopMetrics.space5 - 1, "\(title) at \(size): the glyph starts at the curve")
+            XCTAssertLessThanOrEqual(bounds.right, width - NoopMetrics.space5 + 1, "\(title) at \(size): the label runs into the curve")
+        }
+    }
+
     func testTheBigEndStyleIsTallerThanTheBarAndNeverShrinksAtAccessibilitySizes() throws {
         let bar = try XCTUnwrap(pixels(HoldToConfirmButton(title: "Hold to end", style: .glanceEnd, action: {}),
                                        size: .large, scheme: .dark))
