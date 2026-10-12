@@ -73,11 +73,19 @@ struct LiveActivityFeed {
             passiveBPM: now.passiveBPM)
     }
 
-    /// The app's own verdict that the strap has gone quiet, so the activity dims the reading when the app does.
+    /// The app's own verdict that the strap has gone quiet, so the activity dims the reading when the app does. The same
+    /// function the live screen asks, with the same exemptions (a paused workout, a pending finish). The state the activity
+    /// is written with takes this verdict when it is built (`workoutState()`), never when an update was queued.
     var heartRateIsStale: Bool {
-        guard let workout = inputs().workout else { return false }
-        return LiveWorkoutSignals.heartRateIsStale(
-            lastReadingAt: workout.lastReadingAt, workoutStart: workout.start, isPaused: workout.isPaused, now: now())
+        let now = inputs()
+        guard let workout = now.workout else { return false }
+        return Self.heartRateIsStale(workout, finishPending: now.finishPending, at: self.now())
+    }
+
+    private static func heartRateIsStale(_ workout: AppModel.ActiveWorkout, finishPending: Bool, at date: Date) -> Bool {
+        LiveWorkoutSignals.heartRateIsStale(
+            lastReadingAt: workout.lastReadingAt, workoutStart: workout.start, isPaused: workout.isPaused,
+            isEnding: workout.isEnding || finishPending, now: date)
     }
 
     /// The workout as the activity shows it, or nil when none is running. Built when called: the controller calls it when
@@ -89,6 +97,9 @@ struct LiveActivityFeed {
         let edges = pauseEdgeGeneration()
         var state = projections.state(workout: workout, profile: profile)
         state.isFinishing = now.finishPending
+        // The quiet-strap verdict is taken here with the edge count: an update queued before the strap went quiet and
+        // written after must not carry the old verdict while clearing the edge raised for the new one.
+        state.heartRateIsStale = Self.heartRateIsStale(workout, finishPending: now.finishPending, at: self.now())
         state.pauseEdgeGeneration = edges
         return state
     }
@@ -100,7 +111,7 @@ struct LiveActivityFeed {
         liveActivity.update(
             bpm: bpm, recovery: recovery, connected: connected, effort: effort,
             verifiedContextId: verifiedContextId, verifiedProjectionGeneration: verifiedProjectionGeneration,
-            workoutIsActive: workoutIsActive, heartRateIsStale: heartRateIsStale,
+            workoutIsActive: workoutIsActive,
             workout: workoutState())
     }
 
@@ -110,7 +121,7 @@ struct LiveActivityFeed {
         try await liveActivity.publishVerified(
             projection: projection, expectedActiveContextId: expectedActiveContextId,
             bpm: bpm, recovery: recovery, connected: connected, effort: effort,
-            workoutIsActive: workoutIsActive, heartRateIsStale: heartRateIsStale,
+            workoutIsActive: workoutIsActive,
             workoutProjection: { self.workoutState() })
     }
 }

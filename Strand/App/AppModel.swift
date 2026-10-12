@@ -2042,6 +2042,9 @@ final class AppModel: ObservableObject {
         case running, paused, stale, indoor
         /// End was tried and the save failed: the clocks stand at the end a retry will use, and the screen says "Ending".
         case ending
+        /// The same, with the strap quiet since before End (no reading is taken while a finish is pending): the screen says
+        /// "Ending" and nothing else. A pending finish is not waiting for a reading, so it is never "no heart-rate signal".
+        case endingQuiet = "ending-quiet"
     }
 
     /// True for a fixture workout: nothing about it is written to disk, so a screenshot run can never leave a
@@ -2070,11 +2073,12 @@ final class AppModel: ObservableObject {
         let pauses = scenario == .paused
             ? WorkoutPauseLedger(openSince: Double(startTs + activeSeconds) + 0.5) : WorkoutPauseLedger()
         workout.restore(samples: readings, pauses: pauses)
-        workout.seedDemoLastReading(now.addingTimeInterval(scenario == .stale ? -47 : -2))
+        let quiet = scenario == .stale || scenario == .endingQuiet
+        workout.seedDemoLastReading(now.addingTimeInterval(quiet ? -47 : -2))
         activeWorkoutIsDemo = true
         activeWorkout = workout
         workoutFinishState = .recording
-        if scenario == .ending {
+        if scenario == .ending || scenario == .endingQuiet {
             // The state a failed End leaves: frozen at the moment End was tried, awaiting a retry.
             let stoppedAt = now.addingTimeInterval(-30)
             workout.freeze(at: stoppedAt)
@@ -2088,8 +2092,8 @@ final class AppModel: ObservableObject {
                                       paused: scenario == .paused, signalLost: scenario == .stale)
         }
         // A strap that keeps reporting, so a capture taken a while after launch is not a stale frame by accident.
-        // The stale scenario is the one fixture that deliberately goes quiet.
-        if scenario != .stale { startDemoHeartbeat(for: workout, from: activeSeconds) }
+        // The stale and quiet-ending scenarios are the fixtures that deliberately go quiet.
+        if !quiet { startDemoHeartbeat(for: workout, from: activeSeconds) }
         #endif
     }
 

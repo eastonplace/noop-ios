@@ -106,6 +106,18 @@ final class LiveWorkoutTilesTests: XCTestCase {
             "a paused workout is not waiting for a reading")
     }
 
+    func testAPendingFinishIsNeverStale() {
+        let start = Date(timeIntervalSince1970: 1_000_000)
+        let last = start.addingTimeInterval(600)
+        XCTAssertTrue(LiveWorkoutSignals.heartRateIsStale(
+            lastReadingAt: last, workoutStart: start, isPaused: false, isEnding: false, now: last.addingTimeInterval(600)))
+        XCTAssertFalse(LiveWorkoutSignals.heartRateIsStale(
+            lastReadingAt: last, workoutStart: start, isPaused: false, isEnding: true, now: last.addingTimeInterval(600)),
+            "a workout waiting to save has stopped counting; no reading is taken for it, so silence is not a strap fault")
+        XCTAssertFalse(LiveWorkoutSignals.heartRateIsStale(
+            lastReadingAt: nil, workoutStart: start, isPaused: false, isEnding: true, now: start.addingTimeInterval(600)))
+    }
+
     func testAWorkoutThatNeverHeardFromTheStrapIsStaleFromItsStart() {
         let start = Date(timeIntervalSince1970: 1_000_000)
         XCTAssertFalse(LiveWorkoutSignals.heartRateIsStale(

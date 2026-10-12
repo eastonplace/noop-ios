@@ -70,7 +70,7 @@ struct LiveWorkoutSignalReader<Content: View>: View {
             content(LiveWorkoutSignals.Snapshot(
                 heartRateIsStale: LiveWorkoutSignals.heartRateIsStale(
                     lastReadingAt: workout.lastReadingAt, workoutStart: workout.start,
-                    isPaused: workout.isPaused, now: context.date),
+                    isPaused: workout.isPaused, isEnding: workout.isEnding, now: context.date),
                 gps: tracksRoute ? recorder.signalState(now: context.date) : nil))
         }
     }

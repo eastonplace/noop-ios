@@ -129,6 +129,65 @@ final class LiveActivityFeedTests: XCTestCase {
         XCTAssertFalse(feed(Model()).heartRateIsStale)
     }
 
+    func testAPendingFinishIsNeverQuietOnTheFeedOrOnTheStateTheActivityIsWrittenWith() throws {
+        let model = Model()
+        let workout = running()
+        // The strap went quiet 5 minutes before End; the finish then failed and waits for a retry.
+        workout.noteReading(140, at: model.now.addingTimeInterval(-300))
+        model.workout = workout
+        XCTAssertTrue(feed(model).heartRateIsStale, "while it records, 5 minutes of quiet is a strap problem")
+        XCTAssertTrue(try XCTUnwrap(feed(model).workoutState()).heartRateIsStale)
+        workout.freeze(at: model.now)
+        model.finishPending = true
+        XCTAssertFalse(feed(model).heartRateIsStale, "the app shows no warning while Ending")
+        XCTAssertFalse(try XCTUnwrap(feed(model).workoutState()).heartRateIsStale,
+                       "so the Lock Screen and the island do not dim the heart either")
+        // The pending flag alone (the model's own word for it) is enough, whatever the workout object says.
+        workout.freeze(at: nil)
+        XCTAssertFalse(try XCTUnwrap(feed(model).workoutState()).heartRateIsStale)
+    }
+
+    func testTheQuietStrapVerdictIsTakenWhenTheStateIsBuiltNotWhenTheUpdateWasQueued() throws {
+        let model = Model()
+        let workout = running()
+        workout.noteReading(140, at: model.now.addingTimeInterval(-10))
+        model.workout = workout
+        var latch = PauseEdgeLatch()
+        // A verified publish is queued behind a write already in flight. Its state is built lazily, as the controller does:
+        // the closure is handed over now and called when the write is made.
+        let queued = feed(model)
+        let buildWhenWritten = { queued.workoutState() }
+        // Meanwhile the strap goes quiet; the 5 s check raises an edge for the new verdict.
+        model.now = model.now.addingTimeInterval(10)                  // 20 s since the last reading
+        latch.noteEdge()
+        model.edges = latch.generation
+        // The queued write is made now: it carries the verdict of this moment and the edge it clears, together.
+        let written = try XCTUnwrap(buildWhenWritten())
+        XCTAssertTrue(written.heartRateIsStale, "the verdict of the moment the state is built, not of the moment it was queued")
+        XCTAssertEqual(written.pauseEdgeGeneration, 1)
+        latch.delivered(builtAt: written.pauseEdgeGeneration)
+        XCTAssertFalse(latch.isPending, "the edge is cleared by a state that already carries what it was raised for")
+    }
+
+    func testAStateBuiltBeforeTheStrapWentQuietNeverClearsTheEdgeRaisedForIt() throws {
+        let model = Model()
+        let workout = running()
+        workout.noteReading(140, at: model.now.addingTimeInterval(-10))
+        model.workout = workout
+        var latch = PauseEdgeLatch()
+        let early = try XCTUnwrap(feed(model).workoutState())          // built before: not quiet, stamped 0
+        XCTAssertFalse(early.heartRateIsStale)
+        model.now = model.now.addingTimeInterval(10)
+        latch.noteEdge()
+        model.edges = latch.generation
+        latch.delivered(builtAt: early.pauseEdgeGeneration)
+        XCTAssertTrue(latch.isPending, "the old verdict cannot mark the new one delivered")
+        let late = try XCTUnwrap(feed(model).workoutState())
+        XCTAssertTrue(late.heartRateIsStale)
+        latch.delivered(builtAt: late.pauseEdgeGeneration)
+        XCTAssertFalse(latch.isPending)
+    }
+
     // MARK: Ending: every clock stops at the same moment
 
     func testAFinishingWorkoutCarriesTheMomentItStoppedAndAnchorsTheClockToIt() throws {

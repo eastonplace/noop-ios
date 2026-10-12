@@ -165,10 +165,12 @@ enum LiveWorkoutSignals {
     }
 
     /// Whether the heart-rate link has gone quiet. A paused workout is never stale: it is not waiting for anything,
-    /// and the last reading is exactly what it should still be showing.
-    static func heartRateIsStale(lastReadingAt: Date?, workoutStart: Date, isPaused: Bool, now: Date,
-                                 patience: TimeInterval = heartRatePatience) -> Bool {
-        guard !isPaused else { return false }
+    /// and the last reading is exactly what it should still be showing. Neither is one whose finish is pending
+    /// (`isEnding`): it has stopped counting, no reading is being taken for it (the strap may be streaming fine), and
+    /// "no signal" next to "Ending" would be a warning about something that is not wrong.
+    static func heartRateIsStale(lastReadingAt: Date?, workoutStart: Date, isPaused: Bool, isEnding: Bool = false,
+                                 now: Date, patience: TimeInterval = heartRatePatience) -> Bool {
+        guard !isPaused, !isEnding else { return false }
         return now.timeIntervalSince(lastReadingAt ?? workoutStart) > patience
     }
 
