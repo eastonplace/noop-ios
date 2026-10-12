@@ -227,6 +227,16 @@ final class AppModel: ObservableObject {
     @Published private(set) var finishAttemptID = 0
     /// A visible, non-blocking warning whenever the active workout has data that is not yet durable.
     @Published private(set) var workoutDurabilityWarning: String?
+    /// Why `workoutDurabilityWarning` is set. Two very different things share the text: data that is not safely stored (a
+    /// warning, for as long as it is true), and a workout restored after the app was closed (good news with a gap in it,
+    /// worth saying once, not for the rest of the session).
+    enum WorkoutDurabilityIssue: Equatable, Sendable {
+        case notRecoverable
+        case gpsGapRestored
+    }
+    @Published private(set) var workoutDurabilityIssue: WorkoutDurabilityIssue?
+    /// When the workout was restored with a GPS gap, so the notice can be bounded to the moments after.
+    private(set) var gpsGapRestoredAt: Date?
 
     /// Records the GPS route of an in-flight distance-type workout (run / ride / walk / hike) from
     /// CoreLocation (#524) , the Apple analogue of Android's `GpsSession` + foreground `LocationManager`.
@@ -263,7 +273,9 @@ final class AppModel: ObservableObject {
     private var latestGpsSnapshotAttempt: UInt64 = 0
     private var workoutSnapshotDurabilityFailed = false
     private var gpsSnapshotDurabilityFailed = false
-    private var gpsHadTerminatedGap = false
+    private var gpsHadTerminatedGap = false {
+        didSet { if !gpsHadTerminatedGap { gpsGapRestoredAt = nil } }
+    }
     private var applicationIsActive = true
 
     /// A manual workout in progress. `samples` accumulate from the smoothed live `bpm`; `liveStrain`
@@ -2089,6 +2101,10 @@ final class AppModel: ObservableObject {
         case strength
         /// Paused with nothing that would be saved (no heart rate, no route).
         case pausedNothing = "paused-nothing"
+        /// A run whose latest changes are not safely recoverable: the durability warning in the notice slot.
+        case durability
+        /// A run restored after the app was closed, with a GPS gap: the one-off "GPS gap while closed" notice.
+        case gpsGap = "gps-gap"
     }
 
     /// True for a fixture workout: nothing about it is written to disk, so a screenshot run can never leave a
@@ -2149,6 +2165,15 @@ final class AppModel: ObservableObject {
             activeWorkoutIsGps = true
             gpsRecorder.seedDemoRoute(points: Self.demoRoutePoints(), elapsedSeconds: Double(activeSeconds),
                                       paused: paused, signalLost: scenario == .stale || scenario == .gpsLost)
+        }
+        if scenario == .durability {
+            workoutSnapshotDurabilityFailed = true
+            refreshWorkoutDurabilityWarning()
+        }
+        if scenario == .gpsGap {
+            gpsHadTerminatedGap = true
+            gpsGapRestoredAt = Date()
+            refreshWorkoutDurabilityWarning()
         }
         // A strap that keeps reporting, so a capture taken a while after launch is not a stale frame by accident.
         // The stale and quiet-ending scenarios are the fixtures that deliberately go quiet.
@@ -2460,14 +2485,18 @@ final class AppModel: ObservableObject {
     private func refreshWorkoutDurabilityWarning() {
         guard activeWorkout != nil else {
             workoutDurabilityWarning = nil
+            workoutDurabilityIssue = nil
             return
         }
         if workoutSnapshotDurabilityFailed || gpsSnapshotDurabilityFailed {
             workoutDurabilityWarning = String(localized: "This workout is recording, but recent changes are not safely recoverable if NOOP closes. Keep the app open and free storage before continuing.")
+            workoutDurabilityIssue = .notRecoverable
         } else if gpsHadTerminatedGap {
             workoutDurabilityWarning = String(localized: "GPS paused while NOOP was closed. Your captured route was restored and recording can resume. The gap is separated and is not added to distance.")
+            workoutDurabilityIssue = .gpsGapRestored
         } else {
             workoutDurabilityWarning = nil
+            workoutDurabilityIssue = nil
         }
     }
 
@@ -2492,6 +2521,7 @@ final class AppModel: ObservableObject {
             if pauses.isPaused { gpsRecorder.setPaused(true) }
             if gps.recordingWasActive {
                 gpsHadTerminatedGap = true
+                gpsGapRestoredAt = Date()
                 refreshWorkoutDurabilityWarning()
             }
         }

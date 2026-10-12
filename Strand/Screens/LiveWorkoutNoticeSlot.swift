@@ -9,10 +9,12 @@ import StrandDesign
 
 /// One thing the slot can say, highest priority first.
 enum LiveWorkoutSlotNotice: Equatable, Sendable, CaseIterable {
-    case durability, heartRate, gpsLost, gpsWeak, gpsSearching, noStrap, locationOff
+    case durability, heartRate, gpsLost, gpsWeak, gpsSearching, noStrap, locationOff, gpsGap
 
     struct Inputs: Equatable {
+        /// Data that is not safely recoverable. A workout restored after the app was closed is `gpsGapRestoredAt`, not this.
         var hasDurabilityWarning = false
+        var gpsGapIsRecent = false
         var heartRateIsStale = false
         var strapNeverConnected = false
         var gps: GpsWorkoutRecorder.SignalState?
@@ -23,6 +25,8 @@ enum LiveWorkoutSlotNotice: Equatable, Sendable, CaseIterable {
 
     /// How long after the start "Location is off · no route" is spoken before it leaves the glyph to say it.
     static let locationNoticeSeconds: TimeInterval = 10
+    /// How long after a restore "GPS gap while closed" is said. The header glyph and the page carry on without it.
+    static let gpsGapNoticeSeconds: TimeInterval = 30
 
     /// The notices that apply now, in the order the slot shows them: the durability warning, the signals that went quiet, a
     /// strap that never connected, and a location that is off. The slot is for warnings only: that the workout is paused is
@@ -40,6 +44,7 @@ enum LiveWorkoutSlotNotice: Equatable, Sendable, CaseIterable {
         }
         if inputs.strapNeverConnected { result.append(.noStrap) }
         if inputs.locationIsOff && inputs.isJustStarted { result.append(.locationOff) }
+        if inputs.gpsGapIsRecent { result.append(.gpsGap) }
         return result
     }
 
@@ -52,10 +57,15 @@ enum LiveWorkoutSlotNotice: Equatable, Sendable, CaseIterable {
         case .gpsSearching: "Searching for GPS"
         case .noStrap: "No strap connected"
         case .locationOff: "Location is off · no route"
+        case .gpsGap: "GPS gap while closed"
         }
     }
 
-    var tone: StrandTone { .warning }
+    /// Everything here asks for a look except the restore, which is only to be known.
+    var tone: StrandTone { self == .gpsGap ? .neutral : .warning }
+
+    /// Tapping the pill opens the longer message the model keeps (`workoutDurabilityWarning`).
+    var hasLongExplanation: Bool { self == .durability || self == .gpsGap }
 
     /// The same words as plain text, for the one announcement VoiceOver makes when the notice appears.
     var spoken: String {
@@ -67,6 +77,7 @@ enum LiveWorkoutSlotNotice: Equatable, Sendable, CaseIterable {
         case .gpsSearching: String(localized: "Searching for GPS")
         case .noStrap: String(localized: "No strap connected")
         case .locationOff: String(localized: "Location is off · no route")
+        case .gpsGap: String(localized: "GPS gap while closed")
         }
     }
 }
@@ -100,7 +111,9 @@ struct LiveNoticeSlot: View {
 
     private func inputs(_ signals: LiveWorkoutSignals.Snapshot) -> LiveWorkoutSlotNotice.Inputs {
         LiveWorkoutSlotNotice.Inputs(
-            hasDurabilityWarning: model.workoutDurabilityWarning != nil,
+            hasDurabilityWarning: model.workoutDurabilityIssue == .notRecoverable,
+            gpsGapIsRecent: model.workoutDurabilityIssue == .gpsGapRestored
+                && model.gpsGapRestoredAt.map { Date().timeIntervalSince($0) < LiveWorkoutSlotNotice.gpsGapNoticeSeconds } == true,
             heartRateIsStale: signals.heartRateIsStale,
             strapNeverConnected: signals.strapNeverConnected,
             gps: signals.gps,
@@ -111,8 +124,9 @@ struct LiveNoticeSlot: View {
     @ViewBuilder private func pill(_ pending: [LiveWorkoutSlotNotice]) -> some View {
         if let first = pending.first {
             HStack(spacing: NoopMetrics.space2) {
-                if first == .durability {
-                    Button { toggleExpanded() } label: { StatePill(first.title, tone: first.tone) }
+                if first.hasLongExplanation {
+                    // The pill is about 23 pt tall; the tap area reaches the 44 pt a moving thumb needs.
+                    Button { toggleExpanded() } label: { StatePill(first.title, tone: first.tone).chipHitTarget() }
                         .buttonStyle(.plain)
                         .accessibilityHint("Shows the full message")
                 } else {

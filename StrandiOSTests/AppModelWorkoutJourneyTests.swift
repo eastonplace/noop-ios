@@ -160,6 +160,26 @@ final class AppModelWorkoutJourneyTests: XCTestCase {
         XCTAssertNil(m.pendingWorkoutRowKey)
     }
 
+    // MARK: Why the durability warning is up
+
+    func testDataThatIsNotSafelyStoredIsTheRecoverabilityWarning() {
+        let m = model(.durability)
+        XCTAssertEqual(m.workoutDurabilityIssue, .notRecoverable)
+        XCTAssertNotNil(m.workoutDurabilityWarning)
+    }
+
+    /// A restore after the app closed carries the same text slot, but it is not a warning that data is unsafe.
+    func testARestoredGapIsNotReportedAsUnsafeData() {
+        let m = model(.gpsGap)
+        XCTAssertEqual(m.workoutDurabilityIssue, .gpsGapRestored)
+        XCTAssertNotNil(m.workoutDurabilityWarning, "the explanation is still there to open")
+        XCTAssertNotNil(m.gpsGapRestoredAt)
+        XCTAssertNil(model(.running).workoutDurabilityIssue)
+        _ = m.discardWorkout()
+        XCTAssertNil(m.workoutDurabilityIssue)
+        XCTAssertNil(m.gpsGapRestoredAt)
+    }
+
     // MARK: Nothing to save, then Keep recording
 
     /// End finds nothing to save: the workout carries on, so the route recorder must still be recording when it does.

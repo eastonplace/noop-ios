@@ -62,6 +62,8 @@ private struct LiveWorkoutLayout: View {
                 LiveNoticeSlot(model: model, workout: workout, recorder: model.gpsRecorder)
                     .screenPadding()
             }
+            // Above the page: the notice's expanded explanation opens over it and has to be readable and tappable.
+            .zIndex(1)
             // The page is at least as tall as the room it has: when its content is shorter, the focus number takes the
             // difference (centred in it) instead of the screen ending in a void above the dock.
             GeometryReader { proxy in

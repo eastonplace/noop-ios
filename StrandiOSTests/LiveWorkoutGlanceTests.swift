@@ -195,6 +195,18 @@ final class LiveWorkoutSlotNoticeTests: XCTestCase {
         XCTAssertFalse(Notice.allCases.map { "\($0)" }.contains("paused"))
     }
 
+    /// A workout restored after the app was closed is good news with a gap in it. It is not "Not safely recoverable", it comes
+    /// after every real warning, and it is only to be known, not to be worried about.
+    func testARestoredGapIsItsOwnQuietNoticeBehindTheRealWarnings() {
+        XCTAssertEqual(Notice.pending(.init(gpsGapIsRecent: true)), [.gpsGap])
+        let all = Notice.Inputs(hasDurabilityWarning: true, heartRateIsStale: true, gps: .lost, gpsGapIsRecent: true)
+        XCTAssertEqual(Notice.pending(all), [.durability, .heartRate, .gpsLost, .gpsGap])
+        XCTAssertEqual(Notice.gpsGap.tone, .neutral)
+        XCTAssertEqual(Notice.durability.tone, .warning)
+        XCTAssertTrue(Notice.gpsGap.hasLongExplanation)
+        XCTAssertFalse(Notice.heartRate.hasLongExplanation)
+    }
+
     func testEveryNoticeHasWordsForTheScreenAndForVoiceOver() {
         for notice in Notice.allCases {
             XCTAssertFalse(notice.spoken.isEmpty, "\(notice)")
