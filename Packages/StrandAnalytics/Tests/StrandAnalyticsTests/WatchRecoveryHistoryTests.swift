@@ -60,6 +60,10 @@ final class WatchRecoveryHistoryTests: XCTestCase {
         XCTAssertNil(scored[29].result.recovery, "the few post-epoch nights are below the 7-night baseline")
         XCTAssertEqual(scored[29].result.confidence, .calibrating)
         XCTAssertNotNil(WatchRecovery.scoreHistory(days)[29].result.recovery)
+        // Review F1: days before the recalibration keep their Charge (they were scored before it existed).
+        let plain = WatchRecovery.scoreHistory(days)
+        for i in 0..<25 { XCTAssertEqual(scored[i].result, plain[i].result, "pre-epoch day \(i)") }
+        XCTAssertNotNil(scored[24].result.recovery)
     }
 
     /// Years of history score in one linear pass.

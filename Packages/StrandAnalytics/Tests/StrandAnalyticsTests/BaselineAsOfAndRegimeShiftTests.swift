@@ -139,4 +139,23 @@ final class BaselineAsOfAndRegimeShiftTests: XCTestCase {
         XCTAssertEqual(timeline.latest, Baselines.foldHistory(values, dayKeys: keys, cfg: cfg, baselineEpoch: epoch))
     }
 
+    /// Review F1: a day before the recalibration keeps the baseline it was scored against (the fold of every
+    /// earlier night, epoch or not), so a rescore can't wipe its stored Charge. Days after the epoch relearn
+    /// from the first night on or after it.
+    func testDaysBeforeTheEpochKeepTheirPreRecalibrationBaseline() throws {
+        let values: [Double?] = (0..<12).map { (i: Int) -> Double? in 55.0 + Double(i % 4) * 2.0 }
+        let keys = (0..<12).map(key)
+        // Recalibrated at 14:00 on day 8: day 8 itself started before the epoch.
+        let epoch = try XCTUnwrap(keyFormatter.date(from: key(8))).timeIntervalSince1970 + 14 * 3_600
+        let timeline = Baselines.foldHistoryAsOf(values, dayKeys: keys, cfg: cfg, baselineEpoch: epoch)
+        for d in 0...8 {
+            let unrecalibrated = Baselines.foldHistory(Array(values[..<d]), dayKeys: Array(keys[..<d]), cfg: cfg,
+                                                       baselineEpoch: 0)
+            XCTAssertEqual(timeline.asOf(keys[d]), unrecalibrated, "pre-epoch day \(d)")
+        }
+        XCTAssertTrue(timeline.asOf(keys[8]).usable, "the recalibration day keeps a usable baseline")
+        XCTAssertEqual(timeline.asOf(keys[9]).nValid, 0, "the first day after the epoch restarts")
+        XCTAssertEqual(timeline.asOf(keys[11]).nValid, 2)
+        XCTAssertEqual(timeline.latest, Baselines.foldHistory(values, dayKeys: keys, cfg: cfg, baselineEpoch: epoch))
+    }
 }

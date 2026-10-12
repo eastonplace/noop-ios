@@ -404,38 +404,59 @@ public enum Baselines {
         let days: [String]
         let states: [BaselineState]
         let empty: BaselineState
+        /// The first day key on or after the recalibration epoch, nil without one. The fold restarts there:
+        /// days from it on see only nights from it on, and days before it keep the fold of every earlier
+        /// night, the baseline they were scored against before the recalibration.
+        let epochDay: String?
+        /// Index in `days` of the first night on or after `epochDay`.
+        let firstPostEpoch: Int
 
-        /// The state built from every folded night strictly before `day` ("yyyy-MM-dd").
+        /// The state built from the nights strictly before `day` ("yyyy-MM-dd"), on `day`'s side of the epoch.
         public func asOf(_ day: String) -> BaselineState {
             var lo = 0, hi = days.count
             while lo < hi {
                 let mid = (lo + hi) / 2
                 if days[mid] < day { lo = mid + 1 } else { hi = mid }
             }
+            if let epochDay, day >= epochDay {
+                return lo <= firstPostEpoch ? empty : states[lo - 1]
+            }
             return lo == 0 ? empty : states[lo - 1]
         }
 
         /// The state after every folded night: what `foldHistory` returns for the same input.
-        public var latest: BaselineState { states.last ?? empty }
+        public var latest: BaselineState {
+            guard epochDay != nil else { return states.last ?? empty }
+            return states.count > firstPostEpoch ? states[states.count - 1] : empty
+        }
     }
 
-    /// `foldHistory(_:dayKeys:cfg:baselineEpoch:)` with every intermediate state kept. Same epoch rule:
-    /// nights dated before `baselineEpoch` are dropped, and nil reads the persisted HRV epoch.
+    /// `foldHistory(_:dayKeys:cfg:baselineEpoch:)` with every intermediate state kept, and nil reads the
+    /// persisted HRV epoch. Nights dated before `baselineEpoch` are dropped for days on or after it, exactly
+    /// as `foldHistory` drops them. A day before the epoch keeps the fold of every earlier night, so a
+    /// rescore can't wipe the Charge it already had (review F1).
     public static func foldHistoryAsOf(_ values: [Double?], dayKeys: [String], cfg: MetricCfg,
                                        baselineEpoch: Double? = nil) -> Timeline {
         let epoch = baselineEpoch ?? hrvBaselineEpoch()
         let fmt = DateFormatter()
         fmt.calendar = Calendar(identifier: .gregorian)
+        fmt.locale = Locale(identifier: "en_US_POSIX")
         fmt.timeZone = TimeZone(secondsFromGMT: 0)
         fmt.dateFormat = "yyyy-MM-dd"
+        // The first key whose UTC day start is not before the epoch: the same test `foldHistory` applies.
+        let epochDay: String? = epoch > 0 ? {
+            let midnight = (epoch / 86_400).rounded(.down) * 86_400
+            return fmt.string(from: Date(timeIntervalSince1970: midnight < epoch ? midnight + 86_400 : midnight))
+        }() : nil
         let nights = zip(dayKeys, values).sorted { $0.0 < $1.0 }
+        let firstPostEpoch = epochDay.map { epochDay in nights.firstIndex { $0.0 >= epochDay } ?? nights.count } ?? 0
         var days: [String] = []
         var states: [BaselineState] = []
         days.reserveCapacity(nights.count)
         states.reserveCapacity(nights.count)
         var state: BaselineState? = nil
-        for (day, value) in nights {
-            if epoch > 0, let d = fmt.date(from: day), d.timeIntervalSince1970 < epoch { continue }
+        for (index, (day, value)) in nights.enumerated() {
+            if epochDay != nil, index == firstPostEpoch { state = nil }   // the recalibrated build-up starts
             let next = update(state, value: value, cfg: cfg)
             state = next
             days.append(day)
@@ -444,7 +465,8 @@ public enum Baselines {
         let seed = (cfg.minVal + cfg.maxVal) / 2.0
         return Timeline(days: days, states: states,
                         empty: BaselineState(baseline: seed, spread: cfg.floorSpread, nValid: 0,
-                                             nightsSinceUpdate: 0, status: .calibrating))
+                                             nightsSinceUpdate: 0, status: .calibrating),
+                        epochDay: epochDay, firstPostEpoch: firstPostEpoch)
     }
 
     // MARK: - Deviation
