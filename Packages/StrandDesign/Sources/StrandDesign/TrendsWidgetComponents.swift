@@ -705,31 +705,41 @@ public struct TrendsHeroChart: View {
         guard delta.isFinite, !trendsFormattedIsZero(magnitude) else {
             return ("On average", String(localized: "On average"), .neutral)
         }
-        let tone: StrandTone
-        if neutralInsideTypical {
-            // Inside the person's usual band a move off the average is ordinary, so the pill stays quiet; it
-            // takes the good or bad colour only once the value is outside the band.
-            if typical.contains(value) {
-                tone = .neutral
-            } else {
-                let above = value > typical.upperBound
-                switch direction {
-                case .higherIsBetter: tone = above ? .positive : .critical
-                case .lowerIsBetter: tone = above ? .critical : .positive
-                case .contextual: tone = .neutral
-                }
-            }
-        } else {
-            switch direction {
-            case .higherIsBetter: tone = delta > 0 ? .positive : .critical
-            case .lowerIsBetter: tone = delta < 0 ? .positive : .critical
-            case .contextual: tone = .neutral
-            }
-        }
+        let tone = Self.deltaTone(
+            value: value, baseline: baseline, typical: typical, direction: direction,
+            neutralInsideTypical: neutralInsideTypical)
         if delta > 0 {
             return ("▲ \(magnitude) vs avg", String(localized: "up \(magnitude) vs avg"), tone)
         }
         return ("▼ \(magnitude) vs avg", String(localized: "down \(magnitude) vs avg"), tone)
+    }
+
+    /// The pill's tone. By default the sign of the move against the range average decides it: green when it is the
+    /// good direction for the metric, red when it is not. With `neutralInsideTypical` a value inside the typical band
+    /// stays neutral (an ordinary day is not a warning), and only a value outside the band takes the good or bad
+    /// colour for the side it fell on. A metric with no good direction is always neutral.
+    static func deltaTone(
+        value: Double,
+        baseline: Double,
+        typical: ClosedRange<Double>,
+        direction: TrendPanelChart.Direction,
+        neutralInsideTypical: Bool
+    ) -> StrandTone {
+        if neutralInsideTypical {
+            guard !typical.contains(value) else { return .neutral }
+            let above = value > typical.upperBound
+            switch direction {
+            case .higherIsBetter: return above ? .positive : .critical
+            case .lowerIsBetter: return above ? .critical : .positive
+            case .contextual: return .neutral
+            }
+        }
+        let delta = value - baseline
+        switch direction {
+        case .higherIsBetter: return delta > 0 ? .positive : .critical
+        case .lowerIsBetter: return delta < 0 ? .positive : .critical
+        case .contextual: return .neutral
+        }
     }
 
     // MARK: Plot

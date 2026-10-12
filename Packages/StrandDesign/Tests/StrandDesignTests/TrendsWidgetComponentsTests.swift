@@ -121,6 +121,65 @@ final class TrendsWidgetComponentsTests: XCTestCase {
         XCTAssertEqual(hero.singletonIndices, Set([lone].compactMap { $0 }))
     }
 
+    /// A weekly series has a reading every seven days, past the default three-day gap limit, so by default every
+    /// reading stands alone with no line between them. A caller that knows the cadence passes a limit to match and
+    /// gets one connected line with no stranded dots.
+    func testAWeeklySeriesDrawsOneConnectedLineWhenTheGapLimitMatchesItsCadence() {
+        let calendar = Calendar(identifier: .gregorian)
+        let start = calendar.startOfDay(for: Date(timeIntervalSince1970: 1_750_000_000))
+        let days = stride(from: 0, to: 70, by: 7).map { offset in
+            CalendarMetricDay(date: calendar.date(byAdding: .day, value: offset, to: start)!, value: 70 + Double(offset % 5))
+        }
+        func chart(maxGapDays: Int?) -> TrendsHeroChart {
+            let domain = start...calendar.date(byAdding: .day, value: 69, to: start)!
+            if let maxGapDays {
+                return TrendsHeroChart(
+                    days: days, dateDomain: domain, referenceDate: start, calendar: calendar, baseline: 72,
+                    typical: 68...76, tint: .neutral, unit: "kg", maxGapDays: maxGapDays)
+            }
+            return TrendsHeroChart(
+                days: days, dateDomain: domain, referenceDate: start, calendar: calendar, baseline: 72,
+                typical: 68...76, tint: .neutral, unit: "kg")
+        }
+        XCTAssertEqual(chart(maxGapDays: nil).singletonIndices.count, 10)
+        XCTAssertEqual(chart(maxGapDays: 21).singletonIndices, [])
+        // One missing week (a 14-day hole) is still bridged at a 21-day limit; three missing weeks are not.
+        XCTAssertEqual(TrendCurve.runs(dayIndices: [0, 7, 21, 28], maxGapDays: 21).count, 1)
+        XCTAssertEqual(TrendCurve.runs(dayIndices: [0, 7, 42, 49], maxGapDays: 21).count, 2)
+    }
+
+    func testTheDefaultPillToneFollowsTheSignOfTheMove() {
+        func tone(_ value: Double, _ direction: TrendPanelChart.Direction) -> StrandTone {
+            TrendsHeroChart.deltaTone(
+                value: value, baseline: 60, typical: 55...65, direction: direction, neutralInsideTypical: false)
+        }
+        XCTAssertEqual(tone(62, .higherIsBetter), .positive)
+        XCTAssertEqual(tone(58, .higherIsBetter), .critical)
+        XCTAssertEqual(tone(58, .lowerIsBetter), .positive)
+        XCTAssertEqual(tone(62, .lowerIsBetter), .critical)
+        XCTAssertEqual(tone(62, .contextual), .neutral)
+    }
+
+    /// Inside the typical band a move off the average is ordinary and reads neutral; outside it the colour follows the
+    /// side the value fell on and the metric's polarity (a low resting heart rate is good, a low HRV is not).
+    func testAPillInsideTheTypicalBandIsNeutralAndOutsideItFollowsPolarity() {
+        func tone(_ value: Double, _ direction: TrendPanelChart.Direction) -> StrandTone {
+            TrendsHeroChart.deltaTone(
+                value: value, baseline: 60, typical: 55...65, direction: direction, neutralInsideTypical: true)
+        }
+        for direction in [TrendPanelChart.Direction.higherIsBetter, .lowerIsBetter, .contextual] {
+            XCTAssertEqual(tone(55, direction), .neutral)
+            XCTAssertEqual(tone(58, direction), .neutral)
+            XCTAssertEqual(tone(65, direction), .neutral)
+        }
+        XCTAssertEqual(tone(70, .higherIsBetter), .positive)
+        XCTAssertEqual(tone(50, .higherIsBetter), .critical)
+        XCTAssertEqual(tone(70, .lowerIsBetter), .critical)
+        XCTAssertEqual(tone(50, .lowerIsBetter), .positive)
+        XCTAssertEqual(tone(70, .contextual), .neutral)
+        XCTAssertEqual(tone(50, .contextual), .neutral)
+    }
+
     func testWeekdayNamesFollowTheLocaleAndStartOnMonday() {
         var calendar = Calendar(identifier: .gregorian)
         calendar.locale = .current
