@@ -148,6 +148,7 @@ private struct HealthFirstRunContent: View {
 private struct SyncStatusSection: View {
     @EnvironmentObject var live: LiveState
     @EnvironmentObject var model: AppModel
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     /// The strap link is usable for a manual offload kick (matches BLEManager.syncNow's own gate).
     private var canSync: Bool {
@@ -219,7 +220,7 @@ private struct SyncStatusSection: View {
         } else {
             let status = syncStatus
             VStack(alignment: .leading, spacing: 6) {
-                ValuePill(Self.localized(status.primary), tint: tone(status).color)
+                statusLabel(Self.localized(status.primary), tone: tone(status))
                 if !status.isCurrentSuccess, let saved = status.savedHistory {
                     Text(verbatim: saved)
                         .font(StrandFont.footnote)
@@ -228,6 +229,24 @@ private struct SyncStatusSection: View {
                 }
             }
         }
+    }
+
+    /// A short status ("Not connected") is a pill; a long one ("Showing saved history through Jul 29, 2025 at 5:22 PM",
+    /// "History sync waiting for secure link") is a caption in the same colour, which wraps like text instead of
+    /// swelling into a multi-line blob. At accessibility sizes every status is a caption.
+    @ViewBuilder private func statusLabel(_ text: String, tone: StrandTone) -> some View {
+        if Self.showsAsPill(text, accessibilitySize: typeSize.isAccessibilitySize) {
+            ValuePill(text, tint: tone.color)
+        } else {
+            Text(verbatim: text)
+                .font(StrandFont.subhead)
+                .foregroundStyle(tone.color)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    static func showsAsPill(_ text: String, accessibilitySize: Bool) -> Bool {
+        !accessibilitySize && text.count <= 24
     }
 
     private func tone(_ status: HistoricalSyncStatus) -> StrandTone {
