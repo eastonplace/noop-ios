@@ -221,7 +221,9 @@ private struct SyncStatusSection: View {
             let status = syncStatus
             VStack(alignment: .leading, spacing: 6) {
                 statusLabel(Self.localized(status.primary), tone: tone(status))
-                if !status.isCurrentSuccess, let saved = status.savedHistory {
+                // The resolver's primary line IS the saved-history sentence when there is nothing else to say
+                // (`primary: saved ?? ...`), so the detail line only shows when it adds something.
+                if !status.isCurrentSuccess, let saved = status.savedHistory, saved != status.primary {
                     Text(verbatim: saved)
                         .font(StrandFont.footnote)
                         .foregroundStyle(StrandPalette.textSecondary)
