@@ -147,6 +147,7 @@ struct RootTabView: View {
             ActiveSessionAutoPresenter(
                 otherPresentationActive: journey != nil || quickAction != nil || showDevices || routedPillar != nil || showLift
                     || settingsSheet != nil || settingsClosing,
+                presentRun: autoPresentJourney,
                 presentLift: { showLift = true })
         }
         #if DEBUG
@@ -346,6 +347,15 @@ struct RootTabView: View {
         }
     }
 
+    /// The auto-presenter's run: the journey at the live screen, onto a bare shell or not at all. An automatic presentation
+    /// never collapses or force-dismisses anything (a screen's sheet may hold unsaved input); the policy has already waited
+    /// for any modal, and this covers the moment between its decision and the presentation. Only a person's request
+    /// (`presentJourney`) collapses what is up.
+    private func autoPresentJourney() {
+        guard journey == nil else { return }
+        ShellModalCollapse.presentIfNothingIsUp { journey = WorkoutJourneyEntry(start: .live) }
+    }
+
     /// What was waiting for the cover to close: the lift flow, then a destination someone asked for meanwhile.
     private func journeyDidDismiss() {
         if liftAfterJourney {
@@ -534,8 +544,11 @@ private struct ActiveSessionAutoPresenter: View {
     @EnvironmentObject private var lift: NoopReceiptLiftIntegration
     @EnvironmentObject private var router: NavRouter
     @Environment(\.scenePhase) private var scenePhase
-    /// The shell's own sheets. Launch-time modals elsewhere in the app report through the router.
+    /// The shell's own sheets. Launch-time modals elsewhere in the app report through the router, and a screen's own sheet
+    /// or cover is read from the window when a decision is made.
     let otherPresentationActive: Bool
+    /// Presents the run without closing anything (`RootTabView.autoPresentJourney`).
+    let presentRun: () -> Void
     let presentLift: () -> Void
     @State private var policy = ActiveSessionAutoPresentPolicy()
 
@@ -588,12 +601,14 @@ private struct ActiveSessionAutoPresenter: View {
             hasActiveRun: model.activeWorkout != nil,
             hasActiveLift: lift.coordinator?.hasActiveSession == true,
             workoutSurfaceVisible: router.workoutSurfaces.isVisible,
-            otherPresentationActive: isBlocked)
+            shellPresentationActive: isBlocked,
+            // A screen's own sheet (a manual workout, a journal edit) blocks too: automatic presentation never dismisses it.
+            anyModalPresented: ModalPresentationProbe.isAnyModalPresented)
     }
 
     private func present(_ target: ActiveSessionAutoPresentPolicy.Target?) {
         switch target {
-        case .run: router.openActiveWorkout()
+        case .run: presentRun()
         case .lift: presentLift()
         case nil: break
         }

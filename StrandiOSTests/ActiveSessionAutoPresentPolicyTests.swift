@@ -242,6 +242,33 @@ final class ActiveSessionAutoPresentPolicyTests: XCTestCase {
         XCTAssertEqual(policy.sceneBecameActive(context(run: true)), .run)
     }
 
+    // MARK: Automatic presentation never dismisses
+
+    /// The app comes back with a run in progress while a screen's own sheet is up (a manual workout, a journal edit). The
+    /// shell's sheets are all closed, but the window reports a modal: the run is held back, not forced through, because
+    /// presenting it would dismiss that sheet and its unsaved input. The resume bar is the way back meanwhile.
+    func testARunIsHeldBackByAScreensOwnSheetNotForcedThroughIt() {
+        var policy = Policy()
+        let screenSheetUp = Policy.Context(hasActiveRun: true, hasActiveLift: false, workoutSurfaceVisible: false,
+                                           shellPresentationActive: false, anyModalPresented: true)
+        XCTAssertTrue(screenSheetUp.otherPresentationActive)
+        XCTAssertNil(policy.sceneBecameActive(screenSheetUp))
+        // A retry while that sheet is still up presents nothing either.
+        XCTAssertNil(policy.otherPresentationEnded(screenSheetUp))
+
+        let bare = Policy.Context(hasActiveRun: true, hasActiveLift: false, workoutSurfaceVisible: false,
+                                  shellPresentationActive: false, anyModalPresented: false)
+        XCTAssertFalse(bare.otherPresentationActive)
+        XCTAssertEqual(policy.otherPresentationEnded(bare), .run, "once nothing is up the held-back run is presented")
+    }
+
+    func testALiftIsHeldBackByAScreensOwnSheetToo() {
+        var policy = Policy()
+        XCTAssertNil(policy.sceneBecameActive(Policy.Context(hasActiveRun: false, hasActiveLift: true,
+                                                             workoutSurfaceVisible: false, shellPresentationActive: false,
+                                                             anyModalPresented: true)))
+    }
+
     func testALateLiftRestoreBlockedByAModalRetriesAsALift() {
         var policy = Policy()
         XCTAssertNil(policy.sceneBecameActive(context(otherPresentation: true)))

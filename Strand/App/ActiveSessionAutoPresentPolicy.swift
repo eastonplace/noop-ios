@@ -29,7 +29,7 @@ struct ActiveSessionAutoPresentPolicy: Equatable {
         /// A live run or lift screen is on screen right now, whichever view presented it.
         var workoutSurfaceVisible: Bool
         /// Another modal is up (quick actions, Devices, a routed pillar sheet, "What's New", the onboarding or
-        /// terms gate), so presenting would stack on top of it.
+        /// terms gate, or a screen's own sheet), so presenting would stack on top of it or have to dismiss it.
         var otherPresentationActive: Bool
     }
 
@@ -100,6 +100,17 @@ struct ActiveSessionAutoPresentPolicy: Equatable {
         blockedTarget = nil
         if target != nil { presentedThisForeground = true }
         return target
+    }
+}
+
+extension ActiveSessionAutoPresentPolicy.Context {
+    /// The context the shell builds. `anyModalPresented` is any sheet or cover in the window, a screen's own included (a
+    /// manual workout, a journal edit): an automatic presentation never closes one, so the policy waits for it like any
+    /// other modal, and until it is gone the resume bar is the way back.
+    init(hasActiveRun: Bool, hasActiveLift: Bool, workoutSurfaceVisible: Bool, shellPresentationActive: Bool,
+         anyModalPresented: Bool) {
+        self.init(hasActiveRun: hasActiveRun, hasActiveLift: hasActiveLift, workoutSurfaceVisible: workoutSurfaceVisible,
+                  otherPresentationActive: shellPresentationActive || anyModalPresented)
     }
 }
 

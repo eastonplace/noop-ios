@@ -60,6 +60,20 @@ enum ShellModalCollapse {
         }
         return true
     }
+
+    /// The auto-presenter's way in: `present` runs only onto a bare shell. Unlike `run` it never closes, collapses or
+    /// force-dismisses anything, because a sheet below may hold unsaved input (a manual workout, a journal edit): with a
+    /// modal up, or a collapse under way, it does nothing and returns false, and the resume bar stays the way back. Only a
+    /// person's request (the resume bar, a Live Activity tap, a deep link, Start) goes through `run`.
+    @discardableResult
+    static func presentIfNothingIsUp(
+        isModalPresented: @MainActor () -> Bool = { ModalPresentationProbe.isAnyModalPresented },
+        then present: () -> Void
+    ) -> Bool {
+        guard !isCollapsing, !isModalPresented() else { return false }
+        present()
+        return true
+    }
 }
 
 // MARK: - Presenters follow the collapse

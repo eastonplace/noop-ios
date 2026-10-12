@@ -93,6 +93,38 @@ final class ShellModalCollapseTests: XCTestCase {
         XCTAssertFalse(ShellModalCollapse.isCollapsing, "the next request is a request again")
     }
 
+    /// The auto-presenter's way in never closes anything: with a modal up (a screen's sheet holding unsaved input) it does
+    /// nothing at all, and with nothing up it presents at once.
+    func testAnAutomaticPresentationNeverDismissesAModalItOnlyPresentsOntoABareShell() {
+        var presented = 0
+        XCTAssertFalse(ShellModalCollapse.presentIfNothingIsUp(isModalPresented: { true }, then: { presented += 1 }))
+        XCTAssertEqual(presented, 0)
+        XCTAssertFalse(ShellModalCollapse.isCollapsing, "it starts no collapse either")
+
+        XCTAssertTrue(ShellModalCollapse.presentIfNothingIsUp(isModalPresented: { false }, then: { presented += 1 }))
+        XCTAssertEqual(presented, 1)
+    }
+
+    /// While a person's request is collapsing what is up, an automatic one stands aside: the collapse presents.
+    func testAnAutomaticPresentationStandsAsideDuringACollapse() async {
+        var up = true
+        var polls = 0
+        let done = expectation(description: "presented")
+        ShellModalCollapse.run(
+            clearShellState: {},
+            isModalPresented: { up },
+            forceDismiss: { XCTFail("it let go on its own") },
+            sleep: { _ in
+                polls += 1
+                if polls == 2 { up = false }
+            },
+            then: { done.fulfill() })
+        XCTAssertTrue(ShellModalCollapse.isCollapsing)
+        XCTAssertFalse(ShellModalCollapse.presentIfNothingIsUp(isModalPresented: { false },
+                                                               then: { XCTFail("the collapse presents") }))
+        await fulfillment(of: [done], timeout: 2)
+    }
+
     func testItStopsWaitingWithoutDismissingOnceWhatItWasPresentingIsUp() async {
         // The probe reports a modal throughout: from the second poll on it is the target cover itself.
         var targetIsUp = false
