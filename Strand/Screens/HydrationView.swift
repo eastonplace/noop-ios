@@ -377,7 +377,7 @@ private struct HydrationAmountSheet: View {
                 Text("Amount")
                     .font(StrandFont.subhead)
                     .foregroundStyle(StrandPalette.textSecondary)
-                HeroValue(value: "\(ml)", unit: String(localized: "ml"))
+                HeroValue(value: ml.formatted(), unit: String(localized: "ml"))
             }
             .accessibilityElement(children: .combine)
             Stepper(value: $ml, in: Self.minML...Self.maxML, step: Self.stepML) {
