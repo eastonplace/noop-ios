@@ -204,6 +204,11 @@ final class IntelligenceEngine: ObservableObject {
         }
     }
 
+    /// Version of the per-day scan semantics. It keys both the in-memory day-scan cache and the idle-tick
+    /// watermark, so a semantic change re-scores the window on the next pass instead of replaying old scans
+    /// or skipping an unchanged-HR tick. v2 (AN-02): days bucket by their civil interval and own offset.
+    nonisolated static let analyzeScanVersion = "cache-v2"
+
     private var dayScanCache: [String: CachedDayScan] = [:]
     private var dayScanCacheConfigSignature = ""
     private var analyzeRecentCacheTestingSeams: AnalyzeRecentCacheTestingSeams?
@@ -238,7 +243,7 @@ final class IntelligenceEngine: ObservableObject {
                     String(value.nightsSinceUpdate), value.status.rawValue].joined(separator: ",")
         }
         return [
-            "cache-v1",
+            analyzeScanVersion,
             "analytics=\(StrandAnalytics.version)",
             "strain=\(StrainScorerV2.version)",
             "weight=\(bits(profile.weightKg))",
@@ -719,7 +724,7 @@ final class IntelligenceEngine: ObservableObject {
         // backfill, import, sleep/workout edit, baseline recalibrate, timestamp heal) calls with the default
         // `force: true` and always rescores, so a skipped tick can never hide new data.
         let wmKey: String = (try? await store.hrFingerprint(deviceId: deviceId, from: 0, to: 9_999_999_999))
-            .map { "\($0.count):\($0.maxTs)" } ?? ""
+            .map { "\($0.count):\($0.maxTs):\(Self.analyzeScanVersion)" } ?? ""
         if !force, !wmKey.isEmpty,
            UserDefaults.standard.string(forKey: Self.analyzeWatermarkKey) == wmKey {
             performanceChangedRows = 0
@@ -733,11 +738,12 @@ final class IntelligenceEngine: ObservableObject {
         let maxHR = profile.hrMaxOverride > 0 ? Double(profile.hrMaxOverride) : nil
         let referenceNow = analysisReference ?? Date()
         let now = Int(referenceNow.timeIntervalSince1970)
-        // Device wall-clock offset (seconds east of UTC) for the sleep detector's daytime
-        // false-sleep guard (#90): the stager places each window's center on the LOCAL clock
-        // so only genuinely-daytime windows face the stricter nap bar. (Computed once; a DST
-        // boundary inside the window is a negligible edge case for an hour-of-day band.)
-        let tzOffset = analysisCalendar.timeZone.secondsFromGMT(for: referenceNow)
+        // Device wall-clock offset (seconds east of UTC) at `referenceNow`. It only keys the pass-wide
+        // cache signature. Every per-day decision (day bucket, session attribution, the daytime guard,
+        // the main-night pick) uses that civil day's own interval and offset (`clockOffsetByDay`), so a
+        // day on the far side of a DST change is not scored an hour off (AN-02).
+        let analysisTimeZone = analysisCalendar.timeZone
+        let tzOffset = analysisTimeZone.secondsFromGMT(for: referenceNow)
 
         // ── Pass 1: analyse each offloaded night against the IMPORTED-ONLY baseline. For a BLE-only
         // user the imported daily rows are empty, so the HRV baseline isn't usable yet and recovery is
@@ -823,6 +829,12 @@ final class IntelligenceEngine: ObservableObject {
             return false
         }
 
+        // AN-02: each civil day's own wall-clock offset, plus a day-key lookup for the pass-2 folds.
+        let civilDayByKey = Dictionary(civilDays.map { ($0.day, $0) }, uniquingKeysWith: { first, _ in first })
+        let clockOffsetByDay = civilDayByKey.mapValues {
+            AnalyticsEngine.civilDayClockOffset($0.start..<$0.nextStart, timeZone: analysisTimeZone)
+        }
+
         let computedId = deviceId + "-noop"
         let windowStart = oldestCivilDay.start - 30 * 3_600
         let windowEnd = startOffset == 0 ? now : newestCivilDay.nextStart
@@ -868,7 +880,7 @@ final class IntelligenceEngine: ObservableObject {
             store: store, importedId: deviceId, computedId: computedId,
             windowStart: windowStart,
             windowEnd: windowEnd,
-            offsetSec: tzOffset)
+            timeZone: analysisTimeZone)
 
         // ── FIX 1 (main-actor jank): run the ENTIRE per-day enumeration OFF the main actor ───────────
         // Every `await store.…` read inside this loop has its continuation RESUME on the main actor
@@ -991,12 +1003,13 @@ final class IntelligenceEngine: ObservableObject {
                                                        devices: regDevices, activeId: regActiveId,
                                                        registry: registry, fallbackDeviceId: ownerFallbackId)
                 }
+                let dayInterval = civilDay.start..<civilDay.nextStart
+                let dayOffset = clockOffsetByDay[day] ?? tzOffset
                 let dayEditedRows = Self.editedRowsForOwnerDay(
                     editedRows,
                     rowsSourceId: editedRowsSourceId,
                     owner: owner,
-                    day: day,
-                    tzOffsetSeconds: tzOffset
+                    dayWindow: dayInterval
                 )
                 let sleepEditFingerprint = Self.sleepEditFingerprint(dayEditedRows)
                 let dayPersistedShadowSessions = persistedShadowSessions.compactMap {
@@ -1098,9 +1111,9 @@ final class IntelligenceEngine: ObservableObject {
                         history: [],
                         journalEntries: [],
                         day: day,
-                        dayWindow: civilDay.start..<civilDay.nextStart,
+                        dayWindow: dayInterval,
                         habitualMidsleepSec: habitualMidsleepSec,
-                        timeZoneOffsetSeconds: tzOffset
+                        timeZoneOffsetSeconds: dayOffset
                     ).observation
                     : nil
                 guard hr.count >= 200 else {
@@ -1225,7 +1238,9 @@ final class IntelligenceEngine: ObservableObject {
                                                      skinTempAnchorRaw: skinAnchorRaw,   // #938 second capture
                                                      spo2: spo2,                   // #93
                                                      profile: up, baselines: baselines1, maxHROverride: maxHR,
-                                                     tzOffsetSeconds: tzOffset, wristOff: wristOff,
+                                                     tzOffsetSeconds: dayOffset,
+                                                     dayInterval: dayInterval,   // AN-02
+                                                     wristOff: wristOff,
                                                      sleepNeedHours: sleepNeedHours,
                                                      sleepConsistency: sleepConsistency,
                                                      habitualMidsleepSec: habitualMidsleepSec,
@@ -1298,7 +1313,8 @@ final class IntelligenceEngine: ObservableObject {
                 // Mirrors the Android IntelligenceEngine guard (stepsTraceSink != null && daySteps.isNotEmpty()).
                 if stepsTraceActive && !daySteps.isEmpty {
                     stepsTrace = StepsEstimateEngine.rawCounterTrace(
-                        daySteps: daySteps, dayKey: day, tzOffsetSeconds: tzOffset,
+                        daySteps: daySteps, dayKey: day, tzOffsetSeconds: dayOffset,
+                        dayInterval: dayInterval,
                         ticksPerStep: up.stepTicksPerStep)
                 }
                 // ── RHR floor-vs-mean diagnostic (#691) ────────────────────────────────────────────────
@@ -1341,9 +1357,9 @@ final class IntelligenceEngine: ObservableObject {
                         history: [],
                         journalEntries: [],
                         day: day,
-                        dayWindow: civilDay.start..<civilDay.nextStart,
+                        dayWindow: dayInterval,
                         habitualMidsleepSec: habitualMidsleepSec,
-                        timeZoneOffsetSeconds: tzOffset
+                        timeZoneOffsetSeconds: dayOffset
                     ).observation
                     : nil
                 let scan = DayScan(day: day, result: res, rhrLine: rhrLine,
@@ -1604,22 +1620,23 @@ final class IntelligenceEngine: ObservableObject {
         var summaries: [SleepNightSummary] = []
         if sleepV2Mode != .off {
             for night in scoredNights {
+                let nightWindow = civilDayByKey[night.daily.day].map { $0.start..<$0.nextStart }
+                let nightOffset = clockOffsetByDay[night.daily.day] ?? tzOffset
                 let rows = Self.editedRowsForOwnerDay(
                     editedRows,
                     rowsSourceId: editedRowsSourceId,
                     owner: readOwnerByDay[night.daily.day]?.owner,
-                    day: night.daily.day,
-                    tzOffsetSeconds: tzOffset
+                    dayWindow: nightWindow
                 )
                 let edits = Dictionary(rows.map { ($0.startTs, $0) }, uniquingKeysWith: { a, _ in a })
                 let final = sleepEditedDaily(night.daily, detected: night.cachedSleep, editsByStart: edits,
                                              habitualMidsleepSec: habitualMidsleepSec,
-                                             tzOffsetSeconds: tzOffset)
+                                             tzOffsetSeconds: nightOffset)
                 finalDailyByDay[final.day] = final
                 let effective = Self.effectiveSleepSessions(detected: night.cachedSleep, edits: rows)
                 if let summary = SleepNightSummary.select(
                     from: effective, wakeDay: final.day, totalSleepMinutes: final.totalSleepMin,
-                    efficiency: final.efficiency, offsetSeconds: tzOffset,
+                    efficiency: final.efficiency, offsetSeconds: nightOffset,
                     habitualMidsleepSec: habitualMidsleepSec) {
                     summaries.append(summary)
                 }
@@ -1648,14 +1665,13 @@ final class IntelligenceEngine: ObservableObject {
                 editedRows,
                 rowsSourceId: editedRowsSourceId,
                 owner: readOwnerByDay[night.daily.day]?.owner,
-                day: night.daily.day,
-                tzOffsetSeconds: tzOffset
+                dayWindow: civilDayByKey[night.daily.day].map { $0.start..<$0.nextStart }
             )
             let editsByStart = Dictionary(dayEditedRows.map { ($0.startTs, $0) }, uniquingKeysWith: { a, _ in a })
             let daily = finalDailyByDay[night.daily.day] ?? sleepEditedDaily(
                 night.daily, detected: night.cachedSleep, editsByStart: editsByStart,
                 habitualMidsleepSec: habitualMidsleepSec,
-                tzOffsetSeconds: tzOffset)
+                tzOffsetSeconds: clockOffsetByDay[night.daily.day] ?? tzOffset)
             let legacySleepQuality = AnalyticsEngine.Rest.composite(daily: daily).map { $0 / 100.0 }
                 ?? daily.efficiency
             let v2 = scoredSleepV2[daily.day]
@@ -1981,7 +1997,7 @@ final class IntelligenceEngine: ObservableObject {
                         dayStart: partialDay.start,
                         nextDayStart: partialDay.nextStart,
                         habitualMidsleepSec: habitualMidsleepSec,
-                        timeZoneOffsetSeconds: tzOffset
+                        timeZoneOffsetSeconds: clockOffsetByDay[partialDay.day] ?? tzOffset
                     ) {
                         let rest = AnalyticsEngine.Rest.composite(daily: rebuilt)
                         let sleepQuality = rest.map { $0 / 100.0 } ?? rebuilt.efficiency
@@ -2290,7 +2306,7 @@ final class IntelligenceEngine: ObservableObject {
                     windowStart: windowStart,
                     windowEnd: windowEnd,
                     habitualMidsleepSec: habitualMidsleepSec,
-                    timeZoneOffsetSeconds: tzOffset
+                    timeZone: analysisTimeZone
                 )
             } catch {
                 NSLog("IntelligenceEngine: exact pre-sleep boundary snapshot failed: \(error)")
@@ -2325,7 +2341,7 @@ final class IntelligenceEngine: ObservableObject {
             windowStart: windowStart,
             windowEnd: windowEnd,
             habitualMidsleepSec: habitualMidsleepSec,
-            timeZoneOffsetSeconds: tzOffset,
+            timeZone: analysisTimeZone,
             exactIdentityBefore: exactPreSleepIdentityBefore,
             generatedObservations: preSleepObservationByDay
         ) else {
@@ -2375,7 +2391,7 @@ final class IntelligenceEngine: ObservableObject {
             return false
         }
         let healable = storedSessions.filter {
-            (oldestDay...newestDay).contains(AnalyticsEngine.dayString($0.endTs, offsetSec: tzOffset))
+            $0.endTs >= oldestCivilDay.start && $0.endTs < newestCivilDay.nextStart
         }
         let healDropped = SleepSessionDedup.dedupe(healable, freshStarts: keptStarts).dropped
         do {
@@ -2403,7 +2419,7 @@ final class IntelligenceEngine: ObservableObject {
                 windowStart: windowStart,
                 windowEnd: windowEnd,
                 habitualMidsleepSec: habitualMidsleepSec,
-                timeZoneOffsetSeconds: tzOffset,
+                timeZone: analysisTimeZone,
                 exactIdentityBefore: exactPreSleepIdentityBefore,
                 generatedObservations: preSleepObservationByDay
             ) else {
@@ -2755,16 +2771,18 @@ final class IntelligenceEngine: ObservableObject {
     /// detected twin and recomputes totalSleep / efficiency / stage minutes from the reshaped stages, so
     /// the Rest composite and recovery score the corrected sleep , not the auto-detected window. No edit
     /// touching the night → the detected daily is returned unchanged. (#318)
-    /// #299: the edited / hand-logged sleep rows that belong to `day` — the ones whose edits may be folded
-    /// into THAT day's sleep total. An edit belongs to the day its night ENDS on (`dayString(endTs)`),
-    /// matching AnalyticsEngine's end-day session bucket; `endTs` is stable under a bedtime edit (only the
-    /// onset moves). Scoping this per day is the fix: the edit set was built window-wide and
-    /// `sleepEditedDaily` folds any row that isn't a twin of a day's detected sessions in as a "manual"
-    /// block, so one edit / nap leaked its total onto EVERY night. Byte-identical twin of Android
-    /// `IntelligenceEngine.editedRowsForDay`.
-    nonisolated static func editedRowsForDay(_ editedRows: [CachedSleepSession], day: String,
-                                             tzOffsetSeconds: Int) -> [CachedSleepSession] {
-        editedRows.filter { AnalyticsEngine.dayString($0.endTs, offsetSec: tzOffsetSeconds) == day }
+    /// #299: the edited / hand-logged sleep rows that belong to one civil day — the ones whose edits may be
+    /// folded into THAT day's sleep total. An edit belongs to the day its night ENDS on, matching
+    /// AnalyticsEngine's end-day session bucket; `endTs` is stable under a bedtime edit (only the onset
+    /// moves). Scoping this per day is the fix: the edit set was built window-wide and `sleepEditedDaily`
+    /// folds any row that isn't a twin of a day's detected sessions in as a "manual" block, so one edit / nap
+    /// leaked its total onto EVERY night. `dayWindow` is the civil day `[start, nextStart)` (AN-02): a fixed
+    /// offset dropped an edit ending in the first hour of a fall-back day. nil (a day outside the pass) → no
+    /// rows. Twin of Android `IntelligenceEngine.editedRowsForDay`.
+    nonisolated static func editedRowsForDay(_ editedRows: [CachedSleepSession],
+                                             dayWindow: Range<Int>?) -> [CachedSleepSession] {
+        guard let dayWindow else { return [] }
+        return editedRows.filter { dayWindow.contains($0.endTs) }
     }
 
     /// User-edited computed sleep belongs to one raw source. Apply it only when that source owns the
@@ -2773,11 +2791,10 @@ final class IntelligenceEngine: ObservableObject {
         _ editedRows: [CachedSleepSession],
         rowsSourceId: String,
         owner: String?,
-        day: String,
-        tzOffsetSeconds: Int
+        dayWindow: Range<Int>?
     ) -> [CachedSleepSession] {
         guard owner == rowsSourceId else { return [] }
-        return editedRowsForDay(editedRows, day: day, tzOffsetSeconds: tzOffsetSeconds)
+        return editedRowsForDay(editedRows, dayWindow: dayWindow)
     }
 
     /// Stable, locale-free cache witness for the only stored sleep fields used by the new descriptive
@@ -2856,7 +2873,7 @@ final class IntelligenceEngine: ObservableObject {
         windowStart: Int,
         windowEnd: Int,
         habitualMidsleepSec: Int?,
-        timeZoneOffsetSeconds: Int
+        timeZone: TimeZone
     ) async throws -> [String: PreSleepBoundaryIdentity] {
         let editedComputedId = editedRowsSourceId + "-noop"
         let computed = try await store.sleepSessions(
@@ -2907,7 +2924,8 @@ final class IntelligenceEngine: ObservableObject {
                 dayStart: day.start,
                 nextDayStart: day.nextStart,
                 habitualMidsleepSec: habitualMidsleepSec,
-                timeZoneOffsetSeconds: timeZoneOffsetSeconds
+                timeZoneOffsetSeconds: AnalyticsEngine.civilDayClockOffset(
+                    day.start..<day.nextStart, timeZone: timeZone)
             ) {
                 identities[day.day] = identity
             }
@@ -2929,7 +2947,7 @@ final class IntelligenceEngine: ObservableObject {
         windowStart: Int,
         windowEnd: Int,
         habitualMidsleepSec: Int?,
-        timeZoneOffsetSeconds: Int,
+        timeZone: TimeZone,
         exactIdentityBefore: [String: PreSleepBoundaryIdentity]?,
         generatedObservations: [String: PreSleepHeartRateFeedback.Observation]
     ) async throws -> Int {
@@ -2942,7 +2960,7 @@ final class IntelligenceEngine: ObservableObject {
             windowStart: windowStart,
             windowEnd: windowEnd,
             habitualMidsleepSec: habitualMidsleepSec,
-            timeZoneOffsetSeconds: timeZoneOffsetSeconds
+            timeZone: timeZone
         )
         let scopedDays = Set(civilDays.map(\.day))
         guard let firstDay = scopedDays.min(), let lastDay = scopedDays.max() else { return 0 }
@@ -3002,7 +3020,7 @@ final class IntelligenceEngine: ObservableObject {
         windowStart: Int,
         windowEnd: Int,
         habitualMidsleepSec: Int?,
-        timeZoneOffsetSeconds: Int,
+        timeZone: TimeZone,
         exactIdentityBefore: [String: PreSleepBoundaryIdentity]?,
         generatedObservations: [String: PreSleepHeartRateFeedback.Observation]
     ) async -> Int? {
@@ -3016,7 +3034,7 @@ final class IntelligenceEngine: ObservableObject {
                 windowStart: windowStart,
                 windowEnd: windowEnd,
                 habitualMidsleepSec: habitualMidsleepSec,
-                timeZoneOffsetSeconds: timeZoneOffsetSeconds,
+                timeZone: timeZone,
                 exactIdentityBefore: exactIdentityBefore,
                 generatedObservations: generatedObservations
             )
@@ -3224,7 +3242,7 @@ final class IntelligenceEngine: ObservableObject {
 
     private static func computeHabitualMidsleep(
         store: WhoopStore, importedId: String, computedId: String,
-        windowStart: Int, windowEnd: Int, offsetSec: Int
+        windowStart: Int, windowEnd: Int, timeZone: TimeZone
     ) async -> Int? {
         guard windowEnd >= windowStart else { return nil }
         let imported = (try? await store.sleepSessions(deviceId: importedId, from: windowStart,
@@ -3250,11 +3268,16 @@ final class IntelligenceEngine: ObservableObject {
             let duration = end - start
             let (mid, midpointOverflow) = start.addingReportingOverflow(duration / 2)
             guard !midpointOverflow else { return nil }
+            // AN-02: each night on the wall clock in force at its own midpoint, so nights on both sides of
+            // a DST change are learned on one local clock instead of half of them an hour off.
+            let offsetSec = timeZone.secondsFromGMT(for: Date(timeIntervalSince1970: TimeInterval(mid)))
             let dayKey = AnalyticsEngine.dayString(mid, offsetSec: offsetSec)
             guard !dayKey.isEmpty else { return nil }
-            return SleepStageTotals.HistoryBlock(start: start, end: end, dayKey: dayKey)
+            return SleepStageTotals.HistoryBlock(start: start, end: end, dayKey: dayKey,
+                                                 clockOffsetSec: offsetSec)
         }
-        return SleepStageTotals.habitualMidsleepSec(blocks, offsetSec: offsetSec)
+        // Every block carries its own `clockOffsetSec`, so the shared fallback offset is never read.
+        return SleepStageTotals.habitualMidsleepSec(blocks, offsetSec: 0)
     }
 
     /// Epoch seconds in one UTC date. This is intentionally fixed because UTC has no daylight-saving

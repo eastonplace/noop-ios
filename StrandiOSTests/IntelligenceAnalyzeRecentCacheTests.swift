@@ -385,21 +385,20 @@ final class IntelligenceAnalyzeRecentCacheTests: XCTestCase {
             userEdited: true,
             startTsAdjusted: 1_600
         )
-        let day = AnalyticsEngine.dayString(row.endTs, offsetSec: 0)
+        let dayWindow = AnalyticsEngine.civilDayInterval(
+            day: AnalyticsEngine.dayString(row.endTs, offsetSec: 0), timeZone: TimeZone(secondsFromGMT: 0)!)
 
         XCTAssertEqual(IntelligenceEngine.editedRowsForOwnerDay(
             [row],
             rowsSourceId: "active-repair",
             owner: "active-repair",
-            day: day,
-            tzOffsetSeconds: 0
+            dayWindow: dayWindow
         ), [row])
         XCTAssertTrue(IntelligenceEngine.editedRowsForOwnerDay(
             [row],
             rowsSourceId: "active-repair",
             owner: Repository.whoopSource,
-            day: day,
-            tzOffsetSeconds: 0
+            dayWindow: dayWindow
         ).isEmpty)
     }
 

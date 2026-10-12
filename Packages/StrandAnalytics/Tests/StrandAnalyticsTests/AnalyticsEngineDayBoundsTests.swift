@@ -161,3 +161,273 @@ final class AnalyticsEngineDayBoundsTests: XCTestCase {
         }
     }
 }
+
+/// AN-02: `analyzeDay` buckets by the real civil day `[start, nextStart)` and that day's own wall-clock
+/// offset. The old engine used ONE offset for the whole pass and a fixed 86,400 s day, so after each DST
+/// change every re-scored day on the other side lost an hour of steps and calories, the transition day
+/// read as 24 h, and a session ending near midnight moved to the neighbouring day. The fixtures cover the
+/// EU/UK change (2026-10-25), the US change (2026-11-01), US spring-forward (2026-03-08) and a southern
+/// hemisphere zone, so a hemisphere or direction bug can't pass by luck.
+final class AnalyticsEngineDSTDayBoundsTests: XCTestCase {
+
+    private let profile = UserProfile(weightKg: 75, heightCm: 178, age: 30, sex: "male")
+
+    private func zone(_ id: String) throws -> TimeZone { try XCTUnwrap(TimeZone(identifier: id)) }
+
+    private func interval(_ day: String, _ id: String) throws -> Range<Int> {
+        try XCTUnwrap(AnalyticsEngine.civilDayInterval(day: day, timeZone: zone(id)), "\(day) \(id)")
+    }
+
+    /// Cumulative step counter every 60 s over `[from, to)`, +7 ticks per minute.
+    private func steps(from: Int, to: Int) -> [StepSample] {
+        var counter = 100
+        return stride(from: from, to: to, by: 60).map { ts in
+            counter += 7
+            return StepSample(ts: ts, counter: counter & 0xFFFF)
+        }
+    }
+
+    /// HR every 10 s over `[from, to)` with a varying bpm, so a wrongly in/excluded sample moves kcal.
+    private func heartRate(from: Int, to: Int) -> [HRSample] {
+        stride(from: from, to: to, by: 10).map { HRSample(ts: $0, bpm: 60 + ($0 / 10) % 40) }
+    }
+
+    /// A still, low-HR block `[start, end)` the stager detects as one sleep session.
+    private func stillNight(start: Int, end: Int) -> (hr: [HRSample], rr: [RRInterval], gravity: [GravitySample]) {
+        var toggle = false
+        let rr: [RRInterval] = stride(from: start, to: end, by: 2).map { ts in
+            toggle.toggle()
+            return RRInterval(ts: ts, rrMs: toggle ? 1205 : 1195)
+        }
+        return ((start..<end).map { HRSample(ts: $0, bpm: 50) }, rr,
+                (start..<end).map { GravitySample(ts: $0, x: 0, y: 0, z: 1) })
+    }
+
+    // MARK: - Civil intervals and offsets
+
+    func testCivilDayIntervalHasRealLengthAcrossTransitions() throws {
+        let cases: [(String, String, Int)] = [
+            ("2026-11-01", "America/New_York", 25),   // US fall-back
+            ("2026-11-01", "America/Los_Angeles", 25),
+            ("2026-03-08", "America/New_York", 23),   // US spring-forward
+            ("2026-10-25", "Europe/London", 25),      // EU/UK fall-back
+            ("2026-10-25", "Europe/Berlin", 25),
+            ("2026-03-29", "Europe/London", 23),      // EU/UK spring-forward
+            ("2026-10-04", "Australia/Sydney", 23),   // southern spring-forward
+            ("2026-04-05", "Australia/Sydney", 25),   // southern fall-back
+            ("2026-10-31", "America/New_York", 24),   // the ordinary day before
+            ("2026-10-24", "Europe/London", 24),
+            ("2026-06-15", "Asia/Kolkata", 24),       // no DST, fractional offset
+        ]
+        for (day, id, hours) in cases {
+            let range = try interval(day, id)
+            XCTAssertEqual(range.upperBound - range.lowerBound, hours * 3_600, "\(day) \(id)")
+            XCTAssertEqual(AnalyticsEngine.dayString(range.lowerBound,
+                                                     offsetSec: try zone(id).secondsFromGMT(
+                                                        for: Date(timeIntervalSince1970: TimeInterval(range.lowerBound)))),
+                           day, "the interval starts at local midnight of \(day) \(id)")
+        }
+        // Consecutive civil days tile time with no gap or overlap through the change.
+        XCTAssertEqual(try interval("2026-10-31", "America/New_York").upperBound,
+                       try interval("2026-11-01", "America/New_York").lowerBound)
+        XCTAssertEqual(try interval("2026-11-01", "America/New_York").upperBound,
+                       try interval("2026-11-02", "America/New_York").lowerBound)
+    }
+
+    func testCivilDayIntervalRejectsMalformedKeys() throws {
+        let utc = try zone("UTC")
+        for bad in ["", "not-a-day", "2026-02-30", "2026-13-01", "2026-1-01", "20261101"] {
+            XCTAssertNil(AnalyticsEngine.civilDayInterval(day: bad, timeZone: utc), bad)
+        }
+    }
+
+    func testCivilDayClockOffsetIsThatDaysOwnOffset() throws {
+        let cases: [(String, String, Int)] = [
+            ("2026-10-31", "America/New_York", -4 * 3_600),
+            ("2026-11-01", "America/New_York", -5 * 3_600),   // after the 02:00 switch
+            ("2026-11-02", "America/New_York", -5 * 3_600),
+            ("2026-03-08", "America/New_York", -4 * 3_600),
+            ("2026-10-24", "Europe/London", 3_600),
+            ("2026-10-25", "Europe/London", 0),
+            ("2026-10-04", "Australia/Sydney", 11 * 3_600),
+            ("2026-06-15", "Asia/Kolkata", 5 * 3_600 + 1_800),
+        ]
+        for (day, id, offset) in cases {
+            XCTAssertEqual(AnalyticsEngine.civilDayClockOffset(try interval(day, id), timeZone: try zone(id)),
+                           offset, "\(day) \(id)")
+        }
+    }
+
+    // MARK: - Fall-back day keeps its first local hour
+
+    func testFallBackDayCountsStepsFromMidnightToOneAM() throws {
+        for (day, id) in [("2026-11-01", "America/New_York"), ("2026-10-25", "Europe/London")] {
+            let civil = try interval(day, id)
+            let offset = AnalyticsEngine.civilDayClockOffset(civil, timeZone: try zone(id))
+            // Steps only between local 00:00 and 01:00 (still on the pre-change offset).
+            let firstHour = steps(from: civil.lowerBound, to: civil.lowerBound + 3_600)
+            let fixed = AnalyticsEngine.analyzeDay(day: day, daySteps: firstHour, profile: profile,
+                                                   tzOffsetSeconds: offset, dayInterval: civil)
+            XCTAssertEqual(fixed.daily.steps, 59 * 7, "\(day) \(id): 60 samples → 59 deltas of 7")
+
+            // The bug this replaces: a pass-wide offset taken after the change drops the whole hour.
+            let legacy = AnalyticsEngine.analyzeDay(day: day, daySteps: firstHour, profile: profile,
+                                                    tzOffsetSeconds: offset)
+            XCTAssertNil(legacy.daily.steps, "\(day) \(id): the fixed-offset bucket loses 00:00-01:00")
+        }
+    }
+
+    func testTransitionDaysUseTheirRealLengthForCaloriesAndSteps() throws {
+        for (day, id, hours) in [("2026-11-01", "America/New_York", 25),
+                                 ("2026-10-25", "Europe/London", 25),
+                                 ("2026-03-08", "America/New_York", 23),
+                                 ("2026-10-04", "Australia/Sydney", 23)] {
+            let civil = try interval(day, id)
+            let offset = AnalyticsEngine.civilDayClockOffset(civil, timeZone: try zone(id))
+            // Streams spill two hours into both neighbouring days.
+            let hr = heartRate(from: civil.lowerBound - 7_200, to: civil.upperBound + 7_200)
+            let counter = steps(from: civil.lowerBound - 7_200, to: civil.upperBound + 7_200)
+            let result = AnalyticsEngine.analyzeDay(day: day, dayHr: hr, daySteps: counter, profile: profile,
+                                                    tzOffsetSeconds: offset, dayInterval: civil)
+
+            let inDayHr = hr.filter { civil.contains($0.ts) }
+            XCTAssertEqual(inDayHr.count, hours * 360, "\(day) \(id): \(hours) h of 10 s samples")
+            let expectedKcal = Calories.estimateDayCalories(inDayHr, profile: profile,
+                                                            hrmax: StrainScorer.tanakaHRmax(age: 30),
+                                                            restingHR: nil)
+            XCTAssertEqual(try XCTUnwrap(result.daily.activeKcalEst), expectedKcal, accuracy: 1e-9, "\(day) \(id)")
+            XCTAssertEqual(result.daily.steps, (hours * 60 - 1) * 7, "\(day) \(id)")
+        }
+    }
+
+    // MARK: - Session attribution near midnight
+
+    func testSessionEndingInFallBackFirstHourBelongsToThatDay() throws {
+        let day = "2026-11-01"
+        let id = "America/New_York"
+        let civil = try interval(day, id)
+        let offset = AnalyticsEngine.civilDayClockOffset(civil, timeZone: try zone(id))
+        // A still block that ends 40 min into Nov 1 (00:40 EDT), before the 02:00 switch.
+        let night = stillNight(start: civil.lowerBound + 2_400 - 4 * 3_600, end: civil.lowerBound + 2_400)
+        let fixed = AnalyticsEngine.analyzeDay(day: day, hr: night.hr, rr: night.rr, gravity: night.gravity,
+                                               profile: profile, tzOffsetSeconds: offset, dayInterval: civil)
+        XCTAssertEqual(fixed.sleepSessions.count, 1)
+        let end = try XCTUnwrap(fixed.sleepSessions.first?.end)
+        XCTAssertTrue(civil.contains(end) && end < civil.lowerBound + 3_600)
+        XCTAssertNotNil(fixed.daily.totalSleepMin)
+
+        // The previous day must not also claim it.
+        let previousCivil = try interval("2026-10-31", id)
+        let previous = AnalyticsEngine.analyzeDay(
+            day: "2026-10-31", hr: night.hr, rr: night.rr, gravity: night.gravity, profile: profile,
+            tzOffsetSeconds: AnalyticsEngine.civilDayClockOffset(previousCivil, timeZone: try zone(id)),
+            dayInterval: previousCivil)
+        XCTAssertTrue(previous.sleepSessions.isEmpty)
+
+        // The bug: with the post-change offset and a fixed 24 h bucket the night lands on Oct 31.
+        let legacy = AnalyticsEngine.analyzeDay(day: day, hr: night.hr, rr: night.rr, gravity: night.gravity,
+                                                profile: profile, tzOffsetSeconds: offset)
+        XCTAssertTrue(legacy.sleepSessions.isEmpty)
+    }
+
+    // MARK: - Re-scoring after the change is stable
+
+    /// A day scored before the change and re-scored after it (when the device offset at "now" differs)
+    /// must give identical results: the day's own interval and offset don't depend on when it is scored.
+    func testPreChangeDayRescoredAfterChangeIsIdentical() throws {
+        for (day, id) in [("2026-10-23", "Europe/London"), ("2026-11-03", "America/New_York")] {
+            let tz = try zone(id)
+            let civil = try interval(day, id)
+            let dayOffset = AnalyticsEngine.civilDayClockOffset(civil, timeZone: tz)
+            let night = stillNight(start: civil.lowerBound - 2 * 3_600, end: civil.lowerBound + 2 * 3_600)
+            // Day streams cover exactly the civil day, so an hour-shifted bucket visibly loses an hour.
+            let hr = heartRate(from: civil.lowerBound, to: civil.upperBound)
+            let counter = steps(from: civil.lowerBound, to: civil.upperBound)
+            func score(dayInterval: Range<Int>?, offset: Int) -> AnalyticsEngine.DayResult {
+                AnalyticsEngine.analyzeDay(day: day, hr: night.hr, rr: night.rr, gravity: night.gravity,
+                                           dayHr: hr, daySteps: counter, profile: profile,
+                                           tzOffsetSeconds: offset, dayInterval: dayInterval)
+            }
+            // Before the change the old engine's pass-wide offset WAS this day's offset; that is the
+            // correct historical result.
+            let scoredBefore = score(dayInterval: nil, offset: dayOffset)
+            let rescoredAfter = score(dayInterval: civil, offset: dayOffset)
+            XCTAssertEqual(rescoredAfter.daily, scoredBefore.daily, "\(day) \(id)")
+            XCTAssertEqual(rescoredAfter.sleepSessions, scoredBefore.sleepSessions, "\(day) \(id)")
+            XCTAssertNotNil(rescoredAfter.daily.steps)
+            XCTAssertNotNil(rescoredAfter.daily.totalSleepMin)
+
+            // The old engine re-scored it under the other side's offset and lost an hour.
+            let otherSideOffset = dayOffset + (tz.isDaylightSavingTime(
+                for: Date(timeIntervalSince1970: TimeInterval(civil.lowerBound))) ? -3_600 : 3_600)
+            let oldRescore = score(dayInterval: nil, offset: otherSideOffset)
+            XCTAssertNotEqual(oldRescore.daily.steps, scoredBefore.daily.steps, "\(day) \(id)")
+        }
+    }
+
+    // MARK: - Ordinary days are byte-identical
+
+    /// Golden pin: on a day with no transition, the civil interval equals the old fixed-offset bucket, so
+    /// every output is byte-identical to the pre-fix engine (incl. fractional and southern-hemisphere zones).
+    func testOrdinaryDaysAreByteIdenticalToTheFixedOffsetEngine() throws {
+        for (day, id) in [("2026-06-15", "America/New_York"), ("2026-06-01", "Australia/Sydney"),
+                          ("2026-02-02", "Asia/Kathmandu"), ("2026-05-05", "UTC")] {
+            let tz = try zone(id)
+            let civil = try interval(day, id)
+            let offset = AnalyticsEngine.civilDayClockOffset(civil, timeZone: tz)
+            XCTAssertEqual(civil, AnalyticsEngine.fixedOffsetDayInterval(day, offsetSec: offset), "\(day) \(id)")
+            let night = stillNight(start: civil.lowerBound - 2 * 3_600, end: civil.lowerBound + 2 * 3_600)
+            let hr = heartRate(from: civil.lowerBound - 7_200, to: civil.upperBound + 7_200)
+            let counter = steps(from: civil.lowerBound - 7_200, to: civil.upperBound + 7_200)
+            let civilResult = AnalyticsEngine.analyzeDay(
+                day: day, hr: night.hr, rr: night.rr, gravity: night.gravity, dayHr: hr, daySteps: counter,
+                profile: profile, tzOffsetSeconds: offset, dayInterval: civil)
+            let fixedResult = AnalyticsEngine.analyzeDay(
+                day: day, hr: night.hr, rr: night.rr, gravity: night.gravity, dayHr: hr, daySteps: counter,
+                profile: profile, tzOffsetSeconds: offset)
+            XCTAssertEqual(civilResult.daily, fixedResult.daily, "\(day) \(id)")
+            XCTAssertEqual(civilResult.sleepSessions, fixedResult.sleepSessions, "\(day) \(id)")
+            XCTAssertEqual(civilResult.cachedSleep, fixedResult.cachedSleep, "\(day) \(id)")
+            XCTAssertEqual(civilResult.workouts, fixedResult.workouts, "\(day) \(id)")
+            XCTAssertNotNil(civilResult.daily.steps)
+            XCTAssertNotNil(civilResult.daily.totalSleepMin)
+        }
+    }
+
+    // MARK: - Habitual midsleep across the change
+
+    /// Nights with a fixed local 03:00 midpoint on both sides of the US change are learned as 03:00 when
+    /// each block carries its own offset; one shared offset reads half of them an hour off.
+    func testHabitualMidsleepUsesEachNightsOwnOffset() throws {
+        let tz = try zone("America/New_York")
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = tz
+        let blocks: [SleepStageTotals.HistoryBlock] = try (0..<20).map { index in
+            let day = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 10, day: 22 + index,
+                                                                         hour: 3)))
+            let mid = Int(day.timeIntervalSince1970)
+            let offset = tz.secondsFromGMT(for: day)
+            return SleepStageTotals.HistoryBlock(start: mid - 4 * 3_600, end: mid + 4 * 3_600,
+                                                 dayKey: AnalyticsEngine.dayString(mid, offsetSec: offset),
+                                                 clockOffsetSec: offset)
+        }
+        XCTAssertEqual(SleepStageTotals.habitualMidsleepSec(blocks, offsetSec: 0), 3 * 3_600)
+
+        let sharedOffset = blocks.map {
+            SleepStageTotals.HistoryBlock(start: $0.start, end: $0.end, dayKey: $0.dayKey)
+        }
+        XCTAssertNotEqual(SleepStageTotals.habitualMidsleepSec(sharedOffset, offsetSec: -5 * 3_600), 3 * 3_600)
+    }
+
+    // MARK: - Steps trace agrees with the bucket
+
+    func testStepsRawCounterTraceUsesTheCivilInterval() throws {
+        let day = "2026-11-01"
+        let civil = try interval(day, "America/New_York")
+        let firstHour = steps(from: civil.lowerBound, to: civil.lowerBound + 3_600)
+        let lines = StepsEstimateEngine.rawCounterTrace(daySteps: firstHour, dayKey: day,
+                                                        tzOffsetSeconds: -5 * 3_600, dayInterval: civil,
+                                                        ticksPerStep: 1.0)
+        XCTAssertTrue(lines.contains { $0.contains("counterSamples=60") }, lines.joined(separator: "\n"))
+    }
+}

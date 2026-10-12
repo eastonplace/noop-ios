@@ -191,6 +191,44 @@ public enum AnalyticsEngine {
         Int(isoDay.date(from: day)?.timeIntervalSince1970 ?? 0)
     }
 
+    /// The real local civil day `day` (yyyy-MM-dd, Gregorian) in `timeZone` as `[start, nextStart)` unix
+    /// seconds (AN-02). Calendar arithmetic, never a fixed 86,400 s: a spring-forward day is 23 h and a
+    /// fall-back day 25 h. nil for a malformed or non-existent day key.
+    public static func civilDayInterval(day: String, timeZone: TimeZone) -> Range<Int>? {
+        let parts = day.split(separator: "-", omittingEmptySubsequences: false)
+        guard parts.count == 3, parts[0].count == 4, parts[1].count == 2, parts[2].count == 2,
+              let year = Int(parts[0]), let month = Int(parts[1]),
+              let dayOfMonth = Int(parts[2]) else { return nil }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+        guard let start = calendar.date(from: DateComponents(year: year, month: month, day: dayOfMonth)),
+              calendar.dateComponents([.year, .month, .day], from: start)
+                == DateComponents(year: year, month: month, day: dayOfMonth),
+              let next = calendar.date(byAdding: .day, value: 1, to: start) else { return nil }
+        return Int(start.timeIntervalSince1970)..<Int(next.timeIntervalSince1970)
+    }
+
+    /// Wall-clock offset (seconds east of UTC) for one civil day's hour-of-day logic (AN-02): the offset in
+    /// force at the day's midpoint. That is exact on every ordinary day. On a transition day the switch
+    /// happens at 01:00-03:00 local, so the midpoint offset covers the rest of the night, the wake and any
+    /// nap; only the pre-switch part of the transition night reads one hour off, which cannot cross the
+    /// daytime (11-20 h) or overnight band edges.
+    public static func civilDayClockOffset(_ dayInterval: Range<Int>, timeZone: TimeZone) -> Int {
+        let midpoint = dayInterval.lowerBound + (dayInterval.upperBound - dayInterval.lowerBound) / 2
+        return timeZone.secondsFromGMT(for: Date(timeIntervalSince1970: TimeInterval(midpoint)))
+    }
+
+    /// Legacy pure-function day bucket: `[UTC-midnight(day) − offset, +86,400)`, the exact set the old
+    /// `dayString(ts, offsetSec:) == day` compare selected. Only for callers that pass no civil interval;
+    /// it is wrong on a DST transition day and on days scored under another day's offset (AN-02).
+    static func fixedOffsetDayInterval(_ day: String, offsetSec: Int) -> Range<Int> {
+        let utcStart = dayStartUtcSeconds(day)
+        let (start, startOverflow) = utcStart.subtractingReportingOverflow(offsetSec)
+        guard !startOverflow else { return 0..<0 }
+        let (end, endOverflow) = start.addingReportingOverflow(86_400)
+        return start..<(endOverflow ? Int.max : end)
+    }
+
     /// Skip the redundant calendar-day re-read in analyzeRecent's per-day scan (#997, ryanbr). For a
     /// PAST day the night window `[nightLo, nightHi]` reads through to the NEXT local midnight, so the
     /// calendar day `[dayLo, dayHi]` is a strict SUBSET of the hr/steps/gravity streams already in
@@ -253,7 +291,7 @@ public enum AnalyticsEngine {
                                   // falls back to the same night window the rest of the analysis uses
                                   // (preserving the pure-function contract). The caller
                                   // (IntelligenceEngine) supplies a full
-                                  // [localMidnight(day), localMidnight(day)+86400) read here so a
+                                  // civil-day [start, nextStart) read here so a
                                   // day's late hours — which fall outside the ~42h night-detection
                                   // window (it ends at dayStart+12h ≈ noon) — are still seen.
                                   //
@@ -301,10 +339,17 @@ public enum AnalyticsEngine {
                                   profile: UserProfile,
                                   baselines: ProfileBaselines = ProfileBaselines(),
                                   maxHROverride: Double? = nil,
-                                  // Wall-clock UTC offset (seconds) for the sleep detector's daytime
-                                  // false-sleep guard (#90). Default 0 keeps pure-function callers/tests
-                                  // on UTC; IntelligenceEngine passes the device's real offset.
+                                  // Wall-clock UTC offset (seconds) for the hour-of-day logic: the sleep
+                                  // detector's daytime false-sleep guard (#90) and the main-night pick.
+                                  // Default 0 keeps pure-function callers/tests on UTC; IntelligenceEngine
+                                  // passes THIS day's offset (`civilDayClockOffset`), not a pass-wide one.
                                   tzOffsetSeconds: Int = 0,
+                                  // The civil day `[start, nextStart)` that owns `day` (AN-02), from
+                                  // `civilDayInterval` or the caller's calendar enumerator. It buckets
+                                  // session attribution, steps and calories, so a 23 h / 25 h DST day keeps
+                                  // its real length. nil keeps the legacy fixed-offset 86,400 s bucket for
+                                  // pure-function callers/tests.
+                                  dayInterval: Range<Int>? = nil,
                                   // Off-wrist `[start, end)` intervals (unix seconds) for the off-wrist
                                   // sleep backstop (#500), paired from WRIST_OFF/WRIST_ON events by
                                   // `offWristIntervals`. The HR-gap proxy in detectSleep is the always-on
@@ -400,20 +445,13 @@ public enum AnalyticsEngine {
         }
         let bandSleepState = bandSleepState.filter { isSafeTimelineTimestamp($0.ts) }
 
-        // Precompute the day's UTC bounds ONCE (#996). `dayString(ts, offsetSec:)` formats the UTC
-        // calendar day of (ts + offset) with a FIXED offset, so "== day" is exactly membership in
-        // [dayStartUtc, +86400). That turns the day-bucketing filters below — otherwise a per-sample
-        // DateFormatter over the full-day dayHr/daySteps streams (~86k 1 Hz samples each) once per
-        // analyzeDay, ×maxDays every pass — into an integer range check. Byte-identical to the
-        // formatter compare (locked by AnalyticsEngineDayBoundsTests, incl. fractional offsets).
-        let dayStartUtc = dayStartUtcSeconds(day)
-        let dayEndUtc = SleepTimestampMath.adding(86_400, to: dayStartUtc) ?? Int.max
-        func tsInDay(_ ts: Int) -> Bool {
-            guard let localTimestamp = SleepTimestampMath.adding(tzOffsetSeconds, to: ts) else {
-                return false
-            }
-            return localTimestamp >= dayStartUtc && localTimestamp < dayEndUtc
-        }
+        // The day's bounds, computed ONCE as an integer range (#996: no per-sample DateFormatter over the
+        // ~86k-sample day streams). The caller's civil interval wins (AN-02): it is the real local day,
+        // so a fall-back day keeps its 00:00-01:00 hour and a spring-forward day is 23 h. Without one, the
+        // legacy fixed-offset bucket is byte-identical to the old `dayString(ts, offsetSec:) == day`
+        // compare (locked by AnalyticsEngineDayBoundsTests, incl. fractional offsets).
+        let dayBounds = dayInterval ?? fixedOffsetDayInterval(day, offsetSec: tzOffsetSeconds)
+        func tsInDay(_ ts: Int) -> Bool { dayBounds.contains(ts) }
 
         // ── Sleep detection + staging ─────────────────────────────────────────
         let detectedSessions = SleepStager.detectSleep(hr: hr, rr: rr, resp: resp, gravity: gravity,
@@ -430,7 +468,7 @@ public enum AnalyticsEngine {
             ? detectedSessions.map { WakeMotionRefinement.refine($0, grav: gravity, steps: steps) }
             : detectedSessions
         // Sessions attributed to `day` = those whose end falls on `day` (LOCAL day, #277). `day` is
-        // the caller's local-day key; attribute by the same offset so the bucket and the key agree.
+        // the caller's local-day key; attribute by the same civil bounds so the bucket and the key agree.
         let matched = allSessions.filter { tsInDay($0.end) }
 
         // ── The day's MAIN night (#525) ───────────────────────────────────────
@@ -711,7 +749,7 @@ public enum AnalyticsEngine {
         // flat when still, and wraps at 65536). The daily total is the SUM of WRAP-AWARE increments of
         // that counter across the time-ordered 1 Hz records: delta = (cur - prev) & 0xFFFF. The first
         // record has no predecessor (contributes 0). The day's read window may include adjacent-day
-        // samples, so filter to the LOCAL-day key dayString(ts, tzOffset)==day first (#277).
+        // samples, so filter to the local civil day first (#277, AN-02).
         //
         // Reading byte @57 ALONE and summing it (the old bug, #132/#276/#316: exzanimo saw ~24× too
         // many steps) both ignored the high byte and summed a running total — exploding the count to
@@ -740,8 +778,8 @@ public enum AnalyticsEngine {
         // Whole-day additive totals (steps above, calories here) are summed over the full LOCAL
         // calendar day supplied by the caller (dayHr / daySteps), NOT the ~42h sleep-detection
         // window — which, anchored to the current time-of-day, would drop a past day's late hours
-        // and double-count seconds shared with adjacent days. The filter uses the LOCAL-day key
-        // (dayString(ts, tzOffset)) so it agrees with the bucket (#277). Fall back to the
+        // and double-count seconds shared with adjacent days. The filter uses the local civil day
+        // bounds so it agrees with the bucket (#277, AN-02). Fall back to the
         // night-window hr for pure-function callers that don't supply dayHr. Strain keeps the full
         // window (bounded log).
         let dayHrFiltered = (dayHr ?? hr).filter { tsInDay($0.ts) }

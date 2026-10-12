@@ -1,10 +1,10 @@
 import XCTest
-@testable import Strand
+@testable import NOOP
 
 /// CAPTURE-B (#814/#799): the universal `dayOwner …` self-diagnostic line that rides EVERY Test Centre
 /// export. The export parser depends on the EXACT shape, so these tests pin the verbatim format and the
 /// provenance resolution (imported:whoop > imported:apple > measured > none).
-final class DayOwnerUniversalLineTests: XCTestCase {
+final class IntelligenceEngineDayOwnerLineTests: XCTestCase {
 
     /// A strap-measured day where the read owner == the write active id (the healthy single-device case):
     /// readId == writeActiveId, provenance = measured.

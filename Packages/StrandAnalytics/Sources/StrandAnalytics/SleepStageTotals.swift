@@ -911,8 +911,12 @@ public enum SleepStageTotals {
     /// per day can be picked selection-independently (no chicken-and-egg with main-night selection).
     public struct HistoryBlock {
         public let start: Int, end: Int, dayKey: String
-        public init(start: Int, end: Int, dayKey: String) {
+        /// The wall-clock offset in force at this block's own midpoint (AN-02). nil → the caller's single
+        /// `offsetSec`. Per-block offsets keep nights on both sides of a DST change on one local clock.
+        public let clockOffsetSec: Int?
+        public init(start: Int, end: Int, dayKey: String, clockOffsetSec: Int? = nil) {
             self.start = start; self.end = end; self.dayKey = dayKey
+            self.clockOffsetSec = clockOffsetSec
         }
         /// Existing non-optional API preserved: malformed spans report zero rather than trapping.
         public var durationS: Int { SleepStageTotals.positiveDurationSeconds(start: start, end: end) ?? 0 }
@@ -956,7 +960,7 @@ public enum SleepStageTotals {
         // the resultant vector is degenerate (antipodal/uniform midpoints) — falls back to cold-start.
         let midSecs: [Int] = longestByDay.values.compactMap { block -> Int? in
             guard let midpoint = midpointSeconds(start: block.start, end: block.end) else { return nil }
-            return localSecOfDay(midpoint, offsetSec: offsetSec)
+            return localSecOfDay(midpoint, offsetSec: block.clockOffsetSec ?? offsetSec)
         }
         return circularMeanSec(midSecs)
     }
