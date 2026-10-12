@@ -60,7 +60,9 @@ public final class HuamiHRSource: NSObject, ObservableObject {
     // MARK: - Dependencies (injected — no BLEManager reference)
 
     private let live: LiveState
-    private let persist: (Streams) -> Void
+    private let persist: @MainActor (Streams) async throws -> Void
+    /// BLE-6: ordered writes with bounded retry.
+    private let sink: BatchedRetryingSink<Streams>
     private let deviceId: String
     private let log: (String) -> Void
     private let onBattery: (Int) -> Void
@@ -90,13 +92,14 @@ public final class HuamiHRSource: NSObject, ObservableObject {
 
     public init(live: LiveState,
                 deviceId: String,
-                persist: @escaping (Streams) -> Void = { _ in },
+                persist: @escaping @MainActor (Streams) async throws -> Void = { _ in },
                 log: @escaping (String) -> Void = { _ in },
                 onBattery: @escaping (Int) -> Void = { _ in },
                 feedsLive: Bool = true) {
         self.live = live
         self.deviceId = deviceId
         self.persist = persist
+        self.sink = BatchedRetryingSink(insert: persist)
         self.log = log
         self.onBattery = onBattery
         self.feedsLive = feedsLive
@@ -175,13 +178,16 @@ public final class HuamiHRSource: NSObject, ObservableObject {
 
     private func flush() {
         guard !buffer.isEmpty else { lastFlush = Date(); return }
-        for sample in buffer {
-            // HR-only mapping (no R-R on the Huami custom char): reuse the same HR→Streams mapping the
-            // generic strap path uses so persisted rows are identical in shape and source-tagged by id.
-            persist(StandardHRMapping.samples(fromHR: sample.hr, rr: [], at: sample.ts))
-        }
+        // HR-only mapping (no R-R on the Huami custom char): reuse the same HR→Streams mapping the
+        // generic strap path uses so persisted rows are identical in shape and source-tagged by id.
+        // BLE-6: ordered writes with bounded retry instead of one fire-and-forget insert per sample.
+        let batches = buffer.map { StandardHRMapping.samples(fromHR: $0.hr, rr: [], at: $0.ts) }
         buffer.removeAll()
         lastFlush = Date()
+        let log = log
+        sink.submit(batches, onFailed: { dropped in
+            log("Huami: \(dropped) sample batch(es) failed to save after retries")
+        })
     }
 
     /// Fold a decoded HR (from either characteristic) into live state + the buffer. Range-gated to the

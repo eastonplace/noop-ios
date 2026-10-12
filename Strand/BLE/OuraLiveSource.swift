@@ -116,7 +116,9 @@ public final class OuraLiveSource: NSObject, ObservableObject {
 
     private let live: LiveState
     private let deviceId: String
-    private let persist: (Streams) -> Void
+    private let persist: @MainActor (Streams) async throws -> Void
+    /// BLE-6: ordered writes with bounded retry; the history cursor is saved only after its events are.
+    private let sink: BatchedRetryingSink<Streams>
     private let log: (String) -> Void
     private let onBattery: (Int) -> Void
     /// The ring generation (carried on `PairedDevice.model`, recovered via `OuraRingGen.from(model:)`).
@@ -224,6 +226,12 @@ public final class OuraLiveSource: NSObject, ObservableObject {
     /// as `0x11` summaries arrive. 0 = fetch everything the ring has banked (first-ever connect for this
     /// ring; OURA_PROTOCOL.md s5.1).
     private var historyCursor: UInt32 = 0
+    /// BLE-6: the newest fetched cursor whose events are not yet written. Saved to `OuraHistoryCursorStore`
+    /// only when the flush holding those events succeeds, so a failed or interrupted write is re-fetched
+    /// next time instead of leaving a permanent gap.
+    private var pendingDurableCursor: UInt32?
+    /// Bumped on a cursor reset so an in-flight commit of an older cursor cannot land after the reset.
+    private var cursorEpoch = 0
     /// Periodic re-fetch while connected, so an overnight-connected session (or one left open after a nap)
     /// picks up freshly-banked sleep data without needing a reconnect. Mirrors BLEManager's ~15 min
     /// periodic WHOOP history-offload floor.
@@ -273,13 +281,16 @@ public final class OuraLiveSource: NSObject, ObservableObject {
             if summary.cursor < historyCursor {
                 log("Oura: ring-time regression detected (fetch cursor \(summary.cursor) [\(describeCursor(summary.cursor))] < persisted \(historyCursor) [\(describeCursor(historyCursor))]) - the ring's session likely reset; resetting our cursor to 0")
                 historyCursor = 0
+                pendingDurableCursor = nil
+                cursorEpoch &+= 1
                 OuraHistoryCursorStore.save(0, deviceId: deviceId)
             } else {
                 historyCursor = summary.cursor
-                OuraHistoryCursorStore.save(summary.cursor, deviceId: deviceId)
+                pendingDurableCursor = summary.cursor   // saved once this page's events are written (BLE-6)
             }
         } else {
             log("Oura: history fetch caught up (cursor \(historyCursor) [\(describeCursor(historyCursor))])")
+            flush()   // write the fetched events and commit the caught-up cursor now
         }
         advance(.historyCursorAdvanced(cursor: summary.cursor, moreData: summary.moreData))
     }
@@ -324,7 +335,7 @@ public final class OuraLiveSource: NSObject, ObservableObject {
                 deviceId: String,
                 ringGen: OuraRingGen,
                 authKey: @escaping () -> Data?,
-                persist: @escaping (Streams) -> Void = { _ in },
+                persist: @escaping @MainActor (Streams) async throws -> Void = { _ in },
                 log: @escaping (String) -> Void = { _ in },
                 onBattery: @escaping (Int) -> Void = { _ in },
                 feedsLive: Bool = true,
@@ -334,6 +345,7 @@ public final class OuraLiveSource: NSObject, ObservableObject {
         self.ringGen = ringGen
         self.authKey = authKey
         self.persist = persist
+        self.sink = BatchedRetryingSink(insert: persist)
         self.log = log
         self.onBattery = onBattery
         self.feedsLive = feedsLive
@@ -553,15 +565,27 @@ public final class OuraLiveSource: NSObject, ObservableObject {
     }
 
     private func flush() {
-        guard feedsLive, !buffer.isEmpty else { lastFlush = Date(); return }
-        for entry in buffer {
-            // Pure, unit-tested mapping (events -> Streams) keyed by each entry's own ts (wall-clock for
-            // live pushes, ring-time-anchored for history-fetched records). A signal that could not be
-            // decoded never reaches here, so a missing stream stays empty, never faked.
-            persist(OuraStreamMapping.streams(from: entry.events, at: entry.ts))
-        }
+        guard feedsLive else { lastFlush = Date(); return }
+        // BLE-6: commit the history cursor together with the events fetched before it, and never while
+        // fetched events still wait for the time anchor (they are not in this batch yet).
+        let cursor = pendingAnchorEvents.isEmpty ? pendingDurableCursor : nil
+        guard !buffer.isEmpty || cursor != nil else { lastFlush = Date(); return }
+        if cursor != nil { pendingDurableCursor = nil }
+        // Pure, unit-tested mapping (events -> Streams) keyed by each entry's own ts (wall-clock for
+        // live pushes, ring-time-anchored for history-fetched records). A signal that could not be
+        // decoded never reaches here, so a missing stream stays empty, never faked.
+        let batches = buffer.map { OuraStreamMapping.streams(from: $0.events, at: $0.ts) }
         buffer.removeAll()
         lastFlush = Date()
+        let epoch = cursorEpoch
+        let deviceId = deviceId
+        let log = log
+        sink.submit(batches, onCommitted: { [weak self] in
+            guard let cursor, (self?.cursorEpoch ?? epoch) == epoch else { return }
+            OuraHistoryCursorStore.save(cursor, deviceId: deviceId)
+        }, onFailed: { dropped in
+            log("Oura: \(dropped) sample batch(es) failed to save after retries - the history cursor stays put so the next sync re-fetches them")
+        })
     }
 
     /// Flush every event parked in `pendingAnchorEvents`, now that `driver.unixSeconds` can resolve them
@@ -839,6 +863,8 @@ extension OuraLiveSource: @preconcurrency CBCentralManagerDelegate {
         // Resume the GetEvents cursor from where the LAST connection to this ring left off (s5.1/5.3), so
         // a routine reconnect doesn't re-fetch the ring's entire banked history every time.
         historyCursor = OuraHistoryCursorStore.read(deviceId: deviceId)
+        pendingDurableCursor = nil
+        sink.startNewSession()   // this session resumes from the durable cursor just read (BLE-6)
         peripheral.discoverServices([Self.service])
     }
 

@@ -70,7 +70,9 @@ public final class StandardHRSource: NSObject, ObservableObject {
     // MARK: - Dependencies (injected — no BLEManager reference)
 
     private let live: LiveState
-    private let persist: (Streams) -> Void
+    private let persist: @MainActor (Streams) async throws -> Void
+    /// BLE-6: ordered writes with bounded retry.
+    private let sink: BatchedRetryingSink<Streams>
     private let deviceId: String
     /// Optional hook fired with the strap's battery percent (0–100) whenever it's read off 0x2A19.
     /// Wired (via `SourceCoordinator`) into `LiveState.setBattery` so a generic strap surfaces its
@@ -116,12 +118,13 @@ public final class StandardHRSource: NSObject, ObservableObject {
     ///     existing call sites stay silent / compile unchanged.
     public init(live: LiveState,
                 deviceId: String,
-                persist: @escaping (Streams) -> Void,
+                persist: @escaping @MainActor (Streams) async throws -> Void,
                 log: @escaping (String) -> Void = { _ in },
                 onBattery: @escaping (Int) -> Void = { _ in }) {
         self.live = live
         self.deviceId = deviceId
         self.persist = persist
+        self.sink = BatchedRetryingSink(insert: persist)
         self.log = log
         self.onBattery = onBattery
         super.init()
@@ -208,11 +211,14 @@ public final class StandardHRSource: NSObject, ObservableObject {
 
     private func flush() {
         guard !buffer.isEmpty else { lastFlush = Date(); return }
-        for sample in buffer {
-            persist(StandardHRMapping.samples(fromHR: sample.hr, rr: sample.rr, at: sample.ts))
-        }
+        // BLE-6: ordered writes with bounded retry instead of one fire-and-forget insert per sample.
+        let batches = buffer.map { StandardHRMapping.samples(fromHR: $0.hr, rr: $0.rr, at: $0.ts) }
         buffer.removeAll()
         lastFlush = Date()
+        let log = log
+        sink.submit(batches, onFailed: { dropped in
+            log("HR-strap: \(dropped) sample batch(es) failed to save after retries")
+        })
     }
 
     // MARK: - Fitness-sensor ingest (additive — never touches HR / scoring)
