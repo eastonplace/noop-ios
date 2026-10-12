@@ -164,7 +164,8 @@ public enum RecoveryScorer {
     /// post-recalibration baseline was still seeding (Bug B, #393 follow-up). `nValid` is the exact count
     /// `Baselines.computeStatus` gates CALIBRATING on, so N now tracks the baseline the Charge ring rides
     /// and can never over-state it. Never claims "calibrating" at/above the seed gate (a nil recovery
-    /// there is some other gap). `baselineEpoch` nil reads the persisted HRV epoch from UserDefaults,
+    /// there is some other gap). N counts the nights before the newest day, the baseline that day is
+    /// scored against (AN-01). `baselineEpoch` nil reads the persisted HRV epoch from UserDefaults,
     /// exactly like the engine's fold. Mirrors Android TodayScreen.recoveryCalibrationNights
     /// (RecoveryCalibrationTest is the oracle).
     public static func calibrationNights(nightlyHrv: [Double?],
@@ -174,8 +175,11 @@ public enum RecoveryScorer {
                                          cfg: MetricCfg = Baselines.hrvCfg,
                                          baselineEpoch: Double? = nil) -> Int? {
         guard !hasRecovery else { return nil }
-        let n = Baselines.foldHistory(nightlyHrv, dayKeys: dayKeys, cfg: cfg,
-                                      baselineEpoch: baselineEpoch).nValid
+        // AN-01: the newest day is scored against the nights strictly before it, so its own night
+        // doesn't count toward its seed.
+        guard let newest = dayKeys.max() else { return 0 }
+        let n = Baselines.foldHistoryAsOf(nightlyHrv, dayKeys: dayKeys, cfg: cfg,
+                                          baselineEpoch: baselineEpoch).asOf(newest).nValid
         // Include 0: a brand-new user (no banked nights yet) should read "Calibrating — 0 of N" on the
         // Charge ring, not a bare "No data" that looks broken (#335). Past days are gated to nil by the
         // caller; >= seed (recovery should exist) still returns nil.
