@@ -110,8 +110,12 @@ extension IntelligenceAnalysisRequest {
 
 /// DL-03: timestamps of sleeps and workouts the user edited, waiting for a rescore from their day through
 /// today. The edit flows only ask for the one-day `analyzeRecent()`, so editing any night but last night never
-/// rescored that day. Repository's mutators enqueue here. `analyzeRecent()` runs its usual one-day pass, so the
-/// editor returns once that is saved, and then starts a background drain of this queue.
+/// rescored that day. Repository's mutators enqueue here, and every enqueue schedules a debounced background
+/// drain, because the workout delete, dismiss, relabel and bulk-delete flows and the auto-detect save never
+/// call `analyzeRecent()` at all. `analyzeRecent()` keeps its one-day pass, so the sleep editor returns once
+/// that is saved, and then starts the drain at once. The queue persists in UserDefaults, and the live engine
+/// registers on every analysis it submits, so a range left by a kill, a cancellation or a failed chunk drains
+/// again after the next launch or pass.
 ///
 /// The drain rescores the oldest chunk first, at most `chunkDays` per pass, so each pass reads the carry the
 /// previous one wrote and a long range never runs as one uncancellable forced batch. It stops between chunks
@@ -130,20 +134,32 @@ final class EditedDayRescoreQueue {
     /// Republishes the dashboard caches over the last `days` days (oldest rescored day through today).
     typealias Publish = @MainActor (_ days: Int) async -> Void
 
-    private(set) var timestamps: Set<Int> = []
+    private(set) var timestamps: Set<Int>
+    private let defaults: UserDefaults?
+    private let storageKey: String
+    private let debounce: Duration
     private let now: @MainActor () -> Date
     private let calendar: @MainActor () -> Calendar
     private let isBackgrounded: @MainActor () -> Bool
     private weak var analyzer: AnyObject?
     private var analyze: Analyze?
     private var publish: Publish?
+    private weak var publisher: AnyObject?
     private var drainTask: Task<Void, Never>?
     private var lastDrain: Task<Void, Never>?
     private var drainGeneration: UInt64 = 0
 
-    init(now: @escaping @MainActor () -> Date = { Date() },
+    /// `defaults: nil` keeps the queue in memory (tests).
+    init(defaults: UserDefaults? = .standard,
+         storageKey: String = "noop.editedDayRescoreQueue.v1",
+         debounce: Duration = .seconds(5),
+         now: @escaping @MainActor () -> Date = { Date() },
          calendar: @escaping @MainActor () -> Calendar = { .current },
          isBackgrounded: @escaping @MainActor () -> Bool = { RescoreBackgroundPolicy.isBackgrounded }) {
+        self.defaults = defaults
+        self.storageKey = storageKey
+        self.debounce = debounce
+        self.timestamps = Set((defaults?.array(forKey: storageKey) as? [Int] ?? []).filter { $0 > 0 })
         self.now = now
         self.calendar = calendar
         self.isBackgrounded = isBackgrounded
@@ -152,22 +168,40 @@ final class EditedDayRescoreQueue {
     var isDraining: Bool { drainTask != nil }
 
     func enqueue(_ edited: [Int], publish: Publish? = nil) {
-        timestamps.formUnion(edited.filter { $0 > 0 })
+        let valid = edited.filter { $0 > 0 }
+        guard !valid.isEmpty else { return }
+        timestamps.formUnion(valid)
         if let publish { self.publish = publish }
+        persist()
+        scheduleDrain(after: debounce)
     }
 
     /// Removes and returns everything queued and stops any drain. Tests reset the shared queue with it.
     func take() -> Set<Int> {
         cancel()
-        defer { timestamps.removeAll() }
+        defer {
+            timestamps.removeAll()
+            persist()
+        }
         return timestamps
     }
 
-    /// The engine that rescores drained chunks, held weakly through `owner`.
+    /// The engine that rescores drained chunks, held weakly through `owner`. Registering also restarts a
+    /// pending range (after a relaunch, a cancellation or a failed chunk).
     func register(_ owner: AnyObject, analyze: @escaping Analyze) {
-        guard analyzer !== owner || self.analyze == nil else { return }
-        analyzer = owner
-        self.analyze = analyze
+        if analyzer !== owner || self.analyze == nil {
+            analyzer = owner
+            self.analyze = analyze
+        }
+        scheduleDrain(after: debounce)
+    }
+
+    /// A Repository offers to publish at creation so a range persisted across a relaunch still republishes;
+    /// it takes over only when no live Repository holds the role. An enqueue always takes it over.
+    func offerPublisher(_ owner: AnyObject, publish: @escaping Publish) {
+        guard publisher == nil else { return }
+        publisher = owner
+        self.publish = publish
     }
 
     /// Starts a drain after `delay` unless one is already pending or running.
@@ -191,6 +225,10 @@ final class EditedDayRescoreQueue {
         drainTask = nil
     }
 
+    private func persist() {
+        defaults?.set(timestamps.sorted(), forKey: storageKey)
+    }
+
     /// Test/diagnostic: waits for the most recent drain to stop, including one that was just cancelled.
     func waitForDrain() async {
         await lastDrain?.value
@@ -204,6 +242,7 @@ final class EditedDayRescoreQueue {
             guard let chunk = IntelligenceAnalysisRequest.editedDayChunk(
                 containingTimestamps: taken, chunkDays: Self.chunkDays, now: now(), calendar: calendar()) else {
                 timestamps.subtract(taken)
+                persist()
                 continue
             }
             let request = IntelligenceAnalysisRequest(
@@ -212,6 +251,7 @@ final class EditedDayRescoreQueue {
             guard await analyze(request) else { break }
             timestamps.subtract(taken)
             if let next = chunk.remainderTimestamp { timestamps.insert(next) }
+            persist()
             rescoredSpan = max(rescoredSpan, request.endOffsetExclusive)
         }
         if rescoredSpan > 0, !Task.isCancelled, let publish {
@@ -462,6 +502,13 @@ extension IntelligenceEngine {
             requiresDurableRecoveryReceipt: durableRecoveryPostcondition != nil,
             committedAnalysisExecutionContext: committedAnalysisExecutionContext)
 
+        if committedAnalysisExecutionContext == nil {
+            // The live engine drains edited days (DL-03); exact historical work runs on its own engines.
+            EditedDayRescoreQueue.shared.register(self) { [weak self] request in
+                await self?.rescoreEditedDays(request) ?? false
+            }
+        }
+
         return await IntelligenceAnalysisCoordinator.shared.submit(owner: self, request: request) { [weak self] queued in
             guard let self else { throw IntelligenceAnalysisCoordinatorError.ownerReleased }
 
@@ -508,9 +555,6 @@ extension IntelligenceEngine {
     /// and Strain are rescored from that day forward without holding the editor on "Saving…".
     func analyzeRecent() async {
         await submitSerializedAnalysis(maxDays: 1, startOffset: 0, force: true, refreshRepository: true)
-        EditedDayRescoreQueue.shared.register(self) { [weak self] request in
-            await self?.rescoreEditedDays(request) ?? false
-        }
         EditedDayRescoreQueue.shared.scheduleDrain()
     }
 

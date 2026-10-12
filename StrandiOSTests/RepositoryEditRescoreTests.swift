@@ -85,7 +85,8 @@ final class RepositoryEditRescoreTests: XCTestCase {
 
     private func drainQueue(now: Date, calendar: Calendar,
                             backgrounded: Bool = false) -> EditedDayRescoreQueue {
-        EditedDayRescoreQueue(now: { now }, calendar: { calendar }, isBackgrounded: { backgrounded })
+        EditedDayRescoreQueue(defaults: nil, debounce: .zero, now: { now }, calendar: { calendar },
+                              isBackgrounded: { backgrounded })
     }
 
     /// Review finding (unchunked forced batch): an edit months back ran as one forced, uncancellable request
@@ -190,7 +191,7 @@ final class RepositoryEditRescoreTests: XCTestCase {
         try await store.upsertDailyMetrics(keys.map { row($0, recovery: 70) }, deviceId: computedId)
         let repository = Repository(deviceId: Repository.whoopSource)
         repository.setStoreForTesting(store)
-        let queue = EditedDayRescoreQueue(isBackgrounded: { false })
+        let queue = EditedDayRescoreQueue(defaults: nil, debounce: .zero, isBackgrounded: { false })
         repository.editedDayRescoreQueue = queue
         let loaded = await repository.refresh(days: 30)
         XCTAssertTrue(loaded)
@@ -208,6 +209,83 @@ final class RepositoryEditRescoreTests: XCTestCase {
         XCTAssertEqual(repository.days.first { $0.day == keys[5] }?.recovery, 41,
                        "the rescored day five nights back stayed stale in the 30-day cache")
         XCTAssertEqual(repository.days.count, 30)
+    }
+
+    // MARK: - Every enqueue drains, and the queue persists
+
+    private func isolatedDefaults() throws -> UserDefaults {
+        let suite = "RepositoryEditRescoreTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        addTeardownBlock { UserDefaults().removePersistentDomain(forName: suite) }
+        return defaults
+    }
+
+    /// Review finding (queue lost on kill, workout paths never drained): the workout delete, dismiss, relabel
+    /// and bulk-delete flows and the auto-detect save never call analyzeRecent(), and the queue lived in memory.
+    func testAnEnqueueAloneDrainsWithoutAnyAnalyzeRecentCall() async throws {
+        let queue = EditedDayRescoreQueue(defaults: nil, debounce: .milliseconds(1), isBackgrounded: { false })
+        let recorder = EditedDayAnalyzeRecorder()
+        queue.register(recorder) { request in
+            recorder.requests.append(request)
+            return true
+        }
+
+        queue.enqueue([Int(Date().timeIntervalSince1970) - 3 * 86_400])
+        await queue.waitForDrain()
+
+        XCTAssertEqual(recorder.requests.map(\.maxDays), [4])
+        XCTAssertTrue(queue.timestamps.isEmpty)
+    }
+
+    func testQueuedDaysSurviveARelaunchAndDrainOnceTheEngineRegisters() async throws {
+        let defaults = try isolatedDefaults()
+        let edited = Int(Date().timeIntervalSince1970) - 2 * 86_400
+        let beforeKill = EditedDayRescoreQueue(defaults: defaults, storageKey: "queue", debounce: .zero,
+                                               isBackgrounded: { false })
+        beforeKill.enqueue([edited]) // no engine registered yet, so nothing drains
+
+        let afterRelaunch = EditedDayRescoreQueue(defaults: defaults, storageKey: "queue", debounce: .zero,
+                                                  isBackgrounded: { false })
+        XCTAssertEqual(afterRelaunch.timestamps, [edited])
+        let recorder = EditedDayAnalyzeRecorder()
+        afterRelaunch.register(recorder) { request in
+            recorder.requests.append(request)
+            return true
+        }
+        await afterRelaunch.waitForDrain()
+
+        XCTAssertEqual(recorder.requests.map(\.maxDays), [3])
+        XCTAssertTrue(afterRelaunch.timestamps.isEmpty)
+        XCTAssertEqual(defaults.array(forKey: "queue") as? [Int], [])
+    }
+
+    func testEveryWorkoutMutatorQueuesItsDay() async throws {
+        let store = try await WhoopStore.inMemory()
+        let repository = Repository(deviceId: Repository.whoopSource)
+        repository.setStoreForTesting(store)
+        let queue = EditedDayRescoreQueue(defaults: nil, isBackgrounded: { false })
+        repository.editedDayRescoreQueue = queue
+        let base = Int(Date().timeIntervalSince1970) - 10 * 86_400
+        func workout(_ offset: Int, source: String) -> WorkoutRow {
+            WorkoutRow(startTs: base + offset, endTs: base + offset + 1_800, sport: "Running", source: source,
+                       durationS: 1_800, energyKcal: nil, avgHr: 140, maxHr: nil, strain: nil, distanceM: nil,
+                       zonesJSON: nil, notes: nil, strainVersion: nil)
+        }
+        let saved = workout(0, source: "manual")
+        let deleted = workout(10_000, source: "manual")
+        let dismissed = workout(20_000, source: Repository.whoopSource + "-noop")
+        let relabelled = workout(30_000, source: Repository.whoopSource + "-noop")
+        let bulk = [workout(40_000, source: "manual"), workout(50_000, source: Repository.whoopSource + "-noop")]
+
+        await repository.saveManualWorkout(saved)
+        XCTAssertEqual(queue.timestamps, [saved.endTs])
+        await repository.deleteWorkout(deleted)
+        await repository.dismissDetected(dismissed)
+        await repository.relabelDetected(relabelled, sport: "Cycling")
+        await repository.bulkDeleteWorkouts(bulk)
+
+        XCTAssertEqual(queue.timestamps,
+                       Set([saved, deleted, dismissed, relabelled].map(\.endTs) + bulk.map(\.endTs)))
     }
 
     func testComputedDailyRowsReadThePersistedNoopRows() async throws {
