@@ -161,10 +161,13 @@ public struct UnitValueText: View {
                 // "Unavailable" at tile size in a half-width column shrinks instead of truncating.
                 .minimumScaleFactor(0.6)
             if !missing {
+                // A unit shrinks to fit its row rather than being cut ("/k…") when a big value shares a narrow one.
                 if let unit {
                     Text(unit).font(StrandFont.caption).foregroundStyle(StrandPalette.textTertiary).lineLimit(1)
+                        .minimumScaleFactor(0.6)
                 } else if let split = parts.unit {
                     Text(split).font(StrandFont.caption).foregroundStyle(StrandPalette.textTertiary).lineLimit(1)
+                        .minimumScaleFactor(0.6)
                 }
             }
         }
