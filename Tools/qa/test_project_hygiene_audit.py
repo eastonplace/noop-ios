@@ -46,6 +46,16 @@ enum AppChangelog {{
 """
 
 
+IGNORE_RULES = """\
+**/linux-capture/captures/
+**/linux-capture/*.json
+**/linux-capture/*.db
+**/linux-capture/*.db-wal
+**/linux-capture/*.db-shm
+**/linux-capture/.venv*/
+"""
+
+
 class ProjectHygieneAuditTests(unittest.TestCase):
     def make_repo(self, files: dict[str, str], version: str = "2.0.0", newest: str = "2.0.0",
                   package_path: str = "Packages/Core", app_tool_path: str = "Tools/Preview") -> Path:
@@ -61,6 +71,7 @@ class ProjectHygieneAuditTests(unittest.TestCase):
             "Packages/Core/Package.swift": "",
             "Packages/Core/Tests/CoreTests/CoreTests.swift": "",
             "Tools/Preview/Preview.swift": "",
+            ".gitignore": IGNORE_RULES,
         }
         contents.update(files)
         for relative, text in contents.items():
@@ -101,6 +112,20 @@ class ProjectHygieneAuditTests(unittest.TestCase):
     def test_package_path_case_mismatch_is_an_error(self):
         errors, _ = module.audit(self.make_repo({}, package_path="packages/Core"))
         self.assertTrue(any("packages/Core" in line for line in errors), errors)
+
+    def test_tracked_capture_database_is_an_error(self):
+        root = self.make_repo({"Tools/linux-capture/README.md": ""})
+        db = root / "Tools/linux-capture/captures/whoop.db"
+        db.parent.mkdir(parents=True, exist_ok=True)
+        db.write_text("serial", encoding="utf-8")
+        subprocess.run(["git", "add", "-f", str(db)], cwd=root, check=True)
+        errors, _ = module.audit(root)
+        self.assertTrue(any("captures/whoop.db" in line for line in errors), errors)
+
+    def test_capture_paths_must_be_ignored_under_both_spellings(self):
+        root = self.make_repo({".gitignore": "Tools/linux-capture/captures/\n"})
+        errors, _ = module.audit(root)
+        self.assertTrue(any("tools/linux-capture/captures/whoop.db" in line for line in errors), errors)
 
     def test_reader_handles_inline_and_mapping_sources(self):
         targets = module.parse_targets(PROJECT.format(version="1", package_path="P", app_tool_path="T"))

@@ -58,6 +58,17 @@ Fixtures/
 *.sqlite
 *.sqlite-wal
 *.sqlite-shm
+
+# Linux capture workbench: captures carry the strap serial, session token and MAC, plus HR exports.
+# Matched under either spelling of the tools folder: a case-sensitive checkout made before the
+# tools/ -> Tools/ move keeps the old lowercase directory, which no longer has its own .gitignore.
+**/linux-capture/captures/
+**/linux-capture/*.json
+**/linux-capture/*.db
+**/linux-capture/*.db-wal
+**/linux-capture/*.db-shm
+**/linux-capture/.venv*/
+**/linux-capture/__pycache__/
 export.xml
 export.zip
 *whoop_export*.zip

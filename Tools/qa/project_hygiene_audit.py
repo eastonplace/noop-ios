@@ -7,6 +7,9 @@
 2. WARN: `MARKETING_VERSION` in project.yml differs from the newest release in AppChangelog.swift.
 3. ERROR: a project.yml source or package path whose case does not match the paths Git tracks. A
    case-insensitive disk hides this; a case-sensitive CI checkout fails on it.
+4. ERROR: a tracked Linux capture-workbench private file (capture database, captures/, venv, JSON
+   export), or a capture path that the ignore rules do not cover under both spellings of the tools
+   folder. Captures carry the strap serial, session token and MAC.
 
 project.yml is read with a small indentation-based reader for the XcodeGen layout used here, so the audit
 runs on a bare Linux runner without PyYAML.
@@ -16,6 +19,7 @@ from __future__ import annotations
 import re
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -24,6 +28,15 @@ ROOT = Path(__file__).resolve().parents[2]
 ALLOWLISTED_ORPHAN_TEST_FOLDERS = {"StrandTests"}
 
 CHANGELOG_PATH = "Strand/System/AppChangelog.swift"
+
+PRIVATE_CAPTURE = re.compile(
+    r"(^|/)linux-capture/(captures/|\.venv[^/]*/|[^/]*\.db(-wal|-shm)?$|[^/]*\.json$)", re.IGNORECASE)
+# Paths that must be ignored under both spellings of the tools folder.
+CAPTURE_PROBES = tuple(
+    f"{folder}/linux-capture/{leaf}"
+    for folder in ("tools", "Tools")
+    for leaf in ("captures/whoop.db", "whoop.db", "whoop.db-wal", "export.json", ".venv/bin/python")
+)
 
 
 def _indent(line: str) -> int:
@@ -170,6 +183,24 @@ def check_path_case(paths: list[str], files: list[str]) -> list[str]:
     return errors
 
 
+def check_private_captures(root: Path, files: list[str]) -> list[str]:
+    errors = [f"private capture file is tracked: `{path}`" for path in files if PRIVATE_CAPTURE.search(path)]
+    # Evaluate the ROOT .gitignore alone, as a case-sensitive (Linux) checkout would: a folder's own
+    # .gitignore only exists under one spelling there, while a case-insensitive disk would find it under
+    # both and hide the gap. So the probes run in a scratch repo holding just a copy of the root rules.
+    root_rules = (root / ".gitignore").read_text(encoding="utf-8") if (root / ".gitignore").is_file() else ""
+    with tempfile.TemporaryDirectory() as scratch:
+        subprocess.run(["git", "init", "-q"], cwd=scratch, check=True)
+        (Path(scratch) / ".gitignore").write_text(root_rules, encoding="utf-8")
+        for probe in CAPTURE_PROBES:
+            ignored = subprocess.run(
+                ["git", "-c", "core.ignorecase=false", "check-ignore", "-q", "--no-index", probe],
+                cwd=scratch).returncode == 0
+            if not ignored:
+                errors.append(f"capture path `{probe}` is not covered by the root .gitignore")
+    return errors
+
+
 def audit(root: Path = ROOT) -> tuple[list[str], list[str]]:
     project_text = (root / "project.yml").read_text(encoding="utf-8")
     changelog = root / CHANGELOG_PATH
@@ -178,7 +209,8 @@ def audit(root: Path = ROOT) -> tuple[list[str], list[str]]:
     targets = parse_targets(project_text)
     declared_paths = [source for target in targets.values() for source in target["sources"]]
     declared_paths += parse_package_paths(project_text)
-    errors = check_test_membership(targets, files) + check_path_case(declared_paths, files)
+    errors = (check_test_membership(targets, files) + check_path_case(declared_paths, files)
+              + check_private_captures(root, files))
     warnings = check_version_drift(project_text, changelog_text)
     return errors, warnings
 
