@@ -862,7 +862,7 @@ struct MetricDetailView: View {
             // Direction by sign and colour, strength by the word beside the number; no bar encodes |r| twice.
             VStack(alignment: .trailing, spacing: NoopMetrics.space1) {
                 Text(verbatim: value)
-                    .font(StrandFont.number(15))
+                    .font(.system(.subheadline, design: .default).weight(.semibold).monospacedDigit())
                     .foregroundStyle(color)
                     .lineLimit(1)
                 ValuePill(strength.word, tint: color)

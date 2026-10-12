@@ -16,6 +16,54 @@ extension LocalizedStringKey {
     init(dataText: String) { self = "\(dataText)" }
 }
 
+/// A text role that, at the accessibility sizes, scales down to fit a long word instead of hyphenating it. SwiftUI
+/// hyphenates a word wider than its column ("Durchschnitt-liche") before it scales when the type is a Dynamic Type
+/// text style, so at those sizes this sets the same size through `ScaledMetric` (a fixed size that scales with Dynamic
+/// Type itself), which scales first, and bounds the lines. Every smaller size keeps `standard`, the plain text style.
+/// It is `microLabelFit` for the larger roles a row's title and line use. Set the ink on the `Text` before this.
+private struct LongWordFit: ViewModifier {
+    @ScaledMetric private var size: CGFloat
+    @Environment(\.dynamicTypeSize) private var typeSize
+    private let standard: Font
+    private let weight: Font.Weight
+    private let lines: Int
+
+    init(style: Font.TextStyle, standard: Font, weight: Font.Weight, lines: Int) {
+        _size = ScaledMetric(wrappedValue: Self.base(style), relativeTo: style)
+        self.standard = standard
+        self.weight = weight
+        self.lines = lines
+    }
+
+    /// The default-size point size of each role in use.
+    private static func base(_ style: Font.TextStyle) -> CGFloat {
+        switch style {
+        case .title2: 22
+        case .body: 17
+        case .subheadline: 15
+        case .footnote: 13
+        default: 17
+        }
+    }
+
+    func body(content: Content) -> some View {
+        if typeSize.isAccessibilitySize {
+            content
+                .font(.system(size: size, weight: weight, design: .default))
+                .lineLimit(lines)
+                .minimumScaleFactor(0.5)
+        } else {
+            content.font(standard)
+        }
+    }
+}
+
+extension View {
+    func longWordFit(_ style: Font.TextStyle, standard: Font, weight: Font.Weight, lines: Int) -> some View {
+        modifier(LongWordFit(style: style, standard: standard, weight: weight, lines: lines))
+    }
+}
+
 /// Where a row stacks its parts. From the largest standard text size up a row side by side would cut its words.
 enum ExploreRowLayout {
     static func stacks(_ size: DynamicTypeSize) -> Bool { size >= .xxxLarge }
@@ -70,13 +118,13 @@ struct ExploreFlatRow<Trailing: View>: View {
     private var texts: some View {
         VStack(alignment: .leading, spacing: 2) {
             title
-                .font(StrandFont.body.weight(.semibold))
                 .foregroundStyle(StrandPalette.textPrimary)
+                .longWordFit(.body, standard: StrandFont.body.weight(.semibold), weight: .semibold, lines: 3)
                 .fixedSize(horizontal: false, vertical: true)
             if let subtitle {
                 subtitle
-                    .font(StrandFont.footnote)
                     .foregroundStyle(StrandPalette.textSecondary)
+                    .longWordFit(.footnote, standard: StrandFont.footnote, weight: .regular, lines: 4)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -159,8 +207,8 @@ struct ExploreMessage: View {
                 HStack(spacing: NoopMetrics.space2) {
                     ProgressView().controlSize(.small)
                     title
-                        .font(StrandFont.subhead)
                         .foregroundStyle(StrandPalette.textTertiary)
+                        .longWordFit(.subheadline, standard: StrandFont.subhead, weight: .medium, lines: 3)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
@@ -168,13 +216,13 @@ struct ExploreMessage: View {
                 VStack(alignment: .leading, spacing: NoopMetrics.space3) {
                     if let symbol { GlyphDisc(symbol, tint: .neutral) }
                     title
-                        .font(StrandFont.title2)
                         .foregroundStyle(StrandPalette.textPrimary)
+                        .longWordFit(.title2, standard: StrandFont.title2, weight: .semibold, lines: 3)
                         .fixedSize(horizontal: false, vertical: true)
                     if let message {
                         message
-                            .font(StrandFont.subhead)
                             .foregroundStyle(StrandPalette.textSecondary)
+                            .longWordFit(.subheadline, standard: StrandFont.subhead, weight: .medium, lines: 6)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
