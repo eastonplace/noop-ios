@@ -618,9 +618,11 @@ struct MetricDetailView: View {
         }
     }
 
-    /// "9 Jun" this year, "9 Jun 2025" before it, in the person's language and order.
+    /// "9 Jun" this year, "9 Jun 2025" before it, in the person's language and order. Which year a date is in is part of
+    /// how it is displayed, so it is judged in the device calendar the date is printed in (a Persian or Buddhist year
+    /// does not turn over with the Gregorian one).
     private func dateText(_ date: Date) -> String {
-        let sameYear = calendar.isDate(date, equalTo: Date(), toGranularity: .year)
+        let sameYear = Calendar.autoupdatingCurrent.isDate(date, equalTo: Date(), toGranularity: .year)
         return sameYear
             ? date.formatted(.dateTime.day().month(.abbreviated))
             : date.formatted(.dateTime.day().month(.abbreviated).year())
@@ -662,6 +664,9 @@ struct MetricDetailView: View {
                 dateDomain: domain,
                 referenceDate: latestDate,
                 calendar: calendar,
+                // Day counts stay Gregorian; the month and year labels are printed in the device calendar, as the page's
+                // other dates are.
+                displayCalendar: .autoupdatingCurrent,
                 baseline: band.baseline,
                 typical: band.typical,
                 tint: tint,

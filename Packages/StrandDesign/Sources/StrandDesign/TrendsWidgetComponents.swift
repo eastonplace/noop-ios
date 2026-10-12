@@ -478,6 +478,8 @@ public struct TrendsHeroChart: View {
     private let dateDomain: ClosedRange<Date>
     private let referenceDate: Date
     private let calendar: Calendar
+    /// The calendar the dates are printed in (month names, years). Day counts always use `calendar`.
+    private let displayCalendar: Calendar
     private let baseline: Double
     private let typical: ClosedRange<Double>
     private let tint: DomainTint
@@ -502,7 +504,7 @@ public struct TrendsHeroChart: View {
     let points: [TrendPoint]
     private let axis: TrendsAxis
     private let dayIndices: [Int]
-    private let tickLabels: [(label: String, fraction: Double)]
+    let tickLabels: [(label: String, fraction: Double)]
     /// Indices (into `points`) of days with no neighbour inside the gap limit: no line reaches them, so they
     /// always get their own dot.
     /// Points that stand alone between gaps: no line reaches them, so each is drawn as a dot at any range.
@@ -529,6 +531,7 @@ public struct TrendsHeroChart: View {
         dateDomain: ClosedRange<Date>,
         referenceDate: Date,
         calendar: Calendar = .autoupdatingCurrent,
+        displayCalendar: Calendar? = nil,
         baseline: Double,
         typical: ClosedRange<Double>,
         tint: DomainTint,
@@ -548,6 +551,7 @@ public struct TrendsHeroChart: View {
         self.dateDomain = dateDomain
         self.referenceDate = referenceDate
         self.calendar = calendar
+        self.displayCalendar = displayCalendar ?? calendar
         self.baseline = baseline
         self.typical = typical
         self.tint = tint
@@ -574,11 +578,12 @@ public struct TrendsHeroChart: View {
         // month of data) would repeat one month under every tick, so it falls back to day labels.
         var labels = Self.makeTickLabels(
             domain: dateDomain, referenceDate: referenceDate, calendar: calendar,
-            template: longRange ? "MMM yyyy" : "MMM d")
+            displayCalendar: displayCalendar ?? calendar, template: longRange ? "MMM yyyy" : "MMM d")
         var yearLabels = longRange
         if longRange, Set(labels.map(\.label)).count < labels.count {
             labels = Self.makeTickLabels(
-                domain: dateDomain, referenceDate: referenceDate, calendar: calendar, template: "MMM d")
+                domain: dateDomain, referenceDate: referenceDate, calendar: calendar,
+                displayCalendar: displayCalendar ?? calendar, template: "MMM d")
             yearLabels = false
         }
         self.tickLabels = labels
@@ -1124,6 +1129,7 @@ public struct TrendsHeroChart: View {
         domain: ClosedRange<Date>,
         referenceDate: Date,
         calendar: Calendar,
+        displayCalendar: Calendar,
         template: String
     ) -> [(label: String, fraction: Double)] {
         let totalDays = calendar.dateComponents([.day], from: domain.lowerBound, to: domain.upperBound).day ?? 0
@@ -1140,7 +1146,7 @@ public struct TrendsHeroChart: View {
             let isLast = dayIndex == totalDays
             let label = isLast
                 ? TrendCalendar.relativeLabel(for: date, relativeTo: referenceDate, calendar: calendar)
-                : TrendsDateFormatters.shared.string(from: date, template: template, calendar: calendar)
+                : TrendsDateFormatters.shared.string(from: date, template: template, calendar: displayCalendar)
             labels.append((label, Double(dayIndex) / Double(totalDays)))
         }
         return labels
@@ -1160,7 +1166,7 @@ public struct TrendsHeroChart: View {
         guard showsYear, !calendar.isDate(date, inSameDayAs: referenceDate),
               let yesterday = calendar.date(byAdding: .day, value: -1, to: referenceDate),
               !calendar.isDate(date, inSameDayAs: yesterday) else { return relative }
-        return TrendsDateFormatters.shared.string(from: date, template: "EEE MMM d yyyy", calendar: calendar)
+        return TrendsDateFormatters.shared.string(from: date, template: "EEE MMM d yyyy", calendar: displayCalendar)
     }
 }
 

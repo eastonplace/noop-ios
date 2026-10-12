@@ -121,6 +121,27 @@ final class TrendsWidgetComponentsTests: XCTestCase {
         XCTAssertEqual(hero.singletonIndices, Set([lone].compactMap { $0 }))
     }
 
+    /// Day counts use the calendar the window is built in, but the labels are printed in the calendar the person reads dates
+    /// in: on a Buddhist-calendar device a year-long axis says 2568 and 2569, the same era the rest of the page uses.
+    func testTheAxisLabelsFollowTheDisplayCalendarWhileTheWindowKeepsItsOwn() {
+        let gregorian = Calendar(identifier: .gregorian)
+        let start = gregorian.startOfDay(for: Date(timeIntervalSince1970: 1_750_000_000))
+        let end = gregorian.date(byAdding: .day, value: 400, to: start)!
+        let days = (0...400).map { CalendarMetricDay(date: gregorian.date(byAdding: .day, value: $0, to: start)!, value: 60) }
+        func chart(display: Calendar?) -> TrendsHeroChart {
+            TrendsHeroChart(
+                days: days, dateDomain: start...end, referenceDate: end, calendar: gregorian, displayCalendar: display,
+                baseline: 60, typical: 55...65, tint: .neutral, unit: "", longRange: true)
+        }
+        let plain = chart(display: nil).tickLabels.map(\.label)
+        let buddhist = chart(display: Calendar(identifier: .buddhist)).tickLabels.map(\.label)
+        XCTAssertEqual(plain.count, buddhist.count)
+        // The last label is "Today"-style wording from the window's own calendar; the others carry a year.
+        XCTAssertTrue(plain.dropLast().contains { $0.contains("2025") || $0.contains("2026") }, "\(plain)")
+        XCTAssertTrue(buddhist.dropLast().contains { $0.contains("2568") || $0.contains("2569") }, "\(buddhist)")
+        XCTAssertFalse(buddhist.dropLast().contains { $0.contains("2025") || $0.contains("2026") }, "\(buddhist)")
+    }
+
     /// A weekly series has a reading every seven days, past the default three-day gap limit, so by default every
     /// reading stands alone with no line between them. A caller that knows the cadence passes a limit to match and
     /// gets one connected line with no stranded dots.
