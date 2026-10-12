@@ -890,9 +890,12 @@ public final class BLEManager: NSObject, ObservableObject {
         // a single 'my-whoop' row as active, so this is still "my-whoop" today — zero behaviour change).
         // Guarded + best-effort: if the registry is empty/unreadable, deviceId stays as it was, so no
         // crash and no behaviour change. registryWriter is nonisolated/Sendable (the Pool manages
-        // its own concurrency).
-        if let activeId = try? DeviceRegistryStore(dbQueue: store.registryWriter).activeDeviceId(),
-           !activeId.isEmpty {
+        // its own concurrency). CC-4: the read runs off the main actor.
+        let registryWriter = store.registryWriter
+        let activeId = await Task.detached(priority: .userInitiated) {
+            try? DeviceRegistryStore(dbQueue: registryWriter).activeDeviceId()
+        }.value
+        if let activeId, !activeId.isEmpty {
             self.deviceId = activeId
         }
         try? await store.upsertDevice(id: deviceId, mac: nil, name: "WHOOP 4.0")
@@ -2397,7 +2400,13 @@ public final class BLEManager: NSObject, ObservableObject {
             let registry = DeviceRegistryStore(dbQueue: store.registryWriter)
             // SourceCoordinator eventually observes this same seam. Admission cannot wait for that
             // asynchronous publisher: bind the exact connected peripheral first, then resolve scope.
-            try registry.setPeripheralId(deviceId, peripheralId: admittedPeripheral.identifier.uuidString)
+            // CC-4: the bind is a write on the shared pool, and on the main actor it waits behind any
+            // in-flight write (a backfill commit, a HealthKit page). Take the writer only when the binding
+            // actually changes; the check is a pool read, which does not wait behind writers.
+            let peripheralUUID = admittedPeripheral.identifier.uuidString
+            if try registry.device(forPeripheralId: peripheralUUID)?.id != deviceId {
+                try registry.setPeripheralId(deviceId, peripheralId: peripheralUUID)
+            }
             admittedScope = try registry.historicalCursorScope(for: deviceId)
         } catch {
             log("Backfill: failed to resolve durable cursor scope — deferring historical admission: \(error)")
