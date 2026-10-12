@@ -66,10 +66,11 @@ final class MetricPresentationTests: XCTestCase {
     // MARK: What a metric can be
 
     func testOnlyTrulyCappedPercentagesStopAtOneHundred() throws {
-        for key in ["recovery", "sleep_performance", "spo2", "sleep_efficiency", "restorative_pct", "body_fat",
+        for key in ["recovery", "sleep_performance", "spo2", "sleep_efficiency", "restorative_pct",
                     "sleep_consistency", "noop_sleep_performance_v2", "strain"] {
             XCTAssertEqual(try metric(key).validRange, 0...100, key)
         }
+        XCTAssertEqual(try metric("body_fat", source: "apple-health").validRange, 0...100, "body_fat")
         // Hours vs Needed is a ratio: 112% is a long night, not an error.
         let hours = try metric("hours_vs_needed_pct").validRange
         XCTAssertEqual(hours.lowerBound, 0)

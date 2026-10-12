@@ -24,7 +24,8 @@ final class CompareLogicTests: XCTestCase {
         // A window over a daylight-saving change and a leap day is still a count of calendar days.
         let series = rows(["2024-02-27", "2024-02-28", "2024-02-29", "2024-03-01", "2024-03-10", "2024-03-11"])
         XCTAssertEqual(CompareLogic.slice(series, days: 3).map(\.day), ["2024-03-10", "2024-03-11"])
-        XCTAssertEqual(CompareLogic.slice(series, days: 12).map(\.day), ["2024-03-01", "2024-03-10", "2024-03-11"])
+        // Twelve days ending 11 March reach back to 29 February (the leap day counts as a day).
+        XCTAssertEqual(CompareLogic.slice(series, days: 12).map(\.day), ["2024-02-29", "2024-03-01", "2024-03-10", "2024-03-11"])
         XCTAssertEqual(CompareLogic.slice(series, days: 14).count, 6)
     }
 
