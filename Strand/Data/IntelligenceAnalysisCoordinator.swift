@@ -66,6 +66,42 @@ struct IntelligenceAnalysisRequest: Equatable, Sendable {
     }
 }
 
+extension IntelligenceAnalysisRequest {
+    /// DL-03: the forward dependency closure of edited days. An edit to an older night changes that day and
+    /// every later baseline, carry and sleep-debt value, so the window runs from the earliest edited day
+    /// through today. Future timestamps clamp to today. Nil when nothing was edited.
+    static func editedDays(
+        containingTimestamps timestamps: some Collection<Int>,
+        now: Date = Date(),
+        calendar: Calendar = .current
+    ) -> Self? {
+        guard let earliest = timestamps.min() else { return nil }
+        let today = calendar.startOfDay(for: now)
+        let editedDay = min(calendar.startOfDay(for: Date(timeIntervalSince1970: TimeInterval(earliest))), today)
+        let span = (calendar.dateComponents([.day], from: editedDay, to: today).day ?? 0) + 1
+        return Self(maxDays: max(1, span), startOffset: 0, force: true, refreshRepository: true)
+    }
+}
+
+/// DL-03: timestamps of sleeps and workouts the user edited, waiting for a rescore that covers their days.
+/// The edit flows call the one-day `analyzeRecent()`, so editing any night but last night never rescored
+/// that day. Repository's mutators enqueue here and that call drains the queue into `analyzeDays`.
+@MainActor
+final class EditedDayRescoreQueue {
+    static let shared = EditedDayRescoreQueue()
+
+    private(set) var timestamps: Set<Int> = []
+
+    func enqueue(_ edited: [Int]) {
+        timestamps.formUnion(edited.filter { $0 > 0 })
+    }
+
+    func take() -> Set<Int> {
+        defer { timestamps.removeAll() }
+        return timestamps
+    }
+}
+
 /// Immutable observation around one post-backfill analysis pass. The caller may publish only when the store
 /// is still quiescent and the durable-data edge is unchanged after analysis. A reconnect or periodic burst
 /// that starts or completes in the middle therefore forces another pass over the newest data instead of
@@ -358,8 +394,28 @@ extension IntelligenceEngine {
     // Define every proper subset of the original four labels. Swift prefers these exact signatures over the
     // original method's default arguments, so every production shorthand call is serialized. The fully-spelled
     // four-label call remains the private bypass used only by `submitSerializedAnalysis` above.
+    /// The one-day pass the UI asks for after an edit or a manual re-run. It first drains days the user
+    /// edited (DL-03), so an older night's Rest, Charge and Strain are rescored from that day forward.
     func analyzeRecent() async {
-        await submitSerializedAnalysis(maxDays: 1, startOffset: 0, force: true, refreshRepository: true)
+        let edited = EditedDayRescoreQueue.shared.take()
+        guard !edited.isEmpty else {
+            await submitSerializedAnalysis(maxDays: 1, startOffset: 0, force: true, refreshRepository: true)
+            return
+        }
+        if !(await analyzeDays(containingTimestamps: edited)) {
+            // Keep the edited days for the next pass rather than losing the rescore.
+            EditedDayRescoreQueue.shared.enqueue(Array(edited))
+        }
+    }
+
+    /// Rescore from the earliest day containing one of `timestamps` through today.
+    @discardableResult
+    func analyzeDays(containingTimestamps timestamps: some Collection<Int>) async -> Bool {
+        guard let request = IntelligenceAnalysisRequest.editedDays(containingTimestamps: timestamps) else {
+            return true
+        }
+        return await submitSerializedAnalysis(
+            maxDays: request.maxDays, startOffset: 0, force: true, refreshRepository: true)
     }
 
     func analyzeRecent(maxDays: Int) async {

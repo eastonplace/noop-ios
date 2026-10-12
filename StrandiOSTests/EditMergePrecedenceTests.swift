@@ -1,7 +1,7 @@
 import XCTest
 import WhoopStore
 import StrandAnalytics
-@testable import Strand
+@testable import NOOP
 
 /// H5 (#509): a night the user hand-edited must keep its corrected SLEEP figures even when a WHOOP/Apple
 /// import also covers that day — `Repository.mergeDaily(userEditedDays:)` lets the COMPUTED row's sleep
