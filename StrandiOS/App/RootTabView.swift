@@ -686,7 +686,7 @@ private struct TabSlotLayout: Layout {
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
         let ideals = subviews.map { $0.sizeThatFits(.unspecified).width }
-        let widths = TabSlotWidths.widths(ideals: ideals, total: bounds.width)
+        let widths = TabSlotWidths.centredMiddle(TabSlotWidths.widths(ideals: ideals, total: bounds.width))
         var x = bounds.minX
         for (subview, width) in zip(subviews, widths) {
             subview.place(at: CGPoint(x: x, y: bounds.minY), anchor: .topLeading,
@@ -702,6 +702,24 @@ enum TabSlotWidths {
     static let minimumSlot: CGFloat = 44
     /// Air kept between one label and the next.
     static let gutter: CGFloat = 8
+
+    /// The widths with the middle slot (the quick-actions button) on the centre line of the row: the slots to its left
+    /// and right are each scaled to fill the same share, so the button sits in the middle however long the labels on
+    /// either side are. Left alone when the count is even, or when scaling would take a slot under the touch target.
+    static func centredMiddle(_ widths: [CGFloat]) -> [CGFloat] {
+        guard widths.count >= 3, widths.count % 2 == 1 else { return widths }
+        let middle = widths.count / 2
+        let left = widths[..<middle].reduce(0, +)
+        let right = widths[(middle + 1)...].reduce(0, +)
+        let side = (widths.reduce(0, +) - widths[middle]) / 2
+        guard left > 0, right > 0 else { return widths }
+        let leftScale = side / left
+        let rightScale = side / right
+        let centred = widths.enumerated().map { index, width in
+            index == middle ? width : width * (index < middle ? leftScale : rightScale)
+        }
+        return centred.allSatisfy({ $0 >= minimumSlot - 0.001 }) ? centred : widths
+    }
 
     /// A width per slot, in proportion to what each one needs (its ideal width plus the gutter, never under the touch
     /// target), scaled so they fill `total` exactly.
