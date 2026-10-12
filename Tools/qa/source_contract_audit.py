@@ -278,9 +278,11 @@ def presentation_findings(sources: dict[str, str]) -> list[str]:
     that appears only on a sheet that screen presents does not count), or the site sets screenScaffoldNavigationRole
     on purpose, as a pillar's full-screen cover does.
 
-    Settings shown in a sheet needs the same care the other way round: the Settings tab sets `.settingsDetail` on its
-    stack so every page it pushes keeps the native grouped-list look, and a sheet that shows SettingsView must set it
-    too (settingsSheetScreenScaffoldEnvironment), or its pages fall back to the dashboard scaffold.
+    Settings shown in a sheet needs the same care the other way round: Settings is the sheet `SettingsSheetHost`, which
+    sets `.settingsDetail` on its navigation stack so every page it pushes that is not converted to the widget language
+    yet keeps the native grouped-list look. A sheet that presents `SettingsSheetHost` is fine for as long as the host
+    still sets it; a sheet that shows a bare SettingsView must set it itself (settingsSheetScreenScaffoldEnvironment), or
+    its pages fall back to the dashboard scaffold.
     `sources` maps a repository-relative path to its text."""
     stripped = {path: strip_swift_comments(text) for path, text in sources.items()}
     declaration = re.compile(r"\b(?:struct|class)\s+(\w+)\b[^{;]*\{")
@@ -290,6 +292,7 @@ def presentation_findings(sources: dict[str, str]) -> list[str]:
             end = closing_index(text, match.end() - 1)
             if end > 0 and "ScreenScaffold(" in text[match.end():end]:
                 hosts[match.group(1)] = text[match.end():end]
+    settings_host = next((text for text in stripped.values() if re.search(r"\bstruct\s+SettingsSheetHost\b", text)), "")
     call = re.compile(r"\.(sheet|fullScreenCover)\(")
     findings: list[str] = []
     for path, text in sorted(stripped.items()):
@@ -312,6 +315,10 @@ def presentation_findings(sources: dict[str, str]) -> list[str]:
                     findings.append(f"{path}:{line}: .{match.group(1)} presents {name}, a ScreenScaffold screen, without "
                                     "sheetScreenScaffoldEnvironment; a sheet inherits its presenter's header context.")
             presented = site + "\n" + named_view_bodies(text, site)
+            if re.search(r"\bSettingsSheetHost\(", presented) and "screenScaffoldPresentation" not in settings_host:
+                findings.append(f"{path}:{line}: .{match.group(1)} presents SettingsSheetHost, which does not set "
+                                "screenScaffoldPresentation on its navigation stack; the pages Settings pushes would lose "
+                                "the native settings-detail look.")
             if re.search(r"\bSettingsView\(", presented) and not (
                     "settingsSheetScreenScaffoldEnvironment" in presented or "screenScaffoldPresentation" in presented):
                 findings.append(f"{path}:{line}: .{match.group(1)} presents SettingsView without "

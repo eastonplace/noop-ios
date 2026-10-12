@@ -28,6 +28,8 @@ final class NavRouter: ObservableObject {
         case trends
         case activeWorkout
         case liveSession
+        /// A deep-link key for Updates items (and callers that predate `openSettings`). The shell answers it by
+        /// presenting the Settings sheet, the same as `openSettings()`.
         case settings
         case updates
 
@@ -48,6 +50,11 @@ final class NavRouter: ObservableObject {
     /// Set when a screen's top-bar "+" asks the shell to open the quick-action sheet (the sheet lives
     /// in the iOS shell). The shell presents it, then resets this to false.
     @Published var quickActionsRequested = false
+
+    /// The Settings sheet a screen has asked the shell to open, or nil once handled. A route deep-links to one
+    /// Settings page; nil opens the Settings root. Each request is its own identity, so asking twice for the same page
+    /// is two requests. The iOS shell presents the sheet, then resets this to nil.
+    @Published var settingsRequest: SettingsSheetRequest?
 
     /// One-shot: `LiveView` reads this on appear to present the in-exercise screen for an already-running
     /// workout (routing alone only reaches the Live root), then clears it. A normal Live visit is
@@ -107,7 +114,9 @@ final class NavRouter: ObservableObject {
     /// directly today; this route exists for deep-link parity so a future shell/inbox item can raise it
     /// the same way as every other destination.
     func openLiveSession() { requestedDestination = .liveSession }
-    func openSettings() { requestedDestination = .settings }
+    /// Open Settings, a sheet over whatever the person is looking at. `route` lands on one page (the profile page, say)
+    /// instead of the Settings root.
+    func openSettings(_ route: SettingsRouteID? = nil) { settingsRequest = SettingsSheetRequest(route: route) }
     func openUpdates() { requestedDestination = .updates }
 }
 

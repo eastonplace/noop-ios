@@ -23,6 +23,8 @@ struct RootTabView: View {
     /// A routed v5 pillar screen (Insights hub / Lab Book / fused record / Rhythm) presented as a sheet
     /// when a hub row deep-links to it via NavRouter. nil = closed.
     @State private var routedPillar: NavRouter.Destination?
+    /// The Settings sheet (the top bar's profile button, or any caller of `NavRouter.openSettings`). nil = closed.
+    @State private var settingsSheet: SettingsSheetRequest?
     /// Selected tab — bound so tab switches can crossfade. Defaults to Today.
     @AppStorage(ClockFormatPreference.defaultsKey) private var clockPreference = ClockFormatPreference.system.rawValue
     @State private var selectedTab: Int
@@ -65,11 +67,11 @@ struct RootTabView: View {
             arguments.indices.contains(index + 1) ? arguments[index + 1] : nil
         }
         if let requested = (ProcessInfo.processInfo.environment["NOOP_DEMO_TAB"] ?? argumentTab)?.lowercased() {
+            // "settings" and "more" launch on Today with the Settings sheet up (see `presentQAShellRoute`).
             initialTab = switch requested {
             case "trends": 1
             case "sleep": 2
             case "coach": 4
-            case "more", "settings": 3
             default: 0
             }
         } else if let route = QARoute.requested {
@@ -97,7 +99,6 @@ struct RootTabView: View {
             tab(trendsTabRoot, "Trends", "chart.bar").tag(1)
             tab(coachTabRoot, "Coach", "bubble.left.and.text.bubble.right").tag(4)
             tab(sleepTabRoot, "Sleep", "moon").tag(2)
-            settingsTab.tag(3)
         }
         .environment(\.locale, clockPreference.isEmpty ? Locale.autoupdatingCurrent : AppClock.formattingLocale)
         .toolbar(.hidden, for: .tabBar)
@@ -107,7 +108,7 @@ struct RootTabView: View {
             VStack(spacing: 0) {
             LiftResumeCard(onResume: { showLift = true }).padding(.horizontal, 16)
             PaperTabBar(selection: $selectedTab, onReselect: { tab in
-                // Only Today owns a current-day data refresh. Reselecting Settings, Trends, or Sleep
+                // Only Today owns a current-day data refresh. Reselecting Trends, Coach, or Sleep
                 // must not wake the store or rebuild unrelated health state.
                 guard tab == 0 else { return }
                 Task { _ = await repo.refresh(.currentDay) }
@@ -124,7 +125,8 @@ struct RootTabView: View {
         }
         .background {
             ActiveSessionAutoPresenter(
-                otherPresentationActive: quickAction != nil || showDevices || routedPillar != nil || showLift,
+                otherPresentationActive: quickAction != nil || showDevices || routedPillar != nil || showLift
+                    || settingsSheet != nil,
                 presentLift: { showLift = true })
         }
         #if DEBUG
@@ -158,6 +160,17 @@ struct RootTabView: View {
         .sheet(item: $routedPillar) { destination in
             pillarScreen(destination)
         }
+        .sheet(item: $settingsSheet) { request in
+            SettingsSheetHost(request: request, onClose: { settingsSheet = nil })
+                .presentationDetents([.large])
+                .presentationDragIndicator(.hidden)
+                .presentationBackground(StrandPalette.appCanvas)
+        }
+        .onChange(of: router.settingsRequest) { _, request in
+            guard let request else { return }
+            router.settingsRequest = nil
+            presentSettings(request, afterDismissal: false)
+        }
         .onChange(of: router.requestedDestination) { _, destination in
             switch destination {
             case .devices:
@@ -167,7 +180,9 @@ struct RootTabView: View {
                 routedPillar = destination
                 router.requestedDestination = nil
             case .settings:
-                withAnimation(.timingCurve(0.22, 1, 0.36, 1, duration: 0.24)) { selectedTab = 3 }
+                // The deep-link key an Updates item carries, and any caller that predates `openSettings`. The
+                // Updates sheet that raised it is still dismissing, so wait it out.
+                presentSettings(SettingsSheetRequest(), afterDismissal: true)
                 router.requestedDestination = nil
             case .trends:
                 withAnimation(.timingCurve(0.22, 1, 0.36, 1, duration: 0.24)) { selectedTab = 1 }
@@ -207,7 +222,8 @@ struct RootTabView: View {
     #if DEBUG
     /// `--noop-qa-route` for the screens the shell itself presents (quick actions, routed pillars).
     private func presentQAShellRoute() async {
-        guard let route = QARoute.requested, case .shell(let target) = route.presentation else { return }
+        guard let route = QARoute.requested ?? (QARoute.demoTabOpensSettings ? .settings : nil),
+              case .shell(let target) = route.presentation else { return }
         // A sheet requested mid-launch can be dropped, so retry until a modal is actually up.
         for attempt in 0..<10 {
             try? await Task.sleep(for: .milliseconds(attempt == 0 ? 1800 : 3500))
@@ -217,6 +233,7 @@ struct RootTabView: View {
             try? await Task.sleep(for: .milliseconds(400))
             switch target {
             case .updates: routedPillar = .updates
+            case .settings: settingsSheet = SettingsSheetRequest(route: QARoute.settingsPage)
             case .rhythm: routedPillar = .rhythm
             case .liveHR: quickAction = .live
             case .breathe: quickAction = .breathe
@@ -233,14 +250,36 @@ struct RootTabView: View {
     /// opens and (because it lands on its start screen) resumes the active session on its own.
     private func openLift() {
         guard !showLift else { return }
-        let shellSheetWasUp = quickAction != nil || showDevices || routedPillar != nil
+        let shellSheetWasUp = quickAction != nil || showDevices || routedPillar != nil || settingsSheet != nil
         quickAction = nil
         showDevices = false
         routedPillar = nil
+        settingsSheet = nil
         if shellSheetWasUp {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { showLift = true }
         } else {
             showLift = true
+        }
+    }
+
+    /// Opens Settings. Any other shell sheet that is up is closed first, and Settings follows once it is gone, because
+    /// SwiftUI drops a sheet presented while another is still on screen (the `openLift` pattern). `afterDismissal` is for a
+    /// caller whose own sheet was closed in the same breath, so it is no longer visible in the state it left behind.
+    // TODO(lane-merge): join ShellModalCollapse
+    // When the workout lane's ShellModalCollapse lands, this and `openLift` hand it the shell's modals to collapse
+    // (Settings among them), and a workout or Live Activity request closes the Settings sheet before the workout
+    // presents. Until then `.activeWorkout` (above) does not know about the Settings sheet.
+    private func presentSettings(_ request: SettingsSheetRequest, afterDismissal: Bool) {
+        let shellSheetWasUp = quickAction != nil || showDevices || routedPillar != nil || showLift || settingsSheet != nil
+        quickAction = nil
+        showDevices = false
+        routedPillar = nil
+        showLift = false
+        settingsSheet = nil
+        if shellSheetWasUp || afterDismissal {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { settingsSheet = request }
+        } else {
+            settingsSheet = request
         }
     }
 
@@ -267,7 +306,7 @@ struct RootTabView: View {
                 case .trends: TrendsView()
                 case .activeWorkout: LiveWorkoutView(onClose: { routedPillar = nil })
                 case .liveSession: TodayView()
-                case .settings: SettingsView()
+                case .settings: EmptyView() // Settings is `SettingsSheetHost`, never a routed pillar.
                 case .updates: UpdatesInboxView(onClose: { routedPillar = nil })
                 }
             }
@@ -327,25 +366,6 @@ struct RootTabView: View {
                 .sheetScreenScaffoldEnvironment()
         }
         .drillInDestinationEnvironment()
-    }
-
-    /// Settings is the one tab that intentionally keeps the native navigation bar. Its large title,
-    /// always-visible search field, grouped lists, and inline detail titles should behave like iOS
-    /// Settings instead of inheriting the dashboard tabs' hidden-bar chrome.
-    private var settingsTab: some View {
-        NavigationStack {
-            SettingsView()
-                .background(Color(.systemGroupedBackground).ignoresSafeArea())
-        }
-        // Keep the Settings presentation on the navigation container itself. SwiftUI may host
-        // nested NavigationLink destinations outside the view that created the link, so applying
-        // these values only to the first destination lets third- and fourth-level screens fall
-        // back to NOOP's dashboard scaffold. Container ownership makes every depth use the same
-        // native grouped-list vocabulary.
-        .environment(\.screenScaffoldPresentation, .settingsDetail)
-        .environment(\.appHeaderChromeVisibility, .hidden)
-        .toolbar(.hidden, for: .tabBar)
-        .tabItem { Label("Settings", systemImage: "gearshape") }
     }
 
     private func tab<V: View>(_ view: V, _ title: LocalizedStringKey, _ icon: String) -> some View {
@@ -580,15 +600,15 @@ private struct PaperTabBar: View {
         Item(title: "Trends", icon: "chart.bar", tag: 1),
         Item(title: "Coach", icon: "bubble.left.and.text.bubble.right", tag: 4),
         Item(title: "Sleep", icon: "moon", tag: 2),
-        Item(title: "Settings", icon: "gearshape", tag: 3),
     ]
 
     var body: some View {
         VStack(spacing: 0) {
             Rectangle().fill(StrandPalette.hairline).frame(height: 1)
-            // Every size short of the accessibility sizes keeps six equal slots, exactly as before. At the accessibility
-            // sizes the labels are larger, and a long one ("Einstellungen") would be squeezed to half size in an equal
-            // slot, so the slots are shared out by what their labels need instead.
+            // Every size short of the accessibility sizes keeps five equal slots (four tabs and the quick-actions
+            // button, which sits in the middle). At the accessibility sizes the labels are larger, and a long one
+            // would be squeezed to half size in an equal slot, so the slots are shared out by what their labels need
+            // instead.
             Group {
                 if typeSize.isAccessibilitySize {
                     TabSlotLayout { slots }

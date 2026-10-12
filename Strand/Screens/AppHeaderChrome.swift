@@ -55,7 +55,7 @@ struct AppHeaderChrome: View {
             onStrap: router.openDevices,
             onSync: sync,
             onUpdates: router.openUpdates,
-            onProfile: router.openSettings
+            onProfile: { router.openSettings() }
         )
         .padding(.horizontal, 16)
         .padding(.vertical, 6)

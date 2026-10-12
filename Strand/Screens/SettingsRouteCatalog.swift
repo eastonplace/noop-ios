@@ -22,6 +22,18 @@ enum SettingsRouteID: String, CaseIterable, Hashable, Identifiable, Sendable {
     var id: String { rawValue }
 }
 
+/// A request to open the Settings sheet, optionally on one page. Each request has its own identity, so the sheet that
+/// presents it can tell two requests for the same page apart.
+struct SettingsSheetRequest: Identifiable, Equatable, Sendable {
+    let id = UUID()
+    /// The page to land on, or nil for the Settings root.
+    let route: SettingsRouteID?
+
+    init(route: SettingsRouteID? = nil) {
+        self.route = route
+    }
+}
+
 enum SettingsSectionID: String, CaseIterable, Hashable, Identifiable, Sendable {
     case profile
     case deviceSync
@@ -386,14 +398,6 @@ struct SettingsRootView: View {
                     } header: {
                         Text(section.title)
                     }
-                }
-                Section {
-                    Color.clear
-                        .frame(height: NoopMetrics.tabBarClearance)
-                        .listRowInsets(EdgeInsets())
-                        .listRowBackground(Color.clear)
-                        .listRowSeparator(.hidden)
-                        .accessibilityHidden(true)
                 }
             } else {
                 searchResults

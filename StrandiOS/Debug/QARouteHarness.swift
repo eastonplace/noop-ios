@@ -13,7 +13,9 @@ import WhoopStore
 /// today-workouts-rest, workout-detail-run, workout-detail-strength, workout-detail-whoop,
 /// workout-detail-manual, manual-workout, health, metric-explorer, metric-detail-hrv, compare, trends-explore,
 /// insights, intelligence, scoring-guide, scoring-guide-recovery (the guide opened at its Recovery section, as the
-/// Recovery ⓘ opens it), updates, live-hr, breathe, journal, intervals, start-workout, rhythm, smart-alarm,
+/// Recovery ⓘ opens it), updates, settings (the Settings sheet; `settings-<page>` lands on one page, named by its
+/// `SettingsRouteID` case: settings-syncbattery, settings-personalprofile), live-hr, breathe, journal, intervals,
+/// start-workout, rhythm, smart-alarm,
 /// hydration, fitness-age, coupled, lab-book, trends-report, coach-workouts-sheet (the Workouts hub at the root of a sheet,
 /// as Coach's plan opens it), live-workout (the in-exercise screen over a synthetic workout; pick its state with
 /// `--demo-live-workout running|paused|stale|indoor|ending|ending-quiet`), marker-editor, lift, lift-history, lift-progress, lift-routines.
@@ -49,6 +51,7 @@ enum QARoute: String, CaseIterable {
     case scoringGuide = "scoring-guide"
     case scoringGuideRecovery = "scoring-guide-recovery"
     case updates
+    case settings
     case liveHR = "live-hr"
     case breathe
     case journal
@@ -73,7 +76,7 @@ enum QARoute: String, CaseIterable {
     enum Tab: Int { case today = 0, trends = 1, sleep = 2 }
 
     /// What the app shell (`RootTabView`) presents itself, for routes that live in its sheets.
-    enum ShellTarget { case updates, rhythm, liveHR, breathe, journal, intervals, startWorkout, liveWorkout }
+    enum ShellTarget { case updates, settings, rhythm, liveHR, breathe, journal, intervals, startWorkout, liveWorkout }
 
     enum Presentation {
         case push(Tab)
@@ -100,6 +103,7 @@ enum QARoute: String, CaseIterable {
         case .smartAlarm:
             return .push(.sleep)
         case .updates: return .shell(.updates)
+        case .settings: return .shell(.settings)
         case .rhythm: return .shell(.rhythm)
         case .liveHR: return .shell(.liveHR)
         case .breathe: return .shell(.breathe)
@@ -146,7 +150,29 @@ enum QARoute: String, CaseIterable {
         let arguments = ProcessInfo.processInfo.arguments
         guard let index = arguments.firstIndex(of: "--noop-qa-route"),
               arguments.indices.contains(index + 1) else { return nil }
-        return QARoute(rawValue: arguments[index + 1].lowercased())
+        let name = arguments[index + 1].lowercased()
+        if let route = QARoute(rawValue: name) { return route }
+        return name.hasPrefix("settings-") ? .settings : nil
+    }()
+
+    /// The Settings page `--noop-qa-route settings-<page>` lands on, nil for the Settings root. The page is a
+    /// `SettingsRouteID` case name in any case, with or without hyphens (`settings-sync-battery`).
+    static let settingsPage: SettingsRouteID? = {
+        let arguments = ProcessInfo.processInfo.arguments
+        guard let index = arguments.firstIndex(of: "--noop-qa-route"), arguments.indices.contains(index + 1),
+              arguments[index + 1].lowercased().hasPrefix("settings-") else { return nil }
+        let page = arguments[index + 1].lowercased().dropFirst("settings-".count).replacingOccurrences(of: "-", with: "")
+        return SettingsRouteID.allCases.first { $0.rawValue.lowercased() == page }
+    }()
+
+    /// `--demo-tab settings` (or `more`) opens the Settings sheet over Today, as the Settings tab used to be launched.
+    static let demoTabOpensSettings: Bool = {
+        let arguments = ProcessInfo.processInfo.arguments
+        let argumentTab = arguments.firstIndex(of: "--demo-tab").flatMap { index in
+            arguments.indices.contains(index + 1) ? arguments[index + 1] : nil
+        }
+        let requested = (ProcessInfo.processInfo.environment["NOOP_DEMO_TAB"] ?? argumentTab)?.lowercased()
+        return requested == "settings" || requested == "more"
     }()
 }
 

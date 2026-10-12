@@ -245,15 +245,43 @@ try:
         'id: "all-settings"',
         'title: "Detailed settings"',
     )
+    # Settings left the tab bar: it is a sheet the shell presents for the top bar's profile button, hosted by
+    # SettingsSheetHost (which owns the navigation stack and the environment the Settings pages read).
     require(
         "StrandiOS/App/RootTabView.swift",
         "SmartAlarmCommandReconciler()",
-        "settingsTab.tag(3)",
-        "private var settingsTab: some View",
+        ".sheet(item: $settingsSheet)",
+        "SettingsSheetHost(request: request",
+        ".presentationDetents([.large])",
+        ".presentationDragIndicator(.hidden)",
+        ".presentationBackground(StrandPalette.appCanvas)",
+        "|| settingsSheet != nil",
+        "presentSettings(",
+        "case .intervals:",
+    )
+    forbid(
+        "StrandiOS/App/RootTabView.swift",
+        "settingsTab",
+        'Item(title: "Settings"',
+    )
+    require(
+        "Strand/Screens/SettingsSheetHost.swift",
+        "struct SettingsSheetHost: View",
+        "NavigationStack(path: $path)",
+        "static func initialPath(for request: SettingsSheetRequest)",
         ".environment(\\.screenScaffoldPresentation, .settingsDetail)",
         ".environment(\\.appHeaderChromeVisibility, .hidden)",
-        'Item(title: "Settings", icon: "gearshape", tag: 3)',
-        "case .intervals:",
+    )
+    require(
+        "Strand/App/NavRouter.swift",
+        "@Published var settingsRequest: SettingsSheetRequest?",
+        "func openSettings(_ route: SettingsRouteID? = nil)",
+    )
+    forbid(
+        "Strand/Screens/TodayView.swift",
+        "showSettings",
+        "settingsSheetScreenScaffoldEnvironment",
+        "TodayHeaderBatteryStatus",
     )
     forbid(
         "StrandiOS/App/RootTabView.swift",
