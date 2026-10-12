@@ -11,7 +11,9 @@ import WhoopStore
 ///
 /// Routes: stress, hr-timeline, pillar-recovery, pillar-strain, sleep, workouts, today-workouts,
 /// today-workouts-rest, workout-detail-run, workout-detail-strength, workout-detail-whoop,
-/// workout-detail-manual, manual-workout, health, metric-explorer, metric-detail-hrv, compare, trends-explore,
+/// workout-detail-manual, manual-workout, health, metric-explorer, metric-detail-hrv, metric-detail (any catalog metric:
+/// `--noop-qa-metric <key>` with an optional `--noop-qa-metric-source <source>`; add `--noop-qa-hold-load` for the loading
+/// state), compare, trends-explore,
 /// insights, intelligence, scoring-guide, scoring-guide-recovery (the guide opened at its Recovery section, as the
 /// Recovery ⓘ opens it), updates, live-hr, breathe, journal, intervals, start-workout, rhythm, smart-alarm,
 /// hydration, fitness-age, coupled, lab-book, trends-report, coach-workouts-sheet (the Workouts hub at the root of a sheet,
@@ -42,6 +44,7 @@ enum QARoute: String, CaseIterable {
     case health
     case metricExplorer = "metric-explorer"
     case metricDetailHRV = "metric-detail-hrv"
+    case metricDetail = "metric-detail"
     case compare
     case trendsExplore = "trends-explore"
     case insights
@@ -94,6 +97,8 @@ enum QARoute: String, CaseIterable {
              .liftProgress, .liftRoutines:
             return .sheet(.today)
         case .metricExplorer, .metricDetailHRV, .compare, .trendsExplore, .insights, .intelligence, .labBook:
+            return .push(.trends)
+        case .metricDetail:
             return .push(.trends)
         case .trendsReport:
             return .sheet(.trends)
@@ -165,6 +170,21 @@ enum QACoachPage {
         default: return nil
         }
     }()
+}
+
+/// `--noop-qa-metric <key>` (with an optional `--noop-qa-metric-source <source>`, default the first catalog entry
+/// with that key) names the catalog metric the `metric-detail` route opens, so the Chart branch (steps, weight), an
+/// empty metric and a Strain metric can each be captured.
+enum QAMetric {
+    static var requested: MetricDescriptor? {
+        let arguments = ProcessInfo.processInfo.arguments
+        guard let index = arguments.firstIndex(of: "--noop-qa-metric"),
+              arguments.indices.contains(index + 1) else { return nil }
+        let key = arguments[index + 1]
+        let source = arguments.firstIndex(of: "--noop-qa-metric-source")
+            .flatMap { arguments.indices.contains($0 + 1) ? arguments[$0 + 1] : nil }
+        return MetricCatalog.all.first { $0.key == key && (source == nil || $0.source == source) }
+    }
 }
 
 /// `--noop-coach-availability <checking|unsupported|notready|disabled|unavailable>` makes the Coach screens draw
@@ -335,6 +355,8 @@ private struct QARouteHost: ViewModifier {
         case .metricExplorer: MetricExplorerView()
         case .metricDetailHRV:
             if let metric = MetricCatalog.all.first(where: { $0.key == "hrv" }) { MetricDetailView(metric: metric) }
+        case .metricDetail:
+            if let metric = QAMetric.requested { MetricDetailView(metric: metric) }
         case .compare: CompareView()
         case .trendsExplore: TrendsExploreHubView()
         case .insights: InsightsHubView()

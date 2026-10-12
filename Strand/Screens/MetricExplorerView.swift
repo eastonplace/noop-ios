@@ -706,6 +706,8 @@ struct MetricDetailView: View {
     }
 
     private func load() async {
+        // QA: hold the detail in its loading state so that state can be captured (`--noop-qa-hold-load`).
+        if ProcessInfo.processInfo.arguments.contains("--noop-qa-hold-load") { return }
         let loadSeq = repo.refreshSeq
         let primary = metric.key == "strain"
             ? repo.canonicalDays.compactMap { day in
