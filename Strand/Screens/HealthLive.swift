@@ -108,7 +108,8 @@ struct HeartRateSection: View {
                 value: shownBPM.map(String.init) ?? WidgetMetrics.missingValue,
                 unit: String(localized: "bpm"),
                 caption: caption(scrubbed: scrubbed, hasLiveHR: hasLiveHR),
-                captionPlacement: .below)
+                // No signal yet: "— bpm  Awaiting strap" on one line; with a reading the caption sits under it.
+                captionPlacement: hasLiveHR || typeSize.isAccessibilitySize ? .below : .trailing)
             if series.count > 1 {
                 HealthLiveTrace(samples: series, zones: zones, selection: $scrubIndex)
                     .accessibilityElement(children: .ignore)
@@ -173,20 +174,12 @@ struct HeartRateSection: View {
         }
     }
 
-    /// No signal yet: a dimmed flat rail and one honest line, never a fabricated trace.
+    /// No signal yet: one honest line under the "— bpm" row, never a fabricated trace.
     private var waiting: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Capsule()
-                .fill(StrandPalette.hairlineStrong)
-                .frame(height: 2)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 28)
-            Text("Waiting for live signal — keep the strap nearby.")
-                .font(StrandFont.micro)
-                .foregroundStyle(StrandPalette.textTertiary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .frame(minHeight: WidgetMetrics.chartHeight, alignment: .center)
+        Text("Waiting for live signal — keep the strap nearby.")
+            .font(StrandFont.micro)
+            .foregroundStyle(StrandPalette.textTertiary)
+            .fixedSize(horizontal: false, vertical: true)
     }
 }
 
