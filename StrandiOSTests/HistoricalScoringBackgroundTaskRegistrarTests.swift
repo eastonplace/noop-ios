@@ -175,7 +175,7 @@ final class HistoricalScoringBackgroundTaskRegistrarTests: XCTestCase {
         XCTAssertEqual(order, ["health-import-locked", "health-scoring", "historical"])
     }
 
-    func testCancelledBackgroundDrainKeepsHealthKitJournalAndFenceAndSkipsHistorical() async {
+    func testCancelledBackgroundDrainKeepsHealthKitJournalReleasesFenceAndSkipsHistorical() async {
         let window = HealthKitSyncWindow(
             start: Date(timeIntervalSince1970: 300),
             end: Date(timeIntervalSince1970: 400)
@@ -231,7 +231,7 @@ final class HistoricalScoringBackgroundTaskRegistrarTests: XCTestCase {
         XCTAssertNil(result)
         XCTAssertFalse(historicalRan)
         XCTAssertEqual(persistence.value, window)
-        XCTAssertTrue(barrier.blocksRefreshes)
+        XCTAssertFalse(barrier.blocksRefreshes, "a cancelled run releases the fence (CC-1)")
     }
 
     func testCancelledBackgroundDrainCannotPublishWhenAnalysisFinishesAfterCancellation() async {
@@ -284,7 +284,7 @@ final class HistoricalScoringBackgroundTaskRegistrarTests: XCTestCase {
         XCTAssertFalse(publicationRan)
         XCTAssertFalse(historicalRan)
         XCTAssertEqual(persistence.value, window)
-        XCTAssertTrue(barrier.blocksRefreshes)
+        XCTAssertFalse(barrier.blocksRefreshes, "a cancelled run releases the fence (CC-1)")
     }
 }
 #endif

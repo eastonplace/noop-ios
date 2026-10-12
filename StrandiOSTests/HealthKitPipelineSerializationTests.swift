@@ -66,7 +66,7 @@ final class HealthKitPipelineSerializationTests: XCTestCase {
             start: Date(timeIntervalSince1970: 50),
             end: Date(timeIntervalSince1970: 300))
         try await scoring.offer(first)
-        XCTAssertTrue(barrier.blocksRefreshes)
+        XCTAssertFalse(barrier.blocksRefreshes, "a journal alone never closes the fence (CC-1)")
 
         var analyzed: [HealthKitSyncWindow] = []
         var published: [HealthKitSyncWindow] = []
@@ -80,6 +80,7 @@ final class HealthKitPipelineSerializationTests: XCTestCase {
                 publish: { published.append($0); return true })
         }
         try await waitUntil { gate.isWaiting }
+        XCTAssertTrue(barrier.blocksRefreshes, "the active scoring run holds the fence")
 
         // This is a defensive direct offer that bypasses the production import lease. The coordinator must
         // still detect the revision edge after analysis and skip publication of the superseded first window.
@@ -124,7 +125,7 @@ final class HealthKitPipelineSerializationTests: XCTestCase {
         try await waitUntil { publishGate.isWaiting }
 
         let importTask = Task { @MainActor in
-            await scoring.withImportLease {
+            try await scoring.withImportLease {
                 events.append("import")
             }
         }
@@ -136,20 +137,20 @@ final class HealthKitPipelineSerializationTests: XCTestCase {
 
         publishGate.open()
         await scoringTask.value
-        await importTask.value
+        try await importTask.value
         XCTAssertEqual(events, ["analyze", "publish-start", "publish-end", "import"])
         XCTAssertFalse(barrier.blocksRefreshes)
     }
 
     func testHistoricalRepositoryPublicationWaitsForHealthKitFence() async throws {
         let barrier = RepositoryPublicationBarrier()
-        await barrier.acquireExclusive()
+        let healthKit = try await barrier.acquireExclusive()
 
         var attempted = false
         var events = ["healthkit"]
         let historicalTask = Task { @MainActor in
             attempted = true
-            await HistoricalRepositoryPublicationGate.run(barrier: barrier) {
+            try await HistoricalRepositoryPublicationGate.run(barrier: barrier) {
                 events.append("historical")
             }
         }
@@ -159,14 +160,14 @@ final class HealthKitPipelineSerializationTests: XCTestCase {
                        "historical publication must not invalidate an in-flight HealthKit refresh")
         XCTAssertTrue(barrier.blocksRefreshes)
 
-        barrier.releaseExclusive()
-        await historicalTask.value
+        barrier.releaseExclusive(healthKit)
+        try await historicalTask.value
 
         XCTAssertEqual(events, ["healthkit", "historical"])
         XCTAssertFalse(barrier.blocksRefreshes)
     }
 
-    func testFailedImportStillLeavesDurableScoringWorkAndFence() async throws {
+    func testFailedImportLeavesDurableScoringWorkWithoutHoldingTheFence() async throws {
         let importPersistence = PipelineWindowMemoryStore()
         let scoringPersistence = PipelineWindowMemoryStore()
         let barrier = RepositoryPublicationBarrier()
@@ -196,8 +197,8 @@ final class HealthKitPipelineSerializationTests: XCTestCase {
         XCTAssertEqual(importPersistence.value, window)
         XCTAssertEqual(scoring.pending, window)
         XCTAssertEqual(scoringPersistence.value, window)
-        XCTAssertTrue(barrier.blocksRefreshes,
-                      "fresh vitals cannot publish while their Recovery scoring journal remains")
+        XCTAssertFalse(barrier.blocksRefreshes,
+                       "the journal keeps Recovery scoring durable; the fence opens with the failed import (CC-1)")
 
         var scored: [HealthKitSyncWindow] = []
         await scoring.runAndWait(operation: { candidate in
@@ -261,7 +262,7 @@ final class HealthKitPipelineSerializationTests: XCTestCase {
         XCTAssertNil(importer.pending)
         XCTAssertEqual(scoring.pending, second,
                        "the follow-up import must leave a durable scoring edge for the next notification drain")
-        XCTAssertTrue(barrier.blocksRefreshes)
+        XCTAssertFalse(barrier.blocksRefreshes, "no run is active, so the fence is open (CC-1)")
 
         await scoring.runAndWait(
             analyze: { analyzed.append($0); return true },

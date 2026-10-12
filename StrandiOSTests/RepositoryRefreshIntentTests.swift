@@ -171,14 +171,15 @@ final class RepositoryRefreshIntentTests: XCTestCase {
         XCTAssertFalse(result)
     }
 
-    func testExclusivePublicationWaitsForInFlightRefreshAndStopsNewStarts() async {
+    func testExclusivePublicationWaitsForInFlightRefreshAndStopsNewStarts() async throws {
         let barrier = RepositoryPublicationBarrier()
         XCTAssertTrue(barrier.beginRefreshIfAllowed())
 
         var acquiredExclusive = false
         let exclusive = Task { @MainActor in
-            await barrier.acquireExclusive()
+            let ownership = try await barrier.acquireExclusive()
             acquiredExclusive = true
+            return ownership
         }
         for _ in 0..<20 { await Task.yield() }
 
@@ -188,20 +189,20 @@ final class RepositoryRefreshIntentTests: XCTestCase {
                        "once source publication is pending, no newer refresh may overtake it")
 
         barrier.endRefresh()
-        await exclusive.value
+        let ownership = try await exclusive.value
         XCTAssertTrue(acquiredExclusive)
         XCTAssertTrue(barrier.blocksRefreshes)
         XCTAssertFalse(barrier.beginRefreshIfAllowed())
 
-        barrier.releaseExclusive()
+        barrier.releaseExclusive(ownership)
         XCTAssertFalse(barrier.blocksRefreshes)
         XCTAssertTrue(barrier.beginRefreshIfAllowed())
         barrier.endRefresh()
     }
 
-    func testBlockedRefreshesCoalesceToOneWidestReplayPerRepository() async {
+    func testBlockedRefreshesCoalesceToOneWidestReplayPerRepository() async throws {
         let barrier = RepositoryPublicationBarrier()
-        await barrier.acquireExclusive()
+        let ownership = try await barrier.acquireExclusive()
         let owner = NSObject()
         var replayed: [RepositoryRefreshIntent] = []
 
@@ -213,14 +214,14 @@ final class RepositoryRefreshIntentTests: XCTestCase {
         XCTAssertEqual(barrier.deferredRequestCount, 101)
         XCTAssertEqual(barrier.deferredRepositoryCount, 1)
 
-        barrier.releaseExclusive()
+        barrier.releaseExclusive(ownership)
         XCTAssertEqual(replayed, [.fullHistoryMigration])
         XCTAssertEqual(barrier.deferredRepositoryCount, 0)
     }
 
-    func testBlockedRefreshesKeepDifferentRepositoriesDistinct() async {
+    func testBlockedRefreshesKeepDifferentRepositoriesDistinct() async throws {
         let barrier = RepositoryPublicationBarrier()
-        await barrier.acquireExclusive()
+        let ownership = try await barrier.acquireExclusive()
         let first = NSObject()
         let second = NSObject()
         var replayed: [RepositoryRefreshIntent] = []
@@ -229,19 +230,71 @@ final class RepositoryRefreshIntentTests: XCTestCase {
         barrier.performAfterOpen(for: second, intent: .postImport) { replayed.append($0) }
         XCTAssertEqual(barrier.deferredRepositoryCount, 2)
 
-        barrier.releaseExclusive()
+        barrier.releaseExclusive(ownership)
         XCTAssertEqual(Set(replayed.map(\.description)), Set(["current-day", "post-import"]))
     }
 
-    func testRestoredJournalCanFenceSynchronouslyBeforeLaunchRefresh() {
+    /// CC-3: a waiter parked on a held fence leaves on cancel. Before the fix the wait ignored cancellation,
+    /// so quiesce and BG-task expiry hung for as long as the fence stayed closed.
+    func testCancelledFenceWaiterThrowsPromptlyAndLeavesTheHolderInCharge() async throws {
         let barrier = RepositoryPublicationBarrier()
+        let holder = try await barrier.acquireExclusive()
+        var parked = false
+        let waiter = Task { @MainActor in
+            parked = true
+            try await HistoricalRepositoryPublicationGate.run(barrier: barrier) {
+                XCTFail("a cancelled waiter must never run its publication")
+            }
+        }
+        while !parked { await Task.yield() }
+        for _ in 0..<5 { await Task.yield() }
 
-        XCTAssertTrue(barrier.acquireRestoredExclusiveIfIdle())
+        waiter.cancel()
+        let result = await waiter.result
+        XCTAssertThrowsError(try result.get()) { XCTAssertTrue($0 is CancellationError) }
+        XCTAssertTrue(barrier.blocksRefreshes, "the holder still owns the fence")
+
+        barrier.releaseExclusive(holder)
+        XCTAssertFalse(barrier.blocksRefreshes)
+        XCTAssertTrue(barrier.beginRefreshIfAllowed())
+        barrier.endRefresh()
+    }
+
+    /// A cancelled waiter that was the only thing closing the fence must replay what it deferred.
+    func testCancelledWaiterBehindARefreshReplaysDeferredRefreshes() async throws {
+        let barrier = RepositoryPublicationBarrier()
+        XCTAssertTrue(barrier.beginRefreshIfAllowed())
+        let waiter = Task { @MainActor in try await barrier.acquireExclusive() }
+        while !barrier.blocksRefreshes { await Task.yield() }
+        var replayed: [RepositoryRefreshIntent] = []
+        barrier.performAfterOpen(for: NSObject(), intent: .currentDay) { replayed.append($0) }
+        XCTAssertTrue(replayed.isEmpty)
+
+        waiter.cancel()
+        _ = await waiter.result
+        XCTAssertEqual(replayed, [.currentDay])
+        XCTAssertFalse(barrier.blocksRefreshes)
+        barrier.endRefresh()
+        XCTAssertFalse(barrier.blocksRefreshes)
+    }
+
+    /// D4 safety net: a hung owner cannot freeze every typed refresh. The watchdog reclaims the hold, and the
+    /// late owner's release is a no-op instead of opening a fence that a newer owner holds.
+    func testWatchdogReclaimsAHungHoldAndIgnoresTheLateRelease() async throws {
+        let barrier = RepositoryPublicationBarrier(watchdogLimit: .milliseconds(30))
+        let hung = try await barrier.acquireExclusive()
         XCTAssertTrue(barrier.blocksRefreshes)
-        XCTAssertFalse(barrier.acquireRestoredExclusiveIfIdle(),
-                       "one durable scoring journal owns one fence")
 
-        barrier.releaseExclusive()
+        for _ in 0..<500 where barrier.blocksRefreshes {
+            try await Task.sleep(nanoseconds: 2_000_000)
+        }
+        XCTAssertFalse(barrier.blocksRefreshes)
+        XCTAssertEqual(barrier.watchdogReleaseCount, 1)
+
+        let next = try await barrier.acquireExclusive()
+        barrier.releaseExclusive(hung)
+        XCTAssertTrue(barrier.blocksRefreshes, "a stale release must not open the newer owner's fence")
+        barrier.releaseExclusive(next)
         XCTAssertFalse(barrier.blocksRefreshes)
     }
 }

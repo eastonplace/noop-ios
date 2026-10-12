@@ -367,7 +367,7 @@ final class TodayHealthSnapshotHydrationTests: XCTestCase {
             algorithmBundleVersion: snapshotContext.algorithmBundleVersion
         )
         let publicationBarrier = RepositoryPublicationBarrier()
-        await publicationBarrier.acquireExclusive()
+        let healthKitOwnership = try await publicationBarrier.acquireExclusive()
         var completed = false
         let commitTask = Task { @MainActor in
             defer { completed = true }
@@ -393,7 +393,7 @@ final class TodayHealthSnapshotHydrationTests: XCTestCase {
             writeToken: oldOwnership.writeToken
         ), "waiting historical work must not supersede HealthKit's Repository refresh generation")
 
-        publicationBarrier.releaseExclusive()
+        publicationBarrier.releaseExclusive(healthKitOwnership)
         let receipt = try await commitTask.value
 
         XCTAssertEqual(receipt.projection.metrics[.recovery]?.value, 91)

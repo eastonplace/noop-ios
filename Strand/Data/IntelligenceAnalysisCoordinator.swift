@@ -401,7 +401,7 @@ extension IntelligenceEngine {
 
     /// Stronger publication contract for a durable source handoff. The verifier runs against the exact results
     /// produced by this admitted batch before any queued analysis can replace them. A false receipt is treated
-    /// as a retryable forced failure, so the source journal and Repository publication fence remain intact.
+    /// as a retryable forced failure, so the source journal remains intact for the caller's bounded retry.
     @discardableResult
     func analyzeRecentForPublication(
         maxDays: Int,
