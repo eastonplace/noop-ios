@@ -96,11 +96,68 @@ final class AppModelWorkoutJourneyTests: XCTestCase {
         XCTAssertNil(m.workoutStartBlock, "a new workout can be started")
     }
 
+    /// A workout that was really started writes its snapshot and its pause ledger; discarding must clear every one of them,
+    /// or the next launch brings the workout back. (A fixture workout writes nothing, so it cannot prove this.)
     func testDiscardLeavesNothingToRestoreOnTheNextLaunch() {
-        let m = model(.paused)
+        ActiveWorkoutPersistence.clear()
+        ActiveGpsWorkoutPersistence.clear()
+        ActiveWorkoutPauseStore.clear()
+        addTeardownBlock { @MainActor in
+            ActiveWorkoutPersistence.clear()
+            ActiveGpsWorkoutPersistence.clear()
+            ActiveWorkoutPauseStore.clear()
+        }
+        let m = AppModel()
+        m.startWorkout(sport: "Strength Training")
+        guard let workout = m.activeWorkout else { return XCTFail("the workout did not start") }
+        XCTAssertTrue(m.setWorkoutPaused(true))
+        XCTAssertNotNil(ActiveWorkoutPersistence.load(), "a started workout can be restored")
+        XCTAssertNotNil(ActiveWorkoutPauseStore.load(sessionID: workout.sessionID), "so can its pause")
+
         XCTAssertTrue(m.discardWorkout())
         XCTAssertNil(ActiveWorkoutPersistence.load())
         XCTAssertNil(ActiveGpsWorkoutPersistence.load())
+    }
+
+    func testDiscardIsRefusedWhileASaveIsRunning() {
+        let m = model(.saving)
+        XCTAssertEqual(m.workoutFinishState, .saving)
+        XCTAssertFalse(m.discardWorkout())
+        XCTAssertNotNil(m.activeWorkout, "the workout the save is writing is untouched")
+        XCTAssertEqual(m.workoutFinishState, .saving)
+    }
+
+    /// The Lock Screen and Dynamic Island are rebuilt from the workout in flight and read this edge; a paused or
+    /// nothing-to-save workout has no other reason to raise it on its way out, and its activity would stay up.
+    func testDiscardTellsTheLockScreenTheWorkoutIsGone() {
+        for scenario in [AppModel.DemoLiveWorkoutScenario.paused, .nothingToSave, .running] {
+            let m = model(scenario)
+            let before = m.workoutPauseEdge
+            XCTAssertTrue(m.discardWorkout())
+            XCTAssertGreaterThan(m.workoutPauseEdge, before, "\(scenario)")
+        }
+    }
+
+    /// A save that failed after its row was written (the route's read-back failed): discarding takes the row back, so
+    /// "Nothing will be saved" is true. The route and pause entries that were written with it go too.
+    func testDiscardRemovesTheRouteAndPausesAFailedSaveAlreadyWrote() {
+        let m = model(.failed)
+        let key = AppModel.WorkoutRowKey(startTs: 1_000_000_007, sport: "Discard Test Sport")
+        m.pendingWorkoutRowKey = key
+        RouteStore.store(WorkoutRoute(segmentPolylines: [RouteMath.encode([RouteMath.LatLng(40.0, -73.0), RouteMath.LatLng(40.001, -73.0)])],
+                                      distanceM: 111), startTs: key.startTs, sport: key.sport)
+        WorkoutPauseStore.store(WorkoutPauseLedger(intervals: [.init(start: 10, end: 400)]), startTs: key.startTs, sport: key.sport)
+        XCTAssertNotNil(WorkoutPauseStore.load(startTs: key.startTs, sport: key.sport))
+        addTeardownBlock {
+            RouteStore.remove(startTs: key.startTs, sport: key.sport)
+            WorkoutPauseStore.remove(startTs: key.startTs, sport: key.sport)
+        }
+        XCTAssertNotNil(RouteStore.load(startTs: key.startTs, sport: key.sport))
+
+        XCTAssertTrue(m.discardWorkout())
+        XCTAssertNil(RouteStore.load(startTs: key.startTs, sport: key.sport))
+        XCTAssertNil(WorkoutPauseStore.load(startTs: key.startTs, sport: key.sport))
+        XCTAssertNil(m.pendingWorkoutRowKey)
     }
 
     // MARK: Nothing to save, then Keep recording

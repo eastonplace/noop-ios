@@ -258,6 +258,13 @@ final class AppModel: ObservableObject {
     private var gpsSnapshotDurabilityFailed = false
     private var gpsHadTerminatedGap = false
     private var applicationIsActive = true
+    /// The natural key of the workout row a finish that then failed had already written (its route or read-back failed after
+    /// the row was saved). Discarding the workout removes that row too, so "Nothing will be saved" is true.
+    var pendingWorkoutRowKey: WorkoutRowKey?
+    struct WorkoutRowKey: Equatable {
+        let startTs: Int
+        let sport: String
+    }
 
     /// A manual workout in progress. `samples` accumulate from the smoothed live `bpm`; `liveStrain`
     /// is updated by an O(1) accumulator so the active card can show strain building in real time.
@@ -2032,6 +2039,7 @@ final class AppModel: ObservableObject {
         activeWorkoutIsGps = WorkoutCatalog.sport(named: resolved)?.isDistanceSport ?? false
         if activeWorkoutIsGps {
             gpsRecorder.start(
+        pendingWorkoutRowKey = nil
                 sessionID: activeWorkout!.sessionID,
                 startMs: Int64(started.timeIntervalSince1970 * 1000)
             )
@@ -2319,6 +2327,14 @@ final class AppModel: ObservableObject {
         guard TestCentre.active(.dataImport) else { return nil }
         return { [weak self] lines in
             Task { @MainActor in
+        // A save that failed after its row was written: that row goes too, so nothing of this workout is left in Workouts.
+        if let key = pendingWorkoutRowKey {
+            pendingWorkoutRowKey = nil
+            removeWrittenWorkoutRow(key)
+        }
+        // The Lock Screen and Dynamic Island are rebuilt from the workout in flight: with none, the activity ends. Paused and
+        // nothing-to-save workouts raise no other edge on their way out.
+        workoutPauseEdge &+= 1
                 guard let self else { return }
                 for line in lines { self.live.append(log: line, domain: .dataImport) }
             }
@@ -2326,6 +2342,18 @@ final class AppModel: ObservableObject {
     }
 
     /// Emit the file-meta line for an import run (detected kind + extension + size BUCKET, never the path or
+    /// Takes back the row, route and pauses a finish wrote before it failed.
+    private func removeWrittenWorkoutRow(_ key: WorkoutRowKey) {
+        RouteStore.remove(startTs: key.startTs, sport: key.sport)
+        WorkoutPauseStore.remove(startTs: key.startTs, sport: key.sport)
+        let deviceId = self.deviceId
+        Task { [repo] in
+            guard let store = await repo.storeHandle() else { return }
+            _ = try? await store.deleteWorkouts(deviceId: deviceId, sport: key.sport, from: key.startTs, to: key.startTs)
+            _ = await repo.refresh(.currentDay)
+        }
+    }
+
     /// name), tagged `.dataImport`, iff the mode is on. Called by the handlers that have the materialized
     /// URL. The size is bucketed inside `ImportTrace`, so no byte-exact size or filename leaves the device.
     private func emitImportFileMeta(kind: DataSourceKind, url: URL) {
@@ -2643,6 +2671,8 @@ final class AppModel: ObservableObject {
             gpsHadTerminatedGap = false
             refreshWorkoutDurabilityWarning()
             pendingWorkoutSnapshot = nil
+            // From here a failure leaves the row in Workouts, so a discard has to take it back.
+            pendingWorkoutRowKey = WorkoutRowKey(startTs: row.startTs, sport: row.sport)
             pendingWorkoutEnd = nil
             pendingWorkoutRoute = nil
             pendingWorkoutWasGps = false
@@ -2676,6 +2706,7 @@ final class AppModel: ObservableObject {
         // Re-snapshot the durable session so a kill keeps the latest accumulated HR window (#529).
         persistActiveWorkout()
     }
+            pendingWorkoutRowKey = nil
 
     /// Drop the smoothing window and blank the hero number so a resume / re-attach shows ","
     /// until a genuinely fresh sample arrives, instead of republishing the stale pre-gap median.
