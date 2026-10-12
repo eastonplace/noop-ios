@@ -623,7 +623,9 @@ struct StrandiOSApp: App {
                         await drainCommittedHealthScoring()
                     }
                 }
-                .onReceive(model.repo.$verifiedHealthProjection.dropFirst()) { _ in
+                .onReceive(model.repo.$verifiedHealthProjection.dropFirst()) { projection in
+                    // A context the App Group token does not name supersedes every verified write until it is repaired.
+                    Task { await model.repairVerifiedSinkIfContextMoved(to: projection?.contextId) }
                     guard scenePhase == .active else { return }
                     refreshExternalSurface()
                     driveLiveActivity()

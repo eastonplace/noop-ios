@@ -947,6 +947,83 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// What the normal-launch verified-sink repair did. Logged; no context identity is ever logged.
+    enum VerifiedSinkBootstrapOutcome: String, Equatable {
+        case repositoryNotLoaded = "repository not loaded"
+        case waitingForSourceTransition = "waiting for source transition"
+        case kept
+        case closedSourceLeftAlone = "no context, left alone"
+        case activated
+        case failed
+    }
+
+    /// Only a source transition writes the App Group's verified-sink token, so an install that predates the token, or a
+    /// context that moved outside a transition (a lineage or database change), left every Widget and Live Activity write
+    /// that carries health superseded, for good. This repairs it through `VerifiedSinkBootstrapPolicy`, under the source
+    /// transition fence and after durable transition recovery:
+    /// - a non-terminal transition record owns the token, so the token is not touched while one exists;
+    /// - a nil context before the repository has loaded is transient, never a closed source;
+    /// - a closed source stays as the transition that closed it left it. Every writer checks the token against the
+    ///   repository's current context, so a token naming a context the repository no longer has publishes nothing.
+    /// Static, with the App Group and the sink activation passed in, so it is testable without a running app.
+    static func bootstrapVerifiedSink(
+        repositoryLoaded: Bool,
+        expectedContextId: String?,
+        hasPendingTransition: Bool,
+        defaults: UserDefaults,
+        activateSinks: (_ contextId: String, _ epoch: UInt64) -> Bool
+    ) -> VerifiedSinkBootstrapOutcome {
+        if hasPendingTransition { return .waitingForSourceTransition }
+        guard repositoryLoaded else { return .repositoryNotLoaded }
+        switch VerifiedSinkBootstrapPolicy.decide(
+            activeToken: ActiveVerifiedSinkEpochStore.activeToken(defaults: defaults),
+            expectedContextId: expectedContextId,
+            hasPendingTransition: false
+        ) {
+        case .keep:
+            return .kept
+        case .waitForPendingTransition:
+            return .waitingForSourceTransition
+        case .clearClosedSource:
+            return .closedSourceLeftAlone
+        case .activate(let contextId):
+            // A fresh epoch above every surviving record, as a transition takes one. The Live Activity's generation
+            // record is fenced to its epoch and would reject every verified write under the new one, so it goes too.
+            guard let epoch = ActiveSinkEpochRecovery.beginTransitionRecovering(defaults: defaults) else {
+                return .failed
+            }
+            ActiveVerifiedSinkEpochStore.clearLegacyKeys(defaults: defaults)
+            ActiveSinkEpochRecovery.clearLiveActivityGeneration(defaults: defaults)
+            guard ActiveVerifiedSinkEpochStore.activate(contextId: contextId, epoch: epoch, defaults: defaults) != nil,
+                  activateSinks(contextId, epoch) else { return .failed }
+            return .activated
+        }
+    }
+
+    /// Run the repair for this model. Call only while `sourceTransitionFence` owns source mutation.
+    private func bootstrapVerifiedSinkIfNeededUnfenced() async {
+        guard let store = await repo.storeHandle(), let defaults = try? sinkDefaults() else { return }
+        let hasPendingTransition: Bool
+        do {
+            hasPendingTransition = try await store.latestSourceTransitionRecovery() != nil
+        } catch {
+            return   // the journal could not be read: never act on a guess
+        }
+        let expectedContextId = repo.currentVerifiedSinkContextIdForActivation
+        let token = ActiveVerifiedSinkEpochStore.activeToken(defaults: defaults)
+        let tokenState = token == nil ? "missing" : (token?.contextId == expectedContextId ? "match" : "mismatch")
+        let outcome = Self.bootstrapVerifiedSink(
+            repositoryLoaded: repo.loaded && !repo.verifiedExternalSurfaceFenced,
+            expectedContextId: expectedContextId,
+            hasPendingTransition: hasPendingTransition,
+            defaults: defaults,
+            activateSinks: { [verifiedSinkLifecycle] contextId, epoch in
+                verifiedSinkLifecycle?.activate(contextId: contextId, epoch: epoch) ?? false
+            })
+        NSLog("NOOP verified sink: token: %@, %@", tokenState, outcome.rawValue)
+        if outcome == .activated { await signalExternalPublication() }
+    }
+
     private func makeHistoricalPipelineRuntime() -> HistoricalPipelineRuntime {
         let postAnalysisSnapshotBuilder = RepositoryPostAnalysisSnapshotBuilder.self
         let classifyError: @Sendable (any Error) -> PipelineFailureClassification =
@@ -1684,7 +1761,18 @@ final class AppModel: ObservableObject {
     func recoverPendingSourceTransition() async {
         await sourceTransitionFence.run { @MainActor [weak self] in
             await self?.recoverDurableSourceTransitionIfNeededUnfenced()
+            // A transition that just completed has activated the sink itself; one still pending keeps it untouched.
+            await self?.bootstrapVerifiedSinkIfNeededUnfenced()
         }
+    }
+
+    /// The verified projection now names a context the App Group token does not (a lineage or database change outside a
+    /// source transition). Run the same repair, under the same fence.
+    func repairVerifiedSinkIfContextMoved(to contextId: String?) async {
+        guard let contextId,
+              let defaults = try? sinkDefaults(),
+              ActiveVerifiedSinkEpochStore.activeToken(defaults: defaults)?.contextId != contextId else { return }
+        await recoverPendingSourceTransition()
     }
 
     /// A prepared record aborts safely. Postcommit stages load the exact commit payload captured in the same
