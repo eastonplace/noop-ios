@@ -273,7 +273,7 @@ struct HealthVitalRow: View {
         if let word = reading.stateWord {
             text += AttributedString(" · ")
             var state = AttributedString(word)
-            state.foregroundColor = reading.accent
+            state.foregroundColor = reading.stateColor
             text += state
         }
         return Text(text)
@@ -336,7 +336,7 @@ struct RecoveryContributorsSection: View {
             HStack(alignment: .center, spacing: NoopMetrics.space2) {
                 Text(verbatim: word)
                     .font(StrandFont.micro)
-                    .foregroundStyle(strength == nil ? StrandPalette.textTertiary : contributor.tint.accent)
+                    .foregroundStyle(Self.wordColor(strength: strength))
                     .lineLimit(1)
                     .fixedSize()
                 HealthStrengthBar(strength: strength, tint: contributor.tint.accent)
@@ -345,6 +345,13 @@ struct RecoveryContributorsSection: View {
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(verbatim: "\(contributor.label), \(contributor.value)\(contributor.unit.map { " " + $0 } ?? ""), \(word)"))
+    }
+
+    /// The strength word's ink: quiet unless the contributor is low enough to need a look. The bar keeps the metric's
+    /// colour.
+    static func wordColor(strength: Double?) -> Color {
+        guard let strength else { return StrandPalette.textTertiary }
+        return strength < 40 ? StrandPalette.statusWarning : StrandPalette.textSecondary
     }
 
     /// Resolve each contributor from the latest day against the baseline mean of prior nights. HRV and Sleep score

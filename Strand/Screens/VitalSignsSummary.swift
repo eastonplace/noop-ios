@@ -44,6 +44,18 @@ struct BodyVitalReading: Identifiable {
         }
     }
 
+    /// The state word's ink ("In your range", "Off baseline"): quiet while the value is where it should be, amber when
+    /// it is not. The metric's own colour stays on its glyph, bar and sparkline, so a red or orange metric never reads
+    /// as an alarm just because it is that metric.
+    var stateColor: Color {
+        if key == BodyVitalSigns.experimentalSpO2CandidateKey { return StrandPalette.textTertiary }
+        switch banding.band {
+        case .noData:     return StrandPalette.textTertiary
+        case .inRange:    return StrandPalette.textSecondary
+        case .outOfRange: return StrandPalette.statusWarning
+        }
+    }
+
     /// The metric this vital is plotted as on Trends and named by Today's cards, so its symbol, tint and trend page
     /// come from one place. nil for the experimental SpO₂ candidate, which has no trend and no range judgement.
     var trendMetric: ProductionTrendMetric? {
