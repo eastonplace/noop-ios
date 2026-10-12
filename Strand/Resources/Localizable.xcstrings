@@ -21405,6 +21405,12 @@
             "value": "Avanzado"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avancé"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -21413,8 +21419,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Avanzado"
+            "state": "translated",
+            "value": "Avançado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дополнительно"
           }
         },
         "zh-Hans": {
@@ -21883,8 +21895,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Edad"
+            "state": "translated",
+            "value": "Idade"
           }
         },
         "ru": {
@@ -23455,6 +23467,12 @@
             "value": "Apariencia"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apparence"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -23463,8 +23481,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Apariencia"
+            "state": "translated",
+            "value": "Aparência"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Оформление"
           }
         },
         "zh-Hans": {
@@ -24937,6 +24961,12 @@
             "value": "Automatización"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatisation"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -24945,8 +24975,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Automatización"
+            "state": "translated",
+            "value": "Automatização"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Автоматизация"
           }
         },
         "zh-Hans": {
@@ -40209,6 +40245,12 @@
             "value": "Captura continua de VFC"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Capture continue de la VFC"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -40217,8 +40259,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Captura continua de VFC"
+            "state": "translated",
+            "value": "Captura contínua de VFC"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Непрерывная запись ВСР"
           }
         },
         "zh-Hans": {
@@ -43249,8 +43297,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "fontes de dados"
+            "state": "translated",
+            "value": "Fontes de dados"
           }
         },
         "ru": {
@@ -93765,6 +93813,58 @@
         }
       }
     },
+    "Profile and settings": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Profil und Einstellungen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Perfil y ajustes"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Profil et réglages"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Profilo e impostazioni"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Perfil e definições"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Профиль и настройки"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "个人资料和设置"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "個人資料與設定"
+          }
+        }
+      }
+    },
     "PROVENANCE": {
       "localizations": {
         "de": {
@@ -116549,6 +116649,12 @@
             "value": "Siri y Atajos"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Siri et Raccourcis"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -116557,8 +116663,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Siri e Atajos"
+            "state": "translated",
+            "value": "Siri e Atalhos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Siri и Быстрые команды"
           }
         },
         "zh-Hans": {
@@ -120779,6 +120891,12 @@
             "value": "Calibración de pasos"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Calibrage des pas"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -120787,8 +120905,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Calibración de passos"
+            "state": "translated",
+            "value": "Calibração de passos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Калибровка шагов"
           }
         },
         "zh-Hans": {
@@ -121661,6 +121785,12 @@
             "value": "Almacenamiento"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stockage"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -121669,8 +121799,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Almacenamiento"
+            "state": "translated",
+            "value": "Armazenamento"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Хранилище"
           }
         },
         "zh-Hans": {
@@ -126927,6 +127063,12 @@
             "value": "Centro de pruebas"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Centre de test"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -126935,8 +127077,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Centro de pruebas"
+            "state": "translated",
+            "value": "Centro de testes"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Центр тестирования"
           }
         },
         "zh-Hans": {
