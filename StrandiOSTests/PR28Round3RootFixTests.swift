@@ -266,10 +266,14 @@ final class PR28Round3RootFixTests: XCTestCase {
     func testLiveAndVerifiedActivityKitCommandsRemainStrictlySerialized() async throws {
         let token = VerifiedSinkToken(epoch: 1, contextId: "context")
         var calls: [String] = []
+        // ORG-8: the live commands are submitted once the verified command has actually started, signalled
+        // by the command itself, instead of after a fixed 5 ms sleep that a loaded test run can outlast.
+        let (verifiedStarted, verifiedStartedSignal) = AsyncStream<Void>.makeStream()
         let publication = SerializedLiveActivityCommands<String>(
             validate: { candidate in candidate == token },
             perform: { payload, _ in
                 if payload == "verified" {
+                    verifiedStartedSignal.yield()
                     try await Task.sleep(for: .milliseconds(25))
                 }
                 calls.append(payload)
@@ -280,7 +284,8 @@ final class PR28Round3RootFixTests: XCTestCase {
         let verified = Task { @MainActor in
             try await publication.submitVerified("verified", token: token)
         }
-        try await Task.sleep(for: .milliseconds(5))
+        var startedSignals = verifiedStarted.makeAsyncIterator()
+        _ = await startedSignals.next()
         publication.submitLive("live-old", token: nil)
         publication.submitLive("live-new", token: nil)
 
@@ -312,6 +317,8 @@ final class PR28Round3RootFixTests: XCTestCase {
             createdAt: Date(timeIntervalSince1970: 1_800_000_000))
         let sequence = PR28LeaseSequence(item: item)
         let probe = PR28PublicationProbe()
+        // ORG-8: wait for the HealthKit write to start on a signal it sends, not a 500 ms polling budget.
+        let (healthKitStarted, healthKitStartedSignal) = AsyncStream<Void>.makeStream()
         let worker = ExternalPublicationWorker(
             dependencies: ExternalPublicationWorkerDependencies(
                 leaseNext: { _, _, _, _ in await sequence.next() },
@@ -327,6 +334,7 @@ final class PR28Round3RootFixTests: XCTestCase {
                 publishLiveActivity: { _ in .published },
                 publishHealthKitWriteOnly: { _ in
                     await probe.append("healthKit-started")
+                    healthKitStartedSignal.yield()
                     try await Task.sleep(for: .seconds(60))
                     return .published
                 },
@@ -339,11 +347,8 @@ final class PR28Round3RootFixTests: XCTestCase {
                 now: { Date(timeIntervalSince1970: 1_800_000_000) }))
 
         let signal = Task { await worker.signal(maximumItems: 1) }
-        for _ in 0..<100 {
-            let events = await probe.snapshot()
-            if events.contains("healthKit-started") { break }
-            try await Task.sleep(for: .milliseconds(5))
-        }
+        var healthKitSignals = healthKitStarted.makeAsyncIterator()
+        _ = await healthKitSignals.next()
         let startedEvents = await probe.snapshot()
         XCTAssertTrue(startedEvents.contains("healthKit-started"))
 

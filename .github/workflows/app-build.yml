@@ -59,6 +59,7 @@ jobs:
             accessibility_localization_contract_audit.py
             healthkit_sync_contract_audit.py
             privacy_artifact_contract_audit.py
+            paper_strings_contract_audit.py
           )
           for audit in "${audits[@]}"; do
             echo "::group::$audit"
