@@ -360,7 +360,10 @@ struct SettingsDetailHost: View {
             } header: {
                 Text("Recovery baseline")
             } footer: {
-                Text("Recalibration restarts the roughly four-night baseline build from tonight. Existing history is kept.")
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Recovery uses your own recent HRV, resting heart rate, respiratory rate, and other available nightly signals. It becomes more personal as enough nights accumulate.")
+                    Text("Recalibration restarts the roughly four-night baseline build from tonight. Existing history is kept.")
+                }
             }
         }
         .navigationTitle("Personal profile")
@@ -445,6 +448,7 @@ struct SettingsDetailHost: View {
                     Text("Celsius").tag(TemperatureUnit.celsius.rawValue)
                     Text("Fahrenheit").tag(TemperatureUnit.fahrenheit.rawValue)
                 }
+                LabeledContent("Strain scale", value: "0–21")
             } header: {
                 Text("Units")
             } footer: {
@@ -452,6 +456,8 @@ struct SettingsDetailHost: View {
             }
 
             Section {
+                LabeledContent("Theme", value: AppearanceMode.system.label)
+                LabeledContent("Chart colors", value: ChartStyle.titanium.label)
                 #if os(iOS)
                 Picker("App icon", selection: $useNavyIcon) {
                     Text("Default").tag(false)

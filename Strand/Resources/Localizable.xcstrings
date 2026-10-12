@@ -37297,6 +37297,58 @@
         }
       }
     },
+    "Chart colors": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diagrammfarben"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Colores de los gráficos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couleurs des graphiques"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Colori dei grafici"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cores dos gráficos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цвета графиков"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "图表颜色"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "圖表顏色"
+          }
+        }
+      }
+    },
     "Choose a workout photo to copy its text.": {
       "localizations": {
         "de": {
@@ -117207,6 +117259,58 @@
         }
       }
     },
+    "Recovery uses your own recent HRV, resting heart rate, respiratory rate, and other available nightly signals. It becomes more personal as enough nights accumulate.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Erholung nutzt deine eigene aktuelle HRV, Ruheherzfrequenz, Atemfrequenz und weitere verfügbare nächtliche Signale. Sie wird persönlicher, je mehr Nächte zusammenkommen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La Recuperación usa tu propia VFC reciente, tu frecuencia cardíaca en reposo, tu frecuencia respiratoria y otras señales nocturnas disponibles. Se vuelve más personal a medida que se acumulan noches."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La Récupération s’appuie sur votre VFC récente, votre fréquence cardiaque au repos, votre fréquence respiratoire et d’autres signaux nocturnes disponibles. Elle devient plus personnelle à mesure que les nuits s’accumulent."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il Recupero usa la tua HRV recente, la frequenza cardiaca a riposo, la frequenza respiratoria e altri segnali notturni disponibili. Diventa più personale man mano che si accumulano notti."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A Recuperação usa a sua VFC recente, a frequência cardíaca em repouso, a frequência respiratória e outros sinais noturnos disponíveis. Torna-se mais pessoal à medida que se acumulam noites."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Восстановление учитывает вашу недавнюю ВСР, пульс в покое, частоту дыхания и другие доступные ночные сигналы. Чем больше ночей накоплено, тем точнее оно подстраивается под вас."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "恢复分数会参考你近期的 HRV、静息心率、呼吸频率以及其他可用的夜间信号。随着夜晚数据的积累，它会越来越贴合你个人。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "恢復分數會參考你近期的 HRV、靜息心率、呼吸頻率以及其他可用的夜間訊號。隨著夜晚資料的累積，它會越來越貼合你個人。"
+          }
+        }
+      }
+    },
     "REL.": {
       "localizations": {
         "de": {
@@ -144917,6 +145021,12 @@
             "value": "Escala de esfuerzo"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Échelle de Strain"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -144927,6 +145037,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Escala de esforço"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Шкала усилия"
           }
         },
         "zh-Hans": {
@@ -152867,6 +152983,12 @@
             "value": "Tema"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thème"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -152877,6 +152999,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Tema"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тема"
           }
         },
         "zh-Hans": {
