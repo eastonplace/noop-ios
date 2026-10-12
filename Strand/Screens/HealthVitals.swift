@@ -73,25 +73,37 @@ struct HealthValueRow: View {
     @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
-        if typeSize.isAccessibilitySize {
-            VStack(alignment: .leading, spacing: 2) {
+        // One VoiceOver element ("Logged today, 1,237 ml"), not three stops; a caller that already merges the row
+        // under its own label keeps overriding this.
+        Group {
+            if typeSize.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(alignment: .firstTextBaseline, spacing: NoopMetrics.space2) {
+                        HealthGlyph(systemImage: systemImage, color: tint.accent)
+                        Text(label).foregroundStyle(StrandPalette.textSecondary)
+                            .captionLabelFit(lines: 3)
+                    }
+                    reading.healthIconIndent()
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
                 HStack(alignment: .firstTextBaseline, spacing: NoopMetrics.space2) {
                     HealthGlyph(systemImage: systemImage, color: tint.accent)
                     Text(label).foregroundStyle(StrandPalette.textSecondary)
-                        .captionLabelFit(lines: 3)
+                        .captionLabelFit(lines: 2, standardLines: 1)
+                    Spacer(minLength: NoopMetrics.space1)
+                    reading.lineLimit(1)
                 }
-                reading.healthIconIndent()
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        } else {
-            HStack(alignment: .firstTextBaseline, spacing: NoopMetrics.space2) {
-                HealthGlyph(systemImage: systemImage, color: tint.accent)
-                Text(label).foregroundStyle(StrandPalette.textSecondary)
-                    .captionLabelFit(lines: 2, standardLines: 1)
-                Spacer(minLength: NoopMetrics.space1)
-                reading.lineLimit(1)
             }
         }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(verbatim: spoken))
+    }
+
+    /// What VoiceOver reads: the name, then the value with its unit.
+    private var spoken: String {
+        guard value != WidgetMetrics.missingValue else { return "\(label), \(String(localized: "no data"))" }
+        return "\(label), \(value)" + (unit.map { " \($0)" } ?? "")
     }
 
     private var reading: some View {
