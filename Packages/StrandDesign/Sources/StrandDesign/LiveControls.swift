@@ -278,7 +278,18 @@ public struct LiveStartCircle: View {
     @Environment(\.dynamicTypeSize) private var typeSize
     @State private var progress: Double = 0
     @State private var holdTask: Task<Void, Never>?
+    /// A finger is down on the circle and its press has not ended or been cancelled.
+    @State private var touching = false
+    /// The hold ran its half second: lifting is not also a tap.
     @State private var held = false
+    /// The finger slid away from the circle before the hold finished: the press is neither a hold nor a tap.
+    @State private var aborted = false
+    /// True exactly while a touch is down; SwiftUI resets it when the touch ends or is cancelled, which `onEnded` is not
+    /// called for (the app resigned active, the gesture was removed).
+    @GestureState private var isDown = false
+
+    /// How far a finger may wander from where it landed and still mean this circle (a tap or the hold).
+    private static let slop: CGFloat = 24
 
     public init(title: String, tint: Color = LivePalette.mint, isEnabled: Bool = true, holdSeconds: Double = 0.5,
                 previewProgress: Double? = nil, onTap: @escaping () -> Void, onHold: @escaping () -> Void) {
@@ -323,37 +334,67 @@ public struct LiveStartCircle: View {
         .contentShape(Rectangle())
         .scaleEffect(shown > 0 ? 0.97 : 1)
         .gesture(isEnabled ? gesture : nil)
+        // Not enabled: VoiceOver says "dimmed" and neither it nor Switch Control can activate it.
+        .disabled(!isEnabled)
         .accessibilityElement(children: .ignore)
         .accessibilityAddTraits(.isButton)
         .accessibilityLabel(Text(verbatim: title))
-        .accessibilityAction(.default, onTap)
+        .accessibilityAction(.default) { if isEnabled { onTap() } }
+        .onChange(of: isDown) { _, down in
+            guard !down else { return }
+            // A touch that ended normally has already run `onEnded` by the time this turn comes round. One that was cancelled
+            // has not, and would otherwise leave the hold running (and the ring full) with no finger down.
+            Task { @MainActor in if touching { endTouch() } }
+        }
+        .onChange(of: isEnabled) { _, _ in endTouch() }
+        .onDisappear { endTouch() }
     }
 
-    /// A tap is a tap; a press held for `holdSeconds` is the hold, and lifting after it is not a second action.
+    /// Back to rest: the hold stops, the ring empties.
+    private func endTouch() {
+        holdTask?.cancel()
+        holdTask = nil
+        touching = false
+        held = false
+        aborted = false
+        if progress != 0 { withAnimation(.easeOut(duration: 0.15)) { progress = 0 } }
+    }
+
+    private static func distance(_ value: DragGesture.Value) -> CGFloat {
+        hypot(value.translation.width, value.translation.height)
+    }
+
+    /// A tap is a tap; a press held for `holdSeconds` is the hold, and lifting after it is not a second action. Sliding away
+    /// from the circle abandons the press, as a long press does, so the workout never starts from a finger that left.
     private var gesture: some Gesture {
         DragGesture(minimumDistance: 0)
-            .onChanged { _ in
-                guard holdTask == nil, previewProgress == nil else { return }
-                held = false
-                withAnimation(.linear(duration: holdSeconds)) { progress = 1 }
-                holdTask = Task { @MainActor in
-                    do { try await Task.sleep(nanoseconds: UInt64(holdSeconds * 1_000_000_000)) } catch { return }
-                    guard !Task.isCancelled else { return }
-                    held = true
-                    StrandHaptic.commit.play()
-                    onHold()
+            .updating($isDown) { _, state, _ in state = true }
+            .onChanged { value in
+                guard previewProgress == nil else { return }
+                if !touching {
+                    touching = true
+                    held = false
+                    aborted = false
+                    withAnimation(.linear(duration: holdSeconds)) { progress = 1 }
+                    holdTask = Task { @MainActor in
+                        do { try await Task.sleep(nanoseconds: UInt64(holdSeconds * 1_000_000_000)) } catch { return }
+                        guard !Task.isCancelled, touching, !aborted else { return }
+                        held = true
+                        StrandHaptic.commit.play()
+                        onHold()
+                    }
+                } else if !held, !aborted, Self.distance(value) > Self.slop {
+                    aborted = true
+                    holdTask?.cancel()
+                    holdTask = nil
+                    withAnimation(.easeOut(duration: 0.15)) { progress = 0 }
                 }
             }
             .onEnded { value in
                 guard previewProgress == nil else { return }
-                holdTask?.cancel()
-                holdTask = nil
-                let wasHeld = held
-                held = false
-                withAnimation(.easeOut(duration: 0.15)) { progress = 0 }
-                // A finger that slid away from the circle before lifting did not tap it.
-                let slid = hypot(value.translation.width, value.translation.height) > 24
-                if !wasHeld, !slid { onTap() }
+                let tapped = touching && !held && !aborted && Self.distance(value) <= Self.slop
+                endTouch()
+                if tapped { onTap() }
             }
     }
 }
