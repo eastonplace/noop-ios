@@ -841,7 +841,9 @@ private struct CompareMetricPickerSheet: View {
         .exploreRowPress()
         // Adding a metric that is already chosen would only take it off again; leave it showing its tick.
         .disabled(isAdding && isChosen)
-        .accessibilityAddTraits(current == metric ? .isSelected : [])
+        // The tick is drawn for every metric already in the comparison, so every one of them says it is selected (the tick
+        // itself is hidden from VoiceOver, and a dimmed row alone does not say why).
+        .accessibilityAddTraits(isChosen ? .isSelected : [])
     }
 }
 
