@@ -5,8 +5,8 @@ import StrandAnalytics
 // MARK: - What the Health Monitor and the Fitness Age detail both say
 //
 // The Health Monitor's Fitness Age section and the Fitness Age detail show the same number and the same sentence
-// about it ("4 years younger than your age"). They share the calculation (`FitnessAgePresentation.delta`, against the
-// date-of-birth calendar age) and the words, so the two screens cannot disagree.
+// about it ("4 years younger than your age"). They share the calculation (the whole-number gap between the shown Fitness Age
+// and the shown date-of-birth calendar age) and the words, so the two screens cannot disagree.
 
 enum FitnessAgeCopy {
     /// The Fitness Age as the whole number both screens show.
@@ -20,8 +20,14 @@ enum FitnessAgeCopy {
     /// The calendar age as the whole number the screens say ("vs age 42"): a birthday not yet reached is not counted.
     static func shownCalendarAge(_ calendarAge: Double) -> Int { Int(calendarAge.rounded(.down)) }
 
+    /// How many years younger or older the screen says. It is the difference of the two whole numbers the screens
+    /// print ("34 yrs" against "vs age 29"), so the sentence can never disagree with the numbers beside it; 0 reads
+    /// "about the same as your age". Non-finite input is `.same`.
     static func delta(fitnessAge: Double, calendarAge: Double) -> FitnessAgeDelta {
-        FitnessAgePresentation.delta(fitnessAge: fitnessAge, chronologicalAge: calendarAge)
+        guard fitnessAge.isFinite, calendarAge.isFinite else { return FitnessAgeDelta(years: 0, direction: .same) }
+        let gap = shownCalendarAge(calendarAge) - shownAge(fitnessAge)
+        guard gap != 0 else { return FitnessAgeDelta(years: 0, direction: .same) }
+        return FitnessAgeDelta(years: abs(gap), direction: gap > 0 ? .younger : .older)
     }
 
     /// The younger/older-than-your-age sentence as whole-phrase variants per count and direction, so translators see
