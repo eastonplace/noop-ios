@@ -141,7 +141,9 @@ public struct SectionEyebrow: View {
     private func trailingText(_ text: String) -> some View {
         Text(text).font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
             .lineLimit(typeSize.isAccessibilitySize ? nil : 2)
-            .multilineTextAlignment(.trailing)
+            // Under the title at accessibility sizes the text is left-aligned with it; beside the title it is
+            // right-aligned. (Right-aligned lines in a left-hugging box read as centred.)
+            .multilineTextAlignment(typeSize.isAccessibilitySize ? .leading : .trailing)
             .layoutPriority(2)
     }
 }
