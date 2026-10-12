@@ -217,7 +217,7 @@ enum SettingsRouteCatalog {
             title: "Backup & Export",
             breadcrumb: "Health & Data",
             route: .backupExport,
-            keywords: ["backup", "restore", "export", "import", "CSV", "file", "folder", "Shortcuts export"]
+            keywords: ["backup", "restore", "export", "import", "CSV", "file", "folder", "Shortcuts export", "noopbak", "unencrypted"]
         ),
         .init(
             id: "notifications",
@@ -301,7 +301,7 @@ enum SettingsRouteCatalog {
             title: "Privacy & data deletion",
             breadcrumb: "Advanced",
             route: .privacyDeletion,
-            keywords: ["local", "on-device", "delete", "remove data", "privacy", "unencrypted", "noopbak", "forget"]
+            keywords: ["local", "on-device", "delete", "remove data", "privacy", "forget"]
         ),
         .init(
             id: "about",

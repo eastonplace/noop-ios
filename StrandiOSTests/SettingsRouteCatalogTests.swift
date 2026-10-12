@@ -139,6 +139,13 @@ final class SettingsRouteCatalogTests: XCTestCase {
         }
     }
 
+    /// The note about a .noopbak file being an unencrypted copy is on Backup & Export, so that is where its words lead.
+    func testTheNoopbakNoteIsFoundOnBackupAndExport() {
+        XCTAssertEqual(SettingsRouteCatalog.search("noopbak").map(\.route), [.backupExport])
+        XCTAssertEqual(SettingsRouteCatalog.search("unencrypted").map(\.route), [.backupExport])
+        XCTAssertEqual(SettingsRouteCatalog.search("privacy").map(\.route), [.privacyDeletion])
+    }
+
     /// Every row the root shows has a tile symbol and colour, so no row falls back to a bare label.
     func testEveryRouteHasATileSymbol() {
         for route in SettingsRouteID.allCases {
