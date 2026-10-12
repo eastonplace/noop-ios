@@ -62,12 +62,19 @@ private struct LiveWorkoutLayout: View {
                 LiveNoticeSlot(model: model, workout: workout, recorder: model.gpsRecorder)
                     .screenPadding()
             }
-            ScrollView {
-                LiveFocusPage(workout: workout, recorder: model.gpsRecorder, profile: model.profile, live: model.live)
-                    .screenPadding()
-                    .padding(.vertical, NoopMetrics.space2)
+            // The page is at least as tall as the room it has: when its content is shorter, the focus number takes the
+            // difference (centred in it) instead of the screen ending in a void above the dock.
+            GeometryReader { proxy in
+                ScrollView {
+                    AtLeastHeight(minHeight: proxy.size.height) {
+                        LiveFocusPage(workout: workout, recorder: model.gpsRecorder, profile: model.profile,
+                                      live: model.live)
+                            .screenPadding()
+                            .padding(.vertical, NoopMetrics.space2)
+                    }
+                }
+                .scrollBounceBehavior(.basedOnSize)
             }
-            .scrollBounceBehavior(.basedOnSize)
             WorkoutLiveDock(model: model, workout: workout, recorder: model.gpsRecorder)
                 .screenPadding()
                 .padding(.top, NoopMetrics.space3)
@@ -114,6 +121,23 @@ private struct LiveWorkoutRegions: Layout {
                           proposal: ProposedViewSize(width: width, height: page))
         subviews[2].place(at: CGPoint(x: bounds.minX, y: bounds.maxY - dock), anchor: .topLeading,
                           proposal: ProposedViewSize(width: width, height: dock))
+    }
+}
+
+/// Makes its one child at least `minHeight` tall: the child is offered the whole height when it is shorter, so its flexible
+/// parts (the focus number's region) grow into the room, and its own height when it is taller (then the scroll view scrolls).
+private struct AtLeastHeight: Layout {
+    let minHeight: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard let child = subviews.first else { return .zero }
+        let natural = child.sizeThatFits(ProposedViewSize(width: proposal.width, height: nil))
+        return CGSize(width: proposal.width ?? natural.width, height: max(natural.height, minHeight))
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        subviews.first?.place(at: bounds.origin, anchor: .topLeading,
+                              proposal: ProposedViewSize(width: bounds.width, height: bounds.height))
     }
 }
 

@@ -37,7 +37,10 @@ struct LiveFocusPage: View {
         let value = { (metric: Glance.Metric) in Glance.value(metric, input: input, elapsed: elapsed, strain: strain) }
 
         VStack(alignment: .leading, spacing: 0) {
+            // The one flexible part: when the page has room to spare, it goes here and the number sits in the middle of it,
+            // with everything else held together underneath.
             metricView(value(layout.focus), size: .focus, signals: signals)
+                .frame(maxHeight: .infinity, alignment: .center)
             FlatSectionSeparator()
             secondaries(layout.secondaries.map(value), signals: signals)
             FlatSectionSeparator()
