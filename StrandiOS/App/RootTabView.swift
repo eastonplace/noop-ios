@@ -28,6 +28,10 @@ struct RootTabView: View {
     /// Selected tab — bound so tab switches can crossfade. Defaults to Today.
     @AppStorage(ClockFormatPreference.defaultsKey) private var clockPreference = ClockFormatPreference.system.rawValue
     @State private var selectedTab: Int
+    /// The locale that carries the in-app clock format (12/24-hour) to the pickers and dates under it.
+    private var clockLocale: Locale {
+        clockPreference.isEmpty ? Locale.autoupdatingCurrent : AppClock.formattingLocale
+    }
     /// Paper is the sole Today surface.
     private var todayTabRoot: some View {
         #if DEBUG
@@ -100,7 +104,7 @@ struct RootTabView: View {
             tab(coachTabRoot, "Coach", "bubble.left.and.text.bubble.right").tag(4)
             tab(sleepTabRoot, "Sleep", "moon").tag(2)
         }
-        .environment(\.locale, clockPreference.isEmpty ? Locale.autoupdatingCurrent : AppClock.formattingLocale)
+        .environment(\.locale, clockLocale)
         .toolbar(.hidden, for: .tabBar)
         .animation(.timingCurve(0.22, 1, 0.36, 1, duration: 0.24), value: selectedTab)
         // Give the bar its own layout space. A TabView can forward an outer safe-area inset
@@ -162,6 +166,9 @@ struct RootTabView: View {
         }
         .sheet(item: $settingsSheet) { request in
             SettingsSheetHost(request: request, onClose: { settingsSheet = nil })
+                // A sheet is outside the TabView, so it needs the in-app clock format's locale itself: Sleep & alarm's
+                // time pickers inside Settings follow the 12/24-hour preference like the Sleep tab's.
+                .environment(\.locale, clockLocale)
                 .presentationDetents([.large])
                 .presentationDragIndicator(.hidden)
                 .presentationBackground(StrandPalette.appCanvas)
