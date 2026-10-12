@@ -238,6 +238,23 @@ final class AppModel: ObservableObject {
     @Published private(set) var workoutDurabilityIssue: WorkoutDurabilityIssue?
     /// When the workout was restored with a GPS gap, so the notice can be bounded to the moments after.
     private(set) var gpsGapRestoredAt: Date?
+    /// When the restored gap's notice window began: the first time the live screen had the workout in front of the wearer in the
+    /// foreground. Kept here, not in the screen, so reopening the screen from the resume bar does not start the window again;
+    /// a real return from the background does (`reopenGpsGapNoticeWindow`). Cleared with the gap itself.
+    @Published private(set) var gpsGapNoticeShownAt: Date?
+
+    /// The live screen is showing the restored workout in the foreground: the notice's window starts the first time this is said.
+    func noteGpsGapNoticeOnScreen(at now: Date = Date()) {
+        guard gpsHadTerminatedGap, gpsGapNoticeShownAt == nil else { return }
+        gpsGapNoticeShownAt = now
+    }
+
+    /// The app came back from the background with the live screen up: the notice is due once more for its window, as it was the
+    /// first time. Nothing happens if the notice was never shown.
+    func reopenGpsGapNoticeWindow(at now: Date = Date()) {
+        guard gpsHadTerminatedGap, gpsGapNoticeShownAt != nil else { return }
+        gpsGapNoticeShownAt = now
+    }
 
     /// Records the GPS route of an in-flight distance-type workout (run / ride / walk / hike) from
     /// CoreLocation (#524) , the Apple analogue of Android's `GpsSession` + foreground `LocationManager`.
@@ -295,7 +312,7 @@ final class AppModel: ObservableObject {
     private var workoutSnapshotDurabilityFailed = false
     private var gpsSnapshotDurabilityFailed = false
     private var gpsHadTerminatedGap = false {
-        didSet { if !gpsHadTerminatedGap { gpsGapRestoredAt = nil } }
+        didSet { if !gpsHadTerminatedGap { gpsGapRestoredAt = nil; gpsGapNoticeShownAt = nil } }
     }
     private var applicationIsActive = true
 

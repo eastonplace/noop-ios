@@ -30,9 +30,10 @@ enum LiveWorkoutSlotNotice: Equatable, Sendable, CaseIterable {
     /// page carry on without it.
     static let gpsGapNoticeSeconds: TimeInterval = 30
 
-    /// Whether the restored-gap notice is still due. The window starts when the screen first shows the workout (and again each
-    /// time the app comes back to the foreground), not when the app launched: a workout restored in the background was not
-    /// in front of anyone for those seconds.
+    /// Whether the restored-gap notice is still due. The window starts when the screen first shows the workout in the foreground
+    /// (`AppModel.gpsGapNoticeShownAt`: once for the workout, however often the screen is reopened) and again when the app comes
+    /// back from the background, not when the app launched: a workout restored in the background was not in front of anyone
+    /// for those seconds.
     static func gapWindowIsOpen(openedAt: Date?, now: Date, seconds: TimeInterval = gpsGapNoticeSeconds) -> Bool {
         guard let openedAt else { return false }
         return now.timeIntervalSince(openedAt) < seconds
@@ -141,8 +142,9 @@ struct LiveNoticeSlot: View {
     @Environment(\.accessibilitySwitchControlEnabled) private var switchControlOn
     @State private var expanded: LiveWorkoutSlotNotice?
     @State private var collapseTask: Task<Void, Never>?
-    /// When the wearer first had this workout in front of them (the restored-gap window starts here).
-    @State private var openedAt: Date?
+    /// The app went to the background since the screen last drew: coming back opens the restored-gap window again. (The phase
+    /// reports a return as background, inactive, active, so a pair of old and new values would never see "background".)
+    @State private var wentToBackground = false
 
     var body: some View {
         LiveWorkoutSignalReader(workout: workout, recorder: recorder, live: model.live) { signals in
@@ -155,12 +157,28 @@ struct LiveNoticeSlot: View {
                 }
             }
             .frame(maxWidth: .infinity)
+            // An open card belongs to the notice it explains: when that notice leaves the pill (or another takes its place) the
+            // card is closed for good, so it does not come back open when the notice does (under VoiceOver or Switch Control
+            // nothing else closes it).
+            .onChange(of: pending.first) { _, first in
+                if let open = expanded, first != open { collapse() }
+            }
         }
         .animation(.easeInOut(duration: 0.2), value: expanded)
-        .onAppear { if openedAt == nil { openedAt = Date() } }
-        .onChange(of: scenePhase) { old, phase in
-            // A real return to the foreground opens the window again; an .inactive blip does not.
-            if phase == .active, old == .background { openedAt = Date() }
+        .onAppear { if scenePhase == .active { model.noteGpsGapNoticeOnScreen() } }
+        .onChange(of: scenePhase) { _, phase in
+            switch phase {
+            case .background:
+                wentToBackground = true
+            case .active:
+                // A real return to the foreground opens the window again; an .inactive blip does not.
+                if wentToBackground { wentToBackground = false; model.reopenGpsGapNoticeWindow() }
+                model.noteGpsGapNoticeOnScreen()
+            case .inactive:
+                break
+            @unknown default:
+                break
+            }
         }
         .onDisappear { collapseTask?.cancel() }
     }
@@ -170,7 +188,7 @@ struct LiveNoticeSlot: View {
         return LiveWorkoutSlotNotice.Inputs(
             hasDurabilityWarning: model.workoutDurabilityIssue == .notRecoverable,
             gpsGapIsRecent: model.workoutDurabilityIssue == .gpsGapRestored
-                && LiveWorkoutSlotNotice.gapWindowIsOpen(openedAt: openedAt, now: now),
+                && LiveWorkoutSlotNotice.gapWindowIsOpen(openedAt: model.gpsGapNoticeShownAt, now: now),
             heartRateIsStale: signals.heartRateIsStale,
             strapNeverConnected: signals.strapNeverConnected,
             gps: signals.gps,

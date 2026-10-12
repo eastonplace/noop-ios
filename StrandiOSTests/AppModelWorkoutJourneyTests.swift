@@ -211,6 +211,28 @@ final class AppModelWorkoutJourneyTests: XCTestCase {
         XCTAssertNil(m.gpsGapRestoredAt)
     }
 
+    /// "GPS gap while closed" is said once for the workout: its window starts the first time the screen has the workout in
+    /// front of the wearer, not again whenever the screen is reopened (the resume bar builds a new one each time), and only a
+    /// real return from the background opens it again.
+    func testTheGapNoticeWindowStartsOnceAndOnlyAForegroundReturnOpensItAgain() {
+        let m = model(.gpsGap)
+        let t0 = Date(timeIntervalSince1970: 1_000)
+        XCTAssertNil(m.gpsGapNoticeShownAt)
+        m.reopenGpsGapNoticeWindow(at: t0)
+        XCTAssertNil(m.gpsGapNoticeShownAt, "never shown: there is nothing to open again")
+        m.noteGpsGapNoticeOnScreen(at: t0)
+        XCTAssertEqual(m.gpsGapNoticeShownAt, t0)
+        m.noteGpsGapNoticeOnScreen(at: t0.addingTimeInterval(1_200))
+        XCTAssertEqual(m.gpsGapNoticeShownAt, t0, "reopened twenty minutes later: the window is not started again")
+        m.reopenGpsGapNoticeWindow(at: t0.addingTimeInterval(1_300))
+        XCTAssertEqual(m.gpsGapNoticeShownAt, t0.addingTimeInterval(1_300), "back from the background")
+        _ = m.discardWorkout()
+        XCTAssertNil(m.gpsGapNoticeShownAt, "cleared with the gap")
+        let plain = model(.running)
+        plain.noteGpsGapNoticeOnScreen(at: t0)
+        XCTAssertNil(plain.gpsGapNoticeShownAt, "a workout with no gap never opens a window")
+    }
+
     // MARK: Nothing to save, then Keep recording
 
     /// End finds nothing to save: the workout carries on, so the route recorder must still be recording when it does.
