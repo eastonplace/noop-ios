@@ -153587,6 +153587,12 @@
             "value": "mes"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mois"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -153597,6 +153603,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "mes"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "месяц"
           }
         },
         "zh-Hans": {
@@ -155911,6 +155923,12 @@
             "value": "trimestre"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "trimestre"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -155921,6 +155939,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "trimestre"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "квартал"
           }
         },
         "zh-Hans": {
@@ -158226,7 +158250,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "vs. vorherige %@"
+            "value": "vs. %@ davor"
           }
         },
         "es": {
@@ -158499,6 +158523,12 @@
             "value": "semana"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "semaine"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -158509,6 +158539,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "semana"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "неделя"
           }
         },
         "zh-Hans": {
@@ -158579,6 +158615,12 @@
             "value": "año"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "année"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -158589,6 +158631,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "ano"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "год"
           }
         },
         "zh-Hans": {

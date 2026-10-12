@@ -860,13 +860,7 @@ struct MetricDetailView: View {
             spoken: String(localized: "\(row.metric.title), \(strength.word) correlation \(value), \(row.n) days")
         ) {
             // Direction by sign and colour, strength by the word beside the number; no bar encodes |r| twice.
-            VStack(alignment: .trailing, spacing: NoopMetrics.space1) {
-                Text(verbatim: value)
-                    .font(.system(.subheadline, design: .default).weight(.semibold).monospacedDigit())
-                    .foregroundStyle(color)
-                    .lineLimit(1)
-                ValuePill(strength.word, tint: color)
-            }
+            CorrelationTrailing(value: value, word: strength.word, color: color)
         }
     }
 
@@ -876,6 +870,25 @@ struct MetricDetailView: View {
         // A difference between two readings: route through the delta formatter so a temperature Δ
         // scales without the +32 offset.
         (delta >= 0 ? "+" : "−") + metric.formatDelta(abs(delta), system: unitSystem, temperature: temperatureUnit, effortScale: effortScale)
+    }
+}
+
+/// The right side of a correlation row: the signed r over the strength word. Side by side it trails; a stacked row
+/// (from `.xxxLarge`) has no right edge, so it lines both up with the row's text.
+private struct CorrelationTrailing: View {
+    let value: String
+    let word: String
+    let color: Color
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    var body: some View {
+        VStack(alignment: ExploreRowLayout.stacks(typeSize) ? .leading : .trailing, spacing: NoopMetrics.space1) {
+            Text(verbatim: value)
+                .font(.system(.subheadline, design: .default).weight(.semibold).monospacedDigit())
+                .foregroundStyle(color)
+                .lineLimit(1)
+            ValuePill(word, tint: color)
+        }
     }
 }
 
