@@ -468,6 +468,22 @@ extension ProductionTrendMetric {
     }
 }
 
+/// How the trend pages pick ONE number for a day from the sources Today's cards read, in the card's order, so a page
+/// opens on the number its card showed. Pure, so the order is pinned by tests.
+enum HealthDailyPick {
+    /// The Steps card: the strap's count, else the phone's, else the on-device estimate a WHOOP 4.0 has instead.
+    static func steps(strap: Int?, phone: Int?, estimate: Double?) -> Double? {
+        strap.map(Double.init) ?? phone.map(Double.init) ?? estimate
+    }
+
+    /// The Calories card: the phone's active energy, else the strap's estimate from heart rate. `isStrapEstimate`
+    /// says which one the number is, so a page only calls it an estimate when it is one.
+    static func calories(phoneActiveKcal: Double?, strapEstimateKcal: Double?) -> (value: Double, isStrapEstimate: Bool)? {
+        if let phoneActiveKcal { return (phoneActiveKcal, false) }
+        return strapEstimateKcal.map { ($0, true) }
+    }
+}
+
 /// One metric over time, on the page every Health card opens: its latest value, how the last weeks average, and the
 /// Trends range chart (hold and drag to read a day). Steps and Calories (Today's cards) land here, and so does each
 /// vital row of the Health Monitor, so a metric has one page wherever it is tapped.
@@ -497,12 +513,12 @@ struct HealthMetricTrendView: View {
         case .steps:
             // The order of Today's Steps card: the strap's count, else the phone's, else the on-device estimate.
             return Self.merged(repo.days, appleByDay, stepsEstByDay) { strap, phone, estimate in
-                strap?.steps.map(Double.init) ?? phone?.steps.map(Double.init) ?? estimate
+                HealthDailyPick.steps(strap: strap?.steps, phone: phone?.steps, estimate: estimate)
             }
         case .calories:
             // The order of Today's Calories card: the phone's active energy, else the strap's estimate.
             return Self.merged(repo.days, appleByDay, [:]) { strap, phone, _ in
-                phone?.activeKcal ?? strap?.activeKcalEst
+                HealthDailyPick.calories(phoneActiveKcal: phone?.activeKcal, strapEstimateKcal: strap?.activeKcalEst)?.value
             }
         default:
             return []
@@ -519,6 +535,14 @@ struct HealthMetricTrendView: View {
         return Set(strapByDay.keys).union(apple.keys).union(estimate.keys).sorted().compactMap { day in
             pick(strapByDay[day], apple[day], estimate[day]).map { (day, $0) }
         }
+    }
+
+    /// Whether the Calories number a day shows is the strap's heart-rate estimate (rather than the phone's active energy).
+    private func isStrapEstimate(day: String?) -> Bool {
+        guard let day else { return false }
+        let strap = repo.days.last(where: { $0.day == day })
+        return HealthDailyPick.calories(
+            phoneActiveKcal: appleByDay[day]?.activeKcal, strapEstimateKcal: strap?.activeKcalEst)?.isStrapEstimate ?? false
     }
 
     private static func vitalKey(_ metric: ProductionTrendMetric) -> String {
@@ -557,7 +581,7 @@ struct HealthMetricTrendView: View {
                     title: String(localized: "\(metric.healthEyebrowTitle) trend"), metric: metric,
                     observations: observations, referenceDate: Repository.logicalDay(Date()),
                     latest: latest?.value, display: display)
-                if metric == .calories {
+                if metric == .calories, isStrapEstimate(day: points.last?.day) {
                     DrillInSeparator()
                     Text("An estimate from your heart rate, not a measured burn.")
                         .font(StrandFont.footnote)
