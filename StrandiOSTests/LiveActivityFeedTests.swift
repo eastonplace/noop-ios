@@ -169,6 +169,36 @@ final class LiveActivityFeedTests: XCTestCase {
         XCTAssertFalse(latch.isPending, "the edge is cleared by a state that already carries what it was raised for")
     }
 
+    func testTheCachedStateFollowsTheStrapThroughARecoveryAndAFlipOnTheRealFeed() throws {
+        let model = Model()
+        let workout = running()
+        workout.noteReading(140, at: model.now.addingTimeInterval(-30))        // quiet for 30 s
+        model.workout = workout
+        let f = feed(model)
+        var cache = LiveActivityWorkoutStateCache()
+        func write() -> WorkoutLiveActivityState? {
+            guard case .state(let state) = cache.stateForWrite(
+                workoutIsActive: true, now: model.now, build: { f.workoutState() }, heartRateIsStale: { f.heartRateIsStale })
+            else { return nil }
+            return state
+        }
+        let quiet = try XCTUnwrap(write())
+        XCTAssertTrue(quiet.heartRateIsStale)
+        let builtAt = cache.builtAt
+        // The strap comes back 3 s later: the cached projection is reused and the heart is undimmed at once.
+        model.now = model.now.addingTimeInterval(3)
+        workout.noteReading(143, at: model.now)
+        let recovered = try XCTUnwrap(write())
+        XCTAssertEqual(cache.builtAt, builtAt, "reused, not rebuilt")
+        XCTAssertFalse(recovered.heartRateIsStale)
+        // Then it goes quiet again. 8 s after the reading it is not stale yet; 17 s after it is, and the write says so
+        // (by then the ten-second window has passed and the projection is rebuilt: the verdict is the same either way).
+        model.now = model.now.addingTimeInterval(8)
+        XCTAssertFalse(try XCTUnwrap(write()).heartRateIsStale)
+        model.now = model.now.addingTimeInterval(9)
+        XCTAssertTrue(try XCTUnwrap(write()).heartRateIsStale)
+    }
+
     func testAStateBuiltBeforeTheStrapWentQuietNeverClearsTheEdgeRaisedForIt() throws {
         let model = Model()
         let workout = running()

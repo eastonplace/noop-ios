@@ -112,6 +112,7 @@ struct LiveActivityFeed {
             bpm: bpm, recovery: recovery, connected: connected, effort: effort,
             verifiedContextId: verifiedContextId, verifiedProjectionGeneration: verifiedProjectionGeneration,
             workoutIsActive: workoutIsActive,
+            heartRateIsStale: heartRateIsStale,
             workout: workoutState())
     }
 
@@ -122,6 +123,7 @@ struct LiveActivityFeed {
             projection: projection, expectedActiveContextId: expectedActiveContextId,
             bpm: bpm, recovery: recovery, connected: connected, effort: effort,
             workoutIsActive: workoutIsActive,
+            heartRateIsStale: { self.heartRateIsStale },
             workoutProjection: { self.workoutState() })
     }
 }

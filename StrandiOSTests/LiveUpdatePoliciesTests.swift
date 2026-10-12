@@ -391,5 +391,74 @@ final class LiveUpdatePoliciesTests: XCTestCase {
             restingHr: 51,
             hrSparkline: sparkline)
     }
+
+    // MARK: The cached workout state and the quiet-strap verdict
+
+    private func workoutState() -> WorkoutLiveActivityState {
+        WorkoutLiveActivityState(sport: "Running", startedAt: t0, strain: 6.8, strainBuilding: false, calories: 400,
+                                 hrTrace: [140, 142], zoneSeconds: [0, 0, 0, 0, 0])
+    }
+
+    private func written(_ write: LiveActivityWorkoutStateCache.Write) throws -> WorkoutLiveActivityState {
+        guard case .state(let state) = write else { throw XCTSkip("expected a workout state, got \(write)") }
+        return state
+    }
+
+    func testTheCachedStateIsReusedForTenSecondsButTheVerdictIsAskedAgainForEveryWrite() throws {
+        var cache = LiveActivityWorkoutStateCache()
+        var builds = 0
+        var quiet = true
+        let build: () -> WorkoutLiveActivityState? = { builds += 1; return self.workoutState() }
+        let first = try written(cache.stateForWrite(workoutIsActive: true, now: t0, build: build, heartRateIsStale: { quiet }))
+        XCTAssertEqual(builds, 1)
+        XCTAssertTrue(first.heartRateIsStale)
+        // The strap comes back 3 s later; the projection is reused (10 s), the verdict is not.
+        quiet = false
+        let recovered = try written(cache.stateForWrite(workoutIsActive: true, now: t0.addingTimeInterval(3), build: build,
+                                                        heartRateIsStale: { quiet }))
+        XCTAssertEqual(builds, 1, "the expensive projection is not rebuilt inside its window")
+        XCTAssertFalse(recovered.heartRateIsStale, "the heart is undimmed at the first write after the strap is back")
+        // And it goes quiet again 4 s after that, still inside the same window.
+        quiet = true
+        let flipped = try written(cache.stateForWrite(workoutIsActive: true, now: t0.addingTimeInterval(7), build: build,
+                                                      heartRateIsStale: { quiet }))
+        XCTAssertEqual(builds, 1)
+        XCTAssertTrue(flipped.heartRateIsStale, "a flip in the other direction is not held back either")
+        // Past ten seconds the projection is rebuilt, as before.
+        _ = cache.stateForWrite(workoutIsActive: true, now: t0.addingTimeInterval(11), build: build, heartRateIsStale: { quiet })
+        XCTAssertEqual(builds, 2)
+    }
+
+    func testTheVerdictIsAskedOncePerWriteAndNeverWhenThereIsNoWorkout() throws {
+        var cache = LiveActivityWorkoutStateCache()
+        var asked = 0
+        let ask: () -> Bool = { asked += 1; return false }
+        XCTAssertEqual(asked, 0, "handing the closure over asks nothing: a queued update carries the question, not an answer")
+        _ = cache.stateForWrite(workoutIsActive: true, now: t0, build: { self.workoutState() }, heartRateIsStale: ask)
+        _ = cache.stateForWrite(workoutIsActive: true, now: t0.addingTimeInterval(2), build: { self.workoutState() },
+                                heartRateIsStale: ask)
+        XCTAssertEqual(asked, 2)
+        guard case .noWorkout = cache.stateForWrite(workoutIsActive: false, now: t0.addingTimeInterval(3),
+                                                    build: { self.workoutState() }, heartRateIsStale: ask) else {
+            return XCTFail("outside a workout there is no state to write")
+        }
+        XCTAssertEqual(asked, 2)
+        XCTAssertNil(cache.state, "leaving workout mode drops the cache")
+    }
+
+    func testAPauseEdgeOrANilProjectionRebuildsOrIsNotApplicable() throws {
+        var cache = LiveActivityWorkoutStateCache()
+        var builds = 0
+        let build: () -> WorkoutLiveActivityState? = { builds += 1; return self.workoutState() }
+        _ = cache.stateForWrite(workoutIsActive: true, now: t0, build: build, heartRateIsStale: { false })
+        cache.clear()                                       // a pause edge (noteWorkoutPauseEdge)
+        _ = cache.stateForWrite(workoutIsActive: true, now: t0.addingTimeInterval(1), build: build, heartRateIsStale: { false })
+        XCTAssertEqual(builds, 2, "an edge forces a rebuild even inside the window")
+        guard case .unavailable = cache.stateForWrite(workoutIsActive: true, now: t0.addingTimeInterval(20),
+                                                      build: { nil }, heartRateIsStale: { false }) else {
+            return XCTFail("a workout that cannot be projected is not applicable")
+        }
+        XCTAssertNil(cache.state)
+    }
 }
 #endif

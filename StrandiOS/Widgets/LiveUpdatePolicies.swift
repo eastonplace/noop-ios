@@ -211,4 +211,57 @@ enum LiveActivityWorkoutProjectionPolicy {
         )
     }
 }
+
+/// The workout state the controller keeps between rebuilds. The projection is expensive (calories, zones, the heart-rate
+/// trace), so it is reused for up to `LiveActivityWorkoutProjectionPolicy.rebuildInterval`; anything cheap that can change
+/// inside that window must not be frozen into it. The quiet-strap verdict is the one such field: it flips the moment a
+/// reading arrives or the fifteenth silent second passes, and a cached copy would keep the heart dimmed (or undimmed) on the
+/// Lock Screen until the next rebuild. It is asked again for every write, from the clock of that write, never when an update
+/// was queued.
+struct LiveActivityWorkoutStateCache {
+    enum Write {
+        /// Workout mode is not active: the cache was dropped, and the write carries no workout.
+        case noWorkout
+        /// The state to write, with the verdict of this write.
+        case state(WorkoutLiveActivityState)
+        /// Workout mode is active but there is no workout to project: the write is not applicable.
+        case unavailable
+    }
+
+    private(set) var state: WorkoutLiveActivityState?
+    private(set) var builtAt: Date = .distantPast
+
+    /// A pause edge, a mode change or a reset: the next write rebuilds.
+    mutating func clear() {
+        state = nil
+        builtAt = .distantPast
+    }
+
+    mutating func stateForWrite(workoutIsActive: Bool, now: Date, build: () -> WorkoutLiveActivityState?,
+                                heartRateIsStale: () -> Bool) -> Write {
+        guard workoutIsActive else {
+            clear()
+            return .noWorkout
+        }
+        var current: WorkoutLiveActivityState
+        if LiveActivityWorkoutProjectionPolicy.shouldRebuild(
+            workoutIsActive: true, hasCachedWorkout: state != nil, lastBuiltAt: builtAt, now: now) {
+            guard let built = build() else {
+                clear()
+                return .unavailable
+            }
+            current = built
+            builtAt = now
+        } else if let cached = state {
+            current = cached
+        } else {
+            clear()
+            return .unavailable
+        }
+        current.heartRateIsStale = heartRateIsStale()
+        state = current
+        return .state(current)
+    }
+}
+
 #endif
