@@ -901,6 +901,7 @@ public final class BLEManager: NSObject, ObservableObject {
         let enableRawCapture = UserDefaults.standard.bool(forKey: "enableRawCapture")
         collector = Collector(store: store, deviceId: deviceId,
                               enableRawCapture: enableRawCapture)
+        collector?.log = { [weak self] line in self?.log(line) }
         // The store can finish bootstrapping AFTER connect(model:) already ran (both wait on
         // poweredOn), so apply the family/clock configuration here too — whichever runs last wins.
         configureCollectorFamily()
