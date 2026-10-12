@@ -130,7 +130,7 @@ enum LiveWorkoutTiles {
 
     private static func positive(_ value: Int) -> Int? { value > 0 ? value : nil }
 
-    private static func count(_ value: Int?, locale: Locale) -> String {
+    static func count(_ value: Int?, locale: Locale) -> String {
         guard let value, value > 0 else { return missing }
         return value.formatted(.number.locale(locale))
     }
@@ -149,6 +149,10 @@ enum LiveWorkoutSignals {
         var heartRateIsStale = false
         /// nil when the workout records no route.
         var gps: GpsWorkoutRecorder.SignalState?
+        /// The workout has never had a reading and no strap is connected: there is no strap to wait for.
+        var strapNeverConnected = false
+        /// A route is armed but location is off (denied or restricted), so no route is being recorded.
+        var locationIsOff = false
 
         /// The pace or speed is worked out from GPS fixes that have stopped arriving.
         var paceIsStale: Bool { gps == .lost }

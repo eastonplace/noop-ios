@@ -101,7 +101,7 @@ struct SettingsDetailHost: View {
     /// holds the screen awake while a manual recording is running so you can glance at your live HR
     /// without the device dimming. The live-workout view reads this same key. The string is shared
     /// verbatim with the Android twin (SharedPreferences "workoutKeepScreenOn").
-    @AppStorage("workoutKeepScreenOn") private var workoutKeepScreenOn = false
+    @AppStorage(WorkoutPrefs.keepScreenOnKey) private var workoutKeepScreenOn = WorkoutPrefs.keepScreenOnDefault
 
     /// The strap model the user last picked (same key the scan pickers write). Gates the WHOOP 4.0-only
     /// rename control in the strap card — renaming uses the Harvard command set, which a 5/MG doesn't share.

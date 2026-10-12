@@ -35,14 +35,21 @@ struct StartWorkoutSheet: View {
 
     private let purpose: Purpose
     private let dismissAfterStart: Bool
+    /// A lift is in progress, so starting a run would silently do nothing: the page says so above its Start button, disables
+    /// it, and offers the lift instead (`onOpenLift`).
+    private let blockedByLift: Bool
+    private let onOpenLift: (() -> Void)?
 
     /// `initialSport` is the sport the sheet opens on; nil opens on the most recent one (running before there is
     /// one). A merged session opens on "Other", the honest label for sessions that had none.
     init(purpose: Purpose = .start, initialSport: String? = nil, dismissAfterStart: Bool = true,
+         blockedByLift: Bool = false, onOpenLift: (() -> Void)? = nil,
          onStart: @escaping (_ sport: String) -> Void) {
         self.onStart = onStart
         self.purpose = purpose
         self.dismissAfterStart = dismissAfterStart
+        self.blockedByLift = blockedByLift
+        self.onOpenLift = onOpenLift
         let recents = RecentSportsPrefs.recent()
         _recents = State(initialValue: recents)
         let opening: String
@@ -59,7 +66,7 @@ struct StartWorkoutSheet: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var repo: Repository
     @AppStorage(UnitPrefs.systemKey) private var unitSystemRaw = UnitSystem.metric.rawValue
-    @AppStorage("workoutKeepScreenOn") private var keepScreenOn = false
+    @AppStorage(WorkoutPrefs.keepScreenOnKey) private var keepScreenOn = WorkoutPrefs.keepScreenOnDefault
     @State private var query = ""
     @State private var selected: String
     @State private var recents: [String]
@@ -425,16 +432,35 @@ struct StartWorkoutSheet: View {
     // MARK: The pinned button
 
     private var startBar: some View {
-        Button(action: confirm) {
-            Label("Start \(title)", systemImage: "play.fill")
-                .frame(maxWidth: .infinity)
+        VStack(spacing: NoopMetrics.space3) {
+            if blockedByLift { liftBlockRow }
+            Button(action: confirm) {
+                Label("Start \(title)", systemImage: "play.fill")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(PrimaryPillButtonStyle())
+            .disabled(blockedByLift)
         }
-        .buttonStyle(PrimaryPillButtonStyle())
         .padding(.horizontal, NoopMetrics.space4)
         .padding(.vertical, NoopMetrics.space3)
         // Opaque, so the activity tiles scrolling beneath it never show through the button's surroundings.
         .background(StrandPalette.surfaceBase.ignoresSafeArea(edges: .bottom))
         .overlay(alignment: .top) { Rectangle().fill(StrandPalette.hairline).frame(height: 1).accessibilityHidden(true) }
+    }
+
+    /// Why Start would do nothing, and what to do instead.
+    private var liftBlockRow: some View {
+        let layout = typeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: NoopMetrics.space2))
+            : AnyLayout(HStackLayout(alignment: .center, spacing: NoopMetrics.space3))
+        return layout {
+            StatePill("Finish your lift first", tone: .warning)
+            if !typeSize.isAccessibilitySize { Spacer(minLength: 0) }
+            if let onOpenLift {
+                Button(action: onOpenLift) { Text("Open lift") }
+                    .buttonStyle(SecondaryPillButtonStyle())
+            }
+        }
     }
 
     // MARK: - Naming a merged session
