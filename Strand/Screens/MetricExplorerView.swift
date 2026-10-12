@@ -18,14 +18,6 @@ import WhoopStore
 // distinct); only when it holds ZERO points do we auto-expand to the smallest larger
 // range that does. The hero always shows the latest available point + "as of <date>".
 
-/// A calendar day key ("yyyy-MM-dd", the repository's local civil day) as that day's start in the device calendar.
-/// Charts and labels work in the person's calendar and locale; the key is never read as an instant.
-private func localDay(_ key: String, calendar: Calendar) -> Date? {
-    let pieces = key.split(separator: "-").compactMap { Int($0) }
-    guard pieces.count == 3 else { return nil }
-    return calendar.date(from: DateComponents(year: pieces[0], month: pieces[1], day: pieces[2]))
-}
-
 // MARK: - Range
 
 /// The W/M/3M/6M/1Y/ALL window, driving the single SegmentedPillControl.
@@ -292,7 +284,7 @@ struct MetricDetailView: View {
     @State private var range: ExploreRange = .month
     /// Full ascending series for this metric — ALL history.
     @State private var series: [(day: String, value: Double)] = []
-    /// The start of each series day in the device calendar, row for row with `series`.
+    /// The start of each series day (Gregorian, local time zone), row for row with `series`.
     @State private var seriesDates: [Date] = []
     /// Every OTHER catalog series, loaded once for the correlation scan.
     @State private var others: [(metric: MetricDescriptor, series: [(day: String, value: Double)])] = []
@@ -307,7 +299,9 @@ struct MetricDetailView: View {
     /// The (metricID, range) the cache was built for; nil means "not yet computed".
     @State private var correlationKey: String? = nil
     private var loadTaskID: String { "\(metric.id)|\(repo.refreshSeq)" }
-    private let calendar = Calendar.current
+    /// The Gregorian calendar in the person's time zone: day keys, the window slice, the history span and the chart's
+    /// window all use it. The device's own calendar and locale are for display only (`dateText`).
+    private let calendar = ExploreDayKey.calendar()
 
     // MARK: Derived
 
@@ -478,6 +472,13 @@ struct MetricDetailView: View {
     }
 
     private func typicalBand(values: [Double]) -> TypicalBand? {
+        guard let raw = rawTypicalBand(values: values) else { return nil }
+        // Held inside what the metric can be, so the row, the chart's shading and the spoken summary agree.
+        let held = ExploreTypicalBand.clamped(baseline: raw.baseline, typical: raw.typical, to: metric.validRange)
+        return TypicalBand(baseline: held.baseline, typical: held.typical, latestInRange: raw.latestInRange)
+    }
+
+    private func rawTypicalBand(values: [Double]) -> TypicalBand? {
         let key: String
         switch metric.key {
         case "rhr": key = "resting_hr"
@@ -501,11 +502,7 @@ struct MetricDetailView: View {
     // MARK: Trend section
 
     /// What a metric can physically be, so a chart axis never runs past it (a blood oxygen of 104%).
-    private var valueBounds: ClosedRange<Double> {
-        if metric.unit == "%" || metric.key == "strain" { return 0...100 }
-        if metric.key == "skin_temp" { return -Double.greatestFiniteMagnitude...Double.greatestFiniteMagnitude }
-        return 0...Double.greatestFiniteMagnitude
-    }
+    private var valueBounds: ClosedRange<Double> { metric.validRange }
 
     private var chartDirection: TrendPanelChart.Direction {
         switch metric.higherIsBetter {
@@ -662,7 +659,7 @@ struct MetricDetailView: View {
         }
     }
 
-    /// The device-calendar day of each windowed row, found by walking the series from the window's first row.
+    /// The start of each windowed row's day, found by walking the series from the window's first row.
     private func windowDates(_ windowed: [(day: String, value: Double)]) -> [Date?] {
         let offset = series.count - windowed.count
         return windowed.indices.map { seriesDates.indices.contains(offset + $0) ? seriesDates[offset + $0] : nil }
@@ -734,8 +731,10 @@ struct MetricDetailView: View {
     }
 
     private func load() async {
+        #if DEBUG
         // QA: hold the detail in its loading state so that state can be captured (`--noop-qa-hold-load`).
         if ProcessInfo.processInfo.arguments.contains("--noop-qa-hold-load") { return }
+        #endif
         let loadSeq = repo.refreshSeq
         let primary = metric.key == "strain"
             ? repo.canonicalDays.compactMap { day in
@@ -746,7 +745,7 @@ struct MetricDetailView: View {
 
         // First useful commit. The selected metric owns the hero, chart, stats, and range controls.
         // Correlations are secondary and should never hold the whole detail page behind their catalog scan.
-        let dated = primary.compactMap { row in localDay(row.day, calendar: calendar).map { (row: row, date: $0) } }
+        let dated = primary.compactMap { row in ExploreDayKey.date(for: row.day).map { (row: row, date: $0) } }
         series = dated.map(\.row)
         seriesDates = dated.map(\.date)
         loaded = true
