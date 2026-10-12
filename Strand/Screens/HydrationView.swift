@@ -162,7 +162,7 @@ struct HydrationView: View {
                 HealthEmptyNote(symbol: "drop", text: "No drinks logged yet. Tap Sip, Cup or Bottle to start.")
             } else {
                 MetricValueRow(systemImage: "drop.fill", label: String(localized: "Logged today"),
-                               value: "\(Int(totalML))", unit: String(localized: "ml"), tint: HealthTint.hydration)
+                               value: Int(totalML).formatted(), unit: String(localized: "ml"), tint: HealthTint.hydration)
                 if !entries.isEmpty {
                     // #842 — plain rows inside the page ScrollView (a nested scroll-disabled List with a hardcoded
                     // height clipped every row past the third). Tap a row to edit; the trailing trash deletes (a plain
@@ -238,7 +238,7 @@ struct HydrationView: View {
 
     private func amountLabel(_ ml: Int) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 2) {
-            Text(verbatim: "\(ml)")
+            Text(verbatim: ml.formatted())
                 .font(StrandFont.bodyNumber)
                 .foregroundStyle(StrandPalette.textPrimary)
             Text("ml").font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
