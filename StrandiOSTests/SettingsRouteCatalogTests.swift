@@ -74,4 +74,35 @@ final class SettingsRouteCatalogTests: XCTestCase {
             known.contains($0.route)
         })
     }
+
+    // MARK: Search in the person's language
+
+    private func german() throws -> Bundle {
+        let path = try XCTUnwrap(Bundle.main.path(forResource: "de", ofType: "lproj"), "the app ships a German table")
+        return try XCTUnwrap(Bundle(path: path))
+    }
+
+    /// The root shows translated titles, so a query typed from what is on screen has to find its row.
+    func testAGermanQueryFindsTheRowsItNames() throws {
+        let german = try german()
+        XCTAssertEqual(SettingsRouteCatalog.search("Akku", in: german).map(\.id), [
+            "whoop",
+            "continuous-hrv",
+            "power-saving",
+        ])
+        let titleShown = String(localized: "Appearance & units", bundle: german)
+        XCTAssertNotEqual(titleShown, "Appearance & units", "the page title has a German entry")
+        let found = SettingsRouteCatalog.search(titleShown, in: german).map(\.route)
+        XCTAssertTrue(found.contains(.appearanceUnits), "searching for \(titleShown) finds Appearance & units")
+    }
+
+    func testEnglishStillWorksWhenTheAppIsInAnotherLanguage() throws {
+        let german = try german()
+        XCTAssertEqual(SettingsRouteCatalog.search("battery", in: german).map(\.id), [
+            "whoop",
+            "continuous-hrv",
+            "power-saving",
+        ])
+        XCTAssertEqual(SettingsRouteCatalog.search("healthkit", in: german).map(\.id), ["apple-health"])
+    }
 }

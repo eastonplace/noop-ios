@@ -64,16 +64,23 @@ struct SettingsSearchItem: Identifiable, Equatable, Sendable {
     let route: SettingsRouteID
     let keywords: [String]
 
-    fileprivate var normalizedLeafSearchText: String {
-        SettingsRouteCatalog.normalize(
-            ([title] + keywords).joined(separator: " ")
-        )
+    /// What a query is matched against for the row itself: its title and keywords, in English and in the person's
+    /// language (`bundle` is the app's string table). An English query keeps working in every language.
+    fileprivate func leafSearchText(in bundle: Bundle) -> String {
+        let words = [title] + keywords
+        return SettingsRouteCatalog.normalize((words + words.map { Self.localized($0, in: bundle) }).joined(separator: " "))
     }
 
-    fileprivate var normalizedContextSearchText: String {
-        SettingsRouteCatalog.normalize(
-            [breadcrumb, route.rawValue].joined(separator: " ")
-        )
+    /// What a query is matched against for where the row lives: the breadcrumb's parts, in English and in the person's
+    /// language, and the route's name.
+    fileprivate func contextSearchText(in bundle: Bundle) -> String {
+        let parts = breadcrumb.components(separatedBy: " › ")
+        let words = parts + parts.map { Self.localized($0, in: bundle) } + [route.rawValue]
+        return SettingsRouteCatalog.normalize(words.joined(separator: " "))
+    }
+
+    private static func localized(_ text: String, in bundle: Bundle) -> String {
+        bundle.localizedString(forKey: text, value: text, table: nil)
     }
 }
 
@@ -288,7 +295,9 @@ enum SettingsRouteCatalog {
         ),
     ]
 
-    static func search(_ query: String) -> [SettingsSearchItem] {
+    /// The rows a query finds. It is matched against the English text and the same text in `bundle`'s language (the app's
+    /// string table by default), so what is typed can be what is on screen.
+    static func search(_ query: String, in bundle: Bundle = .main) -> [SettingsSearchItem] {
         let terms = query
             .split(whereSeparator: { $0.isWhitespace || $0 == "," })
             .flatMap { rawTerm -> [String] in
@@ -306,10 +315,12 @@ enum SettingsRouteCatalog {
         let matches = searchItems.compactMap { item -> (item: SettingsSearchItem, leaf: Int, context: Int)? in
             var leafMatches = 0
             var contextMatches = 0
+            let leaf = item.leafSearchText(in: bundle)
+            let context = item.contextSearchText(in: bundle)
 
             for term in terms {
-                let leafMatch = item.normalizedLeafSearchText.contains(term)
-                let contextMatch = item.normalizedContextSearchText.contains(term)
+                let leafMatch = leaf.contains(term)
+                let contextMatch = context.contains(term)
                 guard leafMatch || contextMatch else { return nil }
                 if leafMatch { leafMatches += 1 }
                 if contextMatch { contextMatches += 1 }
