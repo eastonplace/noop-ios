@@ -108,12 +108,12 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
         try await body()
     }
 
-    // MARK: - F2 skin and F5 chunk edges
+    // MARK: - F3 invariant (with F2 skin and F5 chunk edges)
 
-    /// A full chunked rescore over 95 days with unchanged inputs leaves every stored skin-temperature
-    /// deviation as it was (F2: the as-of skin baseline used to see only the chunk, so the oldest four days of
-    /// every chunk were wiped), and Effort on the chunk edges too (F5: the newest day of each chunk had no
-    /// successor and was cut at midnight).
+    /// A full chunked rescore over 95 days with unchanged inputs turns no stored Charge, skin-temperature
+    /// deviation, HRV or resting HR into nil (F3). Skin deviations come out identical (F2: the as-of skin
+    /// baseline used to see only the chunk, so the oldest four days of every chunk were wiped), and so does
+    /// Effort on the chunk edges (F5: the newest day of each chunk had no successor and was cut at midnight).
     func testFullChunkedRescoreKeepsEveryStoredValue() async throws {
         try await withRecalibrationEpochsRestored {
             let days = 95
@@ -130,8 +130,12 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
 
             for day in harness.dayKeys {
                 let a = before[day], b = after[day]
+                if a?.recovery != nil { XCTAssertNotNil(b?.recovery, "\(day) recovery") }
                 if a?.skinTempDevC != nil { XCTAssertNotNil(b?.skinTempDevC, "\(day) skin") }
+                if a?.avgHrv != nil { XCTAssertNotNil(b?.avgHrv, "\(day) hrv") }
+                if a?.restingHr != nil { XCTAssertNotNil(b?.restingHr, "\(day) rhr") }
                 XCTAssertEqual(b?.skinTempDevC, a?.skinTempDevC, "\(day) skin deviation unchanged")
+                XCTAssertEqual(b?.recovery, a?.recovery, "\(day) Charge unchanged")
                 XCTAssertEqual(b?.strain, a?.strain, "\(day) Effort unchanged")
             }
         }
