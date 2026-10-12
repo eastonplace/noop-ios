@@ -302,10 +302,16 @@ final class IntelligenceAnalysisCoordinator {
         var pending: [PendingBatch] = []
     }
 
+    private struct Runner {
+        let token: UInt64
+        let task: Task<Void, Never>
+    }
+
     private var queues: [ObjectIdentifier: QueueState] = [:]
     /// The unstructured runner per owner. Callers' cancellation never reaches it, by design, so background
-    /// expiry cancels it through `cancelRunningWork()`.
-    private var runners: [ObjectIdentifier: Task<Void, Never>] = [:]
+    /// expiry cancels it through `cancelRunningWork()`. The token tells a runner whether it still owns its queue.
+    private var runners: [ObjectIdentifier: Runner] = [:]
+    private var lastRunnerToken: UInt64 = 0
     private let retryDelay: TimeInterval
     private let maximumRetryCount: Int
 
@@ -350,25 +356,40 @@ final class IntelligenceAnalysisCoordinator {
             if shouldStartRunner {
                 // The runner retains the coordinator until every queued batch has either executed or been
                 // coalesced. Individual submitters remain suspended only on their own batch continuation.
-                runners[key] = Task { @MainActor in
-                    await self.drain(ownerKey: key)
-                }
+                lastRunnerToken &+= 1
+                let token = lastRunnerToken
+                runners[key] = Runner(token: token, task: Task { @MainActor in
+                    await self.drain(ownerKey: key, token: token)
+                })
             }
         }
     }
 
     /// CC-2 / CORE-08 cancellation token for background expiry. Forced work ignores caller cancellation, so
     /// a cancelled BG task used to leave a multi-day rescore burning CPU after its grant ended. This cancels
-    /// every runner: IntelligenceEngine stops at its next per-day checkpoint, nothing is retried, and every
-    /// queued caller resumes with `false`. Durable sources (HealthKit journal, historical work rows) keep
-    /// their own record of the work, so nothing is lost.
+    /// the work in hand when expiry fires: each running batch stops at IntelligenceEngine's next per-day
+    /// checkpoint without a retry, and every batch already queued resumes its callers with `false`. Durable
+    /// sources (HealthKit journal, historical work rows, the edited-day queue) keep their own record of the
+    /// work, so nothing is lost.
+    ///
+    /// The cancelled runners are detached from their queues at once. Work submitted afterwards (the foreground
+    /// pass, a HealthKit drain, an edit) starts a fresh runner instead of joining the cancelled one and being
+    /// abandoned with it; IntelligenceEngine's `computing` flag still keeps it behind the stopping batch.
     func cancelRunningWork() {
-        runners.values.forEach { $0.cancel() }
+        let cancelled = runners
+        runners.removeAll()
+        for (key, runner) in cancelled {
+            runner.task.cancel()
+            let abandoned = queues.removeValue(forKey: key)?.pending ?? []
+            abandoned.forEach { batch in batch.waiters.forEach { $0.resume(returning: false) } }
+        }
         EditedDayRescoreQueue.shared.cancel()
     }
 
-    private func drain(ownerKey key: ObjectIdentifier) async {
+    private func drain(ownerKey key: ObjectIdentifier, token: UInt64) async {
         while true {
+            // Detached by `cancelRunningWork()`: the queue under this key now belongs to a newer runner.
+            guard runners[key]?.token == token else { return }
             if Task.isCancelled {
                 abandonQueue(ownerKey: key)
                 return

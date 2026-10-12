@@ -303,4 +303,40 @@ final class IntelligenceAnalysisCoordinatorTests: XCTestCase {
         let fresh = await coordinator.submit(owner: owner, request: running) { _ in }
         XCTAssertTrue(fresh, "the next submit gets a new, uncancelled runner")
     }
+    /// Review finding (expiry cancels later work): BG expiry cancelled the runner but left its queue in place,
+    /// so forced work submitted afterwards (the foreground pass, a HealthKit drain) joined the cancelled runner
+    /// and was abandoned with `false` once its in-flight batch returned.
+    func testForcedWorkSubmittedAfterBackgroundExpiryStillCompletes() async throws {
+        let coordinator = IntelligenceAnalysisCoordinator(retryDelay: 0, maximumRetryCount: 2)
+        let owner = Owner()
+        let expiring = IntelligenceAnalysisRequest(maxDays: 30, startOffset: 30, force: true, refreshRepository: false)
+        let foreground = IntelligenceAnalysisRequest(maxDays: 1, startOffset: 0, force: true, refreshRepository: true)
+        var expiringStarted = false
+        var release: CheckedContinuation<Void, Never>?
+        var foregroundRuns = 0
+
+        let first = Task { @MainActor in
+            await coordinator.submit(owner: owner, request: expiring) { _ in
+                expiringStarted = true
+                await withCheckedContinuation { release = $0 }
+                // Models the engine's per-day checkpoint after expiry.
+                if Task.isCancelled { throw IntelligenceAnalysisCoordinatorError.analysisDidNotComplete }
+            }
+        }
+        try await waitUntil { expiringStarted && release != nil }
+        coordinator.cancelRunningWork()
+
+        let second = Task { @MainActor in
+            await coordinator.submit(owner: owner, request: foreground) { _ in foregroundRuns += 1 }
+        }
+        try await waitUntil { foregroundRuns == 1 }
+        release?.resume()
+
+        let expiredCompleted = await first.value
+        let foregroundCompleted = await second.value
+        XCTAssertFalse(expiredCompleted, "the expiring batch stops")
+        XCTAssertTrue(foregroundCompleted, "work submitted after expiry was abandoned with the cancelled runner")
+        XCTAssertEqual(foregroundRuns, 1)
+        try await waitUntil { !coordinator.isRunning(for: owner) }
+    }
 }
