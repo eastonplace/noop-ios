@@ -120,7 +120,7 @@ struct HeartRateSection: View {
             }
             FactStrip(facts: [
                 .init("Zone", value: word ?? WidgetMetrics.missingValue),
-                .init("% Max", value: hasLiveHR ? "\(Int((hrFraction(displayHR) * 100).rounded()))%" : WidgetMetrics.missingValue),
+                .init("% Max", value: shownBPM.map { "\(Int((hrFraction($0) * 100).rounded()))%" } ?? WidgetMetrics.missingValue),
                 .init("Max HR", value: "\(profile.hrMax)"),
             ])
         }
