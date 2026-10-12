@@ -67,6 +67,11 @@ struct MarkerEditorView: View {
                 // At accessibility text sizes a pinned footer would take half the sheet, so it follows the form.
                 if typeSize.isAccessibilitySize { footer.padding(.top, NoopMetrics.space5) }
             }
+            // The form is as wide as the sheet, whatever one of its rows would like: a row that cannot shrink must not
+            // widen the whole page and push every other row off the edge of the screen.
+            #if os(iOS)
+            .containerRelativeFrame(.horizontal, alignment: .leading) { width, _ in max(0, width - 32) }
+            #endif
         }
         .scrollDismissesKeyboard(.interactively)
         .safeAreaInset(edge: .bottom, spacing: 0) {
@@ -235,10 +240,7 @@ struct MarkerEditorView: View {
                     valueField
                 }
                 field(String(localized: "Date taken")) {
-                    DatePicker("", selection: $takenAt, in: ...Date(),
-                               displayedComponents: [.date, .hourAndMinute])
-                        .labelsHidden()
-                        .accessibilityLabel("Date and time taken")
+                    takenAtPicker
                 }
                 field(String(localized: "Note (optional)")) {
                     textBox("e.g. fasting, morning draw", text: $note, focus: .note)
@@ -271,18 +273,8 @@ struct MarkerEditorView: View {
                     if unitOptions.count > 1 { unitSwitcher }
                 }
             }
-            HStack(spacing: 8) {
-                TextField("e.g. 3.1", text: $valueText)
-                    .textFieldStyle(.plain)
-                    .font(StrandFont.bodyNumber)
-                    .foregroundStyle(StrandPalette.textPrimary)
-                    .numericKeyboard()
-                    .focused($focused, equals: .value)
-                Text(verbatim: activeUnit).font(StrandFont.footnote).foregroundStyle(StrandPalette.textTertiary)
-            }
-            .padding(.horizontal, 12).padding(.vertical, 9)
-            .frame(minHeight: 44)
-            .background(StrandPalette.surfaceInset, in: inputShape)
+            numberInput(placeholder: "e.g. 3.1", text: $valueText, unit: activeUnit, field: .value)
+                .background(StrandPalette.surfaceInset, in: inputShape)
             .overlay(inputShape.strokeBorder(StrandPalette.hairline, lineWidth: 1))
             if unitOptions.count > 1 {
                 Text("Stored as \(MarkerUnits.canonicalUnit(for: markerKey, fallback: unit)). \(conversionNote)")
@@ -297,6 +289,26 @@ struct MarkerEditorView: View {
     private var unitSwitcher: some View {
         SegmentedPillControl(Array(unitOptions.indices), selection: $unitChoice) { unitOptions[$0] }
             .accessibilityLabel("Unit")
+    }
+
+    /// The date and the time of the reading. Side by side they are wider than the sheet at the accessibility sizes, so
+    /// there each gets its own line.
+    @ViewBuilder
+    private var takenAtPicker: some View {
+        if typeSize.isAccessibilitySize {
+            VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+                DatePicker("", selection: $takenAt, in: ...Date(), displayedComponents: .date)
+                    .labelsHidden()
+                    .accessibilityLabel("Date taken")
+                DatePicker("", selection: $takenAt, in: ...Date(), displayedComponents: .hourAndMinute)
+                    .labelsHidden()
+                    .accessibilityLabel("Time taken")
+            }
+        } else {
+            DatePicker("", selection: $takenAt, in: ...Date(), displayedComponents: [.date, .hourAndMinute])
+                .labelsHidden()
+                .accessibilityLabel("Date and time taken")
+        }
     }
 
     private var bloodPressureFields: some View {
@@ -322,19 +334,30 @@ struct MarkerEditorView: View {
         }
     }
 
-    private func numberBox(placeholder: String, text: Binding<String>, unit: String, field: Field) -> some View {
-        HStack(spacing: 6) {
-            TextField(placeholder, text: text)
-                .textFieldStyle(.plain)
-                .font(StrandFont.bodyNumber)
-                .foregroundStyle(StrandPalette.textPrimary)
-                .numericKeyboard()
-                .focused($focused, equals: field)
-            Text(verbatim: unit).font(StrandFont.footnote).foregroundStyle(StrandPalette.textTertiary)
+    /// A number field with its unit. At the accessibility sizes the unit drops under the number: side by side the field
+    /// and its unit are wider than the sheet, and the whole form would widen with them.
+    private func numberInput(placeholder: LocalizedStringKey, text: Binding<String>, unit: String, field: Field) -> some View {
+        let input = TextField(placeholder, text: text)
+            .textFieldStyle(.plain)
+            .font(StrandFont.bodyNumber)
+            .foregroundStyle(StrandPalette.textPrimary)
+            .numericKeyboard()
+            .focused($focused, equals: field)
+        let unitText = Text(verbatim: unit).font(StrandFont.footnote).foregroundStyle(StrandPalette.textTertiary)
+        return Group {
+            if typeSize.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: 2) { input; unitText }
+            } else {
+                HStack(spacing: 8) { input; unitText }
+            }
         }
         .padding(.horizontal, 12).padding(.vertical, 9)
         .frame(minHeight: 44)
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func numberBox(placeholder: String, text: Binding<String>, unit: String, field: Field) -> some View {
+        numberInput(placeholder: LocalizedStringKey(placeholder), text: text, unit: unit, field: field)
         .background(StrandPalette.surfaceInset, in: inputShape)
         .overlay(inputShape.strokeBorder(StrandPalette.hairline, lineWidth: 1))
     }

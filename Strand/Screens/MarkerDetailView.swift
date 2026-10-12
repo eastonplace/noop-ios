@@ -18,6 +18,7 @@ struct MarkerDetailView: View {
     let onDelete: (_ id: String) async -> Void
 
     @EnvironmentObject var repo: Repository
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     /// The wearable metric chosen to correlate against (nil until the user picks one).
     @State private var signal: MetricDescriptor?
@@ -241,29 +242,57 @@ struct MarkerDetailView: View {
         }
     }
 
+    @ViewBuilder
     private var signalMenu: some View {
-        ChipMenu(
-            verbatimTitle: signal?.title ?? String(localized: "Choose a signal"),
-            systemImage: signal == nil ? "plus" : nil,
-            isSelected: signal != nil,
-            accessibilityLabel: "Choose a wearable signal to compare",
-            accessibilityValue: signal?.title ?? ""
-        ) {
-            ForEach(LabBookSignals.options) { metric in
-                Button {
-                    signal = metric
-                } label: {
-                    Label {
-                        Text(verbatim: metric.title)
-                    } icon: {
-                        Image(systemName: signal?.id == metric.id ? "checkmark" : metric.icon)
-                    }
+        if typeSize.isAccessibilitySize {
+            // The chip keeps its name on one line, which at these sizes is wider than the screen: the choice is a
+            // wrapping menu label instead.
+            Menu {
+                signalItems
+            } label: {
+                HStack(alignment: .firstTextBaseline, spacing: NoopMetrics.space2) {
+                    Text(verbatim: signal?.title ?? String(localized: "Choose a signal"))
+                        .font(StrandFont.headline)
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 14, weight: .semibold))
+                        .accessibilityHidden(true)
+                }
+                .foregroundStyle(accent.accent)
+                .frame(minHeight: 44, alignment: .leading)
+            }
+            .accessibilityLabel("Choose a wearable signal to compare")
+            .accessibilityValue(Text(verbatim: signal?.title ?? ""))
+        } else {
+            ChipMenu(
+                verbatimTitle: signal?.title ?? String(localized: "Choose a signal"),
+                systemImage: signal == nil ? "plus" : nil,
+                isSelected: signal != nil,
+                accessibilityLabel: "Choose a wearable signal to compare",
+                accessibilityValue: signal?.title ?? ""
+            ) {
+                signalItems
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var signalItems: some View {
+        ForEach(LabBookSignals.options) { metric in
+            Button {
+                signal = metric
+            } label: {
+                Label {
+                    Text(verbatim: metric.title)
+                } icon: {
+                    Image(systemName: signal?.id == metric.id ? "checkmark" : metric.icon)
                 }
             }
-            if signal != nil {
-                Divider()
-                Button(role: .destructive) { signal = nil } label: { Label("Clear", systemImage: "xmark") }
-            }
+        }
+        if signal != nil {
+            Divider()
+            Button(role: .destructive) { signal = nil } label: { Label("Clear", systemImage: "xmark") }
         }
     }
 
