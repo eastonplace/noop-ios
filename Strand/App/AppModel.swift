@@ -248,6 +248,13 @@ final class AppModel: ObservableObject {
     private var pendingWorkoutEnd: Date?
     private var pendingWorkoutRoute: WorkoutRoute?
     private var pendingWorkoutWasGps = false
+    /// The natural key of the workout row a finish that then failed had already written (its route or read-back failed after
+    /// the row was saved). Discarding the workout removes that row too, so "Nothing will be saved" is true.
+    var pendingWorkoutRowKey: WorkoutRowKey?
+    struct WorkoutRowKey: Equatable {
+        let startTs: Int
+        let sport: String
+    }
     /// Queue admission and durable pointer commit are separate facts. A background writer may accept a
     /// checkpoint then fail later because storage became unavailable or protected.
     private var lastWorkoutSnapshotEnqueuedAt: Date = .distantPast
@@ -258,13 +265,6 @@ final class AppModel: ObservableObject {
     private var gpsSnapshotDurabilityFailed = false
     private var gpsHadTerminatedGap = false
     private var applicationIsActive = true
-    /// The natural key of the workout row a finish that then failed had already written (its route or read-back failed after
-    /// the row was saved). Discarding the workout removes that row too, so "Nothing will be saved" is true.
-    var pendingWorkoutRowKey: WorkoutRowKey?
-    struct WorkoutRowKey: Equatable {
-        let startTs: Int
-        let sport: String
-    }
 
     /// A manual workout in progress. `samples` accumulate from the smoothed live `bpm`; `liveStrain`
     /// is updated by an O(1) accumulator so the active card can show strain building in real time.
@@ -2027,6 +2027,7 @@ final class AppModel: ObservableObject {
         pendingWorkoutEnd = nil
         pendingWorkoutRoute = nil
         pendingWorkoutWasGps = false
+        pendingWorkoutRowKey = nil
         workoutSnapshotDurabilityFailed = false
         gpsSnapshotDurabilityFailed = false
         gpsHadTerminatedGap = false
@@ -2039,7 +2040,6 @@ final class AppModel: ObservableObject {
         activeWorkoutIsGps = WorkoutCatalog.sport(named: resolved)?.isDistanceSport ?? false
         if activeWorkoutIsGps {
             gpsRecorder.start(
-        pendingWorkoutRowKey = nil
                 sessionID: activeWorkout!.sessionID,
                 startMs: Int64(started.timeIntervalSince1970 * 1000)
             )
@@ -2200,6 +2200,9 @@ final class AppModel: ObservableObject {
         guard let workout = activeWorkout, pendingWorkoutSnapshot == nil,
               workoutFinishState != .saving else { return false }
         guard workout.setPaused(paused, at: time) else { return false }
+        // "Nothing to save yet" describes the moment End was held. Once the workout is paused or resumed again (from the
+        // screen, the resume bar or the Lock Screen) it is no longer true, and the dock must offer Pause again.
+        acknowledgeFinishState()
         // Written at once: a pause iOS ends the app in the middle of must still be a pause on relaunch.
         #if DEBUG
         if !activeWorkoutIsDemo { ActiveWorkoutPauseStore.store(workout.pauseLedger, sessionID: workout.sessionID) }
@@ -2233,9 +2236,6 @@ final class AppModel: ObservableObject {
 
     /// A workout whose End was tried and has not completed (the save failed) is frozen at the moment it ended: it can be
     /// ended again, not paused or resumed.
-        // "Nothing to save yet" describes the moment End was held. Once the workout is paused or resumed again (from the
-        // screen, the resume bar or the Lock Screen) it is no longer true, and the dock must offer Pause again.
-        acknowledgeFinishState()
     var isWorkoutFinishPending: Bool { pendingWorkoutSnapshot != nil }
 
     /// What stops a workout from starting now, or nil when one can. Mirrors the guard in `startWorkout(sport:)`, so a
@@ -2302,11 +2302,31 @@ final class AppModel: ObservableObject {
         pendingWorkoutWasGps = false
         lastWorkout = nil
         workoutFinishState = .recording
+        // A save that failed after its row was written: that row goes too, so nothing of this workout is left in Workouts.
+        if let key = pendingWorkoutRowKey {
+            pendingWorkoutRowKey = nil
+            removeWrittenWorkoutRow(key)
+        }
+        // The Lock Screen and Dynamic Island are rebuilt from the workout in flight: with none, the activity ends. Paused and
+        // nothing-to-save workouts raise no other edge on their way out.
+        workoutPauseEdge &+= 1
         emitWorkoutsTrace(WorkoutsTrace.sessionLine(
             event: "discarded-by-user", sportKey: WorkoutSource.traceSportKey(workout.sport),
             hrSamples: workout.samples.count, gpsPoints: wasGps ? gpsRecorder.pointCount : nil))
         replayDeferredSessionWorkIfIdle()
         return true
+    }
+
+    /// Takes back the row, route and pauses a finish wrote before it failed.
+    private func removeWrittenWorkoutRow(_ key: WorkoutRowKey) {
+        RouteStore.remove(startTs: key.startTs, sport: key.sport)
+        WorkoutPauseStore.remove(startTs: key.startTs, sport: key.sport)
+        let deviceId = self.deviceId
+        Task { [repo] in
+            guard let store = await repo.storeHandle() else { return }
+            _ = try? await store.deleteWorkouts(deviceId: deviceId, sport: key.sport, from: key.startTs, to: key.startTs)
+            _ = await repo.refresh(.currentDay)
+        }
     }
 
     /// Emit one Workouts & GPS test-mode line tagged `.workouts` iff the mode is on. The cheap
@@ -2327,14 +2347,6 @@ final class AppModel: ObservableObject {
         guard TestCentre.active(.dataImport) else { return nil }
         return { [weak self] lines in
             Task { @MainActor in
-        // A save that failed after its row was written: that row goes too, so nothing of this workout is left in Workouts.
-        if let key = pendingWorkoutRowKey {
-            pendingWorkoutRowKey = nil
-            removeWrittenWorkoutRow(key)
-        }
-        // The Lock Screen and Dynamic Island are rebuilt from the workout in flight: with none, the activity ends. Paused and
-        // nothing-to-save workouts raise no other edge on their way out.
-        workoutPauseEdge &+= 1
                 guard let self else { return }
                 for line in lines { self.live.append(log: line, domain: .dataImport) }
             }
@@ -2342,18 +2354,6 @@ final class AppModel: ObservableObject {
     }
 
     /// Emit the file-meta line for an import run (detected kind + extension + size BUCKET, never the path or
-    /// Takes back the row, route and pauses a finish wrote before it failed.
-    private func removeWrittenWorkoutRow(_ key: WorkoutRowKey) {
-        RouteStore.remove(startTs: key.startTs, sport: key.sport)
-        WorkoutPauseStore.remove(startTs: key.startTs, sport: key.sport)
-        let deviceId = self.deviceId
-        Task { [repo] in
-            guard let store = await repo.storeHandle() else { return }
-            _ = try? await store.deleteWorkouts(deviceId: deviceId, sport: key.sport, from: key.startTs, to: key.startTs)
-            _ = await repo.refresh(.currentDay)
-        }
-    }
-
     /// name), tagged `.dataImport`, iff the mode is on. Called by the handlers that have the materialized
     /// URL. The size is bucketed inside `ImportTrace`, so no byte-exact size or filename leaves the device.
     private func emitImportFileMeta(kind: DataSourceKind, url: URL) {
@@ -2596,6 +2596,19 @@ final class AppModel: ObservableObject {
             workoutFinishState = .failed(WorkoutFinishError.insufficientEvidence.localizedDescription)
             return .failure(.insufficientEvidence)
         }
+        // #524: finalize the GPS route. Stop the recorder and take its captured route , it kept
+        // accumulating from CoreLocation independently of the HR window. `capturedRoute()` is nil unless
+        // ≥2 points actually landed (honest: no route, no distance, when nothing was captured , e.g. a
+        // Mac with no GPS, or denied permission). A non-GPS session never armed the recorder.
+        if wasGps && pendingWorkoutRoute == nil {
+            gpsRecorder.stop()
+            if !ActiveGpsWorkoutPersistence.flushPendingWrites() {
+                gpsSnapshotDurabilityFailed = true
+                refreshWorkoutDurabilityWarning()
+            }
+            pendingWorkoutRoute = gpsRecorder.capturedRoute()
+        }
+        let route = pendingWorkoutRoute
         let end = pendingWorkoutEnd ?? Date()
         // The pauses the workout keeps: any pause still open when it ended was dropped above.
         let pauses = w.pauseLedger.droppingOpenPause()
@@ -2628,6 +2641,8 @@ final class AppModel: ObservableObject {
         }
         do {
             _ = try await store.upsertWorkouts([row], deviceId: deviceId)
+            // From here a failure leaves the row in Workouts, so a discard has to take it back.
+            pendingWorkoutRowKey = WorkoutRowKey(startTs: row.startTs, sport: row.sport)
             let readBack = try await store.workouts(deviceId: deviceId, from: row.startTs,
                                                     to: row.startTs, limit: 10)
                 .first(where: { $0.startTs == row.startTs && $0.sport == row.sport })
@@ -2654,28 +2669,14 @@ final class AppModel: ObservableObject {
             releaseWorkoutRealtimeHR()
             activeWorkoutIsGps = false
             workoutSnapshotDurabilityFailed = false
-        // #524: finalize the GPS route. Stop the recorder and take its captured route , it kept
-        // accumulating from CoreLocation independently of the HR window. `capturedRoute()` is nil unless
-        // ≥2 points actually landed (honest: no route, no distance, when nothing was captured , e.g. a
-        // Mac with no GPS, or denied permission). A non-GPS session never armed the recorder.
-        if wasGps && pendingWorkoutRoute == nil {
-            gpsRecorder.stop()
-            if !ActiveGpsWorkoutPersistence.flushPendingWrites() {
-                gpsSnapshotDurabilityFailed = true
-                refreshWorkoutDurabilityWarning()
-            }
-            pendingWorkoutRoute = gpsRecorder.capturedRoute()
-        }
-        let route = pendingWorkoutRoute
             gpsSnapshotDurabilityFailed = false
             gpsHadTerminatedGap = false
             refreshWorkoutDurabilityWarning()
             pendingWorkoutSnapshot = nil
-            // From here a failure leaves the row in Workouts, so a discard has to take it back.
-            pendingWorkoutRowKey = WorkoutRowKey(startTs: row.startTs, sport: row.sport)
             pendingWorkoutEnd = nil
             pendingWorkoutRoute = nil
             pendingWorkoutWasGps = false
+            pendingWorkoutRowKey = nil
             workoutFinishState = .saved(saved)
             replayDeferredSessionWorkIfIdle()
             emitWorkoutsTrace(WorkoutsTrace.sessionLine(
@@ -2706,7 +2707,6 @@ final class AppModel: ObservableObject {
         // Re-snapshot the durable session so a kill keeps the latest accumulated HR window (#529).
         persistActiveWorkout()
     }
-            pendingWorkoutRowKey = nil
 
     /// Drop the smoothing window and blank the hero number so a resume / re-attach shows ","
     /// until a genuinely fresh sample arrives, instead of republishing the stale pre-gap median.
