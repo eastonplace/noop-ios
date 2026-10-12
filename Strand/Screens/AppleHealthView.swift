@@ -902,7 +902,7 @@ struct AppleHealthView: View {
         let n = rows.count
         // A widened window: the count (one plural key) and the whole phrase for the range it widened to, so a language can
         // inflect both. The same pattern as the Metric Explorer's caption.
-        if eff != range, let widened = eff.widenedPhrase {
+        if eff != range, let widened = ExploreRange.allCases.first(where: { $0.days == eff.days })?.widenedPhrase {
             return "\(String(localized: "\(n) readings")) \u{00B7} \(widened)"
         }
         // Whole-phrase variants per count so translators see complete sentences (never a stitched plural).
