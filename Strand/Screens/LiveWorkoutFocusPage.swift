@@ -100,7 +100,8 @@ struct LiveFocusPage: View {
         let thresholds = ProfileStore.hrZoneThresholds(override: profile.hrMaxOverride, age: profile.age)
         let bpm = workout.currentBPM
         let zone = bpm.map { thresholds.zone(for: Double($0)) }
-        let dimmed = workout.isPaused || signals.heartRateIsStale
+        let paused = workout.isPaused
+        let stale = signals.heartRateIsStale
         return VStack(alignment: .leading, spacing: NoopMetrics.space2) {
             HStack(alignment: .firstTextBaseline, spacing: NoopMetrics.space2) {
                 if let zone {
@@ -118,10 +119,11 @@ struct LiveFocusPage: View {
                 }
                 Spacer(minLength: 0)
             }
-            .opacity(dimmed ? 0.6 : 1)
+            .opacity(paused ? GlanceMetricLayout.pausedOpacity : (stale ? GlanceMetricLayout.staleOpacity : 1))
             // The rail below speaks the zone and the reading; saying them twice would only repeat.
             .accessibilityHidden(true)
-            LiveZoneRail(bpm: bpm, thresholds: thresholds, isDimmed: dimmed, style: .bar)
+            LiveZoneRail(bpm: bpm, thresholds: thresholds, isDimmed: stale && !paused, style: .bar)
+                .opacity(paused ? GlanceMetricLayout.pausedOpacity : 1)
         }
     }
 
@@ -144,6 +146,8 @@ struct LiveFocusPage: View {
                     .font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
             }
         }
+        // A paused workout is a frozen one: the footer steps back with the numbers above it.
+        .opacity(workout.isPaused ? GlanceMetricLayout.pausedOpacity : 1)
     }
 
     private func fact(_ value: Glance.Value) -> FactStrip.Fact {

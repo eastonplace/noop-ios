@@ -11,6 +11,11 @@ public enum GlanceMetricLayout {
     /// The size of every secondary numeral.
     public static let secondaryPointSize: CGFloat = 56
 
+    /// How far a frozen number steps back while the workout is paused, and a reading whose source has gone quiet. Every metric
+    /// on the screen uses these, so a paused workout dims as one piece.
+    public static let pausedOpacity: Double = 0.4
+    public static let staleOpacity: Double = 0.6
+
     /// The focus numeral's size for the number of characters it has to show: the shorter it is, the bigger it can be, and
     /// a number that grows ("9.99" to "10.00" km, "59:59" to "1:00:00") steps down instead of overflowing its line.
     public static func focusPointSize(characterCount: Int) -> CGFloat {
@@ -49,8 +54,8 @@ public struct GlanceMetricView: View {
         var opacity: Double {
             switch self {
             case .live, .missing: 1
-            case .stale: 0.6
-            case .paused: 0.4
+            case .stale: GlanceMetricLayout.staleOpacity
+            case .paused: GlanceMetricLayout.pausedOpacity
             }
         }
     }
