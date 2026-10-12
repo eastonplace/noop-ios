@@ -497,10 +497,14 @@ public enum AnalyticsEngine {
         func tsInDay(_ ts: Int) -> Bool { dayBounds.contains(ts) }
 
         // ── Sleep detection + staging ─────────────────────────────────────────
+        // AN-07: only runs ending on this civil day are staged; the read window's other night still feeds
+        // the continuation chain but is no longer staged and dropped. The wake refinement below changes
+        // stages only, never a session's end, so attribution by the detected end is exact.
         let detectedSessions = SleepStager.detectSleep(hr: hr, rr: rr, resp: resp, gravity: gravity,
                                                   tzOffsetSeconds: tzOffsetSeconds, wristOff: wristOff,
                                                   bandSleepState: bandSleepState,
                                                   useSleepStagerV2: useSleepStagerV2,
+                                                  attributeEndRange: dayBounds,
                                                   traceSink: traceSink)
         // Motion-aware wake refinement (#364 follow-up) runs AFTER V1/V2 staging, over every detected
         // session (naps included — the same eligibility gates apply). `steps` is the SAME calendar-day/

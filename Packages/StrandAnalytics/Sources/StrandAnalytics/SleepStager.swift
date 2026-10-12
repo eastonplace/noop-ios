@@ -790,6 +790,10 @@ public enum SleepStager {
     /// byte-identical default (the frozen-golden tests stay green). The live call site threads
     /// `PuffinExperiment.experimentalSleepV2Enabled` so the Settings toggle now affects normal detected
     /// nights, not just the self-heal restage path.
+    /// `attributeEndRange` (AN-07): when set, only accepted runs ending inside it are staged and returned.
+    /// Every run still goes through acceptance and the continuation chain, so the returned sessions equal
+    /// the unrestricted result filtered to that range. `analyzeDay` passes its civil day (with a margin for
+    /// the wake refinement), so the other night in its 54 h read window is no longer staged and thrown away.
     public static func detectSleep(hr: [HRSample] = [],
                                    rr: [RRInterval] = [],
                                    resp: [RespSample] = [],
@@ -798,6 +802,7 @@ public enum SleepStager {
                                    wristOff: [(start: Int, end: Int)] = [],
                                    bandSleepState: [(ts: Int, state: Int)] = [],
                                    useSleepStagerV2: Bool = false,
+                                   attributeEndRange: Range<Int>? = nil,
                                    traceSink: ((String) -> Void)? = nil) -> [SleepSession] {
         // Raw exports are untrusted. Drop malformed timestamp rows before they can
         // influence the cache fingerprint or enter interval arithmetic; a usable
@@ -824,7 +829,7 @@ public enum SleepStager {
             return detectSleepUncached(hr: safeHR, rr: safeRR, resp: safeResp, gravity: safeGravity,
                                        tzOffsetSeconds: tzOffsetSeconds, wristOff: safeWristOff,
                                        bandSleepState: safeBandState, useSleepStagerV2: useSleepStagerV2,
-                                       traceSink: traceSink)
+                                       attributeEndRange: attributeEndRange, traceSink: traceSink)
         }
         // v7.0.2 perf (#707): the single heaviest analytics call — it sorts the dense full-day gravity
         // stream (~tens of thousands of samples for a worn day), builds the gravity-delta/still spine, and
@@ -842,12 +847,13 @@ public enum SleepStager {
             tz: tzOffsetSeconds,
             wristOff: StreamFingerprint.of(safeWristOff, ts: { $0.start }, quant: { $0.end }),
             band: StreamFingerprint.of(safeBandState, ts: { $0.ts }, quant: { $0.state }),
-            v2: useSleepStagerV2)
+            v2: useSleepStagerV2,
+            attribute: attributeEndRange)
         return detectSleepCache.value(key) {
             detectSleepUncached(hr: safeHR, rr: safeRR, resp: safeResp, gravity: safeGravity,
                                 tzOffsetSeconds: tzOffsetSeconds, wristOff: safeWristOff,
                                 bandSleepState: safeBandState, useSleepStagerV2: useSleepStagerV2,
-                                traceSink: nil)
+                                attributeEndRange: attributeEndRange, traceSink: nil)
         }
     }
 
@@ -857,6 +863,7 @@ public enum SleepStager {
         let tz: Int
         let wristOff: StreamFingerprint; let band: StreamFingerprint
         let v2: Bool
+        let attribute: Range<Int>?
     }
     /// ≈ the number of distinct days in a scoring window; FIFO-evicted, holds only small session arrays.
     private static let detectSleepCache = AnalyticsMemoCache<DetectKey, [SleepSession]>(capacity: 40)
@@ -870,6 +877,7 @@ public enum SleepStager {
                                             wristOff: [(start: Int, end: Int)],
                                             bandSleepState: [(ts: Int, state: Int)],
                                             useSleepStagerV2: Bool,
+                                            attributeEndRange: Range<Int>? = nil,
                                             traceSink: ((String) -> Void)? = nil) -> [SleepSession] {
         let grav = gravity.sorted { $0.ts < $1.ts }
         if grav.count < 2 { return [] }
@@ -966,8 +974,11 @@ public enum SleepStager {
             }
             // Daytime false-sleep guard (#90): a window centered in the local daytime band
             // must clear a stricter bar (≥daytimeMinSleepMin AND a real resting-HR dip).
-            // Overnight windows skip this entirely. restingHR is computed here (reused below).
-            let resting = sessionRestingHR(start: p.start, end: p.end, hr: hrS)
+            // Overnight windows skip this entirely. restingHR is computed only when the guard or the
+            // returned session reads it (AN-07).
+            let attributed = attributeEndRange.map { $0.contains(p.end) } ?? true
+            let isDaytime = isDaytimeCenter(p, tzOffsetSeconds: tzOffsetSeconds)
+            let resting = isDaytime || attributed ? sessionRestingHR(start: p.start, end: p.end, hr: hrS) : nil
             let continuesChain = chainPrevEnd.map { p.start - $0 <= continuationGapS } ?? false
             let isNightTail = continuesChain && chainFromOvernight   // the night's tail, not a nap
             // H7 (#531): when the prior accepted chain BEGAN overnight, its wake (`chainPrevEnd`) anchors the
@@ -975,7 +986,6 @@ public enum SleepStager {
             // clear the STRONGER re-onset bar — killing the 9 am phantom nap of residual post-wake stillness
             // while keeping a genuine second sleep. Outside the window the guard is the ordinary daytime bar.
             let morningWakeEnd = chainFromOvernight ? chainPrevEnd : nil
-            let isDaytime = isDaytimeCenter(p, tzOffsetSeconds: tzOffsetSeconds)
             // Evaluate the morning-stillness guard ONLY when the run is daytime-centered, preserving the
             // original short-circuit (overnight runs never call it). The boolean used to `continue` below
             // is identical to the original combined condition.
@@ -989,6 +999,15 @@ public enum SleepStager {
                 traceSink?(GateTrace.runLine(index: runIndex, startTs: p.start, endTs: p.end,
                     verdict: .dropped, gate: gateName,
                     detail: "daytime=true restingHR=\(resting ?? -1) baseline=\(baseline.map { Int($0) } ?? -1) nightTail=false"))
+                continue
+            }
+            // Accepted but owned by another day: it still anchors the chain, but isn't staged (AN-07).
+            guard attributed else {
+                traceSink?(GateTrace.runLine(index: runIndex, startTs: p.start, endTs: p.end,
+                    verdict: .kept, gate: "acceptedOtherDay",
+                    detail: "spanMin=\(spanMin) daytime=\(isDaytime)"))
+                if !continuesChain { chainFromOvernight = isOvernightOnset(p.start, tzOffsetSeconds: tzOffsetSeconds) }
+                chainPrevEnd = p.end
                 continue
             }
             let stages = useSleepStagerV2
