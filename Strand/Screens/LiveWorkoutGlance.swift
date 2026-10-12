@@ -92,7 +92,9 @@ enum LiveWorkoutGlance {
     /// What a metric is called ("Avg pace"), for a menu that lists metrics without a value to read the name from.
     static func name(of metric: Metric) -> String {
         switch metric {
-        case .time: String(localized: "Time")
+        // Its own catalog key: "Time" is also a time of day elsewhere (Settings' export time), and here it is a duration.
+        case .time: String(localized: "workout.metric.time", defaultValue: "Time",
+                           comment: "Elapsed workout duration (the live screen's Time figure and the big-number picker), not a time of day")
         case .distance: String(localized: "Distance")
         case .pace: String(localized: "Avg pace")
         case .speed: String(localized: "Avg speed")

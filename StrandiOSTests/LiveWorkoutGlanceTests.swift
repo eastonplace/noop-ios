@@ -286,6 +286,18 @@ final class LiveWorkoutGlanceTests: XCTestCase {
         for metric in G.Metric.allCases { XCTAssertFalse(G.name(of: metric).isEmpty, "\(metric)") }
     }
 
+    /// The Time figure is a duration. It has its own catalog key, so it never takes the word a time of day uses ("Time" is
+    /// also Settings' export time): French says "Durée" here and keeps "Heure" there.
+    func testTheTimeFigureIsNamedAsADurationNotATimeOfDay() throws {
+        func table(_ language: String) throws -> Bundle {
+            try XCTUnwrap(Bundle.main.path(forResource: language, ofType: "lproj").flatMap(Bundle.init(path:)), language)
+        }
+        let french = try table("fr")
+        XCTAssertEqual(french.localizedString(forKey: "workout.metric.time", value: nil, table: nil), "Durée")
+        XCTAssertEqual(french.localizedString(forKey: "Time", value: nil, table: nil), "Heure")
+        XCTAssertEqual(try table("de").localizedString(forKey: "workout.metric.time", value: nil, table: nil), "Dauer")
+    }
+
     func testAveragePaceIsNamedAverageAndNeverJustPace() {
         XCTAssertEqual(value(.pace, input(meters: 1_000, pace: 360)).name, String(localized: "Avg pace"))
         XCTAssertEqual(value(.speed, input(meters: 1_000, pace: 360)).name, String(localized: "Avg speed"))
