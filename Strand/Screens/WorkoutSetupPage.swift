@@ -216,6 +216,8 @@ private struct WorkoutSetupContent: View {
                     case .treadmill: String(localized: "Treadmill")
                     }
                 }
+                // Start is the page's one solid-mint control: the chosen run type is a 15% tint, like the chosen Recent chip.
+                .segmentedPillSelectionStyle(.quiet)
                 .accessibilityLabel("Run type")
             }
         }
@@ -247,7 +249,7 @@ private struct WorkoutSetupContent: View {
         return VStack(alignment: .leading, spacing: NoopMetrics.space2) {
             sectionTitle("Recent")
             if !sports.isEmpty {
-                WorkoutRecentSportChips(sports: sports, selected: selected) { selected = $0 }
+                WorkoutRecentSportChips(sports: sports, selected: selected, quietSelection: true) { selected = $0 }
             }
             WidgetChipButton(title: "All activities", systemImage: "square.grid.2x2", showsChevron: true,
                              accessibilityLabel: "All activities") { showsActivities = true }

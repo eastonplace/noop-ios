@@ -553,6 +553,32 @@ public struct InsightCard: View {
 
 // MARK: - Range control (the ONE segmented pill control, used everywhere)
 
+/// How the selected segment of a `SegmentedPillControl` is drawn. Solid ink (the default) is the app-wide selected chrome. A
+/// screen with its own single solid control (the live workout journey's Start circle) asks for `quiet`: a 15% tint of the same
+/// colour behind words in that colour, so the one solid control stays the only one.
+public enum SegmentedPillSelectionStyle: Sendable {
+    case solid
+    case quiet
+}
+
+private struct SegmentedPillSelectionStyleKey: EnvironmentKey {
+    static let defaultValue = SegmentedPillSelectionStyle.solid
+}
+
+extension EnvironmentValues {
+    var segmentedPillSelectionStyle: SegmentedPillSelectionStyle {
+        get { self[SegmentedPillSelectionStyleKey.self] }
+        set { self[SegmentedPillSelectionStyleKey.self] = newValue }
+    }
+}
+
+public extension View {
+    /// Draws the selected segment of every `SegmentedPillControl` below this view in `style`.
+    func segmentedPillSelectionStyle(_ style: SegmentedPillSelectionStyle) -> some View {
+        environment(\.segmentedPillSelectionStyle, style)
+    }
+}
+
 public struct SegmentedPillControl<T: Hashable>: View {
     let items: [T]
     let label: (T) -> String
@@ -568,6 +594,7 @@ public struct SegmentedPillControl<T: Hashable>: View {
     @Binding var selection: T
     @Namespace private var selectionThumb
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.segmentedPillSelectionStyle) private var selectionStyle
     public init(_ items: [T], selection: Binding<T>, stacksAtAccessibilitySizes: Bool = true,
                 label: @escaping (T) -> String) {
         self.init(items, selection: selection, stacksAtAccessibilitySizes: stacksAtAccessibilitySizes,
@@ -635,7 +662,7 @@ public struct SegmentedPillControl<T: Hashable>: View {
                 // Active segment is SELECTION CHROME, so it follows the accent: on dark a
                 // Canonical selected chrome is scheme-invariant ink. Disabled segments
                 // drop to a fainter tertiary so the lock reads at a glance.
-                .foregroundStyle(sel ? StrandPalette.onInk
+                .foregroundStyle(sel ? (selectionStyle == .quiet ? StrandPalette.ink : StrandPalette.onInk)
                                      : StrandPalette.textTertiary.opacity(enabled ? 1 : 0.35))
                 .multilineTextAlignment(.center)
                 // Fill the segment height so the selected pill has EQUAL margins to the track
@@ -649,7 +676,7 @@ public struct SegmentedPillControl<T: Hashable>: View {
                     Group {
                         if sel {
                             Capsule(style: .continuous)
-                                .fill(StrandPalette.ink)
+                                .fill(selectionStyle == .quiet ? StrandPalette.ink.opacity(0.15) : StrandPalette.ink)
                                 .matchedGeometryEffect(
                                     id: "selected-segment",
                                     in: selectionThumb

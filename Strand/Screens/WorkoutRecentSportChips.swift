@@ -8,6 +8,9 @@ struct WorkoutRecentSportChips: View {
     let sports: [String]
     /// The sport currently chosen, marked on its chip. Compared without regard to case.
     let selected: String?
+    /// The chosen chip is a 15% mint tint with mint words instead of solid mint, for a page whose one solid-mint control is
+    /// something else (the workout setup page's Start circle). The default is the solid chip every other screen uses.
+    var quietSelection = false
     let onSelect: (String) -> Void
 
     var body: some View {
@@ -37,12 +40,13 @@ struct WorkoutRecentSportChips: View {
                     // Wrapping, the name takes the width the screen allows and as many lines as it needs.
                     .fixedSize(horizontal: !wrapping, vertical: true)
             }
-            .foregroundStyle(isSelected ? StrandPalette.onInk : StrandPalette.textPrimary)
+            .foregroundStyle(isSelected ? (quietSelection ? StrandPalette.ink : StrandPalette.onInk) : StrandPalette.textPrimary)
             .padding(.horizontal, NoopMetrics.space3)
             .padding(.vertical, 10)
             .frame(minHeight: 44)
             // A rounded rectangle with a 22pt radius is the capsule at one line, and stays tidy when the name wraps.
-            .background(shape.fill(isSelected ? StrandPalette.ink : StrandPalette.chipFill))
+            .background(shape.fill(isSelected ? (quietSelection ? StrandPalette.ink.opacity(0.15) : StrandPalette.ink)
+                                              : StrandPalette.chipFill))
             .overlay(shape.stroke(isSelected ? Color.clear : StrandPalette.hairline, lineWidth: 1))
             .contentShape(Rectangle())
         }
