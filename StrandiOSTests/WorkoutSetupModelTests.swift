@@ -72,6 +72,18 @@ final class WorkoutSetupModelTests: XCTestCase {
         XCTAssertTrue(today.text().contains("72") && today.text().contains("14–18") && today.text().contains("6.1"), today.text())
     }
 
+    /// The row stacks its facts at the accessibility sizes, so each is its own string and none is a separator.
+    func testTheLineIsSeparateFactsWithNoSeparatorLeftInThem() {
+        let today = WorkoutReadinessToday.make(recovery: 72, soFar: 6.1)
+        let parts = today.parts()
+        XCTAssertEqual(parts.count, 3, "recovery, target, so far: \(parts)")
+        XCTAssertTrue(parts.allSatisfy { !$0.contains("·") && !$0.isEmpty }, "\(parts)")
+        XCTAssertEqual(today.text(), parts.joined(separator: " · "))
+        XCTAssertEqual(WorkoutReadinessToday.make(recovery: 50, soFar: nil).parts().count, 2)
+        XCTAssertEqual(WorkoutReadinessToday.make(recovery: 50, soFar: 15.1).parts().count, 2)
+        XCTAssertEqual(WorkoutReadinessToday.unscored.parts().count, 2)
+    }
+
     func testBeforeAnyStrainTheLineHasNoSoFar() {
         let today = WorkoutReadinessToday.make(recovery: 50, soFar: nil)
         XCTAssertEqual(today, .target(recovery: 50, range: 10...14, soFar: nil))

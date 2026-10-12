@@ -87,10 +87,9 @@ struct WorkoutReadinessStrip: View {
             ReadinessIcon(systemImage: "target")
             VStack(alignment: .leading, spacing: 2) {
                 Text("Today").font(StrandFont.body).foregroundStyle(StrandPalette.textPrimary)
-                Text(verbatim: today.text())
+                SeparatedFactsLine(facts: today.parts())
                     .foregroundStyle(today.isWarning ? LivePalette.amber : LivePalette.secondaryText)
                     .captionLabelFit(lines: 3, weight: .regular, standardLines: 2)
-                    .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 0)
         }
@@ -162,6 +161,23 @@ struct WorkoutReadinessStrip: View {
         .toggleStyle(.switch)
         .tint(LivePalette.mint)
         .frame(minHeight: 44)
+    }
+}
+
+/// Facts as "a · b · c" on one line when they fit and, when they do not (an accessibility text size, a long translation), one
+/// fact per line: never a wrap that leaves a "·" at the end of a line. Set the font and colour on the line.
+struct SeparatedFactsLine: View {
+    let facts: [String]
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            Text(verbatim: facts.joined(separator: " · ")).lineLimit(1).fixedSize(horizontal: true, vertical: false)
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(Array(facts.enumerated()), id: \.offset) { _, fact in
+                    Text(verbatim: fact).fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
     }
 }
 

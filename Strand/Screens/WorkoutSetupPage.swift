@@ -295,13 +295,15 @@ private struct WorkoutSetupContent: View {
                                choices: Glance.FocusPreference.choices(for: sportClass), onChoose: { choose($0) })
     }
 
-    /// The last time in this sport, one quiet line under the rows.
+    /// The last time in this sport, one quiet line under the rows: its facts stack when they do not fit one line.
     @ViewBuilder private var lastTimeLine: some View {
-        if let last = Self.lastLine(rows: rows, sport: selected, title: title, system: unitSystem) {
-            Text(verbatim: last)
+        if let facts = Self.lastFacts(rows: rows, sport: selected, title: title, system: unitSystem) {
+            SeparatedFactsLine(facts: facts)
                 .foregroundStyle(LivePalette.secondaryText)
                 .liveText(14, weight: .regular, maxSize: 20, lines: 3)
-                .accessibilityLabel(Text(verbatim: Self.spokenLastLine(rows: rows, sport: selected, title: title, system: unitSystem) ?? last))
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(Text(verbatim: Self.spokenLastLine(rows: rows, sport: selected, title: title, system: unitSystem)
+                                         ?? facts.joined(separator: ", ")))
                 .padding(.top, NoopMetrics.space3)
         }
     }
@@ -311,9 +313,10 @@ private struct WorkoutSetupContent: View {
         return WorkoutSetupLastTime.spokenFacts(for: row, title: title, system: system).joined(separator: ", ")
     }
 
-    static func lastLine(rows: [WorkoutRow], sport: String, title: String, system: UnitSystem) -> String? {
+    /// The last time in this sport, as the separate facts of its line ("Last Run", "5.8 km", "5:49 /km", "Yesterday").
+    static func lastFacts(rows: [WorkoutRow], sport: String, title: String, system: UnitSystem) -> [String]? {
         guard let row = WorkoutSetupLastTime.newest(of: sport, in: rows) else { return nil }
-        return WorkoutFormat.joined(WorkoutSetupLastTime.facts(for: row, title: title, system: system))
+        return WorkoutSetupLastTime.facts(for: row, title: title, system: system)
     }
 
     // MARK: Lift

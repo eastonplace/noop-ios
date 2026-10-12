@@ -95,20 +95,27 @@ enum WorkoutReadinessToday: Equatable {
         return false
     }
 
-    /// The row's words, with the strain written to one decimal like the rest of the app's strain.
-    func text() -> String {
+    /// The row's words, with the strain written to one decimal like the rest of the app's strain, as the separate facts the
+    /// row stacks at the accessibility sizes: "Recovery 72", "target 14–18", "so far 6.1".
+    func parts() -> [String] {
         func one(_ value: Double) -> String { DrillInFormat.number(value, fractionDigits: 1) }
+        let separator = " · "
         switch self {
         case .target(let recovery, let range, let soFar):
             let base = String(localized: "Recovery \(recovery) · target \(range.lowerBound)–\(range.upperBound)")
+                .components(separatedBy: separator)
             guard let soFar else { return base }
-            return base + " · " + String(localized: "so far \(one(soFar))")
+            return base + [String(localized: "so far \(one(soFar))")]
         case .above(let soFar, let range):
             return String(localized: "Already \(one(soFar)) · above today's \(range.lowerBound)–\(range.upperBound)")
+                .components(separatedBy: separator)
         case .unscored:
-            return String(localized: "No target yet · recovery isn't scored")
+            return String(localized: "No target yet · recovery isn't scored").components(separatedBy: separator)
         }
     }
+
+    /// The same words on one line.
+    func text() -> String { parts().joined(separator: " · ") }
 }
 
 /// "Last Run · 5.8 km · 5:49 /km · Yesterday": the newest workout in the chosen sport, in one line.
