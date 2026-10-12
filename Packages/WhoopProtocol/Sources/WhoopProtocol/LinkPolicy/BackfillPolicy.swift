@@ -21,6 +21,20 @@ public enum BackfillPolicy {
     public static let periodicFloorSeconds: TimeInterval = 900   // 15 min
     public static let lowPowerPeriodicFloorSeconds: TimeInterval = 2_700 // 45 min
     public static let eventFloorSeconds: TimeInterval = 90       // absorbs reconnect-flaps / event bursts
+    /// BLE-7: after a session was cut short by a disconnect, the next `.connect` pass may resume sooner
+    /// than the 90 s anti-flap floor: 20 s, then 60 s, then 180 s for consecutive interruptions, measured
+    /// from the interrupted attempt's start. After that the periodic floor applies.
+    public static let interruptedResumeLadderSeconds: [TimeInterval] = [20, 60, 180]
+
+    /// The `.connect` floor for `interruptedSessions` consecutive interrupted sessions; nil when the last
+    /// session was not interrupted (the ordinary event floor applies).
+    public static func interruptedResumeFloorSeconds(interruptedSessions: Int, powerSaving: Bool,
+                                                     emptyStreak: Int) -> TimeInterval? {
+        guard interruptedSessions > 0 else { return nil }
+        let ladder = interruptedResumeLadderSeconds
+        if interruptedSessions <= ladder.count { return ladder[interruptedSessions - 1] }
+        return periodicFloorSeconds(powerSaving: powerSaving, emptyStreak: emptyStreak)
+    }
 
     /// The timer and limiter must use the same periodic cadence. Keeping this decision here prevents a
     /// 45-minute low-power timer from repeatedly hitting an unrelated 60-minute floor and becoming an
@@ -71,14 +85,21 @@ public enum BackfillPolicy {
     public static func shouldRun(trigger: BackfillTrigger, now: TimeInterval,
                           lastBackfillAt: TimeInterval?, emptyStreak: Int = 0,
                           clockUntrusted: Bool = false,
-                          powerSaving: Bool = false) -> Bool {
+                          powerSaving: Bool = false,
+                          interruptedSessions: Int = 0) -> Bool {
         guard let last = lastBackfillAt else { return true }
         let elapsed = now - last
         switch trigger {
         // .manual (user-tapped) and .autoContinue (#364 expedited backlog drain) always run — both are
         // deliberately un-floored; .autoContinue's runaway protection lives in BLEManager.
         case .manual, .autoContinue: return true
-        case .connect: return elapsed >= eventFloorSeconds
+        case .connect:
+            if let resumeFloor = interruptedResumeFloorSeconds(interruptedSessions: interruptedSessions,
+                                                               powerSaving: powerSaving,
+                                                               emptyStreak: emptyStreak) {
+                return elapsed >= resumeFloor
+            }
+            return elapsed >= eventFloorSeconds
         case .foreground:
             let emptyBackoff = emptyStreak > 0
                 ? periodicFloorSeconds(powerSaving: powerSaving, emptyStreak: emptyStreak)

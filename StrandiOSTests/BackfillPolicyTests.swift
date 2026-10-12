@@ -724,14 +724,19 @@ final class BackfillPolicyTests: XCTestCase {
         XCTAssertEqual(passes.productivePasses, 1)
     }
 
-    func testDisconnectContributesToAdaptiveBackoff() {
+    /// BLE-7: an interrupted offload is a transport failure, not an empty attempt. It never stretches the
+    /// adaptive backoff; it climbs the bounded interrupted-resume ladder instead.
+    func testDisconnectCountsAsInterruptionNotEmptyBackoff() {
         var tracker = HistoricalEmptyBackoffTracker()
         tracker.recordDisconnect(inFlight: true, freshProgress: false)
-        XCTAssertEqual(tracker.consecutiveEmpty, 1)
+        XCTAssertEqual(tracker.consecutiveEmpty, 0)
+        XCTAssertEqual(tracker.interruptedSessions, 1)
         tracker.recordDisconnect(inFlight: true, freshProgress: true)
         XCTAssertEqual(tracker.consecutiveEmpty, 0)
+        XCTAssertEqual(tracker.interruptedSessions, 1)
         tracker.recordDisconnect(inFlight: false, freshProgress: false)
         XCTAssertEqual(tracker.consecutiveEmpty, 0)
+        XCTAssertEqual(tracker.interruptedSessions, 1)
     }
 
     func testSourceFrontierExcludesOtherDatabaseLineageEpochAndTrimScope() {

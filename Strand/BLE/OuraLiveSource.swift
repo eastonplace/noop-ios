@@ -197,15 +197,10 @@ public final class OuraLiveSource: NSObject, ObservableObject {
     /// True while a teardown was USER/COORDINATOR-initiated (`stop()`), so the disconnect handler suppresses
     /// the auto-reconnect (mirrors BLEManager's `intentionalDisconnect`). Cleared on every `connect(_:)`.
     private var intentionalDisconnect = false
-    /// Consecutive involuntary reconnect attempts, driving the capped-exponential backoff (3, 6, 12, 24,
-    /// 48, 60s). Reset to 0 on a successful connect and on an explicit `connect(_:)`. Matches BLEManager
-    /// (#414) and the Android `ReconnectBackoff` so a ring genuinely out of range doesn't hammer BLE.
-    private var failedReconnectAttempts = 0
-
-    /// Next backoff delay, capped at 60s, matching BLEManager's `min(60, 3 * 2^(n-1))` and the Android twin.
-    private func nextReconnectDelay() -> TimeInterval {
-        min(60.0, 3.0 * pow(2.0, Double(max(0, failedReconnectAttempts - 1))))
-    }
+    /// Involuntary reconnect backoff (3, 6, 12, 24, 48, 60s): the same `ReconnectPolicy` ladder BLEManager
+    /// uses (BLE-9) and the Android `ReconnectBackoff`, so a ring genuinely out of range doesn't hammer BLE.
+    /// Reset on a successful connect and on an explicit `connect(_:)`.
+    private var reconnectBackoff = ReconnectPolicy()
 
     /// Schedule an auto-reconnect to the paired ring after a backoff delay, unless the teardown was
     /// intentional or there is no known ring. Guarded again inside the deferred block: a `stop()` that
@@ -213,9 +208,8 @@ public final class OuraLiveSource: NSObject, ObservableObject {
     /// the target is unchanged), so a deliberate teardown never races a stale reconnect.
     private func scheduleReconnect() {
         guard !intentionalDisconnect, let id = reconnectID else { return }
-        failedReconnectAttempts += 1
-        let delay = nextReconnectDelay()
-        log("Oura: reconnecting in \(Int(delay))s (attempt \(failedReconnectAttempts))")
+        let delay = reconnectBackoff.nextDelay()
+        log("Oura: reconnecting in \(Int(delay))s (attempt \(reconnectBackoff.attempts))")
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
             guard let self, !self.intentionalDisconnect, self.reconnectID == id else { return }
             self.connect(id)
@@ -409,7 +403,7 @@ public final class OuraLiveSource: NSObject, ObservableObject {
         // drop the reconnect target so any pending backoff bails and no fresh one is scheduled (#912).
         intentionalDisconnect = true
         reconnectID = nil
-        failedReconnectAttempts = 0
+        reconnectBackoff.reset()
         stopScan()
         pendingConnectID = nil
         stopReengageTimer()
@@ -740,7 +734,7 @@ public final class OuraLiveSource: NSObject, ObservableObject {
         // mirroring the Android twin (OuraLiveSource.kt announceNeedsPairing).
         intentionalDisconnect = true
         reconnectID = nil
-        failedReconnectAttempts = 0
+        reconnectBackoff.reset()
         if let p = peripheral { central.cancelPeripheralConnection(p) }
         guard needsPairing == nil else { return }
         let detail: String
@@ -817,7 +811,7 @@ extension OuraLiveSource: @preconcurrency CBCentralManagerDelegate {
 
     public func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
         log("Oura: connected - discovering services")
-        failedReconnectAttempts = 0   // a real connection clears the reconnect backoff (#912)
+        reconnectBackoff.reset()   // a real connection clears the reconnect backoff (#912)
         peripheral.delegate = self
         // Fresh driver per connection so a new session re-runs auth (the app key is session-scoped). The
         // driver's `allowKeyInstall` is gated on this connection's adopt consent ONLY: with no consent the

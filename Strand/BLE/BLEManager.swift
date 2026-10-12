@@ -725,10 +725,18 @@ public final class BLEManager: NSObject, ObservableObject {
     private var clockRecoveryTimeout: DispatchWorkItem?
     private static let clockRecoveryTimeoutSeconds: TimeInterval = 4
     private var intentionalDisconnect = false
-    /// Consecutive `didFailToConnect` count, for the auto-reconnect backoff (#414). Reset to 0 on a
-    /// successful connect; grows the reschedule delay so a strap that's genuinely out of range doesn't
-    /// hammer Bluetooth (vs the disconnect path's flat 3s, which is fine for an already-bonded drop).
-    private var failedConnectAttempts = 0
+    /// BLE-9: one reconnect ladder (3, 6, 12, 24, 48, 60 s) for BOTH involuntary paths, didDisconnect and
+    /// didFailToConnect (#414). It resets only when a link proves healthy (up for 60 s, or a history chunk
+    /// was acknowledged on it) or the user taps Connect, so a connect-then-drop loop can no longer retry
+    /// every 3 s forever.
+    private var reconnectPolicy = ReconnectPolicy()
+    /// CC-7: the single pending automatic reconnect. Cancelled on didConnect and on a manual connect, and
+    /// replaced on every schedule, so a stale timer can never re-enter connectCore on a live link.
+    private var reconnectWork: DispatchWorkItem?
+    /// When the current link came up, and whether it carried a confirmed history ACK — the two health
+    /// signals that reset `reconnectPolicy` when the link ends.
+    private var linkUpAt: Date?
+    private var linkAcknowledgedHistory = false
     /// Multi-WHOOP stale-pin recovery (#52). The identifier of the last peripheral that reached a GENUINE
     /// encrypted bond this run. When the pinned strap keeps refusing the bond but THIS one bonds fine, it's
     /// the live working strap the registry pin should point at. nil until any strap genuinely bonds.
@@ -1104,6 +1112,9 @@ public final class BLEManager: NSObject, ObservableObject {
         whoop5FallbackMode = .none
         whoop5PausedNotifyOffPending.removeAll()
         state.standardHRMode = nil
+        // CC-7/BLE-9: an explicit Connect supersedes any pending automatic retry and restarts the ladder.
+        cancelPendingReconnect()
+        reconnectPolicy.reset()
         if model.deviceFamily == .whoop5,
            peripheral?.state == .connected,
            whoop5SecureSession.state == .failed {
@@ -1143,13 +1154,18 @@ public final class BLEManager: NSObject, ObservableObject {
             ? BatteryEstimator.ratedLifeHoursWhoop5 : BatteryEstimator.ratedLifeHoursWhoop4
         // Frame the inbound stream for the chosen family (WHOOP 4.0 CRC8 vs WHOOP 5.0 CRC16/puffin)
         // and tell the router which decoder to use. Fresh per connection so no stale bytes carry over.
-        reassemblers.reset(family: model.deviceFamily)
-        router.family = model.deviceFamily
-        // Live 5/MG persistence: point the Collector's decode at the selected family and install the
-        // identity clock ref for a 5/MG (its live timestamps are already real unix). WHOOP 4.0 keeps
-        // the GET_CLOCK correlation flow untouched. Re-applied after bootstrapStore builds the
-        // collector so whichever runs last wins.
-        configureCollectorFamily()
+        // CC-7: NOT when this call merely refreshes a live link of the same family — resetting the
+        // reassembly windows there would discard half-received frames mid-stream.
+        let reusesLiveLink = peripheral.map { $0.state == .connected && isPreferredPeripheral($0) } ?? false
+        if !reusesLiveLink || reassemblers.family != model.deviceFamily {
+            reassemblers.reset(family: model.deviceFamily)
+            router.family = model.deviceFamily
+            // Live 5/MG persistence: point the Collector's decode at the selected family and install the
+            // identity clock ref for a 5/MG (its live timestamps are already real unix). WHOOP 4.0 keeps
+            // the GET_CLOCK correlation flow untouched. Re-applied after bootstrapStore builds the
+            // collector so whichever runs last wins.
+            configureCollectorFamily()
+        }
         guard central.state == .poweredOn else {
             log("Bluetooth not powered on (state=\(central.state.rawValue)); cannot scan yet")
             return
@@ -1763,6 +1779,7 @@ public final class BLEManager: NSObject, ObservableObject {
     private func completePendingHistoricalAck(_ confirmed: Bool, reason: String? = nil) {
         guard let pending = pendingHistoricalAck else { return }
         pendingHistoricalAck = nil
+        if confirmed { linkAcknowledgedHistory = true }   // BLE-9: proves this link healthy
         // Do not discard the queued write here. If CoreBluetooth emits its callback after a timeout,
         // disconnect, or session replacement, that old callback must consume this exact retired token.
         // Removing it would let the callback confirm the next session's same-UUID write.
@@ -3898,7 +3915,8 @@ public final class BLEManager: NSObject, ObservableObject {
         guard BackfillPolicy.shouldRun(trigger: trigger, now: now, lastBackfillAt: last,
                                        emptyStreak: historicalEmptyBackoff.consecutiveEmpty,
                                        clockUntrusted: clockUntrusted,
-                                       powerSaving: powerSaving) else {
+                                       powerSaving: powerSaving,
+                                       interruptedSessions: historicalEmptyBackoff.interruptedSessions) else {
             log("Backfill: \(trigger) skipped (rate-limited; last \(last.map { Int(now - $0) } ?? -1)s ago)")
             return false
         }
@@ -4699,7 +4717,11 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
 
     public func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
         cancelScanFallback()
-        failedConnectAttempts = 0   // a successful connect clears the reconnect backoff (#414)
+        // BLE-9/CC-7: a link is up, so any pending automatic retry is stale. The ladder itself resets only
+        // once this link proves healthy (see didDisconnect), not merely because it connected (#414).
+        cancelPendingReconnect()
+        linkUpAt = Date()
+        linkAcknowledgedHistory = false
         linkEpitaphState.connected(nowUptimeNanoseconds: DispatchTime.now().uptimeNanoseconds)
         restoredPeripheral = nil
         preparePeripheral(peripheral)
@@ -4879,6 +4901,10 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
             }
         }
         bondedAt = nil   // cleared after the bond-loop detector above read it (#617)
+        reconnectPolicy.linkEnded(upSeconds: linkUpAt.map { Date().timeIntervalSince($0) },
+                                  acknowledgedHistory: linkAcknowledgedHistory)
+        linkUpAt = nil
+        linkAcknowledgedHistory = false
         reassemblers.reset()   // BLE-1: a dead link's half-received frames must not survive the disconnect
         state.markDisconnected()
         whoop5SecureSession.disconnect()
@@ -5011,7 +5037,7 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
                 state.append(log: "reconnect paused=whoop5Secure", domain: .connection)
             }
         } else if !intentionalDisconnect {
-            let retryDelay = TimeInterval(secureRetryDelay ?? 3)
+            let retryDelay = secureRetryDelay.map { TimeInterval($0) } ?? reconnectPolicy.nextDelay()
             log("Disconnected\(error.map { " — \($0.localizedDescription)" } ?? ""); rescanning in \(Int(retryDelay))s")
             // Connection test mode: count + describe the involuntary reconnect churn, and mark the link
             // down for the uptime readout. Gated zero-cost (the .connection bool is read before any string
@@ -5024,15 +5050,7 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
                 state.append(log: "connect down (uptime ends)", domain: .connection)
                 state.append(log: "reconnect n=\(connReconnectCount) reason=\(reason)", domain: .connection)
             }
-            DispatchQueue.main.asyncAfter(deadline: .now() + retryDelay) { [weak self] in
-                // #78 hole-3: a timer in flight when the give-up trips must not fire an extra attempt
-                // (and, via connectFromSystem, can never reset the pause the way the old connect() did).
-                guard let self,
-                      !self.intentionalDisconnect,
-                      !self.autoReconnectPausedForBondLoop,
-                      !self.autoReconnectPausedForWhoop5SecureFailure else { return }
-                self.connectFromSystem()
-            }
+            scheduleReconnect(after: retryDelay)
         } else {
             log("Disconnected (intentional)")
             // A user-initiated teardown ends the churn count for the run and marks the link down so the
@@ -5082,17 +5100,50 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
         guard !intentionalDisconnect,
               !autoReconnectPausedForBondLoop,
               !autoReconnectPausedForWhoop5SecureFailure else { return }
-        failedConnectAttempts += 1
-        let delay = min(60.0, 3.0 * pow(2.0, Double(failedConnectAttempts - 1)))
-        log("Reconnecting in \(Int(delay))s (attempt \(failedConnectAttempts))")
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-            // #78 hole-3: a backoff timer in flight when the give-up trips must not fire an extra
-            // attempt (and connectFromSystem never resets the pause the way the old connect() did).
-            guard let self,
-                  !self.intentionalDisconnect,
+        let delay = reconnectPolicy.nextDelay()
+        log("Reconnecting in \(Int(delay))s (attempt \(reconnectPolicy.attempts))")
+        scheduleReconnect(after: delay)
+    }
+
+    /// CC-7: arm the single automatic reconnect. It is bound to the connection generation it was armed
+    /// under and bails out if a newer connection happened or the link is already up or coming up, so a
+    /// stale timer can never re-enter connectCore (and reset framing state) on a live link.
+    private func scheduleReconnect(after delay: TimeInterval) {
+        reconnectWork?.cancel()
+        let scheduledGeneration = connectGeneration
+        let work = DispatchWorkItem { [weak self] in
+            // #78 hole-3: a timer in flight when the give-up trips must not fire an extra attempt
+            // (and, via connectFromSystem, can never reset the pause the way the old connect() did).
+            guard let self else { return }
+            self.reconnectWork = nil
+            guard !self.intentionalDisconnect,
                   !self.autoReconnectPausedForBondLoop,
                   !self.autoReconnectPausedForWhoop5SecureFailure else { return }
+            guard ReconnectPolicy.shouldFire(scheduledGeneration: scheduledGeneration,
+                                             currentGeneration: self.connectGeneration,
+                                             state: Self.reconnectLinkState(self.peripheral)) else {
+                self.log("Reconnect: skipped a stale retry (the link changed since it was scheduled)")
+                return
+            }
             self.connectFromSystem()
+        }
+        reconnectWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+    }
+
+    private func cancelPendingReconnect() {
+        reconnectWork?.cancel()
+        reconnectWork = nil
+    }
+
+    private static func reconnectLinkState(_ peripheral: CBPeripheral?) -> ReconnectPolicy.LinkState {
+        guard let peripheral else { return .none }
+        switch peripheral.state {
+        case .connected: return .connected
+        case .connecting: return .connecting
+        case .disconnecting: return .disconnecting
+        case .disconnected: return .disconnected
+        @unknown default: return .disconnected
         }
     }
 

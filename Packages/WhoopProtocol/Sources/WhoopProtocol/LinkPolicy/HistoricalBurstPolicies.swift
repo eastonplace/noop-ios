@@ -3,22 +3,39 @@ import Foundation
 /// Battery/radio backoff signal for any offload exit that produced no fresh durable receipt work.
 /// Replays, metadata-only completions, and zero-progress timeouts all advance the same bounded streak;
 /// one fresh inserted receipt clears it immediately.
+///
+/// BLE-7: a session cut short by a disconnect is NOT evidence that the strap had nothing to give — the
+/// transport failed. Interruptions are counted separately (`interruptedSessions`) so they never stretch
+/// the empty-attempt backoff, and they buy a short bounded `.connect` resume ladder instead
+/// (`BackfillPolicy.interruptedResumeLadderSeconds`). A session that reaches its own end (complete or idle
+/// timeout) clears the interruption count.
 public struct HistoricalEmptyBackoffTracker: Sendable {
     public init() {}
 
     public private(set) var consecutiveEmpty = 0
+    public private(set) var interruptedSessions = 0
 
+    /// A session ended on the link (HISTORY_COMPLETE, idle timeout, failure) rather than by a disconnect.
     public mutating func record(freshProgress: Bool) {
         if freshProgress {
             consecutiveEmpty = 0
         } else {
             consecutiveEmpty = min(consecutiveEmpty + 1, 2)
         }
+        interruptedSessions = 0
     }
 
+    /// The link dropped. Only an in-flight session counts. Fresh progress clears the empty streak and starts
+    /// the resume ladder from its first rung; a no-progress interruption climbs the ladder.
     public mutating func recordDisconnect(inFlight: Bool, freshProgress: Bool) {
         guard inFlight else { return }
-        record(freshProgress: freshProgress)
+        if freshProgress {
+            consecutiveEmpty = 0
+            interruptedSessions = 1
+        } else {
+            interruptedSessions = min(interruptedSessions + 1,
+                                      BackfillPolicy.interruptedResumeLadderSeconds.count + 1)
+        }
     }
 }
 
