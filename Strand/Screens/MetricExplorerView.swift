@@ -96,6 +96,9 @@ struct MetricExplorerView: View {
     /// simply shows nothing at its trailing edge yet (rows never wait on it — see `MetricRow`).
     @State private var probeByID: [String: MetricProbe] = [:]
     @State private var probedRefreshSeq: Int?
+    /// True once a pass has read every metric for `probedRefreshSeq`. A pass the list's `.task` cancelled part-way (a row was
+    /// tapped while it ran) leaves this false, so the next pass carries on where it stopped.
+    @State private var probeComplete = false
     /// True while the empty-series probe is still running its first pass. Drives a small inline progress
     /// hint at the top, never gating the rows: the catalog is static, so every row's label/icon/unit
     /// must paint immediately even before any series read returns (#199).
@@ -203,12 +206,17 @@ struct MetricExplorerView: View {
     /// the values fill in as the probe lands. Rows already render their label/icon without waiting on
     /// this — the map only ever ADDS a trailing value.
     private func probeEmptiness(refreshSeq: Int) async {
-        guard probedRefreshSeq != refreshSeq || probeByID.isEmpty else { probing = false; return }
-        probedRefreshSeq = refreshSeq
-        probeByID = [:]
+        guard probedRefreshSeq != refreshSeq || !probeComplete else { probing = false; return }
+        if probedRefreshSeq != refreshSeq {
+            // New data: start again. The same data after an interrupted pass: keep what was read and finish the rest.
+            probedRefreshSeq = refreshSeq
+            probeByID = [:]
+            probeComplete = false
+        }
         probing = true
         for metric in MetricCatalog.all {
             guard !Task.isCancelled else { return }
+            if probeByID[metric.id] != nil { continue }
             let s = metric.key == "strain"
                 ? repo.canonicalDays.compactMap { day in
                     repo.canonicalStrain(for: day.day).map { (day: day.day, value: $0.storedValue) }
@@ -218,6 +226,7 @@ struct MetricExplorerView: View {
             probeByID[metric.id] = s.last.map { .latest($0.value) } ?? .empty
             await Task.yield()
         }
+        probeComplete = true
         probing = false
     }
 }
