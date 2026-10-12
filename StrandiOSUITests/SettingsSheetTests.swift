@@ -43,10 +43,12 @@ final class SettingsSheetTests: XCTestCase {
         XCTAssertTrue(app.switches.firstMatch.waitForExistence(timeout: 10), "the pushed page is Sync & battery")
 
         // Back to the Settings root with the navigation bar's own back button, then swipe the sheet down.
-        let back = app.navigationBars.buttons.element(boundBy: 0)
-        XCTAssertTrue(back.waitForExistence(timeout: 5), "a Settings page has the native back button")
+        // The root's own "Done" is in the bar too, so the back button is the bar button that is not it.
+        let back = app.navigationBars.buttons.matching(NSPredicate(format: "identifier != 'settings.done'")).firstMatch
+        XCTAssertTrue(back.waitForExistence(timeout: 15), "a Settings page has the native back button")
         back.tap()
-        XCTAssertTrue(done.waitForExistence(timeout: 5))
+        // The search is still showing what it found, as in iOS Settings, so the root is told apart by that result.
+        XCTAssertTrue(row("syncBattery", in: app).waitForExistence(timeout: 15), "back lands on the Settings root, still inside the sheet")
         app.swipeDown(velocity: .fast)
         XCTAssertTrue(avatar.waitForExistence(timeout: 10))
         XCTAssertFalse(done.exists, "the sheet is gone")
