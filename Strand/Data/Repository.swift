@@ -4511,10 +4511,13 @@ final class Repository: ObservableObject {
         let now = Date()
         let hi = Int(Self.dateByAddingCalendarDays(1, to: now).timeIntervalSince1970)
         var visible: [WorkoutRow] = []
+        // Elapsed seconds, not a calendar day: longer than any workout, so a twin overlapping the limit-th
+        // row by more than half its length starts inside the window.
+        let twinMarginSeconds = 24 * 3_600
         for days in [30, 120, 480, 4_000] {
             let lo = Int(Self.dateByAddingCalendarDays(-days, to: now).timeIntervalSince1970)
             visible = await workoutRows(from: lo, to: hi, reconcileHR: false)
-            if visible.count >= limit, visible[limit - 1].startTs >= lo + 86_400 { break }
+            if visible.count >= limit, visible[limit - 1].startTs >= lo + twinMarginSeconds { break }
         }
         let shown = Array(visible.prefix(limit))
         guard reconcileHR, let store = await ensureStore() else { return shown }
