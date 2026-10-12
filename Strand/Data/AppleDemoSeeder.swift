@@ -576,7 +576,9 @@ enum AppleDemoSeeder {
                     referenceText: "30–300 ng/mL")
             }
         }
-        _ = try await store.upsertLabMarkers(markerRows)
+        // The fixed marker ids collide on a re-seed (the takenAt moves with the clock, the id does not), so this throws on
+        // every launch after the first; it must not take the hydration fixture below down with it.
+        _ = try? await store.upsertLabMarkers(markerRows)
 
         // `--demo-hydration empty` launches the Hydration page with nothing logged (a fresh install's page): every
         // total reads 0 and today's drink list is cleared. The default keeps the demo week below.
