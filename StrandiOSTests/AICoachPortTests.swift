@@ -42,6 +42,18 @@ final class AICoachPortTests: XCTestCase {
         XCTAssertTrue(line.contains("eff 94%"))
     }
 
+    /// AN-14 (D3): the stored calorie value is the day's TOTAL energy (resting + active), so the coach must
+    /// not be told it is active energy.
+    func testContextLabelsTheCalorieAverageAsTotalEnergy() {
+        let repo = Repository(deviceId: Repository.whoopSource)
+        repo.days = [DailyMetric(day: "2026-09-02", totalSleepMin: 420, efficiency: 0.9, deepMin: 90, remMin: 100,
+                                 lightMin: 230, disturbances: 2, restingHr: 52, avgHrv: 63, recovery: 70,
+                                 strain: 40, exerciseCount: 0, steps: 8_000, activeKcalEst: 2_300)]
+        let context = AICoachEngine(repo: repo).buildContext()
+        XCTAssertTrue(context.contains("total energy (resting + active): 2300kcal/day"), context)
+        XCTAssertFalse(context.contains("active energy:"))
+    }
+
     func testDayLineKeepsMissingSleepFieldsMissing() {
         let line = engine().dayLine(
             DailyMetric(
