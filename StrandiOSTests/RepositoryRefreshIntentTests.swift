@@ -278,6 +278,29 @@ final class RepositoryRefreshIntentTests: XCTestCase {
         XCTAssertFalse(barrier.blocksRefreshes)
     }
 
+    /// Review finding (lost wake-up): the waiter used to join the queue only after hopping off the main actor,
+    /// so a refresh ending in that gap found no waiter and opened the fence. The waiter then sat in the queue
+    /// with nobody left to grant it, `blocksRefreshes` stayed true and every later refresh was deferred.
+    func testARefreshEndingRightBehindTheWaiterStillGrantsTheFence() async throws {
+        for iteration in 0..<50 {
+            let barrier = RepositoryPublicationBarrier()
+            XCTAssertTrue(barrier.beginRefreshIfAllowed())
+            var granted: RepositoryPublicationBarrier.Ownership?
+            let owner = Task { @MainActor in granted = try await barrier.acquireExclusive() }
+            let ender = Task { @MainActor in barrier.endRefresh() }
+            await ender.value
+            for _ in 0..<1_000 where granted == nil { try await Task.sleep(nanoseconds: 1_000_000) }
+            guard let ownership = granted else {
+                XCTFail("iteration \(iteration): the refresh ended before the waiter queued; the fence is stuck")
+                owner.cancel()
+                _ = await owner.result
+                return
+            }
+            barrier.releaseExclusive(ownership)
+            XCTAssertFalse(barrier.blocksRefreshes)
+        }
+    }
+
     /// D4 safety net: a hung owner cannot freeze every typed refresh. The watchdog reclaims the hold, and the
     /// late owner's release is a no-op instead of opening a fence that a newer owner holds.
     func testWatchdogReclaimsAHungHoldAndIgnoresTheLateRelease() async throws {

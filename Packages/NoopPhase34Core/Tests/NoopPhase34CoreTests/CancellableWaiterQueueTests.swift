@@ -113,6 +113,46 @@ private func waitUntil(
     #expect(queue.isEmpty)
 }
 
+@MainActor
+private final class HandOffState {
+    var held = true
+    var waiterFinished = false
+}
+
+/// Review finding (lost wake-up): the caller checks its state on its actor and then waits. When `wait` hopped
+/// off that actor before joining the queue, a release scheduled on the same actor could run in the gap, find
+/// the queue empty and open the lock, and the late waiter then sat in the queue forever. The waiter must be
+/// queued before the caller's actor can run anything else.
+@MainActor
+@Test func aReleaseOnTheCallersActorCannotRunBetweenTheCheckAndTheAppend() async throws {
+    for iteration in 0..<100 {
+        let queue = CancellableWaiterQueue<Void>()
+        let state = HandOffState()
+        let waiter = Task { @MainActor in
+            if state.held {
+                try? await queue.wait(())
+            }
+            state.waiterFinished = true
+        }
+        let releaser = Task { @MainActor in
+            state.held = false
+            _ = queue.resumeNext()
+        }
+        await releaser.value
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(2))
+        while !state.waiterFinished, clock.now < deadline {
+            try await Task.sleep(for: .milliseconds(1))
+        }
+        let stranded = !state.waiterFinished
+        #expect(!stranded, "iteration \(iteration): the release ran before the waiter joined the queue")
+        if stranded { queue.resumeAll() }
+        _ = await waiter.value
+        #expect(queue.isEmpty)
+        if stranded { return }
+    }
+}
+
 private actor ParkedPublicationStore {
     var work: HistoricalAnalysisWork
 
