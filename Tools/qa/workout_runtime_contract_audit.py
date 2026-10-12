@@ -75,17 +75,28 @@ try:
         "acquireWorkoutRealtimeHR()",
         "releaseWorkoutRealtimeHR()",
     )
+    # The named-sport picker that is left of the old start sheet names a merged session.
     require(
         "Strand/Screens/StartWorkoutSheet.swift",
-        "dismissAfterStart",
         "private func confirm()",
     )
-    # Start is the journey's setup page: the same sheet, hosted in the full-screen cover, which advances to the live
-    # screen itself (so the sheet never dismisses after Start).
+    # Start is the journey's setup page, hosted in the full-screen cover: it advances to the countdown or the live screen
+    # itself, so it never dismisses after Start. The countdown starts the workout at zero.
     require(
         "Strand/Screens/WorkoutJourneyView.swift",
-        "StartWorkoutSheet(",
-        "dismissAfterStart: false",
+        "WorkoutSetupPage(",
+        "WorkoutCountdownView(",
+    )
+    require(
+        "Strand/Screens/WorkoutSetupPage.swift",
+        "private func start(countdown: Bool)",
+        "RecentSportsPrefs.recordSelection",
+        "WorkoutReadinessStrip(",
+    )
+    # The heart-rate trace is shown on the live screen's heart page (its section lives in LiveWorkoutSections.swift).
+    require(
+        "Strand/Screens/LiveWorkoutPages.swift",
+        "LiveWorkoutHeartSection(",
     )
     require(
         "StrandiOS/App/RootTabView.swift",

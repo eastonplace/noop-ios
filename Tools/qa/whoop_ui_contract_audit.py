@@ -37,6 +37,9 @@ LIFT_SCREEN_PREFIXES = (
     "Strand/Screens/LiveWorkout",
     "Strand/Screens/WorkoutJourney",
     "Strand/Screens/WorkoutResumeBar",
+    "Strand/Screens/WorkoutSetup",
+    "Strand/Screens/WorkoutReadiness",
+    "Strand/Screens/WorkoutCountdown",
 )
 
 # The design system itself, galleries, QA harnesses and previews legitimately use raw styling.

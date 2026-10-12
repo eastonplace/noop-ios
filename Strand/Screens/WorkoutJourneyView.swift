@@ -14,6 +14,8 @@ import WhoopStore
 enum WorkoutJourneyPhase: Equatable {
     /// Pick a sport and start. `initialSport` is the sport the picker opens on.
     case setup(initialSport: String?)
+    /// Three seconds before the workout starts; it is started at zero.
+    case countdown(sport: String)
     /// The workout is recording.
     case live
     /// The workout was saved: the screen that says how it went (the workout's detail, with Done).
@@ -21,9 +23,14 @@ enum WorkoutJourneyPhase: Equatable {
 }
 
 enum WorkoutJourneyEvent: Equatable {
+    /// Start was pressed. With the countdown on the journey moves to it; without, the host starts the workout (and reports
+    /// `workoutBecameActive`), so this leaves setup where it is.
+    case startTapped(sport: String, countdown: Bool)
+    /// Cancel on the countdown, or the phone left the foreground during it.
+    case countdownCancelled
     /// A workout is now recording.
     case workoutBecameActive
-    /// Start did nothing (a lift is in progress): stay on setup.
+    /// Start did nothing (a lift is in progress): back on, or stay on, setup.
     case startRefused
     /// The workout was saved.
     case saved(WorkoutRow)
@@ -46,13 +53,18 @@ extension WorkoutJourneyPhase {
         switch start {
         case .setup(let sport): hasActiveWorkout ? .live : .setup(initialSport: sport)
         case .live: hasActiveWorkout ? .live : .setup(initialSport: nil)
+        case .quickStart(let sport): hasActiveWorkout ? .live : .countdown(sport: sport)
         }
     }
 
     /// Pure. Every transition the journey makes; an event that does not apply to the phase leaves it where it is.
     static func reduce(_ phase: WorkoutJourneyPhase, _ event: WorkoutJourneyEvent) -> WorkoutJourneyOutcome {
         switch (phase, event) {
-        case (.setup, .workoutBecameActive):
+        case (.setup(_), .startTapped(let sport, true)):
+            return .phase(.countdown(sport: sport))
+        case (.countdown(let sport), .countdownCancelled), (.countdown(let sport), .startRefused):
+            return .phase(.setup(initialSport: sport))
+        case (.setup, .workoutBecameActive), (.countdown, .workoutBecameActive):
             return .phase(.live)
         case (.live, .saved(let row)):
             return .phase(.summary(row))
@@ -65,12 +77,18 @@ extension WorkoutJourneyPhase {
         }
     }
 
+    var isCountingDown: Bool {
+        if case .countdown = self { return true }
+        return false
+    }
+
     /// A key for the phase's kind, so a change of kind (not of its payload) is what animates.
     var kind: Int {
         switch self {
         case .setup: 0
         case .live: 1
         case .summary: 2
+        case .countdown: 3
         }
     }
 }
@@ -106,7 +124,10 @@ private struct WorkoutJourneyHost: View {
     @EnvironmentObject private var router: NavRouter
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage(WorkoutPrefs.keepScreenOnKey) private var keepScreenOn = WorkoutPrefs.keepScreenOnDefault
+    @AppStorage(WorkoutPrefs.countdownOnKey) private var countdownOn = WorkoutPrefs.countdownOnDefault
     @State private var phase: WorkoutJourneyPhase
+    /// Whether the GPS had a lock when Start was pressed, for the countdown to say.
+    @State private var gpsLockedAtStart: Bool?
 
     init(initialPhase: WorkoutJourneyPhase, onClose: @escaping () -> Void) {
         _phase = State(initialValue: initialPhase)
@@ -141,6 +162,10 @@ private struct WorkoutJourneyHost: View {
             DispatchQueue.main.async { workoutWentAway() }
         }
         .onChange(of: phase, initial: true) { _, _ in updateKeepAwake() }
+        // A quick start opens on the countdown; with the countdown turned off there is nothing to wait for.
+        .task {
+            if case .countdown(let sport) = phase, !countdownOn { start(sport) }
+        }
         .onChange(of: keepScreenOn) { _, _ in updateKeepAwake() }
         // Posted on whatever thread noticed the change; the idle timer is UIKit's, so this hops to the main thread first.
         .onReceive(NotificationCenter.default.publisher(for: .NSProcessInfoPowerStateDidChange)
@@ -151,13 +176,17 @@ private struct WorkoutJourneyHost: View {
     @ViewBuilder private var phaseRoot: some View {
         switch phase {
         case .setup(let initialSport):
-            StartWorkoutSheet(
-                purpose: .start, initialSport: initialSport, dismissAfterStart: false,
-                blockedByLift: model.workoutStartBlock == .liftActive,
-                onOpenLift: { router.openActiveLift() }
-            ) { sport in start(sport) }
+            WorkoutSetupPage(
+                initialSport: initialSport, blockedByLift: model.workoutStartBlock == .liftActive, model: model,
+                onOpenLift: { router.openActiveLift() }, onClose: onClose,
+                onStart: { sport, countdown, gpsLocked in begin(sport, countdown: countdown, gpsLocked: gpsLocked) })
+                .equatable()
+        case .countdown(let sport):
+            WorkoutCountdownView(
+                title: StartWorkoutChoices.displayTitle(for: sport), gpsLocked: gpsLockedAtStart,
+                onFinished: { start(sport) }, onCancel: { apply(.countdownCancelled) })
         case .live:
-            LiveWorkoutView(onClose: onClose)
+            LiveWorkoutView(onClose: onClose, pageMemory: router.workoutPageMemory)
         case .summary(let row):
             WorkoutDetailView(row: row)
                 .sheetScreenScaffoldEnvironment(onClose: done)
@@ -175,6 +204,18 @@ private struct WorkoutJourneyHost: View {
             if let toast { router.shellToast = toast }
             onClose()
         }
+    }
+
+    /// Start was pressed on setup: a lift in progress refuses it; the countdown, when it is on, comes first; otherwise the
+    /// workout starts now.
+    private func begin(_ sport: String, countdown: Bool, gpsLocked: Bool?) {
+        guard model.workoutStartBlock == nil else {
+            apply(.startRefused)
+            return
+        }
+        gpsLockedAtStart = gpsLocked
+        apply(.startTapped(sport: sport, countdown: countdown))
+        if !countdown { start(sport) }
     }
 
     private func start(_ sport: String) {
@@ -205,7 +246,8 @@ private struct WorkoutJourneyHost: View {
 
     /// The screen stays on while the workout is live (unless it was turned off, or Low Power Mode is on), and nowhere else.
     private func updateKeepAwake() {
-        let live = phase == .live
+        // Held awake through the countdown too: the screen must not dim between pressing Start and the clock starting.
+        let live = phase == .live || phase.isCountingDown
         ScreenIdle.keepAwake(live && WorkoutPrefs.keepsScreenOn(
             preference: keepScreenOn, lowPowerMode: ProcessInfo.processInfo.isLowPowerModeEnabled))
     }

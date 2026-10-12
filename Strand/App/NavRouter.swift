@@ -19,6 +19,8 @@ enum WorkoutJourneyStart: Equatable {
     case setup(initialSport: String?)
     /// The workout already recording.
     case live
+    /// Start this sport straight away, skipping setup: the countdown (when it is on), then the live screen.
+    case quickStart(sport: String)
 }
 
 /// One presentation of the journey: a fresh identity per request, so the cover rebuilds even for an equal start.
@@ -111,6 +113,8 @@ final class NavRouter: ObservableObject {
     /// Start a workout: the journey opens on setup. When a workout is already recording the shell opens that one instead (never
     /// a second setup).
     func beginWorkout(sport: String? = nil) { workoutJourneyRequest = .setup(initialSport: sport) }
+    /// Start a workout in `sport` without the setup page (the Quick Actions row). A workout already recording opens instead.
+    func quickStartWorkout(sport: String) { workoutJourneyRequest = .quickStart(sport: sport) }
     /// Return to the recording workout (the Today hero, the resume bar, the Live Activity, auto-present, a deep link).
     func openActiveWorkout() { workoutJourneyRequest = .live }
     /// Ask every presenter below the shell to let go of what it is presenting.
