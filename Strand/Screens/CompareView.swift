@@ -776,7 +776,10 @@ private struct CompareMetricPickerSheet: View {
     private var slotTitle: LocalizedStringKey {
         switch slot {
         case .add: return "Add a metric"
-        case .slot(let index): return index == 0 ? "Metric A" : "Metric B"
+        case .slot(let index):
+            // The rows carry the letters A and B only for a pair; with three or four metrics the title names no letter.
+            guard selected.count == 2 else { return "Replace metric" }
+            return index == 0 ? "Metric A" : "Metric B"
         }
     }
 
