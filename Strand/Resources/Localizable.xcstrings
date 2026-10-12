@@ -7297,6 +7297,12 @@
             "value": "%lld ppm"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld bpm"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -7307,6 +7313,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "%lld bpm"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld уд/мин"
           }
         },
         "zh-Hans": {
@@ -111357,6 +111369,12 @@
             "value": "Volver al entrenamiento"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Revenir à l’activité"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -111367,6 +111385,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "voltar al treino"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вернуться к тренировке"
           }
         },
         "zh-Hans": {
@@ -124671,6 +124695,12 @@
             "value": "Iniciar entrenamiento"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Démarrer une activité"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -124681,6 +124711,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Iniciar treino"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Начать тренировку"
           }
         },
         "zh-Hans": {
