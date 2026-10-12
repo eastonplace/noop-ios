@@ -127,8 +127,11 @@ final class TrendsWidgetComponentsTests: XCTestCase {
     func testAWeeklySeriesDrawsOneConnectedLineWhenTheGapLimitMatchesItsCadence() {
         let calendar = Calendar(identifier: .gregorian)
         let start = calendar.startOfDay(for: Date(timeIntervalSince1970: 1_750_000_000))
-        let days = stride(from: 0, to: 70, by: 7).map { offset in
-            CalendarMetricDay(date: calendar.date(byAdding: .day, value: offset, to: start)!, value: 70 + Double(offset % 5))
+        // The chart takes one entry per calendar day, with no value on the days nothing was recorded.
+        let days = (0..<70).map { offset in
+            CalendarMetricDay(
+                date: calendar.date(byAdding: .day, value: offset, to: start)!,
+                value: offset % 7 == 0 ? 70 + Double(offset % 5) : nil)
         }
         func chart(maxGapDays: Int?) -> TrendsHeroChart {
             let domain = start...calendar.date(byAdding: .day, value: 69, to: start)!
