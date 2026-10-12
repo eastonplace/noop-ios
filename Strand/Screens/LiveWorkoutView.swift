@@ -18,9 +18,11 @@ struct LiveWorkoutView: View {
     @EnvironmentObject private var model: AppModel
     /// Minimizes: hides the workout screen while the recording keeps running.
     let onClose: () -> Void
+    /// Where the workout's last page is kept, so a return finds the wearer on it. nil keeps none.
+    var pageMemory: WorkoutPageMemory?
 
     var body: some View {
-        LiveWorkoutScreen(model: model, workout: model.activeWorkout, onMinimize: onClose)
+        LiveWorkoutScreen(model: model, workout: model.activeWorkout, pageMemory: pageMemory, onMinimize: onClose)
             .equatable()
             .tracksWorkoutSurface()
     }
@@ -29,6 +31,7 @@ struct LiveWorkoutView: View {
 struct LiveWorkoutScreen: View, @preconcurrency Equatable {
     let model: AppModel
     let workout: AppModel.ActiveWorkout?
+    let pageMemory: WorkoutPageMemory?
     /// Not part of equality: it only flips presentation state in the host, so a fresh closure from a host re-render must not
     /// rebuild the content.
     let onMinimize: () -> Void
@@ -39,7 +42,7 @@ struct LiveWorkoutScreen: View, @preconcurrency Equatable {
 
     var body: some View {
         if let workout {
-            LiveWorkoutLayout(model: model, workout: workout, onMinimize: onMinimize)
+            LiveWorkoutLayout(model: model, workout: workout, pageMemory: pageMemory, onMinimize: onMinimize)
         } else {
             StrandPalette.appCanvas.ignoresSafeArea()
         }
@@ -49,34 +52,28 @@ struct LiveWorkoutScreen: View, @preconcurrency Equatable {
 private struct LiveWorkoutLayout: View {
     let model: AppModel
     @ObservedObject var workout: AppModel.ActiveWorkout
+    let pageMemory: WorkoutPageMemory?
     let onMinimize: () -> Void
+    @State private var showsDevices = false
 
     var body: some View {
         // Three regions, top to bottom: the header and notice (as tall as they are), the dock (as tall as its buttons, never
-        // more than a share of the screen) and, between them, the page, which gets the rest and scrolls only when it does
+        // more than a share of the screen) and, between them, the pages, which get the rest and scroll only when they do
         // not fit. `LiveWorkoutRegions` does the arithmetic, so the dock hugs its content at every size.
         LiveWorkoutRegions {
             VStack(spacing: 0) {
                 LiveWorkoutHeader(model: model, workout: workout, recorder: model.gpsRecorder, onMinimize: onMinimize)
                     .screenPadding()
-                LiveNoticeSlot(model: model, workout: workout, recorder: model.gpsRecorder)
+                LiveNoticeSlot(model: model, workout: workout, recorder: model.gpsRecorder,
+                               onManageDevices: { showsDevices = true })
                     .screenPadding()
             }
             // Above the page: the notice's expanded explanation opens over it and has to be readable and tappable.
             .zIndex(1)
-            // The page is at least as tall as the room it has: when its content is shorter, the focus number takes the
-            // difference (centred in it) instead of the screen ending in a void above the dock.
-            GeometryReader { proxy in
-                ScrollView {
-                    AtLeastHeight(minHeight: proxy.size.height) {
-                        LiveFocusPage(workout: workout, recorder: model.gpsRecorder, profile: model.profile,
-                                      live: model.live)
-                            .screenPadding()
-                            .padding(.vertical, NoopMetrics.space2)
-                    }
-                }
-                .scrollBounceBehavior(.basedOnSize)
-            }
+            // The pages, side by side, with the dots under them. Each page is at least as tall as the room it has, so the
+            // focus number takes the difference (centred in it) instead of the screen ending in a void above the dock.
+            LiveWorkoutPager(model: model, workout: workout, recorder: model.gpsRecorder, pageMemory: pageMemory,
+                             onManageDevices: { showsDevices = true })
             WorkoutLiveDock(model: model, workout: workout, recorder: model.gpsRecorder)
                 .screenPadding()
                 .padding(.top, NoopMetrics.space3)
@@ -87,12 +84,16 @@ private struct LiveWorkoutLayout: View {
                 }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // The zone's colour, faintly, from the top edge down: one wash behind the header and the page, so it has no edge.
+        .background { LiveZoneWash(workout: workout, profile: model.profile).ignoresSafeArea() }
         .background(StrandPalette.appCanvas.ignoresSafeArea())
         // VoiceOver's two-finger scrub minimizes, as it dismisses a sheet: from wherever focus is on the screen, not only the
         // header. Unavailable while a save runs, like the Minimize button.
         .accessibilityAction(.escape) { if model.workoutFinishState != .saving { onMinimize() } }
         .onAppear { model.startRealtimeHR() }
         .onDisappear { model.stopRealtimeHR() }
+        // Manage devices, from the heart page: a sheet inside the cover, not a second full-screen surface.
+        .sheet(isPresented: $showsDevices) { WorkoutDevicesSheet(onClose: { showsDevices = false }) }
     }
 }
 
@@ -104,7 +105,7 @@ private struct LiveWorkoutLayout: View {
 /// proposed the height that is left and scrolls its own text or buttons. The page takes everything the dock does not.
 private struct LiveWorkoutRegions: Layout {
     /// The page's least height: the focus eyebrow, the numeral and the air round them.
-    static let minimumPage: CGFloat = 220
+    static let minimumPage: CGFloat = 236
     /// The dock always keeps at least this share of the height, so a very short screen still shows its buttons.
     static let minimumDockShare: CGFloat = 0.35
 
@@ -126,23 +127,6 @@ private struct LiveWorkoutRegions: Layout {
                           proposal: ProposedViewSize(width: width, height: page))
         subviews[2].place(at: CGPoint(x: bounds.minX, y: bounds.maxY - dock), anchor: .topLeading,
                           proposal: ProposedViewSize(width: width, height: dock))
-    }
-}
-
-/// Makes its one child at least `minHeight` tall: the child is offered the whole height when it is shorter, so its flexible
-/// parts (the focus number's region) grow into the room, and its own height when it is taller (then the scroll view scrolls).
-private struct AtLeastHeight: Layout {
-    let minHeight: CGFloat
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        guard let child = subviews.first else { return .zero }
-        let natural = child.sizeThatFits(ProposedViewSize(width: proposal.width, height: nil))
-        return CGSize(width: proposal.width ?? natural.width, height: max(natural.height, minHeight))
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        subviews.first?.place(at: bounds.origin, anchor: .topLeading,
-                              proposal: ProposedViewSize(width: bounds.width, height: bounds.height))
     }
 }
 

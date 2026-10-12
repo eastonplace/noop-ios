@@ -83,6 +83,37 @@ enum LiveWorkoutGlance {
         Array([Metric.strain, .calories, .averageHeartRate].filter { !shown.contains($0) }.prefix(2))
     }
 
+    /// What a metric is called ("Avg pace"), for a menu that lists metrics without a value to read the name from.
+    static func name(of metric: Metric) -> String {
+        switch metric {
+        case .time: String(localized: "Time")
+        case .distance: String(localized: "Distance")
+        case .pace: String(localized: "Avg pace")
+        case .speed: String(localized: "Avg speed")
+        case .heartRate: String(localized: "Heart rate")
+        case .strain: String(localized: "Strain")
+        case .calories: String(localized: "Calories")
+        case .averageHeartRate: String(localized: "Avg HR")
+        }
+    }
+
+    // MARK: Chosen focus
+
+    /// The big number the wearer picked, kept per kind of sport so what they want from a run is not forced on a strength
+    /// session. Stored as the metric's raw value; anything unrecognised is no choice.
+    enum FocusPreference {
+        static func key(for sportClass: SportClass) -> String { "workoutFocus.\(sportClass.rawValue)" }
+
+        static func metric(from raw: String) -> Metric? { Metric(rawValue: raw) }
+
+        /// What the wearer may pick: every number the class's own screen already shows, in the order it shows them, so a
+        /// choice never brings a number onto the screen that was not there or takes one off it.
+        static func choices(for sportClass: SportClass) -> [Metric] {
+            let layout = LiveWorkoutGlance.layout(for: sportClass)
+            return [layout.focus] + layout.secondaries + layout.footer
+        }
+    }
+
     // MARK: Values
 
     static func value(_ metric: Metric, input: LiveWorkoutTiles.Input, elapsed: TimeInterval, strain: LiveStrainState,

@@ -76,6 +76,25 @@ final class LiveWorkoutGlanceTests: XCTestCase {
         XCTAssertEqual(G.layout(for: .routePace, chosenFocus: .distance), G.layout(for: .routePace))
     }
 
+    func testTheChoiceIsKeptPerKindOfSportAndOnlyOffersWhatTheScreenShows() {
+        XCTAssertEqual(Set([G.SportClass.routePace, .routeSpeed, .indoor].map(G.FocusPreference.key(for:))).count, 3)
+        XCTAssertEqual(G.FocusPreference.key(for: .routePace), "workoutFocus.routePace")
+        XCTAssertEqual(G.FocusPreference.choices(for: .routePace), [.distance, .time, .pace, .strain, .calories])
+        XCTAssertEqual(G.FocusPreference.choices(for: .indoor), [.time, .heartRate, .strain, .calories, .averageHeartRate])
+        for sportClass in [G.SportClass.routePace, .routeSpeed, .indoor] {
+            for metric in G.FocusPreference.choices(for: sportClass) {
+                XCTAssertEqual(G.layout(for: sportClass, chosenFocus: metric).focus, metric,
+                               "\(sportClass): every offered choice becomes the focus")
+            }
+        }
+    }
+
+    func testAStoredChoiceThatIsNotAMetricIsNoChoice() {
+        XCTAssertEqual(G.FocusPreference.metric(from: "pace"), .pace)
+        XCTAssertNil(G.FocusPreference.metric(from: ""))
+        XCTAssertNil(G.FocusPreference.metric(from: "vo2max"))
+    }
+
     // MARK: Values
 
     private func input(_ sport: String = "Running", route: Bool = true, meters: Double = 0, pace: Double? = nil,
@@ -237,12 +256,30 @@ final class LiveWorkoutSlotNoticeTests: XCTestCase {
         XCTAssertEqual(Notice.gpsGap.tone, .neutral)
         XCTAssertEqual(Notice.durability.tone, .warning)
         XCTAssertTrue(Notice.gpsGap.hasLongExplanation)
-        XCTAssertFalse(Notice.heartRate.hasLongExplanation)
+        XCTAssertTrue(Notice.heartRate.hasLongExplanation)
     }
 
     func testEveryNoticeHasWordsForTheScreenAndForVoiceOver() {
         for notice in Notice.allCases {
             XCTAssertFalse(notice.spoken.isEmpty, "\(notice)")
+        }
+    }
+
+    /// Tapping a pill opens its explanation: the model's own text for the two it keeps, a text here for the others, and an
+    /// action only where there is something to do about it.
+    func testEveryNoticeExplainsItselfAndOffersTheRightAction() {
+        for notice in Notice.allCases {
+            if notice == .durability || notice == .gpsGap {
+                XCTAssertNil(notice.explanation, "\(notice): the model keeps this text")
+            } else {
+                XCTAssertFalse(notice.explanation?.isEmpty ?? true, "\(notice)")
+            }
+        }
+        XCTAssertEqual(Notice.heartRate.action, .manageDevices)
+        XCTAssertEqual(Notice.noStrap.action, .manageDevices)
+        XCTAssertEqual(Notice.locationOff.action, .openSettings)
+        for notice in [Notice.durability, .gpsLost, .gpsWeak, .gpsSearching, .gpsGap] {
+            XCTAssertNil(notice.action, "\(notice)")
         }
     }
 }

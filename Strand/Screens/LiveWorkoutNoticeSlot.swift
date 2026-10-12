@@ -64,8 +64,42 @@ enum LiveWorkoutSlotNotice: Equatable, Sendable, CaseIterable {
     /// Everything here asks for a look except the restore, which is only to be known.
     var tone: StrandTone { self == .gpsGap ? .neutral : .warning }
 
-    /// Tapping the pill opens the longer message the model keeps (`workoutDurabilityWarning`).
-    var hasLongExplanation: Bool { self == .durability || self == .gpsGap }
+    /// Every notice has a longer message: the model's own for the two it keeps (`workoutDurabilityWarning`), the rest below.
+    var hasLongExplanation: Bool { true }
+
+    /// What a tap on the pill can offer to do about it.
+    enum Action: Equatable, Sendable {
+        case manageDevices
+        case openSettings
+    }
+
+    /// The longer message, for the notices whose text does not come from the model. nil for the two that do.
+    var explanation: String? {
+        switch self {
+        case .durability, .gpsGap: nil
+        case .heartRate:
+            String(localized: "The strap has stopped sending heart rate. Check that it is worn snugly and within range. NOOP keeps recording.")
+        case .gpsLost:
+            String(localized: "GPS has had no fix for a while. NOOP keeps recording, and where there was no fix the route has a gap.")
+        case .gpsWeak:
+            String(localized: "The GPS fix is weak, so distance and pace may be less exact until it improves.")
+        case .gpsSearching:
+            String(localized: "NOOP is still looking for a GPS fix. The route starts as soon as it finds one.")
+        case .noStrap:
+            String(localized: "No strap has connected to this workout. Without heart rate, NOOP may have nothing to save for this sport.")
+        case .locationOff:
+            String(localized: "Location is off for NOOP, so this workout records no route and no distance. Turn it on in Settings to record one next time.")
+        }
+    }
+
+    /// The one thing worth offering with the explanation.
+    var action: Action? {
+        switch self {
+        case .heartRate, .noStrap: .manageDevices
+        case .locationOff: .openSettings
+        case .durability, .gpsLost, .gpsWeak, .gpsSearching, .gpsGap: nil
+        }
+    }
 
     /// The same words as plain text, for the one announcement VoiceOver makes when the notice appears.
     var spoken: String {
@@ -88,23 +122,27 @@ struct LiveNoticeSlot: View {
     @ObservedObject var model: AppModel
     @ObservedObject var workout: AppModel.ActiveWorkout
     @ObservedObject var recorder: GpsWorkoutRecorder
+    /// Opens the device manager (a sheet in the journey's cover) for the notices that offer it.
+    var onManageDevices: () -> Void = {}
     @ScaledMetric(relativeTo: .caption) private var slotHeight: CGFloat = 28
-    @State private var expanded = false
+    @Environment(\.openURL) private var openURL
+    @State private var expanded: LiveWorkoutSlotNotice?
     @State private var collapseTask: Task<Void, Never>?
 
     var body: some View {
         LiveWorkoutSignalReader(workout: workout, recorder: recorder, live: model.live) { signals in
             let pending = LiveWorkoutSlotNotice.pending(inputs(signals))
-            pill(pending)
+            ZStack(alignment: .topLeading) {
+                pill(pending)
+                // The card is there only while what it explains is: when the notice goes, so does it.
+                if let notice = expanded, pending.first == notice {
+                    explanation(notice)
+                        .transition(.opacity)
+                }
+            }
         }
         .frame(minHeight: slotHeight, alignment: .leading)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .overlay(alignment: .topLeading) {
-            if expanded, let warning = model.workoutDurabilityWarning {
-                explanation(warning)
-                    .transition(.opacity)
-            }
-        }
         .animation(.easeInOut(duration: 0.2), value: expanded)
         .onDisappear { collapseTask?.cancel() }
     }
@@ -124,14 +162,10 @@ struct LiveNoticeSlot: View {
     @ViewBuilder private func pill(_ pending: [LiveWorkoutSlotNotice]) -> some View {
         if let first = pending.first {
             HStack(spacing: NoopMetrics.space2) {
-                if first.hasLongExplanation {
-                    // The pill is about 23 pt tall; the tap area reaches the 44 pt a moving thumb needs.
-                    Button { toggleExpanded() } label: { StatePill(first.title, tone: first.tone).chipHitTarget() }
-                        .buttonStyle(.plain)
-                        .accessibilityHint("Shows the full message")
-                } else {
-                    StatePill(first.title, tone: first.tone)
-                }
+                // The pill is about 23 pt tall; the tap area reaches the 44 pt a moving thumb needs.
+                Button { toggle(first) } label: { StatePill(first.title, tone: first.tone).chipHitTarget() }
+                    .buttonStyle(.plain)
+                    .accessibilityHint("Shows the full message")
                 if pending.count > 1 {
                     WidgetChip(verbatimTitle: "+\(pending.count - 1)", showsChevron: false)
                         .accessibilityLabel(Text("More notices: \(pending.count - 1)"))
@@ -149,28 +183,65 @@ struct LiveNoticeSlot: View {
         AccessibilityNotification.Announcement(notice.spoken).post()
     }
 
-    private func toggleExpanded() {
-        expanded.toggle()
+    private func toggle(_ notice: LiveWorkoutSlotNotice) {
         collapseTask?.cancel()
-        guard expanded else { return }
+        guard expanded != notice else {
+            expanded = nil
+            return
+        }
+        expanded = notice
         collapseTask = Task { @MainActor in
             do { try await Task.sleep(for: .seconds(6)) } catch { return }
-            expanded = false
+            expanded = nil
         }
     }
 
-    private func explanation(_ text: String) -> some View {
-        Button { toggleExpanded() } label: {
-            Text(verbatim: text)
-                .font(StrandFont.footnote)
-                .foregroundStyle(StrandPalette.textPrimary)
-                .multilineTextAlignment(.leading)
-                .fixedSize(horizontal: false, vertical: true)
-                .widgetCardSurface(tint: .neutral, padding: NoopMetrics.space3)
+    private func collapse() {
+        collapseTask?.cancel()
+        expanded = nil
+    }
+
+    /// The text of the open notice: its own, or the model's for the two it keeps.
+    private func text(of notice: LiveWorkoutSlotNotice) -> String? {
+        notice.explanation ?? model.workoutDurabilityWarning
+    }
+
+    @ViewBuilder private func explanation(_ notice: LiveWorkoutSlotNotice) -> some View {
+        if let text = text(of: notice) {
+            VStack(alignment: .leading, spacing: NoopMetrics.space3) {
+                Text(verbatim: text)
+                    .font(StrandFont.footnote)
+                    .foregroundStyle(StrandPalette.textPrimary)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let action = notice.action {
+                    Button { perform(action) } label: { Text(verbatim: actionTitle(action)) }
+                        .buttonStyle(SecondaryPillButtonStyle())
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .widgetCardSurface(tint: .neutral, padding: NoopMetrics.space3)
+            // Tapping the card itself closes it; the action keeps its own tap.
+            .onTapGesture { collapse() }
+            .offset(y: slotHeight)
+            .zIndex(1)
         }
-        .buttonStyle(.plain)
-        .offset(y: slotHeight)
-        .zIndex(1)
+    }
+
+    private func actionTitle(_ action: LiveWorkoutSlotNotice.Action) -> String {
+        switch action {
+        case .manageDevices: String(localized: "Manage devices")
+        case .openSettings: String(localized: "Open Settings")
+        }
+    }
+
+    private func perform(_ action: LiveWorkoutSlotNotice.Action) {
+        collapse()
+        switch action {
+        case .manageDevices: onManageDevices()
+        case .openSettings:
+            if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
+        }
     }
 }
 

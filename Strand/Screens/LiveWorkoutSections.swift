@@ -19,19 +19,30 @@ struct LiveWorkoutSignalReader<Content: View>: View {
     /// The strap's link, read at each tick (never observed): with it the snapshot can tell a strap that went quiet from one
     /// that never connected. nil leaves `strapNeverConnected` false.
     var live: LiveState?
+    /// A page that is not on screen has no clock: it draws what is true now, once, and is redrawn when something it shows
+    /// changes. Only the page being looked at ticks.
+    var isVisible = true
     @ViewBuilder let content: (LiveWorkoutSignals.Snapshot) -> Content
 
     var body: some View {
-        let tracksRoute = recorder.isRecording && recorder.canRecordRoute
-        TimelineView(.periodic(from: .now, by: 2)) { context in
-            content(LiveWorkoutSignals.Snapshot(
-                heartRateIsStale: LiveWorkoutSignals.heartRateIsStale(
-                    lastReadingAt: workout.lastReadingAt, workoutStart: workout.start,
-                    isPaused: workout.isPaused, isEnding: workout.isEnding, now: context.date),
-                gps: tracksRoute ? recorder.signalState(now: context.date) : nil,
-                strapNeverConnected: live.map { workout.lastReadingAt == nil && !$0.connected } ?? false,
-                locationIsOff: recorder.isRecording && !recorder.canRecordRoute))
+        if isVisible {
+            TimelineView(.periodic(from: .now, by: 2)) { context in
+                content(snapshot(at: context.date))
+            }
+        } else {
+            content(snapshot(at: Date()))
         }
+    }
+
+    private func snapshot(at now: Date) -> LiveWorkoutSignals.Snapshot {
+        let tracksRoute = recorder.isRecording && recorder.canRecordRoute
+        return LiveWorkoutSignals.Snapshot(
+            heartRateIsStale: LiveWorkoutSignals.heartRateIsStale(
+                lastReadingAt: workout.lastReadingAt, workoutStart: workout.start,
+                isPaused: workout.isPaused, isEnding: workout.isEnding, now: now),
+            gps: tracksRoute ? recorder.signalState(now: now) : nil,
+            strapNeverConnected: live.map { workout.lastReadingAt == nil && !$0.connected } ?? false,
+            locationIsOff: recorder.isRecording && !recorder.canRecordRoute)
     }
 }
 

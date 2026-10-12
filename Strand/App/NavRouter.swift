@@ -75,6 +75,9 @@ final class NavRouter: ObservableObject {
     /// cover can present at the root. A presenter applies `collapsesForWorkoutJourney(_:)` to its binding to follow it.
     @Published private(set) var modalCollapseGeneration = 0
 
+    /// The live screen's page each workout was last on, by session. Not published: nothing is drawn from it.
+    let workoutPageMemory = WorkoutPageMemory()
+
     /// Set by the lift Live Activity deep link (`noop://lift/active`). The iOS shell presents the Lift flow
     /// (which resumes an active session on its own), then resets this to false.
     @Published var activeLiftRequested = false
