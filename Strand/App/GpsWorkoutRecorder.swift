@@ -556,6 +556,10 @@ final class GpsWorkoutRecorder: NSObject, ObservableObject {
         return routePoints
     }
 
+    /// Whether `capturedRoute()` would return a route: some one segment holds two points. The same test the save applies, so
+    /// "would this workout save" never says yes for two fixes that were never joined (one before a pause, one after).
+    var hasDrawableRoute: Bool { segments.contains { $0.count >= 2 } }
+
     /// The encoded polyline + distance for the captured route, or nil when fewer than two points landed
     /// (honest: no route drawn unless points were actually captured). Used by `AppModel` to persist via
     /// `RouteStore` when the session ends.

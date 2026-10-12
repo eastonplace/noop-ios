@@ -103,6 +103,44 @@ final class AppModelWorkoutJourneyTests: XCTestCase {
         XCTAssertNil(ActiveGpsWorkoutPersistence.load())
     }
 
+    // MARK: Nothing to save, then Keep recording
+
+    /// End finds nothing to save: the workout carries on, so the route recorder must still be recording when it does.
+    /// (It used to be stopped before the evidence check, and Keep recording resumed a workout that had no route.)
+    func testAnEndWithNothingToSaveLeavesTheRouteRecorderRunning() async {
+        let m = model(.running)
+        m.activeWorkout?.restore(samples: [], pauses: WorkoutPauseLedger())
+        m.gpsRecorder.seedDemoRoute(points: [], elapsedSeconds: 600, paused: true)
+        XCTAssertTrue(m.activeWorkoutIsGps)
+        XCTAssertTrue(m.gpsRecorder.isRecording)
+        XCTAssertFalse(m.workoutWouldSave)
+
+        let result = await m.endWorkout()
+        guard case .failure(.insufficientEvidence) = result else { return XCTFail("expected nothing to save: \(result)") }
+        XCTAssertTrue(m.finishNeedsMoreEvidence)
+        XCTAssertTrue(m.gpsRecorder.isRecording, "Keep recording must find the recorder still recording")
+        XCTAssertNotNil(m.activeWorkout)
+    }
+
+    func testResumingFromElsewhereClearsNothingToSaveSoPauseIsOfferedAgain() {
+        let m = model(.nothingToSave)
+        XCTAssertTrue(m.finishNeedsMoreEvidence)
+        XCTAssertTrue(m.setWorkoutPaused(false), "the resume bar or the Lock Screen resumes it")
+        XCTAssertFalse(m.finishNeedsMoreEvidence)
+        XCTAssertEqual(m.workoutFinishState, .recording)
+    }
+
+    /// "Would this save" is the save's own rule: two points in ONE segment. Two fixes either side of a pause are two
+    /// segments, and `capturedRoute()` drops both.
+    func testTwoFixesInSeparateSegmentsWouldNotSave() {
+        let m = model(.pausedNothing)
+        m.activeWorkout?.restore(samples: [], pauses: WorkoutPauseLedger())
+        m.gpsRecorder.seedDemoRoute(points: [RouteMath.LatLng(40.0, -73.0)], elapsedSeconds: 60, paused: true)
+        XCTAssertEqual(m.gpsRecorder.pointCount, 1)
+        XCTAssertFalse(m.gpsRecorder.hasDrawableRoute)
+        XCTAssertFalse(m.workoutWouldSave)
+    }
+
     func testDiscardWithNothingRecordingDoesNothing() {
         XCTAssertFalse(AppModel().discardWorkout())
     }

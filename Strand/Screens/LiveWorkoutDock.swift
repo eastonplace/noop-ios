@@ -154,7 +154,7 @@ struct WorkoutLiveDock: View {
 
     private var previewText: String {
         var parts = [String(localized: "Saves \(LiveWorkoutTiles.elapsedText(workout.activeElapsed()))")]
-        if model.activeWorkoutIsGps, recorder.pointCount >= 2, recorder.distanceM > 0 {
+        if model.activeWorkoutIsGps, recorder.hasDrawableRoute, recorder.distanceM > 0 {
             // The same text as the page's distance and the resume bar (locale decimal separator, the chosen unit).
             let imperial = unitSystemRaw == UnitSystem.imperial.rawValue
             let distance = LiveWorkoutTiles.distanceText(meters: recorder.distanceM, imperial: imperial)

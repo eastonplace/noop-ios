@@ -2225,6 +2225,9 @@ final class AppModel: ObservableObject {
 
     /// A workout whose End was tried and has not completed (the save failed) is frozen at the moment it ended: it can be
     /// ended again, not paused or resumed.
+        // "Nothing to save yet" describes the moment End was held. Once the workout is paused or resumed again (from the
+        // screen, the resume bar or the Lock Screen) it is no longer true, and the dock must offer Pause again.
+        acknowledgeFinishState()
     var isWorkoutFinishPending: Bool { pendingWorkoutSnapshot != nil }
 
     /// What stops a workout from starting now, or nil when one can. Mirrors the guard in `startWorkout(sport:)`, so a
@@ -2235,10 +2238,11 @@ final class AppModel: ObservableObject {
         return nil
     }
 
-    /// Whether ending the workout in flight right now would save one: it has two heart-rate readings or a recorded route.
-    /// The same gate `endWorkout()` applies, so the paused screen can say what End will do before it is held.
+    /// Whether ending the workout in flight right now would save one: it has two heart-rate readings or a recorded route (two
+    /// points in one segment). The same gate `endWorkout()` applies, so the paused screen can say what End will do before
+    /// it is held.
     var workoutWouldSave: Bool {
-        (activeWorkout?.samples.count ?? 0) >= 2 || (activeWorkoutIsGps && gpsRecorder.pointCount >= 2)
+        (activeWorkout?.samples.count ?? 0) >= 2 || (activeWorkoutIsGps && gpsRecorder.hasDrawableRoute)
     }
 
     /// End was held and there was nothing to save: no heart rate and no route. The workout is still the one in progress.
@@ -2543,27 +2547,17 @@ final class AppModel: ObservableObject {
             pendingWorkoutWasGps = activeWorkoutIsGps
         }
         let wasGps = pendingWorkoutWasGps
-        // #524: finalize the GPS route. Stop the recorder and take its captured route , it kept
-        // accumulating from CoreLocation independently of the HR window. `capturedRoute()` is nil unless
-        // ≥2 points actually landed (honest: no route, no distance, when nothing was captured , e.g. a
-        // Mac with no GPS, or denied permission). A non-GPS session never armed the recorder.
-        if wasGps && pendingWorkoutRoute == nil {
-            gpsRecorder.stop()
-            if !ActiveGpsWorkoutPersistence.flushPendingWrites() {
-                gpsSnapshotDurabilityFailed = true
-                refreshWorkoutDurabilityWarning()
-            }
-            pendingWorkoutRoute = gpsRecorder.capturedRoute()
-        }
-        let route = pendingWorkoutRoute
         let samples = w.samples
         // Save when there's an HR window OR a real GPS route , a GPS-only walk (HR not streaming) is
         // still a workout (parity with Android's `samples.size < 2 && track.size < 2` discard gate).
-        guard samples.count >= 2 || route != nil else {
+        // Decided BEFORE the recorder is touched: a workout with nothing in it carries on (Keep recording), and a recorder
+        // that End had already stopped would leave it without a route and without a background location session.
+        let hasRoute = pendingWorkoutRoute != nil || (wasGps && gpsRecorder.hasDrawableRoute)
+        guard samples.count >= 2 || hasRoute else {
             // Workouts & GPS test mode: record WHY a session vanished (too short / no route), tagged `.workouts`.
             emitWorkoutsTrace(WorkoutsTrace.sessionLine(
                 event: "discarded", sportKey: WorkoutSource.traceSportKey(w.sport),
-                hrSamples: samples.count, gpsPoints: route == nil ? 0 : nil))
+                hrSamples: samples.count, gpsPoints: 0))
             lastWorkout = nil
             // Nothing to save: the workout is still the one in progress, so its clocks run again.
             current.freeze(at: nil)
@@ -2632,6 +2626,19 @@ final class AppModel: ObservableObject {
             releaseWorkoutRealtimeHR()
             activeWorkoutIsGps = false
             workoutSnapshotDurabilityFailed = false
+        // #524: finalize the GPS route. Stop the recorder and take its captured route , it kept
+        // accumulating from CoreLocation independently of the HR window. `capturedRoute()` is nil unless
+        // ≥2 points actually landed (honest: no route, no distance, when nothing was captured , e.g. a
+        // Mac with no GPS, or denied permission). A non-GPS session never armed the recorder.
+        if wasGps && pendingWorkoutRoute == nil {
+            gpsRecorder.stop()
+            if !ActiveGpsWorkoutPersistence.flushPendingWrites() {
+                gpsSnapshotDurabilityFailed = true
+                refreshWorkoutDurabilityWarning()
+            }
+            pendingWorkoutRoute = gpsRecorder.capturedRoute()
+        }
+        let route = pendingWorkoutRoute
             gpsSnapshotDurabilityFailed = false
             gpsHadTerminatedGap = false
             refreshWorkoutDurabilityWarning()

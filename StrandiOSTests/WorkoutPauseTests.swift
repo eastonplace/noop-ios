@@ -340,6 +340,25 @@ final class GpsPauseTests: XCTestCase {
         XCTAssertEqual(recorder.routePoints.count, pointsBefore)
     }
 
+    /// One fix before a pause and one after are two segments of one point each: a route of two points that was never
+    /// joined. The save drops both, so "a route was recorded" must not count them.
+    func testFixesEitherSideOfAPauseAreNotADrawableRoute() {
+        let (recorder, manager, _) = makeRecorder()
+        recorder.start(startMs: 1_700_000_000_000)
+        deliver(recorder, manager, fix(lat(0)))
+        recorder.setPaused(true)
+        recorder.setPaused(false)
+        deliver(recorder, manager, fix(lat(40)))
+        XCTAssertEqual(recorder.pointCount, 2)
+        XCTAssertEqual(recorder.routeSegments.map(\.count), [1, 1])
+        XCTAssertFalse(recorder.hasDrawableRoute)
+        XCTAssertNil(recorder.capturedRoute())
+
+        deliver(recorder, manager, fix(lat(41)))
+        XCTAssertTrue(recorder.hasDrawableRoute)
+        XCTAssertNotNil(recorder.capturedRoute())
+    }
+
     func testResumeNeverBridgesTheGapWithADistanceOrALine() {
         let (recorder, manager, _) = makeRecorder()
         recorder.start(startMs: 1_700_000_000_000)
