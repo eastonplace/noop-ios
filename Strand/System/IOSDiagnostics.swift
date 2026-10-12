@@ -195,13 +195,13 @@ struct IOSDiagnostics {
              Self.backgroundRefreshText(UIApplication.shared.backgroundRefreshStatus))
         }
         return IOSDiagnostics(
-            deviceModel: Self.machineIdentifier(),
+            deviceModel: Self.cachedMachineIdentifier,
             osVersionString: ProcessInfo.processInfo.operatingSystemVersionString,
             isProtectedDataAvailable: protectedData,
             backgroundRefresh: backgroundRefresh,
             isLowPowerMode: ProcessInfo.processInfo.isLowPowerModeEnabled,
-            isSideloaded: Self.isSideloadedBuild(),
-            sideloadExpiry: Self.provisioningExpiryDate()
+            isSideloaded: Self.cachedIsSideloaded,
+            sideloadExpiry: Self.cachedSideloadExpiry
         )
         #elseif os(macOS)
         return IOSDiagnostics(
@@ -294,6 +294,12 @@ struct IOSDiagnostics {
     // MARK: - iOS-only probes
 
     #if os(iOS)
+
+    /// CC-9: launch constants, read once. `capture()` runs on every Settings body evaluation, and used to
+    /// re-read and re-parse `embedded.mobileprovision` each time; only the volatile fields are re-read now.
+    private static let cachedMachineIdentifier = machineIdentifier()
+    private static let cachedIsSideloaded = isSideloadedBuild()
+    private static let cachedSideloadExpiry = provisioningExpiryDate()
 
     /// The hardware model identifier (e.g. "iPhone16,2", "iPad14,1") via `uname` → `utsname.machine`.
     /// On the Simulator this returns the host arch (e.g. "arm64"); harmless for diagnostics.
