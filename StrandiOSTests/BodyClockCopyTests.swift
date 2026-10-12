@@ -2,6 +2,7 @@ import XCTest
 @testable import NOOP
 
 /// The body-clock headline reads minutes below an hour and hours and minutes from an hour up.
+@MainActor
 final class BodyClockCopyTests: XCTestCase {
     func testAnHourOrMoreReadsInHours() {
         XCTAssertEqual(BodyClockCard.durationText(minutes: 194), "3 h 14 min")
