@@ -1705,6 +1705,15 @@ public final class BLEManager: NSObject, ObservableObject {
                    confirmedPurpose: confirmedWritePurpose(for: command),
                    command: command.rawValue,
                    requestSequence: seq)
+        // BLE-10: throttle WHOOP 4 history ACK lines the way the 5/MG path already does (one per chunk
+        // flooded the strap log during a long offload).
+        if command == .historicalDataResult {
+            historicalAckLogCounter += 1
+            if historicalAckLogCounter == 1 || historicalAckLogCounter.isMultiple(of: 25) {
+                log("→ \(command.label) ack #\(historicalAckLogCounter) payload=\(hex(payload))")
+            }
+            return
+        }
         log("→ \(command.label) payload=\(hex(payload))")
     }
 

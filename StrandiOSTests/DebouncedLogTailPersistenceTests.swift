@@ -29,7 +29,7 @@ final class DebouncedLogTailPersistenceTests: XCTestCase {
             persist: { writes.append($0) }
         )
         for index in 0..<500 { persistence.append("line \(index)") }
-        try await Task.sleep(for: .milliseconds(100))
+        try await waitForWrites(writes, count: 1)   // ORG-8: wait on the write, not a fixed 100 ms sleep
         XCTAssertEqual(writes.values.count, 1)
         XCTAssertEqual(writes.values[0].count, 100)
         XCTAssertEqual(writes.values[0].first, "line 400")
