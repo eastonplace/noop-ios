@@ -158,6 +158,7 @@ struct HeartRateSection: View {
                 HStack(spacing: NoopMetrics.space2) {
                     heart
                     Text("Live Heart Rate").strandOverlineFitted().lineLimit(3)
+                        .accessibilityAddTraits(.isHeader)
                 }
                 pill
             }
@@ -165,6 +166,7 @@ struct HeartRateSection: View {
             HStack(spacing: NoopMetrics.space2) {
                 heart
                 Text("Live Heart Rate").strandOverline().lineLimit(1)
+                    .accessibilityAddTraits(.isHeader)
                 Spacer(minLength: NoopMetrics.space2)
                 pill
             }
