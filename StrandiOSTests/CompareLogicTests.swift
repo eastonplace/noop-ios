@@ -29,6 +29,39 @@ final class CompareLogicTests: XCTestCase {
         XCTAssertEqual(CompareLogic.slice(series, days: 14).count, 6)
     }
 
+    func testTheSpanIsFromTheEarliestFirstToTheLatestLastReading() {
+        let a = rows(["2025-01-01", "2025-06-01"])
+        let b = rows(["2024-12-30", "2025-02-01"])
+        XCTAssertEqual(CompareLogic.spanDays([a, b]), 153)
+        XCTAssertEqual(CompareLogic.spanDays([a]), 151)
+        XCTAssertEqual(CompareLogic.spanDays([]), 0)
+        let unreadable: [Row] = [("not-a-day", 1)]
+        XCTAssertEqual(CompareLogic.spanDays([unreadable]), 0)
+    }
+
+    /// A day read off a long window, or from another year, carries its year; a day this year on a short window does not.
+    func testTheYearIsShownOnALongWindowOrForADayFromAnotherYear() {
+        let gregorian = Calendar(identifier: .gregorian)
+        let now = gregorian.date(from: DateComponents(year: 2026, month: 10, day: 12, hour: 12))!
+        let thisYear = gregorian.date(from: DateComponents(year: 2026, month: 3, day: 1, hour: 12))!
+        let lastYear = gregorian.date(from: DateComponents(year: 2025, month: 10, day: 12, hour: 12))!
+        XCTAssertFalse(CompareLogic.showsYear(for: thisYear, spanDays: 90, now: now, calendar: gregorian))
+        XCTAssertTrue(CompareLogic.showsYear(for: lastYear, spanDays: 90, now: now, calendar: gregorian))
+        XCTAssertTrue(CompareLogic.showsYear(for: thisYear, spanDays: 366, now: now, calendar: gregorian))
+        XCTAssertFalse(CompareLogic.showsYear(for: thisYear, spanDays: 365, now: now, calendar: gregorian))
+    }
+
+    /// The year check follows the calendar the date is shown in: 1 March 2026 is in Persian year 1404 and 12 October 2026
+    /// in 1405, so it names its year although both are 2026 in the Gregorian calendar.
+    func testTheYearCheckUsesTheCalendarTheDateIsShownIn() {
+        let gregorian = Calendar(identifier: .gregorian)
+        let persian = Calendar(identifier: .persian)
+        let now = gregorian.date(from: DateComponents(year: 2026, month: 10, day: 12, hour: 12))!
+        let march = gregorian.date(from: DateComponents(year: 2026, month: 3, day: 1, hour: 12))!
+        XCTAssertFalse(CompareLogic.showsYear(for: march, spanDays: 30, now: now, calendar: gregorian))
+        XCTAssertTrue(CompareLogic.showsYear(for: march, spanDays: 30, now: now, calendar: persian))
+    }
+
     func testAnEmptySeriesAndAnUnreadableLastKeySliceToNothing() {
         XCTAssertTrue(CompareLogic.slice([], days: 7).isEmpty)
         XCTAssertTrue(CompareLogic.slice([("2026-13-40", 1)], days: 7).isEmpty)

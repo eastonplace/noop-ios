@@ -407,6 +407,7 @@ struct CompareView: View {
     @ViewBuilder
     private func overlaySection(_ series: [ResolvedCompareSeries]) -> some View {
         let shown = series.filter { !$0.rows.isEmpty }
+        let spanDays = CompareLogic.spanDays(shown.map(\.rows))
         let caption = rangeCaption(series)
         FlatSection(
             "Overlay", systemImage: "waveform.path.ecg", tint: .accent,
@@ -414,7 +415,7 @@ struct CompareView: View {
         ) {
             VStack(alignment: .leading, spacing: NoopMetrics.space3) {
                 // The reading's day (or how to read one), then each metric's real value on it.
-                Text(scrubDay.map { dayText($0) } ?? String(localized: "Touch and hold, then drag, to read a day"))
+                Text(scrubDay.map { dayText($0, spanDays: spanDays) } ?? String(localized: "Touch and hold, then drag, to read a day"))
                     .font(StrandFont.footnote)
                     .foregroundStyle(StrandPalette.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -432,7 +433,7 @@ struct CompareView: View {
                     selection: $scrubDay,
                     calendar: ExploreDayKey.calendar(),
                     summary: String(localized: "Overlay chart of \(ListFormatter.localizedString(byJoining: shown.map(\.metric.title)))"),
-                    spokenValue: { spokenReadout($0, shown) }
+                    spokenValue: { spokenReadout($0, shown, spanDays: spanDays) }
                 )
                 ExploreRangeControl(selection: $range)
                 Text(caption.text)
@@ -468,19 +469,22 @@ struct CompareView: View {
     }
 
     /// What VoiceOver says for the day the chart is stepped to: the date, then each metric's value.
-    private func spokenReadout(_ day: Date, _ shown: [ResolvedCompareSeries]) -> String {
+    private func spokenReadout(_ day: Date, _ shown: [ResolvedCompareSeries], spanDays: Int) -> String {
         let key = ExploreDayKey.key(for: day)
         let values = shown.map { entry -> String in
             let text = CompareLogic.value(in: entry.rows, onDay: key)
                 .map { format(entry.metric, $0) } ?? String(localized: "no reading")
             return "\(entry.metric.title) \(text)"
         }
-        return "\(dayText(day)), \(values.joined(separator: ", "))"
+        return "\(dayText(day, spanDays: spanDays)), \(values.joined(separator: ", "))"
     }
 
-    /// "Mon, 12 Oct" in the person's language and order.
-    private func dayText(_ date: Date) -> String {
-        date.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))
+    /// "Mon, 12 Oct" in the person's language and order, with the year when the window covers more than a year or the day is
+    /// not in this one ("Sat, 12 Oct 2024"), so a day on a long window is never ambiguous.
+    private func dayText(_ date: Date, spanDays: Int) -> String {
+        CompareLogic.showsYear(for: date, spanDays: spanDays)
+            ? date.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated).year())
+            : date.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))
     }
 
     // MARK: - Promoted A/B pair experience

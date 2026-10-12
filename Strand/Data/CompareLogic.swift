@@ -21,6 +21,21 @@ enum CompareLogic {
         return rows.filter { row in ExploreDayKey.dayNumber(for: row.day).map { $0 >= cutoff } ?? false }
     }
 
+    /// Whole days from the earliest first reading to the latest last reading across the series (0 when none has a real day).
+    static func spanDays(_ series: [[Row]]) -> Int {
+        let firsts = series.compactMap { $0.first.flatMap { ExploreDayKey.dayNumber(for: $0.day) } }
+        let lasts = series.compactMap { $0.last.flatMap { ExploreDayKey.dayNumber(for: $0.day) } }
+        guard let first = firsts.min(), let last = lasts.max() else { return 0 }
+        return max(last - first, 0)
+    }
+
+    /// Whether a day read off the chart needs its year to be told apart: the window covers more than a year, or the day is
+    /// not in the current year. The year is the one the person's own calendar shows (`calendar` is the device calendar,
+    /// for display), so a Persian or Buddhist calendar's New Year is not missed.
+    static func showsYear(for date: Date, spanDays: Int, now: Date = Date(), calendar: Calendar = .autoupdatingCurrent) -> Bool {
+        spanDays > 365 || !calendar.isDate(date, equalTo: now, toGranularity: .year)
+    }
+
     /// The reading on a day key, or nil when the series has none that day (the latest when a day repeats).
     static func value(in rows: [Row], onDay key: String) -> Double? {
         rows.last { $0.day == key }?.value
