@@ -208,6 +208,47 @@ final class IntelligenceAnalyzeRecentCacheTests: XCTestCase {
         XCTAssertEqual(warmBundleCalls, 0)
     }
 
+    /// DL-02 (N2-7): the idle-tick watermark follows the strap that writes the rows. New heart rate under a
+    /// re-paired strap's own id must move it so the 15-minute backstop runs; an unchanged stream still skips.
+    func testBackstopRunsWhenARePairedStrapAddsHeartRate() async throws {
+        let defaults = UserDefaults.standard
+        let watermarkKey = "noop.analyzeWatermark"
+        let oldWatermark = defaults.object(forKey: watermarkKey)
+        defer {
+            if let oldWatermark { defaults.set(oldWatermark, forKey: watermarkKey) }
+            else { defaults.removeObject(forKey: watermarkKey) }
+        }
+        defaults.removeObject(forKey: watermarkKey)
+        let harness = try await makeHarness()
+        let registry = DeviceRegistryStore(dbQueue: harness.store.registryWriter)
+        try registry.add(PairedDevice(
+            id: "whoop-repaired",
+            brand: "WHOOP",
+            model: "WHOOP 4.0",
+            sourceKind: .liveBLE,
+            capabilities: [.hr, .hrv, .skinTemp, .sleep],
+            status: .paired,
+            addedAt: 2,
+            lastSeenAt: 2))
+        try registry.setActive("whoop-repaired")
+        func tick() async -> Bool {
+            await harness.engine.analyzeRecent(
+                maxDays: 3, force: false, refreshRepository: false,
+                analysisReference: reference, analysisCalendar: utcCalendar)
+        }
+
+        let first = await tick()
+        XCTAssertTrue(first, "the first tick has no watermark and runs")
+        let unchanged = await tick()
+        XCTAssertFalse(unchanged, "nothing new: the tick skips")
+
+        let ts = Int(reference.timeIntervalSince1970) - 3_600
+        _ = try await harness.store.insert(
+            Streams(hr: [HRSample(ts: ts, bpm: 61)]), deviceId: "whoop-repaired")
+        let moved = await tick()
+        XCTAssertTrue(moved, "the re-paired strap's new row moves the watermark")
+    }
+
     func testOneChangedFingerprintReadsOnlyThatDay() async throws {
         let harness = try await makeHarness()
         let coldCompleted = await run(harness, maxDays: 3)

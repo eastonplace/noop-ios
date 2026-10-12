@@ -731,8 +731,20 @@ final class IntelligenceEngine: ObservableObject {
         // workout delete) is untouched and no computed history is dropped. Every real update path (sync
         // backfill, import, sleep/workout edit, baseline recalibrate, timestamp heal) calls with the default
         // `force: true` and always rescores, so a skipped tick can never hide new data.
-        let wmKey: String = (try? await store.hrFingerprint(deviceId: deviceId, from: 0, to: 9_999_999_999))
-            .map { "\($0.count):\($0.maxTs):\(Self.analyzeScanVersion)" } ?? ""
+        // DL-02 (N2-7): the witness covers only the backstop window, for every owner whose raw stream can be
+        // scored (the canonical id, the registry's active strap and every paired device). The old one counted
+        // every HR row ever stored on every pass, forced or not, and was keyed to the canonical id, so rows a
+        // re-paired strap wrote under its own id never moved it and the backstop always skipped. It is read
+        // at the start of a pass (so data landing mid-pass still moves the next tick) and only by passes
+        // that use it: a non-forced tick, or a pass over the current window that refreshes it.
+        let referenceNow = analysisReference ?? Date()
+        let now = Int(referenceNow.timeIntervalSince1970)
+        let wmKey: String
+        if !force || (startOffset == 0 && sourceContext == nil) {
+            wmKey = await analyzeWatermark(store: store, reference: referenceNow, calendar: analysisCalendar)
+        } else {
+            wmKey = ""
+        }
         if !force, !wmKey.isEmpty,
            UserDefaults.standard.string(forKey: Self.analyzeWatermarkKey) == wmKey {
             performanceChangedRows = 0
@@ -744,8 +756,6 @@ final class IntelligenceEngine: ObservableObject {
                              stepTicksPerStep: profile.stepTicksPerStep)
 
         let maxHR = profile.hrMaxOverride > 0 ? Double(profile.hrMaxOverride) : nil
-        let referenceNow = analysisReference ?? Date()
-        let now = Int(referenceNow.timeIntervalSince1970)
         // Device wall-clock offset (seconds east of UTC) at `referenceNow`. It only keys the pass-wide
         // cache signature. Every per-day decision (day bucket, session attribution, the daytime guard,
         // the main-night pick) uses that civil day's own interval and offset (`clockOffsetByDay`), so a
@@ -2607,6 +2617,31 @@ final class IntelligenceEngine: ObservableObject {
     /// `analyzeRecent` scored against. A non-forced tick whose current fingerprint equals this skips the
     /// 21-day rescore; cleared implicitly by any HR insert/delete (the fingerprint moves), so it self-heals.
     private static let analyzeWatermarkKey = "noop.analyzeWatermark"
+    /// The window the 15-minute backstop scores (`analyzeRecent(force: false)` with the default `maxDays`).
+    static let backstopWindowDays = 21
+
+    /// The backstop window's raw-HR change witness (DL-02): row count and newest timestamp per candidate
+    /// owner over the read window the tick scores, plus the scan version. Empty when a read fails, so the
+    /// gate never skips on an unreadable store.
+    private func analyzeWatermark(store: WhoopStore, reference: Date, calendar: Calendar) async -> String {
+        let days = Self.civilDayWindows(reference: reference, startOffset: 0,
+                                        count: Self.backstopWindowDays, calendar: calendar)
+        guard let oldest = days.last else { return "" }
+        let from = oldest.start - 30 * 3_600
+        let to = Int(reference.timeIntervalSince1970)
+        let registry = DeviceRegistryStore(dbQueue: store.registryWriter)
+        var owners: Set<String> = [deviceId]
+        if let active = try? registry.activeDeviceId() { owners.insert(active) }
+        for device in (try? registry.all()) ?? [] { owners.insert(device.id) }
+        var parts: [String] = []
+        for owner in owners.sorted() {
+            guard let fingerprint = try? await store.hrFingerprint(deviceId: owner, from: from, to: to) else {
+                return ""
+            }
+            parts.append("\(owner)=\(fingerprint.count):\(fingerprint.maxTs)")
+        }
+        return parts.joined(separator: "|") + "|\(Self.analyzeScanVersion)"
+    }
 
     /// CAPTURE-B (#814/#799): build the universal `dayOwner …` self-diagnostic line VERBATIM (the Test
     /// Centre export parser depends on this exact shape). `readId` is the owner this day was read+scored
