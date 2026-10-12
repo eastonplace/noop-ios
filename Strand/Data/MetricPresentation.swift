@@ -1,5 +1,6 @@
 import SwiftUI
 import StrandDesign
+import os
 
 // MARK: - How the catalog looks
 //
@@ -131,11 +132,19 @@ enum ExploreTypicalBand {
 /// 2026, never as year 2026 of its own era. Every window on the page (slice, history span, chart window) uses this one
 /// calendar; the device's calendar and locale are for display only.
 enum ExploreDayKey {
+    /// One Gregorian calendar per time zone, made once: a screen that turns thousands of day keys into dates (a Compare
+    /// overlay over years of readings) asks for it per key, and building a `Calendar` each time was most of that cost.
+    private static let calendars = OSAllocatedUnfairLock(initialState: [String: Calendar]())
+
     static func calendar(timeZone: TimeZone = .current) -> Calendar {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = timeZone
-        calendar.locale = .autoupdatingCurrent
-        return calendar
+        calendars.withLock { cache in
+            if let cached = cache[timeZone.identifier] { return cached }
+            var calendar = Calendar(identifier: .gregorian)
+            calendar.timeZone = timeZone
+            calendar.locale = .autoupdatingCurrent
+            cache[timeZone.identifier] = calendar
+            return calendar
+        }
     }
 
     /// The start of the key's day, or nil when the key is not a real calendar day.

@@ -57,6 +57,23 @@ final class MetricPresentationTests: XCTestCase {
         XCTAssertTrue(ExploreRowLayout.stacks(.accessibility5))
     }
 
+    /// The Gregorian calendar for a time zone is made once and handed out again, still Gregorian and still in that zone.
+    func testTheDayKeyCalendarIsCachedPerTimeZone() throws {
+        let cairo = try XCTUnwrap(TimeZone(identifier: "Africa/Cairo"))
+        let tokyo = try XCTUnwrap(TimeZone(identifier: "Asia/Tokyo"))
+        let first = ExploreDayKey.calendar(timeZone: cairo)
+        let again = ExploreDayKey.calendar(timeZone: cairo)
+        let other = ExploreDayKey.calendar(timeZone: tokyo)
+        XCTAssertEqual(first, again)
+        XCTAssertEqual(first.identifier, .gregorian)
+        XCTAssertEqual(first.timeZone, cairo)
+        XCTAssertEqual(other.timeZone, tokyo)
+        XCTAssertNotEqual(first, other)
+        // Keys still read in the zone asked for.
+        let date = try XCTUnwrap(ExploreDayKey.date(for: "2026-10-12", timeZone: tokyo))
+        XCTAssertEqual(ExploreDayKey.key(for: date, timeZone: tokyo), "2026-10-12")
+    }
+
     func testRangeTitlesNameTheirWindow() {
         XCTAssertEqual(ExploreRange.all.title, String(localized: "All time"))
         XCTAssertEqual(ExploreRange.week.title, String(localized: "Last \(7) days"))

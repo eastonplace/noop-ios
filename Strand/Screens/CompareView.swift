@@ -109,8 +109,6 @@ struct CompareView: View {
     /// Real lag supplied directly to CorrelationEngine.lagged. Zero = same day; one = A today against B next morning.
     @State private var lagDays = 0
     @State private var pickerSlot: CompareSlot?
-    /// The day under the finger on the overlay, nil when none.
-    @State private var scrubDay: Date?
 
     private let maxSelection = 4
     private let minSelection = 2
@@ -382,7 +380,6 @@ struct CompareView: View {
 
     private func remove(_ metric: MetricDescriptor) {
         withAnimation(StrandMotion.gentle) { selected.removeAll { $0 == metric } }
-        scrubDay = nil
     }
 
     private func replaceMetric(at index: Int, with metric: MetricDescriptor) {
@@ -392,7 +389,6 @@ struct CompareView: View {
         } else {
             selected[index] = metric
         }
-        scrubDay = nil
         StrandHaptic.selection.play()
     }
 
@@ -407,34 +403,13 @@ struct CompareView: View {
     @ViewBuilder
     private func overlaySection(_ series: [ResolvedCompareSeries]) -> some View {
         let shown = series.filter { !$0.rows.isEmpty }
-        let spanDays = CompareLogic.spanDays(shown.map(\.rows))
         let caption = rangeCaption(series)
         FlatSection(
             "Overlay", systemImage: "waveform.path.ecg", tint: .accent,
             trailing: .text(String(localized: "\(shown.count) series"))
         ) {
             VStack(alignment: .leading, spacing: NoopMetrics.space3) {
-                // The reading's day (or how to read one), then each metric's real value on it.
-                Text(scrubDay.map { dayText($0, spanDays: spanDays) } ?? String(localized: "Touch and hold, then drag, to read a day"))
-                    .font(StrandFont.footnote)
-                    .foregroundStyle(StrandPalette.textTertiary)
-                    .fixedSize(horizontal: false, vertical: true)
-                VStack(spacing: NoopMetrics.space2) {
-                    ForEach(shown) { entry in
-                        CompareReadoutRow(
-                            color: entry.color,
-                            title: entry.metric.title,
-                            value: readoutValue(entry),
-                            range: "\(format(entry.metric, entry.realMin)) \u{2013} \(format(entry.metric, entry.realMax))")
-                    }
-                }
-                CompareOverlayChart(
-                    series: shown.map(chartSeries),
-                    selection: $scrubDay,
-                    calendar: ExploreDayKey.calendar(),
-                    summary: String(localized: "Overlay chart of \(ListFormatter.localizedString(byJoining: shown.map(\.metric.title)))"),
-                    spokenValue: { spokenReadout($0, shown, spanDays: spanDays) }
-                )
+                CompareOverlayBlock(shown: shown, key: correlationKey(shown), format: format)
                 ExploreRangeControl(selection: $range)
                 Text(caption.text)
                     .font(StrandFont.micro)
@@ -442,49 +417,6 @@ struct CompareView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
-    }
-
-    private func chartSeries(_ entry: ResolvedCompareSeries) -> CompareSeries {
-        CompareSeries(
-            title: entry.metric.title,
-            // The descriptor formatter already includes the unit.
-            unit: "",
-            tint: entry.color,
-            points: entry.rows.compactMap { row in
-                ExploreDayKey.date(for: row.day).map { ComparePoint(date: $0, value: row.value) }
-            },
-            format: { format(entry.metric, $0) }
-        )
-    }
-
-    /// The metric's value on the day under the finger, else its latest.
-    private func readoutValue(_ entry: ResolvedCompareSeries) -> String {
-        if let day = scrubDay {
-            guard let value = CompareLogic.value(in: entry.rows, onDay: ExploreDayKey.key(for: day)) else {
-                return WidgetMetrics.missingValue
-            }
-            return format(entry.metric, value)
-        }
-        return entry.rows.last.map { format(entry.metric, $0.value) } ?? WidgetMetrics.missingValue
-    }
-
-    /// What VoiceOver says for the day the chart is stepped to: the date, then each metric's value.
-    private func spokenReadout(_ day: Date, _ shown: [ResolvedCompareSeries], spanDays: Int) -> String {
-        let key = ExploreDayKey.key(for: day)
-        let values = shown.map { entry -> String in
-            let text = CompareLogic.value(in: entry.rows, onDay: key)
-                .map { format(entry.metric, $0) } ?? String(localized: "no reading")
-            return "\(entry.metric.title) \(text)"
-        }
-        return "\(dayText(day, spanDays: spanDays)), \(values.joined(separator: ", "))"
-    }
-
-    /// "Mon, 12 Oct" in the person's language and order, with the year when the window covers more than a year or the day is
-    /// not in this one ("Sat, 12 Oct 2024"), so a day on a long window is never ambiguous.
-    private func dayText(_ date: Date, spanDays: Int) -> String {
-        CompareLogic.showsYear(for: date, spanDays: spanDays)
-            ? date.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated).year())
-            : date.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))
     }
 
     // MARK: - Promoted A/B pair experience
@@ -684,6 +616,106 @@ struct CompareView: View {
             // Direction by sign and colour, strength by the word beside the number.
             CorrelationTrailing(value: value, word: strength.word, color: color)
         }
+    }
+}
+
+// MARK: - The overlay and what is read off it
+
+/// The overlay chart with its day line and one read-out row per metric. The day under the finger is this block's own
+/// state, so a touch step redraws only the block, never the whole screen. What the chart draws (each series' dates parsed,
+/// scaled, thinned and cut into stretches) is built once per change of series or window, not once per touch step.
+private struct CompareOverlayBlock: View {
+    let shown: [ResolvedCompareSeries]
+    /// Identifies the series and their windows; the chart's model is rebuilt only when it changes.
+    let key: String
+    let format: (MetricDescriptor, Double) -> String
+
+    @State private var scrubDay: Date?
+    @State private var cache = ModelCache()
+
+    /// The chart model for the last `key`, held in a reference so a body pass can fill it without a state change.
+    private final class ModelCache {
+        var key: String?
+        var model: CompareOverlayModel?
+    }
+
+    private var spanDays: Int { CompareLogic.spanDays(shown.map(\.rows)) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: NoopMetrics.space3) {
+            // The reading's day (or how to read one), then each metric's real value on it.
+            Text(scrubDay.map { dayText($0) } ?? String(localized: "Touch and hold, then drag, to read a day"))
+                .font(StrandFont.footnote)
+                .foregroundStyle(StrandPalette.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
+            VStack(spacing: NoopMetrics.space2) {
+                ForEach(shown) { entry in
+                    CompareReadoutRow(
+                        color: entry.color,
+                        title: entry.metric.title,
+                        value: readoutValue(entry),
+                        range: "\(format(entry.metric, entry.realMin)) \u{2013} \(format(entry.metric, entry.realMax))")
+                }
+            }
+            CompareOverlayChart(
+                model: model,
+                selection: $scrubDay,
+                summary: String(localized: "Overlay chart of \(ListFormatter.localizedString(byJoining: shown.map(\.metric.title)))"),
+                spokenValue: { spokenReadout($0) }
+            )
+        }
+        .onChangeCompat(of: key) { _ in scrubDay = nil }
+    }
+
+    private var model: CompareOverlayModel {
+        if cache.key == key, let model = cache.model { return model }
+        let model = CompareOverlayModel(series: shown.map(chartSeries), calendar: ExploreDayKey.calendar())
+        cache.key = key
+        cache.model = model
+        return model
+    }
+
+    private func chartSeries(_ entry: ResolvedCompareSeries) -> CompareSeries {
+        CompareSeries(
+            title: entry.metric.title,
+            // The descriptor formatter already includes the unit.
+            unit: "",
+            tint: entry.color,
+            points: entry.rows.compactMap { row in
+                ExploreDayKey.date(for: row.day).map { ComparePoint(date: $0, value: row.value) }
+            },
+            format: { format(entry.metric, $0) }
+        )
+    }
+
+    /// The metric's value on the day under the finger, else its latest.
+    private func readoutValue(_ entry: ResolvedCompareSeries) -> String {
+        if let day = scrubDay {
+            guard let value = CompareLogic.value(in: entry.rows, onDay: ExploreDayKey.key(for: day)) else {
+                return WidgetMetrics.missingValue
+            }
+            return format(entry.metric, value)
+        }
+        return entry.rows.last.map { format(entry.metric, $0.value) } ?? WidgetMetrics.missingValue
+    }
+
+    /// What VoiceOver says for the day the chart is stepped to: the date, then each metric's value.
+    private func spokenReadout(_ day: Date) -> String {
+        let key = ExploreDayKey.key(for: day)
+        let values = shown.map { entry -> String in
+            let text = CompareLogic.value(in: entry.rows, onDay: key)
+                .map { format(entry.metric, $0) } ?? String(localized: "no reading")
+            return "\(entry.metric.title) \(text)"
+        }
+        return "\(dayText(day)), \(values.joined(separator: ", "))"
+    }
+
+    /// "Mon, 12 Oct" in the person's language and order, with the year when the window covers more than a year or the day is
+    /// not in this one ("Sat, 12 Oct 2024"), so a day on a long window is never ambiguous.
+    private func dayText(_ date: Date) -> String {
+        CompareLogic.showsYear(for: date, spanDays: spanDays)
+            ? date.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated).year())
+            : date.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))
     }
 }
 

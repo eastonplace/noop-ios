@@ -64,8 +64,11 @@ enum CompareOverlayGeometry {
     }
 }
 
-public struct CompareOverlayChart: View {
-    private struct Line {
+/// What the overlay draws that does not depend on the day under the finger: each series scaled, thinned and cut into
+/// stretches, the days it can snap to, and the span it covers. Building it walks every reading, so a screen that redraws
+/// the chart on every touch step builds it once per change of series and hands it to `CompareOverlayChart(model:)`.
+public struct CompareOverlayModel {
+    fileprivate struct Line {
         let tint: Color
         /// The normalized (0...1) points to draw: the series itself, or a min/max-bucketed copy of a long one.
         let drawn: [TrendPoint]
@@ -76,11 +79,40 @@ public struct CompareOverlayChart: View {
         let latest: TrendPoint?
     }
 
-    private let lines: [Line]
-    private let days: [Date]
-    private let domain: ClosedRange<Date>
+    fileprivate let lines: [Line]
+    fileprivate let days: [Date]
+    fileprivate let domain: ClosedRange<Date>
+
+    /// - Parameters:
+    ///   - series: two to four, each with its own tint and its readings.
+    ///   - calendar: the calendar whole-day distances are counted in (a Gregorian one in the person's time zone).
+    public init(series: [CompareSeries], calendar: Calendar = .autoupdatingCurrent) {
+        days = CompareOverlayGeometry.days(of: series)
+        let domain = CompareOverlayGeometry.domain(of: series) ?? Date()...Date().addingTimeInterval(86_400)
+        self.domain = domain
+        lines = series.map { entry in
+            let normalized = entry.points.map { TrendPoint(date: $0.date, value: entry.normalized($0.value)) }
+            let offsets = entry.points.map { calendar.dateComponents([.day], from: domain.lowerBound, to: $0.date).day ?? 0 }
+            let line = CompareOverlayGeometry.drawnLine(
+                points: normalized, dayOffsets: offsets, gapLimit: TrendCadence.gapLimitDays(dayOffsets: offsets))
+            return Line(
+                tint: entry.tint,
+                drawn: line.drawn,
+                runs: line.runs,
+                byDay: Dictionary(normalized.map { ($0.date, $0.value) }, uniquingKeysWith: { _, later in later }),
+                latest: normalized.last)
+        }
+    }
+}
+
+public struct CompareOverlayChart: View {
+    private typealias Line = CompareOverlayModel.Line
+
+    private let model: CompareOverlayModel
+    private var lines: [Line] { model.lines }
+    private var days: [Date] { model.days }
+    private var domain: ClosedRange<Date> { model.domain }
     private let height: CGFloat
-    private let calendar: Calendar
     private let locale: Locale
     private let summary: String
     private let stepHint: LocalizedStringKey
@@ -93,10 +125,29 @@ public struct CompareOverlayChart: View {
     @State private var adjustReset: Task<Void, Never>?
 
     /// - Parameters:
-    ///   - series: two to four, each with its own tint and its readings.
+    ///   - model: the series, scaled and cut for drawing (`CompareOverlayModel`).
     ///   - selection: the day under the finger (one of the days the series have readings on), nil when none.
     ///   - summary: what VoiceOver says the chart is.
     ///   - spokenValue: what VoiceOver says for the selected day.
+    public init(
+        model: CompareOverlayModel,
+        selection: Binding<Date?>,
+        height: CGFloat = 164,
+        locale: Locale = .autoupdatingCurrent,
+        summary: String,
+        stepHint: LocalizedStringKey = "Swipe up or down to step through days",
+        spokenValue: @escaping (Date) -> String
+    ) {
+        self._selection = selection
+        self.model = model
+        self.height = height
+        self.locale = locale
+        self.summary = summary
+        self.stepHint = stepHint
+        self.spokenValue = spokenValue
+    }
+
+    /// The same, building the model from `series` (for a caller that does not redraw the chart on every touch step).
     public init(
         series: [CompareSeries],
         selection: Binding<Date?>,
@@ -107,28 +158,9 @@ public struct CompareOverlayChart: View {
         stepHint: LocalizedStringKey = "Swipe up or down to step through days",
         spokenValue: @escaping (Date) -> String
     ) {
-        self._selection = selection
-        self.height = height
-        self.calendar = calendar
-        self.locale = locale
-        self.summary = summary
-        self.stepHint = stepHint
-        self.spokenValue = spokenValue
-        self.days = CompareOverlayGeometry.days(of: series)
-        let domain = CompareOverlayGeometry.domain(of: series) ?? Date()...Date().addingTimeInterval(86_400)
-        self.domain = domain
-        self.lines = series.map { entry in
-            let normalized = entry.points.map { TrendPoint(date: $0.date, value: entry.normalized($0.value)) }
-            let offsets = entry.points.map { calendar.dateComponents([.day], from: domain.lowerBound, to: $0.date).day ?? 0 }
-            let line = CompareOverlayGeometry.drawnLine(
-                points: normalized, dayOffsets: offsets, gapLimit: TrendCadence.gapLimitDays(dayOffsets: offsets))
-            return Line(
-                tint: entry.tint,
-                drawn: line.drawn,
-                runs: line.runs,
-                byDay: Dictionary(normalized.map { ($0.date, $0.value) }, uniquingKeysWith: { _, later in later }),
-                latest: normalized.last)
-        }
+        self.init(
+            model: CompareOverlayModel(series: series, calendar: calendar), selection: selection, height: height,
+            locale: locale, summary: summary, stepHint: stepHint, spokenValue: spokenValue)
     }
 
     public var body: some View {
