@@ -702,7 +702,9 @@ public final class BLEManager: NSObject, ObservableObject {
     private var whoop5DiscoveryDeadlineID: UUID?
     private var whoop5SecureStageTimeout: DispatchWorkItem?
     private var whoop5SecureStageDeadlineID: UUID?
-    private var reassembler = Reassembler()
+    /// BLE-1: one reassembly window per notify characteristic (WHOOP 4 cmd/event/data, the four 5/MG
+    /// fd4b notify characteristics) so fragments from different characteristics can never splice.
+    private let reassemblers = ReassemblerSet<CBUUID>()
     private var seq: UInt8 = 0
     private var didBond = false
     private var whoop5SecureSession = Whoop5SecureSession()
@@ -1141,7 +1143,7 @@ public final class BLEManager: NSObject, ObservableObject {
             ? BatteryEstimator.ratedLifeHoursWhoop5 : BatteryEstimator.ratedLifeHoursWhoop4
         // Frame the inbound stream for the chosen family (WHOOP 4.0 CRC8 vs WHOOP 5.0 CRC16/puffin)
         // and tell the router which decoder to use. Fresh per connection so no stale bytes carry over.
-        reassembler = Reassembler(family: model.deviceFamily)
+        reassemblers.reset(family: model.deviceFamily)
         router.family = model.deviceFamily
         // Live 5/MG persistence: point the Collector's decode at the selected family and install the
         // identity clock ref for a 5/MG (its live timestamps are already real unix). WHOOP 4.0 keeps
@@ -1922,6 +1924,7 @@ public final class BLEManager: NSObject, ObservableObject {
         }
         connectGeneration &+= 1
         historicalSourceEpoch &+= 1
+        reassemblers.reset()   // BLE-1: no partial frame from an earlier link may prefix this link's frames
         didBond = false
         connectHandshakeDone = false
         whoop5SessionStarted = false
@@ -4103,7 +4106,7 @@ public final class BLEManager: NSObject, ObservableObject {
     private func startScan(for model: WhoopModel, allowFallback: Bool) {
         cancelScanFallback()
         selectedModel = model
-        reassembler = Reassembler(family: model.deviceFamily)
+        reassemblers.reset(family: model.deviceFamily)
         router.family = model.deviceFamily
         configureCollectorFamily()
         central.stopScan()
@@ -4872,6 +4875,7 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
             }
         }
         bondedAt = nil   // cleared after the bond-loop detector above read it (#617)
+        reassemblers.reset()   // BLE-1: a dead link's half-received frames must not survive the disconnect
         state.markDisconnected()
         whoop5SecureSession.disconnect()
         whoop5R22Attempt = nil
@@ -5109,7 +5113,7 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
         // length offset + constant), producing corrupt/empty data for the whole unattended session until
         // the user manually taps connect.
         selectedModel = .persisted
-        reassembler = Reassembler(family: selectedModel.deviceFamily)
+        reassemblers.reset(family: selectedModel.deviceFamily)
         router.family = selectedModel.deviceFamily
         configureCollectorFamily()
         // CoreBluetooth restoration proves only that the OS remembers a peripheral. It does not prove
@@ -5822,7 +5826,7 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
         whoop5FallbackMode = .none
         whoop5PausedNotifyOffPending.removeAll()
         // Drop any incomplete bytes received before proof so they cannot prefix a post-proof frame.
-        reassembler = Reassembler(family: .whoop5)
+        reassemblers.reset(family: .whoop5)
         whoop5SessionStarted = true
         connectHandshakeDone = true
         didBond = true
@@ -6042,7 +6046,7 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
              BLEManager.cmdNotifyChar,
              BLEManager.eventNotifyChar:
             // Reassemble (no-op for already-complete frames) then route each complete frame.
-            for frame in reassembler.feed(bytes) {
+            for frame in reassemblers.feed(bytes, from: characteristic.uuid) {
                 if backfilling, BLEManager.isOffloadFrame(frame, family: .whoop4) {
                     // Historical replay is bulk sync traffic, not live UI traffic. Feed it only to
                     // the Backfiller; parsing every record through FrameRouter updates SwiftUI for
@@ -6162,7 +6166,7 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
             // timestamps are already real-unix seconds.) Live HR/battery still also come from the
             // standard 0x2A37 / 0x2A19 profiles handled above.
             if BLEManager.whoop5NotifyChars.contains(characteristic.uuid) {
-                for frame in reassembler.feed(bytes) {
+                for frame in reassemblers.feed(bytes, from: characteristic.uuid) {
                     let parsed = parseFrame(frame, family: .whoop5)
                     handleWhoop5CommandResponse(parsed, frame: frame)
                     let integrityValid = parsed.envelopeOK

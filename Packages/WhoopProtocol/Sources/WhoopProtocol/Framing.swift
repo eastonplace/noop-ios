@@ -268,7 +268,7 @@ public final class Reassembler {
     public func feed(_ fragment: [UInt8]) -> [[UInt8]] {
         buf.append(contentsOf: fragment)
         var out: [[UInt8]] = []
-        while true {
+        scan: while true {
             guard let sof = indexOfSOF() else {
                 // No SOF left in the window: nothing here is salvageable, so drop it all.
                 buf.removeAll(keepingCapacity: true)
@@ -278,25 +278,39 @@ public final class Reassembler {
             // Skip any leading bytes ahead of the SOF instead of physically removing them.
             if sof > head { head = sof }
             let avail = buf.count - head
-            // Both families need at least 4 bytes to read their declared length.
-            if avail < 4 {
-                break
-            }
+            // BLE-1: the declared length is only trusted once the header checksum that protects it
+            // verifies. A stray 0xAA inside a payload (or a fragment from another characteristic) would
+            // otherwise declare a random length and stall the window until enough unrelated bytes piled up.
+            // A genuine frame start always carries a valid header, so this only rejects false SOFs.
             let total: Int
             switch family {
             case .whoop4:
+                // [0xAA][len u16 LE][crc8(len bytes)]: needs 4 bytes.
+                if avail < 4 { break scan }
+                guard crc8(buf, head + 1, head + 3) == buf[head + 3] else {
+                    head += 1
+                    continue scan
+                }
                 total = (Int(buf[head + 1]) | (Int(buf[head + 2]) << 8)) + 4
             case .whoop5:
+                // [0xAA][fmt][declLen u16 LE][2 header bytes][crc16 LE over the first 6]: needs 8 bytes.
+                if avail < 8 { break scan }
+                let wantCRC = crc16Modbus(buf, head, head + 6)
+                let gotCRC = UInt16(buf[head + 6]) | (UInt16(buf[head + 7]) << 8)
+                guard wantCRC == gotCRC else {
+                    head += 1
+                    continue scan
+                }
                 total = (Int(buf[head + 2]) | (Int(buf[head + 3]) << 8)) + 8
             }
             if total > Reassembler.maxFrameBytes {
                 // Impossibly large declared length → this 0xAA is garbage. Drop it and resync to the
                 // next SOF instead of stalling the live stream until a reconnect.
                 head += 1
-                continue
+                continue scan
             }
             if avail < total {
-                break
+                break scan
             }
             out.append(Array(buf[head..<(head + total)]))
             head += total
@@ -326,5 +340,38 @@ public final class Reassembler {
             buf.removeFirst(head)
         }
         head = 0
+    }
+}
+
+/// BLE-1: one `Reassembler` per notify characteristic. WHOOP 4 delivers command responses (0x03), events
+/// (0x04) and fragmented data (0x05) on separate characteristics, and WHOOP 5/MG uses four notify
+/// characteristics; notifications on different characteristics can interleave at fragment level, so a
+/// single shared window could splice a command frame into the middle of a data frame. Keyed by the
+/// characteristic identity (a CBUUID in the app) and created lazily.
+public final class ReassemblerSet<Key: Hashable> {
+    private var reassemblers: [Key: Reassembler] = [:]
+    public private(set) var family: DeviceFamily
+
+    public init(family: DeviceFamily = .whoop4) {
+        self.family = family
+    }
+
+    /// Feed one notification from `key`'s characteristic and return the frames it completed.
+    public func feed(_ fragment: [UInt8], from key: Key) -> [[UInt8]] {
+        if let existing = reassemblers[key] { return existing.feed(fragment) }
+        let created = Reassembler(family: family)
+        reassemblers[key] = created
+        return created.feed(fragment)
+    }
+
+    /// Drop every partial frame (a new connection, a disconnect, or a family switch).
+    public func reset(family: DeviceFamily) {
+        self.family = family
+        reassemblers.removeAll(keepingCapacity: true)
+    }
+
+    /// Drop every partial frame and keep the current family.
+    public func reset() {
+        reassemblers.removeAll(keepingCapacity: true)
     }
 }
