@@ -5,6 +5,7 @@ import WhoopProtocol
 import WhoopStore
 import StrandAnalytics
 import StrandImport
+import StrandDesign
 #if os(iOS)
 import UserNotifications
 #endif
@@ -310,6 +311,11 @@ final class AppModel: ObservableObject {
         private var energy: WorkoutLiveProjectionAccumulator?
         /// The next accepted reading is the first after a pause: nothing is credited across the gap before it.
         private var startsNewStretch = false
+        /// Time in each of the wearer's zones (rest, steady, push), in whole seconds, counted from the readings. Published in
+        /// steps of five seconds, so the screen is not invalidated by every reading for a number shown in minutes.
+        @Published private(set) var personalZoneSeconds: [Int] = [0, 0, 0]
+        private var zones = PersonalZoneSeconds()
+        private let zoneThresholds: HRZoneStyle.Thresholds
 
         var isPaused: Bool { pauseLedger.isPaused }
 
@@ -339,11 +345,12 @@ final class AppModel: ObservableObject {
         }
 
         init(sessionID: UUID = UUID(), start: Date, sport: String, maxHR: Double,
-             energyProfile: UserProfile? = nil) {
+             energyProfile: UserProfile? = nil, zoneThresholds: HRZoneStyle.Thresholds = .default) {
             self.sessionID = sessionID
             self.start = start
             self.sport = sport
             self.maxHR = maxHR
+            self.zoneThresholds = zoneThresholds
             self.strainAccumulator = .init(maxHR: maxHR)
             self.energyProfile = energyProfile
             self.energy = Self.makeEnergy(energyProfile, maxHR: maxHR)
@@ -370,6 +377,7 @@ final class AppModel: ObservableObject {
             guard changed else { return false }
             if paused {
                 strainAccumulator.breakStream()
+                zones.breakStretch()
                 startsNewStretch = true
             }
             pauseLedger = next
@@ -394,16 +402,19 @@ final class AppModel: ObservableObject {
                 guard sample.ts >= last.ts else { return false }
                 if sample.ts == last.ts {
                     samples[samples.count - 1] = sample
+                    countZone(sample)
                     guard strainAccumulator.replaceCurrentSecond(with: sample),
                           chartAccumulator.ingest(sample) else { return false }
                 } else {
                     samples.append(sample)
+                    countZone(sample)
                     strainAccumulator.append(sample)
                     appendEnergy(sample)
                     guard chartAccumulator.ingest(sample) else { return false }
                 }
             } else {
                 samples.append(sample)
+                countZone(sample)
                 strainAccumulator.append(sample)
                 appendEnergy(sample)
                 guard chartAccumulator.ingest(sample) else { return false }
@@ -411,6 +422,12 @@ final class AppModel: ObservableObject {
             lastReadingAt = Date()
             publishLiveState(sample: sample)
             return true
+        }
+
+        private func countZone(_ sample: HRSample) {
+            zones.append(sample, thresholds: zoneThresholds)
+            let shown = zones.quantized(step: 5)
+            if shown != personalZoneSeconds { personalZoneSeconds = shown }
         }
 
         private func appendEnergy(_ sample: HRSample) {
@@ -458,6 +475,8 @@ final class AppModel: ObservableObject {
             startsNewStretch = trailingPause
             strainAccumulator = accumulator
             self.energy = energy
+            zones = PersonalZoneSeconds.compute(samples: canonical, pauses: pauses, thresholds: zoneThresholds)
+            personalZoneSeconds = zones.quantized(step: 5)
             chartAccumulator = WorkoutHeartChartAccumulator(samples: canonical)
             chartProjection = chartAccumulator.projection
             currentBPM = canonical.last?.bpm
@@ -2032,7 +2051,8 @@ final class AppModel: ObservableObject {
         let started = Date()
         ActiveWorkoutPauseStore.clear()
         activeWorkout = ActiveWorkout(start: started, sport: resolved,
-                                      maxHR: Double(profile.hrMax), energyProfile: workoutEnergyProfile)
+                                      maxHR: Double(profile.hrMax), energyProfile: workoutEnergyProfile,
+                                      zoneThresholds: workoutZoneThresholds)
         acquireWorkoutRealtimeHR()
         workoutFinishState = .recording
         pendingWorkoutSnapshot = nil
@@ -2130,7 +2150,8 @@ final class AppModel: ObservableObject {
         default: "Running"
         }
         let workout = ActiveWorkout(start: started, sport: sport,
-                                    maxHR: Double(profile.hrMax), energyProfile: workoutEnergyProfile)
+                                    maxHR: Double(profile.hrMax), energyProfile: workoutEnergyProfile,
+                                    zoneThresholds: workoutZoneThresholds)
         // No strap, or nothing worth saving: no readings at all. Otherwise a warm-up into a steady block, with a little
         // beat-to-beat wobble.
         let noReadings = scenario == .noStrap || scenario == .pausedNothing || scenario == .nothingToSave
@@ -2206,6 +2227,12 @@ final class AppModel: ObservableObject {
         }
     }
     #endif
+
+    /// The wearer's three heart-rate zones, taken when a workout starts or is restored: the screen's zone word and the time in
+    /// each zone use the same boundaries.
+    private var workoutZoneThresholds: HRZoneStyle.Thresholds {
+        ProfileStore.hrZoneThresholds(override: profile.hrMaxOverride, age: profile.age)
+    }
 
     /// The wearer's body numbers for the live energy estimate, taken when a workout starts or is restored.
     private var workoutEnergyProfile: UserProfile {
@@ -2509,7 +2536,7 @@ final class AppModel: ObservableObject {
         let w = ActiveWorkout(sessionID: snap.sessionID,
                               start: Date(timeIntervalSince1970: TimeInterval(snap.startSec)),
                               sport: snap.sport, maxHR: Double(profile.hrMax),
-                              energyProfile: workoutEnergyProfile)
+                              energyProfile: workoutEnergyProfile, zoneThresholds: workoutZoneThresholds)
         let pauses = ActiveWorkoutPauseStore.load(sessionID: snap.sessionID) ?? WorkoutPauseLedger()
         w.restore(samples: snap.samples, pauses: pauses)
         activeWorkout = w
