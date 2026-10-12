@@ -210,13 +210,18 @@ public struct MetricValueRow: View {
     private let value: String
     private let unit: String?
     private let tint: DomainTint
+    private let labelLines: Int
 
-    public init(systemImage: String, label: String, value: String, unit: String? = nil, tint: DomainTint = .neutral) {
+    /// - Parameter labelLines: how many lines the label may take below the accessibility sizes (one by default; a long
+    ///   sentence-style label, which a translation can make longer still, asks for two so its end is not cut off).
+    public init(systemImage: String, label: String, value: String, unit: String? = nil, tint: DomainTint = .neutral,
+                labelLines: Int = 1) {
         self.systemImage = systemImage
         self.label = label
         self.value = value
         self.unit = unit
         self.tint = tint
+        self.labelLines = max(labelLines, 1)
     }
 
     public var body: some View {
@@ -225,9 +230,10 @@ public struct MetricValueRow: View {
             Image(systemName: systemImage).font(StrandFont.caption).foregroundStyle(tint.accent)
                 .frame(width: WidgetMetrics.metricIconWidth)
                 .accessibilityHidden(true)
-            // One line at every size short of the accessibility sizes, where the label may take a second.
+            // One line at every size short of the accessibility sizes (unless `labelLines` says more), where the label
+            // may take a second.
             Text(label).foregroundStyle(StrandPalette.textSecondary)
-                .captionLabelFit(lines: 2, standardLines: 1)
+                .captionLabelFit(lines: max(2, labelLines), standardLines: labelLines)
             Spacer(minLength: NoopMetrics.space1)
             HStack(alignment: .firstTextBaseline, spacing: 2) {
                 Text(value).font(StrandFont.bodyNumber)

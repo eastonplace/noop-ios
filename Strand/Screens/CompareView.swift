@@ -538,12 +538,14 @@ struct CompareView: View {
                         systemImage: "arrow.up.right",
                         label: String(localized: "\(titleB) on high \(titleA) days"),
                         value: format(b.metric, split.high),
-                        tint: .custom(b.color))
+                        tint: .custom(b.color),
+                        labelLines: 2)
                     MetricValueRow(
                         systemImage: "arrow.down.right",
                         label: String(localized: "\(titleB) on low \(titleA) days"),
                         value: format(b.metric, split.low),
-                        tint: .custom(b.color))
+                        tint: .custom(b.color),
+                        labelLines: 2)
                 }
             }
             Text(verbatim: "\(pairing) \u{00B7} \(String(localized: "correlation, not causation"))")
