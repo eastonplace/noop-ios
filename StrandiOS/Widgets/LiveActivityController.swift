@@ -83,6 +83,8 @@ final class LiveActivityController {
 
     private var workoutStateCache = LiveActivityWorkoutStateCache()
     private var lastContentState: NOOPActivityAttributes.ContentState?
+    /// The token states a drive has already been published without health for, so the Console says so once per process.
+    private var loggedHealthStrips: Set<LiveActivityDriveAdmission.TokenState> = []
     #if DEBUG
     private var component41QAMode = false
     #endif
@@ -123,37 +125,32 @@ final class LiveActivityController {
         guard !component41QAMode else { return }
         #endif
 
-        let token: VerifiedSinkToken? = {
-            guard let contextId = verifiedContextId,
-                  verifiedProjectionGeneration != nil,
-                  let defaults = UserDefaults(suiteName: WidgetSnapshot.suiteName),
-                  let active = ActiveVerifiedSinkEpochStore.activeToken(defaults: defaults),
-                  active.contextId == contextId else { return nil }
-            return active
-        }()
-        let carriesVerifiedHealth = recovery != nil
-            || effort != nil
-            || verifiedContextId != nil
-            || verifiedProjectionGeneration != nil
-        guard !carriesVerifiedHealth || token != nil else {
-            // Never downgrade a health-bearing update into the tokenless live lane.
-            // A stale source/context must wait for the matching verified generation.
-            return
-        }
-        let input = DriveInput(
-            bpm: bpm,
+        // Health values ride only under the token for their own context. Without it they are removed, never the drive:
+        // a stale or unverified context shows no Recovery, and the activity (a workout above all) still starts.
+        let admission = LiveActivityDriveAdmission.decide(
             recovery: recovery,
-            connected: connected,
             effort: effort,
             verifiedContextId: verifiedContextId,
             verifiedProjectionGeneration: verifiedProjectionGeneration,
+            activeToken: UserDefaults(suiteName: WidgetSnapshot.suiteName)
+                .flatMap { ActiveVerifiedSinkEpochStore.activeToken(defaults: $0) })
+        if admission.strippedHealth, loggedHealthStrips.insert(admission.tokenState).inserted {
+            NSLog("NOOP LiveActivity: publishing without health, token: %@", admission.tokenState.rawValue)
+        }
+        let input = DriveInput(
+            bpm: bpm,
+            recovery: admission.recovery,
+            connected: connected,
+            effort: admission.effort,
+            verifiedContextId: admission.verifiedContextId,
+            verifiedProjectionGeneration: admission.verifiedProjectionGeneration,
             workoutIsActive: workoutIsActive ?? LiveActivityWorkoutStatus.isActive,
             heartRateIsStale: heartRateIsStale,
             workoutProjection: workout
         )
         if connected {
             serializedPublication.setConnectivityAvailable(true)
-            serializedPublication.submitLive(input, token: token)
+            serializedPublication.submitLive(input, token: admission.token)
         } else {
             serializedPublication.submitConnectivityBarrier(input)
         }
