@@ -88,6 +88,8 @@ enum LiveWorkoutGlance {
     static func value(_ metric: Metric, input: LiveWorkoutTiles.Input, elapsed: TimeInterval, strain: LiveStrainState,
                       locale: Locale = .current) -> Value {
         let missing = LiveWorkoutTiles.missing
+        // VoiceOver never reads a dash; a number that is not known is "No reading".
+        let noReading = String(localized: "No reading")
         switch metric {
         case .time:
             let text = LiveWorkoutTiles.elapsedText(elapsed)
@@ -96,31 +98,31 @@ enum LiveWorkoutGlance {
         case .distance:
             let text = LiveWorkoutTiles.distanceText(meters: input.distanceMeters, imperial: input.imperial, locale: locale)
             let unit = input.imperial ? "mi" : "km"
-            let spokenUnit = input.imperial ? String(localized: "miles") : String(localized: "kilometres")
             return Value(metric: metric, eyebrow: "\(String(localized: "Distance")) · \(unit)", text: text, micro: nil,
-                         spoken: text == missing ? missing : "\(text) \(spokenUnit)")
+                         spoken: text == missing ? noReading : LiveWorkoutTiles.spokenDistance(text, imperial: input.imperial))
         case .pace:
             let text = LiveWorkoutTiles.paceText(secPerKm: input.paceSecPerKm, imperial: input.imperial)
             let unit = input.imperial ? "/mi" : "/km"
             return Value(metric: metric, eyebrow: "\(String(localized: "Avg pace")) · \(unit)", text: text, micro: nil,
-                         spoken: text == missing ? missing : "\(text) \(unit)")
+                         spoken: text == missing ? noReading
+                            : WorkoutFormat.spokenPace(text, system: input.imperial ? .imperial : .metric))
         case .speed:
             let text = LiveWorkoutTiles.speedText(secPerKm: input.paceSecPerKm, imperial: input.imperial, locale: locale)
             let unit = input.imperial ? "mph" : "km/h"
             return Value(metric: metric, eyebrow: "\(String(localized: "Avg speed")) · \(unit)", text: text, micro: nil,
-                         spoken: text == missing ? missing : "\(text) \(unit)")
+                         spoken: text == missing ? noReading : LiveWorkoutTiles.spokenSpeed(text, imperial: input.imperial))
         case .heartRate:
             let text = LiveWorkoutTiles.count(input.bpm, locale: locale)
             return Value(metric: metric, eyebrow: "\(String(localized: "Heart rate")) · bpm", text: text, micro: nil,
-                         spoken: text == missing ? missing : "\(text) bpm")
+                         spoken: text == missing ? noReading : input.bpm.map(LiveWorkoutTiles.spokenHeartRate) ?? noReading)
         case .averageHeartRate:
             let text = LiveWorkoutTiles.count(input.averageHR > 0 ? input.averageHR : nil, locale: locale)
             return Value(metric: metric, eyebrow: "\(String(localized: "Avg HR")) · bpm", text: text, micro: nil,
-                         spoken: text == missing ? missing : "\(text) bpm")
+                         spoken: text == missing ? noReading : LiveWorkoutTiles.spokenHeartRate(input.averageHR))
         case .calories:
             let text = LiveWorkoutTiles.count(input.calories, locale: locale)
             return Value(metric: metric, eyebrow: "\(String(localized: "Calories")) · kcal", text: text, micro: nil,
-                         spoken: text == missing ? missing : "\(text) kcal")
+                         spoken: text == missing ? noReading : input.calories.map { WorkoutFormat.spokenEnergy(Double($0)) } ?? noReading)
         case .strain:
             switch strain {
             case .scored(let stored):

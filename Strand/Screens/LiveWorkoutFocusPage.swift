@@ -57,7 +57,15 @@ struct LiveFocusPage: View {
         return GlanceMetricView(
             eyebrow: value.eyebrow, value: value.text, size: size, state: state,
             micro: state == .stale ? String(localized: "no signal") : value.micro,
-            spokenLabel: value.name, spokenValue: value.spoken)
+            spokenLabel: value.name, spokenValue: Self.spoken(value, state: state))
+    }
+
+    /// What VoiceOver reads: a quiet source says so ("142 beats per minute, no signal"), and a number that is not known is
+    /// never a dash. Strain that is still building says when it will score.
+    static func spoken(_ value: LiveWorkoutGlance.Value, state: GlanceMetricView.State) -> String {
+        if value.isMissing { return value.micro ?? value.spoken }
+        if state == .stale { return "\(value.spoken), \(String(localized: "no signal"))" }
+        return value.spoken
     }
 
     /// Paused numbers are frozen (0.4); a reading whose source has gone quiet keeps its last number at 0.6. Totals and

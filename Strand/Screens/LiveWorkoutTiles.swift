@@ -67,6 +67,22 @@ enum LiveWorkoutTiles {
         }
     }
 
+    /// What VoiceOver reads for a distance: "5.49 kilometers" (a language orders the number and its unit as it likes; the
+    /// drawn "km" is read letter by letter).
+    static func spokenDistance(_ text: String, imperial: Bool) -> String {
+        imperial ? String(localized: "\(text) miles") : String(localized: "\(text) kilometers")
+    }
+
+    /// "9.6 kilometers per hour" for what is drawn as "9.6 km/h".
+    static func spokenSpeed(_ text: String, imperial: Bool) -> String {
+        imperial ? String(localized: "\(text) miles per hour") : String(localized: "\(text) kilometers per hour")
+    }
+
+    /// "142 beats per minute" for what is drawn as "142 bpm".
+    static func spokenHeartRate(_ bpm: Int) -> String {
+        String(localized: "\(bpm) beats per minute")
+    }
+
     /// What VoiceOver reads for the timer: "34 minutes, 12 seconds".
     static func spokenElapsed(_ seconds: TimeInterval) -> String {
         Duration.seconds(Int(seconds.rounded())).formatted(.units(allowed: [.hours, .minutes, .seconds], width: .wide))

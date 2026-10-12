@@ -119,8 +119,41 @@ final class LiveWorkoutGlanceTests: XCTestCase {
             let v = value(metric, nothing)
             XCTAssertTrue(v.isMissing, "\(metric) reads \(v.text)")
             XCTAssertEqual(v.text, LiveWorkoutTiles.missing)
-            XCTAssertEqual(v.spoken, LiveWorkoutTiles.missing, "VoiceOver does not read a unit after a dash")
+            XCTAssertEqual(v.spoken, String(localized: "No reading"), "VoiceOver does not read a dash, or a unit after one")
         }
+    }
+
+    /// What VoiceOver says for a number goes through the String Catalog: the unit is a word in the wearer's language, not the
+    /// drawn abbreviation ("km", "/km", "bpm") read out letter by letter.
+    func testSpokenValuesUseLocalizedUnitsNotTheDrawnAbbreviations() {
+        let run = input(meters: 5_490, pace: 373, bpm: 149, calories: 471, avg: 140)
+        XCTAssertEqual(value(.distance, run).spoken, String(localized: "\("5.49") kilometers"))
+        XCTAssertEqual(value(.pace, run).spoken, WorkoutFormat.spokenPace("6:13", system: .metric))
+        XCTAssertEqual(value(.heartRate, run).spoken, String(localized: "\(149) beats per minute"))
+        XCTAssertEqual(value(.averageHeartRate, run).spoken, String(localized: "\(140) beats per minute"))
+        XCTAssertEqual(value(.calories, run).spoken, WorkoutFormat.spokenEnergy(471))
+        let ride = input("Cycling", meters: 20_000, pace: 144)
+        XCTAssertEqual(value(.speed, ride).spoken, String(localized: "\("25.0") kilometers per hour"))
+        let imperial = input(meters: 8_047, pace: 373, imperial: true)
+        XCTAssertEqual(value(.distance, imperial).spoken, String(localized: "\("5.00") miles"))
+        for metric in [G.Metric.distance, .pace, .heartRate, .calories] {
+            let spoken = value(metric, run).spoken
+            XCTAssertFalse(spoken.contains("/km") || spoken.contains(" km") || spoken.contains("bpm") || spoken.contains("kcal"),
+                           "\(metric) is spoken as \"\(spoken)\"")
+        }
+    }
+
+    /// A source that has gone quiet says so to VoiceOver as it does on screen ("no signal"), and a number that is not known is
+    /// never read as a dash.
+    func testAStaleNumberIsSpokenWithNoSignalAndAMissingOneAsNoReading() {
+        let heart = value(.heartRate, input(bpm: 142))
+        XCTAssertEqual(LiveFocusPage.spoken(heart, state: .live), heart.spoken)
+        XCTAssertEqual(LiveFocusPage.spoken(heart, state: .stale), "\(heart.spoken), \(String(localized: "no signal"))")
+        let none = value(.pace, input())
+        XCTAssertEqual(LiveFocusPage.spoken(none, state: .missing), String(localized: "No reading"))
+        let building = value(.strain, input(), strain: .building(readings: 200, coverageSeconds: 240))
+        XCTAssertEqual(LiveFocusPage.spoken(building, state: .missing), String(localized: "scores in \("6:00")"),
+                       "the name is the label; the value says when it will score, without repeating the name")
     }
 
     func testBuildingStrainShowsADashAndTheTimeUntilItScores() {
