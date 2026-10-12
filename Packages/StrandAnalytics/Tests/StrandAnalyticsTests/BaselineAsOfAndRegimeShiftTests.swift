@@ -128,6 +128,25 @@ final class BaselineAsOfAndRegimeShiftTests: XCTestCase {
         XCTAssertEqual(before, after)
     }
 
+    /// Review F3: the Charge breakdown sheet's baselines are the ones the ring was scored against, the nights
+    /// before the displayed day. With exactly four nights the fourth day is still calibrating (three prior
+    /// nights), so the sheet must not build a breakdown from a fold that includes the fourth night.
+    func testChargeBaselinesForTheBreakdownExcludeTheDisplayedNight() {
+        let keys = (0..<4).map(key)
+        let hrv: [Double?] = [58, 60, 62, 45]
+        let rhr: [Double?] = [52, 53, 51, 58]
+        let resp: [Double?] = [14, 14.2, 13.9, 15]
+        let bases = RecoveryScorer.chargeBaselines(asOf: keys[3], dayKeys: keys, hrv: hrv, restingHR: rhr, resp: resp,
+                                                   hrvEpoch: 0, recoveryEpoch: 0)
+        XCTAssertEqual(bases.hrv, Baselines.foldHistory(Array(hrv[..<3]), dayKeys: Array(keys[..<3]), cfg: cfg,
+                                                        baselineEpoch: 0))
+        XCTAssertEqual(bases.hrv?.nValid, 3)
+        XCTAssertFalse(bases.hrv?.usable ?? true, "the ring reads calibrating, so the sheet shows the countdown")
+        XCTAssertTrue(Baselines.foldHistory(hrv, cfg: cfg).usable, "the old all-nights fold claimed a usable baseline")
+        XCTAssertEqual(bases.restingHR?.nValid, 3)
+        XCTAssertEqual(bases.resp?.nValid, 3)
+    }
+
     /// The recalibration epoch drops earlier nights exactly as `foldHistory` does.
     func testAsOfHonoursTheRecalibrationEpoch() throws {
         let values: [Double?] = Array(repeating: 60, count: 12)

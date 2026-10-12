@@ -1188,34 +1188,40 @@ struct TodayView: View {
 
     /// The ordered "What shaped it" Charge drivers for the displayed Charge ring. PURE derivation from the
     /// SAME `displayDay` (post-#814 union-read row) the ring already shows, plus the HRV/RHR/resp baselines
-    /// folded from `repo.days` (exactly the inputs `AnalyticsEngine` scored with), so a row can NEVER
+    /// folded from `repo.days` up to the night before the row (the engine's inputs), so a row can NEVER
     /// describe a term the ring's number didn't use. This is NOT a second store read: it reads only data
     /// already resolved into `repo.days`/`displayDay`. Empty for a calibrating / cold-start night (no usable
     /// HRV baseline or no value), so the sheet gates through to the calibration countdown instead.
     private var chargeDrivers: [ChargeDriver] {
         guard let row = chargeBreakdownRow,
               let hrv = row.avgHrv, let rhr = row.restingHr else { return [] }
-        let hrvBase = Baselines.foldHistory(repo.days.map(\.avgHrv), cfg: Baselines.hrvCfg)
-        guard hrvBase.usable else { return [] }
-        let rhrBase = Baselines.foldHistory(repo.days.map { $0.restingHr.map(Double.init) },
-                                            cfg: Baselines.restingHRCfg)
-        let respBase = Baselines.foldHistory(repo.days.map(\.respRateBpm), cfg: Baselines.respCfg)
+        let bases = chargeBaselines(asOf: row.day)
+        guard let hrvBase = bases.hrv, hrvBase.usable else { return [] }
+        let rhrBase = bases.restingHR, respBase = bases.resp
         // Sleep-quality term = the Sleep composite ÷100, matching AnalyticsEngine's `sleepPerf`. `restScore`
         // is the same merged sleep_performance value the Sleep ring reads, so the term stays consistent.
         let sleepPerf = displayedRestScore.map { $0 / 100.0 }
         return RecoveryScorer.chargeDrivers(
             hrv: hrv, rhr: Double(rhr), resp: row.respRateBpm,
             hrvBaseline: hrvBase,
-            rhrBaseline: rhrBase.usable ? rhrBase : nil,
-            respBaseline: respBase.usable ? respBase : nil,
+            rhrBaseline: rhrBase?.usable == true ? rhrBase : nil,
+            respBaseline: respBase?.usable == true ? respBase : nil,
             sleepPerf: sleepPerf, skinTempDev: row.skinTempDevC)
+    }
+
+    /// The baselines `day`'s Charge was scored against: the nights before it, as the engine scores (review F3).
+    private func chargeBaselines(asOf day: String) -> AnalyticsEngine.ProfileBaselines {
+        RecoveryScorer.chargeBaselines(asOf: day, dayKeys: repo.days.map(\.day), hrv: repo.days.map(\.avgHrv),
+                                       restingHR: repo.days.map { $0.restingHr.map(Double.init) },
+                                       resp: repo.days.map(\.respRateBpm))
     }
 
     /// The Charge confidence tier for the displayed row, SURFACED (never recomputed) from the existing
     /// `ScoreConfidence.charge` against the same folded HRV baseline the drivers scored with, so the dot +
     /// tier tag in the sheet header agree with the breakdown.
     private var chargeBreakdownConfidence: ScoreConfidence {
-        let hrvBase = Baselines.foldHistory(repo.days.map(\.avgHrv), cfg: Baselines.hrvCfg)
+        let hrvBase = chargeBreakdownRow.flatMap { chargeBaselines(asOf: $0.day).hrv }
+            ?? Baselines.foldHistory([], cfg: Baselines.hrvCfg)
         return ScoreConfidence.charge(recovery: chargeBreakdownRow?.recovery, hrvBaseline: hrvBase)
     }
 
