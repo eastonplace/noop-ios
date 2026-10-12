@@ -403,6 +403,20 @@ public struct DroppedRtcEvent: Equatable, Codable, Sendable {
     }
 }
 
+/// AN-03 (ingest half): the heart-rate range a realtime sample must fall in before it is persisted.
+/// The strap reports `0` while it is off-wrist (Interpreter: "reads 0 only when the strap is
+/// off-wrist"), and a corrupt byte can read anything up to 255. Neither is a heart rate, and once stored
+/// it reaches sleep detection, resting HR, workouts and calories downstream. 30...240 matches the range the
+/// strain scorer and the cycle merge already apply. The type-47 historical path keeps its own `bpm != 0`
+/// startup-zero guard.
+public enum HeartRatePlausibility {
+    public static let ingestRange: ClosedRange<Int> = 30...240
+
+    public static func isPlausible(_ bpm: Int) -> Bool {
+        ingestRange.contains(bpm)
+    }
+}
+
 /// Map a device-epoch timestamp to wall-clock unix seconds via a pure linear offset.
 /// Assumes strap clock and wall clock tick at the same rate (no skew/drift). Port of _to_wall.
 private func toWall(_ deviceTs: Int?, _ deviceClockRef: Int, _ wallClockRef: Int) -> Int? {
@@ -435,7 +449,7 @@ public func extractStreams(_ parsed: [ParsedFrame],
         switch r.typeName {
         case "REALTIME_DATA":
             let ts = toWall(p["timestamp"]?.intValue, deviceClockRef, wallClockRef)
-            if let ts = ts, let bpm = p["heart_rate"]?.intValue {
+            if let ts = ts, let bpm = p["heart_rate"]?.intValue, HeartRatePlausibility.isPlausible(bpm) {
                 out.hr.append(HRSample(ts: ts, bpm: bpm))
             }
             // Unlike Python, drop RR rows when timestamp is absent (a ts-less RR row is unstorable).
