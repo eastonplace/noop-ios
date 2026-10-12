@@ -145,7 +145,7 @@ final class LiveWorkoutGlanceTests: XCTestCase {
 
     /// A source that has gone quiet says so to VoiceOver as it does on screen ("no signal"), and a number that is not known is
     /// never read as a dash.
-    func testAStaleNumberIsSpokenWithNoSignalAndAMissingOneAsNoReading() {
+    @MainActor func testAStaleNumberIsSpokenWithNoSignalAndAMissingOneAsNoReading() {
         let heart = value(.heartRate, input(bpm: 142))
         XCTAssertEqual(LiveFocusPage.spoken(heart, state: .live), heart.spoken)
         XCTAssertEqual(LiveFocusPage.spoken(heart, state: .stale), "\(heart.spoken), \(String(localized: "no signal"))")
@@ -232,7 +232,7 @@ final class LiveWorkoutSlotNoticeTests: XCTestCase {
     /// after every real warning, and it is only to be known, not to be worried about.
     func testARestoredGapIsItsOwnQuietNoticeBehindTheRealWarnings() {
         XCTAssertEqual(Notice.pending(.init(gpsGapIsRecent: true)), [.gpsGap])
-        let all = Notice.Inputs(hasDurabilityWarning: true, heartRateIsStale: true, gps: .lost, gpsGapIsRecent: true)
+        let all = Notice.Inputs(hasDurabilityWarning: true, gpsGapIsRecent: true, heartRateIsStale: true, gps: .lost)
         XCTAssertEqual(Notice.pending(all), [.durability, .heartRate, .gpsLost, .gpsGap])
         XCTAssertEqual(Notice.gpsGap.tone, .neutral)
         XCTAssertEqual(Notice.durability.tone, .warning)
