@@ -125,8 +125,9 @@ private struct WorkoutJourneyHost: View {
         .environment(\.appHeaderChromeVisibility, .hidden)
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: phase.kind)
         .background(StrandPalette.appCanvas.ignoresSafeArea())
-        // Reports the cover as a workout surface, so the shell's auto-present never stacks a second copy on it.
-        .tracksWorkoutSurface()
+        // The live screen reports itself as a workout surface (so auto-present never stacks a second copy on it). Setup and the
+        // summary do not: a lift whose auto-resume was blocked while setup was up must still be remembered and presented once
+        // this cover closes, which the shell's "a cover is up" flag does.
         .onReceive(model.$workoutFinishState) { state in
             if case .saved(let row) = state, phase == .live {
                 StrandHaptic.success.play()
@@ -141,7 +142,9 @@ private struct WorkoutJourneyHost: View {
         }
         .onChange(of: phase, initial: true) { _, _ in updateKeepAwake() }
         .onChange(of: keepScreenOn) { _, _ in updateKeepAwake() }
-        .onReceive(NotificationCenter.default.publisher(for: .NSProcessInfoPowerStateDidChange)) { _ in updateKeepAwake() }
+        // Posted on whatever thread noticed the change; the idle timer is UIKit's, so this hops to the main thread first.
+        .onReceive(NotificationCenter.default.publisher(for: .NSProcessInfoPowerStateDidChange)
+            .receive(on: DispatchQueue.main)) { _ in updateKeepAwake() }
         .onDisappear { ScreenIdle.keepAwake(false) }
     }
 
