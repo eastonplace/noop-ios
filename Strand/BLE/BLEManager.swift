@@ -1150,6 +1150,9 @@ public final class BLEManager: NSObject, ObservableObject {
         // Connection test mode: stamp when this connect attempt began so didConnect can report the connect
         // latency. A plain Date() assignment, no behaviour change; only read behind the .connection gate.
         connectAttemptStartedAt = Date()
+        // BLE-12: a family switch is a different strap; its battery history starts fresh. A plain
+        // disconnect/reconnect keeps the seeded samples.
+        if model.deviceFamily != selectedModel.deviceFamily { state.clearBatterySamples() }
         selectedModel = model
         // Battery "~X days left" fallback (#713): a 5/MG runs far longer than a 4.0, so point the estimator's
         // rated-life fallback at the connected family. The Today badge reads state.batteryEstimate (which uses
@@ -1295,6 +1298,7 @@ public final class BLEManager: NSObject, ObservableObject {
         let isCurrent = target == nil || peripheral?.identifier == target
         intentionalDisconnect = true            // defuses the disconnect→3s-reconnect loop's guard
         cancelScanFallback()
+        if isCurrent { state.clearBatterySamples() }   // BLE-12: forgetting the strap drops its history
         readoptingTo = nil                       // abandon any in-flight #52 pin handoff
         // Clear the targeted-connect pin + the iOS state-restoration peripheral if they point at this strap,
         // so connect()/restoration can't re-target it.
@@ -1522,6 +1526,7 @@ public final class BLEManager: NSObject, ObservableObject {
         backfiller?.deviceId = id
         if changed {
             historicalSourceEpoch &+= 1
+            state.clearBatterySamples()   // BLE-12: another strap's discharge history must not carry over
         }
     }
 
