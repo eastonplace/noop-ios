@@ -118,6 +118,11 @@ private struct WorkoutSetupContent: View {
                     onConnect: { showsDevices = true })
                 FlatSectionSeparator()
                 bigNumberSection
+                // At the accessibility sizes the pinned bar is the button alone; what Start will not record reads here.
+                if typeSize.isAccessibilitySize, let caption = presentation.captionText {
+                    FlatSectionSeparator()
+                    startCaption(caption).padding(.vertical, NoopMetrics.space3)
+                }
                 FlatSectionSeparator()
                 liftRow
             }
@@ -365,12 +370,8 @@ private struct WorkoutSetupContent: View {
             .accessibilityAction(named: Text("Start without countdown")) {
                 if !blockedByLift { start(countdown: false) }
             }
-            if let caption = presentation.captionText {
-                Text(verbatim: caption)
-                    .font(StrandFont.micro)
-                    .foregroundStyle(StrandPalette.textTertiary)
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
+            if !typeSize.isAccessibilitySize, let caption = presentation.captionText {
+                startCaption(caption)
             }
         }
         .padding(.horizontal, NoopMetrics.space4)
@@ -378,6 +379,15 @@ private struct WorkoutSetupContent: View {
         // Opaque, so what scrolls beneath it never shows through the button's surroundings.
         .background(StrandPalette.surfaceBase.ignoresSafeArea(edges: .bottom))
         .overlay(alignment: .top) { Rectangle().fill(StrandPalette.hairline).frame(height: 1).accessibilityHidden(true) }
+    }
+
+    private func startCaption(_ caption: String) -> some View {
+        Text(verbatim: caption)
+            .font(StrandFont.micro)
+            .foregroundStyle(StrandPalette.textTertiary)
+            .multilineTextAlignment(typeSize.isAccessibilitySize ? .leading : .center)
+            .frame(maxWidth: .infinity, alignment: typeSize.isAccessibilitySize ? .leading : .center)
+            .fixedSize(horizontal: false, vertical: true)
     }
 
     /// Why Start would do nothing, and what to do instead. Side by side while both fit on one line; stacked when a longer
