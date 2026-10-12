@@ -1997,13 +1997,14 @@ final class IntelligenceEngine: ObservableObject {
         let appleByDay = Dictionary(appleRows.map { ($0.day, $0) }, uniquingKeysWith: { a, _ in a })
         for w in watchScored {
             guard let recovery = w.recovery, let row = appleByDay[w.day] else { continue }
-            // DL-12: rewrite only rows whose recovery changed, and list only this pass's window, instead of
-            // re-upserting and surfacing every Apple day ever recorded on every pass.
+            // DL-12: rewrite only rows whose recovery changed, instead of re-upserting every Apple day ever
+            // recorded on every pass.
             if row.recovery != recovery {
                 appleRecoveryRows.append(row.with(recovery: recovery, skinTempDevC: row.skinTempDevC))
             }
-            guard w.day >= oldestCivilDay.day, w.day <= newestCivilDay.day else { continue }
-            // Surface the watch-only day in the By-Day list with its watch provenance + confidence.
+            // Surface every watch-only day in the By-Day list with its watch provenance + confidence. The
+            // results keep the whole Apple history (review N2-UPG-5): Smart Alarm's green wake mode and the
+            // Charge forecast count these recoveries, and production passes cover a single day.
             out.append(Computed(day: w.day, recovery: recovery, strain: row.strain,
                                 sleepMin: row.totalSleepMin, hrv: row.avgHrv, rhr: row.restingHr,
                                 source: .appleHealth, recoveryPersistenceOwner: .appleHealth,

@@ -196,4 +196,31 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
             XCTAssertNil(after[dayKey(30)]?.recovery, "with no strap history its Charge is still calibrating")
         }
     }
+
+    // MARK: - F8
+
+    /// A watch-only user's Apple-scored days stay in the pass results, so Smart Alarm's green wake mode and
+    /// the Charge forecast keep their history after a one-day pass.
+    func testAppleScoredDaysStayInResults() async throws {
+        try await withRecalibrationEpochsRestored {
+            let store = try await WhoopStore.inMemory()
+            let repository = Repository(deviceId: Repository.whoopSource)
+            repository.setStoreForTesting(store)
+            let engine = IntelligenceEngine(repo: repository, profile: ProfileStore(),
+                                            deviceId: Repository.whoopSource)
+            let rows = (0..<20).map { k in
+                DailyMetric(day: dayKey(k), totalSleepMin: 420, efficiency: 0.9, deepMin: 80, remMin: 90,
+                            lightMin: 250, disturbances: nil, restingHr: 55 + k % 3, avgHrv: 48 + Double(k % 5),
+                            recovery: nil, strain: nil, exerciseCount: nil)
+            }
+            _ = try await store.upsertDailyMetrics(rows, deviceId: Repository.appleHealthSource)
+            let reference = Date(timeIntervalSince1970: TimeInterval(firstDayStart + 19 * 86_400 + 12 * 3_600))
+            let completed = await engine.analyzeRecent(
+                maxDays: 1, startOffset: 0, force: true, refreshRepository: false,
+                analysisReference: reference, analysisCalendar: utcCalendar)
+            XCTAssertTrue(completed)
+            let appleRecoveries = engine.results.filter { $0.source == .appleHealth }.compactMap(\.recovery)
+            XCTAssertGreaterThanOrEqual(appleRecoveries.count, RecoveryForecaster.minBaselineNights)
+        }
+    }
 }
