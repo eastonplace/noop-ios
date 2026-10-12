@@ -2,7 +2,8 @@
 #
 # Cheap source-contract audits run independently on Linux so macOS runner allocation cannot hide static
 # regressions. The Xcode job starts only after every audit passes, then generates the project, builds the app
-# and WidgetKit/Live Activity extension, and runs the complete iOS and retained-package test suites.
+# and WidgetKit/Live Activity extension, and runs the complete iOS test suite. Package tests run once, in
+# swift-packages.yml.
 name: iOS build and tests
 
 on:
@@ -150,27 +151,6 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             test 2>&1 | tee qa-artifacts/xcodebuild-test.txt
-
-      - name: Run retained Swift package tests
-        if: always()
-        shell: bash
-        run: |
-          set -uo pipefail
-          mkdir -p qa-artifacts/packages
-          status=0
-          for package in NoopPhase34Core WhoopProtocol OuraProtocol WhoopStore StrandAnalytics StrandImport StrandDesign NoopLocalAccess; do
-            echo "::group::$package"
-            swift test --package-path "Packages/$package" 2>&1 | tee "qa-artifacts/packages/$package.txt"
-            rc=${PIPESTATUS[0]}
-            echo "::endgroup::"
-            if (( rc != 0 )); then status=1; fi
-          done
-          echo "::group::NoopPhase34Core standalone"
-          swift test --package-path Packages/NoopPhase34Core 2>&1 | tee qa-artifacts/packages/NoopPhase34Core-standalone.txt
-          rc=${PIPESTATUS[0]}
-          echo "::endgroup::"
-          if (( rc != 0 )); then status=1; fi
-          exit "$status"
 
       - name: Upload Xcode and package logs
         if: always()
