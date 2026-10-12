@@ -327,7 +327,7 @@ func registerPostHooks() {
             return
         }
 
-        let mapped = spec.flatMap { schema.resolveVersion($0.versions, version) }
+        let mapped = spec.flatMap { schema.resolvedVersion(packet: $0, version) }
         // Unmapped firmware version: instead of dropping the whole record (→ no HR/R-R/GRAVITY → sleep
         // can never compute from the strap, issue #30), fall back to the canonical v24 DSP layout —
         // firmware versions overwhelmingly share it (the schema notes V12 == V24). We then accept it
@@ -335,7 +335,7 @@ func registerPostHooks() {
         // wrong layout yields random f32 gravity whose magnitude is nowhere near 1 g, so it's rejected
         // and the record is left raw. Mapped versions are unaffected.
         let usingFallback = (mapped == nil)
-        guard let entry = mapped ?? spec.flatMap({ schema.resolveVersion($0.versions, 24) }) else {
+        guard let entry = mapped ?? spec.flatMap({ schema.resolvedVersion(packet: $0, 24) }) else {
             fb.region(7, length, "HISTORICAL_DATA v\(version) (unmapped layout)", "unknown")
             return
         }

@@ -915,7 +915,7 @@ public final class BLEManager: NSObject, ObservableObject {
                                 enableRawCapture: enableRawCapture,
                                 log: { [weak self] s in self?.log(s) },
                                 rejectedSink: { [weak self] frames, trim, family in
-                                    self?.archiveRejectedFrames(frames, trim: trim, family: family) ?? true
+                                    await self?.archiveRejectedFrames(frames, trim: trim, family: family) ?? true
                                 },
                                 onHistoricalCommitContext: { [weak self] context in
                                     self?.recordHistoricalCommit(context)
@@ -3298,8 +3298,10 @@ public final class BLEManager: NSObject, ObservableObject {
     /// counters that drive the honest sync status. Returns false ONLY on a genuine write failure,
     /// which makes the Backfiller hold the cursor/ack so the strap re-sends the chunk (no data loss
     /// either way). Frames carry sensor payloads, not identifiers — no serials/MACs are archived.
-    private func archiveRejectedFrames(_ frames: [[UInt8]], trim: UInt32, family: DeviceFamily) -> Bool {
-        switch rejectedHistoryArchive.archive(frames, trim: trim, family: family) {
+    private func archiveRejectedFrames(_ frames: [[UInt8]], trim: UInt32, family: DeviceFamily) async -> Bool {
+        // BLE-5: the archive is an actor, so the fsynced write runs off the main actor; the Backfiller
+        // still awaits this before it ACKs.
+        switch await rejectedHistoryArchive.archive(frames, trim: trim, family: family) {
         case .written(let count):
             state.rejectedFramesThisSession += count
             return true
@@ -6160,8 +6162,7 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
                     // bug in dataRangeNewestUnix WITHOUT guessing, dump the raw GET_DATA_RANGE response bytes
                     // (logged unconditionally on a data-range reply, even if decode returns nil) so the field
                     // offsets are inspectable straight from a normal strap-log export. Short frame.
-                    let hex = frame.map { String(format: "%02x", $0) }.joined()
-                    log("Get Data Range raw frame (#451 — for offset analysis): \(hex)")
+                    log("Get Data Range raw frame (#451 — for offset analysis): \(lowercaseHex(frame))")
                     if let newest = BLEManager.dataRangeNewestUnix(from: frame) {
                         strapNewestTs = newest                    // feeds the liveness watchdog
                         // If GET_CLOCK has already exhausted its bounded retry budget, this current-link

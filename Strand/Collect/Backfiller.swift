@@ -276,6 +276,11 @@ final class Backfiller {
     /// shared strap log always reveals what the strap emits (v18/v24/v25/v26). Mirrors the Android
     /// Backfiller (PR #241, ryanbr); reset per session in `begin`.
     private var loggedLayoutVersions: Set<Int> = []
+    /// BLE-5: full-frame hex samples of rejected records logged this session, per layout version. Capped
+    /// per version instead of 8 per chunk, so an unmapped firmware still yields enough samples to map its
+    /// layout without re-logging the same layout on every chunk of a long offload.
+    private var rejectedSamplesLoggedByVersion: [Int: Int] = [:]
+    static let rejectedSamplesPerVersionPerSession = 8
 
     /// SpO2 RE dump (PR #945, reimplemented): how many full-record dumps this session emitted, bounded by
     /// `Spo2ReTrace.maxSamples`. Session-scoped so the cap spans chunks; reset per session in `begin`.
@@ -285,7 +290,8 @@ final class Backfiller {
     /// the bytes are safe (written OR cap-reached — either way the chunk may be acked) and false on a
     /// genuine write failure, in which case `finishChunk` holds the cursor/ack so the strap re-sends.
     /// nil in non-production inits (tests/preview) → archiving is skipped and acks proceed as before.
-    private let rejectedSink: ((_ frames: [[UInt8]], _ trim: UInt32, _ family: DeviceFamily) -> Bool)?
+    /// BLE-5: async, so the durable write runs off the main actor; the ACK still waits for it.
+    private let rejectedSink: ((_ frames: [[UInt8]], _ trim: UInt32, _ family: DeviceFamily) async -> Bool)?
     /// One durable receipt per atomically committed chunk. BLE owns coalescing so this hook never causes
     /// per-chunk Repository or SwiftUI work. It fires before the strap ACK.
     private let onHistoricalCommit: ((HistoricalDataCommitReceipt) -> Void)?
@@ -327,7 +333,7 @@ final class Backfiller {
          ackTrim: @escaping (_ scope: HistoricalCursorScope, _ trim: UInt32, _ endData: [UInt8]) async -> Bool,
          enableRawCapture: Bool = false,
          log: ((String) -> Void)? = nil,
-         rejectedSink: ((_ frames: [[UInt8]], _ trim: UInt32, _ family: DeviceFamily) -> Bool)? = nil,
+         rejectedSink: ((_ frames: [[UInt8]], _ trim: UInt32, _ family: DeviceFamily) async -> Bool)? = nil,
          onHistoricalCommit: ((HistoricalDataCommitReceipt) -> Void)? = nil,
          onHistoricalCommitContext: ((HistoricalCommitContext) -> Void)? = nil,
          onHistoricalAcknowledged: ((HistoricalDataCommitReceipt, HistoricalCommitOutcome) -> Void)? = nil,
@@ -459,6 +465,7 @@ final class Backfiller {
         loggedFutureRtc = false
         sessionDroppedImplausible = 0
         loggedLayoutVersions.removeAll(keepingCapacity: true)
+        rejectedSamplesLoggedByVersion.removeAll(keepingCapacity: true)
         spo2Dumped = 0
         // #547: the range markers belong to a connection's GET_DATA_RANGE, which BLEManager re-sets per
         // connect; clear them here so a fresh session never reuses a previous strap's window. BLEManager
@@ -487,7 +494,9 @@ final class Backfiller {
             log?("Backfill: ignored historical frame from a stale or unowned secure-session admission.")
             return
         }
-        switch classifyHistoricalMeta(parseFrame(frame, family: family)) {
+        // BLE-2: only METADATA frames need a full parse here; every type-47 record is `.other` by its
+        // type byte alone, and the detached chunk decode parses it once later.
+        switch classifyHistoricalMeta(frame: frame, family: family) {
         case .start:
             sessionProtocolMetadata = Data(frame)
             isBackfilling = true
@@ -654,6 +663,10 @@ final class Backfiller {
         let rejected: [[UInt8]]
         let integrityFailures: [[UInt8]]
         let mappedRawFrames: [MappedRawFrame]
+        /// BLE-2: mapped-raw records that advance trusted progress, and their timestamps, computed in the
+        /// detached decode from the dispositions it already has instead of recomputed on the main actor.
+        let mappedRawProgressCount: Int
+        let trustedMappedTimestamps: [Int]
         let fingerprintInput: HistoricalReceivedFrameFingerprintInput
         let fingerprint: String
     }
@@ -773,6 +786,7 @@ final class Backfiller {
             let oldest = sessionOldestUnix, newest = sessionNewestUnix
             let extractFn = extract   // keep the injected Extractor seam (tests override it); prod == extractHistoricalStreams
             let parseFn = parse
+            let progressWallNow = Int(Date().timeIntervalSince1970)
             let decodeTrace = PerformanceTrace.begin("history_chunk_decode")
             let d: DecodedChunk
             do {
@@ -807,6 +821,18 @@ final class Backfiller {
                             unix: unix
                         )
                     }
+                    var trustedMappedTimestamps: [Int] = []
+                    var mappedRawProgressCount = 0
+                    for (index, disposition) in dispositions.enumerated() {
+                        guard case .mappedRaw(let version) = disposition,
+                              Backfiller.mappedRawAdvancesProgress(
+                                parsed: parsed[index], rawFrame: frames[index],
+                                version: version, wallNow: progressWallNow) else { continue }
+                        mappedRawProgressCount += 1
+                        if let unix = parsed[index].parsed["unix"]?.intValue {
+                            trustedMappedTimestamps.append(unix)
+                        }
+                    }
                     let range = Backfiller.receivedTimestampRange(from: parsed)
                     let fingerprintInput = HistoricalReceivedFrameFingerprintInput(
                         orderedFrames: frames,
@@ -824,6 +850,8 @@ final class Backfiller {
                         rejected: rejected,
                         integrityFailures: integrityFailures,
                         mappedRawFrames: mappedRawFrames,
+                        mappedRawProgressCount: mappedRawProgressCount,
+                        trustedMappedTimestamps: trustedMappedTimestamps,
                         fingerprintInput: fingerprintInput,
                         fingerprint: fingerprint
                     )
@@ -844,25 +872,9 @@ final class Backfiller {
             let parsed = d.parsed
             mappedRawFrames = d.mappedRawFrames
             mappedRawVersions = Set(mappedRawFrames.map(\.version))
-            let wallNow = Int(Date().timeIntervalSince1970)
-            mappedRawRecordCount = zip(d.parsed, frames).filter { parsed, rawFrame in
-                guard case .mappedRaw(let version) = historicalRecordDisposition(
-                    parsed: parsed, rawFrame: rawFrame, family: fam
-                ) else { return false }
-                return Backfiller.mappedRawAdvancesProgress(
-                    parsed: parsed, rawFrame: rawFrame, version: version, wallNow: wallNow
-                )
-            }.count
-            let trustedMappedTimestamps = zip(d.parsed, frames).compactMap { parsed, rawFrame -> Int? in
-                guard case .mappedRaw(let version) = historicalRecordDisposition(
-                    parsed: parsed, rawFrame: rawFrame, family: fam
-                ), Backfiller.mappedRawAdvancesProgress(
-                    parsed: parsed, rawFrame: rawFrame, version: version, wallNow: wallNow
-                ) else { return nil }
-                return parsed.parsed["unix"]?.intValue
-            }
-            if let minimum = trustedMappedTimestamps.min(),
-               let maximum = trustedMappedTimestamps.max() {
+            mappedRawRecordCount = d.mappedRawProgressCount
+            if let minimum = d.trustedMappedTimestamps.min(),
+               let maximum = d.trustedMappedTimestamps.max() {
                 trustedMappedProgressRange = minimum...maximum
             }
             preparedFingerprintInput = d.fingerprintInput
@@ -993,9 +1005,15 @@ final class Backfiller {
                 // prefix — v25/v26 records run ~84 B and the truncated tail is exactly where the
                 // unmapped motion/HR fields sit), and sample a few more so one log carries enough
                 // records to triangulate offsets. These only ever fire for unmapped firmware.
-                for (i, f) in rejected.prefix(8).enumerated() {
-                    let hex = f.map { String(format: "%02x", $0) }.joined()
-                    log?("Backfill: rejected frame[\(i)] \(f.count)B: \(hex)")
+                // BLE-5: capped per layout version per session (not 8 per chunk), LUT hex encoding.
+                var sampleIndex = 0
+                for f in rejected {
+                    let version = RawHistoryArchive.versionByte(f, family: family)
+                    let logged = rejectedSamplesLoggedByVersion[version, default: 0]
+                    guard logged < Self.rejectedSamplesPerVersionPerSession else { continue }
+                    rejectedSamplesLoggedByVersion[version] = logged + 1
+                    log?("Backfill: rejected frame[\(sampleIndex)] v\(version) \(f.count)B: \(lowercaseHex(f))")
+                    sampleIndex += 1
                 }
             }
             // #77 / #91: any genuinely-undecodable type-47 record in this chunk must be ARCHIVED
@@ -1004,9 +1022,14 @@ final class Backfiller {
             // chunk (no setCursor, no ack) so the strap re-sends it next session — no data loss
             // either way. (A full archive is reported as success by the sink; we still ack.)
             if !rejected.isEmpty, let rejectedSink {
-                guard rejectedSink(rejected, trim, family) else {
+                guard await rejectedSink(rejected, trim, family) else {
                     log?("Backfill: rejected-frame archive failed (trim=\(trim)) — holding ack so the strap re-sends.")
                     fail(.rejectedArchive(trim: trim))
+                    return
+                }
+                // The durable write now suspends; a session replaced meanwhile must not commit or ACK.
+                guard sessionGeneration == admittedSessionGeneration, ownsRoute(admission) else {
+                    log?("Backfill: dropped trim=\(trim) from a superseded session after archiving rejects.")
                     return
                 }
             }

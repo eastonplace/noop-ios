@@ -11,24 +11,32 @@ import Foundation
 ///
 /// Format: newline-delimited JSON, one object per line, fsynced before returning so the bytes are
 /// durable BEFORE the trim ack deletes the strap's copy (the whole point):
-///   {"capturedAtMs":Double,"trim":Int,"family":"whoop4"|"whoop5","frameHex":String}
-/// Frames carry sensor payloads, not identifiers — no serials/MACs land here. The companion Android
-/// archive uses the same record shape so one mapping toolchain reads both.
-public struct RawHistoryArchive: Sendable {
-    /// File name under `<AppSupport>/com.noopapp.noop/`.
+///   {"capturedAtMs":Double,"trim":Int,"family":"whoop4"|"whoop5","version":Int,"frameHex":String}
+/// `version` (BLE-5) is the hist_version byte, stored so retention never has to hex-decode a frame;
+/// lines written before it existed are still read (their version is derived from `frameHex`). Frames
+/// carry sensor payloads, not identifiers — no serials/MACs land here.
+///
+/// BLE-5: an actor, so the durable write runs off the main actor (the Backfiller awaits it before the
+/// ACK), and the cap is enforced by rotating two segment files instead of reading, re-deriving and
+/// rewriting the whole 5 MB file on every chunk once it was full. Appends go to the active segment
+/// (`rejected_history.jsonl`, the original file name, so existing archives carry over). When it would
+/// pass half the cap it becomes the previous segment (`rejected_history.prev.jsonl`), carrying over only
+/// the per-version floor lines of the segment it replaces.
+public actor RawHistoryArchive {
+    /// Active segment file name under `<AppSupport>/com.noopapp.noop/` (the pre-rotation file name).
     public static let fileName = "rejected_history.jsonl"
-    /// Soft cap (~5 MB). When appending would push the file past this, the archive EVICTS oldest
-    /// surplus lines to make room rather than refusing the write — but only down to a per-version
-    /// retention floor (see `perVersionFloor`), so a brand-new layout version is never binned merely
-    /// because common versions filled the file. Only when the incoming frames alone can't fit even an
-    /// empty archive does `archive` skip them (reported as unarchived). (#344)
+    /// The previous (older) segment.
+    public static let previousFileName = "rejected_history.prev.jsonl"
+    /// Soft cap (~5 MB) across both segments, plus at most the per-version floor lines. Each segment
+    /// holds up to half of it. Only a batch that can't fit even an empty segment is skipped (reported as
+    /// unarchived). (#344)
     public static let maxBytes = 5 * 1024 * 1024
 
     /// Per distinct layout VERSION, keep at least this many of the newest archived lines, immune to
-    /// cap eviction. A never-seen version (WHOOP 4 v19, WHOOP 5 v20/v21 — `frame[5]` / `frame[9]`,
-    /// the hist_version byte) emits only a handful of frames, so this floor guarantees those rare
-    /// samples survive while the most-populous versions shed their oldest surplus. Bounded: the floor
-    /// can hold at most `floor × distinctVersions` lines, a tiny set. (#344)
+    /// rotation. A never-seen version (WHOOP 4 v19, WHOOP 5 v20/v21 — `frame[5]` / `frame[9]`, the
+    /// hist_version byte) emits only a handful of frames, so this floor guarantees those rare samples
+    /// survive while the most-populous versions shed their oldest surplus. Bounded: the floor can hold at
+    /// most `floor × distinctVersions` lines, a tiny set. (#344)
     public static let perVersionFloor = 64
 
     /// Outcome of an archive attempt.
@@ -45,14 +53,14 @@ public struct RawHistoryArchive: Sendable {
 
     private let directory: URL
     /// Effective cap/floor; default to the static constants but overridable so tests can drive the
-    /// eviction path with a small archive instead of generating 5 MB of frames. (#344)
+    /// rotation path with a small archive instead of generating 5 MB of frames. (#344)
     private let maxBytes: Int
     private let perVersionFloor: Int
 
     /// Default location: `<AppSupport>/com.noopapp.noop/`, created on demand. Overridable for tests.
     public init(directory: URL? = nil,
-         maxBytes: Int = RawHistoryArchive.maxBytes,
-         perVersionFloor: Int = RawHistoryArchive.perVersionFloor) {
+                maxBytes: Int = RawHistoryArchive.maxBytes,
+                perVersionFloor: Int = RawHistoryArchive.perVersionFloor) {
         if let directory {
             self.directory = directory
         } else {
@@ -66,8 +74,14 @@ public struct RawHistoryArchive: Sendable {
         self.perVersionFloor = perVersionFloor
     }
 
-    /// The archive file URL (does not create anything).
-    public var fileURL: URL { directory.appendingPathComponent(RawHistoryArchive.fileName) }
+    /// The active segment URL (does not create anything).
+    public nonisolated var fileURL: URL { directory.appendingPathComponent(RawHistoryArchive.fileName) }
+    /// The previous segment URL (does not create anything).
+    public nonisolated var previousFileURL: URL {
+        directory.appendingPathComponent(RawHistoryArchive.previousFileName)
+    }
+
+    private var segmentBytes: Int { max(1, maxBytes / 2) }
 
     /// The hist_version byte distinguishing one historical layout from another: `frame[5]` on WHOOP 4,
     /// `frame[9]` on WHOOP 5/MG (the puffin envelope is 4 bytes longer). Same indices the reject filter
@@ -81,73 +95,54 @@ public struct RawHistoryArchive: Sendable {
     /// kept as distinct buckets (their layouts differ despite the shared version number).
     private struct VersionKey: Hashable { let family: String; let version: Int }
 
-    private func versionKey(family: DeviceFamily, version: Int) -> VersionKey {
-        VersionKey(family: family.rawValue, version: version)
-    }
-
     /// Durably append `frames` as JSONL. `trim`/`family` tag each line so the corpus is replayable.
     /// Empty input is a no-op success. See `Result` for the ack contract.
-    ///
-    /// Cap handling (#344): if appending would exceed `maxBytes`, oldest SURPLUS lines are evicted
-    /// (oldest-first, from the most-populous versions) — but never below `perVersionFloor` newest
-    /// lines of any distinct version, so a rare never-seen layout is never binned just because common
-    /// versions filled the archive. The file is rewritten atomically in that case. Only when the
-    /// incoming frames alone can't fit even an empty archive are they skipped (`.capReached`).
     public func archive(_ frames: [[UInt8]], trim: UInt32, family: DeviceFamily) -> Result {
         guard !frames.isEmpty else { return .written(count: 0) }
-        let url = fileURL
         let capturedAtMs = Date().timeIntervalSince1970 * 1000
-        // Build the new JSONL lines (each newline-terminated). The version that drives floor-aware
-        // retention (#344) is re-derived per line from the stored frame inside `evictLines`.
+        // Hand-built JSON: the only dynamic strings are the family raw value and [0-9a-f] hex, so no
+        // escaping is needed, and this avoids a JSONEncoder allocation per frame on the offload hot path.
         let newLines: [String] = frames.map { f in
-            let hex = f.map { String(format: "%02x", $0) }.joined()
-            // Hand-built JSON: the only dynamic field is hex (always [0-9a-f]) so no escaping is
-            // needed, and this avoids a JSONEncoder allocation per frame on the offload hot path.
-            return "{\"capturedAtMs\":\(capturedAtMs),\"trim\":\(Int(trim)),"
-                + "\"family\":\"\(family.rawValue)\",\"frameHex\":\"\(hex)\"}\n"
+            "{\"capturedAtMs\":\(capturedAtMs),\"trim\":\(Int(trim)),"
+                + "\"family\":\"\(family.rawValue)\","
+                + "\"version\":\(RawHistoryArchive.versionByte(f, family: family)),"
+                + "\"frameHex\":\"\(lowercaseHex(f))\"}\n"
         }
-
-        let attrs = try? FileManager.default.attributesOfItem(atPath: url.path)
-        let existingSize = (attrs?[.size] as? Int) ?? 0
         let incomingBytes = newLines.reduce(0) { $0 + $1.utf8.count }
-
-        // Fast path: it all fits — plain append (no rewrite, fsync before returning).
-        if existingSize + incomingBytes <= maxBytes {
-            let data = Data(newLines.joined().utf8)
-            do {
-                try appendDurably(data, to: url)
-                return .written(count: frames.count)
-            } catch {
-                return .failed
-            }
-        }
-
-        // The incoming batch alone can't fit even an empty archive: nothing we can evict makes room,
-        // so skip it (the offload may still ack — by now there is ample sample material). Preserves
-        // the prior cap contract for this degenerate case.
-        if incomingBytes > maxBytes {
-            return .capReached(count: frames.count)
-        }
-
-        // Over cap: rewrite with floor-aware eviction. Read existing lines (oldest first), append the
-        // new lines (which sort newest), then drop oldest surplus until we fit — never dropping a line
-        // within the newest `perVersionFloor` of its version. `evictLines` is the pure, unit-tested core.
-        let existing = (try? String(contentsOf: url, encoding: .utf8))
-            .map { $0.split(separator: "\n", omittingEmptySubsequences: true).map { String($0) + "\n" } } ?? []
-        let kept = RawHistoryArchive.evictLines(existing + newLines, maxBytes: maxBytes, floor: perVersionFloor)
-        let data = Data(kept.joined().utf8)
+        // The batch alone can't fit even an empty segment: nothing rotation frees makes room, so skip
+        // it (the offload may still ack — by now there is ample sample material).
+        guard incomingBytes <= segmentBytes else { return .capReached(count: frames.count) }
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            try data.write(to: url, options: .atomic)   // atomic rewrite; durable before the ack
+            let activeSize = (try? FileManager.default.attributesOfItem(atPath: fileURL.path)[.size] as? Int)
+                .flatMap { $0 } ?? 0
+            if activeSize + incomingBytes > segmentBytes {
+                try rotate()
+            }
+            try appendDurably(Data(newLines.joined().utf8), to: fileURL)
             return .written(count: frames.count)
         } catch {
             return .failed
         }
     }
 
+    /// The active segment becomes the previous one. Lines of the replaced previous segment survive only
+    /// while they are within the newest `perVersionFloor` lines of their version across both segments,
+    /// so a rare layout is never binned by a flood of a common one. The new previous segment is written
+    /// durably BEFORE the active one is cleared: a crash in between duplicates lines, never loses them.
+    private func rotate() throws {
+        let older = Self.readLines(previousFileURL)
+        let active = Self.readLines(fileURL)
+        let protected = Self.protectedIndices(older + active, floor: perVersionFloor)
+        let carried = older.indices.filter { protected.contains($0) }.map { older[$0] }
+        try writeDurably(Data((carried + active).joined().utf8), to: previousFileURL)
+        if FileManager.default.fileExists(atPath: fileURL.path) {
+            try FileManager.default.removeItem(at: fileURL)
+        }
+    }
+
     /// Append `data` to `url`, fsyncing before returning so it is durable BEFORE the trim ack.
     private func appendDurably(_ data: Data, to url: URL) throws {
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         if FileManager.default.fileExists(atPath: url.path) {
             let handle = try FileHandle(forWritingTo: url)
             defer { try? handle.close() }
@@ -155,50 +150,80 @@ public struct RawHistoryArchive: Sendable {
             try handle.write(contentsOf: data)
             try handle.synchronize()   // durable BEFORE the ack — the point of the archive
         } else {
-            try data.write(to: url, options: .atomic)
+            try writeDurably(data, to: url)
         }
     }
 
-    /// The `VersionKey` of one archived JSONL line, re-derived from its stored frame + family; `nil`
-    /// for a malformed/unparseable line — those get NO retention floor (evict them first, never let
-    /// garbage occupy a floor slot a real rare version could use), and are always evictable before any
-    /// real, floor-protected line.
+    /// Write `data` to a temporary sibling, fsync it, then move it over `url`.
+    private func writeDurably(_ data: Data, to url: URL) throws {
+        let tmp = directory.appendingPathComponent(".\(url.lastPathComponent).\(UUID().uuidString).tmp")
+        try data.write(to: tmp)
+        let handle = try FileHandle(forWritingTo: tmp)
+        try handle.synchronize()
+        try handle.close()
+        if FileManager.default.fileExists(atPath: url.path) {
+            _ = try FileManager.default.replaceItemAt(url, withItemAt: tmp)
+        } else {
+            try FileManager.default.moveItem(at: tmp, to: url)
+        }
+    }
+
+    private static func readLines(_ url: URL) -> [String] {
+        guard let text = try? String(contentsOf: url, encoding: .utf8) else { return [] }
+        return text.split(separator: "\n", omittingEmptySubsequences: true).map { String($0) + "\n" }
+    }
+
+    /// The `VersionKey` of one archived JSONL line: the stored `version` field when present (BLE-5), else
+    /// re-derived from the stored frame for lines written before that field existed. `nil` for a
+    /// malformed line — those get NO retention floor (evicted first, never occupying a floor slot a real
+    /// rare version could use).
     private static func lineVersionKey(_ line: String) -> VersionKey? {
-        guard let fr = line.range(of: "\"family\":\""),
-              let hr = line.range(of: "\"frameHex\":\"") else { return nil }
+        guard let fr = line.range(of: "\"family\":\"") else { return nil }
         let fam = String(line[fr.upperBound...].prefix { $0 != "\"" })
+        guard let family = DeviceFamily(rawValue: fam) else { return nil }
+        if let vr = line.range(of: "\"version\":") {
+            let digits = line[vr.upperBound...].prefix { $0 == "-" || $0.isNumber }
+            if let version = Int(digits) { return VersionKey(family: fam, version: version) }
+        }
+        guard let hr = line.range(of: "\"frameHex\":\"") else { return nil }
         let hex = line[hr.upperBound...].prefix { $0 != "\"" }
-        guard let family = DeviceFamily(rawValue: fam), hex.count % 2 == 0 else { return nil }
+        guard let bytes = decodeHex(hex) else { return nil }
+        return VersionKey(family: fam, version: RawHistoryArchive.versionByte(bytes, family: family))
+    }
+
+    private static func decodeHex(_ hex: Substring) -> [UInt8]? {
+        guard hex.count % 2 == 0 else { return nil }
         var bytes = [UInt8](); bytes.reserveCapacity(hex.count / 2); var i = hex.startIndex
         while i < hex.endIndex {
             let j = hex.index(i, offsetBy: 2)
             guard let b = UInt8(hex[i..<j], radix: 16) else { return nil }
             bytes.append(b); i = j
         }
-        return VersionKey(family: fam, version: RawHistoryArchive.versionByte(bytes, family: family))
+        return bytes
     }
 
-    /// Floor-aware cap eviction (#344), PURE so it is unit-testable. `lines` is the full
-    /// newline-terminated JSONL set, oldest-first (existing + incoming). Drops oldest SURPLUS lines
-    /// until the UTF-8 byte total fits `maxBytes`, but NEVER a line within the newest `floor` lines of
-    /// its version — so a rare never-seen layout (WHOOP 4 v19, WHOOP 5 v20/v21) always survives even
-    /// when common versions fill the archive. Bounded: if everything left is floor-protected it stops
-    /// even if still over cap (the floor wins — `floor × distinctVersions` is tiny). Mirrors the Android
-    /// RawHistoryArchive.evictLines.
-    public static func evictLines(_ lines: [String], maxBytes: Int, floor: Int) -> [String] {
-        // Mark the newest `floor` indices of each version as protected (scan newest→oldest). Malformed
-        // lines (nil key) are never protected — they are evicted before any real, floor-kept line.
-        let keys = lines.map { lineVersionKey($0) }
+    /// Indices of the newest `floor` lines of each version (scan newest→oldest). Malformed lines (nil
+    /// key) are never protected.
+    private static func protectedIndices(_ lines: [String], floor: Int) -> Set<Int> {
         var protectedIdx = Set<Int>()
         var seen: [VersionKey: Int] = [:]
         for idx in lines.indices.reversed() {
-            guard let k = keys[idx] else { continue }
-            let c = (seen[k] ?? 0)
+            guard let k = lineVersionKey(lines[idx]) else { continue }
+            let c = seen[k] ?? 0
             if c < floor { protectedIdx.insert(idx); seen[k] = c + 1 }
         }
+        return protectedIdx
+    }
+
+    /// Floor-aware cap eviction (#344), PURE so it is unit-testable. `lines` is the full
+    /// newline-terminated JSONL set, oldest-first. Drops oldest SURPLUS lines until the UTF-8 byte total
+    /// fits `maxBytes`, but NEVER a line within the newest `floor` lines of its version. Bounded: if
+    /// everything left is floor-protected it stops even if still over cap (the floor wins). Mirrors the
+    /// Android RawHistoryArchive.evictLines; the iOS archive itself now bounds size by segment rotation.
+    public static func evictLines(_ lines: [String], maxBytes: Int, floor: Int) -> [String] {
+        let protectedIdx = protectedIndices(lines, floor: floor)
         var total = lines.reduce(0) { $0 + $1.utf8.count }
         guard total > maxBytes else { return lines }
-        // Evict oldest unprotected lines first.
         var dropped = Set<Int>()
         for idx in lines.indices where total > maxBytes {   // ascending = oldest first
             if protectedIdx.contains(idx) { continue }
@@ -208,24 +233,23 @@ public struct RawHistoryArchive: Sendable {
         return lines.enumerated().filter { !dropped.contains($0.offset) }.map(\.element)
     }
 
-    /// Every archived frame with its strap family, oldest first — the read-back of the JSONL that
-    /// `archive` writes. Malformed lines are skipped; an absent/empty file yields []. (Hand-parsed to
-    /// match the hand-built writer: the only dynamic fields are `family` and the [0-9a-f] `frameHex`.)
+    /// Every archived frame with its strap family, oldest first (previous segment, then active). Malformed
+    /// lines are skipped; absent/empty files yield []. Hand-parsed to match the hand-built writer.
     public func readAll() -> [(frame: [UInt8], family: DeviceFamily)] {
-        guard let text = try? String(contentsOf: fileURL, encoding: .utf8) else { return [] }
-        return text.split(separator: "\n").compactMap { line in
+        (Self.readLines(previousFileURL) + Self.readLines(fileURL)).compactMap { line in
             guard let fr = line.range(of: "\"family\":\""),
                   let hr = line.range(of: "\"frameHex\":\"") else { return nil }
             let fam = String(line[fr.upperBound...].prefix { $0 != "\"" })
             let hex = line[hr.upperBound...].prefix { $0 != "\"" }
-            guard let family = DeviceFamily(rawValue: fam), hex.count % 2 == 0 else { return nil }
-            var bytes = [UInt8](); bytes.reserveCapacity(hex.count / 2); var i = hex.startIndex
-            while i < hex.endIndex {
-                let j = hex.index(i, offsetBy: 2)
-                guard let b = UInt8(hex[i..<j], radix: 16) else { return nil }
-                bytes.append(b); i = j
-            }
+            guard let family = DeviceFamily(rawValue: fam), let bytes = Self.decodeHex(hex) else { return nil }
             return (bytes, family)
+        }
+    }
+
+    /// Bytes on disk across both segments.
+    public func totalBytes() -> Int {
+        [fileURL, previousFileURL].reduce(0) { sum, url in
+            sum + ((try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int) ?? 0)
         }
     }
 

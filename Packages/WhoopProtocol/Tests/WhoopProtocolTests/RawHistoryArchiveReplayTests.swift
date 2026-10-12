@@ -42,10 +42,11 @@ final class RawHistoryArchiveReplayTests: XCTestCase {
         ].map(bytes)
 
         // Archive durably, then confirm read-back + replay recover gravity.
-        if case .failed = archive.archive(frames, trim: 70476, family: .whoop4) {
+        if case .failed = await archive.archive(frames, trim: 70476, family: .whoop4) {
             return XCTFail("archive write should not fail")
         }
-        XCTAssertEqual(archive.readAll().count, 3, "every archived line should read back")
+        let readBack = await archive.readAll()
+        XCTAssertEqual(readBack.count, 3, "every archived line should read back")
 
         let store = CaptureStore()
         let rows = try await archive.replay(subLagInterp: false) { streams in await store.insert(streams) }
@@ -58,7 +59,8 @@ final class RawHistoryArchiveReplayTests: XCTestCase {
         let dir = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("noop-replay-empty-\(UUID().uuidString)", isDirectory: true)
         let archive = RawHistoryArchive(directory: dir)
-        XCTAssertEqual(archive.readAll().count, 0)
+        let readBack = await archive.readAll()
+        XCTAssertEqual(readBack.count, 0)
         let store = CaptureStore()
         let rows = try await archive.replay(subLagInterp: false) { streams in await store.insert(streams) }
         XCTAssertEqual(rows, 0)
@@ -74,7 +76,7 @@ final class RawHistoryArchiveReplayTests: XCTestCase {
 
         let archive = RawHistoryArchive(directory: dir)
         let frame = bytes("aa50000c2f190013390000140d2b6a4075010068a2010032fdbcfd98fdd3fdccfd47ffb00366064f073e06c103d3016cffa2fc87fa2ffae5fdbe03140675060c0510012dff1bfec0018f3c500500010068dc8f44")
-        if case .failed = archive.archive([frame], trim: 70476, family: .whoop4) {
+        if case .failed = await archive.archive([frame], trim: 70476, family: .whoop4) {
             return XCTFail("archive write should not fail")
         }
 

@@ -375,3 +375,18 @@ public final class ReassemblerSet<Key: Hashable> {
         reassemblers.removeAll(keepingCapacity: true)
     }
 }
+
+// BLE-5: one table lookup per byte instead of a `String(format: "%02x")` (a format parse and a String
+// allocation) per byte. Used by the reject archive, history diagnostics and frame logs.
+private let hexDigits: [UInt8] = Array("0123456789abcdef".utf8)
+
+/// Lowercase hex of `bytes` with no separators, byte-identical to joining `String(format: "%02x")`.
+public func lowercaseHex<C: Collection>(_ bytes: C) -> String where C.Element == UInt8 {
+    var out = [UInt8]()
+    out.reserveCapacity(bytes.count * 2)
+    for b in bytes {
+        out.append(hexDigits[Int(b >> 4)])
+        out.append(hexDigits[Int(b & 0x0F)])
+    }
+    return String(decoding: out, as: UTF8.self)
+}
