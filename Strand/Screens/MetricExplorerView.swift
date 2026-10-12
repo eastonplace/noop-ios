@@ -325,6 +325,9 @@ struct MetricDetailView: View {
     @State private var series: [(day: String, value: Double)] = []
     /// The start of each series day (Gregorian, local time zone), row for row with `series`.
     @State private var seriesDates: [Date] = []
+    /// Each row's day as a number of days since 1970-01-01 (`ExploreDayKey.dayNumber`), parallel to `series`: the window and
+    /// the history span are counted on these, never on `seriesDates`, which a day with no local midnight would skew.
+    @State private var seriesDayNumbers: [Int] = []
     /// Every OTHER catalog series, loaded once for the correlation scan.
     @State private var others: [(metric: MetricDescriptor, series: [(day: String, value: Double)])] = []
     @State private var loaded = false
@@ -338,8 +341,9 @@ struct MetricDetailView: View {
     /// The (metricID, range) the cache was built for; nil means "not yet computed".
     @State private var correlationKey: String? = nil
     private var loadTaskID: String { "\(metric.id)|\(repo.refreshSeq)" }
-    /// The Gregorian calendar in the person's time zone: day keys, the window slice, the history span and the chart's
-    /// window all use it. The device's own calendar and locale are for display only (`dateText`).
+    /// The Gregorian calendar in the person's time zone: day keys and the chart's window use it (the window slice and the
+    /// history span count day numbers instead, see `ExploreWindow`). The device's own calendar and locale are for display
+    /// only (`dateText`).
     private let calendar = ExploreDayKey.calendar()
 
     // MARK: Derived
@@ -348,9 +352,8 @@ struct MetricDetailView: View {
     /// point (not "now") — `.all` returns everything.
     private func slice(for r: ExploreRange) -> [(day: String, value: Double)] {
         guard let days = r.days else { return series }
-        guard let last = seriesDates.last,
-              let cutoff = calendar.date(byAdding: .day, value: -(days - 1), to: last) else { return [] }
-        let first = seriesDates.firstIndex { $0 >= cutoff } ?? series.count
+        guard let first = ExploreWindow.firstIndex(dayNumbers: seriesDayNumbers, days: days),
+              series.indices.contains(first) || first == series.count else { return [] }
         return Array(series[first...])
     }
 
@@ -387,8 +390,7 @@ struct MetricDetailView: View {
 
     /// Whole days between the first and last reading (0 for a single point).
     private var historySpanDays: Int {
-        guard let first = seriesDates.first, let last = seriesDates.last else { return 0 }
-        return calendar.dateComponents([.day], from: first, to: last).day ?? 0
+        ExploreWindow.spanDays(dayNumbers: seriesDayNumbers)
     }
 
     /// Whether a range chip is selectable (#943, reimplemented from ryanbr's PR): a longer
@@ -778,6 +780,7 @@ struct MetricDetailView: View {
         let dated = primary.compactMap { row in ExploreDayKey.date(for: row.day).map { (row: row, date: $0) } }
         series = dated.map(\.row)
         seriesDates = dated.map(\.date)
+        seriesDayNumbers = dated.map { ExploreDayKey.dayNumber(for: $0.row.day) ?? 0 }
         loaded = true
         correlationsLoaded = false
         others = []

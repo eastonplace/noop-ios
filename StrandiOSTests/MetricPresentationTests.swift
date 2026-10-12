@@ -74,6 +74,39 @@ final class MetricPresentationTests: XCTestCase {
         XCTAssertEqual(ExploreDayKey.key(for: date, timeZone: tokyo), "2026-10-12")
     }
 
+    func testAWindowCountsWholeDaysOffDayNumbers() {
+        let numbers = ["2026-03-01", "2026-03-05", "2026-03-09", "2026-03-10"].compactMap(ExploreDayKey.dayNumber)
+        XCTAssertEqual(ExploreWindow.firstIndex(dayNumbers: numbers, days: 2), 2)
+        XCTAssertEqual(ExploreWindow.firstIndex(dayNumbers: numbers, days: 10), 0)
+        XCTAssertEqual(ExploreWindow.firstIndex(dayNumbers: numbers, days: 1), 3)
+        XCTAssertNil(ExploreWindow.firstIndex(dayNumbers: [], days: 7))
+        XCTAssertEqual(ExploreWindow.spanDays(dayNumbers: numbers), 9)
+        XCTAssertEqual(ExploreWindow.spanDays(dayNumbers: [numbers[0]]), 0)
+        XCTAssertEqual(ExploreWindow.spanDays(dayNumbers: []), 0)
+    }
+
+    /// Where the clocks change at midnight (Egypt on 24 April 2026) that day starts at 01:00. A window cut, or a span counted,
+    /// from those moments comes out a day short; the day numbers do not care.
+    func testAWindowAndASpanAreRightWhereAMidnightIsSkipped() throws {
+        let cairo = try XCTUnwrap(TimeZone(identifier: "Africa/Cairo"))
+        let calendar = ExploreDayKey.calendar(timeZone: cairo)
+        let skipped = try XCTUnwrap(ExploreDayKey.date(for: "2026-04-24", timeZone: cairo))
+        try XCTSkipUnless(calendar.component(.hour, from: skipped) == 1, "no midnight clock change for Cairo in this system's time zone data")
+
+        // The latest reading is the day with no midnight: its week reaches back to 18 April.
+        let week = (18...24).map { "2026-04-\($0)" }.compactMap(ExploreDayKey.dayNumber)
+        XCTAssertEqual(ExploreWindow.firstIndex(dayNumbers: week, days: 7), 0)
+        let eighteenth = try XCTUnwrap(ExploreDayKey.date(for: "2026-04-18", timeZone: cairo))
+        let cutoff = try XCTUnwrap(calendar.date(byAdding: .day, value: -6, to: skipped))
+        XCTAssertGreaterThan(cutoff, eighteenth, "Date arithmetic would have cut 18 April out of its own week")
+
+        // The first reading is the day with no midnight: a week later is seven days on.
+        let span = ["2026-04-24", "2026-05-01"].compactMap(ExploreDayKey.dayNumber)
+        XCTAssertEqual(ExploreWindow.spanDays(dayNumbers: span), 7)
+        let later = try XCTUnwrap(ExploreDayKey.date(for: "2026-05-01", timeZone: cairo))
+        XCTAssertEqual(calendar.dateComponents([.day], from: skipped, to: later).day, 6, "Date arithmetic loses the day")
+    }
+
     func testRangeTitlesNameTheirWindow() {
         XCTAssertEqual(ExploreRange.all.title, String(localized: "All time"))
         XCTAssertEqual(ExploreRange.week.title, String(localized: "Last \(7) days"))

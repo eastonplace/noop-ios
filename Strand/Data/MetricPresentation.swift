@@ -208,6 +208,25 @@ enum ExploreDayKey {
     }
 }
 
+/// The trailing window and the history span of a series, counted in whole calendar days off the rows' day numbers
+/// (`ExploreDayKey.dayNumber`). Doing it with dates is not safe: where a zone's clocks change at midnight (Cairo, Santiago,
+/// Havana, Beirut) the first moment of that day is 01:00, an hour after the previous day's start by the clock but a day
+/// by the calendar, and a window cut or a span counted from those moments comes out a day short.
+enum ExploreWindow {
+    /// The index of the first row inside the `days`-day window that ends on the last row's day; nil for no rows.
+    static func firstIndex(dayNumbers: [Int], days: Int) -> Int? {
+        guard let last = dayNumbers.last else { return nil }
+        let cutoff = last - (days - 1)
+        return dayNumbers.firstIndex { $0 >= cutoff } ?? dayNumbers.count
+    }
+
+    /// Whole days from the first reading to the last (0 for none or one).
+    static func spanDays(dayNumbers: [Int]) -> Int {
+        guard let first = dayNumbers.first, let last = dayNumbers.last else { return 0 }
+        return max(last - first, 0)
+    }
+}
+
 /// How often a metric is recorded, so a weekly or sparse series draws one connected line. The rule itself lives with
 /// the charts (`TrendCadence`), so Explore and Compare bridge the same gaps.
 enum ExploreCadence {
