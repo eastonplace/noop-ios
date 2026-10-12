@@ -92581,8 +92581,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Nada no catálogo se move claramente com %@ en esta janela. Amplia el rango para revelar relações."
+            "state": "translated",
+            "value": "Nada no catálogo se move claramente com %@ nesta janela. Alarga o intervalo para fazer surgir relações."
           }
         },
         "ru": {
@@ -156277,6 +156277,12 @@
             "value": "p. ej. 120"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "p. ex. 120"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -156285,8 +156291,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "p. ej. 120"
+            "state": "translated",
+            "value": "p. ex. 120"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "например, 120"
           }
         },
         "zh-Hans": {
@@ -156331,8 +156343,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "p. ej. 2.0–5.0 (el rango de o teu próprio informe)"
+            "state": "translated",
+            "value": "p. ex. 2,0–5,0 (o intervalo do teu próprio relatório)"
           }
         },
         "ru": {
@@ -156369,6 +156381,12 @@
             "value": "p. ej. 3.1"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "p. ex. 3,1"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -156377,8 +156395,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "p. ej. 3.1"
+            "state": "translated",
+            "value": "p. ex. 3,1"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "например, 3,1"
           }
         },
         "zh-Hans": {
@@ -156409,6 +156433,12 @@
             "value": "p. ej. 80"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "p. ex. 80"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -156417,8 +156447,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "p. ej. 80"
+            "state": "translated",
+            "value": "p. ex. 80"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "например, 80"
           }
         },
         "zh-Hans": {
@@ -156607,8 +156643,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "p. ej. mmol/L"
+            "state": "translated",
+            "value": "p. ex. mmol/L"
           }
         },
         "ru": {
@@ -158953,8 +158989,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "mes"
+            "state": "translated",
+            "value": "mês"
           }
         },
         "ru": {
