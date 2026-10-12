@@ -71,17 +71,18 @@ final class IntelligenceEngineDayBoundsTests: XCTestCase {
         XCTAssertTrue(IntelligenceEngine.editedRowsForDay([row], dayWindow: nil).isEmpty)
     }
 
-    /// The scan version keys both the day-scan cache and the idle-tick watermark, so fixed-offset scans
-    /// cached before AN-02 are never replayed.
+    /// The scan version keys both the day-scan cache and the idle-tick watermark, so scans cached under an
+    /// older scoring semantics (fixed-offset days before AN-02, the midnight-cut Effort before AN-05, the
+    /// unfilled calorie total before D3b) are never replayed.
     func testCacheSignatureCarriesTheCivilDayScanVersion() {
-        XCTAssertEqual(IntelligenceEngine.analyzeScanVersion, "cache-v2")
+        XCTAssertEqual(IntelligenceEngine.analyzeScanVersion, "cache-v4")
         let signature = IntelligenceEngine.analyzeRecentCacheConfigSignature(
             profile: UserProfile(), baselines: AnalyticsEngine.ProfileBaselines(), maxHROverride: nil,
             timeZoneIdentifier: "America/New_York", timeZoneOffsetSeconds: -18_000,
             sleepNeedHours: 8, sleepConsistency: nil, habitualMidsleepSec: nil,
             useSleepStagerV2: false, useMotionAwareWake: false, deepHrvWindow: false,
             sleepTraceActive: false, hrvTraceActive: false, stepsTraceActive: false)
-        XCTAssertTrue(signature.hasPrefix("cache-v2|"))
+        XCTAssertTrue(signature.hasPrefix("\(IntelligenceEngine.analyzeScanVersion)|"))
     }
 
     // MARK: - Fixed-offset midnight helpers (ported from StrandTests/LocalDayMidnightTests, #277)
