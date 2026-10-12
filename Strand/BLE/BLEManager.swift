@@ -617,6 +617,8 @@ public final class BLEManager: NSObject, ObservableObject {
     private struct AdmittedBackfillFrame {
         let bytes: [UInt8]
         let whoop5Admission: Whoop5HistoricalSessionAdmission?
+        /// BLE-8: the historical session + physical connection that admitted this frame (both families).
+        let token: BackfillDrainToken
     }
     private var backfillFrameQueue: [AdmittedBackfillFrame] = []
     /// Accumulates durable writes across an auto-continued history burst. The dashboard is notified once
@@ -624,8 +626,9 @@ public final class BLEManager: NSObject, ObservableObject {
     private var backfillBurstPublication = BackfillBurstPublication()
     /// Exact ACK count plus a coalesced UI publication edge for a fast historical offload.
     private var historicalProgress = HistoricalProgressThrottle()
-    /// True while the drain task is running (prevents a second drain task from launching).
-    private var backfillDraining = false
+    /// BLE-8: which drainer owns the queue. Only that drainer releases it; teardown never clears it from
+    /// outside while the drainer is suspended, so a reconnect cannot start a second concurrent drainer.
+    private var backfillDrainOwnership = BackfillDrainOwnership()
     /// Keep each main-actor drain slice small enough that SwiftUI can process input/paint between slices.
     private static let backfillDrainBatchSize = 12
 
@@ -2489,19 +2492,40 @@ public final class BLEManager: NSObject, ObservableObject {
         } else {
             whoop5Admission = nil
         }
-        backfillFrameQueue.append(AdmittedBackfillFrame(bytes: frame, whoop5Admission: whoop5Admission))
-        guard !backfillDraining else { return }
-        backfillDraining = true
-        Task { @MainActor in await drainBackfillFrames() }
+        guard let token = currentBackfillDrainToken else {
+            log("Backfill: ignored a history frame with no current session admission")
+            return
+        }
+        backfillFrameQueue.append(AdmittedBackfillFrame(bytes: frame, whoop5Admission: whoop5Admission,
+                                                        token: token))
+        guard let drainID = backfillDrainOwnership.claimIfIdle() else { return }
+        Task { @MainActor in await drainBackfillFrames(drainID) }
     }
 
-    private func drainBackfillFrames() async {
+    /// BLE-8: the session/connection identity a queued frame must still match when it is drained.
+    private var currentBackfillDrainToken: BackfillDrainToken? {
+        admittedHistoricalBackfill.map {
+            BackfillDrainToken(sessionGeneration: $0.sessionGeneration, connectGeneration: $0.connectGeneration)
+        }
+    }
+
+    private func drainBackfillFrames(_ drainID: UInt64) async {
+        defer { backfillDrainOwnership.release(drainID) }
+        var droppedStale = 0
         while !backfillFrameQueue.isEmpty {
             let count = min(Self.backfillDrainBatchSize, backfillFrameQueue.count)
             let batch = Array(backfillFrameQueue.prefix(count))
             backfillFrameQueue.removeFirst(count)
 
             for admittedFrame in batch {
+                // A frame admitted by a superseded session or connection (e.g. a HISTORY_END still in this
+                // batch when the link dropped and a new session began) must never reach the Backfiller.
+                guard BackfillDrainOwnership.shouldIngest(frame: admittedFrame.token,
+                                                          current: currentBackfillDrainToken,
+                                                          backfilling: backfilling) else {
+                    droppedStale += 1
+                    continue
+                }
                 if let admission = admittedFrame.whoop5Admission {
                     await backfiller?.ingest(admittedFrame.bytes, admittedBy: admission)
                 } else {
@@ -2518,7 +2542,9 @@ public final class BLEManager: NSObject, ObservableObject {
                 await Task.yield()
             }
         }
-        backfillDraining = false
+        if droppedStale > 0 {
+            log("Backfill: dropped \(droppedStale) queued frame(s) from a superseded session before ingest")
+        }
     }
 
     /// Called after every Backfiller.ingest completes. If the Backfiller has consumed all
@@ -5006,8 +5032,7 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
         state.historySyncExperimental = false
         backfillTimeout?.cancel()
         backfillTimeout = nil
-        backfillFrameQueue.removeAll()
-        backfillDraining = false
+        backfillFrameQueue.removeAll()   // a suspended drainer keeps ownership and exits on its own (BLE-8)
         uploadTimer?.cancel()
         uploadTimer = nil
         backfillTimer?.cancel()
