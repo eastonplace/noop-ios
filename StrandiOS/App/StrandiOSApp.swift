@@ -751,6 +751,10 @@ struct StrandiOSApp: App {
             if phase == .active {
                 model.drainPendingIntents()
                 WorkoutPauseCommand.drain()
+                // ActivityKit refuses a request made from the background, so a missed one is asked again the moment the app
+                // is in front.
+                refreshExternalSurface()
+                driveLiveActivity()
                 alarmRuntime.handleForeground()
                 // A historical offload holds the strap link for about a minute and suspends the realtime-HR
                 // keep-alive re-arm while it runs (BLEManager `guard !backfilling`). Unlocking mid-workout
