@@ -289,6 +289,7 @@ struct HealthVitalRow: View {
 /// Depends only on `repo`, so the ~1 Hz live HR stream never re-renders it.
 struct RecoveryContributorsSection: View {
     @EnvironmentObject var repo: Repository
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     /// One contributor row's resolved read-out.
     private struct Contributor {
@@ -314,7 +315,11 @@ struct RecoveryContributorsSection: View {
                 "Contributors", systemImage: "slider.horizontal.3", tint: .recovery(score: latest?.recovery),
                 trailing: ready
                     ? .pill("Solid", tone: .positive)
-                    : .pill("Calibrating (\(priorCount) of \(Baselines.minNightsSeed))", tone: .warning))
+                    // The pill is one fixed line, which a long label overhangs the gutter with at accessibility sizes:
+                    // there the same words are plain trailing text, which wraps.
+                    : (typeSize.isAccessibilitySize
+                        ? .text(String(localized: "Calibrating (\(priorCount) of \(Baselines.minNightsSeed))"))
+                        : .pill("Calibrating (\(priorCount) of \(Baselines.minNightsSeed))", tone: .warning)))
             VStack(alignment: .leading, spacing: NoopMetrics.space4) {
                 ForEach(Array(contributors.enumerated()), id: \.offset) { _, contributor in
                     row(contributor, ready: ready)
