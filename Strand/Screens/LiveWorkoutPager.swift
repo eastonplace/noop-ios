@@ -37,6 +37,14 @@ enum LiveWorkoutPage: String, CaseIterable, Hashable, Sendable {
     }
 }
 
+/// What sits under the pages. The page dots are the one adjustable "Pages" element VoiceOver and Switch Control change pages
+/// with, so they are there in every state; once the workout is paused (or End was tried) the preview of what the save would hold
+/// sits above them.
+enum LiveWorkoutPagerFooter {
+    static func showsPageDots(isPaused: Bool, isEnding: Bool) -> Bool { true }
+    static func showsSavePreview(isPaused: Bool, isEnding: Bool) -> Bool { isPaused || isEnding }
+}
+
 /// The page each workout was last on, so a Minimize and a return find the wearer where they were. Owned by `NavRouter`,
 /// handed to the live screen by the journey; not observed, since nothing is drawn from it.
 @MainActor
@@ -92,11 +100,13 @@ struct LiveWorkoutPager: View {
                 }
             }
             .tabViewStyle(.page(indexDisplayMode: .never))
-            // Under the figures: the page dots while recording; what the save would hold once paused (the dots are not
-            // needed to read a frozen screen, and the preview is what the hold below is about).
-            if workout.isPaused || workout.isEnding {
+            // Under the figures: the page dots, and, once paused, what the save would hold above them (the preview is what the
+            // hold below is about). The dots stay: they are the adjustable "Pages" element VoiceOver and Switch Control change
+            // pages with, in every state.
+            if LiveWorkoutPagerFooter.showsSavePreview(isPaused: workout.isPaused, isEnding: workout.isEnding) {
                 LiveSavePreview(model: model, workout: workout, recorder: recorder)
-            } else {
+            }
+            if LiveWorkoutPagerFooter.showsPageDots(isPaused: workout.isPaused, isEnding: workout.isEnding) {
                 PageDots(titles: pages.map(\.title), selection: dotSelection)
             }
         }
@@ -180,6 +190,8 @@ struct LiveSavePreview: View {
         .screenPadding()
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(verbatim: spoken))
+        // With nothing to save the dock's own panel says so; this line is not there to say it a second time.
+        .accessibilityHidden(model.finishNeedsMoreEvidence)
     }
 
     private var imperial: Bool { unitSystemRaw == UnitSystem.imperial.rawValue }

@@ -10,6 +10,16 @@ final class LiveWorkoutPagerTests: XCTestCase {
         XCTAssertEqual(LiveWorkoutPage.pages(tracksRoute: false), [.focus, .heart])
     }
 
+    /// The dots are the adjustable "Pages" element of VoiceOver and Switch Control: pausing or ending never takes it away.
+    func testThePageDotsStayInEveryStateAndThePreviewSitsAboveThemOnceStill() {
+        for (paused, ending) in [(false, false), (true, false), (false, true), (true, true)] {
+            XCTAssertTrue(LiveWorkoutPagerFooter.showsPageDots(isPaused: paused, isEnding: ending), "paused \(paused), ending \(ending)")
+        }
+        XCTAssertFalse(LiveWorkoutPagerFooter.showsSavePreview(isPaused: false, isEnding: false))
+        XCTAssertTrue(LiveWorkoutPagerFooter.showsSavePreview(isPaused: true, isEnding: false))
+        XCTAssertTrue(LiveWorkoutPagerFooter.showsSavePreview(isPaused: false, isEnding: true))
+    }
+
     func testAPageTheWorkoutNoLongerHasFallsBackToTheFirst() {
         let indoor = LiveWorkoutPage.pages(tracksRoute: false)
         XCTAssertEqual(LiveWorkoutPage.resolve(.route, in: indoor), .focus, "location went off while the route page was showing")
