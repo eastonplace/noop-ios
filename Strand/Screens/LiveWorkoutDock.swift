@@ -43,13 +43,15 @@ struct WorkoutLiveDock: View {
                 running
             }
         }
-        .confirmationDialog("End this workout?", isPresented: $confirmingEnd, titleVisibility: .visible) {
+        // Alerts, not action sheets: on iOS 26 a confirmation dialog from a button is a small popover with no visible Cancel,
+        // and at accessibility sizes its title and message are cut off. An alert scrolls, wraps and always shows both choices.
+        .alert("End this workout?", isPresented: $confirmingEnd) {
             Button("End and save", role: .destructive) { endNow() }
             Button("Keep going", role: .cancel) {}
         } message: {
             Text("It is saved to your Workouts. A finished workout can't be resumed.")
         }
-        .confirmationDialog("Discard this workout?", isPresented: $confirmingDiscard, titleVisibility: .visible) {
+        .alert("Discard this workout?", isPresented: $confirmingDiscard) {
             Button("Discard workout", role: .destructive) {
                 StrandHaptic.commit.play()
                 model.discardWorkout()

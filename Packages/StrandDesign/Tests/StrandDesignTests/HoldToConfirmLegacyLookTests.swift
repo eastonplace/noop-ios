@@ -70,7 +70,7 @@ final class HoldToConfirmLegacyLookTests: XCTestCase {
         }
     }
 
-    func testTheBigEndStyleIsTallerThanTheBarAndGrowsWithItsLabelAtAccessibilitySizes() throws {
+    func testTheBigEndStyleIsTallerThanTheBarAndNeverShrinksAtAccessibilitySizes() throws {
         let bar = try XCTUnwrap(pixels(HoldToConfirmButton(title: "Hold to end", style: .glanceEnd, action: {}),
                                        size: .large, scheme: .dark))
         let small = try XCTUnwrap(pixels(HoldToConfirmButton(title: "Hold to end", action: {}), size: .large, scheme: .dark))
@@ -80,7 +80,9 @@ final class HoldToConfirmLegacyLookTests: XCTestCase {
         let long = "Zum Beenden gedrückt halten, bitte nicht loslassen"
         let ax = try XCTUnwrap(pixels(HoldToConfirmButton(title: long, style: .glanceEnd, action: {}),
                                       size: .accessibility5, scheme: .dark))
-        XCTAssertGreaterThan(ax.height, bar.height, "the label wraps and the button grows rather than clipping it")
+        // At accessibility sizes the label wraps to two lines and then scales, so a long translation fits inside the button
+        // instead of being cut off with an ellipsis; the button never gets shorter than the style's height.
+        XCTAssertGreaterThanOrEqual(ax.height, bar.height, "the label wraps and scales; the button keeps its height")
     }
 }
 #endif

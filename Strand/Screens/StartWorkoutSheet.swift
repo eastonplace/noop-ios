@@ -220,8 +220,8 @@ struct StartWorkoutSheet: View {
                 .foregroundStyle(StrandPalette.textPrimary)
                 .fixedSize(horizontal: false, vertical: true)
             Text("Choose a routine and track sets, reps and weight.")
-                .font(StrandFont.footnote)
                 .foregroundStyle(StrandPalette.textSecondary)
+                .modifier(LiftCardCaption())
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -568,6 +568,20 @@ private struct GpsStatusReader<Content: View>: View {
                 .onChange(of: scenePhase) { _, phase in
                     if phase == .active { recorder.refreshAvailability() }
                 }
+        }
+    }
+}
+
+/// The Lift card's sentence: the footnote role, and at the accessibility sizes a fixed, scaled size that wraps and then
+/// shrinks, so a long German word is never hyphenated ("Rou-tine").
+private struct LiftCardCaption: ViewModifier {
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    @ViewBuilder func body(content: Content) -> some View {
+        if typeSize.isAccessibilitySize {
+            content.captionLabelFit(lines: 5, weight: .regular)
+        } else {
+            content.font(StrandFont.footnote)
         }
     }
 }
