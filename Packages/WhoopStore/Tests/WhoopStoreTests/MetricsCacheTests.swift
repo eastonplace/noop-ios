@@ -17,10 +17,27 @@ final class MetricsCacheTests: XCTestCase {
     }
 
     func testSchemaVersionBumped() {
-        XCTAssertEqual(WhoopStoreInfo.schemaVersion, 57)
+        XCTAssertEqual(WhoopStoreInfo.schemaVersion, 58)
     }
 
     // MARK: - sleep sessions
+
+    /// DL-06: the source tile counts sessions without decoding rows or stage blobs.
+    func testSleepSessionCountIsPerSourceAndDecodesNothing() async throws {
+        let store = try await WhoopStore.inMemory()
+        let sessions = (0..<3).map {
+            CachedSleepSession(startTs: 1_000 + $0 * 10_000, endTs: 5_000 + $0 * 10_000, efficiency: 0.9,
+                               restingHr: 52, avgHrv: 60, stagesJSON: "[]")
+        }
+        try await store.upsertSleepSessions(sessions, deviceId: "xiaomi-band")
+        try await store.upsertSleepSessions([sessions[0]], deviceId: "devA")
+        let xiaomi = try await store.sleepSessionCount(deviceId: "xiaomi-band")
+        let other = try await store.sleepSessionCount(deviceId: "devA")
+        let missing = try await store.sleepSessionCount(deviceId: "none")
+        XCTAssertEqual(xiaomi, 3)
+        XCTAssertEqual(other, 1)
+        XCTAssertEqual(missing, 0)
+    }
 
     func testSleepSessionUpsertReadAndIdempotency() async throws {
         let store = try await WhoopStore.inMemory()

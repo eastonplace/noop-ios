@@ -536,6 +536,15 @@ extension WhoopStore {
         }
     }
 
+    /// DL-06: how many sleep sessions a source holds, without decoding any rows or their stage blobs. Today's
+    /// source tile used to load up to 4,000 sessions, stagesJSON included, only to count them.
+    public func sleepSessionCount(deviceId: String) async throws -> Int {
+        try syncRead { db in
+            try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM sleepSession WHERE deviceId = ?",
+                             arguments: [deviceId]) ?? 0
+        }
+    }
+
     /// Cached daily metrics for days in [from, to] (lexicographic YYYY-MM-DD compare), oldest first.
     public func dailyMetrics(deviceId: String, from: String, to: String) async throws -> [DailyMetric] {
         try syncRead { db in

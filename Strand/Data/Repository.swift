@@ -4486,6 +4486,51 @@ final class Repository: ObservableObject {
         return reconcileHR ? await reconcileWorkoutHrWithTrace(visible, store: store) : visible
     }
 
+    // MARK: - Bounded workout reads (DL-06)
+    //
+    // Today shows six workouts, a count and the selected day, but loaded every workout over 4,000 days and
+    // reconciled HR and Strain for up to 300 of them on every refreshSeq bump. These keep every source,
+    // dedup, dismissal and reconcile rule of `workoutRows(from:to:)` and read or reconcile only what is
+    // shown. A5 adopts them on Today.
+
+    /// The newest `limit` workouts, newest first, HR-reconciled exactly as `workoutRows()` reconciles them.
+    /// The window widens from 30 days until the `limit`th row sits a full day inside it, so a cross-source
+    /// twin that starts before the window can't be left uncollapsed.
+    func recentWorkouts(limit: Int, reconcileHR: Bool = true) async -> [WorkoutRow] {
+        guard limit > 0 else { return [] }
+        let now = Date()
+        let hi = Int(Self.dateByAddingCalendarDays(1, to: now).timeIntervalSince1970)
+        var visible: [WorkoutRow] = []
+        for days in [30, 120, 480, 4_000] {
+            let lo = Int(Self.dateByAddingCalendarDays(-days, to: now).timeIntervalSince1970)
+            visible = await workoutRows(from: lo, to: hi, reconcileHR: false)
+            if visible.count >= limit, visible[limit - 1].startTs >= lo + 86_400 { break }
+        }
+        let shown = Array(visible.prefix(limit))
+        guard reconcileHR, let store = await ensureStore() else { return shown }
+        return await reconcileWorkoutHrWithTrace(shown, store: store)
+    }
+
+    /// How many workouts `workoutRows()` would list, without any HR reads or Strain recomputes.
+    func workoutCount() async -> Int {
+        await workoutRows(reconcileHR: false).count
+    }
+
+    /// The workouts that start on `date`'s calendar day, the window Today's day summary counts.
+    func workouts(forDay date: Date, calendar: Calendar = .current, reconcileHR: Bool = true) async -> [WorkoutRow] {
+        let dayStart = calendar.startOfDay(for: date)
+        guard let next = calendar.date(byAdding: .day, value: 1, to: dayStart) else { return [] }
+        return await workoutRows(from: Int(dayStart.timeIntervalSince1970),
+                                 to: Int(next.timeIntervalSince1970) - 1,
+                                 reconcileHR: reconcileHR)
+    }
+
+    /// Sleep sessions a source holds, as one COUNT instead of decoding up to 4,000 sessions and their stages.
+    func sleepSessionCount(deviceId: String) async -> Int {
+        guard let store = await ensureStore() else { return 0 }
+        return (try? await store.sleepSessionCount(deviceId: deviceId)) ?? 0
+    }
+
     /// DISPLAY-ONLY: reconcile each workout's shown Avg/Max HR with the strap trace that actually drives
     /// its graph / zones / effort (#77, #499). The detail screen always charts (`workoutHrBuckets`) and
     /// zone-bins (`workoutZoneMinutes`) the strap's own ~1 Hz samples over `[startTs, endTs]`; the
