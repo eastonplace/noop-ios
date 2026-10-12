@@ -38,6 +38,8 @@ struct RootTabView: View {
     @State private var pendingDestinationAfterJourney: NavRouter.Destination?
     /// The lift flow was asked for while the journey is up (the setup page's "Open lift").
     @State private var liftAfterJourney = false
+    /// Settings was asked for while the journey is up (or about to be): it waits for the cover to close, like a destination.
+    @State private var settingsAfterJourney: SettingsSheetRequest?
     /// Selected tab — bound so tab switches can crossfade. Defaults to Today.
     @AppStorage(ClockFormatPreference.defaultsKey) private var clockPreference = ClockFormatPreference.system.rawValue
     @State private var selectedTab: Int
@@ -168,7 +170,9 @@ struct RootTabView: View {
             // The journey presents only after the sheet is fully gone, so the two never compete for the root.
             if let pending = pendingJourneyAfterQuickActions {
                 pendingJourneyAfterQuickActions = nil
-                router.workoutJourneyRequest = pending
+                // "Return to workout" goes through `openActiveWorkout()` like the resume bar, so the auto-present policy
+                // counts it as a request and does not bring the workout back after it is minimized.
+                if pending == .live { router.openActiveWorkout() } else { router.workoutJourneyRequest = pending }
             }
         }) { action in
             quickActionDestination(action)
@@ -314,24 +318,32 @@ struct RootTabView: View {
     #endif
 
     /// Opens the journey. A cover on the root fails silently while any screen below it presents something, so everything
-    /// is closed first (`ShellModalCollapse`) and the cover presents once nothing is up.
+    /// is closed first and the cover presents once nothing is up: the Settings sheet the way every shell presentation closes
+    /// it (`presentAfterClosingSettings`, which keeps the auto-presenter out of the gap), then the rest (`ShellModalCollapse`).
     private func presentJourney(_ start: WorkoutJourneyStart) {
         // Already up: only the live screen is ever re-requested while it is open, and it is already where it should be.
         guard journey == nil else { return }
-        // A collapse already under way will present it: a second request (a Live Activity tap arrives as a link and as the app
-        // becoming active) must not start a second wait.
-        ShellModalCollapse.run(
-            clearShellState: {
-                quickAction = nil
-                showDevices = false
-                routedPillar = nil
-                showLift = false
-                router.collapseModals()
-            },
-            isSatisfied: { journey != nil },
-            then: {
-                if journey == nil { journey = WorkoutJourneyEntry(start: start) }
-            })
+        presentAfterClosingSettings {
+            // Checked again once Settings is gone: a second request may have presented it during the dismissal.
+            guard journey == nil else { return }
+            // A collapse already under way will present it: a second request (a Live Activity tap arrives as a link and as the
+            // app becoming active) must not start a second wait.
+            ShellModalCollapse.run(
+                clearShellState: {
+                    quickAction = nil
+                    showDevices = false
+                    routedPillar = nil
+                    showLift = false
+                    // Settings is shell state like the rest: never left non-nil under the cover.
+                    settingsSheet = nil
+                    settingsClosing = false
+                    router.collapseModals()
+                },
+                isSatisfied: { journey != nil },
+                then: {
+                    if journey == nil { journey = WorkoutJourneyEntry(start: start) }
+                })
+        }
     }
 
     /// What was waiting for the cover to close: the lift flow, then a destination someone asked for meanwhile.
@@ -343,6 +355,10 @@ struct RootTabView: View {
         if let destination = pendingDestinationAfterJourney {
             pendingDestinationAfterJourney = nil
             router.requestedDestination = destination
+        }
+        if let request = settingsAfterJourney {
+            settingsAfterJourney = nil
+            presentSettings(request, afterDismissal: true)
         }
     }
 
@@ -368,9 +384,14 @@ struct RootTabView: View {
 
     /// Opens Settings. Any other shell sheet that is up is closed first, and Settings follows once it is gone, because
     /// SwiftUI drops a sheet presented while another is still on screen (the `openLift` pattern). `afterDismissal` is for a
-    /// caller whose own sheet was closed in the same breath, so it is no longer visible in the state it left behind.
-    // TODO(lane-merge): join ShellModalCollapse (see `presentAfterClosingSettings`)
+    /// caller whose own sheet was closed in the same breath, so it is no longer visible in the state it left behind. While
+    /// the workout journey is up, or a collapse is about to present it, Settings never presents underneath the cover: it
+    /// waits for the cover to close, as every destination does.
     private func presentSettings(_ request: SettingsSheetRequest, afterDismissal: Bool) {
+        if journey != nil || ShellModalCollapse.isCollapsing {
+            settingsAfterJourney = request
+            return
+        }
         let shellSheetWasUp = quickAction != nil || showDevices || routedPillar != nil || showLift || settingsSheet != nil
         quickAction = nil
         showDevices = false
@@ -385,12 +406,10 @@ struct RootTabView: View {
     }
 
     /// Runs `present` once the Settings sheet is out of the way. SwiftUI drops a sheet presented while another is still on
-    /// screen (and a tab switch under Settings is invisible), so a routed pillar, the Devices sheet, the live workout
+    /// screen (and a tab switch under Settings is invisible), so a routed pillar, the Devices sheet, the workout journey
     /// and a Coach request all go through here: with Settings up it is closed first and `present` follows after the
-    /// dismissal, the `openLift` pattern; with nothing up `present` runs at once.
-    // TODO(lane-merge): ShellModalCollapse
-    // The workout lane's ShellModalCollapse collapses every shell modal before presenting; when it lands this helper
-    // and `openLift` hand it Settings along with the rest and this goes away.
+    /// dismissal, the `openLift` pattern; with nothing up `present` runs at once. The journey then hands whatever else is
+    /// up to `ShellModalCollapse`, so Settings is always closed through its own binding, never by a UIKit force-dismiss.
     private func presentAfterClosingSettings(_ present: @escaping () -> Void) {
         guard let delay = ShellSettingsGate.delay(settingsIsUp: settingsSheet != nil) else {
             present()

@@ -19,6 +19,16 @@ final class NavRouterJourneyTests: XCTestCase {
         XCTAssertEqual(router.workoutJourneyRequest, .live)
     }
 
+    /// Returning to the workout (the resume bar, a Live Activity tap, a deep link) both asks for the journey at the live
+    /// screen and counts as a request, which the shell's auto-present policy reads (`workoutOpenedByRequest`), so a workout
+    /// opened that way, Settings closed first, does not reopen by itself after it is minimized.
+    func testReturningToTheWorkoutRequestsTheJourneyAndCountsAsARequest() {
+        let router = NavRouter()
+        router.openActiveWorkout()
+        XCTAssertEqual(router.workoutJourneyRequest, .live)
+        XCTAssertEqual(router.workoutRequestCount, 1)
+    }
+
     func testOpeningAWorkoutNoLongerRaisesTheOldSheetFlagOrADestination() {
         let router = NavRouter()
         router.openActiveWorkout()
