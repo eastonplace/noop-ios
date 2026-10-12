@@ -25,6 +25,9 @@ struct RootTabView: View {
     @State private var routedPillar: NavRouter.Destination?
     /// The Settings sheet (the top bar's profile button, or any caller of `NavRouter.openSettings`). nil = closed.
     @State private var settingsSheet: SettingsSheetRequest?
+    /// True from the moment `presentAfterClosingSettings` closes the Settings sheet until the presentation it was
+    /// waiting for has been made, so the auto-presenter does not slip a sheet of its own into that gap.
+    @State private var settingsClosing = false
     /// Selected tab — bound so tab switches can crossfade. Defaults to Today.
     @AppStorage(ClockFormatPreference.defaultsKey) private var clockPreference = ClockFormatPreference.system.rawValue
     @State private var selectedTab: Int
@@ -130,7 +133,7 @@ struct RootTabView: View {
         .background {
             ActiveSessionAutoPresenter(
                 otherPresentationActive: quickAction != nil || showDevices || routedPillar != nil || showLift
-                    || settingsSheet != nil,
+                    || settingsSheet != nil || settingsClosing,
                 presentLift: { showLift = true })
         }
         #if DEBUG
@@ -181,11 +184,11 @@ struct RootTabView: View {
         .onChange(of: router.requestedDestination) { _, destination in
             switch destination {
             case .devices:
-                showDevices = true
                 router.requestedDestination = nil
+                presentAfterClosingSettings { showDevices = true }
             case .insightsHub, .labBook, .fusedRecord, .rhythm, .updates:
-                routedPillar = destination
                 router.requestedDestination = nil
+                presentAfterClosingSettings { routedPillar = destination }
             case .settings:
                 // The deep-link key an Updates item carries, and any caller that predates `openSettings`. The
                 // Updates sheet that raised it is still dismissing, so wait it out.
@@ -198,8 +201,8 @@ struct RootTabView: View {
                 // iPhone owns a direct active-workout sheet. Clear the legacy LiveView one-shot so a
                 // later diagnostics visit cannot reopen the workout a second time.
                 router.presentActiveWorkout = false
-                withAnimation(Self.sheetEase) { quickAction = .activeWorkout }
                 router.requestedDestination = nil
+                presentAfterClosingSettings { withAnimation(Self.sheetEase) { quickAction = .activeWorkout } }
             case .liveSession:
                 withAnimation(.timingCurve(0.22, 1, 0.36, 1, duration: 0.24)) { selectedTab = 0 }
                 router.requestedDestination = nil
@@ -272,10 +275,7 @@ struct RootTabView: View {
     /// Opens Settings. Any other shell sheet that is up is closed first, and Settings follows once it is gone, because
     /// SwiftUI drops a sheet presented while another is still on screen (the `openLift` pattern). `afterDismissal` is for a
     /// caller whose own sheet was closed in the same breath, so it is no longer visible in the state it left behind.
-    // TODO(lane-merge): join ShellModalCollapse
-    // When the workout lane's ShellModalCollapse lands, this and `openLift` hand it the shell's modals to collapse
-    // (Settings among them), and a workout or Live Activity request closes the Settings sheet before the workout
-    // presents. Until then `.activeWorkout` (above) does not know about the Settings sheet.
+    // TODO(lane-merge): join ShellModalCollapse (see `presentAfterClosingSettings`)
     private func presentSettings(_ request: SettingsSheetRequest, afterDismissal: Bool) {
         let shellSheetWasUp = quickAction != nil || showDevices || routedPillar != nil || showLift || settingsSheet != nil
         quickAction = nil
@@ -290,11 +290,31 @@ struct RootTabView: View {
         }
     }
 
+    /// Runs `present` once the Settings sheet is out of the way. SwiftUI drops a sheet presented while another is still on
+    /// screen (and a tab switch under Settings is invisible), so a routed pillar, the Devices sheet, the live workout
+    /// and a Coach request all go through here: with Settings up it is closed first and `present` follows after the
+    /// dismissal, the `openLift` pattern; with nothing up `present` runs at once.
+    // TODO(lane-merge): ShellModalCollapse
+    // The workout lane's ShellModalCollapse collapses every shell modal before presenting; when it lands this helper
+    // and `openLift` hand it Settings along with the rest and this goes away.
+    private func presentAfterClosingSettings(_ present: @escaping () -> Void) {
+        guard let delay = ShellSettingsGate.delay(settingsIsUp: settingsSheet != nil) else {
+            present()
+            return
+        }
+        settingsClosing = true
+        settingsSheet = nil
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+            settingsClosing = false
+            present()
+        }
+    }
+
     private func routePendingCoachRequest() {
         let source = repo.todayHealthSnapshotScopeId + "|" + repo.liveSourceState.lineageComponent
         guard LocalCoachIntentBridge.updateContext(sourceID: source, preferences: localCoach.preferences,
                                                    isFenced: repo.verifiedExternalSurfaceFenced) else { return }
-        if LocalCoachIntentBridge.hasPendingRequest { selectedTab = 4 }
+        if LocalCoachIntentBridge.hasPendingRequest { presentAfterClosingSettings { selectedTab = 4 } }
     }
 
     @ViewBuilder
@@ -767,3 +787,15 @@ enum TabSlotWidths {
     }
 }
 #endif
+
+/// When a request that needs the whole screen (a routed pillar, the Devices sheet, the live workout, Coach) may be made
+/// while the Settings sheet is up: it waits for Settings to close, then for the dismissal to finish.
+enum ShellSettingsGate {
+    /// Long enough for the sheet's dismissal to complete (`presentSettings` and `openLift` wait the same).
+    static let dismissalDelay: TimeInterval = 0.45
+
+    /// nil: Settings is not up, so present now. Otherwise how long to wait after closing it.
+    static func delay(settingsIsUp: Bool) -> TimeInterval? {
+        settingsIsUp ? dismissalDelay : nil
+    }
+}
