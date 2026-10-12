@@ -208,11 +208,7 @@ struct CycleAwarenessCard: View {
     private func nextPeriodRow(_ window: CyclePhaseEngine.NextPeriodWindow) -> some View {
         // A probabilistic WINDOW, never a single confident date — the copy reflects that.
         HStack(alignment: .firstTextBaseline, spacing: NoopMetrics.space2) {
-            Image(systemName: "calendar")
-                .font(StrandFont.caption)
-                .foregroundStyle(hue)
-                .frame(width: WidgetMetrics.metricIconWidth)
-                .accessibilityHidden(true)
+            HealthGlyph(systemImage: "calendar", color: hue)
             Text("A period is likely between \(prettyDay(window.earliestDay)) and \(prettyDay(window.latestDay)) (a window, not a fixed date).")
                 .font(StrandFont.subhead)
                 .foregroundStyle(StrandPalette.textSecondary)
@@ -342,11 +338,7 @@ struct BodyClockCard: View {
 
             // The estimated temperature-minimum clock time — the canonical phase marker.
             HStack(alignment: .firstTextBaseline, spacing: NoopMetrics.space2) {
-                Image(systemName: "moon.stars")
-                    .font(StrandFont.caption)
-                    .foregroundStyle(hue)
-                    .frame(width: WidgetMetrics.metricIconWidth)
-                    .accessibilityHidden(true)
+                HealthGlyph(systemImage: "moon.stars", color: hue)
                 Text("Estimated body-clock low around \(clockString(estimate.tempMinHour))")
                     .font(StrandFont.footnote)
                     .foregroundStyle(StrandPalette.textTertiary)

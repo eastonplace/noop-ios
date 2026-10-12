@@ -154,11 +154,7 @@ struct FitnessAgeReadinessList: View {
         let label = FitnessAgeCopy.readinessLabel(item)
         let detail = FitnessAgeCopy.readinessDetail(item, rhrDays: rhrDays, activityDays: activityDays)
         let text = HStack(alignment: .firstTextBaseline, spacing: NoopMetrics.space3) {
-            Image(systemName: statusIcon(item.status))
-                .font(StrandFont.caption)
-                .foregroundStyle(statusColor(item.status))
-                .frame(width: WidgetMetrics.metricIconWidth)
-                .accessibilityHidden(true)
+            HealthGlyph(systemImage: statusIcon(item.status), color: statusColor(item.status))
             VStack(alignment: .leading, spacing: 1) {
                 Text(verbatim: label).font(StrandFont.subhead).foregroundStyle(StrandPalette.textPrimary)
                 Text(verbatim: detail).font(StrandFont.footnote).foregroundStyle(StrandPalette.textTertiary)
@@ -176,7 +172,7 @@ struct FitnessAgeReadinessList: View {
                 if typeSize.isAccessibilitySize {
                     VStack(alignment: .leading, spacing: NoopMetrics.space1) {
                         text
-                        fix.padding(.leading, WidgetMetrics.metricIconWidth + NoopMetrics.space3)
+                        fix.healthIconIndent(gap: NoopMetrics.space3)
                     }
                 } else {
                     HStack(alignment: .firstTextBaseline, spacing: NoopMetrics.space2) {

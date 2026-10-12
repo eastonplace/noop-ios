@@ -135,7 +135,7 @@ struct FitnessAgeSection: View {
                 .foregroundStyle(FitnessAgeCopy.deltaColor(delta))
                 .fixedSize(horizontal: false, vertical: true)
             if let vo2 = vo2max {
-                MetricValueRow(systemImage: "lungs.fill", label: String(localized: "VO₂max"),
+                HealthValueRow(systemImage: "lungs.fill", label: String(localized: "VO₂max"),
                                value: DrillInFormat.number(vo2), unit: String(localized: "ml/kg/min"),
                                tint: HealthTint.fitnessAge)
             }
@@ -207,6 +207,7 @@ struct FitnessAgeSection: View {
 struct VitalitySection: View {
     @EnvironmentObject var repo: Repository
     @EnvironmentObject var profile: ProfileStore
+    @Environment(\.dynamicTypeSize) private var typeSize
     @State private var vitality: Double?
     @State private var bodyAge: Double?
     @State private var loaded = false
@@ -259,10 +260,20 @@ struct VitalitySection: View {
             HeroValue(value: "\(Int(v.rounded()))", unit: "/ 100")
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel("Vitality \(Int(v.rounded())) out of 100")
-            FactStrip(facts: [
-                .init("Body Age", value: "\(Int(ba.rounded())) \(String(localized: "yrs"))"),
-                .init("vs your age", value: bodyAgeDeltaLine(yrs: yrs, younger: younger)),
-            ])
+            if typeSize.isAccessibilitySize {
+                // A fact strip stacks label and value on one row at these sizes, where the sentence would truncate:
+                // the age stays a fact, the comparison is read as the sentence it is.
+                FactStrip(facts: [.init("Body Age", value: "\(Int(ba.rounded())) \(String(localized: "yrs"))")])
+                Text(verbatim: "\(String(localized: "vs your age")): \(bodyAgeDeltaLine(yrs: yrs, younger: younger))")
+                    .font(StrandFont.subhead)
+                    .foregroundStyle(StrandPalette.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                FactStrip(facts: [
+                    .init("Body Age", value: "\(Int(ba.rounded())) \(String(localized: "yrs"))"),
+                    .init("vs your age", value: bodyAgeDeltaLine(yrs: yrs, younger: younger)),
+                ])
+            }
             if let best, best.lnHazard < 0 {
                 factorLine(symbol: "arrow.up.right.circle.fill", color: StrandPalette.statusPositive,
                            text: String(localized: "Helping most: \(Self.factorLabel(best))"))
@@ -280,11 +291,7 @@ struct VitalitySection: View {
 
     private func factorLine(symbol: String, color: Color, text: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: NoopMetrics.space2) {
-            Image(systemName: symbol)
-                .font(StrandFont.caption)
-                .foregroundStyle(color)
-                .frame(width: WidgetMetrics.metricIconWidth)
-                .accessibilityHidden(true)
+            HealthGlyph(systemImage: symbol, color: color)
             Text(verbatim: text)
                 .font(StrandFont.subhead)
                 .foregroundStyle(StrandPalette.textSecondary)

@@ -128,7 +128,7 @@ struct FitnessAgeDetailView: View {
             SectionEyebrow("Context", systemImage: "info.circle", tint: .neutral,
                            trailing: .text(String(localized: "useful, not causal")))
             if let vo2max {
-                MetricValueRow(systemImage: "lungs.fill", label: String(localized: "Estimated VO₂max"),
+                HealthValueRow(systemImage: "lungs.fill", label: String(localized: "Estimated VO₂max"),
                                value: DrillInFormat.number(vo2max), unit: String(localized: "ml/kg/min"),
                                tint: HealthTint.fitnessAge)
             }

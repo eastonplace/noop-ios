@@ -161,7 +161,7 @@ struct HydrationView: View {
             if totalML <= 0 && entries.isEmpty {
                 HealthEmptyNote(symbol: "drop", text: "No drinks logged yet. Tap Sip, Cup or Bottle to start.")
             } else {
-                MetricValueRow(systemImage: "drop.fill", label: String(localized: "Logged today"),
+                HealthValueRow(systemImage: "drop.fill", label: String(localized: "Logged today"),
                                value: Int(totalML).formatted(), unit: String(localized: "ml"), tint: HealthTint.hydration)
                 if !entries.isEmpty {
                     // #842 — plain rows inside the page ScrollView (a nested scroll-disabled List with a hardcoded
@@ -225,25 +225,21 @@ struct HydrationView: View {
 
     private func timeLabel(_ time: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: NoopMetrics.space2) {
-            Image(systemName: "drop.fill")
-                .font(StrandFont.caption)
-                .foregroundStyle(tint)
-                .frame(width: WidgetMetrics.metricIconWidth)
-                .accessibilityHidden(true)
+            HealthGlyph(systemImage: "drop.fill", color: tint)
             Text(verbatim: time)
                 .font(StrandFont.subhead)
                 .foregroundStyle(StrandPalette.textSecondary)
         }
     }
 
-    private func amountLabel(_ ml: Int) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 2) {
+    @ViewBuilder private func amountLabel(_ ml: Int) -> some View {
+        let amount = HStack(alignment: .firstTextBaseline, spacing: 2) {
             Text(verbatim: ml.formatted())
                 .font(StrandFont.bodyNumber)
                 .foregroundStyle(StrandPalette.textPrimary)
             Text("ml").font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
         }
-        .padding(.leading, typeSize.isAccessibilitySize ? WidgetMetrics.metricIconWidth + NoopMetrics.space2 : 0)
+        if typeSize.isAccessibilitySize { amount.healthIconIndent() } else { amount }
     }
 
     // MARK: - 7-day history (bars, today on the right)

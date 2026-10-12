@@ -29,6 +29,83 @@ enum HealthTint {
     static let quiet: DomainTint = .custom(StrandPalette.textTertiary)
 }
 
+/// The icon column of a flat row. Its width follows the type size, so a symbol that grows with Dynamic Type never runs
+/// into the words beside it (a fixed 18 pt column overlaps at the accessibility sizes).
+struct HealthGlyph: View {
+    let systemImage: String
+    let color: Color
+    @ScaledMetric(relativeTo: .caption) private var width = WidgetMetrics.metricIconWidth
+
+    var body: some View {
+        Image(systemName: systemImage)
+            .font(StrandFont.caption)
+            .foregroundStyle(color)
+            .frame(width: width)
+            .accessibilityHidden(true)
+    }
+}
+
+private struct HealthIconIndent: ViewModifier {
+    let gap: CGFloat
+    @ScaledMetric(relativeTo: .caption) private var width = WidgetMetrics.metricIconWidth
+
+    func body(content: Content) -> some View {
+        content.padding(.leading, width + gap)
+    }
+}
+
+extension View {
+    /// Lines a row's second line up under the words of the row above, whose icon column is a `HealthGlyph`.
+    func healthIconIndent(gap: CGFloat = NoopMetrics.space2) -> some View {
+        modifier(HealthIconIndent(gap: gap))
+    }
+}
+
+/// `MetricValueRow` for the Health screens: the same icon, label and value, with the icon column scaled and, at the
+/// accessibility sizes, the value on its own line under the label so a long figure never truncates against it.
+struct HealthValueRow: View {
+    let systemImage: String
+    let label: String
+    let value: String
+    var unit: String?
+    var tint: DomainTint = .neutral
+
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    var body: some View {
+        if typeSize.isAccessibilitySize {
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(alignment: .firstTextBaseline, spacing: NoopMetrics.space2) {
+                    HealthGlyph(systemImage: systemImage, color: tint.accent)
+                    Text(label).foregroundStyle(StrandPalette.textSecondary)
+                        .captionLabelFit(lines: 3)
+                }
+                reading.healthIconIndent()
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        } else {
+            HStack(alignment: .firstTextBaseline, spacing: NoopMetrics.space2) {
+                HealthGlyph(systemImage: systemImage, color: tint.accent)
+                Text(label).foregroundStyle(StrandPalette.textSecondary)
+                    .captionLabelFit(lines: 2, standardLines: 1)
+                Spacer(minLength: NoopMetrics.space1)
+                reading.lineLimit(1)
+            }
+        }
+    }
+
+    private var reading: some View {
+        let missing = value == WidgetMetrics.missingValue
+        return HStack(alignment: .firstTextBaseline, spacing: 2) {
+            Text(value).font(StrandFont.bodyNumber)
+                .foregroundStyle(missing ? StrandPalette.textTertiary : StrandPalette.textPrimary)
+            if let unit, !missing {
+                Text(unit).font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
+            }
+        }
+    }
+}
+
 /// A quiet line for a section with nothing to show yet: a symbol and the sentence, never a bounded card.
 struct HealthEmptyNote: View {
     let symbol: String
@@ -36,11 +113,7 @@ struct HealthEmptyNote: View {
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: NoopMetrics.space3) {
-            Image(systemName: symbol)
-                .font(StrandFont.caption)
-                .foregroundStyle(StrandPalette.textTertiary)
-                .frame(width: WidgetMetrics.metricIconWidth)
-                .accessibilityHidden(true)
+            HealthGlyph(systemImage: symbol, color: StrandPalette.textTertiary)
             Text(text)
                 .font(StrandFont.subhead)
                 .foregroundStyle(StrandPalette.textSecondary)
@@ -124,12 +197,10 @@ struct HealthVitalRow: View {
 
     @Environment(\.dynamicTypeSize) private var typeSize
 
-    private var indent: CGFloat { WidgetMetrics.metricIconWidth + NoopMetrics.space2 }
-
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .firstTextBaseline, spacing: NoopMetrics.space2) {
-                MetricValueRow(
+                HealthValueRow(
                     systemImage: reading.symbol, label: reading.label,
                     value: reading.value.map { reading.format($0) } ?? WidgetMetrics.missingValue,
                     unit: reading.unit, tint: reading.domainTint)
@@ -164,14 +235,14 @@ struct HealthVitalRow: View {
                 caption
                 if let trail { sparkline(trail).frame(height: 24) }
             }
-            .padding(.leading, indent)
+            .healthIconIndent()
         } else {
             HStack(alignment: .center, spacing: NoopMetrics.space3) {
                 caption
                 Spacer(minLength: 0)
                 if let trail { sparkline(trail).frame(width: 64, height: 16) }
             }
-            .padding(.leading, indent)
+            .healthIconIndent()
         }
     }
 
@@ -248,7 +319,7 @@ struct RecoveryContributorsSection: View {
         let strength = ready ? contributor.strength : nil
         let word = ready ? contributor.word : String(localized: "Calibrating")
         return VStack(alignment: .leading, spacing: 5) {
-            MetricValueRow(systemImage: contributor.symbol, label: contributor.label, value: contributor.value,
+            HealthValueRow(systemImage: contributor.symbol, label: contributor.label, value: contributor.value,
                            unit: contributor.unit, tint: contributor.tint)
             HStack(alignment: .center, spacing: NoopMetrics.space2) {
                 Text(verbatim: word)
@@ -258,7 +329,7 @@ struct RecoveryContributorsSection: View {
                     .fixedSize()
                 HealthStrengthBar(strength: strength, tint: contributor.tint.accent)
             }
-            .padding(.leading, WidgetMetrics.metricIconWidth + NoopMetrics.space2)
+            .healthIconIndent()
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(verbatim: "\(contributor.label), \(contributor.value)\(contributor.unit.map { " " + $0 } ?? ""), \(word)"))
