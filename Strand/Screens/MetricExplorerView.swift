@@ -44,6 +44,19 @@ enum ExploreRange: Int, CaseIterable, Identifiable, Hashable {
     /// Trailing days the window spans (nil = everything).
     var days: Int? { self == .all ? nil : rawValue }
 
+    /// Why a sparse window shows this range instead of the one picked, as a whole phrase per range so a language can
+    /// inflect the range name. nil for the week, which no window widens to.
+    var widenedPhrase: String? {
+        switch self {
+        case .week: return nil
+        case .month: return String(localized: "sparse, widened to a month")
+        case .quarter: return String(localized: "sparse, widened to 3 months")
+        case .half: return String(localized: "sparse, widened to 6 months")
+        case .year: return String(localized: "sparse, widened to a year")
+        case .all: return String(localized: "sparse, widened to all time")
+        }
+    }
+
     /// This range plus every LARGER range, ascending — the auto-expand search order
     /// when the selected window holds zero points. ALW always terminates the chain.
     var widening: [ExploreRange] {
@@ -278,6 +291,7 @@ private struct MetricRow: View {
 /// Low / Average / High, and what correlates with it.
 struct MetricDetailView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var typeSize
     let metric: MetricDescriptor
     @EnvironmentObject var repo: Repository
 
@@ -421,9 +435,11 @@ struct MetricDetailView: View {
 
     // MARK: Body
 
-    /// The category the pushed header row names beside the title, or nil when it is the title itself.
-    static func headerContext(category: String, title: String) -> String? {
-        category.caseInsensitiveCompare(title) == .orderedSame ? nil : category
+    /// What the pushed header row says beside the title: the category (unless it only repeats the title) and the source
+    /// the numbers come from, so Whoop's resting heart rate and a Mi Band's are never the same page. Data text, shown
+    /// verbatim.
+    static func headerContext(category: String, title: String, source: String) -> String {
+        category.caseInsensitiveCompare(title) == .orderedSame ? source : "\(category) \u{00B7} \(source)"
     }
 
     var body: some View {
@@ -441,7 +457,7 @@ struct MetricDetailView: View {
                               // Pushed, the header row carries the category the subtitle used to name (and says
                               // nothing when it would only repeat the title: "Recovery" under "Recovery").
                               headerContext: Self.headerContext(category: MetricCatalog.categoryDisplayName(metric.category),
-                                                                title: metric.title)) {
+                                                                title: metric.title, source: metric.sourceLabel)) {
             VStack(alignment: .leading, spacing: 0) {
                 if loaded && series.isEmpty {
                     // No data in the entire history — keep the range bar for context, then the honest empty
@@ -449,7 +465,7 @@ struct MetricDetailView: View {
                     // the ranges to misrepresent, and hiding the bar here would regress this "for context" intent.
                     VStack(alignment: .leading, spacing: WidgetMetrics.headerSpacing) {
                         SectionEyebrow("Trend", systemImage: metric.icon, tint: tint)
-                        rangeControls(caption: nil, tint: tint)
+                        rangeControls(caption: nil)
                     }
                     ExploreMessage(
                         symbol: "tray", title: Text("No data"),
@@ -457,7 +473,7 @@ struct MetricDetailView: View {
                 } else if !loaded {
                     VStack(alignment: .leading, spacing: WidgetMetrics.headerSpacing) {
                         SectionEyebrow("Trend", systemImage: metric.icon, tint: tint)
-                        rangeControls(caption: nil, tint: tint)
+                        rangeControls(caption: nil)
                     }
                     ExploreMessage(isLoading: true, title: Text("Reading your \(metric.title.lowercased())…"))
                 } else {
@@ -476,6 +492,8 @@ struct MetricDetailView: View {
                 }
             }
         }
+        // A 24-letter German metric name is scaled to the row at the accessibility sizes, never broken mid-word.
+        .headerTitleKeepsWordsWhole(of: metric.title)
         #if os(iOS)
         .toolbar(.hidden, for: .navigationBar)
         #endif
@@ -553,25 +571,40 @@ struct MetricDetailView: View {
                 systemImage: metric.icon,
                 tint: tint,
                 trailing: eyebrowTrailing(band: band))
-            rangeControls(caption: caption, tint: tint)
             if let latestDate, values.count >= 2, let band {
+                // Value first: the hero (the latest reading and how it sits against the average), the chart, then the
+                // range control beneath it and one caption, then the numbers behind the chart.
                 trendChart(effectiveRange: effectiveRange, windowed: windowed, band: band,
                            latestDate: latestDate, tint: tint)
+                rangeControls(caption: caption)
                 statFooter(values: values)
                 comparisonRows(effectiveRange: effectiveRange, windowed: windowed, band: band)
             } else if let latest, let latestDate {
-                // One reading in the window: a dot is not a trend, so say so beside the value.
+                // One reading in the window: a dot is not a trend, so the value stands alone with its change against
+                // the reading before it.
                 HeroValue(
                     value: number(latest.value),
                     unit: displayUnit.isEmpty ? nil : displayUnit,
-                    caption: String(localized: "latest · \(dateText(latestDate))"),
+                    caption: String(localized: "latest \u{00B7} \(dateText(latestDate))"),
                     captionPlacement: .below)
-                Text("Only one reading in this range. Choose a longer range to see a trend.")
+                rangeControls(caption: caption)
+                // A typed key, so the ternary's two literals are looked up in the catalog like any other string.
+                let note: LocalizedStringKey = longerRangeShowsMore(effectiveRange: effectiveRange, windowedCount: windowed.count)
+                    ? "Only one reading in this range. Choose a longer range to see a trend."
+                    : "Only one reading so far. A trend appears once there are more."
+                Text(note)
                     .font(StrandFont.subhead)
                     .foregroundStyle(StrandPalette.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
+                comparisonRows(effectiveRange: effectiveRange, windowed: windowed, band: nil)
             }
         }
+    }
+
+    /// Whether a longer range the person can pick holds more readings than the window on screen, so "choose a longer
+    /// range" is only said when it would help.
+    private func longerRangeShowsMore(effectiveRange: ExploreRange, windowedCount: Int) -> Bool {
+        effectiveRange.widening.dropFirst().contains { isUnlocked($0) && slice(for: $0).count > windowedCount }
     }
 
     /// The date of the latest reading, and — for a metric the Baselines engine backs — whether it is in range.
@@ -593,32 +626,52 @@ struct MetricDetailView: View {
             : date.formatted(.dateTime.day().month(.abbreviated).year())
     }
 
-    /// What the range control selects ("Last 30 days") with the control beside it. `caption` is the readings count,
-    /// flagged when a sparse window widened.
+    /// What the range control selects ("Last 30 days") with the control beside it, then the one caption under both.
+    /// At the accessibility sizes the six chips would stack into a column taller than the chart, so one menu chip
+    /// names the range and changes it.
     @ViewBuilder
-    private func rangeControls(caption: (text: String, widened: Bool)?, tint: DomainTint) -> some View {
-        TrendsControlRow(
-            leading: { _ in
-                Text(coercedSelection.title)
-                    .font(StrandFont.caption)
-                    .foregroundStyle(StrandPalette.textSecondary)
-                    .lineLimit(1)
-            },
-            trailing: { rangePicker }
-        )
+    private func rangeControls(caption: (text: String, widened: Bool)?) -> some View {
+        if typeSize.isAccessibilitySize {
+            rangeMenu
+        } else {
+            TrendsControlRow(
+                leading: { _ in
+                    Text(coercedSelection.title)
+                        .font(StrandFont.caption)
+                        .foregroundStyle(StrandPalette.textSecondary)
+                        .lineLimit(1)
+                },
+                trailing: { rangePicker }
+            )
+        }
         if let caption {
             Text(caption.text)
                 .font(StrandFont.micro)
                 .foregroundStyle(caption.widened ? StrandPalette.statusWarning : StrandPalette.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        // The subtle reason the dimmed chips exist (#943); shown only while some are locked.
-        // Byte-identical wording to the Android HealthScreen's unlock hint.
-        if hasLockedRanges {
-            Text("Longer ranges unlock as more history builds.")
-                .font(StrandFont.micro)
-                .foregroundStyle(StrandPalette.textTertiary)
-                .fixedSize(horizontal: false, vertical: true)
+    }
+
+    /// The accessibility-size range control: the current range in a chip that opens the list. A range the history is
+    /// too short for stays in the list, dimmed and inert (#943).
+    private var rangeMenu: some View {
+        ChipMenu(
+            verbatimTitle: coercedSelection.title,
+            accessibilityLabel: "Range",
+            accessibilityValue: coercedSelection.title
+        ) {
+            ForEach(ExploreRange.allCases) { option in
+                Button {
+                    range = option
+                } label: {
+                    if option == coercedSelection {
+                        Label(option.title, systemImage: "checkmark")
+                    } else {
+                        Text(option.title)
+                    }
+                }
+                .disabled(!isUnlocked(option))
+            }
         }
     }
 
@@ -680,7 +733,13 @@ struct MetricDetailView: View {
                 valueBounds: valueBounds,
                 direction: chartDirection,
                 metricName: metric.title,
-                longRange: effectiveRange == .year || effectiveRange == .all
+                longRange: effectiveRange == .year || effectiveRange == .all,
+                // A weekly or sparse series still draws one connected line; the chip tone follows the typical band,
+                // not the sign of the move; and the pill drops under the value at the accessibility sizes.
+                maxGapDays: ExploreCadence.gapLimitDays(
+                    dayOffsets: days.indices.filter { days[$0].value != nil }),
+                neutralInsideTypical: true,
+                stacksPillAtAccessibilitySizes: true
             )
             .id("\(metric.id)-\(effectiveRange.rawValue)")
         }
@@ -701,27 +760,33 @@ struct MetricDetailView: View {
         ])
     }
 
-    /// The typical band's numbers and the change against the window before this one, as quiet metric rows.
+    /// The typical band's numbers and the change against what came before, as quiet metric rows. A window with one
+    /// reading has no band, and compares that reading with the one before it.
     @ViewBuilder
     private func comparisonRows(effectiveRange: ExploreRange,
                                 windowed: [(day: String, value: Double)],
-                                band: TypicalBand) -> some View {
+                                band: TypicalBand?) -> some View {
         let comparison = ComparisonEngine.compare(
             current: windowed.map(\.value),
             previous: previousWindow(effectiveRange: effectiveRange, windowed: windowed).map(\.value))
         let hasDelta = comparison.current.n > 0 && comparison.previous.n > 0
         VStack(alignment: .leading, spacing: NoopMetrics.space3) {
-            MetricValueRow(
-                systemImage: "arrow.left.and.right",
-                label: String(localized: "Typical range"),
-                value: "\(number(band.typical.lowerBound))\u{2013}\(number(band.typical.upperBound))",
-                unit: displayUnit.isEmpty ? nil : displayUnit,
-                tint: .neutral)
+            if let band {
+                MetricValueRow(
+                    systemImage: "arrow.left.and.right",
+                    label: String(localized: "Typical range"),
+                    value: "\(number(band.typical.lowerBound))\u{2013}\(number(band.typical.upperBound))",
+                    unit: displayUnit.isEmpty ? nil : displayUnit,
+                    tint: .neutral)
+            }
             if hasDelta {
                 MetricValueRow(
                     systemImage: comparison.direction > 0 ? "arrow.up.right" : (comparison.direction < 0 ? "arrow.down.right" : "arrow.right"),
-                    label: String(localized: "vs prev \(effectiveRange.name)"),
+                    label: windowed.count == 1
+                        ? String(localized: "vs previous reading")
+                        : String(localized: "vs prev \(effectiveRange.name)"),
                     value: signed(comparison.delta),
+                    unit: comparison.pctChange.map { ExploreChange.signedPercent($0) },
                     tint: deltaTint(deltaPositive(direction: comparison.direction)))
             }
         }
@@ -742,19 +807,21 @@ struct MetricDetailView: View {
         }
     }
 
-    /// "N readings", flagging an auto-widen when one happened.
-    /// Whole-phrase variants per count so translators never see a stitched plural.
+    /// One caption under the range control: "N readings", then why the range is not what was picked (a sparse window
+    /// widened to a longer one) or, while some ranges are still locked, that longer ones unlock as history builds.
+    /// Each tail is a whole phrase per range, so a language that inflects the range name (Russian, German) can.
     private func rangeCaption(effectiveRange: ExploreRange,
                               windowed: [(day: String, value: Double)],
                               windowFellBack: Bool) -> (text: String, widened: Bool)? {
         guard loaded, !series.isEmpty else { return nil }
-        let n = windowed.count
-        if windowFellBack {
-            return (n == 1
-                ? String(localized: "1 reading · sparse, widened to \(effectiveRange.name)")
-                : String(localized: "\(n) readings · sparse, widened to \(effectiveRange.name)"), true)
+        let readings = String(localized: "\(windowed.count) readings")
+        if windowFellBack, let widened = effectiveRange.widenedPhrase {
+            return ("\(readings) \u{00B7} \(widened)", true)
         }
-        return (String(localized: "\(n) readings"), false)
+        if hasLockedRanges {
+            return ("\(readings) \u{00B7} \(String(localized: "longer ranges unlock as history builds"))", false)
+        }
+        return (readings, false)
     }
 
     private func load() async {
@@ -881,13 +948,24 @@ struct MetricDetailView: View {
             symbol: row.metric.icon,
             tint: row.metric.domainTint(),
             title: Text(verbatim: row.metric.title),
-            subtitle: Text("\(MetricCatalog.categoryDisplayName(row.metric.category)) · n = \(row.n)"),
+            subtitle: Text(verbatim: correlationSubtitle(row)),
             showsChevron: false,
             spoken: String(localized: "\(row.metric.title), \(strength.word) correlation \(value), \(row.n) days")
         ) {
             // Direction by sign and colour, strength by the word beside the number; no bar encodes |r| twice.
             CorrelationTrailing(value: value, word: strength.word, color: color)
         }
+    }
+
+    /// What sits under a correlated metric's name: its category when that is not just the name again, its source when
+    /// it differs from this page's, then how many days the figure rests on.
+    private func correlationSubtitle(_ row: CorrRow) -> String {
+        var parts: [String] = []
+        let category = MetricCatalog.categoryDisplayName(row.metric.category)
+        if category.caseInsensitiveCompare(row.metric.title) != .orderedSame { parts.append(category) }
+        if row.metric.source != metric.source { parts.append(row.metric.sourceLabel) }
+        parts.append(String(localized: "n = \(row.n)"))
+        return parts.joined(separator: " \u{00B7} ")
     }
 
     // MARK: Helpers
