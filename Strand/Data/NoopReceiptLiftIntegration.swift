@@ -8,6 +8,26 @@ extension UnitSystem {
     var liftWeightUnit: LiftWeightUnit { self == .imperial ? .pounds : .kilograms }
 }
 
+/// Tells Lift the person's unit whenever the setting changes, for as long as the app runs. Lift's own view only follows the
+/// setting while it is on screen, and Settings is reached by closing it, so a running session's Live Activity would keep
+/// the old unit until Lift was reopened.
+@MainActor
+final class LiftWeightUnitFollower {
+    private var observation: AnyCancellable?
+
+    /// `apply` is called with the setting as it stands after any change to `defaults`; the receiver ignores a repeat.
+    init(defaults: UserDefaults = .standard, apply: @escaping @MainActor (LiftWeightUnit) -> Void) {
+        observation = NotificationCenter.default
+            .publisher(for: UserDefaults.didChangeNotification, object: defaults)
+            .receive(on: DispatchQueue.main)
+            .sink { _ in apply(Self.unit(in: defaults)) }
+    }
+
+    static func unit(in defaults: UserDefaults) -> LiftWeightUnit {
+        (UnitSystem(rawValue: defaults.string(forKey: UnitPrefs.systemKey) ?? "") ?? .metric).liftWeightUnit
+    }
+}
+
 /// Keeps a lifting session attached to its original NOOP source across source switches.
 @MainActor
 final class NoopReceiptLiftIntegration: ObservableObject {
@@ -20,11 +40,13 @@ final class NoopReceiptLiftIntegration: ObservableObject {
     private var announcedRestoredSession = false
     private weak var model: AppModel?
     private var observation: AnyCancellable?
+    private var unitFollower: LiftWeightUnitFollower?
     private var selecting = false
     private var selectedSourceOwner: HistoricalCursorScope?
 
     init(model: AppModel) {
         self.model = model
+        unitFollower = LiftWeightUnitFollower { [weak self] unit in self?.coordinator?.setWeightUnit(unit) }
         #if os(iOS)
         LocalCoachPlanAdapter.registerReceiptWriter(repo: model.repo) { [weak self] sourceOwner, transform in
             guard let self else { throw CancellationError() }
