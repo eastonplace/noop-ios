@@ -431,11 +431,6 @@ final class Repository: ObservableObject {
         return true
     }
 
-    #if DEBUG
-    /// Inject a pre-opened store so unit tests can exercise the read facades (e.g. `timelineSeries`)
-    /// against an in-memory `WhoopStore` without touching the on-disk path. DEBUG-only test seam.
-    func setStoreForTesting(_ s: WhoopStore) { self.store = s }
-
     /// DL-03: where edited days wait for their background rescore. Tests inject their own queue.
     var editedDayRescoreQueue = EditedDayRescoreQueue.shared
 
@@ -446,6 +441,11 @@ final class Repository: ObservableObject {
             _ = await self?.refresh(.recentDashboard(days: days))
         }
     }
+
+    #if DEBUG
+    /// Inject a pre-opened store so unit tests can exercise the read facades (e.g. `timelineSeries`)
+    /// against an in-memory `WhoopStore` without touching the on-disk path. DEBUG-only test seam.
+    func setStoreForTesting(_ s: WhoopStore) { self.store = s }
 
     /// Deterministic test seam for the authoritative exact-day Sleep read. It exercises the database-failure
     /// branch without scheduler timing or a damaged shared database. Production always uses `.database`.
