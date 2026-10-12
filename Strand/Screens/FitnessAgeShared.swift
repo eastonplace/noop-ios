@@ -12,9 +12,21 @@ enum FitnessAgeCopy {
     /// The Fitness Age as the whole number both screens show.
     static func shownAge(_ fitnessAge: Double) -> Int { Int(fitnessAge.rounded()) }
 
-    /// The fractional, date-of-birth based calendar age.
+    /// The fractional, date-of-birth based calendar age, held inside the whole year the profile reports.
+    ///
+    /// The fraction divides days by 365.2425, which is off from calendar years by up to a day around a birthday
+    /// (a date of birth exactly 30 calendar years back reads 29.9998). Left alone, "vs age 29" would sit beside a
+    /// profile, heart-rate zones and Max HR that all say 30, so the fraction is clamped to `profile.age`'s year.
     @MainActor static func calendarAge(_ profile: ProfileStore, on date: Date = Date()) -> Double {
-        FitnessAgePresentation.chronologicalAge(on: date, dateOfBirth: profile.dateOfBirth)
+        withinWholeYear(
+            FitnessAgePresentation.chronologicalAge(on: date, dateOfBirth: profile.dateOfBirth),
+            wholeYears: ProfileStore.years(from: profile.dateOfBirth, to: date))
+    }
+
+    /// `age` limited to `[wholeYears, wholeYears + 1)`. Non-finite input is returned unchanged.
+    nonisolated static func withinWholeYear(_ age: Double, wholeYears: Int) -> Double {
+        guard age.isFinite else { return age }
+        return min(max(age, Double(wholeYears)), Double(wholeYears + 1).nextDown)
     }
 
     /// The calendar age as the whole number the screens say ("vs age 42"): a birthday not yet reached is not counted.

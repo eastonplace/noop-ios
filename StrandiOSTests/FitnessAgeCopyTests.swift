@@ -40,4 +40,26 @@ final class FitnessAgeCopyTests: XCTestCase {
             }
         }
     }
+
+    // MARK: The calendar age agrees with the profile's whole-year age
+
+    func testAFractionJustUnderABirthdayStaysInTheProfilesYear() {
+        // A date of birth exactly 30 calendar years back is 10,957 days: 29.9998 by the 365.2425-day divisor.
+        let now = Date(timeIntervalSince1970: 1_791_842_400)          // 2026-10-12 22:00 UTC
+        let dob = Date(timeIntervalSince1970: 845_135_961)            // 1996-10-12 15:59:21 UTC
+        let fraction = FitnessAgePresentation.chronologicalAge(on: now, dateOfBirth: dob)
+        let years = ProfileStore.years(from: dob, to: now)
+        XCTAssertEqual(years, 30)
+        XCTAssertLessThan(fraction, 30, "premise: the raw fraction reads under the birthday")
+        let held = FitnessAgeCopy.withinWholeYear(fraction, wholeYears: years)
+        XCTAssertEqual(FitnessAgeCopy.shownCalendarAge(held), 30)
+    }
+
+    func testTheFractionStaysInsideItsYear() {
+        XCTAssertEqual(FitnessAgeCopy.withinWholeYear(29.9998, wholeYears: 30), 30)
+        XCTAssertEqual(FitnessAgeCopy.withinWholeYear(30.4, wholeYears: 30), 30.4)
+        XCTAssertLessThan(FitnessAgeCopy.withinWholeYear(31.0002, wholeYears: 30), 31)
+        XCTAssertEqual(FitnessAgeCopy.shownCalendarAge(FitnessAgeCopy.withinWholeYear(31.0002, wholeYears: 30)), 30)
+        XCTAssertTrue(FitnessAgeCopy.withinWholeYear(.nan, wholeYears: 30).isNaN)
+    }
 }
