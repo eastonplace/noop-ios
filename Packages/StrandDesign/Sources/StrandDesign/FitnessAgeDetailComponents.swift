@@ -16,7 +16,9 @@ public struct FitnessAgeRail: View {
     public let chronologicalAge: Double
     public let range: ClosedRange<Double>
 
-    @ScaledMetric(relativeTo: .caption2) private var height: CGFloat = 40
+    /// The "YOU · N" band's height follows the label's type size.
+    @ScaledMetric(relativeTo: .caption2) private var labelHeight: CGFloat = 14
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     public init(fitnessAge: Double?, chronologicalAge: Double, range: ClosedRange<Double>) {
         self.fitnessAge = fitnessAge
@@ -25,6 +27,14 @@ public struct FitnessAgeRail: View {
     }
 
     public var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            rail.frame(height: 22)
+            label
+        }
+        .accessibilityHidden(true)
+    }
+
+    private var rail: some View {
         GeometryReader { proxy in
             let chronoX = x(chronologicalAge, width: proxy.size.width)
             ZStack(alignment: .leading) {
@@ -39,14 +49,32 @@ public struct FitnessAgeRail: View {
                 }
                 Rectangle().fill(StrandPalette.textPrimary).frame(width: 2, height: 14)
                     .position(x: chronoX, y: 11)
-                Text("YOU · \(Int(chronologicalAge.rounded(.down)))")
-                    .font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
-                    .lineLimit(1).fixedSize()
-                    .position(x: min(max(chronoX, 34), proxy.size.width - 34), y: 30)
             }
         }
-        .frame(height: height)
-        .accessibilityHidden(true)
+    }
+
+    /// "YOU · N" under the tick, kept on the rail by its measured width. At an accessibility size the label is far
+    /// wider than the clamp the ordinary sizes assume, so it sits under the nearer end of the rail instead of being
+    /// centred on a tick that can be near the screen edge.
+    @ViewBuilder private var label: some View {
+        let text = Text("YOU · \(Int(chronologicalAge.rounded(.down)))")
+            .font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
+            .lineLimit(1)
+        if typeSize.isAccessibilitySize {
+            text.frame(maxWidth: .infinity, alignment: unitChronoX < 0.5 ? .leading : .trailing)
+        } else {
+            GeometryReader { proxy in
+                text.fixedSize()
+                    .position(x: min(max(x(chronologicalAge, width: proxy.size.width), 34), proxy.size.width - 34),
+                              y: labelHeight / 2)
+            }
+            .frame(height: labelHeight)
+        }
+    }
+
+    private var unitChronoX: Double {
+        let span = max(0.001, range.upperBound - range.lowerBound)
+        return min(1, max(0, (chronologicalAge - range.lowerBound) / span))
     }
 
     private func tone(_ fitnessAge: Double) -> Color {
