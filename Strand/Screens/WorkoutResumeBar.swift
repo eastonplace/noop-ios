@@ -182,7 +182,7 @@ struct WorkoutResumeBar: View {
     }
 
     private func sportName(lines: Int) -> some View {
-        Text(verbatim: WorkoutSource.displaySport(workout.sport))
+        Text(verbatim: WorkoutSportTitle.name(for: workout.sport))
             .font(StrandFont.headline)
             .foregroundStyle(StrandPalette.textPrimary)
             .lineLimit(lines)
@@ -225,7 +225,7 @@ struct WorkoutResumeBar: View {
     private func spokenSummary(_ state: WorkoutResumeBarState) -> String {
         let seconds = workout.activeElapsed()
         let spoken = LiveWorkoutTiles.spokenElapsed(seconds)
-        let sport = WorkoutSource.displaySport(workout.sport)
+        let sport = WorkoutSportTitle.name(for: workout.sport)
         switch state {
         case .saving: return "\(sport), \(String(localized: "Saving…"))"
         case .failed: return "\(sport), \(String(localized: "Couldn't save · tap to retry"))"

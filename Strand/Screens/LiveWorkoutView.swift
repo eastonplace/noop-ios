@@ -176,8 +176,7 @@ private struct LiveWorkoutHeader: View {
 
     private var titleColumn: some View {
         VStack(spacing: 3) {
-            let sport = WorkoutSource.displaySport(workout.sport)
-            Text(verbatim: sport)
+            Text(verbatim: WorkoutSportTitle.name(for: workout.sport))
                 .foregroundStyle(StrandPalette.textPrimary)
                 .liveText(17, weight: .semibold, maxSize: 24, lines: 2)
                 .multilineTextAlignment(.center)
@@ -186,7 +185,7 @@ private struct LiveWorkoutHeader: View {
         }
     }
 
-    /// What is happening: "● Running" in mint with the pulse every surface shares; "Paused · 0:42" in amber with the pause
+    /// What is happening, the same word for every sport (the title above it says which): "● Recording" in mint with the pulse every surface shares; "Paused · 0:42" in amber with the pause
     /// counting up, so a pocketed phone says how long it has been stopped (at the accessibility sizes it breaks as "Paused"
     /// over "0:42", never leaving a "·" alone); "Ending" once End was held.
     @ViewBuilder private var stateLine: some View {
@@ -209,7 +208,7 @@ private struct LiveWorkoutHeader: View {
             HStack(spacing: 6) {
                 LiveStateDot(color: LivePalette.mint,
                              pulses: NOOPLiveWorkoutPulse.isActive(isPaused: false, isEnding: false))
-                Text("Running")
+                Text("Recording")
                     .foregroundStyle(LivePalette.mint)
                     .liveText(13, weight: .medium, maxSize: 19, lines: 1)
             }
@@ -234,7 +233,7 @@ private struct LiveWorkoutHeader: View {
     }
 }
 
-/// The small dot before "Running": mint, with a ghost that swells and fades while the workout records (off under Reduce
+/// The small dot before "Recording": mint, with a ghost that swells and fades while the workout records (off under Reduce
 /// Motion).
 struct LiveStateDot: View {
     let color: Color
