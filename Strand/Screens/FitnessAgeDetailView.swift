@@ -3,6 +3,9 @@ import StrandDesign
 import StrandAnalytics
 import WhoopStore
 
+/// The Fitness Age in full: the number against the calendar age, how fast it is moving, the two inputs that drive it and
+/// what each is worth in years, six months of both ages, and the context around it. Flat sections in the widget language.
+/// The number and the "N years younger" sentence come from `FitnessAgeCopy`, the same words the Health Monitor says.
 struct FitnessAgeDetailView: View {
     @EnvironmentObject private var repo: Repository
     @EnvironmentObject private var profile: ProfileStore
@@ -10,23 +13,18 @@ struct FitnessAgeDetailView: View {
     @State private var series: [(day: String, value: Double)] = []
     @State private var vo2max: Double?
     @State private var loaded = false
-
-    private static let dayFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.calendar = Calendar(identifier: .gregorian)
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = .current
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter
-    }()
+    /// Open Settings from the checklist's "Fix in Settings" or the "Review profile" row.
+    @State private var showProfile = false
 
     var body: some View {
-        ScreenScaffold(title: "Fitness Age", subtitle: "Your fitness compared with your calendar age", lazy: true) {
+        ScreenScaffold(
+            title: "Fitness Age", lazy: true,
+            headerContext: HealthFormat.headerContext(dayKey: series.last?.day)
+        ) {
             if loaded {
                 content
             } else {
-                DataPendingNote(title: "Reading your Fitness Age",
-                                message: "NOOP is loading your weekly history.", symbol: "figure.run")
+                HealthEmptyNote(symbol: "figure.run", text: "Reading your Fitness Age…")
             }
         }
         .task(id: repo.refreshSeq) { await load() }
@@ -34,123 +32,157 @@ struct FitnessAgeDetailView: View {
         .toolbar(.hidden, for: .navigationBar)
         #endif
         .environment(\.screenScaffoldNavigationRole, .detail)
-    }
-
-    @ViewBuilder private var content: some View {
-        FitnessAgeHero(
-            fitnessAge: latestAge,
-            chronologicalAge: chronologicalAge,
-            railRange: FitnessAgePresentation.dynamicRailRange(
-                fitnessAge: latestAge, chronologicalAge: chronologicalAge),
-            uncertaintyYears: FitnessAgeEngine.displayBandYears)
-
-        if let latestAge {
-            sectionDivider
-            FitnessAgePaceRow(pace: pace)
-            sectionDivider
-            driversSection
-            if !trendPoints.isEmpty {
-                sectionDivider
-                FitnessAgeTrendChart(points: trendPoints)
-            }
-            contextSection(latestAge: latestAge)
-        } else {
-            calibrationSection
+        .navigationDestination(isPresented: $showProfile) {
+            // TODO(lane-merge): openSettings(.personalProfile)
+            SettingsView()
         }
     }
 
+    @ViewBuilder private var content: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            hero
+            if let latestAge {
+                DrillInSeparator()
+                FitnessAgePaceRow(pace: pace)
+                DrillInSeparator()
+                driversSection
+                if !trendPoints.isEmpty {
+                    DrillInSeparator()
+                    FitnessAgeTrendChart(points: trendPoints, tint: HealthTint.fitnessAge.accent)
+                }
+                DrillInSeparator()
+                contextSection(latestAge: latestAge)
+            } else {
+                DrillInSeparator()
+                calibrationSection
+            }
+        }
+    }
+
+    // MARK: Hero
+
+    private var hero: some View {
+        let calendarAge = chronologicalAge
+        let delta = latestAge.map { FitnessAgeCopy.delta(fitnessAge: $0, calendarAge: calendarAge) }
+        let line = delta.map(FitnessAgeCopy.deltaLine) ?? String(localized: "Calibrating from your recent nights and activity.")
+        let shown = latestAge.map { "\(FitnessAgeCopy.shownAge($0))" } ?? WidgetMetrics.missingValue
+        return VStack(alignment: .leading, spacing: WidgetMetrics.contentSpacing) {
+            SectionEyebrow(
+                "Fitness Age", systemImage: "figure.run", tint: HealthTint.fitnessAge,
+                trailing: .text(String(localized: "vs age \(FitnessAgeCopy.shownCalendarAge(calendarAge))")))
+            HeroValue(value: shown, unit: String(localized: "yrs"))
+            Text(verbatim: line)
+                .font(StrandFont.subhead)
+                .foregroundStyle(delta.map(FitnessAgeCopy.deltaColor) ?? StrandPalette.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+            FitnessAgeRail(
+                fitnessAge: latestAge, chronologicalAge: calendarAge,
+                range: FitnessAgePresentation.dynamicRailRange(fitnessAge: latestAge, chronologicalAge: calendarAge))
+            Text(verbatim: FitnessAgeCopy.bandCaption)
+                .font(StrandFont.micro)
+                .foregroundStyle(StrandPalette.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(verbatim: latestAge.map {
+            String(localized: "Fitness Age \(FitnessAgeCopy.shownAge($0)).") + " " + line
+        } ?? String(localized: "Fitness Age calibrating.")))
+    }
+
+    // MARK: Factors
+
     private var driversSection: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            componentLabel("The factors · impact said in years")
+        VStack(alignment: .leading, spacing: WidgetMetrics.contentSpacing) {
+            SectionEyebrow("The factors", systemImage: "slider.horizontal.3", tint: HealthTint.fitnessAge,
+                           trailing: .text(String(localized: "Impact in years")))
             if let inputs = weeklyInputs {
                 let impacts = FitnessAgeEngine.driverImpacts(
                     age: chronologicalAge, sex: profile.sex,
                     restingHR: inputs.restingHR, paIndex: inputs.paIndex)
-                FitnessAgeDriverRow(title: "Resting heart rate",
-                                    value: "\(Int(inputs.restingHR.rounded())) bpm",
-                                    impactYears: impacts.restingHRYears,
-                                    systemImage: "heart.fill")
-                Divider().overlay(StrandPalette.hairline)
-                FitnessAgeDriverRow(title: "Recent activity",
-                                    value: String(format: "PA index %.1f", inputs.paIndex),
-                                    impactYears: impacts.activityYears,
-                                    systemImage: "figure.run")
+                FitnessAgeDriverRow(
+                    title: String(localized: "Resting heart rate"),
+                    value: "\(Int(inputs.restingHR.rounded())) \(String(localized: "bpm"))",
+                    impactYears: impacts.restingHRYears, systemImage: "heart.fill",
+                    tint: ProductionTrendMetric.restingHR.domainTint(latest: nil))
+                FlatRowSeparator()
+                FitnessAgeDriverRow(
+                    title: String(localized: "Recent activity"),
+                    value: String(localized: "PA index \(DrillInFormat.number(inputs.paIndex, fractionDigits: 1))"),
+                    impactYears: impacts.activityYears, systemImage: "figure.run",
+                    tint: ProductionTrendMetric.strain.domainTint(latest: nil))
                 Text("These are the only variable inputs in NOOP’s Fitness Age equation. Other health metrics add context but are not assigned invented year impacts.")
                     .font(StrandFont.footnote).foregroundStyle(StrandPalette.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
             } else {
                 Text("Driver details will appear when the current seven-day input window is complete.")
                     .font(StrandFont.footnote).foregroundStyle(StrandPalette.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
 
+    // MARK: Context
+
     private func contextSection(latestAge: Double) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            sectionDivider
-            componentLabel("Context · useful, not causal")
+        VStack(alignment: .leading, spacing: WidgetMetrics.contentSpacing) {
+            SectionEyebrow("Context", systemImage: "info.circle", tint: .neutral,
+                           trailing: .text(String(localized: "useful, not causal")))
             if let vo2max {
-                HStack {
-                    Text("Estimated VO₂max").font(StrandFont.subhead)
-                    Spacer()
-                    Text(String(format: "%.0f ml/kg/min", vo2max)).font(StrandFont.captionNumber)
-                }
+                MetricValueRow(systemImage: "lungs.fill", label: String(localized: "Estimated VO₂max"),
+                               value: DrillInFormat.number(vo2max), unit: String(localized: "ml/kg/min"),
+                               tint: HealthTint.fitnessAge)
             }
             NavigationLink {
                 if let metric = MetricCatalog.all.first(where: { $0.key == "fitness_age" }) {
                     MetricDetailView(metric: metric)
                 }
             } label: {
-                SettingsRow(icon: "chart.xyaxis.line", title: "Open full metric history",
-                            subtitle: "Explore every Fitness Age reading")
+                HealthLinkRowLabel(title: String(localized: "Open full metric history"),
+                                   subtitle: String(localized: "Explore every Fitness Age reading"),
+                                   symbol: "chart.xyaxis.line")
             }
-            .buttonStyle(.plain)
-            Text("Latest weekly comparison: \(String(format: "%.1f", latestAge)) years. This is not a diagnosis or a biological-age measurement.")
+            .buttonStyle(FlatRowPressStyle())
+            Text("Latest weekly comparison: \(DrillInFormat.number(latestAge, fractionDigits: 1)) years. This is not a diagnosis or a biological-age measurement.")
                 .font(StrandFont.footnote).foregroundStyle(StrandPalette.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
+
+    // MARK: Still calibrating
 
     private var calibrationSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            SectionHeader("Still calibrating", overline: readiness.confidence == .notReady ? "Needs input" : "Building history")
-            ForEach(readiness.items, id: \.key) { item in
-                HStack(spacing: 10) {
-                    Image(systemName: item.status == .satisfied ? "checkmark.circle.fill" : "circle.dashed")
-                        .foregroundStyle(item.status == .satisfied ? StrandPalette.statusPositive : StrandPalette.statusWarning)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(item.label).font(StrandFont.subhead)
-                        Text(item.detail).font(StrandFont.footnote).foregroundStyle(StrandPalette.textTertiary)
-                    }
-                    Spacer()
-                }
-                .accessibilityElement(children: .combine)
+        let coverage = self.coverage
+        return VStack(alignment: .leading, spacing: WidgetMetrics.contentSpacing) {
+            SectionEyebrow("Still calibrating", systemImage: "figure.run", tint: HealthTint.fitnessAge)
+            FitnessAgeReadinessList(
+                readiness: readiness, rhrDays: coverage.rhrDays, activityDays: coverage.activityDays,
+                lead: nil, onFix: { showProfile = true })
+            Button { showProfile = true } label: {
+                HealthLinkRowLabel(title: String(localized: "Review profile"),
+                                   subtitle: String(localized: "Age, sex, height, weight, and optional waist"),
+                                   symbol: "person.crop.circle")
             }
-            NavigationLink { SettingsView() } label: {
-                SettingsRow(icon: "person.crop.circle", title: "Review profile",
-                            subtitle: "Age, sex, height, weight, and optional waist")
-            }
-            .buttonStyle(.plain)
+            .buttonStyle(FlatRowPressStyle())
         }
     }
 
-    private var sectionDivider: some View { Divider().overlay(StrandPalette.hairline) }
-    private func componentLabel(_ title: String) -> some View {
-        Text(title.uppercased())
-            .font(StrandFont.overline)
-            .tracking(StrandFont.overlineTracking)
-            .foregroundStyle(StrandPalette.textSecondary)
-    }
+    // MARK: Numbers
+
     private var latestAge: Double? { series.last?.value }
-    private var chronologicalAge: Double {
-        FitnessAgePresentation.chronologicalAge(on: Date(), dateOfBirth: profile.dateOfBirth)
-    }
+
+    /// The date-of-birth calendar age, the one the Health Monitor compares against.
+    private var chronologicalAge: Double { FitnessAgeCopy.calendarAge(profile) }
+
     private var pace: Double? {
         FitnessAgePresentation.paceOfAging(samples: datedSeries.map {
             FitnessAgeTrendSample(date: $0.date, fitnessAge: $0.value)
         })
     }
+
     private var datedSeries: [(date: Date, value: Double)] {
-        series.compactMap { point in Self.dayFormatter.date(from: point.day).map { ($0, point.value) } }
+        series.compactMap { point in BodyVitalSigns.localDate(fromDayKey: point.day).map { ($0, point.value) } }
     }
+
     private var trendPoints: [FitnessAgeTrendChart.Point] {
         let cutoff = Calendar.current.date(byAdding: .month, value: -6, to: Date()) ?? .distantPast
         return datedSeries.filter { $0.date >= cutoff }.map {
@@ -162,12 +194,17 @@ struct FitnessAgeDetailView: View {
         }
     }
 
-    private var readiness: FitnessAgeReadiness {
+    private var coverage: (rhrDays: Int, activityDays: Int) {
         let days = repo.days.suffix(7)
+        return (days.compactMap(\.restingHr).count, days.compactMap { repo.canonicalStrain(for: $0.day) }.count)
+    }
+
+    private var readiness: FitnessAgeReadiness {
+        let coverage = self.coverage
         return FitnessAgeEngine.assessReadiness(
             hasAge: profile.age > 0, hasSex: !profile.sex.isEmpty,
-            rhrDays: days.compactMap(\.restingHr).count,
-            activityDays: days.compactMap { repo.canonicalStrain(for: $0.day) }.count,
+            rhrDays: coverage.rhrDays,
+            activityDays: coverage.activityDays,
             hasHeightWeight: profile.heightCm > 0 && profile.weightKg > 0,
             hasWaist: profile.waistCm > 0)
     }
