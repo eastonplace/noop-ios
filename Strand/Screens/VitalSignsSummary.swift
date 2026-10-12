@@ -44,9 +44,29 @@ struct BodyVitalReading: Identifiable {
         }
     }
 
-    /// The tile caption: "<day> · <source> · <state>". Falls back to a metric-specific "no value"
-    /// line when nothing resolved, so an empty tile still says why instead of a bare dash.
-    var stateCaption: String {
+    /// The metric this vital is plotted as on Trends and named by Today's cards, so its symbol, tint and trend page
+    /// come from one place. nil for the experimental SpO₂ candidate, which has no trend and no range judgement.
+    var trendMetric: ProductionTrendMetric? {
+        switch key {
+        case "resp": .respiratory
+        case "spo2": .spo2
+        case "rhr": .restingHR
+        case "hrv": .hrv
+        case "skin": .skinTemp
+        default: nil
+        }
+    }
+
+    /// The vital's domain tint: the same one Today's card and the Trends chart wear. The candidate is neutral.
+    var domainTint: DomainTint {
+        trendMetric?.domainTint(latest: nil) ?? .custom(StrandPalette.textTertiary)
+    }
+
+    var symbol: String { trendMetric?.symbol ?? "drop.fill" }
+
+    /// What a row says before the state word: "<day> · <source>". For the experimental candidate this is the whole
+    /// caption (it carries its own warning), and a vital with no value says why instead.
+    var provenanceCaption: String {
         if key == BodyVitalSigns.experimentalSpO2CandidateKey {
             guard let day else { return missingCaption }
             return [
@@ -60,8 +80,21 @@ struct BodyVitalReading: Identifiable {
         if let sourceText = Self.sourceLabel(source, key: key) {
             parts.append(sourceText)
         }
-        parts.append(stateText)
         return parts.joined(separator: " · ")
+    }
+
+    /// Which yardstick judged the value, as a word; nil when the caption already says everything (a missing
+    /// value, or the candidate).
+    var stateWord: String? {
+        guard day != nil, key != BodyVitalSigns.experimentalSpO2CandidateKey else { return nil }
+        return stateText
+    }
+
+    /// The tile caption: "<day> · <source> · <state>". Falls back to a metric-specific "no value"
+    /// line when nothing resolved, so an empty tile still says why instead of a bare dash.
+    var stateCaption: String {
+        guard let stateWord else { return provenanceCaption }
+        return provenanceCaption + " · " + stateWord
     }
 
     var accessibilityText: String {
@@ -103,8 +136,9 @@ struct BodyVitalReading: Identifiable {
 
     static func dayLabel(_ day: String) -> String {
         if day == BodyVitalSigns.logicalDayKey(Date()) { return String(localized: "Today") }
-        guard let date = BodyVitalSigns.dayParser.date(from: day) else { return day }
-        return BodyVitalSigns.dayFormatter.string(from: date)
+        guard let date = BodyVitalSigns.localDate(fromDayKey: day) else { return day }
+        // A format style, so it follows the device's language and region ("9 Oct", "9. Okt.").
+        return date.formatted(.dateTime.day().month(.abbreviated))
     }
 }
 
@@ -129,22 +163,9 @@ enum BodyVitalSigns {
                          now: Date = Date()) -> [BodyVitalReading] {
         let logicalDay = logicalDayKey(now)
 
-        // Resolve one metric to a per-day series, taking the FIRST source (by precedence) that carries
-        // a plausible value for each day. Imported wins over computed wins over Apple, per `vitalPrecedence`.
-        // A finite-but-corrupt SQLite value must not reach integer formatting, chart geometry, or band math.
+        // Resolve one metric to a per-day series (see `resolvedPoints`).
         func points(key: String, _ value: (DailyMetric) -> Double?) -> [VitalPoint] {
-            let allowedSources = DailyMetricSource.vitalPrecedence(for: key)
-            var byDay: [String: VitalPoint] = [:]
-            for source in allowedSources {
-                for row in sourceRows where row.source == source {
-                    guard let v = value(row.metric),
-                          Self.isPlausibleVital(v, key: key),
-                          byDay[row.metric.day] == nil
-                    else { continue }
-                    byDay[row.metric.day] = VitalPoint(day: row.metric.day, value: v, source: row.source)
-                }
-            }
-            return byDay.values.sorted { $0.day < $1.day }
+            resolvedPoints(sourceRows: sourceRows, key: key, value)
         }
 
         // Prefer the logical day's value; otherwise the most recent day that has one — so a vital still
@@ -207,10 +228,12 @@ enum BodyVitalSigns {
         // reading uses the full C→F formula (×9/5 + 32); a ±DEVIATION must omit the offset.
         let skinUnitLabel = UnitFormatter.temperatureUnit(temperatureUnit)
         let skinFormat: (Double) -> String = { c in
-            let full = skinIsAbsolute
-                ? UnitFormatter.temperatureFromCelsius(c, unit: temperatureUnit, decimals: 1)
-                : UnitFormatter.temperatureDeltaFromCelsius(c, unit: temperatureUnit, decimals: 1)
-            return full.replacingOccurrences(of: " " + skinUnitLabel, with: "")
+            let shown: Double
+            switch temperatureUnit {
+            case .celsius: shown = c
+            case .fahrenheit: shown = skinIsAbsolute ? UnitFormatter.celsiusToFahrenheit(c) : c * 9 / 5
+            }
+            return shown.formatted(.number.precision(.fractionLength(1)))
         }
 
         var readings = [
@@ -219,14 +242,14 @@ enum BodyVitalSigns {
                 label: String(localized: "Resp Rate"),
                 unit: "rpm",
                 value: respRow?.value,
-                format: { String(format: "%.1f", $0) },
+                format: { $0.formatted(.number.precision(.fractionLength(1))) },
                 banding: VitalBands.band(
                     value: respRow?.value,
                     history: history(before: respRow?.day, respPoints),
                     populationRange: 12...20,
                     cfg: Baselines.respCfg
                 ),
-                metricColor: StrandPalette.metricCyan,
+                metricColor: ProductionTrendMetric.respiratory.tint,
                 day: respRow?.day,
                 source: respRow?.source,
                 missingCaption: String(localized: "No respiratory-rate value"),
@@ -237,7 +260,7 @@ enum BodyVitalSigns {
                 label: String(localized: "Blood O₂"),
                 unit: "%",
                 value: spo2Row?.value,
-                format: { String(format: "%.0f", $0) },
+                format: { $0.formatted(.number.precision(.fractionLength(0))) },
                 // Population-only on purpose: an absolute <95% floor is meaningful regardless of
                 // personal baseline (no "spo2" MetricCfg exists).
                 banding: VitalBands.band(
@@ -246,7 +269,7 @@ enum BodyVitalSigns {
                     populationRange: 95...100,
                     cfg: nil
                 ),
-                metricColor: StrandPalette.metricCyan,
+                metricColor: ProductionTrendMetric.spo2.tint,
                 day: spo2Row?.day,
                 source: spo2Row?.source,
                 missingCaption: String(localized: "No SpO₂ import or Health value"),
@@ -264,7 +287,7 @@ enum BodyVitalSigns {
                     populationRange: 40...60,
                     cfg: Baselines.restingHRCfg
                 ),
-                metricColor: StrandPalette.metricRose,
+                metricColor: ProductionTrendMetric.restingHR.tint,
                 day: rhrRow?.day,
                 source: rhrRow?.source,
                 missingCaption: String(localized: "No resting HR value"),
@@ -282,7 +305,7 @@ enum BodyVitalSigns {
                     populationRange: 40...120,
                     cfg: Baselines.hrvCfg
                 ),
-                metricColor: StrandPalette.metricPurple,
+                metricColor: ProductionTrendMetric.hrv.tint,
                 day: hrvRow?.day,
                 source: hrvRow?.source,
                 missingCaption: String(localized: "No HRV value"),
@@ -295,7 +318,7 @@ enum BodyVitalSigns {
                 value: skin,
                 format: skinFormat,
                 banding: skinResult,
-                metricColor: StrandPalette.metricAmber,
+                metricColor: ProductionTrendMetric.skinTemp.tint,
                 day: skinRow?.day,
                 source: skinRow?.source,
                 missingCaption: String(localized: "No nightly skin-temp value"),
@@ -352,6 +375,71 @@ enum BodyVitalSigns {
         }
     }
 
+    /// Resolve one metric to a per-day series, taking the FIRST source (by precedence) that carries a plausible
+    /// value for each day. Imported wins over computed wins over Apple, per `vitalPrecedence`. A finite-but-corrupt
+    /// SQLite value must not reach integer formatting, chart geometry, or band math.
+    fileprivate static func resolvedPoints(sourceRows: [SourcedDailyMetric], key: String,
+                                           _ value: (DailyMetric) -> Double?) -> [VitalPoint] {
+        let allowedSources = DailyMetricSource.vitalPrecedence(for: key)
+        var byDay: [String: VitalPoint] = [:]
+        for source in allowedSources {
+            for row in sourceRows where row.source == source {
+                guard let v = value(row.metric),
+                      isPlausibleVital(v, key: key),
+                      byDay[row.metric.day] == nil
+                else { continue }
+                byDay[row.metric.day] = VitalPoint(day: row.metric.day, value: v, source: row.source)
+            }
+        }
+        return byDay.values.sorted { $0.day < $1.day }
+    }
+
+    /// The daily values behind a vital's row, oldest first, in the units the row shows: the series a trend page plots
+    /// is the series the row's value was read from, so the two cannot disagree. Skin temperature keeps to the kind of
+    /// the newest reading (absolute °C or a ±deviation) and follows the °C/°F preference.
+    static func trendPoints(key: String, sourceRows: [SourcedDailyMetric],
+                            temperatureUnit: TemperatureUnit) -> [(day: String, value: Double)] {
+        let points: [VitalPoint]
+        switch key {
+        case "resp": points = resolvedPoints(sourceRows: sourceRows, key: key, \.respRateBpm)
+        case "spo2": points = resolvedPoints(sourceRows: sourceRows, key: key, \.spo2Pct)
+        case "rhr": points = resolvedPoints(sourceRows: sourceRows, key: key) { $0.restingHr.map(Double.init) }
+        case "hrv": points = resolvedPoints(sourceRows: sourceRows, key: key, \.avgHrv)
+        case "skin":
+            let all = resolvedPoints(sourceRows: sourceRows, key: key, \.skinTempDevC)
+            guard let newest = all.last?.value else { return [] }
+            let absolute = VitalBands.isAbsoluteSkinTemp(newest)
+            return all.filter { VitalBands.isAbsoluteSkinTemp($0.value) == absolute }.map { point in
+                let shown: Double
+                switch temperatureUnit {
+                case .celsius: shown = point.value
+                case .fahrenheit: shown = absolute ? UnitFormatter.celsiusToFahrenheit(point.value) : point.value * 9 / 5
+                }
+                return (point.day, shown)
+            }
+        default: return []
+        }
+        return points.map { ($0.day, $0.value) }
+    }
+
+    /// A day key ("2026-10-09") as that local day's midnight. The app's day keys are local days.
+    static func localDate(fromDayKey day: String) -> Date? {
+        localDayParser.date(from: day)
+    }
+
+    private static let localDayParser: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = .current
+        f.dateFormat = "yyyy-MM-dd"
+        return f
+    }()
+
+    /// The newest day any resolved reading was sourced from, as a key.
+    static func latestDayKey(_ readings: [BodyVitalReading]) -> String? {
+        readings.compactMap(\.day).max()
+    }
+
     /// The newest day any resolved reading was sourced from — drives the section's "Latest" trailing label.
     static func latestDayLabel(_ readings: [BodyVitalReading]) -> String? {
         readings.compactMap(\.day).max().map(BodyVitalReading.dayLabel)
@@ -392,21 +480,6 @@ enum BodyVitalSigns {
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US_POSIX")
         f.dateFormat = "yyyy-MM-dd"
-        return f
-    }()
-
-    static let dayParser: DateFormatter = {
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.timeZone = TimeZone(identifier: "UTC")
-        f.dateFormat = "yyyy-MM-dd"
-        return f
-    }()
-
-    static let dayFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.dateFormat = "d MMM"
         return f
     }()
 }

@@ -40,6 +40,8 @@ enum QARoute: String, CaseIterable {
     case workoutDetailManual = "workout-detail-manual"
     case manualWorkout = "manual-workout"
     case health
+    case healthSteps = "health-steps"
+    case healthCalories = "health-calories"
     case metricExplorer = "metric-explorer"
     case metricDetailHRV = "metric-detail-hrv"
     case compare
@@ -84,8 +86,8 @@ enum QARoute: String, CaseIterable {
 
     var presentation: Presentation {
         switch self {
-        case .stress, .hrTimeline, .workouts, .todayWorkouts, .todayWorkoutsRest, .health, .hydration, .fitnessAge,
-             .coupled:
+        case .stress, .hrTimeline, .workouts, .todayWorkouts, .todayWorkoutsRest, .health, .healthSteps,
+             .healthCalories, .hydration, .fitnessAge, .coupled:
             return .push(.today)
         case .pillarRecovery, .pillarStrain, .sleep:
             return .cover(.today)
@@ -329,6 +331,8 @@ private struct QARouteHost: ViewModifier {
             TodayWorkoutsView(day: Repository.logicalDay(
                 Calendar.current.date(byAdding: .day, value: -2, to: Date()) ?? Date()))
         case .health: HealthView()
+        case .healthSteps: HealthMetricTrendView(metric: .steps)
+        case .healthCalories: HealthMetricTrendView(metric: .calories)
         case .hydration: HydrationView()
         case .fitnessAge: FitnessAgeDetailView()
         case .coupled: CoupledView()
