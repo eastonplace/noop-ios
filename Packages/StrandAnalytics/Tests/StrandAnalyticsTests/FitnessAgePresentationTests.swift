@@ -36,4 +36,25 @@ final class FitnessAgePresentationTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(range.lowerBound, FitnessAgeEngine.minAge)
         XCTAssertLessThanOrEqual(range.upperBound, FitnessAgeEngine.maxAge)
     }
+
+    func testDeltaIsWholeYearsAgainstTheFractionalCalendarAge() {
+        let younger = FitnessAgePresentation.delta(fitnessAge: 38.4, chronologicalAge: 42.7)
+        XCTAssertEqual(younger, FitnessAgeDelta(years: 4, direction: .younger))
+        let older = FitnessAgePresentation.delta(fitnessAge: 47.2, chronologicalAge: 42.0)
+        XCTAssertEqual(older, FitnessAgeDelta(years: 5, direction: .older))
+    }
+
+    func testDeltaUnderHalfAYearIsTheSameNotZeroYears() {
+        XCTAssertEqual(FitnessAgePresentation.delta(fitnessAge: 42.3, chronologicalAge: 42.6),
+                       FitnessAgeDelta(years: 0, direction: .same))
+        XCTAssertEqual(FitnessAgePresentation.delta(fitnessAge: 42.0, chronologicalAge: 42.49),
+                       FitnessAgeDelta(years: 0, direction: .same))
+        XCTAssertEqual(FitnessAgePresentation.delta(fitnessAge: 42.0, chronologicalAge: 42.5),
+                       FitnessAgeDelta(years: 1, direction: .younger))
+    }
+
+    func testDeltaIgnoresNonFiniteInput() {
+        XCTAssertEqual(FitnessAgePresentation.delta(fitnessAge: .nan, chronologicalAge: 40),
+                       FitnessAgeDelta(years: 0, direction: .same))
+    }
 }
