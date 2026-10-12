@@ -224,6 +224,23 @@ final class LiveWorkoutGlanceTests: XCTestCase {
                        "the name is the label; the value says when it will score, without repeating the name")
     }
 
+    /// The zone is in the unit block ("PUSH / BPM"), so VoiceOver says it too: it was said before the redesign and a wearer who
+    /// cannot see the bar has no other way to know. A quiet source drops it from the unit block, and from the speech.
+    @MainActor func testAHeartRateIsSpokenWithItsZone() {
+        let run = input(bpm: 149)
+        let push = value(.heartRate, run, zoneWord: "Push")
+        XCTAssertEqual(push.spoken, String(localized: "\(149) beats per minute"), "the reading itself stays bare")
+        XCTAssertEqual(LiveWorkoutFigure.spoken(push, state: .live), "\(push.spoken), Push")
+        XCTAssertEqual(LiveWorkoutFigure.spoken(push, state: .stale), "\(push.spoken), \(String(localized: "no signal"))")
+        XCTAssertEqual(LiveWorkoutFigure.spoken(push, state: .paused), "\(push.spoken), Push")
+        let noZone = value(.heartRate, run)
+        XCTAssertEqual(LiveWorkoutFigure.spoken(noZone, state: .live), noZone.spoken)
+        let none = value(.heartRate, input(), zoneWord: "Rest")
+        XCTAssertNil(none.spokenZone, "no reading, no zone")
+        XCTAssertEqual(LiveWorkoutFigure.spoken(none, state: .missing), String(localized: "No reading"))
+        XCTAssertNil(value(.calories, run, zoneWord: "Push").spokenZone)
+    }
+
     /// A figure's state: paused is frozen, a quiet source steps back, totals are never stale.
     @MainActor func testAFigureIsFrozenWhenPausedStaleWhenItsSourceIsQuietAndMissingWithoutANumber() {
         let run = input(meters: 5_000, pace: 373, bpm: 149, calories: 471, avg: 140)

@@ -42,6 +42,9 @@ enum LiveWorkoutGlance {
         let micro: String?
         /// What VoiceOver reads for the figure.
         let spoken: String
+        /// The zone the heart rate is in ("Push"), drawn in the unit block and so said as well: VoiceOver reads "149 beats per
+        /// minute, Push". nil for every other metric and while there is no reading.
+        var spokenZone: String?
         var isMissing: Bool { text == LiveWorkoutTiles.missing }
     }
 
@@ -190,7 +193,8 @@ enum LiveWorkoutGlance {
             let text = LiveWorkoutTiles.count(input.bpm, locale: locale)
             return Value(metric: metric, name: name, text: text,
                          unit: [zoneWord, Units.heartRate].compactMap { $0 }, micro: nil,
-                         spoken: text == missing ? noReading : input.bpm.map(LiveWorkoutTiles.spokenHeartRate) ?? noReading)
+                         spoken: text == missing ? noReading : input.bpm.map(LiveWorkoutTiles.spokenHeartRate) ?? noReading,
+                         spokenZone: text == missing ? nil : zoneWord)
         case .averageHeartRate:
             let text = LiveWorkoutTiles.count(input.averageHR > 0 ? input.averageHR : nil, locale: locale)
             return Value(metric: metric, name: name, text: text, unit: [Units.average, Units.heartRate], micro: nil,

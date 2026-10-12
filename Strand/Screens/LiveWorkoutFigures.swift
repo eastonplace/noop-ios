@@ -43,12 +43,13 @@ struct LiveWorkoutFigure: View {
         }
     }
 
-    /// What VoiceOver reads: a quiet source says so ("142 beats per minute, no signal"), and a number that is not known is
-    /// never a dash. Strain that is still building says when it will score.
+    /// What VoiceOver reads: the zone a live heart rate is in ("149 beats per minute, Push", as the unit block draws it), a
+    /// quiet source says so ("142 beats per minute, no signal", with no zone, as drawn), and a number that is not known is never
+    /// a dash. Strain that is still building says when it will score.
     static func spoken(_ value: LiveWorkoutGlance.Value, state: LiveNumeral.State) -> String {
         if value.isMissing { return value.micro ?? value.spoken }
         if state == .stale { return "\(value.spoken), \(String(localized: "no signal"))" }
-        return value.spoken
+        return [value.spoken, value.spokenZone].compactMap { $0 }.joined(separator: ", ")
     }
 }
 
