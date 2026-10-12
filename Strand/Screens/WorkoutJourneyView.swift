@@ -139,13 +139,13 @@ private struct WorkoutJourneyHost: View {
             phaseRoot
                 .id(phase.kind)
                 .transition(.opacity)
-                .background(StrandPalette.appCanvas.ignoresSafeArea())
+                .background(phaseCanvas.ignoresSafeArea())
                 .toolbar(.hidden, for: .navigationBar)
         }
         .drillInDestinationEnvironment()
         .environment(\.appHeaderChromeVisibility, .hidden)
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: phase.kind)
-        .background(StrandPalette.appCanvas.ignoresSafeArea())
+        .background(phaseCanvas.ignoresSafeArea())
         // The live screen reports itself as a workout surface (so auto-present never stacks a second copy on it). Setup and the
         // summary do not: a lift whose auto-resume was blocked while setup was up must still be remembered and presented once
         // this cover closes, which the shell's "a cover is up" flag does.
@@ -173,6 +173,12 @@ private struct WorkoutJourneyHost: View {
         .onDisappear { ScreenIdle.keepAwake(false) }
     }
 
+    /// Setup, the countdown and the live screen are pure black; the summary is the workout's own detail screen.
+    private var phaseCanvas: Color {
+        if case .summary = phase { return StrandPalette.appCanvas }
+        return LivePalette.canvas
+    }
+
     @ViewBuilder private var phaseRoot: some View {
         switch phase {
         case .setup(let initialSport):
@@ -182,9 +188,17 @@ private struct WorkoutJourneyHost: View {
                 onStart: { sport, countdown, gpsLocked in begin(sport, countdown: countdown, gpsLocked: gpsLocked) })
                 .equatable()
         case .countdown(let sport):
-            WorkoutCountdownView(
-                title: StartWorkoutChoices.displayTitle(for: sport), gpsLocked: gpsLockedAtStart,
-                onFinished: { start(sport) }, onCancel: { apply(.countdownCancelled) })
+            if WorkoutCountdown.mountsView(countdownOn: countdownOn) {
+                WorkoutCountdownView(
+                    title: StartWorkoutChoices.displayTitle(for: sport), gpsLocked: gpsLockedAtStart,
+                    // A late callback (a removed view's last second) cannot start a workout the journey has left.
+                    onFinished: { if phase == .countdown(sport: sport) { start(sport) } },
+                    onCancel: { apply(.countdownCancelled) })
+            } else {
+                // A quick start with the countdown off: nothing to count. The workout starts from this phase's task, and
+                // what shows until then is only the canvas, not a "3" and its haptic.
+                LivePalette.canvas.ignoresSafeArea()
+            }
         case .live:
             LiveWorkoutView(onClose: onClose, pageMemory: router.workoutPageMemory)
         case .summary(let row):
