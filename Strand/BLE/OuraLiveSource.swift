@@ -286,11 +286,21 @@ public final class OuraLiveSource: NSObject, ObservableObject {
                 OuraHistoryCursorStore.save(0, deviceId: deviceId)
             } else {
                 historyCursor = summary.cursor
-                pendingDurableCursor = summary.cursor   // saved once this page's events are written (BLE-6)
+                // BLE-6: saved once this page's events are written. The summary is handled before the
+                // event records of the same notification are ingested, so the cursor becomes commit-
+                // eligible only after this notification has been fully processed.
+                let cursor = summary.cursor
+                let epoch = cursorEpoch
+                Task { @MainActor [weak self] in
+                    guard let self, self.cursorEpoch == epoch else { return }
+                    self.pendingDurableCursor = cursor
+                }
             }
         } else {
             log("Oura: history fetch caught up (cursor \(historyCursor) [\(describeCursor(historyCursor))])")
-            flush()   // write the fetched events and commit the caught-up cursor now
+            // Write the fetched events and commit the caught-up cursor once this notification's events
+            // are buffered.
+            Task { @MainActor [weak self] in self?.flush() }
         }
         advance(.historyCursorAdvanced(cursor: summary.cursor, moreData: summary.moreData))
     }
