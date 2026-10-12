@@ -139,7 +139,8 @@ struct LiveFocusPage: View {
 
     @ViewBuilder private func footer(_ values: [Glance.Value]) -> some View {
         VStack(alignment: .leading, spacing: NoopMetrics.space2) {
-            FactStrip(facts: values.map(fact))
+            // The same caps eyebrow the numbers above are named with, a size down.
+            FactStrip(facts: values.map(fact), labelStyle: .eyebrow)
             // Strain needs ten minutes of heart rate before it is a number; until then it says when.
             if let building = values.first(where: { $0.metric == .strain && $0.isMissing }) {
                 Text(verbatim: building.spoken)
