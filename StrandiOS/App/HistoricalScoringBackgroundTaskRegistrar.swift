@@ -200,7 +200,10 @@ enum HistoricalScoringBackgroundTaskRegistrar {
         // database remains locked; completion policy keeps the same request armed for another import pass.
         _ = await drainHealthImport()
         guard !Task.isCancelled else { return nil }
-        guard await drainHealthScoring() else { return nil }
+        // The strap pipeline doesn't depend on HealthKit scoring succeeding. A parked or backing-off scoring
+        // journal returns false at once, and gating on it skipped strap scoring on every BG wake until the
+        // next foreground. A pending journal still makes the completion policy retry.
+        _ = await drainHealthScoring()
         guard !Task.isCancelled else { return nil }
         return await runHistorical()
     }
