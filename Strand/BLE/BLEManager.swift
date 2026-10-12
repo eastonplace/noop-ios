@@ -963,12 +963,15 @@ public final class BLEManager: NSObject, ObservableObject {
 
         // Retro-decode: when the decoder gains a historical layout (e.g. WHOOP 4.0 v25), re-run every
         // archived undecodable frame through it and insert whatever now decodes — the only path by
-        // which already-acked banked history backfills after an update. Run ONCE per app version (no
-        // manual decoder-version constant to forget to bump); idempotent if it re-runs (rows dedupe
-        // by ts) and the archive is small, so the once-per-update cost is negligible. (#152)
+        // which already-acked banked history backfills after an update. Run ONCE per decoder schema
+        // version (CORE-09: `WhoopDecoderSchema.version`, owned by the decoder, instead of the app
+        // version, which replayed for nothing on every release and could miss a decoder change shipped
+        // without a version bump); idempotent if it re-runs (rows dedupe by ts) and the archive is
+        // small, so the once-per-change cost is negligible. (#152)
         // Note: the archive carries no deviceId, so replayed rows attribute to the current strap.
-        let replayKey = "rejectArchiveReplayedAppVersion"
-        if UserDefaults.standard.string(forKey: replayKey) != AppChangelog.currentVersion {
+        let replayKey = "rejectArchiveReplayedDecoderSchema"
+        let replayStamp = "decoder-\(WhoopDecoderSchema.version)"
+        if UserDefaults.standard.string(forKey: replayKey) != replayStamp {
             do {
                 let rows = try await rejectedHistoryArchive.replay(
                     subLagInterp: PuffinExperiment.ppgHrSubLagInterpEnabled
@@ -978,7 +981,7 @@ public final class BLEManager: NSObject, ObservableObject {
                 if rows > 0 { log("Backfill: retro-decoded \(rows) record(s) from the reject archive after an update.") }
                 // Advance the gate ONLY on success — a failed insert must retry next launch, because
                 // the archive holds the only surviving copy of these records. (#152)
-                UserDefaults.standard.set(AppChangelog.currentVersion, forKey: replayKey)
+                UserDefaults.standard.set(replayStamp, forKey: replayKey)
             } catch {
                 log("Backfill: reject-archive retro-decode deferred (store insert failed) — will retry next launch.")
             }
