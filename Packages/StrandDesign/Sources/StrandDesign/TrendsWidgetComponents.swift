@@ -486,6 +486,15 @@ public struct TrendsHeroChart: View {
     let valueFormat: (Double) -> String
     private let direction: TrendPanelChart.Direction
     private let metricName: String
+    /// The longest stretch between two readings the line still bridges. Three days for the daily default; a
+    /// weekly or sparse series passes a limit that matches its own cadence so it still draws one connected line.
+    private let gapLimitDays: Int
+    /// Colour the change pill by the typical band instead of by the sign of the move: neutral while the value sits
+    /// inside the band, the metric's good or bad colour only once it is outside it. False for every default chart.
+    private let neutralInsideTypical: Bool
+    /// At an accessibility text size, put the change pill under the value instead of beside it, so neither is
+    /// squeezed onto a second line. False for every default chart.
+    private let stacksPillAtAccessibilitySizes: Bool
     /// A window of a year or more, whose ticks fall in different months: axis and reading dates carry the year
     /// so two Octobers are never alike. False for every default (W/M/3M/6M) chart.
     private let showsYear: Bool
@@ -514,7 +523,6 @@ public struct TrendsHeroChart: View {
     @State private var adjustReset: Task<Void, Never>?
 
     private static let plotHeight: CGFloat = 148
-    private static let maxGapDays = 3
 
     public init(
         days: [CalendarMetricDay],
@@ -530,7 +538,10 @@ public struct TrendsHeroChart: View {
         valueBounds: ClosedRange<Double> = (-Double.greatestFiniteMagnitude)...Double.greatestFiniteMagnitude,
         direction: TrendPanelChart.Direction = .contextual,
         metricName: String = "Trend",
-        longRange: Bool = false
+        longRange: Bool = false,
+        maxGapDays: Int = 3,
+        neutralInsideTypical: Bool = false,
+        stacksPillAtAccessibilitySizes: Bool = false
     ) {
         let sorted = days.sorted { $0.date < $1.date }
         self.days = sorted
@@ -545,6 +556,9 @@ public struct TrendsHeroChart: View {
         self.valueFormat = valueFormat
         self.direction = direction
         self.metricName = metricName
+        self.gapLimitDays = max(maxGapDays, 1)
+        self.neutralInsideTypical = neutralInsideTypical
+        self.stacksPillAtAccessibilitySizes = stacksPillAtAccessibilitySizes
 
         var series: [TrendPoint] = []
         var indices: [Int] = []
@@ -569,7 +583,7 @@ public struct TrendsHeroChart: View {
         }
         self.tickLabels = labels
         self.showsYear = yearLabels
-        let runs = TrendCurve.runs(dayIndices: indices, maxGapDays: Self.maxGapDays)
+        let runs = TrendCurve.runs(dayIndices: indices, maxGapDays: max(maxGapDays, 1))
         self.singletonIndices = Set(runs.filter { $0.count == 1 }.map(\.lowerBound))
 
         var hasher = Hasher()
@@ -585,6 +599,7 @@ public struct TrendsHeroChart: View {
         hasher.combine(typical.upperBound)
         hasher.combine(colorsLineByBand)
         hasher.combine(unit)
+        hasher.combine(max(maxGapDays, 1))
         self.layoutToken = hasher.finalize()
 
         let suffix = TrendsUnitSuffix.text(for: unit)
@@ -636,21 +651,39 @@ public struct TrendsHeroChart: View {
     // MARK: Hero
 
     private var heroRow: some View {
-        HStack(alignment: .firstTextBaseline, spacing: NoopMetrics.space2) {
-            HeroValue(
-                value: shownValue.map(valueFormat) ?? WidgetMetrics.missingValue,
-                unit: shownValue == nil || unit.isEmpty ? nil : unit,
-                caption: heroCaption,
-                captionPlacement: .below
-            )
-            Spacer(minLength: NoopMetrics.space2)
-            if let shownValue {
-                let pill = deltaPill(for: shownValue)
-                StatePill(pill.title, tone: pill.tone, showsDot: false)
-                    .accessibilityLabel(pill.spoken)
+        Group {
+            if stacksPillAtAccessibilitySizes && typeSize.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+                    heroValue
+                    deltaPillView
+                }
+            } else {
+                HStack(alignment: .firstTextBaseline, spacing: NoopMetrics.space2) {
+                    heroValue
+                    Spacer(minLength: NoopMetrics.space2)
+                    deltaPillView
+                }
             }
         }
         .animation(StrandMotion.fade, value: scrubDay)
+    }
+
+    private var heroValue: some View {
+        HeroValue(
+            value: shownValue.map(valueFormat) ?? WidgetMetrics.missingValue,
+            unit: shownValue == nil || unit.isEmpty ? nil : unit,
+            caption: heroCaption,
+            captionPlacement: .below
+        )
+    }
+
+    @ViewBuilder
+    private var deltaPillView: some View {
+        if let shownValue {
+            let pill = deltaPill(for: shownValue)
+            StatePill(pill.title, tone: pill.tone, showsDot: false)
+                .accessibilityLabel(pill.spoken)
+        }
     }
 
     private var heroCaption: String {
@@ -673,10 +706,25 @@ public struct TrendsHeroChart: View {
             return ("On average", String(localized: "On average"), .neutral)
         }
         let tone: StrandTone
-        switch direction {
-        case .higherIsBetter: tone = delta > 0 ? .positive : .critical
-        case .lowerIsBetter: tone = delta < 0 ? .positive : .critical
-        case .contextual: tone = .neutral
+        if neutralInsideTypical {
+            // Inside the person's usual band a move off the average is ordinary, so the pill stays quiet; it
+            // takes the good or bad colour only once the value is outside the band.
+            if typical.contains(value) {
+                tone = .neutral
+            } else {
+                let above = value > typical.upperBound
+                switch direction {
+                case .higherIsBetter: tone = above ? .positive : .critical
+                case .lowerIsBetter: tone = above ? .critical : .positive
+                case .contextual: tone = .neutral
+                }
+            }
+        } else {
+            switch direction {
+            case .higherIsBetter: tone = delta > 0 ? .positive : .critical
+            case .lowerIsBetter: tone = delta < 0 ? .positive : .critical
+            case .contextual: tone = .neutral
+            }
         }
         if delta > 0 {
             return ("▲ \(magnitude) vs avg", String(localized: "up \(magnitude) vs avg"), tone)
@@ -873,7 +921,7 @@ public struct TrendsHeroChart: View {
     /// The line, sampled every few points along every run, for keeping labels off it.
     private func lineSamples(_ rendered: [CGPoint]) -> [CGPoint] {
         var out: [CGPoint] = []
-        for run in TrendCurve.runs(dayIndices: dayIndices, maxGapDays: Self.maxGapDays) where !run.isEmpty {
+        for run in TrendCurve.runs(dayIndices: dayIndices, maxGapDays: gapLimitDays) where !run.isEmpty {
             let slice = Array(rendered[run])
             out.append(contentsOf: slice)
             for pair in zip(slice, slice.dropFirst()) {
@@ -992,7 +1040,7 @@ public struct TrendsHeroChart: View {
 
     private func linePath(_ rendered: [CGPoint]) -> Path {
         var path = Path()
-        for run in TrendCurve.runs(dayIndices: dayIndices, maxGapDays: Self.maxGapDays) where run.count >= 2 {
+        for run in TrendCurve.runs(dayIndices: dayIndices, maxGapDays: gapLimitDays) where run.count >= 2 {
             TrendCurve.append(Array(rendered[run]), to: &path)
         }
         return path
@@ -1000,7 +1048,7 @@ public struct TrendsHeroChart: View {
 
     private func areaPath(_ rendered: [CGPoint], height: CGFloat) -> Path {
         var path = Path()
-        for run in TrendCurve.runs(dayIndices: dayIndices, maxGapDays: Self.maxGapDays) where run.count >= 2 {
+        for run in TrendCurve.runs(dayIndices: dayIndices, maxGapDays: gapLimitDays) where run.count >= 2 {
             let slice = Array(rendered[run])
             TrendCurve.append(slice, to: &path)
             if let first = slice.first, let last = slice.last {

@@ -2,10 +2,11 @@ import SwiftUI
 
 // MARK: - Correlation strength
 //
-// The one rule every screen that talks about a Pearson r shares: which word a value of r earns and which ink it
-// is drawn in. Before this the Metric Explorer, Compare, Lab Book and Insights each carried their own copy (an
-// opacity ramp on green and red in three of them, a sample of the recovery gradient in the fourth), with three
-// different sets of word thresholds, so the same r read as a different strength on neighbouring screens.
+// The one rule every screen that talks about a Pearson r is meant to share: which word a value of r earns and
+// which ink it is drawn in. Today only the Metric Explorer reads it from here. Compare, Lab Book and Insights
+// still carry their own copies (an opacity ramp on green and red, or a sample of the recovery gradient, each with
+// its own word thresholds), so on those screens the same r can still read as a different strength. They move
+// over one redesign at a time, and this note is updated as each one does.
 //
 // The type holds the thresholds and the colours. The words themselves are localised by the screen that shows
 // them (the app's string catalog carries "weak", "moderate", "strong" and the rest), so this package stays free
@@ -19,13 +20,17 @@ public enum CorrelationStrength: Sendable, CaseIterable, Equatable {
     case strong
     case veryStrong
 
-    /// |r| below 0.1 is negligible, below 0.3 weak, below 0.5 moderate, below 0.7 strong, and the rest very strong.
+    /// |r| below 0.10 is negligible, below 0.30 weak, below 0.50 moderate, below 0.70 strong, and the rest very
+    /// strong. The thresholds apply to |r| rounded to the two places the screens print, so the word always agrees
+    /// with the number beside it (0.4996 prints as "+0.50" and reads "strong", not "moderate"). A value that is
+    /// not a number reads as negligible.
     public init(r: Double) {
-        switch abs(r) {
-        case ..<0.1: self = .negligible
-        case ..<0.3: self = .weak
-        case ..<0.5: self = .moderate
-        case ..<0.7: self = .strong
+        guard r.isFinite else { self = .negligible; return }
+        switch Int((abs(r) * 100).rounded()) {
+        case ..<10: self = .negligible
+        case ..<30: self = .weak
+        case ..<50: self = .moderate
+        case ..<70: self = .strong
         default: self = .veryStrong
         }
     }
@@ -49,10 +54,11 @@ public enum CorrelationStrength: Sendable, CaseIterable, Equatable {
     /// The ink of an r value: `tone(for:)`'s colour.
     public static func color(for r: Double) -> Color { tone(for: r).color }
 
-    /// "+0.62" or "−0.41": the sign, then |r| to two places in the person's number format. A value that rounds to
-    /// zero carries no sign ("0.00"), never "−0.00".
-    public static func signedText(_ r: Double) -> String {
-        let magnitude = abs(r).formatted(.number.precision(.fractionLength(2)))
+    /// "+0.62" or "−0.41": the sign, then |r| to two places in `locale`'s number format (the person's own by
+    /// default, so a German reader sees "+0,62"). A value that rounds to zero carries no sign ("0.00"), never
+    /// "−0.00".
+    public static func signedText(_ r: Double, locale: Locale = .autoupdatingCurrent) -> String {
+        let magnitude = abs(r).formatted(.number.precision(.fractionLength(2)).locale(locale))
         let rounded = (abs(r) * 100).rounded()
         guard rounded > 0 else { return magnitude }
         return (r >= 0 ? "+" : "\u{2212}") + magnitude
