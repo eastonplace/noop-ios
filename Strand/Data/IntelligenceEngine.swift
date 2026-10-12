@@ -850,11 +850,21 @@ final class IntelligenceEngine: ObservableObject {
             return false
         }
 
+        // F5: a pass over completed days only (a v3 chunk, an exact-day run) first scans the day after its
+        // newest one, solely for that day's cycle start, so the newest day's Effort ends at the real next
+        // onset instead of at midnight. The lookahead scan is dropped before anything is kept or persisted.
+        let lookaheadCivilDay: CivilDayWindow? = startOffset > 0
+            ? Self.civilDayWindows(reference: referenceNow, startOffset: startOffset - 1, count: 1,
+                                   calendar: analysisCalendar).first
+            : nil
+
         // AN-02: each civil day's own wall-clock offset, plus a day-key lookup for the pass-2 folds.
         let civilDayByKey = Dictionary(civilDays.map { ($0.day, $0) }, uniquingKeysWith: { first, _ in first })
-        let clockOffsetByDay = civilDayByKey.mapValues {
-            AnalyticsEngine.civilDayClockOffset($0.start..<$0.nextStart, timeZone: analysisTimeZone)
-        }
+        let clockOffsetByDay = Dictionary(
+            (civilDays + (lookaheadCivilDay.map { [$0] } ?? [])).map {
+                ($0.day, AnalyticsEngine.civilDayClockOffset($0.start..<$0.nextStart, timeZone: analysisTimeZone))
+            },
+            uniquingKeysWith: { first, _ in first })
 
         let computedId = deviceId + "-noop"
         let windowStart = oldestCivilDay.start - 30 * 3_600
@@ -995,7 +1005,7 @@ final class IntelligenceEngine: ObservableObject {
             var backgroundPaceMark = DispatchTime.now().uptimeNanoseconds
             // `civilDays` runs newest first, so D+1 is scanned before D and its cycle start is known (AN-05).
             var newerCivilDay: CivilDayWindow?
-            for civilDay in civilDays {
+            for civilDay in (lookaheadCivilDay.map { [$0] } ?? []) + civilDays {
                 defer { newerCivilDay = civilDay }
                 try CooperativeAnalysisCancellation.checkpoint()
                 try await RescoreBackgroundPolicy.paceIfBackgrounded(since: &backgroundPaceMark)
@@ -1015,8 +1025,9 @@ final class IntelligenceEngine: ObservableObject {
                 // elapsed-hour approximation that can cross a DST boundary.
                 let to = min(nextMidnight, now)
                 // AN-05: Effort's cycle for D ends where D+1's begins: D+1's main-night onset, or its civil
-                // midnight when it has no main night. The newest day in the pass (today, or the edge of a
-                // partial window) has no scanned successor and keeps running to its last reading.
+                // midnight when it has no main night. Only today, the newest day of a current pass, has no
+                // scanned successor and keeps running to its last reading (F5: a partial window scans one
+                // lookahead day).
                 let nextCycleBoundary: Int? = newerCivilDay.map { newer in
                     let newerScan = out.last.flatMap { $0.day == newer.day ? $0 : nil }
                     return AnalyticsEngine.CycleEnd.next(
@@ -1440,6 +1451,10 @@ final class IntelligenceEngine: ObservableObject {
                 out.append(scan)
                 if let dayCacheKey { nextCache[day] = CachedDayScan(key: dayCacheKey, scan: scan) }
             }
+                if let lookaheadCivilDay {
+                    out.removeAll { $0.day == lookaheadCivilDay.day }
+                    nextCache[lookaheadCivilDay.day] = nil
+                }
                 return DayScanPass(scans: out, nextCache: nextCache,
                                    reused: cacheReused, eligible: cacheEligible)
             }

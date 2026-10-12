@@ -108,11 +108,12 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
         try await body()
     }
 
-    // MARK: - F2 skin
+    // MARK: - F2 skin and F5 chunk edges
 
     /// A full chunked rescore over 95 days with unchanged inputs leaves every stored skin-temperature
     /// deviation as it was (F2: the as-of skin baseline used to see only the chunk, so the oldest four days of
-    /// every chunk were wiped).
+    /// every chunk were wiped), and Effort on the chunk edges too (F5: the newest day of each chunk had no
+    /// successor and was cut at midnight).
     func testFullChunkedRescoreKeepsEveryStoredValue() async throws {
         try await withRecalibrationEpochsRestored {
             let days = 95
@@ -131,6 +132,7 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
                 let a = before[day], b = after[day]
                 if a?.skinTempDevC != nil { XCTAssertNotNil(b?.skinTempDevC, "\(day) skin") }
                 XCTAssertEqual(b?.skinTempDevC, a?.skinTempDevC, "\(day) skin deviation unchanged")
+                XCTAssertEqual(b?.strain, a?.strain, "\(day) Effort unchanged")
             }
         }
     }
