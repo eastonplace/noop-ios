@@ -77,8 +77,6 @@ final class RepositoryEditRescoreTests: XCTestCase {
         await repository.addManualNap(startTs: end - 2_700, endTs: end)
 
         XCTAssertEqual(EditedDayRescoreQueue.shared.timestamps, [end])
-        XCTAssertEqual(EditedDayRescoreQueue.shared.take(), [end])
-        XCTAssertTrue(EditedDayRescoreQueue.shared.timestamps.isEmpty, "the pass drains what it rescored")
     }
 
     // MARK: - Background drain
@@ -211,6 +209,55 @@ final class RepositoryEditRescoreTests: XCTestCase {
         XCTAssertEqual(repository.days.count, 30)
     }
 
+    /// Review finding (untested drain): a failed pass must keep the edited days queued, and the next drain
+    /// must pick them up.
+    func testAFailedChunkKeepsTheEditedDaysQueuedForTheNextDrain() async throws {
+        let calendar = try newYorkCalendar()
+        let now = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 10, day: 12, hour: 15)))
+        let queue = drainQueue(now: now, calendar: calendar)
+        let recorder = EditedDayAnalyzeRecorder()
+        recorder.completes = false
+        queue.register(recorder) { request in
+            recorder.requests.append(request)
+            return recorder.completes
+        }
+        let edited = [Int(now.timeIntervalSince1970) - 6 * 86_400, Int(now.timeIntervalSince1970) - 86_400]
+
+        queue.enqueue(edited) { days in recorder.published.append(days) }
+        await queue.waitForDrain()
+
+        XCTAssertEqual(recorder.requests.map(\.maxDays), [7])
+        XCTAssertEqual(queue.timestamps, Set(edited), "a failed pass dropped the edited days")
+        XCTAssertTrue(recorder.published.isEmpty, "nothing was rescored, so nothing publishes")
+
+        recorder.completes = true
+        queue.scheduleDrain()
+        await queue.waitForDrain()
+
+        XCTAssertEqual(recorder.requests.map(\.maxDays), [7, 7])
+        XCTAssertTrue(queue.timestamps.isEmpty)
+        XCTAssertEqual(recorder.published, [7])
+    }
+
+    func testAnEditArrivingMidChunkIsDrainedTooNotDropped() async throws {
+        let calendar = try newYorkCalendar()
+        let now = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 10, day: 12, hour: 15)))
+        let queue = drainQueue(now: now, calendar: calendar)
+        let recorder = EditedDayAnalyzeRecorder()
+        let older = Int(now.timeIntervalSince1970) - 20 * 86_400
+        queue.register(recorder) { [unowned queue] request in
+            if recorder.requests.isEmpty { queue.enqueue([older]) } // the user edits an older night meanwhile
+            recorder.requests.append(request)
+            return true
+        }
+
+        queue.enqueue([Int(now.timeIntervalSince1970) - 2 * 86_400])
+        await queue.waitForDrain()
+
+        XCTAssertEqual(recorder.requests.map(\.maxDays), [3, 21])
+        XCTAssertTrue(queue.timestamps.isEmpty)
+    }
+
     // MARK: - Every enqueue drains, and the queue persists
 
     private func isolatedDefaults() throws -> UserDefaults {
@@ -309,4 +356,5 @@ final class RepositoryEditRescoreTests: XCTestCase {
 private final class EditedDayAnalyzeRecorder {
     var requests: [IntelligenceAnalysisRequest] = []
     var published: [Int] = []
+    var completes = true
 }
