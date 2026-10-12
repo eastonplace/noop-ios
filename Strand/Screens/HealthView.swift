@@ -318,17 +318,28 @@ private struct SkinTempSection: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: WidgetMetrics.headerSpacing) {
-            SectionEyebrow(
-                "Skin temperature", systemImage: ProductionTrendMetric.skinTemp.symbol,
-                tint: ProductionTrendMetric.skinTemp.domainTint(latest: nil),
-                trailing: .text(String(localized: "From your nightly sensor")))
-            let blocks = self.blocks
-            VStack(alignment: .leading, spacing: 0) {
-                ForEach(Array(blocks.enumerated()), id: \.element) { index, block in
-                    if index > 0 { FlatRowSeparator().padding(.vertical, NoopMetrics.space3) }
-                    content(block)
+        // The skin-temperature blocks sit under the nightly-sensor eyebrow; the body clock, which is read from light
+        // and sleep timing, is its own section after them so no heading promises what its content is not.
+        let blocks = self.blocks
+        let skinBlocks = blocks.filter { $0 != .bodyClock }
+        VStack(alignment: .leading, spacing: 0) {
+            if !skinBlocks.isEmpty {
+                VStack(alignment: .leading, spacing: WidgetMetrics.headerSpacing) {
+                    SectionEyebrow(
+                        "Skin temperature", systemImage: ProductionTrendMetric.skinTemp.symbol,
+                        tint: ProductionTrendMetric.skinTemp.domainTint(latest: nil),
+                        trailing: .text(String(localized: "From your nightly sensor")))
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(Array(skinBlocks.enumerated()), id: \.element) { index, block in
+                            if index > 0 { FlatRowSeparator().padding(.vertical, NoopMetrics.space3) }
+                            content(block)
+                        }
+                    }
                 }
+            }
+            if blocks.contains(.bodyClock), let phase = model.circadianPhase {
+                if !skinBlocks.isEmpty { DrillInSeparator() }
+                BodyClockCard(estimate: phase)
             }
         }
     }
@@ -341,7 +352,7 @@ private struct SkinTempSection: View {
                 HeadsUpCard(result: illness, distance: model.illnessDistance)
             }
         case .bodyClock:
-            if let phase = model.circadianPhase { BodyClockCard(estimate: phase) }
+            EmptyView()   // its own section, drawn by `body`
         case .cycle:
             if let cycle = model.cyclePhase {
                 CycleAwarenessCard(result: cycle, curve: model.cycleCurve,

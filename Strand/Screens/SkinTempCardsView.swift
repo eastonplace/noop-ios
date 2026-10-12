@@ -320,38 +320,44 @@ struct BodyClockCard: View {
     private var hue: Color { StrandPalette.restColor }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: WidgetMetrics.contentSpacing) {
-            SkinTempBlockHeader(
-                title: String(localized: "Body clock"),
-                subtitle: String(localized: "Light + sleep timing only"),
-                pillTitle: confidenceLabel, pillTone: confidenceTone)
-
-            Text(verbatim: offsetTitle)
-                .font(StrandFont.title2)
-                .foregroundStyle(StrandPalette.textPrimary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            Text(verbatim: estimate.note)
-                .font(StrandFont.subhead)
-                .foregroundStyle(StrandPalette.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            // The estimated temperature-minimum clock time — the canonical phase marker.
-            HStack(alignment: .firstTextBaseline, spacing: NoopMetrics.space2) {
-                HealthGlyph(systemImage: "moon.stars", color: hue)
-                Text("Estimated body-clock low around \(clockString(estimate.tempMinHour))")
+        // Its own section: the body clock is read from light and sleep timing, not from skin temperature, so it does
+        // not sit under the "Skin temperature · From your nightly sensor" eyebrow.
+        VStack(alignment: .leading, spacing: WidgetMetrics.headerSpacing) {
+            SectionEyebrow("Body clock", systemImage: "moon.stars", tint: .custom(hue),
+                           trailing: .pill(confidenceLabel, tone: confidenceTone))
+            VStack(alignment: .leading, spacing: WidgetMetrics.contentSpacing) {
+                Text("Light + sleep timing only")
                     .font(StrandFont.footnote)
                     .foregroundStyle(StrandPalette.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
-            }
-            .accessibilityElement(children: .combine)
 
-            if let plan, plan.direction != .none, let firstDay = plan.days.first {
-                planSummary(plan, firstDay: firstDay)
-            }
+                Text(verbatim: offsetTitle)
+                    .font(StrandFont.title2)
+                    .foregroundStyle(StrandPalette.textPrimary)
+                    .fixedSize(horizontal: false, vertical: true)
 
-            if let onOpenPlanner {
-                SkinTempQuietButton(title: plan == nil ? "Plan a trip or shift" : "View the full plan", action: onOpenPlanner)
+                Text(verbatim: estimate.note)
+                    .font(StrandFont.subhead)
+                    .foregroundStyle(StrandPalette.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                // The estimated temperature-minimum clock time — the canonical phase marker.
+                HStack(alignment: .firstTextBaseline, spacing: NoopMetrics.space2) {
+                    HealthGlyph(systemImage: "moon.stars", color: hue)
+                    Text("Estimated body-clock low around \(clockString(estimate.tempMinHour))")
+                        .font(StrandFont.footnote)
+                        .foregroundStyle(StrandPalette.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .accessibilityElement(children: .combine)
+
+                if let plan, plan.direction != .none, let firstDay = plan.days.first {
+                    planSummary(plan, firstDay: firstDay)
+                }
+
+                if let onOpenPlanner {
+                    SkinTempQuietButton(title: plan == nil ? "Plan a trip or shift" : "View the full plan", action: onOpenPlanner)
+                }
             }
         }
         .accessibilityElement(children: .contain)
@@ -379,18 +385,32 @@ struct BodyClockCard: View {
 
     // MARK: derived copy
 
-    /// "About 25 min later than your schedule" — a plain, skimmable headline.
+    /// "About 25 min later than your schedule" — a plain, skimmable headline. An hour or more reads in hours
+    /// ("About 3 h 14 min earlier than your schedule").
     private var offsetTitle: String {
-        let mins = Int(abs(estimate.offsetVsScheduleMinutes).rounded())
-        if estimate.confidence == .unreadable {
-            return String(localized: "Hard to read right now")
+        Self.offsetTitle(offsetMinutes: estimate.offsetVsScheduleMinutes, unreadable: estimate.confidence == .unreadable)
+    }
+
+    static func offsetTitle(offsetMinutes: Double, unreadable: Bool) -> String {
+        let mins = Int(abs(offsetMinutes).rounded())
+        if unreadable { return String(localized: "Hard to read right now") }
+        if mins <= 20 { return String(localized: "About in sync with your schedule") }
+        let later = offsetMinutes > 0
+        if mins < 60 {
+            return later
+                ? String(localized: "About \(mins) min later than your schedule")
+                : String(localized: "About \(mins) min earlier than your schedule")
         }
-        if mins <= 20 {
-            return String(localized: "About in sync with your schedule")
-        }
-        return estimate.offsetVsScheduleMinutes > 0
-            ? String(localized: "About \(mins) min later than your schedule")
-            : String(localized: "About \(mins) min earlier than your schedule")
+        let span = durationText(minutes: mins)
+        return later
+            ? String(localized: "About \(span) later than your schedule")
+            : String(localized: "About \(span) earlier than your schedule")
+    }
+
+    /// "3 h 14 min", or "3 h" on the hour.
+    static func durationText(minutes: Int) -> String {
+        let hours = minutes / 60, rest = minutes % 60
+        return rest == 0 ? String(localized: "\(hours) h") : String(localized: "\(hours) h \(rest) min")
     }
 
     private var confidenceLabel: LocalizedStringKey {
