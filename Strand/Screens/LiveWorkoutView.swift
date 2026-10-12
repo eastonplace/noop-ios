@@ -88,6 +88,9 @@ private struct LiveWorkoutLayout: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(StrandPalette.appCanvas.ignoresSafeArea())
+        // VoiceOver's two-finger scrub minimizes, as it dismisses a sheet: from wherever focus is on the screen, not only the
+        // header. Unavailable while a save runs, like the Minimize button.
+        .accessibilityAction(.escape) { if model.workoutFinishState != .saving { onMinimize() } }
         .onAppear { model.startRealtimeHR() }
         .onDisappear { model.stopRealtimeHR() }
     }
@@ -189,8 +192,6 @@ private struct LiveWorkoutHeader: View {
             LiveSignalGlyphs(model: model, workout: workout, recorder: recorder)
         }
         .frame(minHeight: 44)
-        // VoiceOver's two-finger scrub minimizes, as it dismisses a sheet.
-        .accessibilityAction(.escape) { if !saving { onMinimize() } }
     }
 
     /// What is happening: the sport while it records; "Paused · 0:42" with the pause counting up, so a pocketed phone says how
