@@ -825,7 +825,9 @@ public enum SleepStager {
         // fails closed as no detectable sleep.
         guard tzOffsetSeconds >= -secondsPerDay, tzOffsetSeconds <= secondsPerDay else { return [] }
         let safeGravity = gravity.filter { hasRepresentableSleepTimestamp($0.ts) }
-        let safeHR = hr.filter { hasRepresentableSleepTimestamp($0.ts) }
+        // AN-03: the shared HR plausibility range. A still, off-wrist strap streaming 0 bpm must not
+        // confirm sleep, pass the daytime nap guard or set a 0 resting HR.
+        let safeHR = hr.filter { hasRepresentableSleepTimestamp($0.ts) && HRValidity.isPlausible($0.bpm) }
         let safeRR = rr.filter { hasRepresentableSleepTimestamp($0.ts) }
         let safeResp = resp.filter { hasRepresentableSleepTimestamp($0.ts) }
         let safeWristOff = wristOff.filter {
@@ -1083,6 +1085,8 @@ public enum SleepStager {
     public static func stageSession(start: Int, end: Int, grav: [GravitySample],
                                     hr: [HRSample], rr: [RRInterval], resp: [RespSample]) -> [StageSegment] {
         guard isRepresentableStageWindow(start: start, end: end) else { return [] }
+        // AN-03: implausible HR (0 bpm off-wrist, decode glitches) never reaches staging.
+        let hr = hr.filter { HRValidity.isPlausible($0.bpm) }
         // v7.0.2 perf (#707): stage each window AT MOST ONCE per (window, input-fingerprint). Both
         // `detectSleep` (per accepted run) and the sleep-edit restage call this with byte-identical streams
         // across post-sync passes / `body` re-evaluations; each call builds a fresh 30 s epoch grid +
@@ -2073,21 +2077,9 @@ public enum SleepStager {
     /// Lowest 5-min rolling-mean HR during the session (bpm), or nil.
     static func sessionRestingHR(start: Int, end: Int, hr: [HRSample]) -> Int? {
         guard representableStageDuration(start: start, end: end) != nil else { return nil }
-        let seg = hr.filter { $0.ts >= start && $0.ts <= end }
-        guard !seg.isEmpty else { return nil }
-        let windowS = 5 * 60
-        var means: [Double] = []
-        var t = start
-        while t < end {
-            let windowEnd = SleepTimestampMath.adding(windowS, to: t) ?? end
-            let win = seg.filter { $0.ts >= t && $0.ts < windowEnd }
-            if !win.isEmpty { means.append(Double(win.reduce(0) { $0 + $1.bpm }) / Double(win.count)) }
-            guard let next = SleepTimestampMath.adding(windowS, to: t) else { break }
-            t = next
-        }
-        if let m = means.min() { return Int(m.rounded()) }
-        let all = Double(seg.reduce(0) { $0 + $1.bpm }) / Double(seg.count)
-        return Int(all.rounded())
+        // AN-06: the single resting-HR kernel, with the #686 artifact gates (a thin or sub-physiological
+        // 5-min bin can't set the night's floor). The old copy here had neither gate.
+        return RecoveryScorer.restingHR(hr, start: start, end: end)
     }
 
     /// One 5-min HRV window: its start ts, the sleep stage at its center, the clean-beat count, and the

@@ -3076,16 +3076,22 @@ final class IntelligenceEngine: ObservableObject {
         // twinless manual block it's that row's effectiveStartTs. Without these the seam falls back to the
         // legacy SUM and an overnight+nap day would re-include the nap in the headline total.
         var onsetByStart: [Int: Int] = [:]
+        // AN-12: each block's effective END too, so the seam selects on the same [onset, end] spans
+        // `analyzeDay` scored instead of re-deriving the end from decoded stage minutes.
+        var endByStart: [Int: Int] = [:]
         for d in detected {
             onsetByStart[d.startTs] = editsByStart[d.startTs]?.effectiveStartTs ?? d.effectiveStartTs
+            endByStart[d.startTs] = editsByStart[d.startTs]?.endTs ?? d.endTs
         }
         for (start, edit) in editsByStart where !detectedStarts.contains(start) {
             onsetByStart[start] = edit.effectiveStartTs
+            endByStart[start] = edit.endTs
         }
         guard let r = SleepStageTotals.dailyAggregateHonoringEdits(detected: detectedTuples,
                                                                    edited: editedStages,
                                                                    manual: manualTuples,
                                                                    onsetByStart: onsetByStart,
+                                                                   endByStart: endByStart,
                                                                    offsetSec: tzOffsetSeconds,
                                                                    habitualMidsleepSec: habitualMidsleepSec),
               r.editApplied else { return daily }

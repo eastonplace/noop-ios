@@ -428,12 +428,14 @@ public enum AnalyticsEngine {
         // fans out to. `SleepStager` has its own boundary because it is public and
         // callable directly; this one also protects day totals, workouts, and local
         // calendar bucketing when callers invoke `analyzeDay` directly.
-        let hr = hr.filter { isSafeTimelineTimestamp($0.ts) }
+        // AN-03: one heart-rate plausibility range at the same boundary, so a 0-bpm off-wrist row can't
+        // become sleep, a 0 resting HR, a phantom workout or a lowered calorie threshold downstream.
+        let hr = hr.filter { isSafeTimelineTimestamp($0.ts) && HRValidity.isPlausible($0.bpm) }
         let rr = rr.filter { isSafeTimelineTimestamp($0.ts) }
         let resp = resp.filter { isSafeTimelineTimestamp($0.ts) }
         let gravity = gravity.filter { isSafeTimelineTimestamp($0.ts) }
         let steps = steps.filter { isSafeTimelineTimestamp($0.ts) }
-        let dayHr = dayHr?.filter { isSafeTimelineTimestamp($0.ts) }
+        let dayHr = dayHr?.filter { isSafeTimelineTimestamp($0.ts) && HRValidity.isPlausible($0.bpm) }
         let daySteps = daySteps?.filter { isSafeTimelineTimestamp($0.ts) }
         let dayGravity = dayGravity?.filter { isSafeTimelineTimestamp($0.ts) }
         let skinTemp = skinTemp.filter { isSafeTimelineTimestamp($0.ts) }
@@ -797,8 +799,8 @@ public enum AnalyticsEngine {
         // the maximum BPM for equal seconds (the defensive scorer's sorted duplicate semantics). Pure
         // callers that provide unsorted fixtures fall back to the same defensive sort.
         func mergedChronologicalHR(_ lhs: [HRSample], _ rhs: [HRSample]) -> [HRSample] {
-            let validL = lhs.filter { (30...240).contains($0.bpm) }
-            let validR = rhs.filter { (30...240).contains($0.bpm) }
+            let validL = lhs.filter { HRValidity.isPlausible($0.bpm) }
+            let validR = rhs.filter { HRValidity.isPlausible($0.bpm) }
             let orderedL = zip(validL, validL.dropFirst()).allSatisfy { $0.ts <= $1.ts }
             let orderedR = zip(validR, validR.dropFirst()).allSatisfy { $0.ts <= $1.ts }
             guard orderedL, orderedR else {
@@ -1224,7 +1226,7 @@ public enum AnalyticsEngine {
                                             medianMappedC: medianMappedC)
         }
         var wornSeconds = Set<Int>(minimumCapacity: hr.count)
-        for h in hr where (30...220).contains(h.bpm) { wornSeconds.insert(h.ts) }
+        for h in hr where HRValidity.isPlausible(h.bpm) { wornSeconds.insert(h.ts) }
         var sum = 0.0
         var kept = 0
         var notWorn = 0, outOfWindow = 0, outOfRange = 0

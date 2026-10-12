@@ -55,14 +55,14 @@ final class SleepHeartRateContrastTests: XCTestCase {
     }
 
     func testValidityRangeEdgesAreIncluded() {
-        // 30 and 220 are inclusive; 29.9 and 220.1 are excluded.
+        // The shared HRValidity range (AN-03): 30 and 240 are inclusive; 29.9 and 240.1 are excluded.
         let lows: [Double?] = Array(repeating: 30.0, count: 15)
-        let highs: [Double?] = Array(repeating: 220.0, count: 15)
-        let edges: [Double?] = [29.9, 220.1]
+        let highs: [Double?] = Array(repeating: 240.0, count: 15)
+        let edges: [Double?] = [29.9, 240.1]
         let wake: [Double?] = lows + highs + edges
         let r = try! XCTUnwrap(SleepHeartRateContrast.evaluate(wakeHR: wake, primarySleepHR: filled(60, 30)))
         XCTAssertEqual(r.wakeValidSamples, 30)                 // the two out-of-range edges excluded
-        XCTAssertEqual(r.wakeMeanBpm, 125, accuracy: 1e-12)    // (30*15 + 220*15)/30
+        XCTAssertEqual(r.wakeMeanBpm, 135, accuracy: 1e-12)    // (30*15 + 240*15)/30
     }
 
     func testEmptyAndInvalidConfigurationFailClosed() {

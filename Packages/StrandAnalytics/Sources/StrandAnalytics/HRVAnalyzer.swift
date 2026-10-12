@@ -302,7 +302,8 @@ public enum HRVAnalyzer {
 
     /// Pure rolling/windowed rMSSD over an R-R series (#803). For each input interval, the window is the
     /// trailing `windowSec` seconds ending at that interval's `ts`; the window's R-R values are cleaned with
-    /// the SAME range filter + Malik ectopic rejection the nightly path uses (`cleanRR`), and a point is
+    /// the SAME range filter + Malik ectopic rejection the nightly path uses, scored with the SAME gap-aware
+    /// RMSSD (a difference across a dropped beat is skipped, AN-10), and a point is
     /// emitted only when at least `minBeatsPerWindow` clean intervals survive (so a sparse / artifact-heavy
     /// window emits nothing rather than a noisy spike). The result is one `(ts, rMSSD)` per qualifying
     /// window, in input order.
@@ -333,8 +334,9 @@ public enum HRVAnalyzer {
             // Clean the window's raw R-R values with the shared range + Malik ectopic pipeline, then
             // require enough survivors before trusting a windowed rMSSD.
             let windowRaw = sorted[left...right].map { Double($0.rrMs) }
-            let clean = cleanRR(windowRaw)
-            guard clean.count >= minBeatsPerWindow, let r = rmssdRaw(clean) else { continue }
+            let clean = cleanRRGapAware(windowRaw)
+            guard clean.nn.count >= minBeatsPerWindow,
+                  let r = rmssdGapAware(clean.nn, clean.contiguous) else { continue }
             out.append(RollingRmssdPoint(ts: edgeTs, rmssd: r))
             lastEmitTs = edgeTs
         }

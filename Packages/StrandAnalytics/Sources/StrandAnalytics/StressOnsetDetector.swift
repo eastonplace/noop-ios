@@ -183,11 +183,12 @@ public enum StressOnsetDetector {
         }
 
         // 2) Fast RMSSD over the latest clean beats. Clean first (range + Malik), then take the tail.
-        let cleanAll = HRVAnalyzer.cleanRR(rrBuffer.map { Double($0) })
-        let fastWindow = cleanAll.count > fastWindowBeats
-            ? Array(cleanAll.suffix(fastWindowBeats))
-            : cleanAll
-        guard fastWindow.count >= minBeats, let fast = HRVAnalyzer.rmssdRaw(fastWindow), fast > 0 else {
+        // Gap-aware (AN-10): a difference across a dropped beat is skipped, exactly like nightly HRV.
+        let cleanAll = HRVAnalyzer.cleanRRGapAware(rrBuffer.map { Double($0) })
+        let fastWindow = Array(cleanAll.nn.suffix(fastWindowBeats))
+        let fastContiguous = Array(cleanAll.contiguous.suffix(fastWindowBeats))
+        guard fastWindow.count >= minBeats,
+              let fast = HRVAnalyzer.rmssdGapAware(fastWindow, fastContiguous), fast > 0 else {
             // Not enough signal — report, don't guess. Edge state is preserved (no crossing observed).
             return Decision(shouldNudge: false, reason: .insufficientData, buzzLoops: config.buzzLoops,
                             fastRMSSD: nil, baselineRMSSD: state.baselineRMSSD > 0 ? state.baselineRMSSD : nil,

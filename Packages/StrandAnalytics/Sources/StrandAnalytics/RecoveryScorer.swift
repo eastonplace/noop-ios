@@ -132,34 +132,42 @@ public enum RecoveryScorer {
     /// qualifies (a wholly sparse/degenerate window), fall back to the lowest of ALL bin means,
     /// else the all-sample mean, preserving the never-nil-on-data behaviour.
     public static func restingHR(_ hr: [HRSample], start: Int, end: Int) -> Int? {
-        let seg = hr.filter { $0.ts >= start && $0.ts <= end }
+        // AN-06: this is THE resting-HR kernel. `SleepStager.sessionRestingHR` (the shipped
+        // DailyMetric.restingHr) and `SleepWindowRecovery` call it, so the #686 gates protect production.
+        guard let span = SleepTimestampMath.nonnegativeDuration(start: start, end: end) else { return nil }
+        // One forward pass over the time-ordered in-window slice. Production passes ts-sorted streams, so
+        // the sort is skipped after an O(n) check.
+        var seg = hr.filter { $0.ts >= start && $0.ts <= end }
         guard !seg.isEmpty else { return nil }
+        if !zip(seg, seg.dropFirst()).allSatisfy({ $0.ts <= $1.ts }) { seg.sort { $0.ts < $1.ts } }
 
-        var means: [Double] = []          // every bin mean (legacy floor, the fallback)
-        var qualified: [Double] = []       // bins eligible to WIN the floor (#686)
-        var t = start
-        while t < end {
-            let win = seg.filter { $0.ts >= t && $0.ts < t + restingHRWindowS }
-            if !win.isEmpty {
-                let mean = Double(win.reduce(0) { $0 + $1.bpm }) / Double(win.count)
-                means.append(mean)
-                // A bin wins the floor only if it is well-populated AND physiologically plausible —
-                // a thin (single-artifact) or sub-physiological (dropout) bin can't be the minimum.
-                if win.count >= restingHRMinBinSamples && mean >= restingHRMinPlausibleBpm {
-                    qualified.append(mean)
-                }
+        var lowestMean: Double?        // every bin mean (legacy floor, the fallback)
+        var lowestQualified: Double?   // bins eligible to WIN the floor (#686)
+        var bin = -1, binSum = 0, binCount = 0
+        func closeBin() {
+            guard binCount > 0 else { return }
+            let mean = Double(binSum) / Double(binCount)
+            lowestMean = min(lowestMean ?? mean, mean)
+            // A bin wins the floor only if it is well-populated AND physiologically plausible — a thin
+            // (single-artifact) or sub-physiological (dropout) bin can't be the minimum.
+            if binCount >= restingHRMinBinSamples && mean >= restingHRMinPlausibleBpm {
+                lowestQualified = min(lowestQualified ?? mean, mean)
             }
-            t += restingHRWindowS
         }
-        let floor: Double
-        if let m = qualified.min() {
-            floor = m
-        } else if let m = means.min() {
-            // No bin cleared the artifact bar (sparse window): fall back to the legacy floor.
-            floor = m
-        } else {
-            floor = Double(seg.reduce(0) { $0 + $1.bpm }) / Double(seg.count)
+        var totalSum = 0
+        for sample in seg {
+            totalSum += sample.bpm
+            let offset = sample.ts - start
+            // Bins start at `start + k·window` and only while the bin start is before `end`; a sample at
+            // exactly `end` on a bin boundary belongs to no bin (it still counts in the all-sample mean).
+            guard offset < span || span % restingHRWindowS != 0 else { continue }
+            let index = offset / restingHRWindowS
+            if index != bin { closeBin(); bin = index; binSum = 0; binCount = 0 }
+            binSum += sample.bpm
+            binCount += 1
         }
+        closeBin()
+        let floor = lowestQualified ?? lowestMean ?? Double(totalSum) / Double(seg.count)
         return Int(floor.rounded())
     }
 

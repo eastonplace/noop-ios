@@ -4,7 +4,7 @@ import WhoopProtocol
 /// Shadow-only resting-HR definition: arithmetic mean of valid samples in the longest sleep session.
 /// It is deliberately separate from the shipped resting-HR floor and must not feed scoring.
 public enum PrimarySessionRestingHR {
-    public static let defaultValidBpm: ClosedRange<Int> = 30...220
+    public static let defaultValidBpm: ClosedRange<Int> = HRValidity.bpmRange
     public static let defaultMinValidSamples = 30
     public static let meanMetricKey = "rhr_primary_session"
     public static let validSamplesMetricKey = "rhr_primary_session_valid_samples"

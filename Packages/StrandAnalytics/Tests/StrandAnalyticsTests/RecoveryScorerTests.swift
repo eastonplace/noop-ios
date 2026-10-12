@@ -177,6 +177,9 @@ final class RecoveryScorerTests: XCTestCase {
     }
 
     // MARK: - #686: artifact hardening of the resting-HR floor
+    //
+    // AN-06: these run through `SleepStager.sessionRestingHR`, the entry the shipped DailyMetric.restingHr
+    // comes from. The gates used to live only in an uncalled copy, so they passed while production didn't.
 
     func testRestingHRRejectsSingleSampleArtifactBin() {
         // A dense, well-populated bin at 55 bpm, then a SECOND 5-min bin holding exactly ONE
@@ -186,7 +189,7 @@ final class RecoveryScorerTests: XCTestCase {
         let start = 1000
         for i in 0..<300 { hr.append(HRSample(ts: start + i, bpm: 55)) }   // bin 0: 300 samples @55
         hr.append(HRSample(ts: start + 300, bpm: 30))                       // bin 1: ONE sample @30
-        let r = RecoveryScorer.restingHR(hr, start: start, end: start + 600)
+        let r = SleepStager.sessionRestingHR(start: start, end: start + 600, hr: hr)
         XCTAssertEqual(r, 55, "a single-sample artifact bin must not win the resting floor")
     }
 
@@ -198,7 +201,7 @@ final class RecoveryScorerTests: XCTestCase {
         let start = 2000
         for i in 0..<300 { hr.append(HRSample(ts: start + i, bpm: 52)) }         // real bin
         for i in 0..<300 { hr.append(HRSample(ts: start + 300 + i, bpm: 10)) }   // dropout bin
-        let r = RecoveryScorer.restingHR(hr, start: start, end: start + 600)
+        let r = SleepStager.sessionRestingHR(start: start, end: start + 600, hr: hr)
         XCTAssertEqual(r, 52, "a sub-physiological dropout bin must not win the resting floor")
     }
 
@@ -209,7 +212,7 @@ final class RecoveryScorerTests: XCTestCase {
         let start = 3000
         for i in 0..<300 { hr.append(HRSample(ts: start + i, bpm: 60)) }
         for i in 0..<300 { hr.append(HRSample(ts: start + 300 + i, bpm: 45)) }
-        let r = RecoveryScorer.restingHR(hr, start: start, end: start + 600)
+        let r = SleepStager.sessionRestingHR(start: start, end: start + 600, hr: hr)
         XCTAssertEqual(r, 45, "a genuine sustained low bin must still win the floor")
     }
 
@@ -219,7 +222,7 @@ final class RecoveryScorerTests: XCTestCase {
         let start = 4000
         let hr = [HRSample(ts: start + 10, bpm: 58),
                   HRSample(ts: start + 320, bpm: 48)]   // two bins, one sample each
-        let r = RecoveryScorer.restingHR(hr, start: start, end: start + 600)
+        let r = SleepStager.sessionRestingHR(start: start, end: start + 600, hr: hr)
         XCTAssertEqual(r, 48, "with no qualifying bin, fall back to the lowest bin mean (never nil on data)")
     }
 
