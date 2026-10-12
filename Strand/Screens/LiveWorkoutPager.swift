@@ -92,7 +92,13 @@ struct LiveWorkoutPager: View {
                 }
             }
             .tabViewStyle(.page(indexDisplayMode: .never))
-            PageDots(titles: pages.map(\.title), selection: dotSelection)
+            // Under the figures: the page dots while recording; what the save would hold once paused (the dots are not
+            // needed to read a frozen screen, and the preview is what the hold below is about).
+            if workout.isPaused || workout.isEnding {
+                LiveSavePreview(model: model, workout: workout, recorder: recorder)
+            } else {
+                PageDots(titles: pages.map(\.title), selection: dotSelection)
+            }
         }
         .onChange(of: selected) { _, page in pageMemory?[workout.sessionID] = page }
     }
@@ -109,57 +115,14 @@ struct LiveWorkoutPager: View {
         let isVisible = page == current
         switch page {
         case .focus:
-            LivePageScroll {
-                LiveFocusPage(workout: workout, recorder: recorder, profile: model.profile, live: model.live,
-                              isVisible: isVisible)
-            }
+            LiveFocusPage(workout: workout, recorder: recorder, profile: model.profile, live: model.live, isVisible: isVisible)
         case .heart:
-            LivePageScroll {
-                LiveHeartPage(workout: workout, recorder: recorder, profile: model.profile, live: model.live,
-                              isVisible: isVisible, onManageDevices: onManageDevices)
-            }
+            LiveHeartPage(workout: workout, recorder: recorder, profile: model.profile, live: model.live,
+                          isVisible: isVisible, onManageDevices: onManageDevices)
         case .route:
-            LiveRoutePage(workout: workout, recorder: recorder, isVisible: isVisible,
+            LiveRoutePage(workout: workout, recorder: recorder, live: model.live, isVisible: isVisible,
                           isNear: current == .route || current == .heart)
-                .screenPadding()
-                .padding(.vertical, NoopMetrics.space2)
         }
-    }
-}
-
-/// A page's scrolling body: as tall as the room it has (so a flexible part, the focus number, takes the spare height) and
-/// scrolling only when its content is taller (accessibility sizes, a small screen).
-struct LivePageScroll<Content: View>: View {
-    @ViewBuilder let content: () -> Content
-
-    var body: some View {
-        GeometryReader { proxy in
-            ScrollView {
-                AtLeastHeight(minHeight: proxy.size.height) {
-                    content()
-                        .screenPadding()
-                        .padding(.vertical, NoopMetrics.space2)
-                }
-            }
-            .scrollBounceBehavior(.basedOnSize)
-        }
-    }
-}
-
-/// Makes its one child at least `minHeight` tall: the child is offered the whole height when it is shorter, so its flexible
-/// parts (the focus number's region) grow into the room, and its own height when it is taller (then the scroll view scrolls).
-struct AtLeastHeight: Layout {
-    let minHeight: CGFloat
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        guard let child = subviews.first else { return .zero }
-        let natural = child.sizeThatFits(ProposedViewSize(width: proposal.width, height: nil))
-        return CGSize(width: proposal.width ?? natural.width, height: max(natural.height, minHeight))
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        subviews.first?.place(at: bounds.origin, anchor: .topLeading,
-                              proposal: ProposedViewSize(width: bounds.width, height: bounds.height))
     }
 }
 
@@ -180,32 +143,120 @@ private final class LiveRouteAvailability: ObservableObject {
     }
 }
 
-// MARK: - Zone wash
+// MARK: - Save preview
 
-/// The faint wash of the zone's colour behind the whole live screen, from its top edge down: from `ZoneWashModel`, it follows
-/// the heart rate once it has been well inside a new zone for a few seconds, and is nothing at all while the workout is paused
-/// or ending or the strap has gone quiet. The zone word on the page says the same thing in words.
-struct LiveZoneWash: View {
+/// What End would save, in the dots' place while the workout is paused: "Saves 34:11 · 5.49 km · strain 7.4", the figures in
+/// white and the words in grey. The same gate `endWorkout()` applies, so the hold is never a leap of faith.
+struct LiveSavePreview: View {
+    @ObservedObject var model: AppModel
     @ObservedObject var workout: AppModel.ActiveWorkout
-    @ObservedObject var profile: ProfileStore
-    @State private var wash = ZoneWashModel()
+    @ObservedObject var recorder: GpsWorkoutRecorder
+    @AppStorage(UnitPrefs.systemKey) private var unitSystemRaw = UnitSystem.metric.rawValue
 
-    var body: some View {
-        TimelineView(.periodic(from: .now, by: 1)) { context in
-            ZoneWashBackground(zone: wash.displayedZone)
-                .onChange(of: context.date) { _, now in feed(now) }
-        }
-        .onAppear { feed(Date()) }
+    /// One segment of the line: some words, or a figure.
+    struct Segment: Equatable {
+        let text: String
+        let isFigure: Bool
     }
 
-    private func feed(_ now: Date) {
-        let stale = LiveWorkoutSignals.heartRateIsStale(
-            lastReadingAt: workout.lastReadingAt, workoutStart: workout.start,
-            isPaused: workout.isPaused, isEnding: workout.isEnding, now: now)
-        let neutral = workout.isPaused || workout.isEnding || stale
-        wash.update(bpm: workout.currentBPM,
-                    thresholds: ProfileStore.hrZoneThresholds(override: profile.hrMaxOverride, age: profile.age),
-                    now: now, isNeutral: neutral)
+    var body: some View {
+        Group {
+            if model.finishNeedsMoreEvidence {
+                // The dock's own panel says there is nothing to save; this line would say it a second time.
+                Color.clear.frame(height: 0)
+            } else if model.workoutWouldSave {
+                let segments = Self.segments(elapsed: workout.activeElapsed(), distance: distanceText, strain: strainText)
+                Self.oneLineOrStacked(joined: Self.line(for: segments), lines: Self.facts(of: segments).map(Self.line(for:)))
+            } else {
+                let message = String(localized: "Nothing to save yet · no heart rate or route")
+                let parts = message.components(separatedBy: " · ").map { Text(verbatim: $0) }
+                Self.oneLineOrStacked(joined: Text(verbatim: message), lines: parts)
+                    .foregroundStyle(LivePalette.amber)
+            }
+        }
+        .liveText(14, weight: .medium, maxSize: 19, lines: 3)
+        .multilineTextAlignment(.center)
+        .frame(maxWidth: .infinity, minHeight: 28)
+        .screenPadding()
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(verbatim: spoken))
+    }
+
+    private var imperial: Bool { unitSystemRaw == UnitSystem.imperial.rawValue }
+
+    /// The distance with its unit, only for a route that is being recorded and has gone somewhere.
+    private var distanceText: (figure: String, unit: String)? {
+        guard model.activeWorkoutIsGps, recorder.hasDrawableRoute, recorder.distanceM > 0 else { return nil }
+        return (LiveWorkoutTiles.distanceText(meters: recorder.distanceM, imperial: imperial),
+                LiveWorkoutGlance.Units.distance(imperial: imperial))
+    }
+
+    private var strainText: String? {
+        if case .scored(let stored) = workout.liveStrainState { return StrainScale.formatted(stored) }
+        return nil
+    }
+
+    /// The segments of "Saves 34:11 · 5.49 km · strain 7.4". The words are the String Catalog's, so a language puts its figure
+    /// where it wants it: each template is localized with a marker where the figure goes, and split at the marker.
+    static func segments(elapsed: TimeInterval, distance: (figure: String, unit: String)?, strain: String?) -> [Segment] {
+        let marker = "\u{1}"
+        var result: [Segment] = []
+        func add(template: String, figure: String) {
+            let parts = template.components(separatedBy: marker)
+            if let first = parts.first, !first.isEmpty { result.append(Segment(text: first, isFigure: false)) }
+            result.append(Segment(text: figure, isFigure: true))
+            if parts.count > 1, !parts[1].isEmpty { result.append(Segment(text: parts[1], isFigure: false)) }
+        }
+        add(template: String(localized: "Saves \(marker)"), figure: LiveWorkoutTiles.elapsedText(elapsed))
+        if let distance {
+            result.append(Segment(text: " · ", isFigure: false))
+            result.append(Segment(text: distance.figure, isFigure: true))
+            result.append(Segment(text: " \(distance.unit)", isFigure: false))
+        }
+        if let strain {
+            result.append(Segment(text: " · ", isFigure: false))
+            add(template: String(localized: "strain \(marker)"), figure: strain)
+        } else {
+            result.append(Segment(text: " · ", isFigure: false))
+            result.append(Segment(text: String(localized: "strain not scored yet"), isFigure: false))
+        }
+        return result
+    }
+
+    /// The line split at its " · " separators: "Saves 34:11", "5.49 km", "strain 7.4".
+    static func facts(of segments: [Segment]) -> [[Segment]] {
+        var facts: [[Segment]] = [[]]
+        for segment in segments {
+            if segment.text == " · " { facts.append([]) } else { facts[facts.count - 1].append(segment) }
+        }
+        return facts.filter { !$0.isEmpty }
+    }
+
+    /// One line when it fits; when it does not (a long translation, a large type size) one fact per line, never a wrap that
+    /// strands a "·" at the end of a line.
+    private static func oneLineOrStacked(joined: Text, lines: [Text]) -> some View {
+        ViewThatFits(in: .horizontal) {
+            joined.lineLimit(1).fixedSize(horizontal: true, vertical: false)
+            VStack(spacing: 2) {
+                ForEach(Array(lines.enumerated()), id: \.offset) { _, line in line }
+            }
+        }
+    }
+
+    private static func line(for segments: [Segment]) -> Text {
+        segments.reduce(Text(verbatim: "")) { text, segment in
+            text + Text(verbatim: segment.text)
+                .foregroundStyle(segment.isFigure ? StrandPalette.textPrimary : LivePalette.secondaryText)
+        }
+    }
+
+    /// The same line for VoiceOver, with the units as words ("5.49 kilometers"), not letters.
+    private var spoken: String {
+        if !model.workoutWouldSave { return String(localized: "Nothing to save yet · no heart rate or route") }
+        var parts = [String(localized: "Saves \(LiveWorkoutTiles.spokenElapsed(workout.activeElapsed()))")]
+        if let distance = distanceText { parts.append(LiveWorkoutTiles.spokenDistance(distance.figure, imperial: imperial)) }
+        if let strain = strainText { parts.append(String(localized: "strain \(strain)")) } else { parts.append(String(localized: "strain not scored yet")) }
+        return parts.joined(separator: ", ")
     }
 }
 #endif

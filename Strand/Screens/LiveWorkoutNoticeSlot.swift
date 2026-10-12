@@ -2,10 +2,11 @@
 import SwiftUI
 import StrandDesign
 
-// MARK: - The notice slot and the signal glyphs
+// MARK: - The notice and the signal glyphs
 //
-// Nothing on the live screen moves when a signal changes. A problem shows in two places that always exist: a glyph in
-// the header, and a slot under it that is reserved even when it is empty, so the numbers below never shift.
+// Nothing on the live screen moves when a signal changes. A problem shows in two places: a glyph in the header's capsule, and a
+// pill that drops in under the header over the page's reserved band, so the numbers below never shift. The longer message a
+// pill opens is a card over the page, not part of it.
 
 /// One thing the slot can say, highest priority first.
 enum LiveWorkoutSlotNotice: Equatable, Sendable, CaseIterable {
@@ -25,12 +26,21 @@ enum LiveWorkoutSlotNotice: Equatable, Sendable, CaseIterable {
 
     /// How long after the start "Location is off · no route" is spoken before it leaves the glyph to say it.
     static let locationNoticeSeconds: TimeInterval = 10
-    /// How long after a restore "GPS gap while closed" is said. The header glyph and the page carry on without it.
+    /// How long "GPS gap while closed" is said once the wearer has the workout in front of them. The header glyph and the
+    /// page carry on without it.
     static let gpsGapNoticeSeconds: TimeInterval = 30
+
+    /// Whether the restored-gap notice is still due. The window starts when the screen first shows the workout (and again each
+    /// time the app comes back to the foreground), not when the app launched: a workout restored in the background was not
+    /// in front of anyone for those seconds.
+    static func gapWindowIsOpen(openedAt: Date?, now: Date, seconds: TimeInterval = gpsGapNoticeSeconds) -> Bool {
+        guard let openedAt else { return false }
+        return now.timeIntervalSince(openedAt) < seconds
+    }
 
     /// The notices that apply now, in the order the slot shows them: the durability warning, the signals that went quiet, a
     /// strap that never connected, and a location that is off. The slot is for warnings only: that the workout is paused is
-    /// the header's to say ("PAUSED · 3:11"), not a pill's. A strap that never connected replaces "No
+    /// the header's to say ("Paused · 3:11"), not a pill's. A strap that never connected replaces "No
     /// heart-rate signal": there is no strap to wait for, and the other says what to do.
     static func pending(_ inputs: Inputs) -> [LiveWorkoutSlotNotice] {
         var result: [LiveWorkoutSlotNotice] = []
@@ -116,65 +126,86 @@ enum LiveWorkoutSlotNotice: Equatable, Sendable, CaseIterable {
     }
 }
 
-/// The reserved slot under the header: one pill, a "+n" chip when more are waiting. Tapping a pill that has a longer
-/// explanation (the durability warning's) opens it over the page for a few seconds.
+/// The pill that drops in under the header: one notice, a "+n" chip when more are waiting. Tapping the pill opens its longer
+/// explanation as a card over the page for a few seconds (and for as long as it is wanted under VoiceOver or Switch Control).
+/// With nothing to say it has no height, so it never takes room from the page.
 struct LiveNoticeSlot: View {
     @ObservedObject var model: AppModel
     @ObservedObject var workout: AppModel.ActiveWorkout
     @ObservedObject var recorder: GpsWorkoutRecorder
     /// Opens the device manager (a sheet in the journey's cover) for the notices that offer it.
     var onManageDevices: () -> Void = {}
-    @ScaledMetric(relativeTo: .caption) private var slotHeight: CGFloat = 28
-    @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.openURL) private var openURL
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverOn
+    @Environment(\.accessibilitySwitchControlEnabled) private var switchControlOn
     @State private var expanded: LiveWorkoutSlotNotice?
     @State private var collapseTask: Task<Void, Never>?
+    /// When the wearer first had this workout in front of them (the restored-gap window starts here).
+    @State private var openedAt: Date?
 
     var body: some View {
         LiveWorkoutSignalReader(workout: workout, recorder: recorder, live: model.live) { signals in
             let pending = LiveWorkoutSlotNotice.pending(inputs(signals))
-            ZStack(alignment: .topLeading) {
+            VStack(spacing: NoopMetrics.space2) {
                 pill(pending)
                 // The card is there only while what it explains is: when the notice goes, so does it.
                 if let notice = expanded, pending.first == notice {
-                    explanation(notice)
-                        .transition(.opacity)
+                    explanation(notice).transition(.opacity)
                 }
             }
+            .frame(maxWidth: .infinity)
         }
-        // The slot keeps its height when empty so a notice never moves the page, except at the accessibility sizes, where that
-        // reserve is a hand's breadth of a short screen: there the page makes room when a notice arrives.
-        .frame(minHeight: typeSize.isAccessibilitySize ? 0 : slotHeight, alignment: .leading)
-        .frame(maxWidth: .infinity, alignment: .leading)
         .animation(.easeInOut(duration: 0.2), value: expanded)
+        .onAppear { if openedAt == nil { openedAt = Date() } }
+        .onChange(of: scenePhase) { old, phase in
+            // A real return to the foreground opens the window again; an .inactive blip does not.
+            if phase == .active, old == .background { openedAt = Date() }
+        }
         .onDisappear { collapseTask?.cancel() }
     }
 
     private func inputs(_ signals: LiveWorkoutSignals.Snapshot) -> LiveWorkoutSlotNotice.Inputs {
-        LiveWorkoutSlotNotice.Inputs(
+        let now = Date()
+        return LiveWorkoutSlotNotice.Inputs(
             hasDurabilityWarning: model.workoutDurabilityIssue == .notRecoverable,
             gpsGapIsRecent: model.workoutDurabilityIssue == .gpsGapRestored
-                && model.gpsGapRestoredAt.map { Date().timeIntervalSince($0) < LiveWorkoutSlotNotice.gpsGapNoticeSeconds } == true,
+                && LiveWorkoutSlotNotice.gapWindowIsOpen(openedAt: openedAt, now: now),
             heartRateIsStale: signals.heartRateIsStale,
             strapNeverConnected: signals.strapNeverConnected,
             gps: signals.gps,
             locationIsOff: signals.locationIsOff,
-            isJustStarted: Date().timeIntervalSince(workout.start) < LiveWorkoutSlotNotice.locationNoticeSeconds)
+            isJustStarted: now.timeIntervalSince(workout.start) < LiveWorkoutSlotNotice.locationNoticeSeconds)
     }
 
     @ViewBuilder private func pill(_ pending: [LiveWorkoutSlotNotice]) -> some View {
         if let first = pending.first {
             HStack(spacing: NoopMetrics.space2) {
-                // The pill is about 23 pt tall; the tap area reaches the 44 pt a moving thumb needs.
-                Button { toggle(first) } label: { StatePill(first.title, tone: first.tone).chipHitTarget() }
-                    .buttonStyle(.plain)
-                    .accessibilityHint("Shows the full message")
+                // The pill is about 34 pt tall; the tap area reaches the 44 pt a moving thumb needs.
+                Button { toggle(first) } label: {
+                    Text(first.title)
+                        .foregroundStyle(first.tone == .neutral ? LivePalette.quietAction : LivePalette.amber)
+                        .liveText(14, weight: .semibold, maxSize: 20, lines: 3)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        .background(Capsule(style: .continuous)
+                            .fill(first.tone == .neutral ? LivePalette.fill : LivePalette.amber.opacity(0.16)))
+                        .chipHitTarget()
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint("Shows the full message")
                 if pending.count > 1 {
-                    WidgetChip(verbatimTitle: "+\(pending.count - 1)", showsChevron: false)
+                    Text(verbatim: "+\(pending.count - 1)")
+                        .foregroundStyle(LivePalette.secondaryText)
+                        .liveText(13, weight: .semibold, maxSize: 18, lines: 1)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(Capsule(style: .continuous).fill(LivePalette.fill))
                         .accessibilityLabel(Text("More notices: \(pending.count - 1)"))
                 }
-                Spacer(minLength: 0)
             }
+            .padding(.top, 6)
             .transition(.opacity)
             .accessibilityElement(children: .contain)
             .onChange(of: first, initial: true) { _, notice in announce(notice) }
@@ -186,6 +217,10 @@ struct LiveNoticeSlot: View {
         AccessibilityNotification.Announcement(notice.spoken).post()
     }
 
+    /// Whether an open card closes by itself. Not under VoiceOver or Switch Control: reading or reaching a long message can
+    /// take longer than six seconds, and it is closed with the pill again (or its own tap).
+    static func closesByItself(voiceOver: Bool, switchControl: Bool) -> Bool { !voiceOver && !switchControl }
+
     private func toggle(_ notice: LiveWorkoutSlotNotice) {
         collapseTask?.cancel()
         guard expanded != notice else {
@@ -193,6 +228,7 @@ struct LiveNoticeSlot: View {
             return
         }
         expanded = notice
+        guard Self.closesByItself(voiceOver: voiceOverOn, switchControl: switchControlOn) else { return }
         collapseTask = Task { @MainActor in
             do { try await Task.sleep(for: .seconds(6)) } catch { return }
             expanded = nil
@@ -212,23 +248,32 @@ struct LiveNoticeSlot: View {
     @ViewBuilder private func explanation(_ notice: LiveWorkoutSlotNotice) -> some View {
         if let text = text(of: notice) {
             VStack(alignment: .leading, spacing: NoopMetrics.space3) {
-                Text(verbatim: text)
-                    .font(StrandFont.footnote)
-                    .foregroundStyle(StrandPalette.textPrimary)
-                    .multilineTextAlignment(.leading)
-                    .fixedSize(horizontal: false, vertical: true)
+                // Long messages (a long translation, a large text size) scroll inside the card rather than run off the screen.
+                ViewThatFits(in: .vertical) {
+                    message(text)
+                    ScrollView { message(text) }.scrollBounceBehavior(.basedOnSize)
+                }
+                .frame(maxHeight: 300)
                 if let action = notice.action {
-                    Button { perform(action) } label: { Text(verbatim: actionTitle(action)) }
-                        .buttonStyle(SecondaryPillButtonStyle())
+                    LiveCapsuleButton(actionTitle(action)) { perform(action) }
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .widgetCardSurface(tint: .neutral, padding: NoopMetrics.space3)
+            .padding(16)
+            .background(RoundedRectangle(cornerRadius: 24, style: .continuous).fill(Color(white: 0.13)))
+            .shadow(color: .black.opacity(0.5), radius: 18, y: 8)
             // Tapping the card itself closes it; the action keeps its own tap.
             .onTapGesture { collapse() }
-            .offset(y: slotHeight)
-            .zIndex(1)
         }
+    }
+
+    private func message(_ text: String) -> some View {
+        Text(verbatim: text)
+            .foregroundStyle(StrandPalette.textPrimary)
+            .liveText(15, weight: .regular, maxSize: 21, lines: 20)
+            .multilineTextAlignment(.leading)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func actionTitle(_ action: LiveWorkoutSlotNotice.Action) -> String {
@@ -248,8 +293,8 @@ struct LiveNoticeSlot: View {
     }
 }
 
-/// The header's two small status glyphs: the heart-rate link and, for a route sport, the GPS fix. Quiet when fine; amber
-/// when something needs a look; struck through when there is nothing to wait for.
+/// The header's capsule of two small status glyphs: the heart-rate link and, for a route sport, the GPS fix. Grey when fine;
+/// amber when something needs a look; struck through when there is nothing to wait for.
 struct LiveSignalGlyphs: View {
     @ObservedObject var model: AppModel
     @ObservedObject var workout: AppModel.ActiveWorkout
@@ -257,17 +302,21 @@ struct LiveSignalGlyphs: View {
 
     var body: some View {
         LiveWorkoutSignalReader(workout: workout, recorder: recorder, live: model.live) { signals in
-            HStack(spacing: 0) {
+            HStack(spacing: 14) {
                 heart(signals)
                 if recorder.isRecording { location(signals) }
             }
+            .padding(.horizontal, 16)
+            .frame(minHeight: 40)
+            .background(Capsule(style: .continuous).fill(LivePalette.fill))
+            .accessibilityElement(children: .contain)
         }
     }
 
     private func heart(_ signals: LiveWorkoutSignals.Snapshot) -> some View {
         let missing = signals.strapNeverConnected
         let warn = signals.heartRateIsStale || missing
-        return glyph(missing ? "heart.slash" : "heart.fill", warn: warn,
+        return glyph(missing ? "heart.slash.fill" : "heart.fill", warn: warn,
                      label: missing ? "No strap connected" : (signals.heartRateIsStale ? "No heart-rate signal" : nil))
     }
 
@@ -277,14 +326,13 @@ struct LiveSignalGlyphs: View {
         let weak = signals.gps == .weak || signals.gps == .searching
         let label: LocalizedStringKey? = off ? "Location is off · no route"
             : lost ? "GPS signal lost" : (signals.gps == .weak ? "Weak GPS signal" : (weak ? "Searching for GPS" : nil))
-        return glyph(off || lost ? "location.slash" : "location.fill", warn: off || lost || weak, label: label)
+        return glyph(off || lost ? "location.slash.fill" : "location.fill", warn: off || lost || weak, label: label)
     }
 
     private func glyph(_ symbol: String, warn: Bool, label: LocalizedStringKey?) -> some View {
         Image(systemName: symbol)
             .font(.system(size: 15, weight: .semibold))
-            .foregroundStyle(warn ? StrandPalette.statusWarning : StrandPalette.textTertiary)
-            .frame(width: 44, height: 44)
+            .foregroundStyle(warn ? LivePalette.amber : LivePalette.secondaryText)
             .accessibilityHidden(label == nil)
             .accessibilityLabel(label.map { Text($0) } ?? Text(verbatim: ""))
     }

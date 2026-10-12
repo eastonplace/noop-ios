@@ -5,20 +5,36 @@ import StrandAnalytics
 
 // MARK: - The dock
 //
-// Pause takes one tap. End is only offered while paused, and it is a hold, not a tap: a thumb that meant Pause cannot
-// finish a run. Discard is always there beside it, and a save that failed says so and offers Try again.
+// Pause takes one tap. End is only offered while paused, and it is a hold, not a tap: a thumb that meant Pause cannot finish a
+// run. Discard is always there beneath it, and a save that failed says so and offers Try again. Everything is a calm circle or
+// a quiet capsule: Resume (or Start) is the one solid-mint control, and nothing is louder than the data above it.
 
-/// What sits under the page: Pause (running), Resume and Hold to end with what would be saved and Discard (paused),
-/// "Saving…", or the panel for a save that failed or had nothing to save.
+/// What sits under the page: Pause (running), Hold to End and Resume with Discard under them (paused), "Saving…", or the panel
+/// for a save that failed or had nothing to save. The running and paused docks are the same height, so the controls do not move
+/// when the workout pauses.
 struct WorkoutLiveDock: View {
     @ObservedObject var model: AppModel
     @ObservedObject var workout: AppModel.ActiveWorkout
     @ObservedObject var recorder: GpsWorkoutRecorder
-    @AppStorage(UnitPrefs.systemKey) private var unitSystemRaw = UnitSystem.metric.rawValue
     @Environment(\.dynamicTypeSize) private var typeSize
     /// The accessibility path to End: VoiceOver and Switch Control cannot hold, so the hold button's action opens this.
     @State private var confirmingEnd = false
     @State private var confirmingDiscard = false
+    /// The Discard line's height: a touch target, and the room the running dock keeps free so it matches the paused one. It
+    /// grows with the text but stops at a size the accessibility sizes' two lines of capped text fit in.
+    @ScaledMetric(relativeTo: .body) private var scaledDiscardHeight: CGFloat = 44
+    private var discardHeight: CGFloat { min(scaledDiscardHeight, 64) }
+
+    /// QA only: draws the Hold to End ring filled to this share, with no gesture (`--demo-hold-progress 0.55`).
+    private var previewHoldProgress: Double? {
+        #if DEBUG
+        let arguments = ProcessInfo.processInfo.arguments
+        guard let flag = arguments.firstIndex(of: "--demo-hold-progress"), arguments.indices.contains(flag + 1) else { return nil }
+        return Double(arguments[flag + 1])
+        #else
+        return nil
+        #endif
+    }
 
     var body: some View {
         VStack(spacing: NoopMetrics.space3) {
@@ -32,7 +48,7 @@ struct WorkoutLiveDock: View {
                                    onDiscard: { confirmingDiscard = true })
             } else if workout.isPaused {
                 // The screen caps the dock at a share of its height. Short of the accessibility sizes the paused dock never
-                // reaches it; above them it may, and then its buttons scroll rather than push the page out of view.
+                // reaches it; above them it may, and then its controls scroll rather than push the page out of view.
                 if typeSize.isAccessibilitySize {
                     FittingScroll { paused }
                 } else {
@@ -84,14 +100,16 @@ struct WorkoutLiveDock: View {
     // MARK: Running
 
     private var running: some View {
-        Button {
-            StrandHaptic.commit.play()
-            model.setWorkoutPaused(true)
-        } label: {
-            Label("Pause", systemImage: "pause.fill")
+        VStack(spacing: NoopMetrics.space3) {
+            LiveCircleButton(title: String(localized: "Pause"), systemImage: "pause.fill",
+                             accessibilityLabel: String(localized: "Pause workout")) {
+                StrandHaptic.commit.play()
+                model.setWorkoutPaused(true)
+            }
+            // Where Discard Workout sits once paused, so Pause and Resume are the same distance from the page.
+            Color.clear.frame(height: discardHeight)
         }
-        .buttonStyle(GlanceActionButtonStyle(.primary))
-        .accessibilityLabel("Pause workout")
+        .frame(maxWidth: .infinity)
     }
 
     // MARK: Paused
@@ -99,85 +117,49 @@ struct WorkoutLiveDock: View {
     private var paused: some View {
         VStack(spacing: NoopMetrics.space3) {
             let layout = typeSize.isAccessibilitySize
-                ? AnyLayout(VStackLayout(spacing: NoopMetrics.space3))
-                : AnyLayout(HStackLayout(spacing: NoopMetrics.space3))
+                ? AnyLayout(HStackLayout(spacing: 20))
+                : AnyLayout(HStackLayout(spacing: 38))
             layout {
-                Button {
-                    StrandHaptic.commit.play()
-                    model.setWorkoutPaused(false)
-                } label: {
-                    Label("Resume", systemImage: "play.fill")
-                }
-                .buttonStyle(GlanceActionButtonStyle(.primary))
-                .accessibilityLabel("Resume workout")
-
-                HoldToConfirmButton(
-                    title: String(localized: "Hold to end"),
+                LiveHoldCircleButton(
+                    title: String(localized: "Hold to End"),
                     completedTitle: String(localized: "Ending"),
-                    style: .glanceEnd,
                     tapHint: String(localized: "Keep holding"),
+                    previewProgress: previewHoldProgress,
                     accessibilityConfirm: { confirmingEnd = true },
                     action: endNow)
                 // The hold's "confirmed" flag is sticky: a new identity re-arms it when the finish comes back to End.
                 .id(model.finishAttemptID)
+                LiveCircleButton(title: String(localized: "Resume"), systemImage: "play.fill", solid: true,
+                                 accessibilityLabel: String(localized: "Resume workout")) {
+                    StrandHaptic.commit.play()
+                    model.setWorkoutPaused(false)
+                }
             }
-            preview
+            .frame(maxWidth: .infinity)
             Button { confirmingDiscard = true } label: {
-                Text("Discard workout")
-                    .font(StrandFont.subhead.weight(.semibold))
-                    .foregroundStyle(StrandPalette.textSecondary)
-                    .modifier(DockLabelFit())
+                Text("Discard Workout")
+                    .foregroundStyle(LivePalette.quietAction)
+                    .liveText(17, weight: .medium, maxSize: 22, lines: 2)
                     .multilineTextAlignment(.center)
-                    .frame(maxWidth: .infinity, minHeight: 44)
+                    .frame(maxWidth: .infinity, minHeight: discardHeight)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
         }
     }
 
-    /// What End would save, so the hold is never a leap of faith. The same gate `endWorkout()` applies.
-    @ViewBuilder private var preview: some View {
-        if model.workoutWouldSave {
-            Text(verbatim: previewText)
-                .foregroundStyle(StrandPalette.textSecondary)
-                .modifier(DockCaption())
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: .infinity)
-        } else {
-            Text("Nothing to save yet · no heart rate or route")
-                .foregroundStyle(StrandPalette.statusWarning)
-                .modifier(DockCaption())
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: .infinity)
-        }
-    }
-
-    private var previewText: String {
-        var parts = [String(localized: "Saves \(LiveWorkoutTiles.elapsedText(workout.activeElapsed()))")]
-        if model.activeWorkoutIsGps, recorder.hasDrawableRoute, recorder.distanceM > 0 {
-            // The same text as the page's distance and the resume bar (locale decimal separator, the chosen unit).
-            let imperial = unitSystemRaw == UnitSystem.imperial.rawValue
-            let distance = LiveWorkoutTiles.distanceText(meters: recorder.distanceM, imperial: imperial)
-            parts.append("\(distance) \(imperial ? "mi" : "km")")
-        }
-        switch workout.liveStrainState {
-        case .scored(let stored): parts.append(String(localized: "strain \(StrainScale.formatted(stored))"))
-        case .building: parts.append(String(localized: "strain not scored yet"))
-        }
-        return parts.joined(separator: " · ")
-    }
-
     // MARK: Saving
 
+    /// A quiet spinner and "Saving…" where the controls were, as tall as they were so nothing around it moves.
     private var saving: some View {
-        Button {} label: {
-            HStack(spacing: NoopMetrics.space3) {
-                ProgressView().tint(StrandPalette.textTertiary)
-                Text("Saving…")
-            }
+        HStack(spacing: NoopMetrics.space3) {
+            ProgressView().tint(LivePalette.secondaryText)
+            Text("Saving…")
+                .foregroundStyle(LivePalette.secondaryText)
+                .liveText(17, weight: .medium, maxSize: 22, lines: 2)
         }
-        .buttonStyle(GlanceActionButtonStyle(.primary))
-        .disabled(true)
+        .frame(maxWidth: .infinity, minHeight: LiveCircleMetrics.diameter(accessibilitySize: typeSize.isAccessibilitySize) + 12 + 11 + 20 + discardHeight + NoopMetrics.space3)
+        .accessibilityElement(children: .ignore)
         .accessibilityLabel("Saving…")
     }
 }
@@ -201,52 +183,8 @@ private struct FittingScroll<Content: View>: View {
     }
 }
 
-/// The dock's small print: the caption role, and at the accessibility sizes a fixed, scaled size that wraps to three lines
-/// and then shrinks instead of hyphenating a word or growing the dock past the screen.
-private struct DockCaption: ViewModifier {
-    @Environment(\.dynamicTypeSize) private var typeSize
-
-    @ViewBuilder func body(content: Content) -> some View {
-        if typeSize.isAccessibilitySize {
-            content.captionLabelFit(lines: 3)
-        } else {
-            content.font(StrandFont.caption)
-        }
-    }
-}
-
-/// A paragraph of the finish panel: its own text role below the accessibility sizes (exactly as it was); at the accessibility
-/// sizes a fixed, scaled size that wraps and then shrinks, so a long word is never hyphenated ("Versu-che") or cut off.
-private struct PanelText: ViewModifier {
-    enum Role { case footnote, caption }
-    let role: Role
-    @Environment(\.dynamicTypeSize) private var typeSize
-
-    @ViewBuilder func body(content: Content) -> some View {
-        if typeSize.isAccessibilitySize {
-            content.captionLabelFit(lines: 5, weight: .regular).fixedSize(horizontal: false, vertical: true)
-        } else {
-            content.font(role == .footnote ? StrandFont.footnote : StrandFont.caption)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-    }
-}
-
-/// A one-line dock label that, at the accessibility sizes, wraps once and then scales rather than growing the dock.
-private struct DockLabelFit: ViewModifier {
-    @Environment(\.dynamicTypeSize) private var typeSize
-
-    @ViewBuilder func body(content: Content) -> some View {
-        if typeSize.isAccessibilitySize {
-            content.lineLimit(2).minimumScaleFactor(0.7)
-        } else {
-            content
-        }
-    }
-}
-
 /// The dock when End did not end the workout: the save failed (Try again; the workout is still on the phone), or there was
-/// nothing in it to save (Keep recording).
+/// nothing in it to save (Keep recording). A short message, then two quiet capsules.
 struct WorkoutFinishPanel: View {
     enum Kind: Equatable {
         case failed(String)
@@ -260,63 +198,51 @@ struct WorkoutFinishPanel: View {
     @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
-        VStack(alignment: .leading, spacing: NoopMetrics.space3) {
-            // The text above the buttons scrolls if the panel is taller than the room the screen gives the dock, so the
-            // buttons stay in view. It is as tall as its text otherwise.
-            FittingScroll { messages.frame(maxWidth: .infinity, alignment: .leading) }
+        VStack(spacing: NoopMetrics.space3) {
+            // The message scrolls (with its indicator showing) if the panel is taller than the room the screen gives the
+            // dock, so a sentence is never cut off and the capsules stay in view. It is as tall as its text otherwise.
+            FittingScroll { messages.frame(maxWidth: .infinity) }
             let layout = typeSize.isAccessibilitySize
                 ? AnyLayout(VStackLayout(spacing: NoopMetrics.space2))
                 : AnyLayout(HStackLayout(spacing: NoopMetrics.space3))
             layout {
-                // Two lines, then smaller: a long translation wraps at its spaces and a long single word shrinks; neither
-                // is cut off with an ellipsis.
-                Button(action: onPrimary) {
-                    Text(kind == .nothingToSave ? "Keep recording" : "Try again")
-                        .lineLimit(2)
-                        .minimumScaleFactor(0.6)
-                        .multilineTextAlignment(.center)
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(PrimaryPillButtonStyle())
-                Button(action: onDiscard) {
-                    Text("Discard")
-                        .lineLimit(2)
-                        .minimumScaleFactor(0.6)
-                        .multilineTextAlignment(.center)
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(SecondaryPillButtonStyle())
+                LiveCapsuleButton(kind == .nothingToSave ? String(localized: "Keep recording") : String(localized: "Try again"),
+                                  action: onPrimary)
+                LiveCapsuleButton(String(localized: "Discard"), isGrey: true, action: onDiscard)
             }
         }
-        .widgetCardSurface(tint: .neutral)
         .accessibilityElement(children: .contain)
     }
 
-    /// What happened and what is safe: the pill or headline and the sentences under it.
+    /// What happened and what is safe.
     @ViewBuilder private var messages: some View {
-        VStack(alignment: .leading, spacing: NoopMetrics.space3) {
+        VStack(spacing: NoopMetrics.space2) {
             switch kind {
             case .failed(let message):
-                StatePill("Couldn't save", tone: .warning)
+                Text("Couldn't save")
+                    .foregroundStyle(LivePalette.amber)
+                    .liveText(19, weight: .semibold, maxSize: 26, lines: 2)
+                    .accessibilityAddTraits(.isHeader)
                 if !message.isEmpty {
                     Text(verbatim: message)
-                        .foregroundStyle(StrandPalette.textSecondary)
-                        .modifier(PanelText(role: .footnote))
+                        .foregroundStyle(LivePalette.quietAction)
+                        .liveText(15, weight: .regular, maxSize: 21, lines: 8)
                 }
                 Text("Your workout is still on this phone.")
-                    .foregroundStyle(StrandPalette.textTertiary)
-                    .modifier(PanelText(role: .caption))
+                    .foregroundStyle(LivePalette.secondaryText)
+                    .liveText(14, weight: .regular, maxSize: 20, lines: 4)
             case .nothingToSave:
                 Text("Nothing to save yet")
-                    .font(StrandFont.headline)
                     .foregroundStyle(StrandPalette.textPrimary)
-                    .modifier(DockLabelFit())
+                    .liveText(19, weight: .semibold, maxSize: 26, lines: 2)
                     .accessibilityAddTraits(.isHeader)
                 Text("NOOP needs heart rate or a GPS route to save a workout.")
-                    .foregroundStyle(StrandPalette.textSecondary)
-                    .modifier(PanelText(role: .footnote))
+                    .foregroundStyle(LivePalette.quietAction)
+                    .liveText(15, weight: .regular, maxSize: 21, lines: 6)
             }
         }
+        .multilineTextAlignment(.center)
+        .fixedSize(horizontal: false, vertical: true)
     }
 }
 #endif

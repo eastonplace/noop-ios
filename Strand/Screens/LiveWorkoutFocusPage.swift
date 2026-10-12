@@ -3,8 +3,9 @@ import SwiftUI
 import StrandDesign
 import StrandAnalytics
 
-/// The live screen's one page: the session number the sport is about, two smaller ones, the zone the heart is in, and two
-/// facts under them. Read in under a second; nothing on it moves when a signal changes (`LiveNoticeSlot` and the header
+/// The live screen's first page: the number the sport is about, large, and under it three smaller ones (time, pace and heart
+/// rate for a run). One figure per metric in its own colour with its unit beside it; no labels over the numbers, no rules
+/// between them. Read in under a second: nothing on it moves when a signal changes (the notice under the header and the
 /// glyphs say so instead), and a number whose source has gone quiet steps back instead of showing as live.
 struct LiveFocusPage: View {
     @ObservedObject var workout: AppModel.ActiveWorkout
@@ -18,7 +19,6 @@ struct LiveFocusPage: View {
     @AppStorage(LiveWorkoutGlance.FocusPreference.key(for: .routePace)) private var focusRoutePace = ""
     @AppStorage(LiveWorkoutGlance.FocusPreference.key(for: .routeSpeed)) private var focusRouteSpeed = ""
     @AppStorage(LiveWorkoutGlance.FocusPreference.key(for: .indoor)) private var focusIndoor = ""
-    @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private typealias Glance = LiveWorkoutGlance
@@ -65,165 +65,70 @@ struct LiveFocusPage: View {
         let tracksRoute = recorder.isRecording && recorder.canRecordRoute
         let sportClass = Glance.sportClass(sport: workout.sport, tracksRoute: tracksRoute)
         let layout = Glance.layout(for: sportClass, chosenFocus: chosenFocus(for: sportClass))
+        let thresholds = ProfileStore.hrZoneThresholds(override: profile.hrMaxOverride, age: profile.age)
         let input = LiveWorkoutTiles.Input(
             sport: workout.sport, tracksRoute: tracksRoute, distanceMeters: recorder.distanceM,
             paceSecPerKm: recorder.paceSecPerKm, bpm: workout.currentBPM, calories: workout.liveCalories,
             averageHR: workout.avgHr, peakHR: workout.peakHr, imperial: unitSystemRaw == UnitSystem.imperial.rawValue)
         let strain = workout.liveStrainState
-        let value = { (metric: Glance.Metric) in Glance.value(metric, input: input, elapsed: elapsed, strain: strain) }
+        let zones = LiveWorkoutZones(bpm: workout.currentBPM, averageHR: workout.avgHr, thresholds: thresholds)
+        let value = { (metric: Glance.Metric) in
+            Glance.value(metric, input: input, elapsed: elapsed, strain: strain, zoneWord: zones.word(for: metric))
+        }
 
-        VStack(alignment: .leading, spacing: 0) {
-            // The one flexible part: when the page has room to spare, it goes here and the number sits in the middle of it,
-            // with everything else held together underneath.
-            metricView(value(layout.focus), size: .focus, signals: signals)
-                .frame(maxHeight: .infinity, alignment: .center)
-                .contentShape(Rectangle())
-                // Press and hold the big number to choose which number it is.
-                .contextMenu {
-                    Section("Make focus") {
-                        ForEach(Glance.FocusPreference.choices(for: sportClass), id: \.self) { metric in
-                            Button { choose(metric, for: sportClass) } label: {
-                                if metric == layout.focus {
-                                    Label(value(metric).name, systemImage: "checkmark")
-                                } else {
-                                    Text(verbatim: value(metric).name)
+        LivePageFrame(naturalHeight: LiveNumeralMetrics.stackHeight(rows: layout.stack.count)) { scale in
+            VStack(alignment: .leading, spacing: 0) {
+                figure(value(layout.focus), size: .focus, scale: scale, signals: signals, zone: zones.zone(for: layout.focus))
+                    .contentShape(Rectangle())
+                    // Press and hold the big number to choose which number it is.
+                    .contextMenu {
+                        Section("Make focus") {
+                            ForEach(Glance.FocusPreference.choices(for: sportClass), id: \.self) { metric in
+                                Button { choose(metric, for: sportClass) } label: {
+                                    if metric == layout.focus {
+                                        Label(Glance.name(of: metric), systemImage: "checkmark")
+                                    } else {
+                                        Text(verbatim: Glance.name(of: metric))
+                                    }
                                 }
                             }
                         }
                     }
-                }
-            FlatSectionSeparator()
-            secondaries(layout.secondaries.map(value), signals: signals)
-            FlatSectionSeparator()
-            zoneLine(layout: layout, signals: signals)
-            FlatSectionSeparator()
-            footer(layout.footer.map(value))
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private func metricView(_ value: Glance.Value, size: GlanceMetricView.Size,
-                            signals: LiveWorkoutSignals.Snapshot) -> some View {
-        let state = state(of: value, signals: signals)
-        return GlanceMetricView(
-            eyebrow: value.eyebrow, value: value.text, size: size, state: state,
-            micro: state == .stale ? String(localized: "no signal") : value.micro,
-            spokenLabel: value.name, spokenValue: Self.spoken(value, state: state))
-    }
-
-    /// What VoiceOver reads: a quiet source says so ("142 beats per minute, no signal"), and a number that is not known is
-    /// never a dash. Strain that is still building says when it will score.
-    static func spoken(_ value: LiveWorkoutGlance.Value, state: GlanceMetricView.State) -> String {
-        if value.isMissing { return value.micro ?? value.spoken }
-        if state == .stale { return "\(value.spoken), \(String(localized: "no signal"))" }
-        return value.spoken
-    }
-
-    /// Paused numbers are frozen (0.4); a reading whose source has gone quiet keeps its last number at 0.6. Totals and
-    /// averages are never stale.
-    private func state(of value: Glance.Value, signals: LiveWorkoutSignals.Snapshot) -> GlanceMetricView.State {
-        if value.isMissing { return .missing }
-        if workout.isPaused { return .paused }
-        switch value.metric {
-        case .heartRate: return signals.heartRateIsStale ? .stale : .live
-        case .pace, .speed: return signals.paceIsStale ? .stale : .live
-        case .time, .distance, .strain, .calories, .averageHeartRate: return .live
-        }
-    }
-
-    // MARK: Secondaries
-
-    @ViewBuilder private func secondaries(_ values: [Glance.Value], signals: LiveWorkoutSignals.Snapshot) -> some View {
-        if typeSize.isAccessibilitySize {
-            VStack(alignment: .leading, spacing: NoopMetrics.space4) {
-                ForEach(values, id: \.metric) { metricView($0, size: .secondary, signals: signals) }
-            }
-        } else {
-            HStack(alignment: .top, spacing: 0) {
-                ForEach(Array(values.enumerated()), id: \.element.metric) { index, item in
-                    if index > 0 {
-                        Rectangle().fill(StrandPalette.hairline).frame(width: 1)
-                            .padding(.horizontal, NoopMetrics.space3)
-                            .accessibilityHidden(true)
-                    }
-                    metricView(item, size: .secondary, signals: signals)
+                ForEach(Array(layout.stack.enumerated()), id: \.element) { index, metric in
+                    figure(value(metric), size: .secondary, scale: scale, signals: signals, zone: zones.zone(for: metric))
+                        .padding(.top, (index == 0 ? LiveNumeralMetrics.focusGap : LiveNumeralMetrics.secondaryGap) * scale)
                 }
             }
-            .fixedSize(horizontal: false, vertical: true)
         }
     }
 
-    // MARK: Zone
+    private func figure(_ value: Glance.Value, size: LiveNumeral.Size, scale: CGFloat,
+                        signals: LiveWorkoutSignals.Snapshot, zone: Int?) -> some View {
+        LiveWorkoutFigure(value: value, size: size, scale: scale, isPaused: workout.isPaused, signals: signals, zone: zone)
+    }
 
-    private func zoneLine(layout: Glance.Layout, signals: LiveWorkoutSignals.Snapshot) -> some View {
-        let thresholds = ProfileStore.hrZoneThresholds(override: profile.hrMaxOverride, age: profile.age)
-        let bpm = workout.currentBPM
-        let zone = bpm.map { thresholds.zone(for: Double($0)) }
-        let paused = workout.isPaused
-        let stale = signals.heartRateIsStale
-        return VStack(alignment: .leading, spacing: NoopMetrics.space2) {
-            HStack(alignment: .firstTextBaseline, spacing: NoopMetrics.space2) {
-                if let zone {
-                    Text(verbatim: Self.word(zone))
-                        .font(StrandFont.subhead.weight(.semibold))
-                        .foregroundStyle(HRZoneStyle.zoneColor(zone))
-                } else {
-                    Text(verbatim: WidgetMetrics.missingValue)
-                        .font(StrandFont.subhead.weight(.semibold))
-                        .foregroundStyle(StrandPalette.textTertiary)
-                }
-                if layout.zoneLineShowsBPM, let bpm {
-                    Text(verbatim: "\(bpm)").font(StrandFont.bodyNumber).foregroundStyle(StrandPalette.textPrimary)
-                        + Text(verbatim: " bpm").font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
-                }
-                Spacer(minLength: 0)
-            }
-            .opacity(paused ? GlanceMetricLayout.pausedOpacity : (stale ? GlanceMetricLayout.staleOpacity : 1))
-            // The rail below speaks the zone and the reading; saying them twice would only repeat.
-            .accessibilityHidden(true)
-            LiveZoneRail(bpm: bpm, thresholds: thresholds, isDimmed: stale && !paused, style: .bar)
-                .opacity(paused ? GlanceMetricLayout.pausedOpacity : 1)
-            // How long the heart has spent in each zone so far.
-            ZoneMinutesBar(seconds: workout.personalZoneSeconds, currentZone: zone, showsBar: false)
-                .opacity(paused ? GlanceMetricLayout.pausedOpacity : (stale ? GlanceMetricLayout.staleOpacity : 1))
+    static func word(_ zone: Int) -> String { LiveZoneRow.word(zone) }
+}
+
+/// The zone the heart is in, now and on average, for the colour and the name beside a heart-rate figure.
+struct LiveWorkoutZones {
+    let bpm: Int?
+    let averageHR: Int
+    let thresholds: HRZoneStyle.Thresholds
+
+    var currentZone: Int? { bpm.map { thresholds.zone(for: Double($0)) } }
+
+    func zone(for metric: LiveWorkoutGlance.Metric) -> Int? {
+        switch metric {
+        case .heartRate: currentZone
+        case .averageHeartRate: averageHR > 0 ? thresholds.zone(for: Double(averageHR)) : nil
+        default: nil
         }
     }
 
-    static func word(_ zone: Int) -> String {
-        switch zone {
-        case 0: String(localized: "Rest")
-        case 1: String(localized: "Steady")
-        default: String(localized: "Push")
-        }
-    }
-
-    // MARK: Footer
-
-    @ViewBuilder private func footer(_ values: [Glance.Value]) -> some View {
-        VStack(alignment: .leading, spacing: NoopMetrics.space2) {
-            // The same caps eyebrow the numbers above are named with, a size down.
-            FactStrip(facts: values.map(fact), labelStyle: .eyebrow)
-            // Strain needs ten minutes of heart rate before it is a number; until then it says when.
-            if let building = values.first(where: { $0.metric == .strain && $0.isMissing }) {
-                Text(verbatim: building.spoken)
-                    .font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
-            }
-        }
-        // A paused workout is a frozen one: the footer steps back with the numbers above it.
-        .opacity(workout.isPaused ? GlanceMetricLayout.pausedOpacity : 1)
-    }
-
-    private func fact(_ value: Glance.Value) -> FactStrip.Fact {
-        switch value.metric {
-        case .strain: FactStrip.Fact("Strain", value: value.text)
-        case .calories: FactStrip.Fact("Calories", value: value.text, unit: "kcal")
-        case .averageHeartRate: FactStrip.Fact("Avg HR", value: value.text, unit: "bpm")
-        case .time: FactStrip.Fact("Time", value: value.text)
-        case .distance: FactStrip.Fact("Distance", value: value.text)
-        case .pace: FactStrip.Fact("Avg pace", value: value.text)
-        case .speed: FactStrip.Fact("Avg speed", value: value.text)
-        case .heartRate: FactStrip.Fact("Heart rate", value: value.text, unit: "bpm")
-        }
+    /// "Push": the word that goes with the live reading (the average has none: it is "Avg").
+    func word(for metric: LiveWorkoutGlance.Metric) -> String? {
+        metric == .heartRate ? currentZone.map(LiveZoneRow.word) : nil
     }
 }
 #endif

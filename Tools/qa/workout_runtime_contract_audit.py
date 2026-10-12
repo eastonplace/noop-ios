@@ -47,16 +47,6 @@ try:
         "samples.min(by:",
         "samples.max(by:",
     )
-    # The live screen's heart-rate section lives in LiveWorkoutSections.swift (it was LiveWorkoutView.swift).
-    require(
-        "Strand/Screens/LiveWorkoutSections.swift",
-        "workout.chartProjection",
-        "range: projection.range",
-        'FlatSection("Heart rate"',
-        'projection.observedSeconds',
-        'min window',
-        'workout.currentBPM.map',
-    )
     forbid(
         "Strand/Screens/LiveWorkoutSections.swift",
         "samples.suffix(360)",
@@ -93,10 +83,13 @@ try:
         "RecentSportsPrefs.recordSelection",
         "WorkoutReadinessStrip(",
     )
-    # The heart-rate trace is shown on the live screen's heart page (its section lives in LiveWorkoutSections.swift).
+    # The live screen's heart page is one glance: the reading, the zone row (time in each zone), strain and calories. The
+    # heart-rate trace the page used to carry was dropped for the calm of the page (Direction A); the bounded projection stays
+    # in the model, pinned above, for the surfaces that draw it.
     require(
         "Strand/Screens/LiveWorkoutPages.swift",
-        "LiveWorkoutHeartSection(",
+        "LiveZoneRow(",
+        "workout.personalZoneSeconds",
     )
     require(
         "StrandiOS/App/RootTabView.swift",

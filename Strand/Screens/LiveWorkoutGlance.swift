@@ -1,12 +1,13 @@
 import Foundation
+import SwiftUI
 import StrandDesign
 import StrandAnalytics
 
-/// What the glance-first live screen puts where, worked out from plain values so the rules are tested without a view.
+/// What the live workout screen puts where, worked out from plain values so the rules are tested without a view.
 ///
-/// One big number for the session (the distance of a run, the time of a strength session), a row of two smaller ones, the
-/// zone line, and a two-number footer. A metric already shown is never shown again, so the current heart rate that used to
-/// appear three times on an indoor session appears once.
+/// One focus figure for the session (the distance of a run, the time of a strength session) and three secondaries under it on
+/// the Focus page; the Heart page carries the heart rate with the zones, and strain and calories. A metric already shown on a
+/// page is never shown twice on it.
 enum LiveWorkoutGlance {
     enum Metric: String, CaseIterable, Sendable {
         case time, distance, pace, speed, heartRate, strain, calories, averageHeartRate
@@ -24,26 +25,24 @@ enum LiveWorkoutGlance {
 
     struct Layout: Equatable {
         let focus: Metric
-        let secondaries: [Metric]
-        let footer: [Metric]
-        /// The zone line carries the current bpm beside its word. Not on an indoor session, whose heart rate is a secondary.
-        let zoneLineShowsBPM: Bool
+        /// The three figures under the focus on the Focus page, top to bottom.
+        let stack: [Metric]
     }
 
     /// One metric ready to draw.
     struct Value: Equatable {
         let metric: Metric
-        /// "Distance · km": the name and the unit (drawn in capitals).
-        let eyebrow: String
-        /// The number as shown, or `LiveWorkoutTiles.missing`.
+        /// "Distance": what it is called, for VoiceOver and the Make focus menu.
+        let name: String
+        /// The figure as shown, or `LiveWorkoutTiles.missing`.
         let text: String
-        /// A line under the number ("scores in 4:38").
+        /// The unit block's lines, in the person's language ("Avg", "/km"); drawn in capitals beside the figure.
+        let unit: [String]
+        /// A line in the unit block ("scores in 4:38").
         let micro: String?
-        /// What VoiceOver reads for the number.
+        /// What VoiceOver reads for the figure.
         let spoken: String
         var isMissing: Bool { text == LiveWorkoutTiles.missing }
-        /// The name alone ("Distance"), for VoiceOver.
-        var name: String { eyebrow.components(separatedBy: " · ").first ?? eyebrow }
     }
 
     // MARK: Layout
@@ -53,34 +52,38 @@ enum LiveWorkoutGlance {
         return LiveWorkoutTiles.usesSpeed(sport: sport) ? .routeSpeed : .routePace
     }
 
-    /// The layout for a class. `chosenFocus` is the metric the wearer picked as the big number: when it is already shown
-    /// as a secondary or in the footer, it and the default focus swap places. A metric that is not shown at all is ignored
-    /// rather than dropping something the wearer can see.
-    static func layout(for sportClass: SportClass, chosenFocus: Metric? = nil) -> Layout {
-        var focus: Metric
-        var secondaries: [Metric]
-        let showsBPM: Bool
+    /// What the Heart page shows besides the heart rate itself, so a choice from it is a metric the screen already has.
+    static let heartPageMetrics: [Metric] = [.heartRate, .strain, .calories]
+
+    private static func defaultLayout(for sportClass: SportClass) -> Layout {
         switch sportClass {
-        case .routePace: (focus, secondaries, showsBPM) = (.distance, [.time, .pace], true)
-        case .routeSpeed: (focus, secondaries, showsBPM) = (.distance, [.time, .speed], true)
-        case .indoor: (focus, secondaries, showsBPM) = (.time, [.heartRate, .strain], false)
+        case .routePace: Layout(focus: .distance, stack: [.time, .pace, .heartRate])
+        case .routeSpeed: Layout(focus: .distance, stack: [.time, .speed, .heartRate])
+        case .indoor: Layout(focus: .time, stack: [.heartRate, .strain, .averageHeartRate])
         }
-        var footer = footerMetrics(excluding: [focus] + secondaries)
-        if let chosen = chosenFocus, chosen != focus {
-            if let index = secondaries.firstIndex(of: chosen) {
-                secondaries[index] = focus
-                focus = chosen
-            } else if let index = footer.firstIndex(of: chosen) {
-                footer[index] = focus
-                focus = chosen
-            }
-        }
-        return Layout(focus: focus, secondaries: secondaries, footer: footer, zoneLineShowsBPM: showsBPM)
     }
 
-    /// The first two of strain, calories and average heart rate that are not already on the screen.
-    private static func footerMetrics(excluding shown: [Metric]) -> [Metric] {
-        Array([Metric.strain, .calories, .averageHeartRate].filter { !shown.contains($0) }.prefix(2))
+    /// The layout for a class. `chosenFocus` is the metric the wearer picked as the focus figure. When it is already in the
+    /// stack it and the focus swap places. When it is only on the Heart page (strain, calories), it becomes the focus and the
+    /// old focus takes the place of the figure the Heart page repeats (the last of the stack that it also shows). A metric the
+    /// screen does not show at all is ignored rather than adding one.
+    static func layout(for sportClass: SportClass, chosenFocus: Metric? = nil) -> Layout {
+        var layout = defaultLayout(for: sportClass)
+        guard let chosen = chosenFocus, chosen != layout.focus else { return layout }
+        var focus = layout.focus
+        var stack = layout.stack
+        if let index = stack.firstIndex(of: chosen) {
+            stack[index] = focus
+            focus = chosen
+        } else if FocusPreference.choices(for: sportClass).contains(chosen) {
+            let index = stack.lastIndex(where: heartPageMetrics.contains) ?? stack.count - 1
+            stack[index] = focus
+            focus = chosen
+        } else {
+            return layout
+        }
+        layout = Layout(focus: focus, stack: stack)
+        return layout
     }
 
     /// What a metric is called ("Avg pace"), for a menu that lists metrics without a value to read the name from.
@@ -109,60 +112,102 @@ enum LiveWorkoutGlance {
         /// What the wearer may pick: every number the class's own screen already shows, in the order it shows them, so a
         /// choice never brings a number onto the screen that was not there or takes one off it.
         static func choices(for sportClass: SportClass) -> [Metric] {
-            let layout = LiveWorkoutGlance.layout(for: sportClass)
-            return [layout.focus] + layout.secondaries + layout.footer
+            let layout = LiveWorkoutGlance.defaultLayout(for: sportClass)
+            var all = [layout.focus] + layout.stack
+            for metric in LiveWorkoutGlance.heartPageMetrics where !all.contains(metric) { all.append(metric) }
+            return all
         }
     }
 
     // MARK: Values
 
+    /// The unit words, localized in this one place: the figure's unit block and the strip of facts both read from here.
+    enum Units {
+        static func distance(imperial: Bool) -> String { imperial ? String(localized: "mi") : String(localized: "km") }
+        static func pace(imperial: Bool) -> String { imperial ? String(localized: "/mi") : String(localized: "/km") }
+        static func speed(imperial: Bool) -> String { imperial ? String(localized: "mph") : String(localized: "km/h") }
+        static var heartRate: String { String(localized: "bpm") }
+        static var energy: String { String(localized: "kcal") }
+        static var average: String { String(localized: "Avg") }
+        static var strain: String { String(localized: "Strain") }
+    }
+
+    /// The colour of a metric: the same on every page.
+    static func color(of metric: Metric, zone: Int?) -> Color {
+        switch metric {
+        case .time: LivePalette.time
+        case .distance: LivePalette.distance
+        case .pace, .speed: LivePalette.pace
+        case .heartRate, .averageHeartRate: zone.map(LivePalette.zone) ?? LivePalette.missing
+        case .strain: LivePalette.strain
+        case .calories: LivePalette.calories
+        }
+    }
+
+    /// The unit block's colour where it is not the figure's own: a white figure's unit is the quiet grey (KM, AVG /KM), so the
+    /// unit never competes with the number; every other metric's unit is in the metric's colour.
+    static func unitColor(of metric: Metric) -> Color? {
+        switch metric {
+        case .distance, .pace, .speed: LivePalette.secondaryText
+        default: nil
+        }
+    }
+
+    /// Pace as drawn on the live screens: 6:13 reads 6′13″.
+    static func paceDisplay(_ text: String) -> String {
+        guard text != LiveWorkoutTiles.missing, let colon = text.firstIndex(of: ":") else { return text }
+        return "\(text[..<colon])′\(text[text.index(after: colon)...])″"
+    }
+
+    /// - Parameter zoneWord: The zone the current heart rate is in ("Push"), which leads the heart-rate unit block.
     static func value(_ metric: Metric, input: LiveWorkoutTiles.Input, elapsed: TimeInterval, strain: LiveStrainState,
-                      locale: Locale = .current) -> Value {
+                      zoneWord: String? = nil, locale: Locale = .current) -> Value {
         let missing = LiveWorkoutTiles.missing
         // VoiceOver never reads a dash; a number that is not known is "No reading".
         let noReading = String(localized: "No reading")
+        let name = Self.name(of: metric)
         switch metric {
         case .time:
             let text = LiveWorkoutTiles.elapsedText(elapsed)
-            return Value(metric: metric, eyebrow: String(localized: "Time"), text: text, micro: nil,
+            return Value(metric: metric, name: name, text: text, unit: [], micro: nil,
                          spoken: LiveWorkoutTiles.spokenElapsed(elapsed))
         case .distance:
             let text = LiveWorkoutTiles.distanceText(meters: input.distanceMeters, imperial: input.imperial, locale: locale)
-            let unit = input.imperial ? "mi" : "km"
-            return Value(metric: metric, eyebrow: "\(String(localized: "Distance")) · \(unit)", text: text, micro: nil,
+            return Value(metric: metric, name: name, text: text, unit: [Units.distance(imperial: input.imperial)], micro: nil,
                          spoken: text == missing ? noReading : LiveWorkoutTiles.spokenDistance(text, imperial: input.imperial))
         case .pace:
-            let text = LiveWorkoutTiles.paceText(secPerKm: input.paceSecPerKm, imperial: input.imperial)
-            let unit = input.imperial ? "/mi" : "/km"
-            return Value(metric: metric, eyebrow: "\(String(localized: "Avg pace")) · \(unit)", text: text, micro: nil,
-                         spoken: text == missing ? noReading
-                            : WorkoutFormat.spokenPace(text, system: input.imperial ? .imperial : .metric))
+            let raw = LiveWorkoutTiles.paceText(secPerKm: input.paceSecPerKm, imperial: input.imperial)
+            return Value(metric: metric, name: name, text: paceDisplay(raw),
+                         unit: [Units.average, Units.pace(imperial: input.imperial)], micro: nil,
+                         spoken: raw == missing ? noReading
+                            : WorkoutFormat.spokenPace(raw, system: input.imperial ? .imperial : .metric))
         case .speed:
             let text = LiveWorkoutTiles.speedText(secPerKm: input.paceSecPerKm, imperial: input.imperial, locale: locale)
-            let unit = input.imperial ? "mph" : "km/h"
-            return Value(metric: metric, eyebrow: "\(String(localized: "Avg speed")) · \(unit)", text: text, micro: nil,
+            return Value(metric: metric, name: name, text: text,
+                         unit: [Units.average, Units.speed(imperial: input.imperial)], micro: nil,
                          spoken: text == missing ? noReading : LiveWorkoutTiles.spokenSpeed(text, imperial: input.imperial))
         case .heartRate:
             let text = LiveWorkoutTiles.count(input.bpm, locale: locale)
-            return Value(metric: metric, eyebrow: "\(String(localized: "Heart rate")) · bpm", text: text, micro: nil,
+            return Value(metric: metric, name: name, text: text,
+                         unit: [zoneWord, Units.heartRate].compactMap { $0 }, micro: nil,
                          spoken: text == missing ? noReading : input.bpm.map(LiveWorkoutTiles.spokenHeartRate) ?? noReading)
         case .averageHeartRate:
             let text = LiveWorkoutTiles.count(input.averageHR > 0 ? input.averageHR : nil, locale: locale)
-            return Value(metric: metric, eyebrow: "\(String(localized: "Avg HR")) · bpm", text: text, micro: nil,
+            return Value(metric: metric, name: name, text: text, unit: [Units.average, Units.heartRate], micro: nil,
                          spoken: text == missing ? noReading : LiveWorkoutTiles.spokenHeartRate(input.averageHR))
         case .calories:
             let text = LiveWorkoutTiles.count(input.calories, locale: locale)
-            return Value(metric: metric, eyebrow: "\(String(localized: "Calories")) · kcal", text: text, micro: nil,
+            return Value(metric: metric, name: name, text: text, unit: [Units.energy], micro: nil,
                          spoken: text == missing ? noReading : input.calories.map { WorkoutFormat.spokenEnergy(Double($0)) } ?? noReading)
         case .strain:
             switch strain {
             case .scored(let stored):
                 let text = StrainScale.formatted(stored, locale: locale)
-                return Value(metric: metric, eyebrow: String(localized: "Strain"), text: text, micro: nil, spoken: text)
+                return Value(metric: metric, name: name, text: text, unit: [Units.strain], micro: nil, spoken: text)
             case .building(_, let coverage):
                 let remaining = max(0, StrainScorerV2.minCoverageSeconds - coverage)
                 let clock = String(format: "%d:%02d", remaining / 60, remaining % 60)
-                return Value(metric: metric, eyebrow: String(localized: "Strain"), text: missing,
+                return Value(metric: metric, name: name, text: missing, unit: [Units.strain],
                              micro: String(localized: "scores in \(clock)"), spoken: String(localized: "Strain scores in \(clock)"))
             }
         }

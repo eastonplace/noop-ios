@@ -1,4 +1,5 @@
 import XCTest
+import StrandDesign
 @testable import NOOP
 
 /// What the glance-first live screen puts where, from plain values.
@@ -22,51 +23,54 @@ final class LiveWorkoutGlanceTests: XCTestCase {
 
     // MARK: Layouts
 
-    func testARunLeadsWithDistanceThenTimeAndPace() {
+    func testARunLeadsWithDistanceThenTimePaceAndHeartRate() {
         let layout = G.layout(for: .routePace)
         XCTAssertEqual(layout.focus, .distance)
-        XCTAssertEqual(layout.secondaries, [.time, .pace])
-        XCTAssertEqual(layout.footer, [.strain, .calories])
-        XCTAssertTrue(layout.zoneLineShowsBPM)
+        XCTAssertEqual(layout.stack, [.time, .pace, .heartRate])
     }
 
     func testARideReadsAsSpeedNotPace() {
         let layout = G.layout(for: .routeSpeed)
         XCTAssertEqual(layout.focus, .distance)
-        XCTAssertEqual(layout.secondaries, [.time, .speed])
-        XCTAssertFalse(layout.secondaries.contains(.pace))
+        XCTAssertEqual(layout.stack, [.time, .speed, .heartRate])
+        XCTAssertFalse(layout.stack.contains(.pace))
     }
 
-    func testAnIndoorSessionLeadsWithTimeAndShowsTheHeartRateOnce() {
+    func testAnIndoorSessionLeadsWithTimeAndShowsHeartRateStrainAndTheAverage() {
         let layout = G.layout(for: .indoor)
         XCTAssertEqual(layout.focus, .time)
-        XCTAssertEqual(layout.secondaries, [.heartRate, .strain])
-        XCTAssertEqual(layout.footer, [.calories, .averageHeartRate])
-        XCTAssertFalse(layout.zoneLineShowsBPM, "the heart rate is already a secondary: it is not drawn again in the zone line")
+        XCTAssertEqual(layout.stack, [.heartRate, .strain, .averageHeartRate])
     }
 
     func testNoMetricAppearsTwiceInAnyLayout() {
         for sportClass in [G.SportClass.routePace, .routeSpeed, .indoor] {
             for chosen in [nil] + G.Metric.allCases.map(Optional.some) {
                 let layout = G.layout(for: sportClass, chosenFocus: chosen)
-                let shown = [layout.focus] + layout.secondaries + layout.footer
+                let shown = [layout.focus] + layout.stack
                 XCTAssertEqual(Set(shown).count, shown.count, "\(sportClass) focus \(String(describing: chosen)): \(shown)")
+                XCTAssertEqual(layout.stack.count, 3)
             }
         }
     }
 
     // MARK: The big-number choice
 
-    func testAChosenSecondaryAndTheDefaultFocusSwapPlaces() {
+    func testAChosenStackMetricAndTheDefaultFocusSwapPlaces() {
         let layout = G.layout(for: .routePace, chosenFocus: .pace)
         XCTAssertEqual(layout.focus, .pace)
-        XCTAssertEqual(layout.secondaries, [.time, .distance])
+        XCTAssertEqual(layout.stack, [.time, .distance, .heartRate])
     }
 
-    func testAChosenFooterMetricAndTheDefaultFocusSwapPlaces() {
-        let layout = G.layout(for: .indoor, chosenFocus: .calories)
-        XCTAssertEqual(layout.focus, .calories)
-        XCTAssertEqual(layout.footer, [.time, .averageHeartRate])
+    /// Strain and calories live on the Heart page, so a choice of one of them replaces the stack's figure that the Heart page
+    /// repeats (the last of heart rate, strain, calories in the stack), and the old focus takes its place.
+    func testAChosenHeartPageMetricDisplacesTheLastStackFigureTheHeartPageAlsoShows() {
+        let indoor = G.layout(for: .indoor, chosenFocus: .calories)
+        XCTAssertEqual(indoor.focus, .calories)
+        XCTAssertEqual(indoor.stack, [.heartRate, .time, .averageHeartRate], "strain is the last figure the Heart page also shows")
+        XCTAssertTrue(indoor.stack.contains(.time), "the old focus is still on the screen")
+        let run = G.layout(for: .routePace, chosenFocus: .strain)
+        XCTAssertEqual(run.focus, .strain)
+        XCTAssertEqual(run.stack, [.time, .pace, .distance], "the heart rate is the one the Heart page repeats")
     }
 
     func testAChoiceThatIsNotOnTheScreenIsIgnoredRatherThanDroppingSomethingVisible() {
@@ -76,11 +80,11 @@ final class LiveWorkoutGlanceTests: XCTestCase {
         XCTAssertEqual(G.layout(for: .routePace, chosenFocus: .distance), G.layout(for: .routePace))
     }
 
-    func testTheChoiceIsKeptPerKindOfSportAndOnlyOffersWhatTheScreenShows() {
+    func testTheChoiceIsKeptPerKindOfSportAndOnlyOffersWhatTheScreensShow() {
         XCTAssertEqual(Set([G.SportClass.routePace, .routeSpeed, .indoor].map(G.FocusPreference.key(for:))).count, 3)
         XCTAssertEqual(G.FocusPreference.key(for: .routePace), "workoutFocus.routePace")
-        XCTAssertEqual(G.FocusPreference.choices(for: .routePace), [.distance, .time, .pace, .strain, .calories])
-        XCTAssertEqual(G.FocusPreference.choices(for: .indoor), [.time, .heartRate, .strain, .calories, .averageHeartRate])
+        XCTAssertEqual(G.FocusPreference.choices(for: .routePace), [.distance, .time, .pace, .heartRate, .strain, .calories])
+        XCTAssertEqual(G.FocusPreference.choices(for: .indoor), [.time, .heartRate, .strain, .averageHeartRate, .calories])
         for sportClass in [G.SportClass.routePace, .routeSpeed, .indoor] {
             for metric in G.FocusPreference.choices(for: sportClass) {
                 XCTAssertEqual(G.layout(for: sportClass, chosenFocus: metric).focus, metric,
@@ -104,32 +108,51 @@ final class LiveWorkoutGlanceTests: XCTestCase {
     }
 
     private func value(_ metric: G.Metric, _ input: LiveWorkoutTiles.Input, elapsed: TimeInterval = 2_052,
-                       strain: LiveStrainState = .scored(storedValue: 8.4)) -> G.Value {
-        G.value(metric, input: input, elapsed: elapsed, strain: strain, locale: locale)
+                       strain: LiveStrainState = .scored(storedValue: 8.4), zoneWord: String? = nil) -> G.Value {
+        G.value(metric, input: input, elapsed: elapsed, strain: strain, zoneWord: zoneWord, locale: locale)
     }
 
     func testRunValuesReadLikeTheTilesDid() {
         let run = input(meters: 5_490, pace: 373, bpm: 149, calories: 471, avg: 140)
         XCTAssertEqual(value(.distance, run).text, "5.49")
-        XCTAssertEqual(value(.distance, run).eyebrow, "\(String(localized: "Distance")) · km")
-        XCTAssertEqual(value(.pace, run).text, "6:13")
-        XCTAssertEqual(value(.pace, run).eyebrow, "\(String(localized: "Avg pace")) · /km")
+        XCTAssertEqual(value(.distance, run).unit, [String(localized: "km")])
+        XCTAssertEqual(value(.pace, run).text, "6′13″", "the pace is drawn in minutes and seconds marks")
+        XCTAssertEqual(value(.pace, run).unit, [String(localized: "Avg"), String(localized: "/km")])
         XCTAssertEqual(value(.time, run, elapsed: 2_052).text, "34:12")
+        XCTAssertEqual(value(.time, run).unit, [])
         XCTAssertEqual(value(.heartRate, run).text, "149")
         XCTAssertEqual(value(.averageHeartRate, run).text, "140")
         XCTAssertEqual(value(.calories, run).text, "471")
+        XCTAssertEqual(value(.calories, run).unit, [String(localized: "kcal")])
+    }
+
+    func testTheHeartRateUnitBlockLeadsWithTheZoneWord() {
+        let run = input(bpm: 158)
+        XCTAssertEqual(value(.heartRate, run, zoneWord: "Push").unit, ["Push", String(localized: "bpm")])
+        XCTAssertEqual(value(.heartRate, run).unit, [String(localized: "bpm")])
+        XCTAssertEqual(value(.averageHeartRate, input(avg: 140)).unit, [String(localized: "Avg"), String(localized: "bpm")])
     }
 
     func testARideShowsAverageSpeedWithItsUnit() {
         let ride = input("Cycling", meters: 20_000, pace: 144)
         XCTAssertEqual(value(.speed, ride).text, "25.0")
-        XCTAssertEqual(value(.speed, ride).eyebrow, "\(String(localized: "Avg speed")) · km/h")
+        XCTAssertEqual(value(.speed, ride).unit, [String(localized: "Avg"), String(localized: "km/h")])
     }
 
-    func testImperialUnitsFollowThePreference() {
+    func testImperialUnitsFollowThePreferenceOnEveryMetricThatHasOne() {
         let run = input(meters: 8_047, pace: 373, imperial: true)
-        XCTAssertTrue(value(.distance, run).eyebrow.hasSuffix("· mi"))
-        XCTAssertTrue(value(.pace, run).eyebrow.hasSuffix("· /mi"))
+        XCTAssertEqual(value(.distance, run).unit, [String(localized: "mi")])
+        XCTAssertEqual(value(.pace, run).unit.last, String(localized: "/mi"))
+        let ride = input("Cycling", meters: 20_000, pace: 144, imperial: true)
+        XCTAssertEqual(value(.speed, ride).unit.last, String(localized: "mph"))
+    }
+
+    /// Whatever metric is chosen as the focus keeps its own unit block (a distance moved into the stack is still "KM").
+    func testEveryMetricCarriesItsUnitWhereverItIsShown() {
+        let all = input(meters: 5_490, pace: 373, bpm: 149, calories: 471, avg: 140)
+        for metric in G.Metric.allCases where metric != .time {
+            XCTAssertFalse(value(metric, all, zoneWord: nil).unit.isEmpty, "\(metric)")
+        }
     }
 
     func testAnUnknownNumberIsADashNeverZero() {
@@ -140,6 +163,31 @@ final class LiveWorkoutGlanceTests: XCTestCase {
             XCTAssertEqual(v.text, LiveWorkoutTiles.missing)
             XCTAssertEqual(v.spoken, String(localized: "No reading"), "VoiceOver does not read a dash, or a unit after one")
         }
+    }
+
+    func testPaceIsDrawnWithMarksAndAMissingOneStaysADash() {
+        XCTAssertEqual(G.paceDisplay("6:13"), "6′13″")
+        XCTAssertEqual(G.paceDisplay("10:05"), "10′05″")
+        XCTAssertEqual(G.paceDisplay(LiveWorkoutTiles.missing), LiveWorkoutTiles.missing)
+    }
+
+    func testEveryMetricHasOneColourAndHeartRateFollowsItsZone() {
+        XCTAssertEqual(G.color(of: .time, zone: nil), LivePalette.time)
+        XCTAssertEqual(G.color(of: .distance, zone: nil), LivePalette.distance)
+        XCTAssertEqual(G.color(of: .pace, zone: nil), G.color(of: .speed, zone: nil))
+        XCTAssertEqual(G.color(of: .strain, zone: nil), LivePalette.strain)
+        XCTAssertEqual(G.color(of: .calories, zone: nil), LivePalette.calories)
+        for zone in 0...2 {
+            XCTAssertEqual(G.color(of: .heartRate, zone: zone), LivePalette.zone(zone))
+            XCTAssertEqual(G.color(of: .averageHeartRate, zone: zone), LivePalette.zone(zone))
+        }
+        XCTAssertEqual(G.color(of: .heartRate, zone: nil), LivePalette.missing, "no reading, no zone, no colour")
+    }
+
+    /// A white figure's unit is the quiet grey; every coloured figure's unit wears the figure's colour.
+    func testOnlyTheWhiteFiguresHaveAGreyUnit() {
+        for metric in [G.Metric.distance, .pace, .speed] { XCTAssertEqual(G.unitColor(of: metric), LivePalette.secondaryText) }
+        for metric in [G.Metric.time, .heartRate, .averageHeartRate, .strain, .calories] { XCTAssertNil(G.unitColor(of: metric), "\(metric)") }
     }
 
     /// What VoiceOver says for a number goes through the String Catalog: the unit is a word in the wearer's language, not the
@@ -159,6 +207,7 @@ final class LiveWorkoutGlanceTests: XCTestCase {
             let spoken = value(metric, run).spoken
             XCTAssertFalse(spoken.contains("/km") || spoken.contains(" km") || spoken.contains("bpm") || spoken.contains("kcal"),
                            "\(metric) is spoken as \"\(spoken)\"")
+            XCTAssertFalse(spoken.contains("′") || spoken.contains("″"), "the drawn pace marks are not spoken: \(spoken)")
         }
     }
 
@@ -166,13 +215,34 @@ final class LiveWorkoutGlanceTests: XCTestCase {
     /// never read as a dash.
     @MainActor func testAStaleNumberIsSpokenWithNoSignalAndAMissingOneAsNoReading() {
         let heart = value(.heartRate, input(bpm: 142))
-        XCTAssertEqual(LiveFocusPage.spoken(heart, state: .live), heart.spoken)
-        XCTAssertEqual(LiveFocusPage.spoken(heart, state: .stale), "\(heart.spoken), \(String(localized: "no signal"))")
+        XCTAssertEqual(LiveWorkoutFigure.spoken(heart, state: .live), heart.spoken)
+        XCTAssertEqual(LiveWorkoutFigure.spoken(heart, state: .stale), "\(heart.spoken), \(String(localized: "no signal"))")
         let none = value(.pace, input())
-        XCTAssertEqual(LiveFocusPage.spoken(none, state: .missing), String(localized: "No reading"))
+        XCTAssertEqual(LiveWorkoutFigure.spoken(none, state: .missing), String(localized: "No reading"))
         let building = value(.strain, input(), strain: .building(readings: 200, coverageSeconds: 240))
-        XCTAssertEqual(LiveFocusPage.spoken(building, state: .missing), String(localized: "scores in \("6:00")"),
+        XCTAssertEqual(LiveWorkoutFigure.spoken(building, state: .missing), String(localized: "scores in \("6:00")"),
                        "the name is the label; the value says when it will score, without repeating the name")
+    }
+
+    /// A figure's state: paused is frozen, a quiet source steps back, totals are never stale.
+    @MainActor func testAFigureIsFrozenWhenPausedStaleWhenItsSourceIsQuietAndMissingWithoutANumber() {
+        let run = input(meters: 5_000, pace: 373, bpm: 149, calories: 471, avg: 140)
+        var quiet = LiveWorkoutSignals.Snapshot()
+        quiet.heartRateIsStale = true
+        quiet.gps = .lost
+        let live = LiveWorkoutSignals.Snapshot()
+        func state(_ metric: G.Metric, paused: Bool = false, _ signals: LiveWorkoutSignals.Snapshot) -> LiveNumeral.State {
+            LiveWorkoutFigure.state(of: value(metric, run), isPaused: paused, signals: signals)
+        }
+        XCTAssertEqual(state(.heartRate, live), .live)
+        XCTAssertEqual(state(.heartRate, quiet), .stale)
+        XCTAssertEqual(state(.pace, quiet), .stale)
+        XCTAssertEqual(state(.distance, quiet), .live, "a total is never stale")
+        XCTAssertEqual(state(.calories, quiet), .live)
+        for metric in [G.Metric.heartRate, .pace, .distance, .time] {
+            XCTAssertEqual(state(metric, paused: true, quiet), .paused, "\(metric)")
+        }
+        XCTAssertEqual(LiveWorkoutFigure.state(of: value(.pace, input()), isPaused: true, signals: live), .missing)
     }
 
     func testBuildingStrainShowsADashAndTheTimeUntilItScores() {
@@ -190,17 +260,18 @@ final class LiveWorkoutGlanceTests: XCTestCase {
         XCTAssertFalse(v.isMissing)
         XCTAssertNil(v.micro)
         XCTAssertEqual(v.name, String(localized: "Strain"))
+        XCTAssertEqual(v.unit, [String(localized: "Strain")])
     }
 
-    func testTheNameIsTheEyebrowWithoutItsUnit() {
+    func testTheNameIsWhatTheMetricIsCalled() {
         XCTAssertEqual(value(.distance, input(meters: 1_000)).name, String(localized: "Distance"))
         XCTAssertEqual(value(.heartRate, input(bpm: 100)).name, String(localized: "Heart rate"))
+        for metric in G.Metric.allCases { XCTAssertFalse(G.name(of: metric).isEmpty, "\(metric)") }
     }
 
-    func testAveragePaceIsLabelledAverageAndNeverJustPace() {
-        // The tile is the session's average, so the label must say so.
-        XCTAssertTrue(value(.pace, input(meters: 1_000, pace: 360)).eyebrow.hasPrefix(String(localized: "Avg pace")))
-        XCTAssertTrue(value(.speed, input(meters: 1_000, pace: 360)).eyebrow.hasPrefix(String(localized: "Avg speed")))
+    func testAveragePaceIsNamedAverageAndNeverJustPace() {
+        XCTAssertEqual(value(.pace, input(meters: 1_000, pace: 360)).name, String(localized: "Avg pace"))
+        XCTAssertEqual(value(.speed, input(meters: 1_000, pace: 360)).name, String(localized: "Avg speed"))
     }
 }
 
@@ -281,5 +352,25 @@ final class LiveWorkoutSlotNoticeTests: XCTestCase {
         for notice in [Notice.durability, .gpsLost, .gpsWeak, .gpsSearching, .gpsGap] {
             XCTAssertNil(notice.action, "\(notice)")
         }
+    }
+
+    // MARK: The restored-gap window
+
+    /// The 30 seconds start when the wearer first has the workout in front of them, not when the app launched: a workout
+    /// restored in the background must still say it once the screen is opened.
+    func testTheGapNoticeWindowRunsFromWhenTheScreenOpenedNotFromLaunch() {
+        let opened = Date(timeIntervalSince1970: 1_000)
+        XCTAssertTrue(Notice.gapWindowIsOpen(openedAt: opened, now: opened.addingTimeInterval(1)))
+        XCTAssertTrue(Notice.gapWindowIsOpen(openedAt: opened, now: opened.addingTimeInterval(Notice.gpsGapNoticeSeconds - 1)))
+        XCTAssertFalse(Notice.gapWindowIsOpen(openedAt: opened, now: opened.addingTimeInterval(Notice.gpsGapNoticeSeconds)))
+        XCTAssertFalse(Notice.gapWindowIsOpen(openedAt: nil, now: opened), "nothing opened yet: nothing to say")
+    }
+
+    /// Reading or reaching a long message can take longer than six seconds under VoiceOver or Switch Control: it stays open.
+    func testAnOpenNoticeClosesByItselfOnlyWithoutAssistiveTechnology() {
+        XCTAssertTrue(LiveNoticeSlot.closesByItself(voiceOver: false, switchControl: false))
+        XCTAssertFalse(LiveNoticeSlot.closesByItself(voiceOver: true, switchControl: false))
+        XCTAssertFalse(LiveNoticeSlot.closesByItself(voiceOver: false, switchControl: true))
+        XCTAssertFalse(LiveNoticeSlot.closesByItself(voiceOver: true, switchControl: true))
     }
 }

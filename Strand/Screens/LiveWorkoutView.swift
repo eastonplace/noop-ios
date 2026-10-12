@@ -5,8 +5,9 @@ import WhoopStore
 import Combine
 
 #if os(iOS)
-/// The live workout, built to be read in under a second: a header (Minimize, what is recording, two signal glyphs), a notice
-/// slot that is always there, one page with the session's big number, and a dock with Pause (or Resume and Hold to end).
+/// The live workout, built to be read in under a second, in the language of a watch face: pure black, a header (Minimize, the
+/// sport with its state under it, the strap and GPS glyphs), one page of figures with the dots under it, and a dock of calm
+/// circles (Pause; or Hold to End and Resume). A notice drops in under the header and takes no room from the figures.
 ///
 /// It is the root of the workout journey's cover, not a sheet, so there is nothing to swipe away: the top-left control
 /// minimizes, and the recording goes on.
@@ -44,7 +45,7 @@ struct LiveWorkoutScreen: View, @preconcurrency Equatable {
         if let workout {
             LiveWorkoutLayout(model: model, workout: workout, pageMemory: pageMemory, onMinimize: onMinimize)
         } else {
-            StrandPalette.appCanvas.ignoresSafeArea()
+            LivePalette.canvas.ignoresSafeArea()
         }
     }
 }
@@ -57,36 +58,27 @@ private struct LiveWorkoutLayout: View {
     @State private var showsDevices = false
 
     var body: some View {
-        // Three regions, top to bottom: the header and notice (as tall as they are), the dock (as tall as its buttons, never
-        // more than a share of the screen) and, between them, the pages, which get the rest and scroll only when they do
-        // not fit. `LiveWorkoutRegions` does the arithmetic, so the dock hugs its content at every size.
+        // Four regions, top to bottom: the header (as tall as it is), the dock (as tall as its circles, never more than a
+        // share of the screen) and, between them, the pager, which gets the rest. The notice hangs under the header over the
+        // top of the page and takes no height from it. `LiveWorkoutRegions` does the arithmetic.
         LiveWorkoutRegions {
-            VStack(spacing: 0) {
-                LiveWorkoutHeader(model: model, workout: workout, recorder: model.gpsRecorder, onMinimize: onMinimize)
-                    .screenPadding()
-                LiveNoticeSlot(model: model, workout: workout, recorder: model.gpsRecorder,
-                               onManageDevices: { showsDevices = true })
-                    .screenPadding()
-            }
-            // Above the page: the notice's expanded explanation opens over it and has to be readable and tappable.
-            .zIndex(1)
-            // The pages, side by side, with the dots under them. Each page is at least as tall as the room it has, so the
-            // focus number takes the difference (centred in it) instead of the screen ending in a void above the dock.
+            LiveWorkoutHeader(model: model, workout: workout, recorder: model.gpsRecorder, onMinimize: onMinimize)
+                .screenPadding()
+                .zIndex(1)
+            // Above the page: the notice and its expanded explanation have to be readable and tappable.
+            LiveNoticeSlot(model: model, workout: workout, recorder: model.gpsRecorder,
+                           onManageDevices: { showsDevices = true })
+                .screenPadding()
+                .zIndex(2)
             LiveWorkoutPager(model: model, workout: workout, recorder: model.gpsRecorder, pageMemory: pageMemory,
                              onManageDevices: { showsDevices = true })
             WorkoutLiveDock(model: model, workout: workout, recorder: model.gpsRecorder)
                 .screenPadding()
-                .padding(.top, NoopMetrics.space3)
+                .padding(.top, NoopMetrics.space2)
                 .padding(.bottom, NoopMetrics.space2)
-                .background(StrandPalette.appCanvas.ignoresSafeArea(edges: .bottom))
-                .overlay(alignment: .top) {
-                    Rectangle().fill(StrandPalette.hairline).frame(height: 1).accessibilityHidden(true)
-                }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        // The zone's colour, faintly, from the top edge down: one wash behind the header and the page, so it has no edge.
-        .background { LiveZoneWash(workout: workout, profile: model.profile).ignoresSafeArea() }
-        .background(StrandPalette.appCanvas.ignoresSafeArea())
+        .background(LivePalette.canvas.ignoresSafeArea())
         // VoiceOver's two-finger scrub minimizes, as it dismisses a sheet: from wherever focus is on the screen, not only the
         // header. Unavailable while a save runs, like the Minimize button.
         .accessibilityAction(.escape) { if model.workoutFinishState != .saving { onMinimize() } }
@@ -97,16 +89,17 @@ private struct LiveWorkoutLayout: View {
     }
 }
 
-/// Lays the live screen out in three stacked regions: chrome, page, dock.
+/// Lays the live screen out: header, notice, page, dock.
 ///
-/// The chrome and the dock are given the height they ask for, so a dock that holds one button is one button tall and the
-/// header is never squeezed. What the dock may take has a ceiling: the page keeps `minimumPage`, enough for the focus numeral
-/// (a fixed 132 pt, whatever the text size) and its eyebrow. A taller dock (accessibility sizes, a long translation) is
-/// proposed the height that is left and scrolls its own text or buttons. The page takes everything the dock does not.
+/// The header and the dock are given the height they ask for, so a dock that holds one circle is one circle tall and the header
+/// is never squeezed. What the dock may take has a ceiling: the page keeps `minimumPage`, enough for the smallest figures and
+/// the notice band. A taller dock (accessibility sizes, a long translation) is proposed the height that is left and scrolls
+/// its own text. The page takes everything the dock does not. The notice is placed under the header, over the page's top,
+/// at the height it needs (nothing when there is no notice): it never moves the page.
 private struct LiveWorkoutRegions: Layout {
-    /// The page's least height: the focus eyebrow, the numeral and the air round them.
-    static let minimumPage: CGFloat = 236
-    /// The dock always keeps at least this share of the height, so a very short screen still shows its buttons.
+    /// The page's least height: the notice band, the smallest figures and the air round them.
+    static let minimumPage: CGFloat = 270
+    /// The dock always keeps at least this share of the height, so a very short screen still shows its controls.
     static let minimumDockShare: CGFloat = 0.35
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
@@ -114,26 +107,29 @@ private struct LiveWorkoutRegions: Layout {
     }
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        guard subviews.count == 3 else { return }
+        guard subviews.count == 4 else { return }
         let width = bounds.width
-        let chrome = subviews[0].sizeThatFits(ProposedViewSize(width: width, height: nil)).height
-        let dockWanted = subviews[2].sizeThatFits(ProposedViewSize(width: width, height: nil)).height
-        let dockCeiling = max(bounds.height - chrome - Self.minimumPage, bounds.height * Self.minimumDockShare)
+        let header = subviews[0].sizeThatFits(ProposedViewSize(width: width, height: nil)).height
+        let dockWanted = subviews[3].sizeThatFits(ProposedViewSize(width: width, height: nil)).height
+        let dockCeiling = max(bounds.height - header - Self.minimumPage, bounds.height * Self.minimumDockShare)
         let dock = min(dockWanted, dockCeiling)
-        let page = max(0, bounds.height - chrome - dock)
+        let page = max(0, bounds.height - header - dock)
+        let notice = subviews[1].sizeThatFits(ProposedViewSize(width: width, height: page)).height
         subviews[0].place(at: CGPoint(x: bounds.minX, y: bounds.minY), anchor: .topLeading,
-                          proposal: ProposedViewSize(width: width, height: chrome))
-        subviews[1].place(at: CGPoint(x: bounds.minX, y: bounds.minY + chrome), anchor: .topLeading,
+                          proposal: ProposedViewSize(width: width, height: header))
+        subviews[1].place(at: CGPoint(x: bounds.minX, y: bounds.minY + header), anchor: .topLeading,
+                          proposal: ProposedViewSize(width: width, height: notice))
+        subviews[2].place(at: CGPoint(x: bounds.minX, y: bounds.minY + header), anchor: .topLeading,
                           proposal: ProposedViewSize(width: width, height: page))
-        subviews[2].place(at: CGPoint(x: bounds.minX, y: bounds.maxY - dock), anchor: .topLeading,
+        subviews[3].place(at: CGPoint(x: bounds.minX, y: bounds.maxY - dock), anchor: .topLeading,
                           proposal: ProposedViewSize(width: width, height: dock))
     }
 }
 
 // MARK: - Header
 
-/// Minimize on the left, what is recording in the middle (with its pulse), the signal glyphs on the right. Minimize is
-/// never "Close": the recording keeps going. It is unavailable only while a save is running.
+/// Minimize on the left, the sport in the middle with what it is doing under it (the state line), the strap and GPS glyphs
+/// in a capsule on the right. Minimize is never "Close": the recording keeps going. It is unavailable only while a save runs.
 private struct LiveWorkoutHeader: View {
     let model: AppModel
     @ObservedObject var workout: AppModel.ActiveWorkout
@@ -141,6 +137,9 @@ private struct LiveWorkoutHeader: View {
     let onMinimize: () -> Void
     @StateObject private var finish: FinishStateWatcher
     @Environment(\.dynamicTypeSize) private var typeSize
+
+    /// The two ends are the same width so the title stays centred between them.
+    private static let sideWidth: CGFloat = 84
 
     init(model: AppModel, workout: AppModel.ActiveWorkout, recorder: GpsWorkoutRecorder, onMinimize: @escaping () -> Void) {
         self.model = model
@@ -152,66 +151,113 @@ private struct LiveWorkoutHeader: View {
 
     var body: some View {
         let saving = finish.isSaving
-        HStack(spacing: NoopMetrics.space2) {
+        HStack(alignment: .center, spacing: NoopMetrics.space2) {
             Button(action: onMinimize) {
                 Image(systemName: "chevron.down")
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(StrandPalette.textPrimary)
-                    .frame(width: 40, height: 40)
-                    .background(StrandPalette.surfaceRaised,
-                                in: RoundedRectangle(cornerRadius: NoopMetrics.radius2, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: NoopMetrics.radius2, style: .continuous)
-                        .strokeBorder(StrandPalette.cardBorder, lineWidth: 1))
                     .frame(width: 44, height: 44)
-                    .contentShape(Rectangle())
+                    .background(Circle().fill(LivePalette.fill))
+                    .contentShape(Circle())
             }
             .buttonStyle(.plain)
             .disabled(saving)
             .opacity(saving ? 0.4 : 1)
+            .frame(width: Self.sideWidth, alignment: .leading)
             .accessibilityLabel("Minimize")
             .accessibilityHint("The workout keeps recording.")
-            Spacer(minLength: NoopMetrics.space2)
-            overline
-            Spacer(minLength: NoopMetrics.space2)
+            titleColumn.frame(maxWidth: .infinity)
             LiveSignalGlyphs(model: model, workout: workout, recorder: recorder)
+                .frame(width: Self.sideWidth, alignment: .trailing)
         }
         .frame(minHeight: 44)
+        .padding(.top, 2)
     }
 
-    /// What is happening: the sport while it records; "Paused · 0:42" with the pause counting up, so a pocketed phone says how
-    /// long it has been stopped; "Ending" once End was held. The pulse is the one rule every surface shares.
-    @ViewBuilder private var overline: some View {
-        let paused = workout.isPaused
-        let ending = workout.isEnding
-        HStack(spacing: NoopMetrics.space2) {
-            EyebrowPulseIcon(systemName: paused ? "pause.fill" : "waveform.path.ecg",
-                             color: paused ? StrandPalette.statusWarning : StrandPalette.liveRed,
-                             pulses: NOOPLiveWorkoutPulse.isActive(isPaused: paused, isEnding: ending))
-            if ending {
-                Text("Ending").strandOverlineFitted().lineLimit(Self.titleLines("Ending"))
-            } else if paused, let since = workout.pauseLedger.openSince {
+    private var titleColumn: some View {
+        VStack(spacing: 3) {
+            let sport = WorkoutSource.displaySport(workout.sport)
+            Text(verbatim: sport)
+                .foregroundStyle(StrandPalette.textPrimary)
+                .liveText(17, weight: .semibold, maxSize: 24, lines: 2)
+                .multilineTextAlignment(.center)
+                .accessibilityAddTraits(.isHeader)
+            stateLine
+        }
+    }
+
+    /// What is happening: "● Running" in mint with the pulse every surface shares; "Paused · 0:42" in amber with the pause
+    /// counting up, so a pocketed phone says how long it has been stopped (at the accessibility sizes it breaks as "Paused"
+    /// over "0:42", never leaving a "·" alone); "Ending" once End was held.
+    @ViewBuilder private var stateLine: some View {
+        if workout.isEnding {
+            Text("Ending")
+                .foregroundStyle(LivePalette.secondaryText)
+                .liveText(13, weight: .medium, maxSize: 19, lines: 1)
+        } else if workout.isPaused {
+            if let since = workout.pauseLedger.openSince {
                 TimelineView(.periodic(from: .now, by: 1)) { context in
                     let seconds = max(0, Int(context.date.timeIntervalSince1970 - since))
-                    Text("Paused · \(LiveWorkoutTiles.elapsedText(TimeInterval(seconds)))")
-                        .strandOverlineFitted().lineLimit(2)
+                    pausedLine(clock: LiveWorkoutTiles.elapsedText(TimeInterval(seconds)))
+                        .accessibilityElement(children: .ignore)
                         .accessibilityLabel(Text("Paused for \(LiveWorkoutTiles.spokenElapsed(TimeInterval(seconds)))"))
                 }
-            } else if paused {
-                Text("Paused").strandOverlineFitted().lineLimit(Self.titleLines("Paused"))
             } else {
-                let sport = WorkoutSource.displaySport(workout.sport)
-                Text(verbatim: sport).strandOverlineFitted().lineLimit(Self.titleLines(sport))
+                pausedLine(clock: nil)
+            }
+        } else {
+            HStack(spacing: 6) {
+                LiveStateDot(color: LivePalette.mint,
+                             pulses: NOOPLiveWorkoutPulse.isActive(isPaused: false, isEnding: false))
+                Text("Running")
+                    .foregroundStyle(LivePalette.mint)
+                    .liveText(13, weight: .medium, maxSize: 19, lines: 1)
             }
         }
-        .multilineTextAlignment(.center)
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(.isHeader)
     }
 
-    /// One word is one line, so a narrow screen at the largest text scales it down instead of breaking it inside ("RUNNIN" /
-    /// "G"); a title of several words may wrap between them.
-    private static func titleLines(_ title: String) -> Int {
-        title.contains(where: \.isWhitespace) ? 2 : 1
+    private func pausedLine(clock: String?) -> some View {
+        let layout = typeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(spacing: 0))
+            : AnyLayout(HStackLayout(spacing: 5))
+        return layout {
+            HStack(spacing: 5) {
+                Image(systemName: "pause.fill").font(.system(size: 9, weight: .bold))
+                Text("Paused").liveText(13, weight: .medium, maxSize: 19, lines: 1)
+            }
+            if let clock {
+                if !typeSize.isAccessibilitySize { Text(verbatim: "·").liveText(13, weight: .medium, maxSize: 19, lines: 1) }
+                Text(verbatim: clock).monospacedDigit().liveText(13, weight: .medium, maxSize: 19, lines: 1)
+            }
+        }
+        .foregroundStyle(LivePalette.amber)
+    }
+}
+
+/// The small dot before "Running": mint, with a ghost that swells and fades while the workout records (off under Reduce
+/// Motion).
+struct LiveStateDot: View {
+    let color: Color
+    let pulses: Bool
+    @State private var breathing = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        ZStack {
+            if pulses && !reduceMotion {
+                Circle().fill(color.opacity(0.5))
+                    .frame(width: 7, height: 7)
+                    .scaleEffect(breathing ? 2.4 : 1)
+                    .opacity(breathing ? 0 : 0.8)
+            }
+            Circle().fill(color).frame(width: 7, height: 7)
+        }
+        .frame(width: 9, height: 9)
+        .onAppear {
+            guard pulses, !reduceMotion else { return }
+            withAnimation(.easeOut(duration: 2).repeatForever(autoreverses: false)) { breathing = true }
+        }
+        .accessibilityHidden(true)
     }
 }
 
