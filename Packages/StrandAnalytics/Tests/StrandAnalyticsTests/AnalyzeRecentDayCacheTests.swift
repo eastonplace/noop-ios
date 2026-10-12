@@ -22,6 +22,19 @@ final class AnalyzeRecentDayCacheTests: XCTestCase {
         XCTAssertNotEqual(base, laterTs)
     }
 
+    // AN-05: tomorrow's new night moves where today's Effort cycle ends, and late readings past the night
+    // window feed it, without moving this night's own fingerprint. Either must invalidate.
+    func testCycleEndChangeInvalidates() {
+        func key(_ cycle: String) -> String {
+            AnalyzeRecentDayCache.cacheKey(owner: "dev1", hrCount: 178_000, hrMaxTs: 1_700_000_000,
+                                           skinAnchorRaw: 1290, cycleFingerprint: cycle, hrvWindowDetail: false)
+        }
+        XCTAssertEqual(key("c1700086400"), key("c1700086400"))
+        XCTAssertNotEqual(key(""), key("c1700086400"))
+        XCTAssertNotEqual(key("c1700086400"), key("c1700090000"))
+        XCTAssertNotEqual(key("c1700090000:10:1700089990"), key("c1700090000:11:1700089995"))
+    }
+
     // A shifted window-wide skin anchor (another night's skin changed the 4.0 median) must invalidate even
     // when this night's HR fingerprint is identical — the skin conversion changed.
     func testAnchorShiftInvalidates() {

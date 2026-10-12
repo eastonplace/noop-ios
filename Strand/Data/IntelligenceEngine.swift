@@ -207,7 +207,8 @@ final class IntelligenceEngine: ObservableObject {
     /// Version of the per-day scan semantics. It keys both the in-memory day-scan cache and the idle-tick
     /// watermark, so a semantic change re-scores the window on the next pass instead of replaying old scans
     /// or skipping an unchanged-HR tick. v2 (AN-02): days bucket by their civil interval and own offset.
-    nonisolated static let analyzeScanVersion = "cache-v2"
+    /// v3 (AN-05): Effort's cycle runs from the day's main-night onset to the next day's cycle start.
+    nonisolated static let analyzeScanVersion = "cache-v3"
 
     private var dayScanCache: [String: CachedDayScan] = [:]
     private var dayScanCacheConfigSignature = ""
@@ -972,7 +973,10 @@ final class IntelligenceEngine: ObservableObject {
             var skinAnchorByOwner: [String: Double] = [:]
             var skinAnchorResolvedOwners = Set<String>()
             var backgroundPaceMark = DispatchTime.now().uptimeNanoseconds
+            // `civilDays` runs newest first, so D+1 is scanned before D and its cycle start is known (AN-05).
+            var newerCivilDay: CivilDayWindow?
             for civilDay in civilDays {
+                defer { newerCivilDay = civilDay }
                 try CooperativeAnalysisCancellation.checkpoint()
                 try await RescoreBackgroundPolicy.paceIfBackgrounded(since: &backgroundPaceMark)
                 let dayStart = civilDay.start
@@ -990,6 +994,19 @@ final class IntelligenceEngine: ObservableObject {
                 // partial day, clamp the read to the committed analysis reference instead of adding an
                 // elapsed-hour approximation that can cross a DST boundary.
                 let to = min(nextMidnight, now)
+                // AN-05: Effort's cycle for D ends where D+1's begins: D+1's main-night onset, or its civil
+                // midnight when it has no main night. The newest day in the pass (today, or the edge of a
+                // partial window) has no scanned successor and keeps running to its last reading.
+                let nextCycleBoundary: Int? = newerCivilDay.map { newer in
+                    let newerScan = out.last.flatMap { $0.day == newer.day ? $0 : nil }
+                    return AnalyticsEngine.CycleEnd.next(
+                        cycleStart: newerScan?.result?.cycleStart,
+                        nextDayInterval: newer.start..<newer.nextStart)
+                }
+                // Readings between the read window's inclusive end and the boundary (late sleepers).
+                let cycleTail: ClosedRange<Int>? = nextCycleBoundary.flatMap { boundary in
+                    boundary - 1 >= to + 1 ? (to + 1)...(boundary - 1) : nil
+                }
 
                 // I2: pick the single device that owns this day, and read ITS streams below. With one device
                 // this resolves to `deviceId` (active strap, has data → priority 0), so nothing changes; with
@@ -1058,6 +1075,18 @@ final class IntelligenceEngine: ObservableObject {
                         fingerprint = try await store.hrFingerprint(deviceId: owner, from: from, to: to)
                     }
                     try CooperativeAnalysisCancellation.checkpoint()
+                    var cycleFingerprint = nextCycleBoundary.map { "c\($0)" } ?? ""
+                    if let cycleTail {
+                        let tail: (count: Int, maxTs: Int)
+                        if let loader = cacheTestingSeams?.fingerprintLoader {
+                            tail = try await loader(store, owner, cycleTail.lowerBound, cycleTail.upperBound)
+                        } else {
+                            tail = try await store.hrFingerprint(
+                                deviceId: owner, from: cycleTail.lowerBound, to: cycleTail.upperBound)
+                        }
+                        cycleFingerprint += ":\(tail.count):\(tail.maxTs)"
+                        try CooperativeAnalysisCancellation.checkpoint()
+                    }
                     let key = AnalyzeRecentDayCache.cacheKey(
                         owner: owner,
                         hrCount: fingerprint.count,
@@ -1065,6 +1094,7 @@ final class IntelligenceEngine: ObservableObject {
                         skinAnchorRaw: skinAnchorRaw,
                         sleepEditFingerprint: sleepEditFingerprint,
                         persistedSleepFingerprint: persistedSleepFingerprint,
+                        cycleFingerprint: cycleFingerprint,
                         hrvWindowDetail: dayStart == currentCivilDayStart)
                     dayCacheKey = key
                     if let cached = cacheSnapshot[day], cached.key == key {
@@ -1229,6 +1259,21 @@ final class IntelligenceEngine: ObservableObject {
                 // HRV mode (#141): a per-day collector for the nightly per-window RMSSD + summary; nil = default.
                 var hrvTrace: [String] = []
                 let hrvTraceSink: ((String) -> Void)? = hrvTraceActive ? { hrvTrace.append($0) } : nil
+                let cycleEnd: AnalyticsEngine.CycleEnd?
+                if let nextCycleBoundary {
+                    if let cycleTail {
+                        try CooperativeAnalysisCancellation.checkpoint()
+                        let tailHr = try await store.hrSamples(
+                            deviceId: owner, from: cycleTail.lowerBound, to: cycleTail.upperBound, limit: 200_000)
+                        let tailSteps = try await store.stepSamples(
+                            deviceId: owner, from: cycleTail.lowerBound, to: cycleTail.upperBound, limit: 200_000)
+                        cycleEnd = .init(end: nextCycleBoundary, tailHr: tailHr, tailSteps: tailSteps)
+                    } else {
+                        cycleEnd = .init(end: nextCycleBoundary)
+                    }
+                } else {
+                    cycleEnd = nil
+                }
                 try await RescoreBackgroundPolicy.paceIfBackgrounded(since: &backgroundPaceMark)
                 let res = AnalyticsEngine.analyzeDay(day: day, hr: hr, rr: rr, resp: resp, gravity: grav,
                                                      steps: steps, dayHr: dayHr, daySteps: daySteps,
@@ -1240,6 +1285,7 @@ final class IntelligenceEngine: ObservableObject {
                                                      profile: up, baselines: baselines1, maxHROverride: maxHR,
                                                      tzOffsetSeconds: dayOffset,
                                                      dayInterval: dayInterval,   // AN-02
+                                                     cycleEnd: cycleEnd,         // AN-05
                                                      wristOff: wristOff,
                                                      sleepNeedHours: sleepNeedHours,
                                                      sleepConsistency: sleepConsistency,

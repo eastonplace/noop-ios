@@ -162,10 +162,25 @@ enum StrainDayLoader {
             logicalEnd: request.isToday ? Int.max : nextStart,
             windowEnd: request.isToday ? nowTs : nextStart,
             sleeps: sleeps)
-        let cycleStartTs = request.isToday
-            ? window.cycleStart
-            : StrainBatchCycle.start(sleeps: sleeps, dayStart: logicalStart, dayEnd: nextStart)
-        let endTs = request.isToday ? nowTs : nextStart
+        let cycleStartTs: Int
+        let endTs: Int
+        if request.isToday {
+            cycleStartTs = window.cycleStart
+            endTs = nowTs
+        } else {
+            // The batch's sleep-to-sleep cycle (AN-05): the same selector, offsets and habitual midsleep.
+            let habitual = await repo.habitualMidsleepSec(days: 30)
+            guard !Task.isCancelled else { return nil }
+            let timeZone = calendar.timeZone
+            cycleStartTs = StrainBatchCycle.start(
+                sleeps: sleeps, dayStart: logicalStart, dayEnd: nextStart,
+                offsetSec: AnalyticsEngine.civilDayClockOffset(logicalStart..<nextStart, timeZone: timeZone),
+                habitualMidsleepSec: habitual)
+            endTs = min(nowTs, StrainBatchCycle.end(
+                sleeps: sleeps, dayEnd: nextStart, nextDayEnd: afterNext,
+                nextOffsetSec: AnalyticsEngine.civilDayClockOffset(nextStart..<afterNext, timeZone: timeZone),
+                habitualMidsleepSec: habitual))
+        }
         guard endTs > cycleStartTs else { return nil }
 
         #if DEBUG

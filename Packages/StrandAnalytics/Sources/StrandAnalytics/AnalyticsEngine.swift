@@ -121,6 +121,9 @@ public enum AnalyticsEngine {
         /// so the caller persists NULL there rather than a fabricated array. Feeds the H7 re-onset CONFIRM
         /// guard on the NEXT pass; never overrides the derived hypnogram. Empty on a WHOOP 4.0. (#175)
         public let sessionSleepStateByStart: [Int: [Int]]
+        /// Where this day's Effort cycle started (AN-05): the main night's detected onset, nil with no sleep.
+        /// The pass hands it to the previous day as that day's `CycleEnd`.
+        public let cycleStart: Int?
 
         public init(daily: DailyMetric, sleepSessions: [SleepSession],
                     cachedSleep: [CachedSleepSession], workouts: [ExerciseSession],
@@ -133,7 +136,8 @@ public enum AnalyticsEngine {
                     sessionMotionByStart: [Int: [Double]] = [:],
                     sessionSleepStateByStart: [Int: [Int]] = [:],
                     chargeDrivers: [ChargeDriver] = [],
-                    skinTempRelative: SkinTempRelative? = nil) {
+                    skinTempRelative: SkinTempRelative? = nil,
+                    cycleStart: Int? = nil) {
             self.daily = daily; self.sleepSessions = sleepSessions
             self.cachedSleep = cachedSleep; self.workouts = workouts
             self.recovery = recovery; self.strain = strain
@@ -147,6 +151,7 @@ public enum AnalyticsEngine {
             self.restConfidence = restConfidence
             self.sessionMotionByStart = sessionMotionByStart
             self.sessionSleepStateByStart = sessionSleepStateByStart
+            self.cycleStart = cycleStart
         }
     }
 
@@ -227,6 +232,38 @@ public enum AnalyticsEngine {
         guard !startOverflow else { return 0..<0 }
         let (end, endOverflow) = start.addingReportingOverflow(86_400)
         return start..<(endOverflow ? Int.max : end)
+    }
+
+    // MARK: - Physiological day (AN-05)
+
+    /// Where day D's sleep-to-sleep cycle starts: the onset of D's main night, chosen by the one shared
+    /// selector (`SleepStageTotals.mainNightGroupIndices`) over the blocks that end on D. nil when D has no
+    /// sleep (its cycle then starts at its civil midnight). `analyzeDay` uses detected onsets; a caller that
+    /// honours sleep edits (live strain, N3-12) passes the effective onsets.
+    public static func cycleStart(_ blocks: [SleepStageTotals.NightBlock], offsetSec: Int,
+                                  habitualMidsleepSec: Int? = nil) -> Int? {
+        guard let group = SleepStageTotals.mainNightGroupIndices(
+            blocks, offsetSec: offsetSec, habitualMidsleepSec: habitualMidsleepSec) else { return nil }
+        return group.map { blocks[$0].start }.min()
+    }
+
+    /// The end of day D's cycle, which the scoring pass supplies once it knows D+1: D+1's cycle start (its
+    /// main-night onset, or its civil midnight when it has no main night), so D and D+1 meet exactly and
+    /// never overlap. `tailHr` / `tailSteps` are the readings between the end of D's read window and `end`
+    /// (a late sleeper's hours after midnight); empty when `end` falls inside the window.
+    public struct CycleEnd: Sendable {
+        public let end: Int
+        public let tailHr: [HRSample]
+        public let tailSteps: [StepSample]
+
+        public init(end: Int, tailHr: [HRSample] = [], tailSteps: [StepSample] = []) {
+            self.end = end; self.tailHr = tailHr; self.tailSteps = tailSteps
+        }
+
+        /// The boundary for D, from D+1's cycle start and civil interval.
+        public static func next(cycleStart: Int?, nextDayInterval: Range<Int>) -> Int {
+            cycleStart ?? nextDayInterval.lowerBound
+        }
     }
 
     /// Skip the redundant calendar-day re-read in analyzeRecent's per-day scan (#997, ryanbr). For a
@@ -350,6 +387,10 @@ public enum AnalyticsEngine {
                                   // its real length. nil keeps the legacy fixed-offset 86,400 s bucket for
                                   // pure-function callers/tests.
                                   dayInterval: Range<Int>? = nil,
+                                  // Where the day's Effort cycle ends (AN-05): the next day's cycle start,
+                                  // supplied by the pass with any readings past the read window. nil (today,
+                                  // pure callers) runs the cycle to the last reading.
+                                  cycleEnd: CycleEnd? = nil,
                                   // Off-wrist `[start, end)` intervals (unix seconds) for the off-wrist
                                   // sleep backstop (#500), paired from WRIST_OFF/WRIST_ON events by
                                   // `offWristIntervals`. The HR-gap proxy in detectSleep is the always-on
@@ -793,8 +834,9 @@ public enum AnalyticsEngine {
         // The HR-derived whole-day calorie estimate includes resting energy, so it is NOT a valid
         // active-energy floor. Until a source supplies a genuine active-energy aggregate, V2 leaves
         // that optional input absent. Sleep and step floors remain non-additive with cardio load.
-        let mainSleepStart = matched.map(\.start).min()
-        let mainSleepEnd = matched.map(\.end).max()
+        // AN-05: the physiological day runs sleep-to-sleep, from this day's main-night onset (the same
+        // selector as the sleep rollup) to the next day's cycle start, which only the pass knows.
+        let cycleStartTs = mainGroup.map(\.start).min()
         // Store reads are chronological. Merge the overlapping night/calendar arrays in O(n), retaining
         // the maximum BPM for equal seconds (the defensive scorer's sorted duplicate semantics). Pure
         // callers that provide unsorted fixtures fall back to the same defensive sort.
@@ -826,7 +868,8 @@ public enum AnalyticsEngine {
             }
             return result
         }
-        let mergedCycleHr = mergedChronologicalHR(hr, dayHr ?? [])
+        let cycleTailHr = (cycleEnd?.tailHr ?? []).filter { isSafeTimelineTimestamp($0.ts) }
+        let mergedCycleHr = mergedChronologicalHR(mergedChronologicalHR(hr, dayHr ?? []), cycleTailHr)
         func mergedChronologicalSteps(_ lhs: [StepSample], _ rhs: [StepSample]) -> [StepSample] {
             let orderedL = zip(lhs, lhs.dropFirst()).allSatisfy { $0.ts <= $1.ts }
             let orderedR = zip(rhs, rhs.dropFirst()).allSatisfy { $0.ts <= $1.ts }
@@ -843,20 +886,24 @@ public enum AnalyticsEngine {
             }
             return result
         }
-        let mergedCycleSteps = mergedChronologicalSteps(steps, daySteps ?? [])
-        let nextSleepStart: Int? = mainSleepEnd.flatMap { end in
-            matched
-                .filter { $0.end - $0.start >= 3 * 3_600 && $0.start >= end + 8 * 3_600 }
-                .map(\.start)
-                .min()
+        let cycleTailSteps = (cycleEnd?.tailSteps ?? []).filter { isSafeTimelineTimestamp($0.ts) }
+        let mergedCycleSteps = mergedChronologicalSteps(
+            mergedChronologicalSteps(steps, daySteps ?? []), cycleTailSteps)
+        // With no main night the cycle starts at the civil midnight. It ends where the pass says the next
+        // cycle starts; without that (today, pure callers) a slept day runs to the last reading and an
+        // unslept day to its civil end. Both cases read the merged, plausibility-filtered, chronological
+        // stream, which is what `strainSorted` requires.
+        let cycleFrom = cycleStartTs ?? dayBounds.lowerBound
+        let cycleTo: Int
+        if let end = cycleEnd?.end {
+            cycleTo = max(cycleFrom, end)
+        } else if cycleStartTs == nil {
+            cycleTo = dayBounds.upperBound
+        } else {
+            cycleTo = mergedCycleHr.last.map { $0.ts + 1 } ?? cycleFrom
         }
-        let cycleEnd = nextSleepStart ?? (mergedCycleHr.last.map { $0.ts + 1 } ?? 0)
-        let cycleHr = mainSleepStart.map { start in
-            mergedCycleHr.filter { $0.ts >= start && $0.ts < cycleEnd }
-        } ?? dayHrFiltered
-        let cycleStepRows = mainSleepStart.map { start in
-            mergedCycleSteps.filter { $0.ts >= start && $0.ts < cycleEnd }
-        } ?? (daySteps ?? steps).filter { tsInDay($0.ts) }
+        let cycleHr = mergedCycleHr.filter { $0.ts >= cycleFrom && $0.ts < cycleTo }
+        let cycleStepRows = mergedCycleSteps.filter { $0.ts >= cycleFrom && $0.ts < cycleTo }
         let cycleStepsTotal: Int? = {
             guard let ticks = StepsCounter.stepsInWindow(cycleStepRows) else { return nil }
             let scaled = Int((Double(ticks) / max(profile.stepTicksPerStep, 0.5)).rounded())
@@ -955,7 +1002,8 @@ public enum AnalyticsEngine {
                          sessionMotionByStart: sessionMotionByStart,
                          sessionSleepStateByStart: sessionSleepStateByStart,
                          chargeDrivers: chargeDrivers,
-                         skinTempRelative: skinTempRelative)
+                         skinTempRelative: skinTempRelative,
+                         cycleStart: cycleStartTs)
     }
 
     // MARK: - Rest composite (Charge/Effort/Rest)
