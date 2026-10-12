@@ -55,7 +55,6 @@ struct AutomationsView: View {
             #if os(iOS)
             Section {
                 Toggle("Enable wrist alerts", isOn: $wristAlertsMaster)
-                    .font(.caption)
             } header: {
                 Text("Alerts")
             } footer: {
@@ -67,10 +66,8 @@ struct AutomationsView: View {
                 Picker("When I double-tap", selection: $behavior.doubleTapAction) {
                     ForEach(doubleTapOptions) { Text($0.label).tag($0) }
                 }
-                .font(.caption)
                 if behavior.doubleTapAction == .runShortcut {
                     TextField("Shortcut name", text: $behavior.doubleTapShortcut)
-                        .font(.caption)
                         .autocorrectionDisabled()
                 }
                 Button("Test Double-tap Action") {
@@ -85,10 +82,8 @@ struct AutomationsView: View {
 
             Section {
                 TextField("Shortcut when taken off", text: $behavior.wristOffShortcut)
-                    .font(.caption)
                     .autocorrectionDisabled()
                 TextField("Shortcut when put back on", text: $behavior.wristOnShortcut)
-                    .font(.caption)
                     .autocorrectionDisabled()
             } header: {
                 Text("Wear and presence")
@@ -97,12 +92,12 @@ struct AutomationsView: View {
             }
 
             Section {
-                Toggle("HR-zone coaching", isOn: $behavior.zoneCoaching).font(.caption)
-                Toggle("Stress check-ins", isOn: $behavior.stressCheckIn).font(.caption)
+                Toggle("HR-zone coaching", isOn: $behavior.zoneCoaching)
+                Toggle("Stress check-ins", isOn: $behavior.stressCheckIn)
                 if behavior.stressCheckIn {
-                    Toggle("Auto-nudge", isOn: $behavior.stressAutoNudge).font(.caption)
-                    Toggle("Respect quiet hours", isOn: $behavior.stressQuietHours).font(.caption)
-                    Toggle("Use my resonance pace", isOn: $behavior.stressUseResonancePace).font(.caption)
+                    Toggle("Auto-nudge", isOn: $behavior.stressAutoNudge)
+                    Toggle("Respect quiet hours", isOn: $behavior.stressQuietHours)
+                    Toggle("Use my resonance pace", isOn: $behavior.stressUseResonancePace)
                 }
             } header: {
                 Text("Coaching")
@@ -111,19 +106,16 @@ struct AutomationsView: View {
             }
 
             Section {
-                Toggle("Inactivity reminder", isOn: $inactivity.enabled).font(.caption)
+                Toggle("Inactivity reminder", isOn: $inactivity.enabled)
                 if inactivity.enabled {
                     Stepper("Sitting for \(inactivity.thresholdMinutes) min", value: $inactivity.thresholdMinutes, in: 15...120, step: 15)
-                        .font(.caption)
                     Stepper("Re-nudge every \(inactivity.reNudgeMinutes) min", value: $inactivity.reNudgeMinutes, in: 15...120, step: 15)
-                        .font(.caption)
                     Stepper("Buzz strength \(inactivity.buzzLoops)×", value: $inactivity.buzzLoops, in: 1...4)
-                        .font(.caption)
-                    Toggle("Only when worn", isOn: onlyWhenWornBinding).font(.caption)
-                    Toggle("Only during active hours", isOn: $inactivity.activeHoursEnabled).font(.caption)
+                    Toggle("Only when worn", isOn: onlyWhenWornBinding)
+                    Toggle("Only during active hours", isOn: $inactivity.activeHoursEnabled)
                     if inactivity.activeHoursEnabled {
-                        DatePicker("From", selection: activeStartBinding, displayedComponents: .hourAndMinute).font(.caption)
-                        DatePicker("To", selection: activeEndBinding, displayedComponents: .hourAndMinute).font(.caption)
+                        DatePicker("From", selection: activeStartBinding, displayedComponents: .hourAndMinute)
+                        DatePicker("To", selection: activeEndBinding, displayedComponents: .hourAndMinute)
                     }
                 }
             } header: {
@@ -134,20 +126,18 @@ struct AutomationsView: View {
 
             Section {
                 Toggle("Illness early-warning", isOn: $behavior.illnessWatch)
-                    .font(.caption)
                     .onChangeCompat(of: behavior.illnessWatch) { enabled in
                         model.reevaluateIllness()
                         if enabled { IllnessNotifier.requestAuthorization() }
                     }
                 if cycleOptInApplies {
                     Toggle("Cycle awareness", isOn: $cycleAwareness)
-                        .font(.caption)
                         .onChangeCompat(of: cycleAwareness) { enabled in
                             model.cycleAwarenessEnabled = enabled
                             Task { await model.refreshV5Signals() }
                         }
                 }
-                Toggle("Rhythm visualization", isOn: $rhythmEnabled).font(.caption)
+                Toggle("Rhythm visualization", isOn: $rhythmEnabled)
                 if rhythmEnabled {
                     Button("Open Rhythm") { router.openRhythm() }
                 }
@@ -159,7 +149,6 @@ struct AutomationsView: View {
 
             Section {
                 Toggle("Low and full battery alerts", isOn: $behavior.batteryAlerts)
-                    .font(.caption)
                     .onChangeCompat(of: behavior.batteryAlerts) { enabled in
                         if enabled { BatteryNotifier.requestAuthorization() }
                     }
@@ -169,7 +158,7 @@ struct AutomationsView: View {
                 Text("Notifies at low battery and again when charging reaches full, at most once per charge cycle.")
             }
         }
-        .navigationTitle("Notifications & Alerts")
+        .navigationTitle("Notifications & alerts")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif

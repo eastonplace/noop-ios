@@ -28,6 +28,8 @@ final class NavRouter: ObservableObject {
         case trends
         case activeWorkout
         case liveSession
+        /// A deep-link key for Updates items (and callers that predate `openSettings`). The shell answers it by
+        /// presenting the Settings sheet, the same as `openSettings()`.
         case settings
         case updates
 
@@ -49,6 +51,11 @@ final class NavRouter: ObservableObject {
     /// in the iOS shell). The shell presents it, then resets this to false.
     @Published var quickActionsRequested = false
 
+    /// The Settings sheet a screen has asked the shell to open, or nil once handled. A route deep-links to one
+    /// Settings page; nil opens the Settings root. Each request is its own identity, so asking twice for the same page
+    /// is two requests. The iOS shell presents the sheet, then resets this to nil.
+    @Published var settingsRequest: SettingsSheetRequest?
+
     /// One-shot: `LiveView` reads this on appear to present the in-exercise screen for an already-running
     /// workout (routing alone only reaches the Live root), then clears it. A normal Live visit is
     /// unaffected, since the flag is only raised by `openActiveWorkout()` from the Today indicator card.
@@ -59,6 +66,11 @@ final class NavRouter: ObservableObject {
     /// Set by the lift Live Activity deep link (`noop://lift/active`). The iOS shell presents the Lift flow
     /// (which resumes an active session on its own), then resets this to false.
     @Published var activeLiftRequested = false
+
+    /// Counts the times a screen asked for the live workout or the Lift flow by hand (the Today indicator, a Live
+    /// Activity tap). The auto-present policy reads it to learn that the surface it was holding back was opened on
+    /// request, so closing it does not bring it back.
+    @Published private(set) var workoutRequestCount = 0
 
     /// Which workout screens (the live run, the Lift flow) are on screen right now, wherever they were
     /// presented from. Deliberately not `@Published`: it is only read at the moments the shell decides
@@ -89,9 +101,16 @@ final class NavRouter: ObservableObject {
     /// Open the active workout: route to the Live surface AND raise the one-shot flag so `LiveView`
     /// presents the in-exercise screen even when the workout is already running, in one tap from the Today
     /// indicator card. The flag is consumed (and cleared) by `LiveView.consumeActiveWorkoutRequest()`.
-    func openActiveWorkout() { presentActiveWorkout = true; requestedDestination = .activeWorkout }
+    func openActiveWorkout() {
+        workoutRequestCount += 1
+        presentActiveWorkout = true
+        requestedDestination = .activeWorkout
+    }
     /// Open the in-flight Lift session (the lift Live Activity's deep link).
-    func openActiveLift() { activeLiftRequested = true }
+    func openActiveLift() {
+        workoutRequestCount += 1
+        activeLiftRequested = true
+    }
 
     func workoutSurfaceDidAppear(_ id: UUID) { workoutSurfaces.appeared(id) }
     func workoutSurfaceDidDisappear(_ id: UUID) { workoutSurfaces.disappeared(id) }
@@ -107,7 +126,9 @@ final class NavRouter: ObservableObject {
     /// directly today; this route exists for deep-link parity so a future shell/inbox item can raise it
     /// the same way as every other destination.
     func openLiveSession() { requestedDestination = .liveSession }
-    func openSettings() { requestedDestination = .settings }
+    /// Open Settings, a sheet over whatever the person is looking at. `route` lands on one page (the profile page, say)
+    /// instead of the Settings root.
+    func openSettings(_ route: SettingsRouteID? = nil) { settingsRequest = SettingsSheetRequest(route: route) }
     func openUpdates() { requestedDestination = .updates }
 }
 

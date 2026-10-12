@@ -271,7 +271,7 @@ struct TestCentreView: View {
                     // Recalibrate Charge baseline: the same Baselines.recalibrateRecoveryBaselines call the
                     // Settings Recovery card uses.
                     NavigationLink {
-                        SettingsDetailHost(destination: .scoringBaselines)
+                        SettingsDetailHost(destination: .personalProfile)
                     } label: {
                         DeviceCommandNavigationRow(
                             title: "Recovery baseline settings",

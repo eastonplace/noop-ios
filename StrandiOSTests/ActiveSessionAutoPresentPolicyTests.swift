@@ -184,6 +184,64 @@ final class ActiveSessionAutoPresentPolicyTests: XCTestCase {
         XCTAssertNil(policy.otherPresentationEnded(context(run: true)))
     }
 
+    // MARK: Opened on request while blocked
+
+    /// A Live Activity tap while Settings is up: the policy held the run back for the Settings sheet, then the
+    /// shell closed Settings and opened the workout itself. Closing that workout must not bring it back.
+    func testARunOpenedOnRequestWhileBlockedIsNotRepresentedAfterItsDismissal() {
+        var policy = Policy()
+        XCTAssertNil(policy.sceneBecameActive(context(run: true, otherPresentation: true)))
+
+        policy.workoutOpenedByRequest()
+
+        // The workout was on screen and got dismissed; the shell's blocker flag then flips and the retry runs.
+        XCTAssertNil(policy.otherPresentationEnded(context(run: true)))
+    }
+
+    func testALiftOpenedOnRequestWhileBlockedIsNotRepresentedAfterItsDismissal() {
+        var policy = Policy()
+        XCTAssertNil(policy.sceneBecameActive(context(lift: true, otherPresentation: true)))
+
+        policy.workoutOpenedByRequest()
+
+        XCTAssertNil(policy.otherPresentationEnded(context(lift: true)))
+    }
+
+    func testALateLiftRestoreHeldBackThenOpenedOnRequestIsNotRepresented() {
+        var policy = Policy()
+        XCTAssertNil(policy.sceneBecameActive(context(otherPresentation: true)))
+        XCTAssertNil(policy.liftSessionRestored(context(lift: true, otherPresentation: true)))
+
+        policy.workoutOpenedByRequest()
+
+        XCTAssertNil(policy.otherPresentationEnded(context(lift: true)))
+    }
+
+    /// The request can also land before the foreground edge is evaluated (the tap that launches the app): the
+    /// edge then has nothing left to present, and neither does a lift that finishes restoring afterwards.
+    func testARequestBeforeTheForegroundEdgeSpendsTheSession() {
+        var run = Policy()
+        run.workoutOpenedByRequest()
+        XCTAssertNil(run.sceneBecameActive(context(run: true, otherPresentation: true)))
+        XCTAssertNil(run.otherPresentationEnded(context(run: true)))
+
+        var lift = Policy()
+        lift.workoutOpenedByRequest()
+        XCTAssertNil(lift.sceneBecameActive(context(lift: true, otherPresentation: true)))
+        XCTAssertNil(lift.liftSessionRestored(context(lift: true, otherPresentation: true)))
+        XCTAssertNil(lift.otherPresentationEnded(context(lift: true)))
+    }
+
+    func testARequestOnlyCoversTheSessionItWasMadeIn() {
+        var policy = Policy()
+        XCTAssertNil(policy.sceneBecameActive(context(run: true, otherPresentation: true)))
+        policy.workoutOpenedByRequest()
+
+        policy.sceneEnteredBackground()
+
+        XCTAssertEqual(policy.sceneBecameActive(context(run: true)), .run)
+    }
+
     func testALateLiftRestoreBlockedByAModalRetriesAsALift() {
         var policy = Policy()
         XCTAssertNil(policy.sceneBecameActive(context(otherPresentation: true)))

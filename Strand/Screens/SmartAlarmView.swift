@@ -67,17 +67,13 @@ struct SmartAlarmView: View {
         NativeSettingsList {
             Section {
                 Toggle("Strap alarm", isOn: $behavior.smartAlarmEnabled)
-                    .font(.caption)
                 Picker("Wake mode", selection: SleepAlarmEditorSupport.modeBinding(alarmMode)) {
                     ForEach(wakeModes) { mode in
                         Text(mode.title).tag(mode.id).disabled(!mode.isAvailable)
                     }
                 }
-                .font(.caption)
                 DatePicker("Wake time", selection: alarmTimeBinding, displayedComponents: .hourAndMinute)
-                    .font(.caption)
                 LabeledContent("Backup notification", value: alarmRuntime.backupStatus)
-                    .font(.caption)
                 Button("Test Strap Alarm") { model.buzzStrapOnce() }
             } header: {
                 Text("Wake alarm")
@@ -99,7 +95,6 @@ struct SmartAlarmView: View {
                             }
                         )
                     )
-                    .font(.caption)
                 }
             } header: {
                 Text("Alarm days")
@@ -109,7 +104,6 @@ struct SmartAlarmView: View {
 
             Section {
                 Toggle("Wind-down reminder", isOn: $windDownOn)
-                    .font(.caption)
                     .onChangeCompat(of: windDownOn) { enabled in
                         WindDownNudge.setEnabled(enabled) { outcome in
                             switch outcome {
@@ -123,11 +117,8 @@ struct SmartAlarmView: View {
                     }
                 if windDownOn {
                     DatePicker("Default wake time", selection: wakeBinding, displayedComponents: .hourAndMinute)
-                        .font(.caption)
                     LabeledContent("Reminder time", value: Self.windDownTimeLabel(WindDownNudge.nudgeMinuteOfDay()))
-                        .font(.caption)
                     Toggle("Different time per day", isOn: $perDayOn)
-                        .font(.caption)
                         .onChangeCompat(of: perDayOn) { enabled in
                             if !enabled {
                                 WindDownNudge.setWakeOverrides([:])
@@ -149,7 +140,6 @@ struct SmartAlarmView: View {
                             selection: overrideBinding(weekday, effective: overrides[weekday] ?? wakeMinutes),
                             displayedComponents: .hourAndMinute
                         )
-                        .font(.caption)
                     }
                 }
             }
@@ -157,14 +147,13 @@ struct SmartAlarmView: View {
             if let evidence = alarmRuntime.evidence {
                 Section("Last evaluation") {
                     LabeledContent("Decision", value: Self.decisionWord(evidence.decision))
-                        .font(.caption)
                     Text(evidence.reason)
-                        .font(.caption)
+                        .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
             }
         }
-        .navigationTitle("Sleep & Alarm")
+        .navigationTitle("Sleep & alarm")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif

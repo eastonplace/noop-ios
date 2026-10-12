@@ -35,7 +35,28 @@ struct BackupSyncView: View {
         #endif
     }
 
-    init() {
+    /// The title of the native page, and the sections it shows between Restore and the privacy note. Backup & Export
+    /// passes the manual backup and the Shortcuts export here, so the three used to be separate pages are one.
+    private let nativeTitle: LocalizedStringKey
+    private let extra: AnyView
+    private let carriesExtraSections: Bool
+
+    /// Backup & Sync alone: the native list in the Settings sheet, the older scaffold anywhere else.
+    init(title: LocalizedStringKey = "Backup & Sync") {
+        self.init(title: title, extra: AnyView(EmptyView()), carriesExtraSections: false)
+    }
+
+    /// Backup & Export: the extra sections (manual backup, Shortcuts export) can only be placed by the native list,
+    /// so this page draws it in every presentation. A bare `SettingsView()` pushed into a tab's stack (Fitness Age's
+    /// "Review profile") does not set the sheet presentation and would otherwise lose them.
+    init<Extra: View>(title: LocalizedStringKey, @ViewBuilder extra: () -> Extra) {
+        self.init(title: title, extra: AnyView(extra()), carriesExtraSections: true)
+    }
+
+    private init(title: LocalizedStringKey, extra: AnyView, carriesExtraSections: Bool) {
+        self.nativeTitle = title
+        self.extra = extra
+        self.carriesExtraSections = carriesExtraSections
         #if DEBUG
         if AppleDemoSeeder.requested {
             _folderLabel = State(initialValue: "Demo Backup Folder")
@@ -44,9 +65,15 @@ struct BackupSyncView: View {
         #endif
     }
 
+    /// Whether the page draws the native list. The sheet always does; a page that carries extra sections does too,
+    /// because the older scaffold has no place for them.
+    static func usesNativeList(presentation: ScreenScaffoldPresentation, carriesExtraSections: Bool) -> Bool {
+        presentation == .settingsDetail || carriesExtraSections
+    }
+
     var body: some View {
         Group {
-            if presentation == .settingsDetail {
+            if Self.usesNativeList(presentation: presentation, carriesExtraSections: carriesExtraSections) {
                 nativeSettingsBody
             } else {
                 ScreenScaffold(
@@ -92,7 +119,6 @@ struct BackupSyncView: View {
         NativeSettingsList {
             Section {
                 LabeledContent("Folder", value: folderLabel ?? "Not selected")
-                    .font(.caption)
                 Button(folderLabel == nil ? "Choose Folder…" : "Change Folder…") { chooseFolder() }
                     .disabled(busy)
             } header: {
@@ -103,14 +129,12 @@ struct BackupSyncView: View {
 
             Section {
                 Toggle("Daily auto-backup", isOn: $auto)
-                    .font(.caption)
                     .disabled(folderLabel == nil)
                     .onChangeCompat(of: auto) { enabled in FolderBackup.autoEnabled = enabled }
                 LabeledContent(
                     "Last backup",
                     value: lastMs > 0 ? relativeTime(lastMs) : "Never"
                 )
-                .font(.caption)
                 Button("Back Up Now") { backupNow() }
                     .disabled(folderLabel == nil || busy)
                 if busy {
@@ -118,7 +142,6 @@ struct BackupSyncView: View {
                         ProgressView()
                         Text("Working…")
                     }
-                    .font(.caption)
                 }
             } header: {
                 Text("Automatic backup")
@@ -131,7 +154,7 @@ struct BackupSyncView: View {
                     .disabled(folderLabel == nil || busy)
                 if let operationFailure {
                     Text(operationFailure.message)
-                        .font(.caption)
+                        .font(.subheadline)
                         .foregroundStyle(.red)
                     Button(operationFailure.actionTitle) { retry(operationFailure.retry) }
                 }
@@ -141,15 +164,17 @@ struct BackupSyncView: View {
                 Text("Restore replaces the current local database. NOOP asks for confirmation before it changes data.")
             }
 
+            extra
+
             Section {
                 Text("A .noopbak file is an unencrypted copy of your health database. Protect any folder that contains one.")
-                    .font(.caption)
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
             } header: {
                 Text("Privacy")
             }
         }
-        .navigationTitle("Backup & Sync")
+        .navigationTitle(nativeTitle)
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
@@ -365,7 +390,7 @@ struct BackupSyncView: View {
                     )
                     operationFailure = BackupOperationFailure(
                         title: String(localized: "Large backup"),
-                        message: String(localized: "This backup is above the normal \(cap) database limit. Use Settings → Data → Import Backup to review the explicit large-restore warning."),
+                        message: String(localized: "This backup is above the normal \(cap) database limit. Use Settings → Backup & Export → Import Full Backup… to review the explicit large-restore warning."),
                         retry: .restore(snap),
                         actionTitle: "Try again"
                     )

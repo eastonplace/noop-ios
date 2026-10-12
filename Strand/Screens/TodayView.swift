@@ -588,9 +588,8 @@ struct TodayView: View {
     // width then). Only changes on a genuine width change (rotation / size class), never on the ~1 Hz
     // live-HR re-render, so this @State doesn't add to the body-eval flood the type note warns about.
     @State private var heroRingRowWidth: CGFloat = 0
-    // iOS top-bar state: the date-jump popover and the profile/settings sheet.
+    // iOS top-bar state: the date-jump popover.
     @State private var showDayPicker = false
-    @State private var showSettings = false
     @State private var showStartSport = false
     @State private var showLiveWorkout = false
     /// The Updates inbox sheet (opened by the header bell). Shared across both platforms.
@@ -1608,36 +1607,6 @@ struct TodayView: View {
         )
     }
 
-    /// Paper root header. R7 removes the prototype selector and T08 moves quick actions to the
-    /// Today-only FAB, while preserving date navigation, status, updates, and Settings routes.
-    private var todayHeaderStatus: some View {
-        HStack(spacing: 8) {
-            Button { showUpdatesInbox = true } label: {
-                Image(systemName: updateStore.unreadCount > 0
-                      ? "arrow.triangle.2.circlepath.circle.fill"
-                      : "arrow.triangle.2.circlepath")
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundStyle(StrandPalette.textSecondary)
-                    .frame(width: 32, height: 32)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Updates")
-            Button {
-                StrandHaptic.selection.play(); router.openDevices()
-            } label: {
-                TodayHeaderBatteryStatus()
-            }
-            .buttonStyle(.plain)
-            Button { showSettings = true } label: {
-                ProfileAvatarView(imageData: profile.avatarImageData, size: 30)
-                    .contentShape(Circle())
-                    .frame(width: 32, height: 32)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Profile and settings")
-        }
-    }
-
     @ViewBuilder private var todayTopBar: some View {
         HStack(alignment: .firstTextBaseline) {
             Text("TODAY")
@@ -1676,26 +1645,6 @@ struct TodayView: View {
                 .animation(reduceMotion ? nil : StrandMotion.fade, value: selectedDayOffset)
         }
     }
-
-    /// Settings presented as a sheet from the top-bar profile button (sheets inherit the app
-    /// environment on iOS, so SettingsView gets the same objects it has under the More tab).
-    private var settingsSheet: some View {
-        NavigationStack {
-            SettingsView()
-                .background(StrandPalette.surfaceBase.ignoresSafeArea())
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button("Done") { showSettings = false }.foregroundStyle(StrandPalette.accent)
-                    }
-                }
-        }
-        .settingsSheetScreenScaffoldEnvironment()
-    }
-    #endif
-
-    #if !os(iOS)
-    private var todayHeaderStatus: some View { EmptyView() }
     #endif
 
     /// The Updates "ringer": a bell button (~30pt) with a small gold unread-count badge. Tapping opens
@@ -2180,8 +2129,7 @@ struct TodayView: View {
                        lazy: true,
                        // R7: Paper is the one Today surface. The retired day-scene preference remains
                        // stored for compatibility but no longer changes the rendered root.
-                       topBackground: nil,
-                       trailing: { todayHeaderStatus }) {
+                       topBackground: nil) {
             VStack(alignment: .leading, spacing: NoopMetrics.gap) {
                 #if os(iOS)
                 todayTopBar
@@ -2310,8 +2258,6 @@ struct TodayView: View {
             }
         }
         #else
-        // Profile/settings from the top-bar button.
-        .sheet(isPresented: $showSettings) { settingsSheet }
         .sheet(isPresented: $showLiveWorkout) {
             LiveWorkoutView(onClose: { showLiveWorkout = false })
                 .environmentObject(model.live)
@@ -5245,40 +5191,6 @@ struct TodayView: View {
     /// time range (#157). The "jmm" skeleton respects the device's 12-/24-hour setting (#337): "7:10 AM"
     /// where 12-hour is preferred, "19:10" where 24-hour is, instead of forcing one on everyone.
     static var hrTimeFmt: DateFormatter { AppClock.hourMinuteFormatter() }
-}
-
-/// Compact top-bar connection read. Isolated from `TodayView` so the high-frequency LiveState
-/// publisher cannot invalidate the dashboard; it only redraws this tiny leaf when battery or link
-/// state changes. A percentage appears only for a real reading—never a seeded/fabricated fallback.
-private struct TodayHeaderBatteryStatus: View {
-    @EnvironmentObject private var live: LiveState
-
-    private var statusColor: Color {
-        live.connected ? StrandPalette.statusPositive : StrandPalette.textTertiary
-    }
-
-    var body: some View {
-        HStack(spacing: 4) {
-            MicroStatusDot(color: statusColor)
-            if live.connected, let pct = live.batteryPct {
-                Text("\(Int(pct.rounded()))%")
-                    .font(StrandFont.micro.weight(.semibold))
-                    .monospacedDigit()
-                    .foregroundStyle(StrandPalette.textSecondary)
-            }
-        }
-        .padding(.horizontal, 6)
-        .frame(minWidth: 32, minHeight: 32)
-        .contentShape(Rectangle())
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(accessibilityLabel)
-    }
-
-    private var accessibilityLabel: String {
-        guard live.connected else { return "Devices, strap disconnected" }
-        guard let pct = live.batteryPct else { return "Devices, strap connected, battery unavailable" }
-        return "Devices, strap connected, battery \(Int(pct.rounded())) percent"
-    }
 }
 
 /// `.task(id:)` key combining the data refresh sequence with the selected day so a reload runs on

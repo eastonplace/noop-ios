@@ -54,6 +54,17 @@ struct ActiveSessionAutoPresentPolicy: Equatable {
         return decide(context, allowRun: true)
     }
 
+    /// The person (or a Live Activity tap) asked for a workout screen, and the shell is opening it itself, which is
+    /// not a surface `decide` can see from outside: the shell closes whatever sheet was up first and presents the
+    /// workout a moment later, and nothing evaluates the policy while that workout is on screen. Anything held back
+    /// is dropped, and the session's one chance is spent, in either order against the foreground edge, so closing
+    /// the workout never re-opens it. A new foreground session starts afresh.
+    mutating func workoutOpenedByRequest() {
+        awaitingForegroundEdge = false
+        presentedThisForeground = true
+        blockedTarget = nil
+    }
+
     /// A persisted lift session finished loading after launch. Considers only the lift, so a run the user
     /// already dismissed this session is never brought back by it.
     mutating func liftSessionRestored(_ context: Context) -> Target? {

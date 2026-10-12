@@ -67,4 +67,27 @@ final class TabSlotWidthsTests: XCTestCase {
         XCTAssertEqual(TabSlotWidths.widths(ideals: [10, 10], total: 0), [0, 0])
         XCTAssertEqual(TabSlotWidths.widths(ideals: [10, 10], total: -5), [0, 0])
     }
+
+    /// Four tabs and the quick-actions button between them: the button is on the centre line of the row, whatever the
+    /// labels on either side need.
+    func testTheQuickActionsSlotIsCentredInFiveSlots() {
+        let widths = TabSlotWidths.widths(ideals: [60, 80, 36, 70, 50], total: 402)
+        let centred = TabSlotWidths.centredMiddle(widths)
+        XCTAssertEqual(centred.reduce(0, +), 402, accuracy: 0.001)
+        XCTAssertEqual(centred[2], widths[2], accuracy: 0.001, "the button keeps its own width")
+        XCTAssertEqual(centred[0] + centred[1], centred[3] + centred[4], accuracy: 0.001)
+        XCTAssertEqual(centred[0] + centred[1] + centred[2] / 2, 201, accuracy: 0.001)
+    }
+
+    func testCentringLeavesAnEvenCountAndAnAlreadyCentredRowAlone() {
+        XCTAssertEqual(TabSlotWidths.centredMiddle([80, 80, 80, 80]), [80, 80, 80, 80])
+        XCTAssertEqual(TabSlotWidths.centredMiddle([80, 80, 80, 80, 80]), [80, 80, 80, 80, 80])
+        XCTAssertEqual(TabSlotWidths.centredMiddle([]), [])
+    }
+
+    func testCentringNeverTakesASlotUnderTheTouchTarget() {
+        // Scaling the right pair down to the left pair's share would take the 44pt slot under the target.
+        let widths: [CGFloat] = [100, 100, 50, 44, 164]
+        XCTAssertEqual(TabSlotWidths.centredMiddle(widths), widths)
+    }
 }

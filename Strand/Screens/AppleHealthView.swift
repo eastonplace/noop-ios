@@ -52,11 +52,9 @@ struct AppleHealthSettingsView: View {
         NativeSettingsList {
             Section {
                 LabeledContent("Status", value: statusLabel)
-                    .font(.caption)
 
                 if let lastSync = health.lastSync {
                     LabeledContent("Last sync", value: lastSync.formatted(date: .abbreviated, time: .shortened))
-                        .font(.caption)
                 }
 
                 primaryAction
@@ -66,12 +64,11 @@ struct AppleHealthSettingsView: View {
                         ProgressView()
                         Text("Syncing Apple Health…")
                     }
-                    .font(.caption)
                 }
 
                 if let error = health.lastError {
                     Text(error)
-                        .font(.caption)
+                        .font(.subheadline)
                         .foregroundStyle(.red)
                 }
             } header: {
@@ -82,19 +79,19 @@ struct AppleHealthSettingsView: View {
 
             Section("Data NOOP reads") {
                 Text("Heart rate, HRV, blood oxygen, respiratory rate, sleep, steps, energy, workouts, VO₂ max, weight, body fat, lean mass, and BMI")
-                    .font(.caption)
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
 
             Section("Data NOOP writes") {
                 Text("NOOP-computed strap metrics, sleep, workouts, heart rate, energy, and distance where Apple Health grants write access")
-                    .font(.caption)
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
 
             Section {
                 Text("Apple Health data is processed and stored on this iPhone. NOOP does not upload it.")
-                    .font(.caption)
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
             } header: {
                 Text("Privacy")
@@ -144,26 +141,26 @@ struct AppleHealthSettingsView: View {
 
     private var statusLabel: String {
         switch health.auth {
-        case .unknown: "Not enabled"
-        case .unavailable: "Unavailable"
-        case .denied: "Permission needed"
-        case .authorized: health.syncing ? "Syncing" : "Connected"
-        case .entitlementMissing: "Unsupported by this build"
+        case .unknown: String(localized: "Not enabled")
+        case .unavailable: String(localized: "Unavailable")
+        case .denied: String(localized: "Permission needed")
+        case .authorized: health.syncing ? String(localized: "Syncing") : String(localized: "Connected")
+        case .entitlementMissing: String(localized: "Unsupported by this build")
         }
     }
 
     private var connectionExplanation: String {
         switch health.auth {
         case .unknown:
-            "Enable Apple Health to read and write the categories listed below. You choose each permission in Apple's system sheet."
+            String(localized: "Enable Apple Health to read and write the categories listed below. You choose each permission in Apple's system sheet.")
         case .unavailable:
-            "Apple Health is not available on this device."
+            String(localized: "Apple Health is not available on this device.")
         case .denied:
-            "Allow access in iOS Settings to resume Apple Health sync."
+            String(localized: "Allow access in iOS Settings to resume Apple Health sync.")
         case .authorized:
-            "NOOP reads on launch and when you return to the app. Sync Now requests an immediate refresh."
+            String(localized: "NOOP reads on launch and when you return to the app. Sync Now requests an immediate refresh.")
         case .entitlementMissing:
-            "This installed build was signed without Apple's HealthKit entitlement. File import remains available and does not require that entitlement."
+            String(localized: "This installed build was signed without Apple's HealthKit entitlement. File import remains available and does not require that entitlement.")
         }
     }
 }
@@ -173,7 +170,7 @@ struct AppleHealthSettingsView: View {
         NativeSettingsList {
             Section {
                 Text("Live Apple Health access is available in NOOP for iPhone.")
-                    .font(.caption)
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
                 NavigationLink("Import Apple Health Export") { DataSourcesView() }
             } header: {

@@ -23,9 +23,18 @@ struct RootTabView: View {
     /// A routed v5 pillar screen (Insights hub / Lab Book / fused record / Rhythm) presented as a sheet
     /// when a hub row deep-links to it via NavRouter. nil = closed.
     @State private var routedPillar: NavRouter.Destination?
+    /// The Settings sheet (the top bar's profile button, or any caller of `NavRouter.openSettings`). nil = closed.
+    @State private var settingsSheet: SettingsSheetRequest?
+    /// True from the moment `presentAfterClosingSettings` closes the Settings sheet until the presentation it was
+    /// waiting for has been made, so the auto-presenter does not slip a sheet of its own into that gap.
+    @State private var settingsClosing = false
     /// Selected tab — bound so tab switches can crossfade. Defaults to Today.
     @AppStorage(ClockFormatPreference.defaultsKey) private var clockPreference = ClockFormatPreference.system.rawValue
     @State private var selectedTab: Int
+    /// The locale that carries the in-app clock format (12/24-hour) to the pickers and dates under it.
+    private var clockLocale: Locale {
+        clockPreference.isEmpty ? Locale.autoupdatingCurrent : AppClock.formattingLocale
+    }
     /// Paper is the sole Today surface.
     private var todayTabRoot: some View {
         #if DEBUG
@@ -65,11 +74,11 @@ struct RootTabView: View {
             arguments.indices.contains(index + 1) ? arguments[index + 1] : nil
         }
         if let requested = (ProcessInfo.processInfo.environment["NOOP_DEMO_TAB"] ?? argumentTab)?.lowercased() {
+            // "settings" and "more" launch on Today with the Settings sheet up (see `presentQAShellRoute`).
             initialTab = switch requested {
             case "trends": 1
             case "sleep": 2
             case "coach": 4
-            case "more", "settings": 3
             default: 0
             }
         } else if let route = QARoute.requested {
@@ -97,9 +106,8 @@ struct RootTabView: View {
             tab(trendsTabRoot, "Trends", "chart.bar").tag(1)
             tab(coachTabRoot, "Coach", "bubble.left.and.text.bubble.right").tag(4)
             tab(sleepTabRoot, "Sleep", "moon").tag(2)
-            settingsTab.tag(3)
         }
-        .environment(\.locale, clockPreference.isEmpty ? Locale.autoupdatingCurrent : AppClock.formattingLocale)
+        .environment(\.locale, clockLocale)
         .toolbar(.hidden, for: .tabBar)
         .animation(.timingCurve(0.22, 1, 0.36, 1, duration: 0.24), value: selectedTab)
         // Give the bar its own layout space. A TabView can forward an outer safe-area inset
@@ -107,7 +115,7 @@ struct RootTabView: View {
             VStack(spacing: 0) {
             LiftResumeCard(onResume: { showLift = true }).padding(.horizontal, 16)
             PaperTabBar(selection: $selectedTab, onReselect: { tab in
-                // Only Today owns a current-day data refresh. Reselecting Settings, Trends, or Sleep
+                // Only Today owns a current-day data refresh. Reselecting Trends, Coach, or Sleep
                 // must not wake the store or rebuild unrelated health state.
                 guard tab == 0 else { return }
                 Task { _ = await repo.refresh(.currentDay) }
@@ -124,7 +132,8 @@ struct RootTabView: View {
         }
         .background {
             ActiveSessionAutoPresenter(
-                otherPresentationActive: quickAction != nil || showDevices || routedPillar != nil || showLift,
+                otherPresentationActive: quickAction != nil || showDevices || routedPillar != nil || showLift
+                    || settingsSheet != nil || settingsClosing,
                 presentLift: { showLift = true })
         }
         #if DEBUG
@@ -158,16 +167,32 @@ struct RootTabView: View {
         .sheet(item: $routedPillar) { destination in
             pillarScreen(destination)
         }
+        .sheet(item: $settingsSheet) { request in
+            SettingsSheetHost(request: request, onClose: { settingsSheet = nil })
+                // A sheet is outside the TabView, so it needs the in-app clock format's locale itself: Sleep & alarm's
+                // time pickers inside Settings follow the 12/24-hour preference like the Sleep tab's.
+                .environment(\.locale, clockLocale)
+                .presentationDetents([.large])
+                .presentationDragIndicator(.hidden)
+                .presentationBackground(StrandPalette.appCanvas)
+        }
+        .onChange(of: router.settingsRequest) { _, request in
+            guard let request else { return }
+            router.settingsRequest = nil
+            presentSettings(request, afterDismissal: false)
+        }
         .onChange(of: router.requestedDestination) { _, destination in
             switch destination {
             case .devices:
-                showDevices = true
                 router.requestedDestination = nil
+                presentAfterClosingSettings { showDevices = true }
             case .insightsHub, .labBook, .fusedRecord, .rhythm, .updates:
-                routedPillar = destination
                 router.requestedDestination = nil
+                presentAfterClosingSettings { routedPillar = destination }
             case .settings:
-                withAnimation(.timingCurve(0.22, 1, 0.36, 1, duration: 0.24)) { selectedTab = 3 }
+                // The deep-link key an Updates item carries, and any caller that predates `openSettings`. The
+                // Updates sheet that raised it is still dismissing, so wait it out.
+                presentSettings(SettingsSheetRequest(), afterDismissal: true)
                 router.requestedDestination = nil
             case .trends:
                 withAnimation(.timingCurve(0.22, 1, 0.36, 1, duration: 0.24)) { selectedTab = 1 }
@@ -176,8 +201,8 @@ struct RootTabView: View {
                 // iPhone owns a direct active-workout sheet. Clear the legacy LiveView one-shot so a
                 // later diagnostics visit cannot reopen the workout a second time.
                 router.presentActiveWorkout = false
-                withAnimation(Self.sheetEase) { quickAction = .activeWorkout }
                 router.requestedDestination = nil
+                presentAfterClosingSettings { withAnimation(Self.sheetEase) { quickAction = .activeWorkout } }
             case .liveSession:
                 withAnimation(.timingCurve(0.22, 1, 0.36, 1, duration: 0.24)) { selectedTab = 0 }
                 router.requestedDestination = nil
@@ -207,7 +232,8 @@ struct RootTabView: View {
     #if DEBUG
     /// `--noop-qa-route` for the screens the shell itself presents (quick actions, routed pillars).
     private func presentQAShellRoute() async {
-        guard let route = QARoute.requested, case .shell(let target) = route.presentation else { return }
+        guard let route = QARoute.requested ?? (QARoute.demoTabOpensSettings ? .settings : nil),
+              case .shell(let target) = route.presentation else { return }
         // A sheet requested mid-launch can be dropped, so retry until a modal is actually up.
         for attempt in 0..<10 {
             try? await Task.sleep(for: .milliseconds(attempt == 0 ? 1800 : 3500))
@@ -217,6 +243,7 @@ struct RootTabView: View {
             try? await Task.sleep(for: .milliseconds(400))
             switch target {
             case .updates: routedPillar = .updates
+            case .settings: settingsSheet = SettingsSheetRequest(route: QARoute.settingsPage)
             case .rhythm: routedPillar = .rhythm
             case .liveHR: quickAction = .live
             case .breathe: quickAction = .breathe
@@ -233,10 +260,11 @@ struct RootTabView: View {
     /// opens and (because it lands on its start screen) resumes the active session on its own.
     private func openLift() {
         guard !showLift else { return }
-        let shellSheetWasUp = quickAction != nil || showDevices || routedPillar != nil
+        let shellSheetWasUp = quickAction != nil || showDevices || routedPillar != nil || settingsSheet != nil
         quickAction = nil
         showDevices = false
         routedPillar = nil
+        settingsSheet = nil
         if shellSheetWasUp {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { showLift = true }
         } else {
@@ -244,11 +272,49 @@ struct RootTabView: View {
         }
     }
 
+    /// Opens Settings. Any other shell sheet that is up is closed first, and Settings follows once it is gone, because
+    /// SwiftUI drops a sheet presented while another is still on screen (the `openLift` pattern). `afterDismissal` is for a
+    /// caller whose own sheet was closed in the same breath, so it is no longer visible in the state it left behind.
+    // TODO(lane-merge): join ShellModalCollapse (see `presentAfterClosingSettings`)
+    private func presentSettings(_ request: SettingsSheetRequest, afterDismissal: Bool) {
+        let shellSheetWasUp = quickAction != nil || showDevices || routedPillar != nil || showLift || settingsSheet != nil
+        quickAction = nil
+        showDevices = false
+        routedPillar = nil
+        showLift = false
+        settingsSheet = nil
+        if shellSheetWasUp || afterDismissal {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { settingsSheet = request }
+        } else {
+            settingsSheet = request
+        }
+    }
+
+    /// Runs `present` once the Settings sheet is out of the way. SwiftUI drops a sheet presented while another is still on
+    /// screen (and a tab switch under Settings is invisible), so a routed pillar, the Devices sheet, the live workout
+    /// and a Coach request all go through here: with Settings up it is closed first and `present` follows after the
+    /// dismissal, the `openLift` pattern; with nothing up `present` runs at once.
+    // TODO(lane-merge): ShellModalCollapse
+    // The workout lane's ShellModalCollapse collapses every shell modal before presenting; when it lands this helper
+    // and `openLift` hand it Settings along with the rest and this goes away.
+    private func presentAfterClosingSettings(_ present: @escaping () -> Void) {
+        guard let delay = ShellSettingsGate.delay(settingsIsUp: settingsSheet != nil) else {
+            present()
+            return
+        }
+        settingsClosing = true
+        settingsSheet = nil
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+            settingsClosing = false
+            present()
+        }
+    }
+
     private func routePendingCoachRequest() {
         let source = repo.todayHealthSnapshotScopeId + "|" + repo.liveSourceState.lineageComponent
         guard LocalCoachIntentBridge.updateContext(sourceID: source, preferences: localCoach.preferences,
                                                    isFenced: repo.verifiedExternalSurfaceFenced) else { return }
-        if LocalCoachIntentBridge.hasPendingRequest { selectedTab = 4 }
+        if LocalCoachIntentBridge.hasPendingRequest { presentAfterClosingSettings { selectedTab = 4 } }
     }
 
     @ViewBuilder
@@ -267,7 +333,7 @@ struct RootTabView: View {
                 case .trends: TrendsView()
                 case .activeWorkout: LiveWorkoutView(onClose: { routedPillar = nil })
                 case .liveSession: TodayView()
-                case .settings: SettingsView()
+                case .settings: EmptyView() // Settings is `SettingsSheetHost`, never a routed pillar.
                 case .updates: UpdatesInboxView(onClose: { routedPillar = nil })
                 }
             }
@@ -329,25 +395,6 @@ struct RootTabView: View {
         .drillInDestinationEnvironment()
     }
 
-    /// Settings is the one tab that intentionally keeps the native navigation bar. Its large title,
-    /// always-visible search field, grouped lists, and inline detail titles should behave like iOS
-    /// Settings instead of inheriting the dashboard tabs' hidden-bar chrome.
-    private var settingsTab: some View {
-        NavigationStack {
-            SettingsView()
-                .background(Color(.systemGroupedBackground).ignoresSafeArea())
-        }
-        // Keep the Settings presentation on the navigation container itself. SwiftUI may host
-        // nested NavigationLink destinations outside the view that created the link, so applying
-        // these values only to the first destination lets third- and fourth-level screens fall
-        // back to NOOP's dashboard scaffold. Container ownership makes every depth use the same
-        // native grouped-list vocabulary.
-        .environment(\.screenScaffoldPresentation, .settingsDetail)
-        .environment(\.appHeaderChromeVisibility, .hidden)
-        .toolbar(.hidden, for: .tabBar)
-        .tabItem { Label("Settings", systemImage: "gearshape") }
-    }
-
     private func tab<V: View>(_ view: V, _ title: LocalizedStringKey, _ icon: String) -> some View {
         NavigationStack {
             view
@@ -404,6 +451,11 @@ private struct ActiveSessionAutoPresenter: View {
                 case .inactive: break
                 @unknown default: break
                 }
+            }
+            .onChange(of: router.workoutRequestCount) { _, _ in
+                // The shell is opening a workout on request (Live Activity, Today indicator): it was not auto-presented,
+                // so whatever this policy was holding back for a blocking sheet must not fire when it is closed.
+                policy.workoutOpenedByRequest()
             }
             .onChange(of: lift.restoredSessionPending) { _, pending in
                 guard pending else { return }
@@ -580,15 +632,15 @@ private struct PaperTabBar: View {
         Item(title: "Trends", icon: "chart.bar", tag: 1),
         Item(title: "Coach", icon: "bubble.left.and.text.bubble.right", tag: 4),
         Item(title: "Sleep", icon: "moon", tag: 2),
-        Item(title: "Settings", icon: "gearshape", tag: 3),
     ]
 
     var body: some View {
         VStack(spacing: 0) {
             Rectangle().fill(StrandPalette.hairline).frame(height: 1)
-            // Every size short of the accessibility sizes keeps six equal slots, exactly as before. At the accessibility
-            // sizes the labels are larger, and a long one ("Einstellungen") would be squeezed to half size in an equal
-            // slot, so the slots are shared out by what their labels need instead.
+            // Every size short of the accessibility sizes keeps five equal slots (four tabs and the quick-actions
+            // button, which sits in the middle). At the accessibility sizes the labels are larger, and a long one
+            // would be squeezed to half size in an equal slot, so the slots are shared out by what their labels need
+            // instead.
             Group {
                 if typeSize.isAccessibilitySize {
                     TabSlotLayout { slots }
@@ -666,7 +718,7 @@ private struct TabSlotLayout: Layout {
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
         let ideals = subviews.map { $0.sizeThatFits(.unspecified).width }
-        let widths = TabSlotWidths.widths(ideals: ideals, total: bounds.width)
+        let widths = TabSlotWidths.centredMiddle(TabSlotWidths.widths(ideals: ideals, total: bounds.width))
         var x = bounds.minX
         for (subview, width) in zip(subviews, widths) {
             subview.place(at: CGPoint(x: x, y: bounds.minY), anchor: .topLeading,
@@ -682,6 +734,24 @@ enum TabSlotWidths {
     static let minimumSlot: CGFloat = 44
     /// Air kept between one label and the next.
     static let gutter: CGFloat = 8
+
+    /// The widths with the middle slot (the quick-actions button) on the centre line of the row: the slots to its left
+    /// and right are each scaled to fill the same share, so the button sits in the middle however long the labels on
+    /// either side are. Left alone when the count is even, or when scaling would take a slot under the touch target.
+    static func centredMiddle(_ widths: [CGFloat]) -> [CGFloat] {
+        guard widths.count >= 3, widths.count % 2 == 1 else { return widths }
+        let middle = widths.count / 2
+        let left = widths[..<middle].reduce(0, +)
+        let right = widths[(middle + 1)...].reduce(0, +)
+        let side = (widths.reduce(0, +) - widths[middle]) / 2
+        guard left > 0, right > 0 else { return widths }
+        let leftScale = side / left
+        let rightScale = side / right
+        let centred = widths.enumerated().map { index, width in
+            index == middle ? width : width * (index < middle ? leftScale : rightScale)
+        }
+        return centred.allSatisfy({ $0 >= minimumSlot - 0.001 }) ? centred : widths
+    }
 
     /// A width per slot, in proportion to what each one needs (its ideal width plus the gutter, never under the touch
     /// target), scaled so they fill `total` exactly.
@@ -722,3 +792,15 @@ enum TabSlotWidths {
     }
 }
 #endif
+
+/// When a request that needs the whole screen (a routed pillar, the Devices sheet, the live workout, Coach) may be made
+/// while the Settings sheet is up: it waits for Settings to close, then for the dismissal to finish.
+enum ShellSettingsGate {
+    /// Long enough for the sheet's dismissal to complete (`presentSettings` and `openLift` wait the same).
+    static let dismissalDelay: TimeInterval = 0.45
+
+    /// nil: Settings is not up, so present now. Otherwise how long to wait after closing it.
+    static func delay(settingsIsUp: Bool) -> TimeInterval? {
+        settingsIsUp ? dismissalDelay : nil
+    }
+}
