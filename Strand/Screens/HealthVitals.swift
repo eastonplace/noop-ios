@@ -408,6 +408,8 @@ struct HealthMetricTrendView: View {
     @EnvironmentObject private var repo: Repository
     @AppStorage(UnitPrefs.systemKey) private var unitSystemRaw = UnitSystem.metric.rawValue
     @AppStorage(UnitPrefs.temperatureKey) private var temperatureRaw = ""
+    /// Phone-imported daily steps and active energy, the fallback Trends and Today read when the strap has none.
+    @State private var appleByDay: [String: AppleDaily] = [:]
 
     private var temperatureUnit: TemperatureUnit {
         UnitPrefs.resolveTemperature(system: UnitSystem(rawValue: unitSystemRaw) ?? .metric, override: temperatureRaw)
@@ -420,11 +422,22 @@ struct HealthMetricTrendView: View {
             return BodyVitalSigns.trendPoints(
                 key: Self.vitalKey(metric), sourceRows: repo.vitalMetricRows, temperatureUnit: temperatureUnit)
         case .steps:
-            return repo.days.compactMap { day in day.steps.map { (day.day, Double($0)) } }
+            return Self.merged(repo.days, appleByDay) { $0.steps.map(Double.init) } phone: { $0.steps.map(Double.init) }
         case .calories:
-            return repo.days.compactMap { day in day.activeKcalEst.map { (day.day, $0) } }
+            return Self.merged(repo.days, appleByDay) { $0.activeKcalEst } phone: { $0.activeKcal }
         default:
             return []
+        }
+    }
+
+    /// One value per day, oldest first: the strap's own, else the phone's, the same order Trends and Today use.
+    private static func merged(
+        _ days: [DailyMetric], _ apple: [String: AppleDaily],
+        strap: (DailyMetric) -> Double?, phone: (AppleDaily) -> Double?
+    ) -> [(day: String, value: Double)] {
+        let strapByDay = Dictionary(days.map { ($0.day, $0) }, uniquingKeysWith: { _, last in last })
+        return Set(strapByDay.keys).union(apple.keys).sorted().compactMap { day in
+            (strapByDay[day].flatMap(strap) ?? apple[day].flatMap(phone)).map { (day, $0) }
         }
     }
 
@@ -472,6 +485,11 @@ struct HealthMetricTrendView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
+        }
+        .task(id: repo.refreshSeq) {
+            guard metric == .steps || metric == .calories else { return }
+            let rows = await repo.appleDailyRows()
+            appleByDay = Dictionary(rows.map { ($0.day, $0) }, uniquingKeysWith: { _, last in last })
         }
     }
 
