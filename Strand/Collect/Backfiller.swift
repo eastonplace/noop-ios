@@ -1022,14 +1022,16 @@ final class Backfiller {
             // chunk (no setCursor, no ack) so the strap re-sends it next session — no data loss
             // either way. (A full archive is reported as success by the sink; we still ack.)
             if !rejected.isEmpty, let rejectedSink {
-                guard await rejectedSink(rejected, trim, family) else {
-                    log?("Backfill: rejected-frame archive failed (trim=\(trim)) — holding ack so the strap re-sends.")
-                    fail(.rejectedArchive(trim: trim))
+                let archived = await rejectedSink(rejected, trim, family)
+                // F2: the durable write suspends. A session replaced meanwhile must neither commit/ACK this
+                // chunk nor be failed by its archive result: `fail()` acts on whichever session is current.
+                guard sessionGeneration == admittedSessionGeneration, ownsRoute(admission) else {
+                    log?("Backfill: dropped trim=\(trim) from a superseded session after archiving rejects (archived=\(archived)).")
                     return
                 }
-                // The durable write now suspends; a session replaced meanwhile must not commit or ACK.
-                guard sessionGeneration == admittedSessionGeneration, ownsRoute(admission) else {
-                    log?("Backfill: dropped trim=\(trim) from a superseded session after archiving rejects.")
+                guard archived else {
+                    log?("Backfill: rejected-frame archive failed (trim=\(trim)) — holding ack so the strap re-sends.")
+                    fail(.rejectedArchive(trim: trim))
                     return
                 }
             }

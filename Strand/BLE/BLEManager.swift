@@ -3327,16 +3327,20 @@ public final class BLEManager: NSObject, ObservableObject {
     /// either way). Frames carry sensor payloads, not identifiers — no serials/MACs are archived.
     private func archiveRejectedFrames(_ frames: [[UInt8]], trim: UInt32, family: DeviceFamily) async -> Bool {
         // BLE-5: the archive is an actor, so the fsynced write runs off the main actor; the Backfiller
-        // still awaits this before it ACKs.
-        switch await rejectedHistoryArchive.archive(frames, trim: trim, family: family) {
+        // still awaits this before it ACKs. F2: that await can outlive the archiving session (a reconnect
+        // or Sync Now admits a new one meanwhile), so its counts land only if it is still current.
+        let archivingSession = currentBackfillDrainToken
+        let result = await rejectedHistoryArchive.archive(frames, trim: trim, family: family)
+        let sessionIsCurrent = archivingSession != nil && archivingSession == currentBackfillDrainToken
+        switch result {
         case .written(let count):
-            state.rejectedFramesThisSession += count
+            if sessionIsCurrent { state.rejectedFramesThisSession += count }
             return true
         case .capReached(let count):
             // Cap reached: succeed WITHOUT writing (wedging the offload over a full archive would be
             // worse; ample sample bytes exist by now), counted separately so the sync status never
             // claims "saved" for bytes that were not.
-            state.rejectedFramesUnarchived += count
+            if sessionIsCurrent { state.rejectedFramesUnarchived += count }
             log("Backfill: rejected-frame archive is FULL — \(count) frame(s) NOT preserved (acking anyway so the offload can finish)")
             return true
         case .failed:
