@@ -67,16 +67,19 @@ public struct ZoneMinutesBar: View {
     private let seconds: [Int]
     private let currentZone: Int?
     private let isDimmed: Bool
+    private let showsBar: Bool
     @Environment(\.dynamicTypeSize) private var typeSize
 
     /// - Parameters:
     ///   - seconds: Time in rest, steady and push, in that order.
     ///   - currentZone: The zone the heart is in now, if known.
     ///   - isDimmed: A paused workout, or a quiet strap: the bar is drawn quieter.
-    public init(seconds: [Int], currentZone: Int? = nil, isDimmed: Bool = false) {
+    ///   - showsBar: False draws only the words ("Rest 2m · Steady 9m · Push 23m"), for a screen that already has a rail.
+    public init(seconds: [Int], currentZone: Int? = nil, isDimmed: Bool = false, showsBar: Bool = true) {
         self.seconds = (0..<3).map { $0 < seconds.count ? max(0, seconds[$0]) : 0 }
         self.currentZone = currentZone
         self.isDimmed = isDimmed
+        self.showsBar = showsBar
     }
 
     /// The share of the bar each zone gets. A zone with time keeps at least `minimumShare` so it never vanishes into a
@@ -118,7 +121,7 @@ public struct ZoneMinutesBar: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: NoopMetrics.space2) {
-            bar
+            if showsBar { bar }
             if typeSize.isAccessibilitySize { rows } else { line }
         }
         .opacity(isDimmed ? 0.55 : 1)
@@ -179,7 +182,7 @@ public struct ZoneMinutesBar: View {
 
 // MARK: Zone wash
 
-/// A whisper of the displayed zone's colour behind the number: 14% at the top, gone by the middle of the page. It carries no
+/// A whisper of the displayed zone's colour behind the number: 14% at the top, gone by the middle of the space it is given. It carries no
 /// information the zone word does not (the zone line says it in words), and it is neutral (nothing at all) when there is no
 /// zone to show: a paused or ending workout, a quiet strap, no reading yet. A change of zone crossfades, in opacity only.
 public struct ZoneWashBackground: View {
@@ -197,7 +200,7 @@ public struct ZoneWashBackground: View {
             ForEach(0..<3, id: \.self) { index in
                 LinearGradient(
                     colors: [HRZoneStyle.zoneColor(index).opacity(Self.peakOpacity), .clear],
-                    startPoint: .top, endPoint: UnitPoint(x: 0.5, y: 0.6))
+                    startPoint: .top, endPoint: UnitPoint(x: 0.5, y: 0.5))
                     .opacity(zone == index ? 1 : 0)
             }
         }
