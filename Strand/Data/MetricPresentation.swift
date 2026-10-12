@@ -140,30 +140,74 @@ enum ExploreDayKey {
 
     /// The start of the key's day, or nil when the key is not a real calendar day.
     static func date(for key: String, timeZone: TimeZone = .current) -> Date? {
+        guard let parts = civilParts(of: key) else { return nil }
+        return calendar(timeZone: timeZone).date(from: DateComponents(year: parts.year, month: parts.month, day: parts.day))
+    }
+
+    /// The key's day as a count of days since 1970-01-01 in the proleptic Gregorian calendar, with no calendar, locale or
+    /// time zone involved, so windows and lags over thousands of days are plain integer arithmetic. nil when the key is
+    /// not a real day.
+    static func dayNumber(for key: String) -> Int? {
+        civilParts(of: key).map { daysFromCivil(year: $0.year, month: $0.month, day: $0.day) }
+    }
+
+    /// The key ("yyyy-MM-dd") of a day number from `dayNumber(for:)`.
+    static func key(forDayNumber number: Int) -> String {
+        let parts = civilFromDays(number)
+        return String(format: "%04d-%02d-%02d", parts.year, parts.month, parts.day)
+    }
+
+    /// The key of the day a date falls on in the person's time zone.
+    static func key(for date: Date, timeZone: TimeZone = .current) -> String {
+        let parts = calendar(timeZone: timeZone).dateComponents([.year, .month, .day], from: date)
+        return String(format: "%04d-%02d-%02d", parts.year ?? 0, parts.month ?? 1, parts.day ?? 1)
+    }
+
+    /// Year, month and day of a real "yyyy-MM-dd" key; nil for anything else (a lenient reader would roll
+    /// "2026-13-40" into a later day).
+    private static func civilParts(of key: String) -> (year: Int, month: Int, day: Int)? {
         let pieces = key.split(separator: "-").compactMap { Int($0) }
         guard pieces.count == 3 else { return nil }
-        let calendar = calendar(timeZone: timeZone)
-        let components = DateComponents(year: pieces[0], month: pieces[1], day: pieces[2])
-        guard let date = calendar.date(from: components) else { return nil }
-        // A lenient calendar rolls "2026-13-40" into a later day; a real key reads back as itself.
-        let back = calendar.dateComponents([.year, .month, .day], from: date)
-        guard back.year == pieces[0], back.month == pieces[1], back.day == pieces[2] else { return nil }
-        return date
+        let (year, month, day) = (pieces[0], pieces[1], pieces[2])
+        guard (1...12).contains(month), day >= 1 else { return nil }
+        let back = civilFromDays(daysFromCivil(year: year, month: month, day: day))
+        guard back.year == year, back.month == month, back.day == day else { return nil }
+        return (year, month, day)
+    }
+
+    // Howard Hinnant's days-from-civil and civil-from-days, exact for every Gregorian date.
+    private static func daysFromCivil(year: Int, month: Int, day: Int) -> Int {
+        let y = month <= 2 ? year - 1 : year
+        let era = (y >= 0 ? y : y - 399) / 400
+        let yearOfEra = y - era * 400
+        let dayOfYear = (153 * (month + (month > 2 ? -3 : 9)) + 2) / 5 + day - 1
+        let dayOfEra = yearOfEra * 365 + yearOfEra / 4 - yearOfEra / 100 + dayOfYear
+        return era * 146_097 + dayOfEra - 719_468
+    }
+
+    private static func civilFromDays(_ number: Int) -> (year: Int, month: Int, day: Int) {
+        let z = number + 719_468
+        let era = (z >= 0 ? z : z - 146_096) / 146_097
+        let dayOfEra = z - era * 146_097
+        let yearOfEra = (dayOfEra - dayOfEra / 1_460 + dayOfEra / 36_524 - dayOfEra / 146_096) / 365
+        let dayOfYear = dayOfEra - (365 * yearOfEra + yearOfEra / 4 - yearOfEra / 100)
+        let monthIndex = (5 * dayOfYear + 2) / 153
+        let day = dayOfYear - (153 * monthIndex + 2) / 5 + 1
+        let month = monthIndex < 10 ? monthIndex + 3 : monthIndex - 9
+        let year = yearOfEra + era * 400 + (month <= 2 ? 1 : 0)
+        return (year, month, day)
     }
 }
 
-/// How often a metric is recorded, so a weekly or sparse series draws one connected line.
+/// How often a metric is recorded, so a weekly or sparse series draws one connected line. The rule itself lives with
+/// the charts (`TrendCadence`), so Explore and Compare bridge the same gaps.
 enum ExploreCadence {
     /// The longest stretch the chart's line bridges for a daily metric.
-    static let dailyGapLimit = 3
+    static let dailyGapLimit = TrendCadence.dailyGapLimit
 
     /// The gap limit for a series recorded on these day offsets (ascending): three times the usual spacing between
-    /// readings, never under the daily limit. Daily data keeps three days; weekly data bridges up to three weeks.
-    static func gapLimitDays(dayOffsets: [Int]) -> Int {
-        let gaps = zip(dayOffsets.dropFirst(), dayOffsets).map { $0 - $1 }.filter { $0 > 0 }.sorted()
-        guard !gaps.isEmpty else { return dailyGapLimit }
-        return max(dailyGapLimit, gaps[gaps.count / 2] * 3)
-    }
+    /// readings, never under the daily limit.
+    static func gapLimitDays(dayOffsets: [Int]) -> Int { TrendCadence.gapLimitDays(dayOffsets: dayOffsets) }
 }
 
 /// How a change against the earlier readings is worded.

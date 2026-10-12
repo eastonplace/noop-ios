@@ -2,11 +2,11 @@ import SwiftUI
 
 // MARK: - Correlation strength
 //
-// The one rule every screen that talks about a Pearson r is meant to share: which word a value of r earns and
-// which ink it is drawn in. Today only the Metric Explorer reads it from here. Compare, Lab Book and Insights
-// still carry their own copies (an opacity ramp on green and red, or a sample of the recovery gradient, each with
-// its own word thresholds), so on those screens the same r can still read as a different strength. They move
-// over one redesign at a time, and this note is updated as each one does.
+// The one rule every screen that talks about a Pearson r shares: which word a value of r earns, which ink it is drawn
+// in and how it is printed. The Metric Explorer, Compare and the Lab Book's marker pages read it from here, so the same
+// r reads as the same strength on all three. The Insights screens still carry their own copy of the thresholds (an
+// opacity ramp on green and red with its own word cut-offs), so on those screens the same r can still read as a different
+// strength until they move over; this note is updated when they do.
 //
 // The type holds the thresholds and the colours. The words themselves are localised by the screen that shows
 // them (the app's string catalog carries "weak", "moderate", "strong" and the rest), so this package stays free

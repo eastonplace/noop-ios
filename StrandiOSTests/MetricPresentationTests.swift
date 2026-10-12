@@ -166,6 +166,38 @@ final class MetricPresentationTests: XCTestCase {
         XCTAssertEqual(calendar.dateComponents([.day], from: first, to: last).day, 59)
     }
 
+    func testDayNumbersAreCalendarFreeAndRoundTrip() throws {
+        XCTAssertEqual(ExploreDayKey.dayNumber(for: "1970-01-01"), 0)
+        XCTAssertEqual(ExploreDayKey.dayNumber(for: "1970-01-02"), 1)
+        XCTAssertEqual(ExploreDayKey.dayNumber(for: "1969-12-31"), -1)
+        XCTAssertEqual(ExploreDayKey.dayNumber(for: "2000-03-01"), 11_017)
+        let first = try XCTUnwrap(ExploreDayKey.dayNumber(for: "2026-01-01"))
+        let last = try XCTUnwrap(ExploreDayKey.dayNumber(for: "2026-03-01"))
+        XCTAssertEqual(last - first, 59)
+        // A leap day counts; a missing one is rejected.
+        XCTAssertEqual(try XCTUnwrap(ExploreDayKey.dayNumber(for: "2028-03-01")) - (try XCTUnwrap(ExploreDayKey.dayNumber(for: "2028-02-28"))), 2)
+        XCTAssertNil(ExploreDayKey.dayNumber(for: "2027-02-29"))
+        XCTAssertNil(ExploreDayKey.dayNumber(for: "2026-00-10"))
+        // Every day of a few years reads back as itself.
+        var number = try XCTUnwrap(ExploreDayKey.dayNumber(for: "2023-12-25"))
+        for _ in 0..<1_500 {
+            let key = ExploreDayKey.key(forDayNumber: number)
+            XCTAssertEqual(ExploreDayKey.dayNumber(for: key), number, key)
+            number += 1
+        }
+        XCTAssertEqual(ExploreDayKey.key(forDayNumber: 0), "1970-01-01")
+        XCTAssertEqual(ExploreDayKey.key(forDayNumber: try XCTUnwrap(ExploreDayKey.dayNumber(for: "2026-10-12")) + 20), "2026-11-01")
+    }
+
+    func testADateBecomesItsKeyInThePersonsZone() throws {
+        let zone = try XCTUnwrap(TimeZone(identifier: "Pacific/Auckland"))
+        let date = try XCTUnwrap(ExploreDayKey.date(for: "2026-10-12", timeZone: zone))
+        XCTAssertEqual(ExploreDayKey.key(for: date, timeZone: zone), "2026-10-12")
+        // The same instant is still the day before in a zone far behind.
+        let behind = try XCTUnwrap(TimeZone(identifier: "Pacific/Honolulu"))
+        XCTAssertEqual(ExploreDayKey.key(for: date, timeZone: behind), "2026-10-11")
+    }
+
     // MARK: Cadence and change
 
     func testADailySeriesKeepsTheThreeDayGapLimit() {

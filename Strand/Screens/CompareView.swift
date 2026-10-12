@@ -1,95 +1,28 @@
 import SwiftUI
 import Foundation
-import Charts
 import StrandDesign
 import StrandAnalytics
 import WhoopStore
 
 // MARK: - Compare
 //
-// The "overlay metrics & draw conclusions" screen. Pick 2–4 metrics from the
-// catalog, choose a time window, and read them on a single normalized overlay
-// chart (each metric min–max scaled to 0–1 within the window so different units
-// share an axis). Below, every pair of selected metrics gets a live Pearson-r
-// correlation readout with a plain-English conclusion. Pure read-side: each
-// metric loads from repo.resolvedSeries (freshest-wins across imported / NOOP-computed /
-// compatible Apple Health, PR#196); everything else is derived in-view.
-
-// yyyy-MM-dd → Date, fixed UTC / en_US_POSIX (per task spec).
-private let compareDayParser: DateFormatter = {
-    let f = DateFormatter()
-    f.locale = Locale(identifier: "en_US_POSIX")
-    f.timeZone = TimeZone(identifier: "UTC")
-    f.dateFormat = "yyyy-MM-dd"
-    return f
-}()
-
-private func parseCompareDay(_ day: String) -> Date? { compareDayParser.date(from: day) }
-
-// MARK: - Range control (shared spec — W / M / 3M / 6M / 1Y / ALL)
-
-/// The canonical Strand range window. `days == nil` means ALL of history.
-enum CompareRange: String, CaseIterable, Identifiable {
-    case week, month, quarter, half, year, all
-    var id: String { rawValue }
-
-    var label: String {
-        switch self {
-        case .week:    return String(localized: "W")
-        case .month:   return String(localized: "M")
-        case .quarter: return String(localized: "3M")
-        case .half:    return String(localized: "6M")
-        case .year:    return String(localized: "1Y")
-        case .all:     return String(localized: "ALL")
-        }
-    }
-
-    /// The trailing window length in days; nil = everything.
-    var days: Int? {
-        switch self {
-        case .week:    return 7
-        case .month:   return 30
-        case .quarter: return 90
-        case .half:    return 180
-        case .year:    return 365
-        case .all:     return nil
-        }
-    }
-
-    /// A human phrase for sentences ("over 1Y").
-    var phrase: String {
-        switch self {
-        case .week:    return String(localized: "the last 7 days")
-        case .month:   return String(localized: "30 days")
-        case .quarter: return String(localized: "3 months")
-        case .half:    return String(localized: "6 months")
-        case .year:    return String(localized: "1 year")
-        case .all:     return String(localized: "all history")
-        }
-    }
-
-    /// This range plus every LARGER range, ascending — the auto-expand search order
-    /// when a selected window holds zero points for a series.
-    var widening: [CompareRange] {
-        let order: [CompareRange] = [.week, .month, .quarter, .half, .year, .all]
-        guard let i = order.firstIndex(of: self) else { return [.all] }
-        return Array(order[i...])
-    }
-}
+// The "overlay metrics & draw conclusions" screen, in the widget language: flat sections opened by an eyebrow, the
+// selected metrics as glyph rows, one overlay chart with a touch-and-hold reading, and the verdict as a hero value and a
+// couple of plain sentences. Pick 2-4 metrics from the catalog, choose a window, and read them on a single overlay where
+// each metric is scaled to its own range so different units share an axis. Two metrics get the promoted pair experience
+// (a lag choice, the verdict, and what the second metric did on high and low days of the first); three or four get every
+// pair's relationship. Pure read-side: each metric loads from repo.resolvedSeries (freshest-wins across imported /
+// NOOP-computed / compatible Apple Health, PR#196); everything else is derived in-view. The correlation word and colour
+// are the shared `CorrelationStrength` rule, the same one the Metric Explorer and Lab Book read.
 
 // MARK: - Per-series model
 
-/// One selected metric, resolved over the active window: its descriptor, the
-/// windowed (day,value) rows, a stable display color, and its real min/max.
+/// One selected metric, resolved over the active window: its descriptor, the windowed (day, value) rows, a stable
+/// display colour, and its real min/max (found once, so the read-outs never rescan the rows).
 private struct ResolvedCompareSeries: Identifiable {
     let metric: MetricDescriptor
     let color: Color
     let rows: [(day: String, value: Double)]
-
-    /// Real min/max over the window, computed ONCE at construction. As computed vars
-    /// these re-scanned every row per access, which put an O(rows) cost inside every
-    /// `normalized()` call (so building the overlay's plot points was O(rows squared))
-    /// and inside the per-frame hover read-outs.
     let realMin: Double
     let realMax: Double
 
@@ -103,13 +36,18 @@ private struct ResolvedCompareSeries: Identifiable {
         self.realMin = values.min() ?? 0
         self.realMax = values.max() ?? 0
     }
+}
 
-    /// Min–max normalize a value into 0…1 within this series' window. Flat series
-    /// (max == min) collapse to the mid-line so they still render.
-    func normalized(_ v: Double) -> Double {
-        let lo = realMin, hi = realMax
-        guard hi > lo else { return 0.5 }
-        return min(max((v - lo) / (hi - lo), 0), 1)
+/// Which choice the picker sheet makes: a metric for one of the selected slots, or one more metric to add.
+private enum CompareSlot: Hashable, Identifiable {
+    case slot(Int)
+    case add
+
+    var id: String {
+        switch self {
+        case .slot(let index): return "slot-\(index)"
+        case .add: return "add"
+        }
     }
 }
 
@@ -118,14 +56,21 @@ private struct ResolvedCompareSeries: Identifiable {
 struct CompareView: View {
     @EnvironmentObject var repo: Repository
 
-    // Strain display scale (#268) — routes the Strain metric's min/max + hover read-outs onto WHOOP's
-    // 0–21 axis; display-only, the normalized overlay shape is untouched. Every other metric is
-    // scale-agnostic (see MetricDescriptor.format).
+    // Units follow the person's setting. Strain (#268) is routed onto WHOOP's 0-21 axis when that scale is chosen; this is
+    // display-only, the scaled overlay shape is untouched.
+    @AppStorage(UnitPrefs.systemKey) private var unitSystemRaw = UnitSystem.metric.rawValue
+    @AppStorage(UnitPrefs.temperatureKey) private var temperatureRaw = ""
     @AppStorage(UnitPrefs.effortScaleKey) private var effortScaleRaw = EffortScale.whoop.rawValue
+    private var unitSystem: UnitSystem { UnitSystem(rawValue: unitSystemRaw) ?? .metric }
+    private var temperatureUnit: TemperatureUnit { UnitPrefs.resolveTemperature(system: unitSystem, override: temperatureRaw) }
     private var effortScale: EffortScale { UnitPrefs.resolveEffortScale(effortScaleRaw) }
 
-    // Trends-compatible categorical series colors. Recovery and Sleep keep their
-    // canonical two-blue/slate distinction; additional series receive distinct hues.
+    private func format(_ metric: MetricDescriptor, _ value: Double) -> String {
+        metric.format(value, system: unitSystem, temperature: temperatureUnit, effortScale: effortScale)
+    }
+
+    /// Trends-compatible categorical series colours. Recovery and Sleep keep their canonical blue and slate; further
+    /// series take the next colour no other line has.
     private static let seriesPalette: [Color] = [
         StrandPalette.recoveryData,  // canonical Recovery blue
         StrandPalette.sleepAccent,   // canonical Sleep slate
@@ -133,38 +78,39 @@ struct CompareView: View {
         StrandPalette.metricAmber,   // amber
     ]
 
-    private func seriesColor(for metric: MetricDescriptor, index: Int) -> Color {
-        let key = metric.key.lowercased()
-        if key.contains("sleep") { return StrandPalette.sleepAccent }
-        if key.contains("recovery") { return StrandPalette.recoveryData }
-        return Self.seriesPalette[index % Self.seriesPalette.count]
+    private static func canonicalColorIndex(_ key: String) -> Int? {
+        let lowered = key.lowercased()
+        if lowered.contains("sleep") { return 1 }
+        if lowered.contains("recovery") { return 0 }
+        return nil
+    }
+
+    /// The colour of each selected metric, by id, in pick order.
+    private var seriesColors: [String: Color] {
+        let indices = CompareLogic.colorIndices(
+            keys: selected.map(\.key), canonical: Self.canonicalColorIndex, paletteCount: Self.seriesPalette.count)
+        return Dictionary(uniqueKeysWithValues: zip(selected.map(\.id), indices.map { Self.seriesPalette[$0] }))
     }
 
     /// Default starter selection (falls back gracefully if a key is missing).
     private static let defaultKeys = ["recovery", "sleep_performance"]
 
-    @State private var range: CompareRange = .year
-    /// Ordered selection (max 4). Drives both the legend order and color mapping.
+    @State private var range: ExploreRange = .year
+    /// Ordered selection (max 4). Drives both the read-out order and the colour mapping.
     @State private var selected: [MetricDescriptor] = []
     /// Full-history series per selected metric id (ascending by day).
     @State private var fullSeries: [String: [(day: String, value: Double)]] = [:]
     @State private var loadedOnce = false
 
-    /// Cache of the last pairwise-correlation scan + the inputs it was computed for.
-    /// The scan (alignByDay + Pearson over full windows) is expensive and was re-run on
-    /// every body evaluation — including hover/animation/HR ticks. We recompute it only
-    /// when the windowed series content actually changes (see `correlationKey`).
+    /// Cache of the last pairwise-correlation scan + the inputs it was computed for. The scan (alignByDay + Pearson over
+    /// full windows) is expensive, so it is recomputed only when the windowed series content actually changes.
     @State private var pairCache: [PairResult] = []
     @State private var pairCacheKey: String = ""
-    /// Real lag supplied directly to CorrelationEngine.lagged. Zero = same day;
-    /// one = A today against B next morning.
+    /// Real lag supplied directly to CorrelationEngine.lagged. Zero = same day; one = A today against B next morning.
     @State private var lagDays = 0
-    @State private var pickerSlot: PickerSlot?
-
-    private enum PickerSlot: Int, Identifiable {
-        case a = 0, b = 1
-        var id: Int { rawValue }
-    }
+    @State private var pickerSlot: CompareSlot?
+    /// The day under the finger on the overlay, nil when none.
+    @State private var scrubDay: Date?
 
     private let maxSelection = 4
     private let minSelection = 2
@@ -172,57 +118,85 @@ struct CompareView: View {
 
     var body: some View {
         ScreenScaffold(title: "Compare", subtitle: "Overlay signals, draw conclusions.",
-                       // PERF (scroll): lazy column — byte-identical layout (LazyVStack == eager VStack
-                       // alignment/spacing/header). The content is one inner eager VStack; no staggered
-                       // reveals, and the only GeometryReaders are chart-local (.chartOverlay plot rects),
+                       // PERF (scroll): lazy column. The content is one inner eager VStack, with no staggered reveals,
                        // so nothing depends on eager layout of the scroll column.
                        lazy: true,
-                       // Liquid finish: the day-of-sky backdrop carries the liquid atmosphere across the
-                       // analysis tabs, exactly like Today and the batch-1 screens.
                        topBackground: nil) {
-            VStack(alignment: .leading, spacing: NoopMetrics.sectionGap) {
-                metricSection
-
-                if selected.count < minSelection {
-                    ComingSoon(what: "Compare needs at least two metrics with history. Import your WHOOP export in Data Sources first.")
-                } else {
-                    let series = activeSeries
-                    if series.allSatisfy({ $0.rows.isEmpty }) {
-                        ComingSoon(what: loadedOnce
-                            ? "No data for these metrics in \(range.phrase). Widen the range or pick metrics you've logged."
-                            : "Reading your history…")
-                    } else {
-                        if series.count == 2 {
-                            pairExperience(series[0], series[1])
-                        } else {
-                            // Capability preservation: the established normalized
-                            // overlay remains the 3-4 metric experience.
-                            overlaySection(series)
-                            correlationSection(series)
-                        }
-                    }
-                }
+            VStack(alignment: .leading, spacing: 0) {
+                metricsSection
+                FlatSectionSeparator()
+                results
             }
         }
-        .task { await loadIfNeeded() }
+        .task {
+            await loadIfNeeded()
+            #if DEBUG
+            // Screenshot harness only: `--noop-qa-compare-picker` opens the metric picker on launch.
+            if ProcessInfo.processInfo.arguments.contains("--noop-qa-compare-picker") { pickerSlot = .slot(0) }
+            #endif
+        }
         .task(id: loadTaskID) {
             await loadSelected()
             refreshPairCache(activeSeries)
         }
-        // Recompute the pairwise scan only when the windowed series content changes,
-        // never on hover/animation/HR-tick re-renders that don't touch these inputs.
+        // Recompute the pairwise scan only when the windowed series content changes, never on scrub or animation
+        // re-renders that don't touch these inputs.
         .onChangeCompat(of: correlationKey(activeSeries)) { _ in
             refreshPairCache(activeSeries)
         }
         .sheet(item: $pickerSlot) { slot in
             CompareMetricPickerSheet(
                 selected: selected,
-                slot: slot.rawValue,
+                slot: slot,
+                colorFor: { seriesColors[$0.id] },
                 onSelect: { metric in
-                    replaceMetric(at: slot.rawValue, with: metric)
+                    switch slot {
+                    case .slot(let index): replaceMetric(at: index, with: metric)
+                    case .add: toggle(metric)
+                    }
                     pickerSlot = nil
                 }
             )
+            .sheetScreenScaffoldEnvironment(onClose: { pickerSlot = nil })
+            #if os(iOS)
+            .noopSheetPresentation(largeFirst: true)
+            #else
+            .frame(width: 560, height: 640)
+            #endif
+        }
+    }
+
+    // MARK: - What the selection shows
+
+    @ViewBuilder
+    private var results: some View {
+        if selected.count < minSelection {
+            let title: LocalizedStringKey = selected.isEmpty ? "Nothing selected yet." : "Add a second metric"
+            ExploreMessage(
+                symbol: "chart.xyaxis.line",
+                title: Text(title),
+                message: Text("Compare needs at least two metrics with history. Import your WHOOP export in Data Sources first."))
+        } else {
+            let series = activeSeries
+            if series.allSatisfy({ $0.rows.isEmpty }) {
+                if loadedOnce {
+                    VStack(alignment: .leading, spacing: NoopMetrics.space3) {
+                        ExploreRangeControl(selection: $range)
+                        ExploreMessage(
+                            symbol: "tray", title: Text("No data"),
+                            message: Text("No data for these metrics in this range. Widen the range or pick metrics you've logged."))
+                    }
+                } else {
+                    ExploreMessage(isLoading: true, title: Text("Reading your history…"))
+                }
+            } else if series.count == 2 {
+                pairExperience(series[0], series[1])
+            } else {
+                // The established overlay remains the 3-4 metric experience.
+                overlaySection(series)
+                FlatSectionSeparator()
+                correlationSection(series)
+            }
         }
     }
 
@@ -232,39 +206,24 @@ struct CompareView: View {
 
     // MARK: - Active windowed series
 
-    /// A full-history series' rows over a given range, taken RELATIVE TO THAT SERIES'
-    /// LATEST data point (not "now"); `.all` returns everything.
-    private func slice(_ full: [(day: String, value: Double)], _ r: CompareRange) -> [(day: String, value: Double)] {
-        guard let n = r.days else { return full }
-        guard let lastDay = full.last?.day, let last = parseCompareDay(lastDay) else { return [] }
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
-        guard let cutoff = calendar.date(byAdding: .day, value: -(n - 1), to: last) else { return [] }
-        return full.filter { row in
-            guard let d = parseCompareDay(row.day) else { return false }
-            return d >= cutoff
-        }
-    }
-
-    /// The range actually used for a series: the SELECTED range when its window holds
-    /// ≥1 point, else the smallest LARGER range that does. So sparse metrics still
-    /// overlay against dense ones, and switching ranges stays visibly distinct.
-    private func effectiveRange(_ full: [(day: String, value: Double)]) -> CompareRange {
+    /// The range actually used for a series: the SELECTED range when its window holds at least one point, else the
+    /// smallest LARGER range that does. So sparse metrics still overlay against dense ones, and switching ranges stays
+    /// visibly distinct.
+    private func effectiveRange(_ full: [(day: String, value: Double)]) -> ExploreRange {
         guard !full.isEmpty else { return range }
-        for r in range.widening where !slice(full, r).isEmpty { return r }
+        for candidate in range.widening where !CompareLogic.slice(full, days: candidate.days).isEmpty { return candidate }
         return .all
     }
 
-    /// Selected metrics resolved to windowed rows + stable colors, in pick order.
+    /// Selected metrics resolved to windowed rows + stable colours, in pick order.
     private var activeSeries: [ResolvedCompareSeries] {
-        selected.enumerated().map { idx, metric in
+        let colors = seriesColors
+        return selected.map { metric in
             let full = fullSeries[metric.id] ?? []
-            let rows = slice(full, effectiveRange(full))
             return ResolvedCompareSeries(
                 metric: metric,
-                color: seriesColor(for: metric, index: idx),
-                rows: rows
-            )
+                color: colors[metric.id] ?? StrandPalette.textSecondary,
+                rows: CompareLogic.slice(full, days: effectiveRange(full).days))
         }
     }
 
@@ -276,36 +235,24 @@ struct CompareView: View {
         }
     }
 
-    /// How the overlay subtitle tells the user to read real (un-normalized) values.
-    /// The chart axis is normalized, so the only readout of real numbers is the
-    /// crosshair tooltip — driven by pointer hover on macOS, by tap/drag on iOS.
-    private var inspectHint: String {
-        #if os(iOS)
-        return String(localized: "tap or drag for real values")
-        #else
-        return String(localized: "hover for real values")
-        #endif
-    }
-
-    /// "N readings · <range>" caption near the control, flagging any auto-widen.
-    /// Whole-phrase variants per count so translators see complete sentences.
-    private var rangeCaption: String {
-        let series = activeSeries
+    /// "N readings" under the range control, flagging any auto-widen. One plural key, so each language picks its own
+    /// form.
+    private func rangeCaption(_ series: [ResolvedCompareSeries]) -> (text: String, widened: Bool) {
         let total = series.reduce(0) { $0 + $1.rows.count }
-        if anyWidened {
-            return total == 1
-                ? String(localized: "1 reading across \(series.count) · \(range.phrase) · sparse widened")
-                : String(localized: "\(total) readings across \(series.count) · \(range.phrase) · sparse widened")
-        }
-        return total == 1
-            ? String(localized: "1 reading across \(series.count) · \(range.phrase)")
-            : String(localized: "\(total) readings across \(series.count) · \(range.phrase)")
+        let base = String(localized: "\(total) readings")
+        guard anyWidened else { return (base, false) }
+        return ("\(base) \u{00B7} \(String(localized: "sparse series widened"))", true)
     }
 
     // MARK: - Loading
 
     private func loadIfNeeded() async {
         guard selected.isEmpty else { return }
+        #if DEBUG
+        // Screenshot harness only: `--noop-qa-compare-metrics key[:source],…` opens Compare with those metrics chosen
+        // (one, to see the "needs two" state; three or four, for the overlay; a metric with no data, for the empty state).
+        if let qa = Self.qaRequestedSelection() { selected = qa; return }
+        #endif
         // Seed the default selection from whichever default keys exist.
         var picks: [MetricDescriptor] = []
         for key in Self.defaultKeys {
@@ -315,9 +262,21 @@ struct CompareView: View {
         selected = Array(picks.prefix(maxSelection))
     }
 
-    /// Load the full history for the selected metrics. Selection is capped at four,
-    /// so a repository refresh can safely replace cached rows instead of leaving
-    /// Compare on a stale pre-sync snapshot.
+    #if DEBUG
+    private static func qaRequestedSelection() -> [MetricDescriptor]? {
+        let arguments = ProcessInfo.processInfo.arguments
+        guard let index = arguments.firstIndex(of: "--noop-qa-compare-metrics"),
+              arguments.indices.contains(index + 1) else { return nil }
+        let picks = arguments[index + 1].split(separator: ",").compactMap { item -> MetricDescriptor? in
+            let parts = item.split(separator: ":").map(String.init)
+            return MetricCatalog.all.first { $0.key == parts[0] && (parts.count < 2 || $0.source == parts[1]) }
+        }
+        return picks.isEmpty ? nil : Array(picks.prefix(4))
+    }
+    #endif
+
+    /// Load the full history for the selected metrics. Selection is capped at four, so a repository refresh can safely
+    /// replace cached rows instead of leaving Compare on a stale pre-sync snapshot.
     private func loadSelected() async {
         let loadSeq = repo.refreshSeq
         let requests = selected.map { (id: $0.id, key: $0.key, source: $0.source) }
@@ -347,89 +306,70 @@ struct CompareView: View {
         loadedOnce = true
     }
 
-    // MARK: - Metric picker section (chips + range control)
+    // MARK: - Metrics (the selection and what changes it)
 
-    private var metricSection: some View {
-        VStack(alignment: .leading, spacing: NoopMetrics.gap) {
-            SectionHeader("Metrics", overline: "Overlay 2-4 signals")
-            PaperCard {
-                VStack(alignment: .leading, spacing: NoopMetrics.gap) {
-                    // Responsive: range pills + the Add menu side-by-side when there's room, else
-                    // stacked so the pills don't overflow/clip on a narrow window (ported from the iOS port).
-                    ViewThatFits(in: .horizontal) {
-                        HStack(alignment: .center) {
-                            SegmentedPillControl(CompareRange.allCases, selection: $range) { $0.label }
-                                .accessibilityLabel("Time range")
-                            Spacer()
-                            addMenu
-                        }
-                        VStack(alignment: .leading, spacing: NoopMetrics.gap) {
-                            SegmentedPillControl(CompareRange.allCases, selection: $range) { $0.label }
-                                .accessibilityLabel("Time range")
-                            addMenu
-                        }
-                    }
-
-                    if selected.count >= minSelection {
-                        Text(rangeCaption)
-                            .font(StrandFont.footnote)
-                            .foregroundStyle(anyWidened ? StrandPalette.statusWarning : StrandPalette.textTertiary)
-                            .accessibilityLabel(rangeCaption)
-                    }
-
-                    if selected.isEmpty {
-                        Text("Nothing selected yet.")
-                            .font(StrandFont.subhead)
-                            .foregroundStyle(StrandPalette.textTertiary)
-                    } else {
-                        FlowChips(metrics: selected, colorFor: colorFor) { metric in
-                            remove(metric)
-                        }
+    private var metricsSection: some View {
+        FlatSection(
+            "Metrics", systemImage: "chart.xyaxis.line", tint: .accent,
+            trailing: .text("\(selected.count)/\(maxSelection)"),
+            contentSpacing: 0
+        ) {
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(selected.enumerated()), id: \.element.id) { index, metric in
+                    if index > 0 { ExploreRowSeparator() }
+                    selectedRow(metric, index: index)
+                }
+                ChipRow {
+                    let atMax = selected.count >= maxSelection
+                    let addTitle: LocalizedStringKey = atMax ? "Max 4" : "Add metric"
+                    WidgetChipButton(
+                        title: addTitle, systemImage: "plus",
+                        accessibilityLabel: "Add a metric to compare",
+                        action: { pickerSlot = .add })
+                        .disabled(atMax)
+                        .opacity(atMax ? 0.5 : 1)
+                    if selected.count == 2 {
+                        WidgetChipButton(
+                            title: "Swap", systemImage: "arrow.left.arrow.right",
+                            accessibilityLabel: "Swap comparison axes",
+                            action: swapPair)
                     }
                 }
+                .padding(.top, selected.isEmpty ? NoopMetrics.space3 : NoopMetrics.space2)
             }
         }
     }
 
-    /// Grouped "add metric" menu, sectioned by catalog category. Disables already-
-    /// picked metrics and the whole control once the cap is reached.
-    private var addMenu: some View {
-        Menu {
-            ForEach(MetricCatalog.categories, id: \.self) { category in
-                let metrics = MetricCatalog.inCategory(category)
-                if !metrics.isEmpty {
-                    // Section title localized at the render site only; `category` stays the
-                    // raw English identifier that `inCategory` filters on.
-                    Section(MetricCatalog.categoryDisplayName(category)) {
-                        ForEach(metrics) { metric in
-                            let isOn = selected.contains(metric)
-                            Button {
-                                toggle(metric)
-                            } label: {
-                                Label(metric.title, systemImage: isOn ? "checkmark" : metric.icon)
-                            }
-                            .disabled(!isOn && selected.count >= maxSelection)
-                        }
-                    }
-                }
+    /// One selected metric: tap to choose a different one for its slot, the cross to take it off.
+    private func selectedRow(_ metric: MetricDescriptor, index: Int) -> some View {
+        let color = seriesColors[metric.id] ?? StrandPalette.textSecondary
+        // With two metrics the rows are the pair: A and B.
+        let role = selected.count == 2 ? (index == 0 ? "A" : "B") : nil
+        let subtitle = role.map { "\($0) \u{00B7} \(metric.sourceLabel)" } ?? metric.sourceLabel
+        return HStack(spacing: 0) {
+            Button {
+                pickerSlot = .slot(index)
+            } label: {
+                ExploreFlatRow(
+                    symbol: metric.icon, tint: .custom(color),
+                    title: Text(verbatim: metric.title), subtitle: Text(verbatim: subtitle),
+                    showsChevron: false,
+                    spoken: "\(metric.title), \(subtitle)")
             }
-        } label: {
-            HStack(spacing: 6) {
-                Image(systemName: "plus.circle.fill")
-                Text(selected.count >= maxSelection ? "Max 4" : "Add metric")
-                    .font(StrandFont.subhead)
+            .exploreRowPress()
+            .accessibilityHint("Opens the metric picker")
+            Button {
+                remove(metric)
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(StrandPalette.textTertiary)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
             }
-            .foregroundStyle(selected.count >= maxSelection ? StrandPalette.textTertiary : StrandPalette.accent)
+            .buttonStyle(.plain)
+            .accessibilityLabel("Remove \(metric.title)")
         }
-        .menuStyle(.borderlessButton)
-        .fixedSize()
-        .disabled(selected.count >= maxSelection)
-        .accessibilityLabel("Add a metric to compare")
-    }
-
-    private func colorFor(_ metric: MetricDescriptor) -> Color {
-        guard let idx = selected.firstIndex(of: metric) else { return StrandPalette.textSecondary }
-        return seriesColor(for: metric, index: idx)
     }
 
     private func toggle(_ metric: MetricDescriptor) {
@@ -442,6 +382,7 @@ struct CompareView: View {
 
     private func remove(_ metric: MetricDescriptor) {
         withAnimation(StrandMotion.gentle) { selected.removeAll { $0 == metric } }
+        scrubDay = nil
     }
 
     private func replaceMetric(at index: Int, with metric: MetricDescriptor) {
@@ -451,6 +392,7 @@ struct CompareView: View {
         } else {
             selected[index] = metric
         }
+        scrubDay = nil
         StrandHaptic.selection.play()
     }
 
@@ -460,194 +402,175 @@ struct CompareView: View {
         StrandHaptic.selection.play()
     }
 
+    // MARK: - Overlay (the chart, its read-outs, the range)
+
+    @ViewBuilder
+    private func overlaySection(_ series: [ResolvedCompareSeries]) -> some View {
+        let shown = series.filter { !$0.rows.isEmpty }
+        let caption = rangeCaption(series)
+        FlatSection(
+            "Overlay", systemImage: "waveform.path.ecg", tint: .accent,
+            trailing: .text(String(localized: "\(shown.count) series"))
+        ) {
+            VStack(alignment: .leading, spacing: NoopMetrics.space3) {
+                // The reading's day (or how to read one), then each metric's real value on it.
+                Text(scrubDay.map { dayText($0) } ?? String(localized: "Touch and hold, then drag, to read a day"))
+                    .font(StrandFont.footnote)
+                    .foregroundStyle(StrandPalette.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+                VStack(spacing: NoopMetrics.space2) {
+                    ForEach(shown) { entry in
+                        CompareReadoutRow(
+                            color: entry.color,
+                            title: entry.metric.title,
+                            value: readoutValue(entry),
+                            range: "\(format(entry.metric, entry.realMin)) \u{2013} \(format(entry.metric, entry.realMax))")
+                    }
+                }
+                CompareOverlayChart(
+                    series: shown.map(chartSeries),
+                    selection: $scrubDay,
+                    calendar: ExploreDayKey.calendar(),
+                    summary: String(localized: "Overlay chart of \(ListFormatter.localizedString(byJoining: shown.map(\.metric.title)))"),
+                    spokenValue: { spokenReadout($0, shown) }
+                )
+                ExploreRangeControl(selection: $range)
+                Text(caption.text)
+                    .font(StrandFont.micro)
+                    .foregroundStyle(caption.widened ? StrandPalette.statusWarning : StrandPalette.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private func chartSeries(_ entry: ResolvedCompareSeries) -> CompareSeries {
+        CompareSeries(
+            title: entry.metric.title,
+            // The descriptor formatter already includes the unit.
+            unit: "",
+            tint: entry.color,
+            points: entry.rows.compactMap { row in
+                ExploreDayKey.date(for: row.day).map { ComparePoint(date: $0, value: row.value) }
+            },
+            format: { format(entry.metric, $0) }
+        )
+    }
+
+    /// The metric's value on the day under the finger, else its latest.
+    private func readoutValue(_ entry: ResolvedCompareSeries) -> String {
+        if let day = scrubDay {
+            guard let value = CompareLogic.value(in: entry.rows, onDay: ExploreDayKey.key(for: day)) else {
+                return WidgetMetrics.missingValue
+            }
+            return format(entry.metric, value)
+        }
+        return entry.rows.last.map { format(entry.metric, $0.value) } ?? WidgetMetrics.missingValue
+    }
+
+    /// What VoiceOver says for the day the chart is stepped to: the date, then each metric's value.
+    private func spokenReadout(_ day: Date, _ shown: [ResolvedCompareSeries]) -> String {
+        let key = ExploreDayKey.key(for: day)
+        let values = shown.map { entry -> String in
+            let text = CompareLogic.value(in: entry.rows, onDay: key)
+                .map { format(entry.metric, $0) } ?? String(localized: "no reading")
+            return "\(entry.metric.title) \(text)"
+        }
+        return "\(dayText(day)), \(values.joined(separator: ", "))"
+    }
+
+    /// "Mon, 12 Oct" in the person's language and order.
+    private func dayText(_ date: Date) -> String {
+        date.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))
+    }
+
     // MARK: - Promoted A/B pair experience
 
     @ViewBuilder
     private func pairExperience(_ a: ResolvedCompareSeries, _ b: ResolvedCompareSeries) -> some View {
-        let promotedA = promotedSeries(a)
-        let promotedB = promotedSeries(b)
         let correlation = CorrelationEngine.lagged(x: a.rows, y: b.rows, lagDays: lagDays)
-        let paired = laggedPairs(a.rows, b.rows, lagDays: lagDays)
-
-        VStack(alignment: .leading, spacing: NoopMetrics.sectionGap) {
-            VStack(alignment: .leading, spacing: NoopMetrics.gap) {
-                SectionHeader("Pair", overline: "Two real scales")
-                ComparePickerRow(
-                    seriesA: promotedA,
-                    seriesB: promotedB,
-                    onPickA: { pickerSlot = .a },
-                    onPickB: { pickerSlot = .b },
-                    onSwap: swapPair
-                )
-                CompareLagChips(
-                    options: [
-                        CompareLagOption(days: 0, label: String(localized: "Same day")),
-                        CompareLagOption(days: 1, label: String(localized: "Next morning")),
-                    ],
-                    selectedDays: $lagDays
-                )
-            }
-
-            if promotedA.points.isEmpty || promotedB.points.isEmpty {
-                ComingSoon(what: "Not enough dated readings for this pair in \(range.phrase). Widen the range.")
-            } else {
-                SectionHeader("Overlay", overline: lagDays == 0 ? "Same-day pairing" : "Next-morning pairing")
-                PaperCard {
-                    CompareDualChart(
-                        seriesA: promotedA,
-                        seriesB: promotedB,
-                        evidenceLabel: "\(paired.count) paired days · \(range.phrase)"
-                    )
+        let paired = CompareLogic.lagPairs(a.rows, b.rows, lagDays: lagDays)
+        overlaySection([a, b])
+        FlatSectionSeparator()
+        FlatSection("The verdict", systemImage: "scalemass", tint: .accent) {
+            VStack(alignment: .leading, spacing: NoopMetrics.space3) {
+                SegmentedPillControl([0, 1], selection: $lagDays) {
+                    $0 == 0 ? String(localized: "Same day") : String(localized: "Next morning")
                 }
-
-                SectionHeader("The verdict", overline: "Pearson r · real overlap")
-                if let correlation {
-                    CompareCorrelationCard(
-                        correlation: correlation.r,
-                        headline: pairHeadline(a: a.metric.title, b: b.metric.title, r: correlation.r),
-                        sentence: pairSentence(a: a.metric.title, b: b.metric.title, r: correlation.r),
-                        evidence: "\(correlation.n) paired days · \(lagDays == 0 ? "same day" : "next-morning lag") · correlation, not causation"
-                    )
-                    if let split = splitStat(paired) {
-                        CompareStatDuo(
-                            leftTitle: "\(b.metric.title) on high \(a.metric.title) days",
-                            leftValue: b.metric.format(split.high, effortScale: effortScale),
-                            rightTitle: "\(b.metric.title) on low \(a.metric.title) days",
-                            rightValue: b.metric.format(split.low, effortScale: effortScale),
-                            unit: "",
-                            tint: b.color
-                        )
-                    }
+                .accessibilityLabel("Pairing")
+                if a.rows.isEmpty || b.rows.isEmpty {
+                    quietNote("Not enough dated readings for this pair in this range. Widen the range.")
+                } else if let correlation {
+                    verdict(a: a, b: b, r: correlation.r, n: correlation.n, paired: paired)
                 } else {
-                    PaperCard {
-                        Text("At least three overlapping, varying days are required for Pearson correlation.")
-                            .font(StrandFont.subhead)
-                            .foregroundStyle(StrandPalette.textTertiary)
-                    }
+                    quietNote("At least three overlapping, varying days are required for Pearson correlation.")
                 }
             }
         }
     }
 
-    private func promotedSeries(_ series: ResolvedCompareSeries) -> CompareSeries {
-        CompareSeries(
-            title: series.metric.title,
-            // The descriptor formatter already includes its user-selected unit.
-            unit: "",
-            tint: series.color,
-            points: series.rows.compactMap { row in
-                parseCompareDay(row.day).map { ComparePoint(date: $0, value: row.value) }
-            },
-            format: { series.metric.format($0, effortScale: effortScale) }
-        )
+    private func quietNote(_ text: LocalizedStringKey) -> some View {
+        Text(text)
+            .font(StrandFont.subhead)
+            .foregroundStyle(StrandPalette.textTertiary)
+            .fixedSize(horizontal: false, vertical: true)
     }
-
-    private func laggedPairs(
-        _ a: [(day: String, value: Double)],
-        _ b: [(day: String, value: Double)],
-        lagDays: Int
-    ) -> [(x: Double, y: Double)] {
-        var bByDay: [String: Double] = [:]
-        b.forEach { bByDay[$0.day] = $0.value }
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(identifier: "UTC")!
-        return a.compactMap { row in
-            guard let date = parseCompareDay(row.day),
-                  let shifted = calendar.date(byAdding: .day, value: lagDays, to: date),
-                  let y = bByDay[compareDayParser.string(from: shifted)] else { return nil }
-            return (row.value, y)
-        }
-    }
-
-    private func splitStat(_ pairs: [(x: Double, y: Double)]) -> (high: Double, low: Double)? {
-        guard pairs.count >= 2 else { return nil }
-        let median = ComparisonEngine.stat(pairs.map(\.x)).median
-        let high = pairs.filter { $0.x >= median }.map(\.y)
-        let low = pairs.filter { $0.x < median }.map(\.y)
-        guard !high.isEmpty, !low.isEmpty else { return nil }
-        return (
-            high.reduce(0, +) / Double(high.count),
-            low.reduce(0, +) / Double(low.count)
-        )
-    }
-
-    private func pairHeadline(a: String, b: String, r: Double) -> String {
-        guard abs(r) >= 0.2 else { return String(localized: "No clear \(a)-\(b) link") }
-        return r > 0
-            ? String(localized: "Higher \(a), higher \(b)")
-            : String(localized: "Higher \(a), lower \(b)")
-    }
-
-    private func pairSentence(a: String, b: String, r: Double) -> String {
-        guard abs(r) >= 0.2 else {
-            return String(localized: "Across this window, \(a) and \(b) mostly move independently.")
-        }
-        return r > 0
-            ? String(localized: "When \(a) rises, \(b) tends to rise in the selected pairing.")
-            : String(localized: "When \(a) rises, \(b) tends to fall in the selected pairing.")
-    }
-
-    // MARK: - Overlay chart section (locked ChartCard)
 
     @ViewBuilder
-    private func overlaySection(_ series: [ResolvedCompareSeries]) -> some View {
-        let nonEmpty = series.filter { !$0.rows.isEmpty }
-        VStack(alignment: .leading, spacing: NoopMetrics.gap) {
-            SectionHeader("Overlay", overline: "\(range.phrase)")
-            ChartCard(
-                title: "Normalized overlay",
-                subtitle: anyWidened
-                    ? String(localized: "Min-max normalized · sparse series widened past \(range.phrase) · \(inspectHint)")
-                    : String(localized: "Each line min-max normalized within \(range.phrase) · \(inspectHint)"),
-                trailing: String(localized: "\(nonEmpty.count) series"),
-                // Anchor the overlay card to the brand-green chrome world; each line keeps its own
-                // categorical series colour so the lines stay distinguishable against the wash.
-                tint: StrandPalette.accent
-            ) {
-                // The overlay is min–max NORMALIZED 0–1, so the Strain scale never touches the line shape;
-                // only the per-series hover read-outs convert (passed through to the tooltip). (#268)
-                OverlayChart(series: nonEmpty, effortScale: effortScale, height: NoopMetrics.chartHeight)
-            } footer: {
-                legend(nonEmpty)
+    private func verdict(a: ResolvedCompareSeries, b: ResolvedCompareSeries, r: Double, n: Int,
+                         paired: [(x: Double, y: Double)]) -> some View {
+        let titleA = a.metric.title
+        let titleB = b.metric.title
+        let link = CompareLogic.Link(r: r)
+        let pairing = lagDays == 0 ? String(localized: "same day") : String(localized: "next-morning lag")
+        VStack(alignment: .leading, spacing: NoopMetrics.space3) {
+            CorrelationHero(r: r, caption: String(localized: "\(n) paired days"))
+            Text(verbatim: headline(link, a: titleA, b: titleB))
+                .font(StrandFont.headline)
+                .foregroundStyle(StrandPalette.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(verbatim: sentence(link, a: titleA, b: titleB))
+                .font(StrandFont.subhead)
+                .foregroundStyle(StrandPalette.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+            if let split = CompareLogic.splitMeans(paired) {
+                VStack(alignment: .leading, spacing: NoopMetrics.space3) {
+                    MetricValueRow(
+                        systemImage: "arrow.up.right",
+                        label: String(localized: "\(titleB) on high \(titleA) days"),
+                        value: format(b.metric, split.high),
+                        tint: .custom(b.color))
+                    MetricValueRow(
+                        systemImage: "arrow.down.right",
+                        label: String(localized: "\(titleB) on low \(titleA) days"),
+                        value: format(b.metric, split.low),
+                        tint: .custom(b.color))
+                }
             }
+            Text(verbatim: "\(pairing) \u{00B7} \(String(localized: "correlation, not causation"))")
+                .font(StrandFont.micro)
+                .foregroundStyle(StrandPalette.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .accessibilityElement(children: .contain)
+    }
+
+    private func headline(_ link: CompareLogic.Link, a: String, b: String) -> String {
+        switch link {
+        case .none: return String(localized: "No clear \(a)-\(b) link")
+        case .rises: return String(localized: "Higher \(a), higher \(b)")
+        case .falls: return String(localized: "Higher \(a), lower \(b)")
         }
     }
 
-    private func legend(_ series: [ResolvedCompareSeries]) -> some View {
-        VStack(spacing: 0) {
-            ForEach(Array(series.enumerated()), id: \.element.id) { idx, s in
-                HStack(spacing: 10) {
-                    // A small liquid vessel posed at this series' LATEST value within its own min–max
-                    // window (the same 0–1 position the overlay's "now" end-cap sits at) — the liquid
-                    // accent tying the legend to the real series. Static, decorative (the min/max text
-                    // + colour swatch carry the meaning for VoiceOver).
-                    PaperGauge(value: s.rows.last.map { s.normalized($0.value) },
-                                 tint: s.color, animated: false)
-                        .frame(width: 22, height: 22)
-                        .accessibilityHidden(true)
-                    RoundedRectangle(cornerRadius: 2, style: .continuous)
-                        .fill(s.color)
-                        .frame(width: 14, height: 3)
-                    Text(s.metric.title)
-                        .font(StrandFont.subhead)
-                        .foregroundStyle(StrandPalette.textPrimary)
-                    Spacer()
-                    // Real min/max labels honour the Strain scale (#268); other metrics are unchanged.
-                    Text("\(s.metric.format(s.realMin, effortScale: effortScale))-\(s.metric.format(s.realMax, effortScale: effortScale))")
-                        .font(StrandFont.captionNumber)
-                        .foregroundStyle(StrandPalette.textSecondary)
-                }
-                .padding(.vertical, 7)
-                .accessibilityElement(children: .combine)
-                .accessibilityLabel("\(s.metric.title), range \(s.metric.format(s.realMin, effortScale: effortScale)) to \(s.metric.format(s.realMax, effortScale: effortScale))")
-                if idx < series.count - 1 {
-                    Divider().overlay(StrandPalette.hairline)
-                }
-            }
+    private func sentence(_ link: CompareLogic.Link, a: String, b: String) -> String {
+        switch link {
+        case .none: return String(localized: "Across this window, \(a) and \(b) mostly move independently.")
+        case .rises: return String(localized: "When \(a) rises, \(b) tends to rise in the selected pairing.")
+        case .falls: return String(localized: "When \(a) rises, \(b) tends to fall in the selected pairing.")
         }
     }
 
-    // MARK: - Pairwise correlations card
+    // MARK: - Pairwise correlations (three or four metrics)
 
     private struct PairResult: Identifiable {
         let id: String
@@ -657,9 +580,8 @@ struct CompareView: View {
         let n: Int
     }
 
-    /// A stable fingerprint of the inputs the correlation scan depends on: the
-    /// non-empty series (in order) and their windowed content. Row content only
-    /// changes when `selected`, `range`, or fetched `fullSeries` change, so this
+    /// A stable fingerprint of the inputs the correlation scan depends on: the non-empty series (in order) and their
+    /// windowed content. Row content only changes when `selected`, `range`, or fetched `fullSeries` change, so this
     /// covers every case that alters the scan result. Used to invalidate `pairCache`.
     private func correlationKey(_ series: [ResolvedCompareSeries]) -> String {
         series
@@ -668,16 +590,14 @@ struct CompareView: View {
             .joined(separator: "|")
     }
 
-    /// Cached accessor used by the body. Returns the memoized scan when the inputs
-    /// match `pairCacheKey`; otherwise computes once for THIS render (without mutating
-    /// state — that would be illegal mid-body) so the visible result is never stale by
-    /// a frame. The matching `.onChange`/`.task` then persists the same result into
-    /// `@State`, so subsequent renders (hover/animation/HR ticks) hit the cache.
+    /// Cached accessor used by the body. Returns the memoized scan when the inputs match `pairCacheKey`; otherwise
+    /// computes once for THIS render (without mutating state, which would be illegal mid-body) so the visible result is
+    /// never stale by a frame. The matching `.onChange`/`.task` then persists the same result into `@State`.
     private func pairResults(_ series: [ResolvedCompareSeries]) -> [PairResult] {
         correlationKey(series) == pairCacheKey ? pairCache : computePairResults(series)
     }
 
-    /// The actual (expensive) pairwise scan. Pure — no view state read/written.
+    /// The actual (expensive) pairwise scan. Pure: no view state read or written.
     private func computePairResults(_ series: [ResolvedCompareSeries]) -> [PairResult] {
         var out: [PairResult] = []
         let s = series.filter { !$0.rows.isEmpty }
@@ -686,10 +606,7 @@ struct CompareView: View {
             for j in (i + 1)..<s.count {
                 let pairs = CorrelationEngine.alignByDay(s[i].rows, s[j].rows)
                 guard pairs.count >= 3, let c = CorrelationEngine.pearson(pairs) else { continue }
-                out.append(PairResult(
-                    id: "\(s[i].id)~\(s[j].id)",
-                    a: s[i], b: s[j], r: c.r, n: c.n
-                ))
+                out.append(PairResult(id: "\(s[i].id)~\(s[j].id)", a: s[i], b: s[j], r: c.r, n: c.n))
             }
         }
         // Strongest relationships first.
@@ -708,163 +625,184 @@ struct CompareView: View {
     @ViewBuilder
     private func correlationSection(_ series: [ResolvedCompareSeries]) -> some View {
         let pairs = pairResults(series)
-        VStack(alignment: .leading, spacing: NoopMetrics.gap) {
-            SectionHeader("How They Move Together",
-                          overline: "Pearson r · \(range.phrase)",
-                          trailing: pairs.isEmpty ? nil
-                                    : (pairs.count == 1 ? String(localized: "1 pair")
-                                                        : String(localized: "\(pairs.count) pairs")))
-
+        FlatSection(
+            "How They Move Together", systemImage: "link", tint: .accent,
+            trailing: pairs.isEmpty ? .none
+                : .text(pairs.count == 1 ? String(localized: "1 pair") : String(localized: "\(pairs.count) pairs")),
+            contentSpacing: NoopMetrics.space1
+        ) {
+            Text("Pearson r over the visible window")
+                .font(StrandFont.micro)
+                .foregroundStyle(StrandPalette.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
             if pairs.isEmpty {
-                PaperCard {
-                    Text("Not enough overlapping days between these metrics in \(range.phrase). Widen the range.")
-                        .font(StrandFont.subhead)
-                        .foregroundStyle(StrandPalette.textTertiary)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-            } else {
-                ForEach(pairs) { p in
-                    pairCard(p)
-                }
-            }
-        }
-    }
-
-    /// One pairwise correlation as its own Paper card.
-    private func pairCard(_ p: PairResult) -> some View {
-        let tint = correlationColor(p.r)
-        // Frosted card washed by the relationship's own colour (green positive / rose negative), with a
-        // TrendChip surfacing the signed direction at a glance — the Today delta idiom, applied to r.
-        return PaperCard {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(spacing: 10) {
-                    // A small liquid vessel filled to the correlation STRENGTH (|r|, a neutral 0–1
-                    // magnitude — not a health value), tinted by the relationship's own colour. Static
-                    // (posed) so a page of pair cards costs one cached frame each, matching Today's small
-                    // vessels. Decorative — the r read-out + sentence carry the meaning for VoiceOver.
-                    PaperGauge(value: min(abs(p.r), 1), tint: tint, animated: false)
-                        .frame(width: 30, height: 30)
-                        .accessibilityHidden(true)
-                    // Two color swatches for the pair.
-                    HStack(spacing: 3) {
-                        Circle().fill(p.a.color).frame(width: 8, height: 8)
-                        Circle().fill(p.b.color).frame(width: 8, height: 8)
-                    }
-                    Text("\(p.a.metric.title) ↔ \(p.b.metric.title)")
-                        .font(StrandFont.headline)
-                        .foregroundStyle(StrandPalette.textPrimary)
-                    Spacer()
-                    TrendChip(text: signedR(p.r), color: tint)
-                    Text("r = \(signedR(p.r))")
-                        .font(StrandFont.number(18))
-                        .foregroundStyle(StrandPalette.textPrimary)
-                }
-
-                Text(insightSentence(p))
+                Text("Not enough overlapping days between these metrics in this range. Widen the range.")
                     .font(StrandFont.subhead)
-                    .foregroundStyle(StrandPalette.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                // The strength magnitude drawn as a liquid tube — the horizontal progress idiom Today
-                // uses for its key-metric fills, here reading |r| from none (0) to a perfect link (1).
-                PaperProgressBar(frac: min(abs(p.r), 1), tint: tint, height: 8, animated: false)
-                    .accessibilityHidden(true)
-
-                Text("\(p.n) overlapping days · \(strengthWord(p.r)) \(directionWord(p.r)) correlation")
-                    .font(StrandFont.footnote)
                     .foregroundStyle(StrandPalette.textTertiary)
+                    .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                VStack(spacing: 0) {
+                    ForEach(Array(pairs.enumerated()), id: \.element.id) { index, pair in
+                        if index > 0 { ExploreRowSeparator() }
+                        pairRow(pair)
+                    }
+                }
             }
         }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(p.a.metric.title) versus \(p.b.metric.title), r equals \(String(format: "%.2f", p.r)), \(p.n) days")
     }
 
-    // MARK: - Insight language
-
-    /// "Weight ↔ Recovery: r = −0.34 (moderate negative) over 1Y" + a plain-English
-    /// conclusion when |r| is notable.
-    private func insightSentence(_ p: PairResult) -> String {
-        let head = String(localized: "\(p.a.metric.title) ↔ \(p.b.metric.title): r = \(signedR(p.r)) (\(strengthWord(p.r)) \(directionWord(p.r))) over \(p.n) shared days.")
-        guard abs(p.r) >= 0.3 else {
-            return String(localized: "\(head) No clear relationship. They move largely independently.")
+    /// One pairwise relationship: the two names, one plain sentence, how many days it rests on, and r with its word.
+    private func pairRow(_ pair: PairResult) -> some View {
+        let strength = CorrelationStrength(r: pair.r)
+        let color = CorrelationStrength.color(for: pair.r)
+        let value = CorrelationStrength.signedText(pair.r)
+        let titleA = pair.a.metric.title
+        let titleB = pair.b.metric.title
+        let sentence: String
+        switch CompareLogic.Link(r: pair.r) {
+        case .none: sentence = String(localized: "No clear relationship. They move largely independently.")
+        case .rises: sentence = String(localized: "When \(titleA) rises, \(titleB) tends to rise.")
+        case .falls: sentence = String(localized: "When \(titleA) rises, \(titleB) tends to fall.")
         }
-        let aT = p.a.metric.title.lowercased()
-        let bT = p.b.metric.title.lowercased()
-        // Whole-phrase variants per direction so translators never see a stitched verb fragment.
-        return p.r < 0
-            ? String(localized: "\(head) When \(aT) rises, \(bT) tends to fall, a \(strengthWord(p.r)) \(directionWord(p.r)) link.")
-            : String(localized: "\(head) When \(aT) rises, \(bT) tends to rise, a \(strengthWord(p.r)) \(directionWord(p.r)) link.")
-    }
-
-    private func signedR(_ r: Double) -> String {
-        (r >= 0 ? "+" : "−") + String(format: "%.2f", abs(r))
-    }
-
-    private func strengthWord(_ r: Double) -> String {
-        switch abs(r) {
-        case ..<0.1:  return String(localized: "negligible")
-        case ..<0.3:  return String(localized: "weak")
-        case ..<0.5:  return String(localized: "moderate")
-        case ..<0.7:  return String(localized: "strong")
-        default:      return String(localized: "very strong")
+        let days = String(localized: "\(pair.n) overlapping days")
+        return ExploreFlatRow(
+            symbol: "arrow.left.arrow.right",
+            tint: .custom(color),
+            title: Text(verbatim: "\(titleA) \u{2194} \(titleB)"),
+            subtitle: Text(verbatim: sentence),
+            detail: Text(verbatim: days),
+            showsChevron: false,
+            spoken: String(localized: "\(titleA) versus \(titleB), \(strength.word) correlation \(value), \(pair.n) days")
+        ) {
+            // Direction by sign and colour, strength by the word beside the number.
+            CorrelationTrailing(value: value, word: strength.word, color: color)
         }
-    }
-
-    private func directionWord(_ r: Double) -> String {
-        if abs(r) < 0.1 { return "" }
-        return r >= 0 ? String(localized: "positive") : String(localized: "negative")
-    }
-
-    private func correlationColor(_ r: Double) -> Color {
-        let base = r >= 0 ? StrandPalette.statusPositive : StrandPalette.statusCritical
-        return base.opacity(0.55 + 0.45 * min(abs(r), 1.0))
     }
 }
 
-// MARK: - Full-catalog pair slot picker
+// MARK: - A metric's read-out under the overlay
 
+/// One line under the overlay: the line's colour, the metric's name, its value on the day shown and the span it covered
+/// in the window. At the accessibility sizes the value drops under the name.
+private struct CompareReadoutRow: View {
+    let color: Color
+    let title: String
+    let value: String
+    let range: String
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    var body: some View {
+        Group {
+            if typeSize.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: 2) {
+                    nameLine
+                    valueText
+                    rangeText
+                }
+            } else {
+                VStack(alignment: .leading, spacing: 1) {
+                    HStack(alignment: .firstTextBaseline, spacing: NoopMetrics.space2) {
+                        nameLine
+                        Spacer(minLength: NoopMetrics.space2)
+                        valueText
+                    }
+                    rangeText.padding(.leading, 8 + NoopMetrics.space2)
+                }
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(verbatim: "\(title), \(value), \(range)"))
+    }
+
+    private var nameLine: some View {
+        HStack(alignment: .firstTextBaseline, spacing: NoopMetrics.space2) {
+            Circle().fill(color).frame(width: 8, height: 8)
+            Text(verbatim: title)
+                .font(StrandFont.subhead)
+                .foregroundStyle(StrandPalette.textPrimary)
+                .lineLimit(typeSize.isAccessibilitySize ? 3 : 1)
+                .minimumScaleFactor(0.8)
+        }
+    }
+
+    private var valueText: some View {
+        Text(verbatim: value)
+            .font(StrandFont.bodyNumber)
+            .foregroundStyle(value == WidgetMetrics.missingValue ? StrandPalette.textTertiary : StrandPalette.textPrimary)
+            .lineLimit(1)
+            .minimumScaleFactor(0.7)
+    }
+
+    private var rangeText: some View {
+        Text(verbatim: range)
+            .font(StrandFont.micro)
+            .foregroundStyle(StrandPalette.textTertiary)
+            .lineLimit(1)
+            .minimumScaleFactor(0.8)
+    }
+}
+
+// MARK: - Full-catalog metric picker
+
+/// The picker sheet: the whole catalog by category with search. It chooses the metric for one of the selected slots, or
+/// one more to add; a metric already chosen shows a tick.
 private struct CompareMetricPickerSheet: View {
-    @Environment(\.dismiss) private var dismiss
     let selected: [MetricDescriptor]
-    let slot: Int
+    let slot: CompareSlot
+    let colorFor: (MetricDescriptor) -> Color?
     let onSelect: (MetricDescriptor) -> Void
     @State private var query = ""
 
     private var filtered: [MetricDescriptor] {
-        guard !query.isEmpty else { return MetricCatalog.all }
+        let q = query.trimmingCharacters(in: .whitespaces)
+        guard !q.isEmpty else { return MetricCatalog.all }
         return MetricCatalog.all.filter {
-            $0.title.localizedCaseInsensitiveContains(query)
-                || $0.category.localizedCaseInsensitiveContains(query)
-                || $0.sourceLabel.localizedCaseInsensitiveContains(query)
+            $0.title.localizedCaseInsensitiveContains(q)
+                || $0.category.localizedCaseInsensitiveContains(q)
+                || MetricCatalog.categoryDisplayName($0.category).localizedCaseInsensitiveContains(q)
+                || $0.sourceLabel.localizedCaseInsensitiveContains(q)
+        }
+    }
+
+    /// The metric the slot being replaced holds now.
+    private var current: MetricDescriptor? {
+        if case .slot(let index) = slot, selected.indices.contains(index) { return selected[index] }
+        return nil
+    }
+
+    private var slotTitle: LocalizedStringKey {
+        switch slot {
+        case .add: return "Add a metric"
+        case .slot(let index): return index == 0 ? "Metric A" : "Metric B"
         }
     }
 
     var body: some View {
-        NavigationStack {
-            List {
-                ForEach(MetricCatalog.categories, id: \.self) { category in
-                    let rows = filtered.filter { $0.category == category }
-                    if !rows.isEmpty {
-                        Section(MetricCatalog.categoryDisplayName(category)) {
-                            ForEach(rows) { metric in
-                                Button {
-                                    onSelect(metric)
-                                } label: {
-                                    HStack(spacing: 10) {
-                                        Image(systemName: metric.icon)
-                                            .foregroundStyle(StrandPalette.textSecondary)
-                                            .frame(width: 22)
-                                        VStack(alignment: .leading, spacing: 2) {
-                                            Text(metric.title).foregroundStyle(StrandPalette.textPrimary)
-                                            Text(metric.sourceLabel)
-                                                .font(StrandFont.footnote)
-                                                .foregroundStyle(StrandPalette.textTertiary)
-                                        }
-                                        Spacer()
-                                        if selected.indices.contains(slot), selected[slot] == metric {
-                                            Image(systemName: "checkmark").foregroundStyle(StrandPalette.accent)
-                                        }
+        ScreenScaffold(title: slotTitle, lazy: true, topBackground: nil) {
+            VStack(alignment: .leading, spacing: NoopMetrics.space3) {
+                PaperSearchField("Search metrics", text: $query, height: 44, cornerRadius: 10,
+                                 inputConfiguration: .searchQuery)
+                    .accessibilityLabel("Search metrics")
+                let rows = filtered
+                if rows.isEmpty {
+                    ExploreMessage(symbol: "magnifyingglass", title: Text("No metrics match"))
+                } else {
+                    ForEach(MetricCatalog.categories, id: \.self) { category in
+                        let inCategory = rows.filter { $0.category == category }
+                        if !inCategory.isEmpty {
+                            // Localized at the render site only; `category` itself stays the raw English identifier.
+                            FlatSection(
+                                verbatim: MetricCatalog.categoryDisplayName(category),
+                                systemImage: MetricCatalog.categorySymbol(category),
+                                tint: MetricCatalog.categoryTint(category),
+                                trailing: .text(inCategory.count.formatted()),
+                                contentSpacing: 0
+                            ) {
+                                VStack(spacing: 0) {
+                                    ForEach(Array(inCategory.enumerated()), id: \.element.id) { index, metric in
+                                        if index > 0 { ExploreRowSeparator() }
+                                        row(metric)
                                     }
                                 }
                             }
@@ -872,475 +810,33 @@ private struct CompareMetricPickerSheet: View {
                     }
                 }
             }
-            .searchable(text: $query, prompt: "Search metrics")
-            .navigationTitle(slot == 0 ? "Metric A" : "Metric B")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
+        }
+    }
+
+    private func row(_ metric: MetricDescriptor) -> some View {
+        let isChosen = selected.contains(metric)
+        let isAdding = slot == .add
+        return Button {
+            onSelect(metric)
+        } label: {
+            ExploreFlatRow(
+                symbol: metric.icon, tint: metric.domainTint(),
+                title: Text(verbatim: metric.title), subtitle: Text(verbatim: metric.sourceLabel),
+                showsChevron: false,
+                spoken: metric.title + ", " + metric.sourceLabel
+            ) {
+                if isChosen {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(colorFor(metric) ?? StrandPalette.accent)
+                        .accessibilityHidden(true)
                 }
             }
         }
-    }
-}
-
-// MARK: - Selected-metric chips (wrapping flow layout)
-
-/// Removable chips for the active selection, tinted to each series' color.
-private struct FlowChips: View {
-    let metrics: [MetricDescriptor]
-    let colorFor: (MetricDescriptor) -> Color
-    let onRemove: (MetricDescriptor) -> Void
-
-    private let columns = [GridItem(.adaptive(minimum: 150), spacing: 8, alignment: .leading)]
-
-    var body: some View {
-        LazyVGrid(columns: columns, alignment: .leading, spacing: 8) {
-            ForEach(metrics) { metric in
-                let color = colorFor(metric)
-                HStack(spacing: 7) {
-                    Circle().fill(color).frame(width: 8, height: 8)
-                    Text(metric.title)
-                        .font(StrandFont.subhead)
-                        .foregroundStyle(StrandPalette.textPrimary)
-                        .lineLimit(1)
-                    Spacer(minLength: 2)
-                    Button {
-                        onRemove(metric)
-                    } label: {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 9, weight: .bold))
-                            .foregroundStyle(StrandPalette.textTertiary)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Remove \(metric.title)")
-                }
-                .padding(.horizontal, 11)
-                .padding(.vertical, 8)
-                .background(
-                    Capsule(style: .continuous).fill(StrandPalette.surfaceOverlay)
-                )
-                .overlay(
-                    Capsule(style: .continuous).stroke(color.opacity(0.4), lineWidth: 1)
-                )
-            }
-        }
-    }
-}
-
-// MARK: - Overlay chart (custom multi-line Swift Chart, normalized 0–1)
-
-/// Draws each series as its own colored line on a shared 0…1 normalized y-axis.
-/// Hovering reveals a crosshair plus a tooltip listing every series' REAL value on
-/// the nearest day.
-private struct OverlayChart: View {
-    let series: [ResolvedCompareSeries]
-    /// Strain display scale (#268) — passed through to the hover tooltip's real-value read-outs. The
-    /// plotted points stay min–max normalized 0–1, so the line shape is unaffected.
-    var effortScale: EffortScale = .hundred
-    var height: CGFloat = 260
-
-    @State private var hoverX: CGFloat? = nil
-
-    /// Cache of the derived chart model + the series fingerprint it was built for.
-    /// `hoverX` is `@State` here, so every pointer move re-evaluates `body`; before
-    /// this cache each hover frame re-ran the full flatten + normalize + date-parse
-    /// + sort work over every row of every series. Mirrors the `pairCache` idiom
-    /// CompareView already uses for its correlation scan.
-    @State private var modelCache: Model = .empty
-    @State private var modelCacheKey: String = ""
-
-    // A flat, plottable point: the series title (drives the categorical color
-    // scale), the date, and the min–max normalized y.
-    private struct Plot: Identifiable {
-        // Stable identity (one value per metric per day) so Chart can diff across renders instead
-        // of treating every point as new on each hover tick — was `UUID()`, which forced full rebuilds.
-        var id: String { title + "@" + String(date.timeIntervalSince1970) }
-        let title: String
-        let date: Date
-        let norm: Double
-    }
-
-    /// Everything `body` derives from `series`, computed ONCE per data change instead
-    /// of on every hover frame. Drawing (`plots`) is downsampled; every read-out path
-    /// (hover index, tooltip values, end-caps) is built from the FULL-resolution rows.
-    private struct Model {
-        /// The plot points actually handed to the marks, per series: full resolution
-        /// up to `markThreshold`, else min/max-bucketed toward `targetVertices`.
-        /// DRAWING ONLY. The correlation cards never read this (they run on
-        /// `CompareSeries.rows`), and neither do the hover read-outs below.
-        let plots: [Plot]
-        /// The latest normalized plot point of each series (the glowing "now" end-caps).
-        let endCaps: [Plot]
-        /// The union of all parseable days present, ascending, each pre-parsed to a
-        /// `Date` once. The sorted index hover snapping binary-searches, replacing a
-        /// linear min-scan that re-parsed every day string on every mouse move.
-        let dayIndex: [(day: String, date: Date)]
-        /// day -> (series id -> real value): O(1) crosshair-dot and tooltip lookups,
-        /// replacing a per-frame linear `rows` scan per series.
-        let valuesByDay: [String: [String: Double]]
-        /// True when every series is sparse enough for its per-point marks to read as
-        /// discrete readings. Dense series draw line-only.
-        let showsPointMarks: Bool
-
-        static let empty = Model(series: [])
-
-        /// Same gate as TrendChart's dotted series: above 60 windowed points the dots
-        /// are sub-pixel-dense and invisible but still cost the GPU a mark each.
-        /// Because 60 < `markThreshold`, whenever marks ARE shown no series was
-        /// downsampled, so every dot sits on a real full-resolution vertex.
-        static let pointMarkGate = 60
-        /// Above this many points per series the DRAWN line is downsampled; at or
-        /// below it the series passes through untouched. Same constants as
-        /// StrandDesign's `ChartDownsample` (TrendChart / OverviewHRChart), applied
-        /// per overlaid series so bucketing never crosses a series boundary.
-        static let markThreshold = 120
-        static let targetVertices = 400
-
-        init(series: [ResolvedCompareSeries]) {
-            var drawn: [Plot] = []
-            var caps: [Plot] = []
-            var byDay: [String: [String: Double]] = [:]
-            var dateCache: [String: Date] = [:]
-            var densest = 0
-
-            for s in series {
-                densest = max(densest, s.rows.count)
-                var pts: [Plot] = []
-                pts.reserveCapacity(s.rows.count)
-                for row in s.rows {
-                    byDay[row.day, default: [:]][s.id] = row.value
-                    let d: Date
-                    if let cached = dateCache[row.day] {
-                        d = cached
-                    } else if let parsed = parseCompareDay(row.day) {
-                        dateCache[row.day] = parsed
-                        d = parsed
-                    } else {
-                        continue // unparseable day: not plottable (as before)
-                    }
-                    pts.append(Plot(title: s.metric.title, date: d, norm: s.normalized(row.value)))
-                }
-                if let row = s.rows.last, let d = dateCache[row.day] ?? parseCompareDay(row.day) {
-                    caps.append(Plot(title: s.metric.title, date: d, norm: s.normalized(row.value)))
-                }
-                drawn.append(contentsOf: Model.minMaxBucketed(pts))
-            }
-
-            plots = drawn
-            endCaps = caps
-            valuesByDay = byDay
-            dayIndex = dateCache.map { (day: $0.key, date: $0.value) }.sorted { $0.date < $1.date }
-            showsPointMarks = densest <= Model.pointMarkGate
-        }
-
-        /// Min/max-per-bucket downsample of ONE series' plot points, mirroring
-        /// `ChartDownsample.minMaxBucketed` in StrandDesign: each interior bucket
-        /// contributes its lowest and highest sample in time order, so every visible
-        /// peak and trough survives and the line silhouette is unchanged at normal
-        /// chart widths; first and last points are always kept. Pure + deterministic.
-        static func minMaxBucketed(_ points: [Plot]) -> [Plot] {
-            let n = points.count
-            guard n > markThreshold, n > 2 else { return points }
-
-            // Reserve the first and last; bucket the interior. Each bucket yields up
-            // to 2 vertices (min+max), so aim for ~targetVertices/2 buckets.
-            let first = points[0]
-            let last = points[n - 1]
-            let interior = n - 2
-            let bucketCount = max(1, (targetVertices - 2) / 2)
-            guard bucketCount < interior else { return points }
-
-            var out: [Plot] = []
-            out.reserveCapacity(targetVertices)
-            out.append(first)
-
-            var lastEmittedDate = first.date
-            for b in 0..<bucketCount {
-                // Interior indices [1 ... n-2] split into `bucketCount` contiguous ranges.
-                let lo = 1 + (b * interior) / bucketCount
-                let hi = 1 + ((b + 1) * interior) / bucketCount // exclusive
-                guard lo < hi else { continue }
-
-                var minIdx = lo, maxIdx = lo
-                var i = lo + 1
-                while i < hi {
-                    if points[i].norm < points[minIdx].norm { minIdx = i }
-                    if points[i].norm > points[maxIdx].norm { maxIdx = i }
-                    i += 1
-                }
-
-                // Emit the two extremes in chronological order, skipping duplicates
-                // (monotone bucket yields one point) and any whose date would not
-                // advance (keeps the day-keyed `Plot.id` unique for Chart's diffing).
-                let lowFirst = minIdx <= maxIdx
-                let aIdx = lowFirst ? minIdx : maxIdx
-                let bIdx = lowFirst ? maxIdx : minIdx
-                for idx in [aIdx, bIdx] where points[idx].date > lastEmittedDate {
-                    out.append(points[idx])
-                    lastEmittedDate = points[idx].date
-                }
-            }
-
-            if last.date > lastEmittedDate { out.append(last) }
-            return out
-        }
-    }
-
-    /// Fingerprint of the model's inputs, same idiom as `CompareView.correlationKey`:
-    /// series id + windowed row count + endpoint days. Row content only changes when
-    /// the selection, range, or fetched history changes, so this covers every input.
-    private var modelKey: String {
-        series
-            .map { s in "\(s.id):\(s.rows.count):\(s.rows.first?.day ?? "")>\(s.rows.last?.day ?? "")" }
-            .joined(separator: "|")
-    }
-
-    /// Cached accessor used by `body`. Mirrors `CompareView.pairResults`: returns the
-    /// memoized model when the inputs match, else computes for THIS render (without
-    /// mutating state mid-body); the matching onAppear/onChange then persist it so
-    /// subsequent hover frames hit the cache.
-    private var currentModel: Model {
-        modelKey == modelCacheKey ? modelCache : Model(series: series)
-    }
-
-    /// Rebuild the model cache if (and only if) the series content changed.
-    private func refreshModel() {
-        let key = modelKey
-        guard key != modelCacheKey else { return }
-        modelCacheKey = key
-        modelCache = Model(series: series)
-    }
-
-    /// The series colour for a metric title — drives the matching "now" end-cap glow.
-    private func colorFor(_ title: String) -> Color? {
-        series.first(where: { $0.metric.title == title })?.color
-    }
-
-    var body: some View {
-        let model = currentModel
-        Chart(model.plots) { p in
-            LineMark(
-                x: .value("Date", p.date),
-                y: .value("Normalized", p.norm)
-            )
-            .interpolationMethod(.catmullRom)
-            .lineStyle(StrokeStyle(lineWidth: 2.2, lineCap: .round, lineJoin: .round))
-            .foregroundStyle(by: .value("Metric", p.title))
-
-            // Per-point dots are only legible on sparse series; on a dense window they
-            // overlap into the line while still costing a mark each (same gate as
-            // TrendChart). The line carries the data past the gate.
-            if model.showsPointMarks {
-                PointMark(
-                    x: .value("Date", p.date),
-                    y: .value("Normalized", p.norm)
-                )
-                .symbolSize(10)
-                .foregroundStyle(by: .value("Metric", p.title))
-            }
-        }
-        // Bevel "now" end-caps — a soft halo + bright core on each series' latest point, drawn on top.
-        .chartOverlay { proxy in
-            GeometryReader { geo in
-                let plot = proxy.plotRectCompat(in: geo)
-                ForEach(model.endCaps) { cap in
-                    if let px = proxy.position(forX: cap.date),
-                       let py = proxy.position(forY: cap.norm),
-                       let color = colorFor(cap.title) {
-                        ZStack {
-                            Circle().fill(color.opacity(0.30)).frame(width: 16, height: 16)
-                            Circle().fill(color.opacity(0.65)).frame(width: 10, height: 10)
-                            Circle().fill(StrandPalette.ink).frame(width: 4, height: 4)
-                        }
-                        .position(x: px + plot.minX, y: py + plot.minY)
-                        .allowsHitTesting(false)
-                    }
-                }
-            }
-            .accessibilityHidden(true)
-        }
-        .chartForegroundStyleScale(range: series.map(\.color))
-        .chartYScale(domain: 0...1)
-        .chartYAxis {
-            // Normalized axis — label endpoints as low/high rather than raw numbers.
-            AxisMarks(position: .leading, values: [0.0, 0.5, 1.0]) { value in
-                AxisGridLine().foregroundStyle(StrandPalette.hairline.opacity(0.4))
-                AxisValueLabel {
-                    if let d = value.as(Double.self) {
-                        Text(d == 0 ? "low" : d == 1 ? "high" : "mid")
-                            .font(StrandFont.footnote)
-                            .foregroundStyle(StrandPalette.textTertiary)
-                    }
-                }
-            }
-        }
-        .chartXAxis {
-            AxisMarks(values: .automatic(desiredCount: 5)) { _ in
-                AxisGridLine().foregroundStyle(StrandPalette.hairline.opacity(0.4))
-                AxisValueLabel().foregroundStyle(StrandPalette.textTertiary)
-                    .font(StrandFont.footnote)
-            }
-        }
-        .chartLegend(.hidden) // legend rendered separately with real min/max
-        .chartOverlay { proxy in
-            GeometryReader { geo in
-                let plot = proxy.plotRectCompat(in: geo)
-                ZStack(alignment: .topLeading) {
-                    if let hx = hoverX,
-                       let snap = nearestEntry(toX: hx, proxy: proxy, plot: plot, index: model.dayIndex),
-                       let px = proxy.position(forX: snap.date) {
-                        let cx = px + plot.minX
-                        let dayValues = model.valuesByDay[snap.day] ?? [:]
-                        // Vertical crosshair at the hovered day.
-                        Rectangle()
-                            .fill(StrandPalette.hairlineStrong)
-                            .frame(width: 1, height: geo.size.height)
-                            .position(x: cx, y: geo.size.height / 2)
-
-                        // Dot on each series at this day (where it has a value).
-                        ForEach(series) { s in
-                            if let v = dayValues[s.id],
-                               let py = proxy.position(forY: s.normalized(v)) {
-                                Circle()
-                                    .fill(s.color)
-                                    .frame(width: 9, height: 9)
-                                    .overlay(Circle().stroke(StrandPalette.surfaceBase, lineWidth: 2))
-                                    .position(x: cx, y: py + plot.minY)
-                            }
-                        }
-
-                        MultiTooltip(
-                            date: snap.date,
-                            series: series,
-                            values: dayValues,
-                            effortScale: effortScale,
-                            anchorX: cx,
-                            container: geo.size
-                        )
-                    }
-                }
-                .animation(StrandMotion.fade, value: hoverX)
-                .contentShape(Rectangle())
-                .onContinuousHover(coordinateSpace: .local) { phase in
-                    switch phase {
-                    case .active(let location): hoverX = location.x
-                    case .ended: hoverX = nil
-                    }
-                }
-                #if os(iOS)
-                // Touch input never fires onContinuousHover (pointer-only), so on iPhone /
-                // iPad-without-pointer the crosshair + value tooltip would be unreachable.
-                // Drive the same hoverX via tap (single touch-down) and drag-to-scrub across
-                // days. minimumDistance:0 keeps the first touch responsive; a clearly vertical
-                // pan is still claimed by the parent ScrollView.
-                .gesture(
-                    SpatialTapGesture(coordinateSpace: .local)
-                        .onEnded { hoverX = $0.location.x }
-                        .exclusively(before:
-                            DragGesture(minimumDistance: 0, coordinateSpace: .local)
-                                .onChanged { hoverX = $0.location.x }
-                                .onEnded { _ in hoverX = nil }
-                        )
-                )
-                #endif
-            }
-        }
-        // Persist the model into @State so hover-frame body evals hit the cache
-        // (currentModel already served THIS render the fresh value when the key missed).
-        .onAppear { refreshModel() }
-        .onChangeCompat(of: modelKey) { _ in refreshModel() }
-        .frame(height: height)
-    }
-
-    /// Map a cursor x back to the nearest day present in the data: binary search over
-    /// the model's pre-parsed, date-sorted index, then pick the closer neighbour.
-    /// O(log days) per mouse move; ties snap to the earlier day, as the old scan did.
-    private func nearestEntry(toX x: CGFloat, proxy: ChartProxy, plot: CGRect,
-                              index: [(day: String, date: Date)]) -> (day: String, date: Date)? {
-        guard !index.isEmpty else { return nil }
-        let relX = x - plot.minX
-        guard let date: Date = proxy.value(atX: relX) else { return nil }
-
-        // Lower bound: first entry whose date is >= the cursor date.
-        var lo = 0, hi = index.count
-        while lo < hi {
-            let mid = (lo + hi) / 2
-            if index[mid].date < date { lo = mid + 1 } else { hi = mid }
-        }
-        if lo == 0 { return index[0] }
-        if lo == index.count { return index[index.count - 1] }
-        let before = index[lo - 1], after = index[lo]
-        return date.timeIntervalSince(before.date) <= after.date.timeIntervalSince(date) ? before : after
-    }
-}
-
-// MARK: - Multi-series tooltip
-
-/// A floating tooltip listing each series' REAL value on the hovered day, kept
-/// inside the chart bounds.
-private struct MultiTooltip: View {
-    /// The hovered day, pre-parsed once by the chart's model (no per-frame parse).
-    let date: Date
-    let series: [ResolvedCompareSeries]
-    /// Real values on the hovered day keyed by series id, precomputed in the chart's
-    /// model. Replaces a per-frame linear `rows` scan per series.
-    let values: [String: Double]
-    /// Strain display scale (#268) — the per-series real value converts onto WHOOP's 0–21 axis when set.
-    var effortScale: EffortScale = .hundred
-    let anchorX: CGFloat
-    let container: CGSize
-
-    /// Shared formatter; was rebuilt from scratch on every hover frame.
-    private static let dateLabelFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.dateFormat = "EEE d MMM yyyy"
-        return f
-    }()
-
-    private var dateLabel: String { Self.dateLabelFormatter.string(from: date) }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Text(dateLabel)
-                .font(StrandFont.footnote)
-                .foregroundStyle(StrandPalette.textTertiary)
-            ForEach(series) { s in
-                HStack(spacing: 7) {
-                    Circle().fill(s.color).frame(width: 7, height: 7)
-                    Text(s.metric.title)
-                        .font(StrandFont.caption)
-                        .foregroundStyle(StrandPalette.textSecondary)
-                    Spacer(minLength: 12)
-                    Text(values[s.id].map { s.metric.format($0, effortScale: effortScale) } ?? "—")
-                        .font(StrandFont.captionNumber)
-                        .foregroundStyle(StrandPalette.textPrimary)
-                }
-            }
-        }
-        .padding(10)
-        .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(StrandPalette.surfaceOverlay)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .stroke(StrandPalette.hairline, lineWidth: 1)
-        )
-        .frame(width: tooltipWidth, alignment: .leading)
-        .position(x: clampedX, y: tooltipHeight / 2 + 8)
-        .allowsHitTesting(false)
-    }
-
-    private var tooltipWidth: CGFloat { 220 }
-    private var tooltipHeight: CGFloat { CGFloat(24 + series.count * 18) }
-
-    /// Keep the tooltip on the side of the crosshair with more room, clamped.
-    private var clampedX: CGFloat {
-        let half = tooltipWidth / 2
-        let preferRight = anchorX < container.width / 2
-        let target = preferRight ? anchorX + half + 14 : anchorX - half - 14
-        return min(max(target, half + 4), container.width - half - 4)
+        .exploreRowPress()
+        // Adding a metric that is already chosen would only take it off again; leave it showing its tick.
+        .disabled(isAdding && isChosen)
+        .accessibilityAddTraits(current == metric ? .isSelected : [])
     }
 }
 

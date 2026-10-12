@@ -242,6 +242,51 @@ struct ExploreMessage: View {
     }
 }
 
+/// The right side of a list row that ends in a value: the number, then its unit set apart and muted. A unit never stands
+/// alone: with no number a row shows `ExploreNoValue`, or nothing while it is still reading.
+struct ExploreLatestValue: View {
+    let number: String
+    var unit = ""
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: NoopMetrics.space1) {
+            Text(verbatim: number)
+                .font(StrandFont.bodyNumber)
+                .foregroundStyle(number == WidgetMetrics.missingValue ? StrandPalette.textTertiary : StrandPalette.textPrimary)
+            if !unit.isEmpty, number != WidgetMetrics.missingValue {
+                Text(verbatim: unit)
+                    .font(StrandFont.captionNumber)
+                    .foregroundStyle(StrandPalette.textTertiary)
+            }
+        }
+        .lineLimit(1)
+    }
+}
+
+/// A relationship's r as a hero value with its strength word beside it, under it when the line is too narrow. The word and
+/// the colour come from the shared `CorrelationStrength` rule, so every screen that talks about an r reads the same.
+struct CorrelationHero: View {
+    let r: Double
+    let caption: String
+
+    var body: some View {
+        let strength = CorrelationStrength(r: r)
+        let color = CorrelationStrength.color(for: r)
+        let hero = HeroValue(value: CorrelationStrength.signedText(r), unit: "r", caption: caption, captionPlacement: .below)
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .firstTextBaseline, spacing: NoopMetrics.space2) {
+                hero
+                Spacer(minLength: NoopMetrics.space2)
+                ValuePill(strength.word, tint: color)
+            }
+            VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+                hero
+                ValuePill(strength.word, tint: color)
+            }
+        }
+    }
+}
+
 /// The right side of a correlation row: the signed r over the strength word. Side by side it trails; a stacked row
 /// (from `.xxxLarge`) has no right edge, so it lines both up with the row's text.
 struct CorrelationTrailing: View {

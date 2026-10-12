@@ -264,17 +264,7 @@ private struct MetricRow: View {
             // One rule for every row: the latest value with a muted unit, a muted "No data" when there is none, and
             // nothing at all while the probe is still reading. Never a unit with no number.
             if let parts = latestParts {
-                HStack(alignment: .firstTextBaseline, spacing: NoopMetrics.space1) {
-                    Text(verbatim: parts.number)
-                        .font(StrandFont.bodyNumber)
-                        .foregroundStyle(StrandPalette.textPrimary)
-                    if !parts.unit.isEmpty {
-                        Text(verbatim: parts.unit)
-                            .font(StrandFont.captionNumber)
-                            .foregroundStyle(StrandPalette.textTertiary)
-                    }
-                }
-                .lineLimit(1)
+                ExploreLatestValue(number: parts.number, unit: parts.unit)
             } else if probe == .empty {
                 Text("No data")
                     .font(StrandFont.footnote)
