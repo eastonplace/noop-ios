@@ -3,8 +3,8 @@ import WhoopStore
 @testable import NOOP
 
 /// DL-03: editing, deleting or adding a nap on any night but last night never rescored that day, because the
-/// edit flows only ask for the one-day `analyzeRecent()`. The mutators now enqueue the affected days and that
-/// pass widens to cover them.
+/// edit flows only ask for the one-day `analyzeRecent()`. The mutators now enqueue the affected days and a
+/// background drain rescores them from that day through today.
 @MainActor
 final class RepositoryEditRescoreTests: XCTestCase {
     override func setUp() async throws {
@@ -81,6 +81,79 @@ final class RepositoryEditRescoreTests: XCTestCase {
         XCTAssertTrue(EditedDayRescoreQueue.shared.timestamps.isEmpty, "the pass drains what it rescored")
     }
 
+    // MARK: - Background drain
+
+    private func drainQueue(now: Date, calendar: Calendar,
+                            backgrounded: Bool = false) -> EditedDayRescoreQueue {
+        EditedDayRescoreQueue(now: { now }, calendar: { calendar }, isBackgrounded: { backgrounded })
+    }
+
+    /// Review finding (unchunked forced batch): an edit months back ran as one forced, uncancellable request
+    /// over the whole range while the editor waited. The drain now runs at most 30 days per pass, oldest first.
+    func testALongEditedRangeDrainsInThirtyDayChunksOldestFirst() async throws {
+        let calendar = try newYorkCalendar()
+        let now = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 10, day: 12, hour: 15)))
+        let edited = try XCTUnwrap(calendar.date(byAdding: .day, value: -69, to: now))
+        let queue = drainQueue(now: now, calendar: calendar)
+        let recorder = EditedDayAnalyzeRecorder()
+        queue.register(recorder) { request in
+            recorder.requests.append(request)
+            return true
+        }
+
+        queue.enqueue([Int(edited.timeIntervalSince1970)])
+        queue.scheduleDrain()
+        await queue.waitForDrain()
+
+        XCTAssertEqual(recorder.requests.map(\.startOffset), [40, 10, 0], "oldest chunk first")
+        XCTAssertEqual(recorder.requests.map(\.maxDays), [30, 30, 10], "70 days in passes of at most 30")
+        XCTAssertTrue(recorder.requests.allSatisfy(\.force))
+        XCTAssertTrue(queue.timestamps.isEmpty)
+        XCTAssertFalse(queue.isDraining)
+    }
+
+    func testCancellingMidDrainStopsAtTheChunkBoundaryAndKeepsTheRestQueued() async throws {
+        let calendar = try newYorkCalendar()
+        let now = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 10, day: 12, hour: 15)))
+        let edited = try XCTUnwrap(calendar.date(byAdding: .day, value: -69, to: now))
+        let queue = drainQueue(now: now, calendar: calendar)
+        let recorder = EditedDayAnalyzeRecorder()
+        queue.register(recorder) { [unowned queue] request in
+            recorder.requests.append(request)
+            queue.cancel() // BG expiry lands while the first chunk runs
+            return true
+        }
+
+        queue.enqueue([Int(edited.timeIntervalSince1970)])
+        queue.scheduleDrain()
+        await queue.waitForDrain()
+
+        XCTAssertEqual(recorder.requests.count, 1)
+        let rest = try XCTUnwrap(IntelligenceAnalysisRequest.editedDays(
+            containingTimestamps: queue.timestamps, now: now, calendar: calendar))
+        XCTAssertEqual(rest.maxDays, 40, "the 40 days after the finished chunk stay queued")
+        XCTAssertFalse(queue.isDraining)
+    }
+
+    func testTheDrainWaitsWhileTheAppIsInTheBackground() async throws {
+        let calendar = try newYorkCalendar()
+        let now = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 10, day: 12, hour: 15)))
+        let queue = drainQueue(now: now, calendar: calendar, backgrounded: true)
+        let recorder = EditedDayAnalyzeRecorder()
+        queue.register(recorder) { request in
+            recorder.requests.append(request)
+            return true
+        }
+        let edited = Int(now.timeIntervalSince1970) - 5 * 86_400
+
+        queue.enqueue([edited])
+        queue.scheduleDrain()
+        await queue.waitForDrain()
+
+        XCTAssertTrue(recorder.requests.isEmpty)
+        XCTAssertEqual(queue.timestamps, [edited])
+    }
+
     func testComputedDailyRowsReadThePersistedNoopRows() async throws {
         let store = try await WhoopStore.inMemory()
         let repository = Repository(deviceId: Repository.whoopSource)
@@ -96,4 +169,9 @@ final class RepositoryEditRescoreTests: XCTestCase {
         let read = try await repository.computedDailyRows(fromDay: "2026-10-09", throughDay: "2026-10-12")
         XCTAssertEqual(read.map(\.day), ["2026-10-09", "2026-10-10"])
     }
+}
+
+@MainActor
+private final class EditedDayAnalyzeRecorder {
+    var requests: [IntelligenceAnalysisRequest] = []
 }

@@ -81,24 +81,126 @@ extension IntelligenceAnalysisRequest {
         let span = (calendar.dateComponents([.day], from: editedDay, to: today).day ?? 0) + 1
         return Self(maxDays: max(1, span), startOffset: 0, force: true, refreshRepository: true)
     }
+
+    /// One drain step over `editedDays`: its oldest `chunkDays` days at most, plus a timestamp inside the first
+    /// day after the chunk when the range continues (nil once the chunk reaches today). Oldest first, because
+    /// each pass reads the baselines, carry and sleep debt the previous one wrote. Nil when nothing was edited.
+    static func editedDayChunk(
+        containingTimestamps timestamps: some Collection<Int>,
+        chunkDays: Int,
+        now: Date = Date(),
+        calendar: Calendar = .current
+    ) -> (request: Self, remainderTimestamp: Int?)? {
+        guard let range = editedDays(containingTimestamps: timestamps, now: now, calendar: calendar) else {
+            return nil
+        }
+        let chunk = max(1, chunkDays)
+        guard range.maxDays > chunk else { return (range, nil) }
+        let uncoveredOffset = range.maxDays - chunk - 1
+        guard let firstUncovered = calendar.date(byAdding: .day, value: -uncoveredOffset,
+                                                 to: calendar.startOfDay(for: now)),
+              let midday = calendar.date(byAdding: .hour, value: 12, to: firstUncovered) else {
+            return (range, nil)
+        }
+        let request = Self(maxDays: chunk, startOffset: range.maxDays - chunk, force: true,
+                           refreshRepository: range.refreshRepository)
+        return (request, Int(midday.timeIntervalSince1970))
+    }
 }
 
-/// DL-03: timestamps of sleeps and workouts the user edited, waiting for a rescore that covers their days.
-/// The edit flows call the one-day `analyzeRecent()`, so editing any night but last night never rescored
-/// that day. Repository's mutators enqueue here and that call drains the queue into `analyzeDays`.
+/// DL-03: timestamps of sleeps and workouts the user edited, waiting for a rescore from their day through
+/// today. The edit flows only ask for the one-day `analyzeRecent()`, so editing any night but last night never
+/// rescored that day. Repository's mutators enqueue here. `analyzeRecent()` runs its usual one-day pass, so the
+/// editor returns once that is saved, and then starts a background drain of this queue.
+///
+/// The drain rescores the oldest chunk first, at most `chunkDays` per pass, so each pass reads the carry the
+/// previous one wrote and a long range never runs as one uncancellable forced batch. It stops between chunks
+/// when cancelled (BG expiry) or once the app is in the background. A chunk that doesn't complete leaves the
+/// whole taken range queued, and edits that arrive mid-chunk stay queued for the next step.
 @MainActor
 final class EditedDayRescoreQueue {
     static let shared = EditedDayRescoreQueue()
+    static let chunkDays = 30
+
+    typealias Analyze = @MainActor (IntelligenceAnalysisRequest) async -> Bool
 
     private(set) var timestamps: Set<Int> = []
+    private let now: @MainActor () -> Date
+    private let calendar: @MainActor () -> Calendar
+    private let isBackgrounded: @MainActor () -> Bool
+    private weak var analyzer: AnyObject?
+    private var analyze: Analyze?
+    private var drainTask: Task<Void, Never>?
+    private var lastDrain: Task<Void, Never>?
+    private var drainGeneration: UInt64 = 0
+
+    init(now: @escaping @MainActor () -> Date = { Date() },
+         calendar: @escaping @MainActor () -> Calendar = { .current },
+         isBackgrounded: @escaping @MainActor () -> Bool = { RescoreBackgroundPolicy.isBackgrounded }) {
+        self.now = now
+        self.calendar = calendar
+        self.isBackgrounded = isBackgrounded
+    }
+
+    var isDraining: Bool { drainTask != nil }
 
     func enqueue(_ edited: [Int]) {
         timestamps.formUnion(edited.filter { $0 > 0 })
     }
 
+    /// Removes and returns everything queued and stops any drain. Tests reset the shared queue with it.
     func take() -> Set<Int> {
+        cancel()
         defer { timestamps.removeAll() }
         return timestamps
+    }
+
+    /// The engine that rescores drained chunks, held weakly through `owner`.
+    func register(_ owner: AnyObject, analyze: @escaping Analyze) {
+        guard analyzer !== owner || self.analyze == nil else { return }
+        analyzer = owner
+        self.analyze = analyze
+    }
+
+    /// Starts a drain after `delay` unless one is already pending or running.
+    func scheduleDrain(after delay: Duration = .zero) {
+        guard drainTask == nil, !timestamps.isEmpty, analyze != nil else { return }
+        drainGeneration &+= 1
+        let generation = drainGeneration
+        drainTask = Task { @MainActor [weak self] in
+            if delay > .zero { try? await Task.sleep(for: delay) }
+            guard let self else { return }
+            await self.drain(generation: generation)
+            if self.drainGeneration == generation { self.drainTask = nil }
+        }
+        lastDrain = drainTask
+    }
+
+    /// Stops the drain at its next chunk boundary. The unfinished range stays queued.
+    func cancel() {
+        drainGeneration &+= 1
+        drainTask?.cancel()
+        drainTask = nil
+    }
+
+    /// Test/diagnostic: waits for the most recent drain to stop, including one that was just cancelled.
+    func waitForDrain() async {
+        await lastDrain?.value
+    }
+
+    private func drain(generation: UInt64) async {
+        while generation == drainGeneration, !timestamps.isEmpty, let analyze, analyzer != nil {
+            if Task.isCancelled || isBackgrounded() { return }
+            let taken = timestamps
+            guard let chunk = IntelligenceAnalysisRequest.editedDayChunk(
+                containingTimestamps: taken, chunkDays: Self.chunkDays, now: now(), calendar: calendar()) else {
+                timestamps.subtract(taken)
+                continue
+            }
+            guard await analyze(chunk.request) else { return }
+            timestamps.subtract(taken)
+            if let next = chunk.remainderTimestamp { timestamps.insert(next) }
+        }
     }
 }
 
@@ -203,6 +305,7 @@ final class IntelligenceAnalysisCoordinator {
     /// their own record of the work, so nothing is lost.
     func cancelRunningWork() {
         runners.values.forEach { $0.cancel() }
+        EditedDayRescoreQueue.shared.cancel()
     }
 
     private func drain(ownerKey key: ObjectIdentifier) async {
@@ -381,28 +484,21 @@ extension IntelligenceEngine {
     // Define every proper subset of the original four labels. Swift prefers these exact signatures over the
     // original method's default arguments, so every production shorthand call is serialized. The fully-spelled
     // four-label call remains the private bypass used only by `submitSerializedAnalysis` above.
-    /// The one-day pass the UI asks for after an edit or a manual re-run. It first drains days the user
-    /// edited (DL-03), so an older night's Rest, Charge and Strain are rescored from that day forward.
+    /// The one-day pass the UI asks for after an edit or a manual re-run. The editor awaits it, so it stays one
+    /// day; the days the user edited (DL-03) then drain in the background, so an older night's Rest, Charge
+    /// and Strain are rescored from that day forward without holding the editor on "Saving…".
     func analyzeRecent() async {
-        let edited = EditedDayRescoreQueue.shared.take()
-        guard !edited.isEmpty else {
-            await submitSerializedAnalysis(maxDays: 1, startOffset: 0, force: true, refreshRepository: true)
-            return
+        await submitSerializedAnalysis(maxDays: 1, startOffset: 0, force: true, refreshRepository: true)
+        EditedDayRescoreQueue.shared.register(self) { [weak self] request in
+            await self?.rescoreEditedDays(request) ?? false
         }
-        if !(await analyzeDays(containingTimestamps: edited)) {
-            // Keep the edited days for the next pass rather than losing the rescore.
-            EditedDayRescoreQueue.shared.enqueue(Array(edited))
-        }
+        EditedDayRescoreQueue.shared.scheduleDrain()
     }
 
-    /// Rescore from the earliest day containing one of `timestamps` through today.
-    @discardableResult
-    func analyzeDays(containingTimestamps timestamps: some Collection<Int>) async -> Bool {
-        guard let request = IntelligenceAnalysisRequest.editedDays(containingTimestamps: timestamps) else {
-            return true
-        }
-        return await submitSerializedAnalysis(
-            maxDays: request.maxDays, startOffset: 0, force: true, refreshRepository: true)
+    /// One drained chunk of edited days, serialized with every other pass.
+    private func rescoreEditedDays(_ request: IntelligenceAnalysisRequest) async -> Bool {
+        await submitSerializedAnalysis(maxDays: request.maxDays, startOffset: request.startOffset, force: true,
+                                       refreshRepository: request.refreshRepository)
     }
 
     func analyzeRecent(maxDays: Int) async {
