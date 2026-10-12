@@ -2,7 +2,7 @@ import SwiftUI
 import UIKit
 import XCTest
 @testable import NOOP
-import StrandDesign
+@testable import StrandDesign
 import StrandAnalytics
 
 /// The edge swipe that pops a custom-header screen (or backs out of a modal root) is back.

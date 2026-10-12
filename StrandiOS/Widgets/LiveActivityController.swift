@@ -8,13 +8,31 @@ import NoopPhase34Core
 
 struct WorkoutLiveActivityState {
     let sport: String
+    /// The timer's anchor: the start moved forward by the pauses already over, so a clock counting up from it reads the
+    /// time the workout ran.
     let startedAt: Date
+    /// When the pause still open began; the Lock Screen clock freezes there. nil while the workout is running.
+    var pausedAt: Date? = nil
     let strain: Double?
     let strainBuilding: Bool
     let calories: Int?
     let hrTrace: [Int]
     let zoneSeconds: [Int]
     var maxHR: Double? = nil
+    /// The workout was ended and is saving (or failed and awaits a retry): the activity shows Pause unavailable.
+    var isFinishing = false
+    /// While a finish is pending, the moment the workout stopped counting: the clock stops there, because the retry saves
+    /// a workout that ended then.
+    var frozenAt: Date? = nil
+    /// The app's verdict that the strap has gone quiet (`LiveWorkoutSignals.heartRateIsStale`) as of the moment this state was
+    /// built, in the same breath as the edge count below. The controller reuses a state for up to ten seconds, so it asks
+    /// again for every write it makes (`LiveActivityWorkoutStateCache`): what is written is the verdict of the write, which
+    /// is also what keeps a write queued before the strap went quiet from clearing the edge raised for it.
+    var heartRateIsStale = false
+    /// How many pause edges the controller had counted when this state was built. A write carries the edges up to this
+    /// count and no more, whenever it happens to run: a state built before an edge (and queued behind other work) can
+    /// never mark that edge delivered (`PauseEdgeLatch`).
+    var pauseEdgeGeneration = 0
 }
 
 enum LiveActivityPublicationError: Error {
@@ -35,6 +53,10 @@ final class LiveActivityController {
         let verifiedContextId: String?
         let verifiedProjectionGeneration: Int64?
         let workoutIsActive: Bool
+        /// The quiet-strap verdict (`LiveWorkoutSignals.heartRateIsStale`), asked when the write is made, never when the
+        /// update was queued, and again on every write even when the cached workout state is reused. The activity cannot
+        /// ask the clock itself.
+        var heartRateIsStale: () -> Bool = { false }
         let workoutProjection: () -> WorkoutLiveActivityState?
     }
 
@@ -59,8 +81,7 @@ final class LiveActivityController {
             }
         })
 
-    private var cachedWorkoutState: WorkoutLiveActivityState?
-    private var lastWorkoutProjectionAt: Date = .distantPast
+    private var workoutStateCache = LiveActivityWorkoutStateCache()
     private var lastContentState: NOOPActivityAttributes.ContentState?
     #if DEBUG
     private var component41QAMode = false
@@ -68,6 +89,24 @@ final class LiveActivityController {
 
     private static let staleAfter: TimeInterval = 120
     private static let unchangedHeartbeatInterval: TimeInterval = 30
+
+    /// Raised when the workout was paused or resumed. Live updates coalesce, so this lives here rather than in the
+    /// payload: whichever update runs next skips the push throttle and the projection cache, and the activity is
+    /// rewritten with the new state at once. It counts edges rather than holding a flag, so a write already in flight
+    /// when an edge arrives cannot clear it (`PauseEdgeLatch`).
+    private var pauseEdges = PauseEdgeLatch()
+
+    /// The workout's pause state just changed, or a surface asked for a state the workout was already in (a Lock Screen
+    /// button that was out of date). The next update bypasses the throttle that spaces heart-rate pushes, and rewrites
+    /// the activity even when the state it builds equals the last one this controller sent.
+    /// The count of pause edges so far. A state stamps itself with this when it is built (`LiveActivityFeed`).
+    var pauseEdgeGeneration: Int { pauseEdges.generation }
+
+    func noteWorkoutPauseEdge() {
+        pauseEdges.noteEdge()
+        workoutStateCache.clear()
+        lastContentState = nil
+    }
 
     func update(
         bpm: Int?,
@@ -77,6 +116,7 @@ final class LiveActivityController {
         verifiedContextId: String? = nil,
         verifiedProjectionGeneration: Int64? = nil,
         workoutIsActive: Bool? = nil,
+        heartRateIsStale: @autoclosure @escaping () -> Bool = false,
         workout: @autoclosure @escaping () -> WorkoutLiveActivityState? = nil
     ) {
         #if DEBUG
@@ -108,6 +148,7 @@ final class LiveActivityController {
             verifiedContextId: verifiedContextId,
             verifiedProjectionGeneration: verifiedProjectionGeneration,
             workoutIsActive: workoutIsActive ?? LiveActivityWorkoutStatus.isActive,
+            heartRateIsStale: heartRateIsStale,
             workoutProjection: workout
         )
         if connected {
@@ -150,7 +191,7 @@ final class LiveActivityController {
         let desiredModeIsWorkout = input.workoutIsActive
         var now = Date()
         let connectionChanged = lastContentState.map { $0.bonded != input.connected } ?? false
-        guard connectionChanged || LiveActivityPushPolicy.shouldPush(
+        guard connectionChanged || pauseEdges.isPending || LiveActivityPushPolicy.shouldPush(
             activityExists: activity != nil,
             currentModeIsWorkout: lastModeWasWorkout,
             desiredModeIsWorkout: desiredModeIsWorkout,
@@ -166,28 +207,19 @@ final class LiveActivityController {
             now = Date()
         }
 
-        if desiredModeIsWorkout {
-            if LiveActivityWorkoutProjectionPolicy.shouldRebuild(
-                workoutIsActive: true,
-                hasCachedWorkout: cachedWorkoutState != nil,
-                lastBuiltAt: lastWorkoutProjectionAt,
-                now: now
-            ) {
-                if let projection = input.workoutProjection() {
-                    cachedWorkoutState = projection
-                    lastWorkoutProjectionAt = now
-                } else {
-                    cachedWorkoutState = nil
-                    lastWorkoutProjectionAt = .distantPast
-                    return .notApplicable
-                }
-            }
-        } else {
-            cachedWorkoutState = nil
-            lastWorkoutProjectionAt = .distantPast
+        // The projection is reused for up to ten seconds, but the quiet-strap verdict is asked again for this write.
+        let workoutState: WorkoutLiveActivityState?
+        switch workoutStateCache.stateForWrite(
+            workoutIsActive: desiredModeIsWorkout, now: now,
+            build: input.workoutProjection, heartRateIsStale: input.heartRateIsStale) {
+        case .noWorkout: workoutState = nil
+        case .state(let state): workoutState = state
+        case .unavailable: return .notApplicable
         }
-
-        let workoutState = desiredModeIsWorkout ? cachedWorkoutState : nil
+        // The edges this write carries are the ones its workout state was BUILT with, not the ones counted by the time it
+        // runs: a state built before a pause edge and queued behind other work must not mark that edge delivered. A write
+        // with no workout state carries whatever has been counted (nothing below suspends until the write itself).
+        let edgesCarried = workoutState?.pauseEdgeGeneration ?? pauseEdges.generation
         let state = NOOPActivityAttributes.ContentState(
             bpm: input.bpm,
             recovery: input.recovery,
@@ -199,7 +231,12 @@ final class LiveActivityController {
             calories: workoutState?.calories,
             hrTrace: workoutState?.hrTrace,
             zoneSeconds: workoutState?.zoneSeconds,
-            maxHR: workoutState?.maxHR
+            maxHR: workoutState?.maxHR,
+            isPaused: workoutState.map { $0.pausedAt != nil },
+            pausedAt: workoutState?.pausedAt,
+            isFinishing: workoutState.flatMap { $0.isFinishing ? true : nil },
+            frozenAt: workoutState?.frozenAt,
+            heartRateIsStale: workoutState.flatMap { $0.heartRateIsStale ? true : nil }
         )
         let staleDate = now.addingTimeInterval(Self.staleAfter)
 
@@ -217,6 +254,8 @@ final class LiveActivityController {
                heartbeatElapsed < Self.unchangedHeartbeatInterval {
                 if let expectedToken,
                    !recordVerifiedGeneration(input, token: expectedToken) { return .superseded }
+                // The activity already shows exactly this state, so an edge it was built after has been carried.
+                pauseEdges.delivered(builtAt: edgesCarried)
                 return .alreadyCurrent
             }
             await activity.update(ActivityContent(state: state, staleDate: staleDate))
@@ -225,6 +264,7 @@ final class LiveActivityController {
             lastPush = now
             lastContentState = state
             lastModeWasWorkout = desiredModeIsWorkout
+            pauseEdges.delivered(builtAt: edgesCarried)
             return .published
         } else {
             do {
@@ -250,6 +290,7 @@ final class LiveActivityController {
                 lastPush = now
                 lastContentState = state
                 lastModeWasWorkout = desiredModeIsWorkout
+                pauseEdges.delivered(builtAt: edgesCarried)
                 return .published
             } catch {
                 resetCachedState()
@@ -266,6 +307,7 @@ final class LiveActivityController {
         connected: Bool,
         effort: Double?,
         workoutIsActive: Bool,
+        heartRateIsStale: @escaping () -> Bool = { false },
         workoutProjection: @escaping () -> WorkoutLiveActivityState?
     ) async throws -> ExternalSinkPublicationResult {
         guard projection.contextId == expectedActiveContextId else { return .superseded }
@@ -282,6 +324,7 @@ final class LiveActivityController {
             verifiedContextId: projection.contextId,
             verifiedProjectionGeneration: projection.generation,
             workoutIsActive: workoutIsActive,
+            heartRateIsStale: heartRateIsStale,
             workoutProjection: workoutProjection
         )
         return try await serializedPublication.submitVerified(input, token: token)
@@ -386,16 +429,17 @@ final class LiveActivityController {
     }
 
     private func resetCachedState() {
+        pauseEdges.reset()
         activity = nil
         lastModeWasWorkout = nil
-        cachedWorkoutState = nil
-        lastWorkoutProjectionAt = .distantPast
+        workoutStateCache.clear()
         lastContentState = nil
         lastPush = .distantPast
     }
 
     #if DEBUG
-    func startComponent41QA() async {
+    /// `paused` starts the fixture already paused (three minutes ago), for the Lock Screen's paused state.
+    func startComponent41QA(paused: Bool = false) async {
         guard authInfo.areActivitiesEnabled else { return }
         await end()
         serializedPublication.setConnectivityAvailable(true)
@@ -407,11 +451,14 @@ final class LiveActivityController {
             bonded: true,
             effort: 6.8,
             sport: "Outdoor Run",
-            workoutStartedAt: Date().addingTimeInterval(-2_734),
+            workoutStartedAt: Date().addingTimeInterval(-2_052),
             strainBuilding: false,
             calories: 438,
             hrTrace: [88, 96, 108, 121, 115, 132, 146, 139, 152, 144, 158, 152],
-            zoneSeconds: [180, 620, 1_180, 650, 104]
+            zoneSeconds: [180, 620, 1_180, 650, 104],
+            maxHR: 187,
+            isPaused: paused ? true : nil,
+            pausedAt: paused ? Date().addingTimeInterval(-180) : nil
         )
         do {
             activity = try Activity.request(

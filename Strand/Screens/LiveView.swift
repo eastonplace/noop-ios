@@ -555,6 +555,7 @@ private struct PaperLiveHeartCard: View {
     /// not a freshness signal: a steady heart rate can legitimately repeat for minutes.
     @State private var lastHRArrival: Date?
     @State private var freshnessNow = Date()
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     private var bpm: Int? { model.bpm }
     private var zoneSet: HRZoneSet { HRZones.zones(maxHR: Double(max(1, hrMax)), source: "profile") }
@@ -574,38 +575,19 @@ private struct PaperLiveHeartCard: View {
                     .font(StrandFont.sectionOverline)
                     .tracking(StrandFont.sectionOverlineTracking)
                     .foregroundStyle(StrandPalette.textSecondary)
-                HStack(spacing: 20) {
-                    VStack(spacing: 8) {
-                        if let bpm {
-                            ScoreRing(value: Double(bpm), range: 0...Double(max(1, hrMax)),
-                                      accent: StrandPalette.liveRed, size: 96,
-                                      format: { "\(Int($0.rounded()))" }, centerCaption: "BPM")
-                        } else {
-                            ZStack {
-                                Circle().stroke(StrandPalette.inset, lineWidth: 7)
-                                VStack(spacing: 1) {
-                                    Text("—").font(StrandFont.ringScoreLarge)
-                                    Text("BPM").font(StrandFont.micro)
-                                }
-                                .foregroundStyle(StrandPalette.textTertiary)
-                            }
-                            .frame(width: 96, height: 96)
-                        }
-                        StatePill(
-                            vitalPresentation.label,
-                            tone: vitalPresentation.tone,
-                            pulsing: vitalPresentation.pulsing
-                        )
+                if typeSize.isAccessibilitySize {
+                    // The ring and the three rows are too wide for one line at the accessibility sizes (the rows
+                    // squeezed to a sliver of text beside the ring and ran into each other), so they stack.
+                    VStack(alignment: .leading, spacing: 14) {
+                        ringColumn
+                        metricRows
                     }
-                    VStack(spacing: 0) {
-                        metricRow(label: zone > 0 ? "ZONE \(zone)" : "ZONE 1",
-                                  value: zoneThreshold)
-                        metricRow(label: "HRV", value: rollingRMSSD.map { "\(Int($0.rounded())) ms" } ?? "—",
-                                  positive: rollingRMSSD != nil)
-                        metricRow(label: "RHR", value: restingHR.map { "\($0) bpm" } ?? "—",
-                                  divider: false)
+                } else {
+                    HStack(spacing: 20) {
+                        ringColumn
+                        metricRows
+                        Spacer(minLength: 0)
                     }
-                    Spacer(minLength: 0)
                 }
             }
         }
@@ -626,6 +608,42 @@ private struct PaperLiveHeartCard: View {
                 guard !Task.isCancelled else { return }
                 freshnessNow = Date()
             }
+        }
+    }
+
+    private var ringColumn: some View {
+        VStack(spacing: 8) {
+            if let bpm {
+                ScoreRing(value: Double(bpm), range: 0...Double(max(1, hrMax)),
+                          accent: StrandPalette.liveRed, size: 96,
+                          format: { "\(Int($0.rounded()))" }, centerCaption: "BPM")
+            } else {
+                ZStack {
+                    Circle().stroke(StrandPalette.inset, lineWidth: 7)
+                    VStack(spacing: 1) {
+                        Text("—").font(StrandFont.ringScoreLarge)
+                        Text("BPM").font(StrandFont.micro)
+                    }
+                    .foregroundStyle(StrandPalette.textTertiary)
+                }
+                .frame(width: 96, height: 96)
+            }
+            StatePill(
+                vitalPresentation.label,
+                tone: vitalPresentation.tone,
+                pulsing: vitalPresentation.pulsing
+            )
+        }
+    }
+
+    private var metricRows: some View {
+        VStack(spacing: 0) {
+            metricRow(label: zone > 0 ? "ZONE \(zone)" : "ZONE 1",
+                      value: zoneThreshold)
+            metricRow(label: "HRV", value: rollingRMSSD.map { "\(Int($0.rounded())) ms" } ?? "—",
+                      positive: rollingRMSSD != nil)
+            metricRow(label: "RHR", value: restingHR.map { "\($0) bpm" } ?? "—",
+                      divider: false)
         }
     }
 

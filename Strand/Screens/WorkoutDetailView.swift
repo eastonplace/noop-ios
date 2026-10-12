@@ -176,8 +176,11 @@ struct WorkoutDetailView: View {
                                            limit: min(172_800, max(8_000, target.endTs - target.startTs + 1)))
         let maxHR = Double(profile.hrMax)
         let zones = HRZones.zones(maxHR: maxHR, source: profile.hrMaxOverride > 0 ? "manual" : "tanaka")
+        // A workout that was paused leaves its paused minutes out of its zones: the strap kept logging through the pause.
+        let zoneSamples = WorkoutPauseStore.load(startTs: target.startTs, sport: target.sport)?
+            .activeSamples(samples) ?? samples
         let timeline = await Task.detached(priority: .userInitiated) {
-            WorkoutZoneTimeline.make(samples: samples, start: target.startTs, end: target.endTs, maxHR: maxHR)
+            WorkoutZoneTimeline.make(samples: zoneSamples, start: target.startTs, end: target.endTs, maxHR: maxHR)
         }.value
         guard !Task.isCancelled else { return }
         if minutes == nil, timeline.minutes.contains(where: { $0 > 0 }) { minutes = timeline.minutes }

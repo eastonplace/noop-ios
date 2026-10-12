@@ -4368,6 +4368,9 @@ final class Repository: ObservableObject {
         // #961: capture the injected profile ONCE (a Sendable scalar pair) so each child task can compute a
         // backfill strain off the main actor. nil ⇒ no fill, and the strain slot always comes back nil.
         let strainProfile = self.strainProfile
+        // A workout that was paused keeps its pauses beside its route (read once for the whole pass). Its average,
+        // peak and Effort are worked out from the active stretches only, so they agree with the live session's.
+        let pauseMap = WorkoutPauseStore.loadMap()
         var reduced: [Int: (avg: Int, peak: Int, strain: Double?)] = [:]
         for chunkStart in stride(from: 0, to: eligibleIndices.count, by: readChunk) {
             let chunk = eligibleIndices[chunkStart..<min(chunkStart + readChunk, eligibleIndices.count)]
@@ -4387,10 +4390,13 @@ final class Repository: ObservableObject {
                     // WHOOP reads "<base>" instead of the active strap's empty window. Resolved on the main actor;
                     // only the resulting Sendable String crosses into the task.
                     let hrDeviceId = Self.workoutHrDeviceId(source: rows[idx].source, activeStrapId: deviceId)
+                    let pauses = pauseMap[WorkoutPauseStore.key(startTs: startTs, sport: rows[idx].sport)]
+                        .map { WorkoutPauseLedger(intervals: $0) }
                     group.addTask { [hrDeviceId] in
-                        let samples = (try? await store.hrSamples(deviceId: hrDeviceId,
-                                                                  from: startTs, to: endTs,
-                                                                  limit: 8000)) ?? []
+                        let window = (try? await store.hrSamples(deviceId: hrDeviceId,
+                                                                 from: startTs, to: endTs,
+                                                                 limit: 8000)) ?? []
+                        let samples = pauses?.activeSamples(window) ?? window
                         guard samples.count >= minSamples else { return nil }
                         // Sum + max over up to 8000 ints , off the @MainActor (the freeze fix).
                         let (avg, peak) = Repository.reduceWorkoutHr(samples)
@@ -4399,7 +4405,11 @@ final class Repository: ObservableObject {
                         // score; it returns nil on a still-too-thin window (never a fabricated number).
                         let strain: Double?
                         if wantStrain, let p = strainProfile {
-                            strain = StrainScorerV2.strain(samples, maxHR: p.hrMax, mode: .activity)
+                            if let pauses, pauses.hasPauses {
+                                strain = StrainScorerV2.activityStrain(segments: pauses.segments(of: window), maxHR: p.hrMax)
+                            } else {
+                                strain = StrainScorerV2.strain(samples, maxHR: p.hrMax, mode: .activity)
+                            }
                         } else {
                             strain = nil
                         }
@@ -4502,6 +4512,12 @@ final class Repository: ObservableObject {
                 RouteStore.remove(startTs: old.startTs, sport: old.sport)
             }
         }
+        // The pauses follow the workout the same way, whatever was edited: a moved start takes them with it, a changed
+        // sport re-keys them, and a duration that no longer reaches one clips or drops it, so the window and its pauses
+        // always agree (the heart-rate reconcile and the Health write-back read both).
+        if let old, WorkoutSource.classify(old.source) != .detected {
+            WorkoutPauseStore.follow(fromStartTs: old.startTs, fromSport: old.sport, to: row)
+        }
         _ = try? await store.upsertWorkouts([row], deviceId: deviceId)
     }
 
@@ -4567,6 +4583,11 @@ final class Repository: ObservableObject {
             }
         }
 
+        // The merged workout keeps every pause its parts had; each part's own entry goes with it below.
+        let mergedPauses = WorkoutPauseLedger(intervals: rows.flatMap {
+            WorkoutPauseStore.load(startTs: $0.startTs, sport: $0.sport)?.intervals ?? []
+        })
+
         // Save the merged manual row.
         await saveManualWorkout(merged)
 
@@ -4584,7 +4605,9 @@ final class Repository: ObservableObject {
             if !(bestRoute?.startTs == r.startTs && bestRoute?.sport == r.sport) {
                 RouteStore.remove(startTs: r.startTs, sport: r.sport)
             }
+            WorkoutPauseStore.remove(startTs: r.startTs, sport: r.sport)
         }
+        WorkoutPauseStore.store(mergedPauses, startTs: merged.startTs, sport: merged.sport)
 
         // Move the kept route onto the merged natural key, then drop it from the old key.
         if let best = bestRoute, !(best.startTs == merged.startTs && best.sport == merged.sport) {
@@ -4755,7 +4778,9 @@ final class Repository: ObservableObject {
     /// and clearly labelled as such in the UI. `hrMaxOverride` is read from the saved profile when not given.
     func workoutZoneMinutes(from: Int, to: Int, age: Int, hrMaxOverride: Int? = nil) async -> [Double]? {
         guard to > from else { return nil }
-        let samples = await hrSamples(from: from, to: to, limit: Self.workoutZoneSampleLimit)
+        let window = await hrSamples(from: from, to: to, limit: Self.workoutZoneSampleLimit)
+        // A workout that was paused leaves its paused minutes out of its zones.
+        let samples = WorkoutPauseStore.load(startTs: from)?.activeSamples(window) ?? window
         let override = hrMaxOverride ?? ProfileStore.storedHrMaxOverride()
         // Up to 200,000 readings: the binning runs off the main actor, like `reduceWorkoutHr`.
         return await Task.detached(priority: .userInitiated) {

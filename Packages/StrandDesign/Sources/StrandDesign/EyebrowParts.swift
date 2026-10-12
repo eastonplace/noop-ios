@@ -8,7 +8,7 @@ import SwiftUI
 
 /// An eyebrow symbol in the domain colour. When `pulses`, a ghost copy of it swells and fades behind it at
 /// `period` seconds (off under Reduce Motion), so a status that used to be a breathing dot keeps its life.
-struct EyebrowPulseIcon: View {
+public struct EyebrowPulseIcon: View {
     let systemName: String
     let color: Color
     var period: Double = 2
@@ -16,12 +16,20 @@ struct EyebrowPulseIcon: View {
     var spread: CGFloat = 1.7
     var pulses: Bool = true
 
+    public init(systemName: String, color: Color, period: Double = 2, spread: CGFloat = 1.7, pulses: Bool = true) {
+        self.systemName = systemName
+        self.color = color
+        self.period = period
+        self.spread = spread
+        self.pulses = pulses
+    }
+
     @State private var breathing = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var isPulsing: Bool { pulses && !reduceMotion }
 
-    var body: some View {
+    public var body: some View {
         Image(systemName: systemName)
             .font(StrandFont.caption)
             .foregroundStyle(color)

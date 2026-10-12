@@ -132,6 +132,10 @@ public final class ReceiptLiftCoordinator: ObservableObject {
 
     public func load() async { await store.loadAndWait() }
 
+    /// Follows the person's unit setting. The host calls this whenever the setting changes, whether or not Lift is on
+    /// screen: a running session's Live Activity is redrawn at once, so it never lags a unit change made elsewhere.
+    public func setWeightUnit(_ unit: LiftWeightUnit) { store.setWeightUnit(unit) }
+
     public func applyReviewedRoutineChange(
         validate: @MainActor () throws -> Void = {},
         transform: @MainActor (Data) throws -> Data?

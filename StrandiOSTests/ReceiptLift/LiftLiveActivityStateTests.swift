@@ -1,5 +1,7 @@
 import Foundation
 import Testing
+import ReceiptLiftActivity
+import StrandDesign
 @testable import ReceiptLiftFeature
 
 @Suite("Lift Live Activity state")
@@ -34,6 +36,48 @@ struct LiftLiveActivityStateTests {
       session: session, progress: nil, currentMove: "Bench Press", restTimerEndDate: nil,
       weightUnit: .pounds, now: Self.now)
     #expect(abs(state.volume - session.totalVolume) < 1e-9)
+  }
+
+  @Test("The unit rides with the volume, so the figure is never a bare number")
+  func theUnitRidesWithTheVolume() {
+    let session = Self.session()
+    let metric = LiftLiveActivityManager.contentState(
+      session: session, progress: nil, currentMove: "Bench Press", restTimerEndDate: nil,
+      weightUnit: .kilograms, now: Self.now)
+    let imperial = LiftLiveActivityManager.contentState(
+      session: session, progress: nil, currentMove: "Bench Press", restTimerEndDate: nil,
+      weightUnit: .pounds, now: Self.now)
+    #expect(metric.volumeUnit == "kg")
+    #expect(imperial.volumeUnit == "lb")
+  }
+
+  @Test("The unit round-trips, and an activity started by an older build still decodes as a bare number")
+  func theUnitIsAdditive() throws {
+    let state = LiftLiveActivityManager.contentState(
+      session: Self.session(), progress: nil, currentMove: "Bench Press", restTimerEndDate: nil,
+      weightUnit: .kilograms, now: Self.now)
+    let decoded = try JSONDecoder().decode(
+      LiftLiveActivityAttributes.ContentState.self, from: JSONEncoder().encode(state))
+    #expect(decoded == state)
+    #expect(decoded.volumeUnit == "kg")
+
+    let old = #"{"currentMove":"Bench Press","completedSets":3,"targetSets":9,"volume":3000,"updatedAt":700000000}"#
+    let legacy = try JSONDecoder().decode(LiftLiveActivityAttributes.ContentState.self, from: Data(old.utf8))
+    #expect(legacy.volumeUnit == nil)
+    #expect(legacy.volume == 3_000)
+    #expect(NOOPLiftFacts.unitSymbol(legacy.volumeUnit) == nil, "no unit is drawn for a payload that carries none")
+  }
+
+  @Test("The card writes the unit it was given in the person's language and ignores a code it does not know")
+  func theFactsStripKnowsTheUnitCodes() {
+    #expect(NOOPLiftFacts.unitSymbol("lb") != nil)
+    #expect(NOOPLiftFacts.unitSymbol("kg") != nil)
+    #expect(NOOPLiftFacts.unitSymbol("stone") == nil)
+    #expect(NOOPLiftFacts.unitSymbol(nil) == nil)
+    if Locale.current.language.languageCode?.identifier == "en" {
+      #expect(NOOPLiftFacts.unitSymbol("lb") == "lb")
+      #expect(NOOPLiftFacts.unitSymbol("kg") == "kg")
+    }
   }
 }
 

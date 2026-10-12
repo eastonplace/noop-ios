@@ -7,6 +7,7 @@ public struct ValueToken: View {
     private let tint: Color
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     public init(
         _ label: LocalizedStringKey,
@@ -31,7 +32,10 @@ public struct ValueToken: View {
                 .foregroundStyle(tint)
         }
         .padding(.horizontal, 10)
-        .frame(height: 42)
+        // A fixed 42pt box at every size short of the accessibility sizes, exactly as it always was. At those sizes the
+        // label and value stack taller than 42pt, so the box is a floor: it grows with the text instead of letting one
+        // token's text spill over the token below it.
+        .modifier(TokenHeight(growsWithText: typeSize.isAccessibilitySize))
         .background(
             StrandPalette.surfaceInset.opacity(0.72),
             in: RoundedRectangle(cornerRadius: 11, style: .continuous)
@@ -54,6 +58,18 @@ public struct ValueToken: View {
                 .monospacedDigit()
                 .contentTransition(.opacity)
                 .animation(.easeOut(duration: StrandMotion.durationFast), value: value)
+        }
+    }
+
+    private struct TokenHeight: ViewModifier {
+        let growsWithText: Bool
+
+        @ViewBuilder func body(content: Content) -> some View {
+            if growsWithText {
+                content.padding(.vertical, 6).frame(minHeight: 42)
+            } else {
+                content.frame(height: 42)
+            }
         }
     }
 

@@ -111,8 +111,9 @@ final class LiftLiveActivityManager {
     }
   }
 
-  /// The Lock Screen and Dynamic Island show the volume as a bare number, so it is converted here, in the person's unit
-  /// like everywhere else in Lift (loads are stored in pounds), rather than left as the stored pound total.
+  /// The Lock Screen and Dynamic Island show the volume in the person's unit like everywhere else in Lift (loads are
+  /// stored in pounds), so it is converted here rather than left as the stored pound total, and the unit rides with it
+  /// ("lb" or "kg") so the figure is never a bare number.
   nonisolated static func contentState(
     session: LiftSession,
     progress: LiftRoutineProgress?,
@@ -127,7 +128,8 @@ final class LiftLiveActivityManager {
       targetSets: progress?.targetSets ?? 0,
       volume: weightUnit.fromPounds(session.totalVolume),
       restTimerEndDate: restTimerEndDate,
-      updatedAt: now
+      updatedAt: now,
+      volumeUnit: weightUnit == .pounds ? "lb" : "kg"
     )
   }
 }

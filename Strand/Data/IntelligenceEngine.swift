@@ -2626,7 +2626,8 @@ final class IntelligenceEngine: ObservableObject {
                     deviceId: sourceId, from: row.startTs, to: row.endTs, limit: 20_000
                 ),
                       let s = ManualWorkoutRescore.scored(
-                        windowSamples: samples, profile: up, hrMax: hrMax, restingHR: restingHR
+                        windowSamples: samples, profile: up, hrMax: hrMax, restingHR: restingHR,
+                        pauses: WorkoutPauseStore.load(startTs: row.startTs, sport: row.sport)
                       ),
                       ManualWorkoutRescore.improves(
                         s, over: row.energyKcal, currentStrain: row.strain, allowStrainOnlyFill: true

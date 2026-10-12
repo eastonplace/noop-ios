@@ -101,6 +101,7 @@ public struct TodayHeroCard: View {
     public let onOpenWorkouts: () -> Void
     public let onWorkoutAction: () -> Void
     @Environment(\.dynamicTypeSize) private var typeSize
+    @ScaledMetric(relativeTo: .footnote) private var glanceSize: CGFloat = 13
 
     public init(pillars: [TodayPillarModel], glance: String, workoutIsActive: Bool,
                 showsWorkoutAction: Bool = true, onPillar: @escaping (String) -> Void,
@@ -135,49 +136,75 @@ public struct TodayHeroCard: View {
                     }
                 }
                 TodayHairline().padding(.top, 9.87).padding(.bottom, 11.87)
-                HStack(spacing: 8) {
-                    Button(action: onOpenWorkouts) {
-                        HStack(spacing: 9) {
-                            Image(systemName: "figure.run")
-                                .font(.system(size: 13, weight: .semibold))
-                                .foregroundStyle(StrandPalette.strainAccent)
-                                .frame(width: 30, height: 30)
-                                .background(Circle().fill(DomainTint.strain.accent.opacity(0.14)))
-                            VStack(alignment: .leading, spacing: 2) {
-                                HStack(spacing: 5) {
-                                    Text("Today at a glance", bundle: .module)
-                                        .font(StrandFont.micro.weight(.semibold))
-                                    if workoutIsActive {
-                                        Text("LIVE", bundle: .module)
-                                            .font(.system(size: 8, weight: .heavy))
-                                            .foregroundStyle(StrandPalette.liveRed)
-                                    }
-                                }
-                                Self.glanceText(glance)
-                                    .font(StrandFont.footnote)
-                                    .monospacedDigit()
-                                    .foregroundStyle(StrandPalette.textSecondary)
-                                    .lineLimit(1)
-                                    .minimumScaleFactor(0.75)
-                            }
-                            Spacer(minLength: 4)
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: 10, weight: .semibold))
-                                .foregroundStyle(StrandPalette.textTertiary)
-                        }
-                        .foregroundStyle(StrandPalette.textPrimary)
-                        .contentShape(Rectangle())
+                if typeSize.isAccessibilitySize {
+                    // The words would get a fifth of the row beside the Start pill at these sizes, so the pill sits
+                    // under them. Every smaller size is the one row it always was.
+                    VStack(alignment: .leading, spacing: NoopMetrics.space3) {
+                        glanceButton
+                        workoutActionButton
                     }
-                    .buttonStyle(.plain)
-                    if showsWorkoutAction {
-                        Button(workoutIsActive ? String(localized: "Open", bundle: .module)
-                                               : String(localized: "Start", bundle: .module),
-                               action: onWorkoutAction)
-                            .buttonStyle(TodayWorkoutPillStyle())
-                            .accessibilityLabel(workoutIsActive ? "Open active workout" : "Start workout")
+                } else {
+                    HStack(spacing: 8) {
+                        glanceButton
+                        workoutActionButton
                     }
                 }
             }
+        }
+    }
+
+    /// The glance line's font. At an accessibility size it is the same footnote set through `ScaledMetric`: a text
+    /// style would hyphenate a long word ("work-out") before it scaled, and this one wraps between words instead.
+    private var glanceFont: Font {
+        typeSize.isAccessibilitySize ? .system(size: glanceSize, weight: .regular, design: .default) : StrandFont.footnote
+    }
+
+    private var glanceButton: some View {
+        Button(action: onOpenWorkouts) {
+            HStack(spacing: 9) {
+                Image(systemName: "figure.run")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(StrandPalette.strainAccent)
+                    .frame(width: 30, height: 30)
+                    .background(Circle().fill(DomainTint.strain.accent.opacity(0.14)))
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 5) {
+                        Text("Today at a glance", bundle: .module)
+                            .font(StrandFont.micro.weight(.semibold))
+                            .fixedSize(horizontal: false, vertical: typeSize.isAccessibilitySize)
+                        if workoutIsActive {
+                            Text("LIVE", bundle: .module)
+                                .font(.system(size: 8, weight: .heavy))
+                                .foregroundStyle(StrandPalette.liveRed)
+                        }
+                    }
+                    Self.glanceText(glance)
+                        .font(glanceFont)
+                        .monospacedDigit()
+                        .foregroundStyle(StrandPalette.textSecondary)
+                        // One line at every size short of an accessibility size, where "1 workout · 6,856 steps ·
+                        // 528 cal" would otherwise end in an ellipsis after the first word.
+                        .lineLimit(typeSize.isAccessibilitySize ? nil : 1)
+                        .minimumScaleFactor(0.75)
+                }
+                Spacer(minLength: 4)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(StrandPalette.textTertiary)
+            }
+            .foregroundStyle(StrandPalette.textPrimary)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    @ViewBuilder private var workoutActionButton: some View {
+        if showsWorkoutAction {
+            Button(workoutIsActive ? String(localized: "Open", bundle: .module)
+                                   : String(localized: "Start", bundle: .module),
+                   action: onWorkoutAction)
+                .buttonStyle(TodayWorkoutPillStyle())
+                .accessibilityLabel(workoutIsActive ? "Open active workout" : "Start workout")
         }
     }
 
@@ -473,6 +500,8 @@ public struct HealthDashboardCard: View {
     public let onShowAll: () -> Void
     public let onDataSources: () -> Void
 
+    @Environment(\.dynamicTypeSize) private var typeSize
+
     public init(tiles: [HealthDashboardTileModel], status: String,
                 onTile: @escaping (String) -> Void, onCustomize: @escaping () -> Void,
                 onShowAll: @escaping () -> Void, onDataSources: @escaping () -> Void) {
@@ -485,16 +514,25 @@ public struct HealthDashboardCard: View {
             VStack(alignment: .leading, spacing: 9) {
                 VStack(alignment: .leading, spacing: 3) {
                     // The widget eyebrow, as on Live HR and Stress: ink symbol, caps title, quiet chip.
-                    HStack(spacing: NoopMetrics.space2) {
-                        HealthMonitorEyebrowIcon()
-                        Text("Health Monitor", bundle: .module).strandOverline()
-                        Spacer(minLength: NoopMetrics.space2)
-                        Button(action: onCustomize) {
-                            WidgetChip("Customise", systemImage: "slider.horizontal.3", showsChevron: false, overhangs: false)
-                                .chipHitTarget()
+                    //
+                    // At an accessibility size the title and the chip cannot share a row (the title broke one letter
+                    // per line beside "Customise"), so the chip drops under the title and the title wraps between its
+                    // words. Every smaller size is the one-row header exactly as it was.
+                    if typeSize.isAccessibilitySize {
+                        VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+                            HStack(spacing: NoopMetrics.space2) {
+                                HealthMonitorEyebrowIcon()
+                                Text("Health Monitor", bundle: .module).strandOverlineFitted().lineLimit(3)
+                            }
+                            customiseButton
                         }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel(Text("Customise", bundle: .module))
+                    } else {
+                        HStack(spacing: NoopMetrics.space2) {
+                            HealthMonitorEyebrowIcon()
+                            Text("Health Monitor", bundle: .module).strandOverline()
+                            Spacer(minLength: NoopMetrics.space2)
+                            customiseButton
+                        }
                     }
                     Text(verbatim: status).font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
                 }
@@ -524,6 +562,15 @@ public struct HealthDashboardCard: View {
                 }
             }
         }
+    }
+
+    private var customiseButton: some View {
+        Button(action: onCustomize) {
+            WidgetChip("Customise", systemImage: "slider.horizontal.3", showsChevron: false, overhangs: false)
+                .chipHitTarget()
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text("Customise", bundle: .module))
     }
 
     private var verticalTileDivider: some View {
@@ -559,6 +606,7 @@ private struct HealthMonitorEyebrowIcon: View {
 public struct HealthDashboardTile: View {
     public let model: HealthDashboardTileModel
     public init(model: HealthDashboardTileModel) { self.model = model }
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     /// A number reads in the primary ink and the missing dash in the tertiary. A value with no digit in it
     /// (a word such as "Calibrating") is a status, not a measurement, so it reads in the secondary ink.
@@ -591,7 +639,14 @@ public struct HealthDashboardTile: View {
                     .foregroundStyle(valueInk)
                     .lineLimit(1).minimumScaleFactor(0.65)
                 if let unit = model.unit, model.value != WidgetMetrics.missingValue {
-                    Text(verbatim: unit).font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
+                    let unitText = Text(verbatim: unit).font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
+                    if typeSize.isAccessibilitySize {
+                        // A unit is one word: at an accessibility size it keeps its line and scales down before it breaks
+                        // ("rp / m"), and the number beside it gives way first.
+                        unitText.lineLimit(1).minimumScaleFactor(0.5).layoutPriority(1)
+                    } else {
+                        unitText
+                    }
                 }
             }
             if model.spark.count > 1 {
@@ -715,6 +770,12 @@ public struct HeaderChromeRow: View {
     @ScaledMetric(relativeTo: .caption2) private var wordmarkSize: CGFloat = 11
 
     private static let wordmarkCeiling: CGFloat = 17
+    /// The sync, bell and profile glyphs at an accessibility size scale with the type, up to a ceiling the row can carry
+    /// beside the wordmark and the two condensed symbols on the narrowest phone. Their tap targets grow from 30 pt to the
+    /// 44 pt minimum. Below an accessibility size they are the fixed 30 pt and 13 pt they always were, so no smaller size
+    /// moves.
+    @ScaledMetric(relativeTo: .caption2) private var chromeGlyph: CGFloat = 13
+    private static let chromeGlyphCeiling: CGFloat = 24
     /// The tap target of the condensed strap and battery symbols (the minimum touch target).
     private static let condensedTarget: CGFloat = 44
 
@@ -737,6 +798,8 @@ public struct HeaderChromeRow: View {
         // these sizes, so every smaller size keeps the words on screen. The strap's state also shows in the dot's shape
         // (filled, ringed, hollow), not by colour alone.
         let condensed = typeSize.isAccessibilitySize
+        let target: CGFloat = condensed ? Self.condensedTarget : 30
+        let glyph: CGFloat = condensed ? min(chromeGlyph, Self.chromeGlyphCeiling) : 13
         HStack(spacing: 9) {
             Text("NOOP", bundle: .module)
                 .font(condensed ? .system(size: min(wordmarkSize, Self.wordmarkCeiling), weight: .bold) : StrandFont.overline)
@@ -779,22 +842,23 @@ public struct HeaderChromeRow: View {
             }
             Button(action: onSync) {
                 HStack(spacing: 4) {
-                    Image(systemName: syncSymbol).font(.system(size: 13, weight: .semibold))
+                    Image(systemName: syncSymbol).font(.system(size: glyph, weight: .semibold))
                     if syncState == .syncing, let units = syncCompletedUnits, units > 0 {
                         Text("\(units)").font(StrandFont.micro).monospacedDigit()
                     }
                 }
                 .foregroundStyle(syncState == .error ? StrandPalette.statusWarning : StrandPalette.textSecondary)
-                .frame(minWidth: 30, minHeight: 30)
+                .frame(minWidth: target, minHeight: target)
                 .padding(.horizontal, syncState == .syncing && (syncCompletedUnits ?? 0) > 0 ? 5 : 0)
             }
             .buttonStyle(.plain).accessibilityLabel(syncAccessibility)
             Button(action: onUpdates) {
-                Image(systemName: "bell").font(.system(size: 13, weight: .semibold)).frame(width: 30, height: 30)
+                Image(systemName: "bell").font(.system(size: glyph, weight: .semibold)).frame(width: target, height: target)
                     .overlay(alignment: .topTrailing) {
                         if unreadCount > 0 {
-                            Text("\(min(unreadCount, 9))").font(.system(size: 8, weight: .bold)).foregroundStyle(.white)
-                                .frame(width: 14, height: 14).background(StrandPalette.liveRed, in: Circle())
+                            Text("\(min(unreadCount, 9))").font(.system(size: condensed ? 12 : 8, weight: .bold)).foregroundStyle(.white)
+                                .frame(width: condensed ? 20 : 14, height: condensed ? 20 : 14)
+                                .background(StrandPalette.liveRed, in: Circle())
                         }
                     }
             }
@@ -805,16 +869,16 @@ public struct HeaderChromeRow: View {
                     if let profileImage {
                         profileImage.resizable().scaledToFill().clipShape(Circle()).padding(3)
                     } else if initials.isEmpty {
-                        Image(systemName: "person.fill").font(.system(size: 12, weight: .semibold))
+                        Image(systemName: "person.fill").font(.system(size: condensed ? glyph : 12, weight: .semibold))
                             .foregroundStyle(StrandPalette.textSecondary)
                     } else {
                         Text(verbatim: initials).font(StrandFont.micro.weight(.bold)).foregroundStyle(StrandPalette.textPrimary)
                     }
-                }.frame(width: 31, height: 31)
+                }.frame(width: condensed ? target : 31, height: condensed ? target : 31)
             }
             .buttonStyle(.plain).accessibilityLabel("Profile and settings")
         }
-        .frame(minHeight: 38)
+        .frame(minHeight: condensed ? max(38, target) : 38)
     }
 
     private var strapColor: Color {

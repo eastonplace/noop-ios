@@ -283,6 +283,9 @@ public struct StatTile<Accessory: View>: View {
     /// is given). nil = no symbol, which is how every existing tile reads.
     var systemImage: String? = nil
     var tint: DomainTint? = nil
+    /// A unit shown muted beside `value`, for a value whose shape the automatic split cannot read ("6:13" with
+    /// "/km"). nil (the default) splits a unit off the value text as it always did.
+    var unit: String? = nil
     /// An optional trailing accessory laid out INLINE in the header row beside the label (e.g. a small
     /// ⓘ that opens a scoring guide). Inline placement — not a corner overlay — so it can never sit on
     /// top of the value, sparkline or trend chip on a narrow tile (#495). Defaults to nothing.
@@ -292,16 +295,20 @@ public struct StatTile<Accessory: View>: View {
                 accent: Color = StrandPalette.textPrimary, delta: String? = nil,
                 deltaColor: Color = StrandPalette.textTertiary,
                 sparkline: [Double]? = nil, sparkColor: Color = StrandPalette.accent,
-                systemImage: String? = nil, tint: DomainTint? = nil,
+                systemImage: String? = nil, tint: DomainTint? = nil, unit: String? = nil,
                 @ViewBuilder accessory: @escaping () -> Accessory) {
         self.label = label; self.value = value; self.caption = caption; self.accent = accent
         self.delta = delta; self.deltaColor = deltaColor; self.sparkline = sparkline; self.sparkColor = sparkColor
-        self.systemImage = systemImage; self.tint = tint
+        self.systemImage = systemImage; self.tint = tint; self.unit = unit
         self.accessory = accessory
     }
 
     public var body: some View {
-        let parts = StatTileValue.parts(value)
+        let parts = unit.map { unit in
+            StatTileValue.parts(value).ink == .tertiary
+                ? StatTileValue.parts(value)
+                : StatTileValue.Parts(number: value, unit: unit, ink: .primary)
+        } ?? StatTileValue.parts(value)
         // The tile borrows its accent as a faint card wash, so each metric tile reads as
         // part of its colour world while staying legible on the deep blue-black.
         NoopCard(padding: 14, tint: accent) {
@@ -368,10 +375,10 @@ public extension StatTile where Accessory == EmptyView {
          accent: Color = StrandPalette.textPrimary, delta: String? = nil,
          deltaColor: Color = StrandPalette.textTertiary,
          sparkline: [Double]? = nil, sparkColor: Color = StrandPalette.accent,
-         systemImage: String? = nil, tint: DomainTint? = nil) {
+         systemImage: String? = nil, tint: DomainTint? = nil, unit: String? = nil) {
         self.init(label: label, value: value, caption: caption, accent: accent, delta: delta,
                   deltaColor: deltaColor, sparkline: sparkline, sparkColor: sparkColor,
-                  systemImage: systemImage, tint: tint,
+                  systemImage: systemImage, tint: tint, unit: unit,
                   accessory: { EmptyView() })
     }
 }

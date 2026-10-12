@@ -55,6 +55,7 @@ public struct HRLiveModuleCard: View {
     var onOpen: () -> Void = {}
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var typeSize
     @State private var revealed = false
     @State private var scrubIndex: Int? = nil
     @State private var plotWidth: CGFloat = 1
@@ -126,26 +127,49 @@ public struct HRLiveModuleCard: View {
     /// The widget eyebrow: a beating heart in the live red, the caps title, and the zone word as a tone pill.
     /// The pill is the Coach "Stale" pill's exact size and its height is part of the row, so this header is
     /// as tall as the Stress one and nothing overhangs it into the air above.
-    private var header: some View {
-        HStack(spacing: NoopMetrics.space2) {
-            // The live heart: a heart in the live red whose ghost swells and fades at the wearer's cadence (the
-            // old dot's breathing halo, in the shape of the symbol). It holds still under Reduce Motion.
-            EyebrowPulseIcon(systemName: "heart.fill",
-                             color: samples.isEmpty ? StrandPalette.textTertiary : HRModuleTint.live,
-                             period: breathPeriod,
-                             pulses: !samples.isEmpty)
-            Text("Live Heart Rate")
-                .strandOverline()
-                .lineLimit(1)
-            Spacer(minLength: NoopMetrics.space2)
-            if displayed != nil {
-                HRZonePill(word: zoneWord)
-                    .contentTransition(.opacity)
-            } else {
-                // Waiting for a first reading: keep the row as tall as it will be, so the pill arriving
-                // does not push the module down.
-                HRZonePill(word: String(localized: "Steady")).hidden()
+    ///
+    /// At an accessibility size the title and the pill cannot share a row ("LIVE H…"), so the pill drops under the
+    /// title and the title wraps instead of truncating. Every smaller size is the one-row header exactly as it was.
+    @ViewBuilder private var header: some View {
+        if typeSize.isAccessibilitySize {
+            VStack(alignment: .leading, spacing: NoopMetrics.space1) {
+                HStack(spacing: NoopMetrics.space2) {
+                    liveHeart
+                    Text("Live Heart Rate")
+                        .strandOverlineFitted()
+                        .lineLimit(3)
+                }
+                zonePill
             }
+        } else {
+            HStack(spacing: NoopMetrics.space2) {
+                liveHeart
+                Text("Live Heart Rate")
+                    .strandOverline()
+                    .lineLimit(1)
+                Spacer(minLength: NoopMetrics.space2)
+                zonePill
+            }
+        }
+    }
+
+    /// The live heart: a heart in the live red whose ghost swells and fades at the wearer's cadence (the old dot's
+    /// breathing halo, in the shape of the symbol). It holds still under Reduce Motion.
+    private var liveHeart: some View {
+        EyebrowPulseIcon(systemName: "heart.fill",
+                         color: samples.isEmpty ? StrandPalette.textTertiary : HRModuleTint.live,
+                         period: breathPeriod,
+                         pulses: !samples.isEmpty)
+    }
+
+    @ViewBuilder private var zonePill: some View {
+        if displayed != nil {
+            HRZonePill(word: zoneWord)
+                .contentTransition(.opacity)
+        } else {
+            // Waiting for a first reading: keep the row as tall as it will be, so the pill arriving
+            // does not push the module down.
+            HRZonePill(word: String(localized: "Steady")).hidden()
         }
     }
 
@@ -248,11 +272,25 @@ public struct HRLiveModuleCard: View {
                     StrandPalette.hairlineStrong.opacity(0.9),
                     style: StrokeStyle(lineWidth: 0.7, dash: [3, 4])
                 )
-                Text("RHR \(Int(restingHR.rounded()))")
+                let rhrLabel = Text("RHR \(Int(restingHR.rounded()))")
                     .font(StrandFont.micro)
                     .monospacedDigit()
                     .foregroundStyle(StrandPalette.textTertiary)
-                    .position(x: 22, y: max(7, y - 8))
+                if typeSize.isAccessibilitySize {
+                    // The label is wider than the 44pt it is centred in at an accessibility size, which pushed its
+                    // first letters past the card's edge: it starts at the leading edge instead. It is also as tall as
+                    // the rule is thin, so centring it 8pt above the line drew the line through the text: it sits wholly
+                    // above the line (or wholly below, when the line is in the top half), clear of it by a few points.
+                    let gap: CGFloat = 3
+                    let above = y >= size.height / 2
+                    let room = above ? y - gap : size.height - y - gap
+                    rhrLabel
+                        .fixedSize()
+                        .frame(width: size.width, height: max(room, 0), alignment: above ? .bottomLeading : .topLeading)
+                        .position(x: size.width / 2, y: above ? max(room, 0) / 2 : y + gap + max(room, 0) / 2)
+                } else {
+                    rhrLabel.position(x: 22, y: max(7, y - 8))
+                }
             }
 
             areaPath(rendered, height: size.height)
@@ -396,12 +434,23 @@ public struct HRLiveModuleCard: View {
             let low = Int((values.min() ?? 0).rounded())
             let average = Int((values.reduce(0, +) / Double(values.count)).rounded())
             let peak = Int((values.max() ?? 0).rounded())
-            HStack(spacing: NoopMetrics.space3) {
-                footKey(label: "low", value: "\(low)")
-                footKey(label: "avg", value: "\(average)")
-                footKey(label: "peak", value: "\(peak)")
-                Spacer(minLength: 0)
-                rangeChip
+            if typeSize.isAccessibilitySize {
+                // Three keys and the range chip do not fit one row at an accessibility size (each broke to a letter per
+                // line), so they stack. Every smaller size is the one row it was.
+                VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+                    footKey(label: "low", value: "\(low)")
+                    footKey(label: "avg", value: "\(average)")
+                    footKey(label: "peak", value: "\(peak)")
+                    rangeChip
+                }
+            } else {
+                HStack(spacing: NoopMetrics.space3) {
+                    footKey(label: "low", value: "\(low)")
+                    footKey(label: "avg", value: "\(average)")
+                    footKey(label: "peak", value: "\(peak)")
+                    Spacer(minLength: 0)
+                    rangeChip
+                }
             }
         } else {
             HStack {

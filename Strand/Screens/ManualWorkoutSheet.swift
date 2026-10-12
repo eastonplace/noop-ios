@@ -1,4 +1,5 @@
 import SwiftUI
+import StrandAnalytics
 import StrandDesign
 import WhoopStore
 
@@ -44,6 +45,9 @@ struct ManualWorkoutSheet: View {
     private enum FormField: Hashable { case customSport, avgHr, calories }
     @FocusState private var focusedField: FormField?
 
+    /// The pauses kept for the edited workout; nil for a new workout or one that never was paused.
+    private let pauses: WorkoutPauseLedger?
+
     /// The sport as it is saved.
     private var sport: String { ManualWorkoutSport.sport(chosen: chosenSport, custom: customSport) }
 
@@ -59,7 +63,10 @@ struct ManualWorkoutSheet: View {
         _chosenSport = State(initialValue: choice.chosen)
         _customSport = State(initialValue: choice.custom)
         _start = State(initialValue: e.map { Date(timeIntervalSince1970: TimeInterval($0.startTs)) } ?? Date())
-        _durationMin = State(initialValue: e.map { max(1, Int((($0.durationS ?? Double($0.endTs - $0.startTs)) / 60).rounded())) } ?? 45)
+        _durationMin = State(initialValue: e.map(WorkoutSource.editableDurationMin) ?? 45)
+        // A recorded workout that was paused keeps its pauses in a store of their own: the stepper edits the time it ran,
+        // so the window's wall-clock end has to be worked back from them.
+        pauses = e.flatMap { WorkoutPauseStore.load(startTs: $0.startTs, sport: $0.sport) }
         _avgHrText = State(initialValue: e?.avgHr.map(String.init) ?? "")
         _kcalText = State(initialValue: e?.energyKcal.map { String(Int($0.rounded())) } ?? "")
     }
@@ -356,7 +363,7 @@ struct ManualWorkoutSheet: View {
                                                       sport: sport, avgHr: avgHr, energyKcal: kcal)
         else { return nil }
         // Carry over captured-but-unexposed fields when editing an existing strap session.
-        return WorkoutSource.preservingCaptured(base, from: editing)
+        return WorkoutSource.preservingCaptured(base, from: editing, pauses: pauses)
     }
 
     /// #18: true when this edit changes the Avg HR on a row that carries CAPTURED strain/zones from a
