@@ -398,6 +398,9 @@ public struct FitnessAgeTrendChart: View {
         Text(verbatim: "\(value)")
             .font(StrandFont.micro).monospacedDigit()
             .foregroundStyle(StrandPalette.textTertiary)
+            // One line at any size: the digits grow past the 28 pt column at accessibility sizes, so the label keeps
+            // its trailing edge and grows leftward instead of wrapping a digit per line.
+            .lineLimit(1).fixedSize()
             .background {
                 RoundedRectangle(cornerRadius: 3, style: .continuous)
                     .fill(StrandPalette.appCanvas.opacity(0.88))
