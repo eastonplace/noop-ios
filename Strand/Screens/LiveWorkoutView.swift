@@ -208,7 +208,9 @@ private struct LiveWorkoutHeader: View {
             HStack(spacing: 6) {
                 LiveStateDot(color: LivePalette.mint,
                              pulses: NOOPLiveWorkoutPulse.isActive(isPaused: false, isEnding: false))
-                Text("Recording")
+                // Its own catalog key (not "Recording", which the strap chip on Today shares): the live state in the wearer's words.
+                Text(verbatim: String(localized: "workout.state.recording", defaultValue: "Recording",
+                                      comment: "Live workout header state while the workout is recording; the same word for every sport"))
                     .foregroundStyle(LivePalette.mint)
                     .liveText(13, weight: .medium, maxSize: 19, lines: 1)
             }

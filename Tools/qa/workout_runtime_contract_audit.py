@@ -83,13 +83,16 @@ try:
         "RecentSportsPrefs.recordSelection",
         "WorkoutReadinessStrip(",
     )
-    # The live screen's heart page is one glance: the reading, the zone row (time in each zone), strain and calories. The
-    # heart-rate trace the page used to carry was dropped for the calm of the page (Direction A); the bounded projection stays
-    # in the model, pinned above, for the surfaces that draw it.
+    # The live screen's Heart page is one glance, pinned figure by figure: the heart-rate reading (the page's big number), the
+    # zone row (time in each zone), strain and calories. The in-page heart-rate trace was dropped for the calm of the page
+    # (Direction A, the owner's pick, 7c044dac). No Release surface draws the bounded projection any more: it stays in the
+    # model, pinned above, and is read only by the Simulator Live Activity preview (WorkoutRefinementQA) and its tests.
     require(
         "Strand/Screens/LiveWorkoutPages.swift",
-        "LiveZoneRow(",
-        "workout.personalZoneSeconds",
+        "LiveWorkoutFigure(value: value(.heartRate)",
+        "LiveZoneRow(seconds: workout.personalZoneSeconds",
+        "LiveWorkoutFigure(value: value(.strain)",
+        "LiveWorkoutFigure(value: value(.calories)",
     )
     require(
         "StrandiOS/App/RootTabView.swift",
