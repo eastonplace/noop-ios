@@ -22,10 +22,18 @@ struct StorageView: View {
     @State private var pendingDiscard: HistoricalQuarantinedJob?
     @State private var recoveryMessage: String?
 
+    @Environment(\.screenScaffoldPresentation) private var presentation
+
     var body: some View {
-        ScreenScaffold(title: "Storage",
-                       subtitle: "Where NOOP's on-device space is going, and a one-tap clean-up.") {
-            SettingsScreenTemplate(sections: storageSections)
+        Group {
+            if presentation == .settingsDetail {
+                nativeSettingsBody
+            } else {
+                ScreenScaffold(title: "Storage",
+                               subtitle: "Where NOOP's on-device space is going, and a one-tap clean-up.") {
+                    SettingsScreenTemplate(sections: storageSections)
+                }
+            }
         }
         .task { await load() }
         .confirmationDialog(
@@ -44,6 +52,129 @@ struct StorageView: View {
             Button("Cancel", role: .cancel) { pendingDiscard = nil }
         } message: {
             Text("This permanently deletes the selected exact WHOOP history archive. Export it first if you may need it for decoder recovery. Your existing decoded health data and receipt remain.")
+        }
+    }
+
+    /// Inside Settings the page is a plain grouped list: sizes as label/value rows, the clean-up as a button row, and
+    /// the explanation as the section's footer.
+    private var nativeSettingsBody: some View {
+        NativeSettingsList {
+            if loading && report == nil {
+                Section {
+                    HStack(spacing: 8) {
+                        ProgressView().controlSize(.small)
+                        Text("Measuring…")
+                    }
+                }
+            } else if let report {
+                Section {
+                    LabeledContent("Health database", value: bytesLabel(report.db))
+                    reclaimableRow("Leftover import copies", bytes: report.inbox)
+                    reclaimableRow("Import temp files", bytes: report.importTemp)
+                } header: {
+                    Text("On-device footprint")
+                }
+
+                if report.historicalQuarantine.jobCount > 0 {
+                    nativeQuarantineSection(report.historicalQuarantine)
+                }
+
+                let reclaimable = report.inbox + report.importTemp
+                Section {
+                    Button {
+                        Task { await cleanUp() }
+                    } label: {
+                        HStack(spacing: 8) {
+                            if cleaning { ProgressView().controlSize(.small) }
+                            Text(cleaning ? "Cleaning up…" : "Clean up now")
+                        }
+                    }
+                    .disabled(cleaning || reclaimable == 0)
+                    .accessibilityLabel("Clean up leftover import files")
+                    if let lastCleanedSummary {
+                        Text(lastCleanedSummary)
+                            .foregroundStyle(.secondary)
+                    }
+                } header: {
+                    Text("Clean up")
+                } footer: {
+                    if reclaimable > 0 {
+                        Text("There's about \(Self.format(reclaimable)) of leftover import scratch space to reclaim. This never removes your imported data.")
+                    } else {
+                        Text("Nothing to reclaim right now. NOOP already cleans up import scratch space automatically.")
+                    }
+                }
+            } else {
+                Section {
+                    Text("Storage unavailable")
+                } footer: {
+                    Text("Couldn't read the local store right now. Try again in a moment.")
+                }
+            }
+
+            Section {
+            } header: {
+                Text("Why does this grow?")
+            } footer: {
+                Text("When you import an Apple Health or WHOOP export, iOS hands NOOP a private copy of the file. NOOP reads it, saves your data into the health database, then deletes the copy. Older builds didn't delete every copy. This screen reclaims any that were left behind.")
+            }
+        }
+        .navigationTitle("Storage")
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
+    }
+
+    private func bytesLabel(_ bytes: Int64?) -> String {
+        bytes.map(Self.format) ?? "—"
+    }
+
+    /// A size row that says so, in the secondary style under its title, when the space can be reclaimed.
+    private func reclaimableRow(_ label: LocalizedStringKey, bytes: Int64) -> some View {
+        LabeledContent {
+            Text(bytesLabel(bytes))
+        } label: {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(label)
+                if bytes > 0 {
+                    Text("Reclaimable")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    private func nativeQuarantineSection(_ summary: HistoricalQuarantineSummary) -> some View {
+        Section {
+            ForEach(quarantinedJobs) { job in
+                VStack(alignment: .leading, spacing: 8) {
+                    LabeledContent(Self.recoveryErrorLabel(job.lastErrorCode), value: Self.format(Int64(job.storedByteCount)))
+                    Text("Receipt \(job.receiptId.prefix(8)) · \(Self.format(Int64(job.archiveByteCount))) of exact frames retained")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    HStack(spacing: 16) {
+                        Button("Export") { Task { await export(job) } }
+                        Button("Retry") { Task { await retry(job) } }
+                        Button("Delete", role: .destructive) { pendingDiscard = job }
+                    }
+                    .buttonStyle(.borderless)
+                    .disabled(recoveryBusyReceiptId != nil)
+                }
+            }
+            if let recoveryMessage {
+                Text(recoveryMessage)
+                    .foregroundStyle(.secondary)
+            }
+        } header: {
+            Text("WHOOP history recovery")
+        } footer: {
+            let size = Self.format(Int64(summary.protectedMappedByteCount))
+            if summary.jobCount == 1 {
+                Text("1 exact archive could not be indexed. It remains protected and uses \(size) of the mandatory mapped-data allowance.")
+            } else {
+                Text("\(summary.jobCount) exact archives could not be indexed. They remain protected and use \(size) of the mandatory mapped-data allowance.")
+            }
         }
     }
 

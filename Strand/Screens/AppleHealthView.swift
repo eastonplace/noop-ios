@@ -52,11 +52,9 @@ struct AppleHealthSettingsView: View {
         NativeSettingsList {
             Section {
                 LabeledContent("Status", value: statusLabel)
-                    .font(.caption)
 
                 if let lastSync = health.lastSync {
                     LabeledContent("Last sync", value: lastSync.formatted(date: .abbreviated, time: .shortened))
-                        .font(.caption)
                 }
 
                 primaryAction
@@ -66,12 +64,11 @@ struct AppleHealthSettingsView: View {
                         ProgressView()
                         Text("Syncing Apple Health…")
                     }
-                    .font(.caption)
                 }
 
                 if let error = health.lastError {
                     Text(error)
-                        .font(.caption)
+                        .font(.subheadline)
                         .foregroundStyle(.red)
                 }
             } header: {
@@ -82,19 +79,19 @@ struct AppleHealthSettingsView: View {
 
             Section("Data NOOP reads") {
                 Text("Heart rate, HRV, blood oxygen, respiratory rate, sleep, steps, energy, workouts, VO₂ max, weight, body fat, lean mass, and BMI")
-                    .font(.caption)
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
 
             Section("Data NOOP writes") {
                 Text("NOOP-computed strap metrics, sleep, workouts, heart rate, energy, and distance where Apple Health grants write access")
-                    .font(.caption)
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
 
             Section {
                 Text("Apple Health data is processed and stored on this iPhone. NOOP does not upload it.")
-                    .font(.caption)
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
             } header: {
                 Text("Privacy")
@@ -173,7 +170,7 @@ struct AppleHealthSettingsView: View {
         NativeSettingsList {
             Section {
                 Text("Live Apple Health access is available in NOOP for iPhone.")
-                    .font(.caption)
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
                 NavigationLink("Import Apple Health Export") { DataSourcesView() }
             } header: {

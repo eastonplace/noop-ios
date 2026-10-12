@@ -177,14 +177,11 @@ struct DataSourcesView: View {
 
             Section {
                 Toggle("Broadcast live heart rate", isOn: $broadcastHrEnabled)
-                    .font(.caption)
                     .onChangeCompat(of: broadcastHrEnabled) { enabled in
                         if enabled { hrBroadcaster.start() } else { hrBroadcaster.stop() }
                     }
                 LabeledContent("WHOOP history", value: "\(repo.days.count) days")
-                    .font(.caption)
                 LabeledContent("Stored sleeps", value: "\(repo.sleeps.count)")
-                    .font(.caption)
             } header: {
                 Text("Connections")
             } footer: {
@@ -197,7 +194,7 @@ struct DataSourcesView: View {
                 }
                 .disabled(model.hasActiveImport || appleHealthDeleting)
                 if let appleHealthDeletedSummary {
-                    Text(appleHealthDeletedSummary).font(.caption).foregroundStyle(.secondary)
+                    Text(appleHealthDeletedSummary).font(.subheadline).foregroundStyle(.secondary)
                 }
             } header: {
                 Text("Delete imported data")
@@ -222,7 +219,6 @@ struct DataSourcesView: View {
         } label: {
             HStack {
                 Text(importing ? String(localized: "Importing…") : title)
-                    .font(.caption)
                 Spacer()
                 if importing { ProgressView().controlSize(.small) }
             }

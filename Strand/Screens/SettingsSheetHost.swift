@@ -8,9 +8,9 @@ import StrandDesign
 /// The host owns the navigation stack, so a deep link is just a route pushed onto `path` as the sheet appears and the
 /// pages Settings pushes sit above the root in one stack. Swiping the sheet down dismisses it from anywhere in that stack.
 ///
-/// Settings pages that have not been converted to the widget language yet read `.settingsDetail` from the stack itself
-/// (not from the root view): SwiftUI hosts a pushed page, and every page that page pushes, outside the view that created
-/// the link, so the stack is the one place the value reaches all of them.
+/// Pages that serve both Settings and the rest of the app read `.settingsDetail` from the stack itself (not from the
+/// root view) and draw their native list instead of the scaffold: SwiftUI hosts a pushed page, and every page that page
+/// pushes, outside the view that created the link, so the stack is the one place the value reaches all of them.
 struct SettingsSheetHost: View {
     let request: SettingsSheetRequest
     let onClose: () -> Void
