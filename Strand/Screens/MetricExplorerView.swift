@@ -68,13 +68,20 @@ enum ExploreRangeGating {
 
 // MARK: - Root: categorized list
 
+/// What the first pass over the catalog learned about one metric: it has no series at all, or this latest reading.
+private enum MetricProbe: Equatable {
+    case empty
+    case latest(Double)
+}
+
 /// The "Explore" picker — categories as sections, metrics as rows, each pushing a
-/// MetricDetailView. A muted "—" marks metrics whose series is empty.
+/// MetricDetailView. Every row ends the same way: the latest reading with its unit set apart and muted, or a muted
+/// "No data" when the series is empty.
 struct MetricExplorerView: View {
     @EnvironmentObject var repo: Repository
-    /// metric.id → whether its series is empty. Filled INCREMENTALLY by `probeEmptiness()`; a metric
-    /// absent from the map simply shows no "—" yet (rows never wait on it — see `MetricRow`).
-    @State private var emptyByID: [String: Bool] = [:]
+    /// metric.id → what the probe found. Filled INCREMENTALLY by `probeEmptiness()`; a metric absent from the map
+    /// simply shows nothing at its trailing edge yet (rows never wait on it — see `MetricRow`).
+    @State private var probeByID: [String: MetricProbe] = [:]
     @State private var probedRefreshSeq: Int?
     /// True while the empty-series probe is still running its first pass. Drives a small inline progress
     /// hint at the top, never gating the rows: the catalog is static, so every row's label/icon/unit
@@ -156,7 +163,7 @@ struct MetricExplorerView: View {
                                     NavigationLink {
                                         MetricDetailView(metric: metric)
                                     } label: {
-                                        MetricRow(metric: metric, isEmpty: emptyByID[metric.id] ?? false)
+                                        MetricRow(metric: metric, probe: probeByID[metric.id])
                                     }
                                     .exploreRowPress()
                                 }
@@ -171,20 +178,21 @@ struct MetricExplorerView: View {
         // pairing, which is what double-pushed (#38). Nothing else registers a MetricDescriptor destination.
     }
 
-    /// One lightweight pass to learn which metrics have no series, so rows can flag them with a muted "—".
-    /// Failures default to "has data" (no dash).
+    /// One lightweight pass to learn which metrics have no series and, for the rest, their latest reading, so each
+    /// row can end in a value or a muted "No data". The series is read for emptiness anyway; its last point is free.
+    /// Failures default to "has data" (nothing shown yet).
     ///
-    /// Crucially this assigns into `emptyByID` PER METRIC, not in one final batch (#199): the previous
+    /// Crucially this assigns into `probeByID` PER METRIC, not in one final batch (#199): the previous
     /// version ran ~35 sequential `exploreSeries` reads — each hopping back to the @MainActor Repository
     /// — before publishing a single result, so on iOS the main thread stayed busy and the freshly-pushed
     /// list painted blank until the whole sweep finished. Publishing each result (with a `Task.yield()`
     /// between reads so the run loop can lay the rows out) lets the catalog rows render immediately and
-    /// the dashes fill in as the probe lands. Rows already render their label/icon/unit without waiting on
-    /// this — the map only ever ADDS a dash.
+    /// the values fill in as the probe lands. Rows already render their label/icon without waiting on
+    /// this — the map only ever ADDS a trailing value.
     private func probeEmptiness(refreshSeq: Int) async {
-        guard probedRefreshSeq != refreshSeq || emptyByID.isEmpty else { probing = false; return }
+        guard probedRefreshSeq != refreshSeq || probeByID.isEmpty else { probing = false; return }
         probedRefreshSeq = refreshSeq
-        emptyByID = [:]
+        probeByID = [:]
         probing = true
         for metric in MetricCatalog.all {
             guard !Task.isCancelled else { return }
@@ -194,7 +202,7 @@ struct MetricExplorerView: View {
                 }
                 : await repo.exploreSeries(key: metric.key, source: metric.source)
             guard !Task.isCancelled else { return }
-            emptyByID[metric.id] = s.isEmpty
+            probeByID[metric.id] = s.last.map { .latest($0.value) } ?? .empty
             await Task.yield()
         }
         probing = false
@@ -205,18 +213,31 @@ struct MetricExplorerView: View {
 
 private struct MetricRow: View {
     let metric: MetricDescriptor
-    let isEmpty: Bool
+    /// nil until the probe has read this metric.
+    let probe: MetricProbe?
 
-    // Trailing unit follows the Imperial/Metric preference (kg→lb, °C→°F) and the Strain scale
-    // (/100→/21, #268).
+    // The value and its unit follow the Imperial/Metric preference (kg→lb, °C→°F) and the Strain scale (/100→/21, #268).
     @AppStorage(UnitPrefs.systemKey) private var unitSystemRaw = UnitSystem.metric.rawValue
     @AppStorage(UnitPrefs.temperatureKey) private var temperatureRaw = ""
     @AppStorage(UnitPrefs.effortScaleKey) private var effortScaleRaw = EffortScale.whoop.rawValue
-    private var unitLabel: String {
+
+    /// The latest reading as the person reads it, split so the unit can sit apart and muted.
+    private var latestParts: (number: String, unit: String)? {
+        guard case .latest(let value)? = probe else { return nil }
         let system = UnitSystem(rawValue: unitSystemRaw) ?? .metric
-        let temp = UnitPrefs.resolveTemperature(system: system, override: temperatureRaw)
+        let temperature = UnitPrefs.resolveTemperature(system: system, override: temperatureRaw)
         let effort = UnitPrefs.resolveEffortScale(effortScaleRaw)
-        return metric.displayUnit(system: system, temperature: temp, effortScale: effort)
+        return metric.displayParts(value, system: system, temperature: temperature, effortScale: effort)
+    }
+
+    /// What VoiceOver says: a whole string per variant, never a concatenated localized tail.
+    private var spoken: String {
+        if let parts = latestParts {
+            let value = parts.unit.isEmpty ? parts.number : "\(parts.number) \(parts.unit)"
+            return String(localized: "\(metric.title), latest \(value)")
+        }
+        if probe == .empty { return String(localized: "\(metric.title), no data") }
+        return metric.title
     }
 
     var body: some View {
@@ -225,19 +246,25 @@ private struct MetricRow: View {
             tint: metric.domainTint(),
             title: Text(verbatim: metric.title),
             subtitle: Text(verbatim: metric.sourceLabel),
-            // Whole-string key per variant (never a concatenated localized tail on an a11y label).
-            spoken: isEmpty
-                ? String(localized: "\(metric.title), \(unitLabel.isEmpty ? MetricCatalog.categoryDisplayName(metric.category) : unitLabel), no data")
-                : String(localized: "\(metric.title), \(unitLabel.isEmpty ? MetricCatalog.categoryDisplayName(metric.category) : unitLabel)")
+            spoken: spoken
         ) {
-            // A metric with no series at all reads as a muted dash; every other row names its unit.
-            if isEmpty {
-                Text(verbatim: WidgetMetrics.missingValue)
-                    .font(StrandFont.bodyNumber)
-                    .foregroundStyle(StrandPalette.textTertiary)
-            } else if !unitLabel.isEmpty {
-                Text(verbatim: unitLabel)
-                    .font(StrandFont.captionNumber)
+            // One rule for every row: the latest value with a muted unit, a muted "No data" when there is none, and
+            // nothing at all while the probe is still reading. Never a unit with no number.
+            if let parts = latestParts {
+                HStack(alignment: .firstTextBaseline, spacing: NoopMetrics.space1) {
+                    Text(verbatim: parts.number)
+                        .font(StrandFont.bodyNumber)
+                        .foregroundStyle(StrandPalette.textPrimary)
+                    if !parts.unit.isEmpty {
+                        Text(verbatim: parts.unit)
+                            .font(StrandFont.captionNumber)
+                            .foregroundStyle(StrandPalette.textTertiary)
+                    }
+                }
+                .lineLimit(1)
+            } else if probe == .empty {
+                Text("No data")
+                    .font(StrandFont.footnote)
                     .foregroundStyle(StrandPalette.textTertiary)
             }
         }
