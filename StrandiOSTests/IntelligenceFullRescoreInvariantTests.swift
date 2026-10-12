@@ -170,4 +170,30 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
             XCTAssertNil(after[harness.dayKeys[epochIndex + 1]]?.recovery)
         }
     }
+
+    // MARK: - F7
+
+    /// Oura rows the wearable fold re-homed under the computed id must not seed the strap's HRV baseline
+    /// (#459): the first strap night after months of Oura imports is still calibrating.
+    func testWearableImportHrvStaysOutOfTheStrapBaseline() async throws {
+        try await withRecalibrationEpochsRestored {
+            let days = 36
+            let harness = try await makeHarness(days: days, strapDays: 30..<days)
+            let ouraRows = (0..<30).map { k in
+                DailyMetric(day: dayKey(k), totalSleepMin: 450, efficiency: 0.9, deepMin: 80, remMin: 100,
+                            lightMin: 270, disturbances: nil, restingHr: 50, avgHrv: 130 + Double(k % 3),
+                            recovery: nil, strain: nil, exerciseCount: nil)
+            }
+            _ = try await harness.store.upsertDailyMetrics(ouraRows, deviceId: "oura-import")
+            // What earlier passes' wearable fold wrote under the computed id for those days.
+            _ = try await harness.store.upsertDailyMetrics(
+                ouraRows.map { $0.with(recovery: 60, skinTempDevC: nil) }, deviceId: harness.computedId)
+
+            let completed = await pass(harness, maxDays: 6)
+            XCTAssertTrue(completed)
+            let after = try await stored(harness)
+            XCTAssertNotNil(after[dayKey(30)]?.avgHrv, "the first strap night is scored")
+            XCTAssertNil(after[dayKey(30)]?.recovery, "with no strap history its Charge is still calibrating")
+        }
+    }
 }

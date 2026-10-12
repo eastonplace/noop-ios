@@ -1554,13 +1554,34 @@ final class IntelligenceEngine: ObservableObject {
             NSLog("IntelligenceEngine: required baseline read failed: \(error)")
             return false
         }
+        // N2-UPG-2: the wearable fold below writes Oura / Fitbit / Garmin / Health Connect rows under the
+        // computed id, so a computed row on a day such an import covers carries that device's HRV and resting
+        // HR, not the strap's. Those days stay out of the strap baseline (#459 device-scale mix). Read once;
+        // the fold reuses the rows.
+        var wearableRowsBySource: [String: [DailyMetric]] = [:]
+        for source in Repository.wearableImportSources {
+            do {
+                // DL-04: the fold's baseline reads the source's whole history up to the window's end.
+                wearableRowsBySource[source] = try await store.dailyMetrics(
+                    deviceId: source, from: "0000-01-01", to: newestCivilDay.day).sorted { $0.day < $1.day }
+            } catch {
+                note = String(localized: "Recovery analysis is waiting for imported wearable data.")
+                NSLog("IntelligenceEngine: required wearable source read failed (\(source)): \(error)")
+                return false
+            }
+        }
+        let wearableImportDays = Set(wearableRowsBySource.values.flatMap { $0.map(\.day) })
+        let strapComputedHist = computedHist.filter { !wearableImportDays.contains($0.day) }
         Self.mergeNightlyIntoHistory(
-            &histHrvByDay, Dictionary(computedHist.map { ($0.day, $0.avgHrv) }, uniquingKeysWith: { a, _ in a }))
+            &histHrvByDay,
+            Dictionary(strapComputedHist.map { ($0.day, $0.avgHrv) }, uniquingKeysWith: { a, _ in a }))
         Self.mergeNightlyIntoHistory(
             &histRhrByDay,
-            Dictionary(computedHist.map { ($0.day, $0.restingHr.map(Double.init)) }, uniquingKeysWith: { a, _ in a }))
+            Dictionary(strapComputedHist.map { ($0.day, $0.restingHr.map(Double.init)) },
+                       uniquingKeysWith: { a, _ in a }))
         Self.mergeNightlyIntoHistory(
-            &histRespByDay, Dictionary(computedHist.map { ($0.day, $0.respRateBpm) }, uniquingKeysWith: { a, _ in a }))
+            &histRespByDay,
+            Dictionary(strapComputedHist.map { ($0.day, $0.respRateBpm) }, uniquingKeysWith: { a, _ in a }))
         // F2: a completed day whose skin baseline can't be built here keeps its stored deviation.
         let storedComputedByDay = Dictionary(computedHist.map { ($0.day, $0) }, uniquingKeysWith: { a, _ in a })
         // rhr/resp/skin honour the Charge-wide recalibration epoch (noop.recoveryBaselineEpoch); 0 = no-op,
@@ -2032,18 +2053,10 @@ final class IntelligenceEngine: ObservableObject {
         // computed reconcile below, so the fold's rows survive the stale-row eviction.
         var importScoredDays = Set(dailies.map { $0.day }).union(importedWhoopDays).union(appleHealthDays)
         for source in Repository.wearableImportSources {
-            // DL-04: the baseline reads the source's whole history up to the window's end; only days inside
-            // the window are scored and written below. A window-only read starved the 7-night baseline, so
-            // an import-only user never got Charge.
-            let rows: [DailyMetric]
-            do {
-                rows = try await store.dailyMetrics(
-                    deviceId: source, from: "0000-01-01", to: newestDay).sorted { $0.day < $1.day }
-            } catch {
-                note = String(localized: "Recovery analysis is waiting for imported wearable data.")
-                NSLog("IntelligenceEngine: required wearable source read failed (\(source)): \(error)")
-                return false
-            }
+            // DL-04: the baseline reads the source's whole history up to the window's end (read once above);
+            // only days inside the window are scored and written below. A window-only read starved the
+            // 7-night baseline, so an import-only user never got Charge.
+            let rows = wearableRowsBySource[source] ?? []
             guard !rows.isEmpty else { continue }
             let byDay = Dictionary(rows.map { ($0.day, $0) }, uniquingKeysWith: { a, _ in a })
             for w in Self.watchRecoveries(appleRows: rows, strapRecoveryDays: importScoredDays)
