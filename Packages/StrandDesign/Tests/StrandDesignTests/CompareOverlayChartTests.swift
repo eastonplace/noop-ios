@@ -50,6 +50,52 @@ final class CompareOverlayChartTests: XCTestCase {
         XCTAssertEqual(rhr.normalized(0), 0)
     }
 
+    // MARK: Thinning a long series
+
+    private func drawn(_ offsets: [Int]) -> (drawn: [TrendPoint], runs: [Range<Int>]) {
+        let points = offsets.enumerated().map { TrendPoint(date: date($0.element), value: Double($0.offset % 7)) }
+        return CompareOverlayGeometry.drawnLine(
+            points: points, dayOffsets: offsets, gapLimit: TrendCadence.gapLimitDays(dayOffsets: offsets))
+    }
+
+    /// About three years of daily readings is thinned to a few hundred vertices, and it is still one continuous line: the
+    /// thinned points sit further apart than three days, which is no reason to break the line.
+    func testAThreeYearDailySeriesIsThinnedAndStaysOneContinuousLine() {
+        let line = drawn(Array(0..<1_100))
+        XCTAssertLessThan(line.drawn.count, 1_100)
+        XCTAssertLessThanOrEqual(line.drawn.count, 420)
+        XCTAssertEqual(line.runs, [0..<line.drawn.count])
+        XCTAssertEqual(line.drawn.first?.date, date(0))
+        XCTAssertEqual(line.drawn.last?.date, date(1_099))
+        // Ascending, so the line never doubles back.
+        XCTAssertEqual(line.drawn.map(\.date), line.drawn.map(\.date).sorted())
+    }
+
+    /// A real hole in the readings is still a gap, and each side is thinned on its own.
+    func testARealGapStillBreaksTheLineAndEachSideKeepsItsEnds() {
+        let offsets = Array(0..<600) + Array(700..<1_300)
+        let line = drawn(offsets)
+        XCTAssertEqual(line.runs.count, 2)
+        XCTAssertEqual(line.runs.last?.upperBound, line.drawn.count)
+        let first = line.drawn[line.runs[0]]
+        let second = line.drawn[line.runs[1]]
+        XCTAssertEqual(first.first?.date, date(0))
+        XCTAssertEqual(first.last?.date, date(599))
+        XCTAssertEqual(second.first?.date, date(700))
+        XCTAssertEqual(second.last?.date, date(1_299))
+        XCTAssertLessThan(line.drawn.count, offsets.count)
+    }
+
+    func testAShortSeriesIsDrawnAsItIsAndAWeeklyOneStaysConnected() {
+        let daily = drawn(Array(0..<60))
+        XCTAssertEqual(daily.drawn.count, 60)
+        XCTAssertEqual(daily.runs, [0..<60])
+        let weekly = drawn((0..<200).map { $0 * 7 })
+        XCTAssertEqual(weekly.runs.count, 1)
+        XCTAssertEqual(weekly.runs.first?.count, weekly.drawn.count)
+        XCTAssertTrue(drawn([]).runs.isEmpty)
+    }
+
     func testADailySeriesKeepsTheThreeDayLimitAndAWeeklyOneBridgesThreeWeeks() {
         XCTAssertEqual(TrendCadence.gapLimitDays(dayOffsets: Array(0..<30)), 3)
         XCTAssertEqual(TrendCadence.gapLimitDays(dayOffsets: [0, 1, 2, 3, 8, 9, 10, 11]), 3)

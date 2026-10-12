@@ -31,6 +31,31 @@ enum CompareOverlayGeometry {
         Array(Set(series.flatMap { $0.points.map(\.date) })).sorted()
     }
 
+    /// The line to draw for one series, and the unbroken stretches of it. Gaps are read off the readings themselves (the
+    /// series' own cadence, `gapLimit`), and only then is each long stretch thinned to a min/max-bucketed copy of its own.
+    /// Thinning first and reading gaps afterwards would see the wider spacing of the thinned points as missing data and
+    /// cut a daily series of a few years into fragments and dots.
+    ///
+    /// - Parameters:
+    ///   - points: the series' readings, ascending.
+    ///   - dayOffsets: each reading's whole-day distance from one fixed day, in the same order.
+    ///   - gapLimit: the longest stretch of days the line bridges (`TrendCadence.gapLimitDays` for these offsets).
+    static func drawnLine(points: [TrendPoint], dayOffsets: [Int], gapLimit: Int) -> (drawn: [TrendPoint], runs: [Range<Int>]) {
+        guard points.count == dayOffsets.count, !points.isEmpty else { return (points, points.isEmpty ? [] : [0..<points.count]) }
+        var drawn: [TrendPoint] = []
+        var runs: [Range<Int>] = []
+        drawn.reserveCapacity(min(points.count, ChartDownsample.targetVertices * 2))
+        for run in TrendCurve.runs(dayIndices: dayOffsets, maxGapDays: gapLimit) {
+            // A run's share of the vertex budget follows its share of the readings.
+            let share = Int((Double(ChartDownsample.targetVertices) * Double(run.count) / Double(points.count)).rounded(.up))
+            let kept = ChartDownsample.minMaxBucketed(
+                Array(points[run]), threshold: ChartDownsample.markThreshold, targetCount: max(share, 4))
+            runs.append(drawn.count..<(drawn.count + kept.count))
+            drawn.append(contentsOf: kept)
+        }
+        return (drawn, runs)
+    }
+
     /// The span the plot covers: first to last reading across all the series, never narrower than a day.
     static func domain(of series: [CompareSeries]) -> ClosedRange<Date>? {
         let all = series.flatMap { $0.points.map(\.date) }
@@ -44,7 +69,8 @@ public struct CompareOverlayChart: View {
         let tint: Color
         /// The normalized (0...1) points to draw: the series itself, or a min/max-bucketed copy of a long one.
         let drawn: [TrendPoint]
-        let gapLimit: Int
+        /// The unbroken stretches of `drawn` (indices), cut where the series itself has a gap.
+        let runs: [Range<Int>]
         /// The normalized value on each day the series has a reading, for the dot under the finger.
         let byDay: [Date: Double]
         let latest: TrendPoint?
@@ -94,11 +120,12 @@ public struct CompareOverlayChart: View {
         self.lines = series.map { entry in
             let normalized = entry.points.map { TrendPoint(date: $0.date, value: entry.normalized($0.value)) }
             let offsets = entry.points.map { calendar.dateComponents([.day], from: domain.lowerBound, to: $0.date).day ?? 0 }
+            let line = CompareOverlayGeometry.drawnLine(
+                points: normalized, dayOffsets: offsets, gapLimit: TrendCadence.gapLimitDays(dayOffsets: offsets))
             return Line(
                 tint: entry.tint,
-                drawn: ChartDownsample.minMaxBucketed(
-                    normalized, threshold: ChartDownsample.markThreshold, targetCount: ChartDownsample.targetVertices),
-                gapLimit: TrendCadence.gapLimitDays(dayOffsets: offsets),
+                drawn: line.drawn,
+                runs: line.runs,
                 byDay: Dictionary(normalized.map { ($0.date, $0.value) }, uniquingKeysWith: { _, later in later }),
                 latest: normalized.last)
         }
@@ -199,8 +226,7 @@ public struct CompareOverlayChart: View {
     @ViewBuilder
     private func lineLayers(_ line: Line, showsWash: Bool, size: CGSize) -> some View {
         let rendered = line.drawn.map { CGPoint(x: x(of: $0.date, width: size.width), y: y($0.value, height: size.height)) }
-        let offsets = line.drawn.map { calendar.dateComponents([.day], from: domain.lowerBound, to: $0.date).day ?? 0 }
-        let runs = TrendCurve.runs(dayIndices: offsets, maxGapDays: line.gapLimit)
+        let runs = line.runs
         let singletons = Set(runs.filter { $0.count == 1 }.map(\.lowerBound))
         ZStack {
             if rendered.count >= 2 {
