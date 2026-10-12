@@ -13,8 +13,8 @@ final class ReconnectPolicyTests: XCTestCase {
         XCTAssertEqual(delays, [3, 6, 12, 24, 48, 60, 60, 60])
     }
 
-    /// The old disconnect path retried a flat 3 s forever. A link that connects and drops quickly now
-    /// climbs the same ladder as a failed connect.
+    /// Timer-driven retries (failed connects, drops with no known strap) climb the ladder while links
+    /// keep ending quickly.
     func testQuickDropsKeepClimbing() {
         var policy = ReconnectPolicy()
         var delays: [TimeInterval] = []

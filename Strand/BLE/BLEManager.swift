@@ -5091,8 +5091,18 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
                 state.append(log: "reconnect paused=whoop5Secure", domain: .connection)
             }
         } else if !intentionalDisconnect {
-            let retryDelay = secureRetryDelay.map { TimeInterval($0) } ?? reconnectPolicy.nextDelay()
-            log("Disconnected\(error.map { " — \($0.localizedDescription)" } ?? ""); rescanning in \(Int(retryDelay))s")
+            // F1: a known strap gets an OS-managed pending connect at once. A 12–60 s timer would never
+            // fire in the background (the app is suspended ~10 s after this event) and would leave nothing
+            // pending to wake it when the strap returns.
+            let target = pendingReconnectTarget(dropped: peripheral)
+            let action = reconnectPolicy.actionAfterDrop(knownTarget: target != nil,
+                                                         forcedDelay: secureRetryDelay.map { TimeInterval($0) })
+            switch action {
+            case .connectNow:
+                log("Disconnected\(error.map { " — \($0.localizedDescription)" } ?? ""); reconnect pending (OS-managed connect)")
+            case .retry(let retryDelay):
+                log("Disconnected\(error.map { " — \($0.localizedDescription)" } ?? ""); rescanning in \(Int(retryDelay))s")
+            }
             // Connection test mode: count + describe the involuntary reconnect churn, and mark the link
             // down for the uptime readout. Gated zero-cost (the .connection bool is read before any string
             // is built). Diagnostic only - the rescan above is unchanged. The count increments only on an
@@ -5104,7 +5114,11 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
                 state.append(log: "connect down (uptime ends)", domain: .connection)
                 state.append(log: "reconnect n=\(connReconnectCount) reason=\(reason)", domain: .connection)
             }
-            scheduleReconnect(after: retryDelay)
+            if case .retry(let retryDelay) = action {
+                scheduleReconnect(after: retryDelay)
+            } else if let target {
+                issuePendingReconnect(to: target)
+            }
         } else {
             log("Disconnected (intentional)")
             // A user-initiated teardown ends the churn count for the run and marks the link down so the
@@ -5154,9 +5168,47 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
         guard !intentionalDisconnect,
               !autoReconnectPausedForBondLoop,
               !autoReconnectPausedForWhoop5SecureFailure else { return }
-        let delay = reconnectPolicy.nextDelay()
-        log("Reconnecting in \(Int(delay))s (attempt \(reconnectPolicy.attempts))")
-        scheduleReconnect(after: delay)
+        // F1: in the background a timer would not fire, so a known strap gets a pending connect at once.
+        let target = pendingReconnectTarget(dropped: peripheral)
+        switch reconnectPolicy.actionAfterFailedConnect(knownTarget: target != nil, appActive: isAppActive) {
+        case .connectNow:
+            if let target {
+                log("Reconnect pending (OS-managed connect; the app is not active, so a timer would not fire)")
+                issuePendingReconnect(to: target)
+            }
+        case .retry(let delay):
+            log("Reconnecting in \(Int(delay))s (attempt \(reconnectPolicy.attempts))")
+            scheduleReconnect(after: delay)
+        }
+    }
+
+    /// F1: the strap an automatic reconnect targets: the strap that just dropped (or failed) when it is
+    /// the selected one, otherwise the pinned strap retrieved by identifier. nil when Bluetooth is off or
+    /// the pinned strap cannot be retrieved; the caller then falls back to the timer and connect path.
+    private func pendingReconnectTarget(dropped: CBPeripheral) -> CBPeripheral? {
+        guard central.state == .poweredOn else { return nil }
+        if isPreferredPeripheral(dropped) { return dropped }
+        guard let preferred = preferredPeripheralUUID else { return nil }
+        return central.retrievePeripherals(withIdentifiers: [preferred]).first
+    }
+
+    /// F1: re-issue an OS-managed pending connect right away. It uses no radio while the strap is absent,
+    /// never times out, and survives app suspension, so CoreBluetooth wakes (or relaunches, via state
+    /// restoration) the app when the strap comes back. Mirrors connectCore's targeted-connect branch.
+    private func issuePendingReconnect(to p: CBPeripheral) {
+        cancelPendingReconnect()
+        connectAttemptStartedAt = Date()
+        preparePeripheral(p)
+        central.connect(p, options: nil)
+    }
+
+    /// Whether the app is in the foreground, where a reconnect timer can actually run.
+    private var isAppActive: Bool {
+        #if os(iOS)
+        UIApplication.shared.applicationState == .active
+        #else
+        true
+        #endif
     }
 
     /// CC-7: arm the single automatic reconnect. It is bound to the connection generation it was armed
