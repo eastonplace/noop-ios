@@ -50,6 +50,28 @@ private actor PR29AttemptCounter {
 
 @MainActor
 final class PR28Round3RootFixTests: XCTestCase {
+    /// T3: wait for a signal sent by the code under test, but fail instead of hanging the whole test run
+    /// when a regression means it never arrives (CI runs without per-test timeouts).
+    private func awaitSignal(_ signals: AsyncStream<Void>, _ what: String,
+                             timeout: Duration = .seconds(10),
+                             file: StaticString = #filePath, line: UInt = #line) async -> Bool {
+        let arrived = await withTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                for await _ in signals { return true }
+                return false
+            }
+            group.addTask {
+                try? await Task.sleep(for: timeout)
+                return false
+            }
+            let first = await group.next() ?? false
+            group.cancelAll()
+            return first
+        }
+        if !arrived { XCTFail("timed out after \(timeout) waiting for \(what)", file: file, line: line) }
+        return arrived
+    }
+
     func testExactRepositoryReplacementUsesRequestedDaysForDeletionAcrossCacheFamilies() throws {
         let requested = try CivilDay(key: "2026-08-02")
         let other = try CivilDay(key: "2026-08-03")
@@ -284,8 +306,7 @@ final class PR28Round3RootFixTests: XCTestCase {
         let verified = Task { @MainActor in
             try await publication.submitVerified("verified", token: token)
         }
-        var startedSignals = verifiedStarted.makeAsyncIterator()
-        _ = await startedSignals.next()
+        guard await awaitSignal(verifiedStarted, "the verified command to start") else { return }
         publication.submitLive("live-old", token: nil)
         publication.submitLive("live-new", token: nil)
 
@@ -347,8 +368,10 @@ final class PR28Round3RootFixTests: XCTestCase {
                 now: { Date(timeIntervalSince1970: 1_800_000_000) }))
 
         let signal = Task { await worker.signal(maximumItems: 1) }
-        var healthKitSignals = healthKitStarted.makeAsyncIterator()
-        _ = await healthKitSignals.next()
+        guard await awaitSignal(healthKitStarted, "the HealthKit write to start") else {
+            signal.cancel()
+            return
+        }
         let startedEvents = await probe.snapshot()
         XCTAssertTrue(startedEvents.contains("healthKit-started"))
 
