@@ -39,14 +39,24 @@ struct BackupSyncView: View {
     /// passes the manual backup and the Shortcuts export here, so the three used to be separate pages are one.
     private let nativeTitle: LocalizedStringKey
     private let extra: AnyView
+    private let carriesExtraSections: Bool
 
+    /// Backup & Sync alone: the native list in the Settings sheet, the older scaffold anywhere else.
     init(title: LocalizedStringKey = "Backup & Sync") {
-        self.init(title: title) { EmptyView() }
+        self.init(title: title, extra: AnyView(EmptyView()), carriesExtraSections: false)
     }
 
+    /// Backup & Export: the extra sections (manual backup, Shortcuts export) can only be placed by the native list,
+    /// so this page draws it in every presentation. A bare `SettingsView()` pushed into a tab's stack (Fitness Age's
+    /// "Review profile") does not set the sheet presentation and would otherwise lose them.
     init<Extra: View>(title: LocalizedStringKey, @ViewBuilder extra: () -> Extra) {
+        self.init(title: title, extra: AnyView(extra()), carriesExtraSections: true)
+    }
+
+    private init(title: LocalizedStringKey, extra: AnyView, carriesExtraSections: Bool) {
         self.nativeTitle = title
-        self.extra = AnyView(extra())
+        self.extra = extra
+        self.carriesExtraSections = carriesExtraSections
         #if DEBUG
         if AppleDemoSeeder.requested {
             _folderLabel = State(initialValue: "Demo Backup Folder")
@@ -55,9 +65,15 @@ struct BackupSyncView: View {
         #endif
     }
 
+    /// Whether the page draws the native list. The sheet always does; a page that carries extra sections does too,
+    /// because the older scaffold has no place for them.
+    static func usesNativeList(presentation: ScreenScaffoldPresentation, carriesExtraSections: Bool) -> Bool {
+        presentation == .settingsDetail || carriesExtraSections
+    }
+
     var body: some View {
         Group {
-            if presentation == .settingsDetail {
+            if Self.usesNativeList(presentation: presentation, carriesExtraSections: carriesExtraSections) {
                 nativeSettingsBody
             } else {
                 ScreenScaffold(
