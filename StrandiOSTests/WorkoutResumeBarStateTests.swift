@@ -36,4 +36,19 @@ final class WorkoutResumeBarStateTests: XCTestCase {
         XCTAssertTrue(WorkoutResumeBarState.paused.isPausedLook)
         XCTAssertFalse(WorkoutResumeBarState.running.isPausedLook)
     }
+
+    /// A minimized, paused run must not read as one that is recording, and the number the bar shows is part of what it says.
+    func testTheSpokenSummaryNamesThePausedStateAndTheMetric() {
+        let running = WorkoutResumeBarState.spokenSummary(.running, sport: "Running", spokenElapsed: "12 minutes, 3 seconds",
+                                                          spokenMetric: "5.49 kilometers")
+        XCTAssertEqual(running, "Running, 12 minutes, 3 seconds, 5.49 kilometers")
+        let paused = WorkoutResumeBarState.spokenSummary(.paused, sport: "Running", spokenElapsed: "12 minutes, 3 seconds",
+                                                         spokenMetric: "5.49 kilometers")
+        XCTAssertEqual(paused, "Running, \(String(localized: "Paused")), 12 minutes, 3 seconds, 5.49 kilometers")
+    }
+
+    func testTheSpokenSummaryLeavesOutAMetricThereIsNone() {
+        XCTAssertEqual(WorkoutResumeBarState.spokenSummary(.running, sport: "Yoga", spokenElapsed: "1 minute", spokenMetric: nil),
+                       "Yoga, 1 minute")
+    }
 }

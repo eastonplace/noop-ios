@@ -92,6 +92,7 @@ struct WorkoutResumeBar: View {
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var router: NavRouter
     @Environment(\.dynamicTypeSize) private var typeSize
+    @AppStorage(UnitPrefs.systemKey) private var unitSystemRaw = UnitSystem.metric.rawValue
 
     var body: some View {
         let state = WorkoutResumeBarState.make(
@@ -130,6 +131,21 @@ struct WorkoutResumeBar: View {
                     sportName(lines: 2)
                 }
                 clock(state)
+                HStack(spacing: NoopMetrics.space2) {
+                    statusOrMetric(state)
+                    Spacer(minLength: 0)
+                    chevron
+                }
+            }
+        } else if state == .failed {
+            // The failed-save line is a sentence ("Speichern fehlgeschlagen · tippen für neuen Versuch"): it gets the bar's
+            // whole width on a row of its own instead of the few points left beside the sport and the clock.
+            VStack(alignment: .leading, spacing: NoopMetrics.space1) {
+                HStack(spacing: NoopMetrics.space2) {
+                    icon(state)
+                    sportName(lines: 1)
+                    clock(state)
+                }
                 HStack(spacing: NoopMetrics.space2) {
                     statusOrMetric(state)
                     Spacer(minLength: 0)
@@ -192,11 +208,13 @@ struct WorkoutResumeBar: View {
         case .failed:
             Text("Couldn't save · tap to retry").font(StrandFont.subhead).foregroundStyle(StrandPalette.statusWarning)
                 .lineLimit(2)
+                .minimumScaleFactor(0.8)
         case .running, .paused:
             ResumeBarMetric(workout: workout, recorder: model.gpsRecorder, live: model.live)
         }
     }
 
+    /// "<Sport>, <paused>, <spoken elapsed>, <the metric>": what is on the bar, said in the order it is read.
     private func spokenSummary(_ state: WorkoutResumeBarState) -> String {
         let seconds = workout.activeElapsed()
         let spoken = LiveWorkoutTiles.spokenElapsed(seconds)
@@ -204,7 +222,16 @@ struct WorkoutResumeBar: View {
         switch state {
         case .saving: return "\(sport), \(String(localized: "Saving…"))"
         case .failed: return "\(sport), \(String(localized: "Couldn't save · tap to retry"))"
-        case .running, .paused: return "\(sport), \(spoken)"
+        case .running, .paused:
+            let imperial = unitSystemRaw == UnitSystem.imperial.rawValue
+            let distance = LiveWorkoutTiles.distanceText(meters: model.gpsRecorder.distanceM, imperial: imperial)
+            let metric: String? = if model.gpsRecorder.isRecording, model.gpsRecorder.canRecordRoute,
+                                     distance != LiveWorkoutTiles.missing {
+                LiveWorkoutTiles.spokenDistance(distance, imperial: imperial)
+            } else {
+                workout.currentBPM.map(LiveWorkoutTiles.spokenHeartRate)
+            }
+            return WorkoutResumeBarState.spokenSummary(state, sport: sport, spokenElapsed: spoken, spokenMetric: metric)
         }
     }
 }
@@ -217,6 +244,13 @@ enum WorkoutResumeBarState: Equatable {
         if finish == .saving { return .saving }
         if finishPending { return .failed }
         return isPaused ? .paused : .running
+    }
+
+    /// What VoiceOver says for the bar's body while the workout runs or is paused: the sport, "Paused" when it is, the
+    /// time it has run and the number the bar shows (distance, or heart rate).
+    static func spokenSummary(_ state: Self, sport: String, spokenElapsed: String, spokenMetric: String?) -> String {
+        [sport, state == .paused ? String(localized: "Paused") : nil, spokenElapsed, spokenMetric]
+            .compactMap { $0 }.joined(separator: ", ")
     }
 
     var isPausedLook: Bool { self == .paused }
