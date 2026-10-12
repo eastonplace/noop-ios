@@ -2761,24 +2761,9 @@ final class AppModel: ObservableObject {
                     return .failure(.readBackMissing)
                 }
             }
+            // Verified: settle it as saved before anything else is awaited, then refresh.
+            commitVerifiedWorkoutSave(saved)
             _ = await repo.refresh(.currentDay)
-            lastWorkout = saved
-            ActiveWorkoutPersistence.clear()
-            ActiveGpsWorkoutPersistence.clear()
-            ActiveWorkoutPauseStore.clear()
-            activeWorkout = nil
-            releaseWorkoutRealtimeHR()
-            activeWorkoutIsGps = false
-            workoutSnapshotDurabilityFailed = false
-            gpsSnapshotDurabilityFailed = false
-            gpsHadTerminatedGap = false
-            refreshWorkoutDurabilityWarning()
-            pendingWorkoutSnapshot = nil
-            pendingWorkoutEnd = nil
-            pendingWorkoutRoute = nil
-            pendingWorkoutWasGps = false
-            pendingWorkoutRowKey = nil
-            workoutFinishState = .saved(saved)
             replayDeferredSessionWorkIfIdle()
             emitWorkoutsTrace(WorkoutsTrace.sessionLine(
                 event: "end", sportKey: WorkoutSource.traceSportKey(w.sport), hrSamples: samples.count,
@@ -2791,6 +2776,32 @@ final class AppModel: ObservableObject {
             workoutFinishState = .failed(failure.localizedDescription)
             return .failure(failure)
         }
+    }
+
+    /// The save is written and read back (the row, its pauses, its route): from here the workout is a saved one. Everything
+    /// that could bring it back as a workout in flight goes at once, in one synchronous block before `endWorkout` awaits
+    /// anything else: the snapshot, the pause ledger and the GPS journal on disk, the in-memory workout (so a suspension's
+    /// flush has nothing left to write back), and the row key a discard deletes by. A process that dies after this point
+    /// relaunches with the workout saved and nothing to restore, so a discard can never take a verified row back. The journey
+    /// relies on `activeWorkout = nil` and `.saved` arriving together, which this keeps.
+    func commitVerifiedWorkoutSave(_ saved: WorkoutRow) {
+        lastWorkout = saved
+        ActiveWorkoutPersistence.clear()
+        ActiveGpsWorkoutPersistence.clear()
+        ActiveWorkoutPauseStore.clear()
+        pendingWorkoutRowKey = nil
+        activeWorkout = nil
+        releaseWorkoutRealtimeHR()
+        activeWorkoutIsGps = false
+        workoutSnapshotDurabilityFailed = false
+        gpsSnapshotDurabilityFailed = false
+        gpsHadTerminatedGap = false
+        refreshWorkoutDurabilityWarning()
+        pendingWorkoutSnapshot = nil
+        pendingWorkoutEnd = nil
+        pendingWorkoutRoute = nil
+        pendingWorkoutWasGps = false
+        workoutFinishState = .saved(saved)
     }
 
     /// Append the current smoothed `bpm` to the active workout and advance its O(1) running strain

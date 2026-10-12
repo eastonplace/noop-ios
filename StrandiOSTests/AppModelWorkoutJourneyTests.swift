@@ -1,6 +1,7 @@
 #if targetEnvironment(simulator)
 import XCTest
 import StrandAnalytics
+import WhoopStore
 @testable import NOOP
 
 /// The model rules the journey stands on: when End would save, why Start would do nothing, what Done and Discard clear.
@@ -189,6 +190,54 @@ final class AppModelWorkoutJourneyTests: XCTestCase {
         XCTAssertTrue(relaunched.discardWorkout())
         XCTAssertNil(RouteStore.load(startTs: key.startTs, sport: key.sport))
         XCTAssertNil(relaunched.pendingWorkoutRowKey)
+    }
+
+    /// A save that was written and read back is settled before `endWorkout` awaits its refresh. If the process dies in that
+    /// await, the next launch must not restore the saved workout as one in flight with its row key still set: a Discard
+    /// would then delete the verified row, its route and its pauses.
+    func testAVerifiedSaveLeavesNothingADiscardAfterARelaunchCouldTakeBack() {
+        ActiveWorkoutPersistence.clear()
+        ActiveGpsWorkoutPersistence.clear()
+        ActiveWorkoutPauseStore.clear()
+        let key = AppModel.WorkoutRowKey(startTs: 1_000_000_017, sport: "Verified Save Sport")
+        addTeardownBlock { @MainActor in
+            ActiveWorkoutPersistence.clear()
+            ActiveGpsWorkoutPersistence.clear()
+            ActiveWorkoutPauseStore.clear()
+            AppModel.storePendingRowKey(nil, in: .standard)
+            RouteStore.remove(startTs: key.startTs, sport: key.sport)
+            WorkoutPauseStore.remove(startTs: key.startTs, sport: key.sport)
+        }
+        let m = AppModel()
+        m.startWorkout(sport: "Strength Training")
+        guard let workout = m.activeWorkout else { return XCTFail("the workout did not start") }
+        XCTAssertTrue(m.setWorkoutPaused(true))
+        XCTAssertNotNil(ActiveWorkoutPersistence.load(), "a started workout can be restored")
+
+        // What `endWorkout` has done by the time the read-back succeeds: the row is written (its key kept for a discard)
+        // and its route and pauses are stored next to it.
+        m.pendingWorkoutRowKey = key
+        RouteStore.store(WorkoutRoute(segmentPolylines: [RouteMath.encode([RouteMath.LatLng(40.0, -73.0), RouteMath.LatLng(40.001, -73.0)])],
+                                      distanceM: 111), startTs: key.startTs, sport: key.sport)
+        WorkoutPauseStore.store(WorkoutPauseLedger(intervals: [.init(start: 10, end: 400)]), startTs: key.startTs, sport: key.sport)
+        let saved = WorkoutRow(startTs: key.startTs, endTs: key.startTs + 1_800, sport: key.sport, source: "manual",
+                               durationS: 1_800, energyKcal: nil, avgHr: 120, maxHr: 150, strain: 8.0, distanceM: 111,
+                               zonesJSON: nil, notes: nil)
+        m.commitVerifiedWorkoutSave(saved)
+
+        // The app is sent to the background while the refresh is awaited: the suspension's flush writes nothing back.
+        XCTAssertTrue(m.flushActiveWorkoutSnapshot())
+        XCTAssertNil(ActiveWorkoutPersistence.load(), "nothing is left to restore as a workout in flight")
+        XCTAssertNil(ActiveWorkoutPauseStore.load(sessionID: workout.sessionID))
+        XCTAssertEqual(m.workoutFinishState, .saved(saved))
+
+        // The process dies there. The next launch has no row key, so even a workout in flight discarded then (a fixture
+        // here) leaves the saved row's route and pauses alone.
+        let relaunched = model(.failed)
+        XCTAssertNil(relaunched.pendingWorkoutRowKey)
+        XCTAssertTrue(relaunched.discardWorkout())
+        XCTAssertNotNil(RouteStore.load(startTs: key.startTs, sport: key.sport))
+        XCTAssertNotNil(WorkoutPauseStore.load(startTs: key.startTs, sport: key.sport))
     }
 
     // MARK: Why the durability warning is up
