@@ -48,4 +48,15 @@ final class WorkoutDeepLinkTests: XCTestCase {
         router.openActiveLift()
         XCTAssertTrue(router.activeLiftRequested)
     }
+
+    /// The shell's auto-present policy learns a workout was opened on request from this counter.
+    @MainActor
+    func testEveryWorkoutRequestBumpsTheRequestCounter() {
+        let router = NavRouter()
+        XCTAssertEqual(router.workoutRequestCount, 0)
+        router.openActiveWorkout()
+        XCTAssertEqual(router.workoutRequestCount, 1)
+        router.openActiveLift()
+        XCTAssertEqual(router.workoutRequestCount, 2)
+    }
 }

@@ -452,6 +452,11 @@ private struct ActiveSessionAutoPresenter: View {
                 @unknown default: break
                 }
             }
+            .onChange(of: router.workoutRequestCount) { _, _ in
+                // The shell is opening a workout on request (Live Activity, Today indicator): it was not auto-presented,
+                // so whatever this policy was holding back for a blocking sheet must not fire when it is closed.
+                policy.workoutOpenedByRequest()
+            }
             .onChange(of: lift.restoredSessionPending) { _, pending in
                 guard pending else { return }
                 lift.consumeRestoredSession()

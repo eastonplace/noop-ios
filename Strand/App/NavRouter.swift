@@ -67,6 +67,11 @@ final class NavRouter: ObservableObject {
     /// (which resumes an active session on its own), then resets this to false.
     @Published var activeLiftRequested = false
 
+    /// Counts the times a screen asked for the live workout or the Lift flow by hand (the Today indicator, a Live
+    /// Activity tap). The auto-present policy reads it to learn that the surface it was holding back was opened on
+    /// request, so closing it does not bring it back.
+    @Published private(set) var workoutRequestCount = 0
+
     /// Which workout screens (the live run, the Lift flow) are on screen right now, wherever they were
     /// presented from. Deliberately not `@Published`: it is only read at the moments the shell decides
     /// whether to auto-present, and publishing it would re-render the shell on every appear/disappear.
@@ -96,9 +101,16 @@ final class NavRouter: ObservableObject {
     /// Open the active workout: route to the Live surface AND raise the one-shot flag so `LiveView`
     /// presents the in-exercise screen even when the workout is already running, in one tap from the Today
     /// indicator card. The flag is consumed (and cleared) by `LiveView.consumeActiveWorkoutRequest()`.
-    func openActiveWorkout() { presentActiveWorkout = true; requestedDestination = .activeWorkout }
+    func openActiveWorkout() {
+        workoutRequestCount += 1
+        presentActiveWorkout = true
+        requestedDestination = .activeWorkout
+    }
     /// Open the in-flight Lift session (the lift Live Activity's deep link).
-    func openActiveLift() { activeLiftRequested = true }
+    func openActiveLift() {
+        workoutRequestCount += 1
+        activeLiftRequested = true
+    }
 
     func workoutSurfaceDidAppear(_ id: UUID) { workoutSurfaces.appeared(id) }
     func workoutSurfaceDidDisappear(_ id: UUID) { workoutSurfaces.disappeared(id) }
