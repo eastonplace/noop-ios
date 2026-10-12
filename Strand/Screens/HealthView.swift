@@ -1227,24 +1227,10 @@ private struct PaperVitalTile: View {
         .accessibilityLabel(reading.accessibilityText)
     }
 
-    /// The vessel's fill (0…1): the vital's value mapped onto its physiological span, matching Today's
-    /// per-metric `fracOver` denominators (HRV/120, RHR/100, respiratory/24, SpO₂ across 90…100, absolute
-    /// skin temp across 33…38 °C). nil when there's no value, so the gauge reads empty rather than faked.
+    /// The vessel's fill (0…1): the vital's value mapped onto its physiological span (see
+    /// `BodyVitalSigns.gaugeFraction`). nil when there's no value, so the gauge reads empty rather than faked.
     private var vesselFraction: Double? {
-        guard let v = reading.value else { return nil }
-        func over(_ span: Double) -> Double { max(0.02, min(1, v / span)) }
-        func across(_ lo: Double, _ hi: Double) -> Double { max(0.02, min(1, (v - lo) / (hi - lo))) }
-        switch reading.key {
-        case "hrv":        return over(120)
-        case "rhr":        return over(100)
-        case "resp_rate":  return over(24)
-        case "spo2":       return across(90, 100)
-        case "skin_temp":
-            // Absolute skin temp (>= 20 °C) maps across a plausible wrist band; a small ±deviation
-            // maps around a half-full centre so a normal night reads mid-gauge, not empty.
-            return VitalBands.isAbsoluteSkinTemp(v) ? across(33, 38) : max(0.02, min(1, 0.5 + v / 4))
-        default:           return across(0, max(1, v * 1.5))
-        }
+        BodyVitalSigns.gaugeFraction(key: reading.key, value: reading.value)
     }
 }
 
