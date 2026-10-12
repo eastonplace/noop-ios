@@ -34,7 +34,12 @@ STYLE_ROOTS: tuple[tuple[str, str, bool], ...] = (
 LIFT_SCREEN_PREFIXES = (
     "Strand/Screens/Lift",
     "Strand/Screens/NoopReceiptLift",
-    "Strand/Screens/LiveWorkoutView",
+    "Strand/Screens/LiveWorkout",
+    "Strand/Screens/WorkoutJourney",
+    "Strand/Screens/WorkoutResumeBar",
+    "Strand/Screens/WorkoutSetup",
+    "Strand/Screens/WorkoutReadiness",
+    "Strand/Screens/WorkoutCountdown",
 )
 
 # The design system itself, galleries, QA harnesses and previews legitimately use raw styling.

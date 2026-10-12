@@ -21,6 +21,36 @@ final class DesignLabAtomTests: XCTestCase {
         XCTAssertEqual(HoldToConfirmContract.normalized(seconds: 0), 0.1)
     }
 
+    func testHoldStylePresetsKeepTheDestructiveLookAndGiveTheWorkoutEndItsOwn() {
+        let destructive = HoldToConfirmStyle.destructive
+        XCTAssertEqual(destructive.height, 44, "the bar every destructive gate has always had")
+        XCTAssertEqual(destructive.shape, .rounded(13))
+        XCTAssertEqual(destructive.icon, "trash")
+        XCTAssertEqual(destructive.completedIcon, "checkmark")
+
+        let end = HoldToConfirmStyle.glanceEnd
+        XCTAssertEqual(end.height, GlanceActionButtonStyle.minimumHeight, "as tall as the workout screen's other big button")
+        XCTAssertEqual(end.shape, .capsule)
+        XCTAssertEqual(end.icon, "stop.fill")
+        XCTAssertNotEqual(end, destructive)
+    }
+
+    func testTheHoldIsTheSameForEveryStyle() {
+        // The styles change the look only: the hold is the one contract.
+        XCTAssertEqual(HoldToConfirmContract.defaultHoldSeconds, 1.2)
+    }
+
+    func testAHeldGateRearmsOnlyWhenTheButtonIsRebuilt() {
+        // `confirmed` is sticky by design (a confirmed gate cannot fire twice); the workout screen rebuilds the button
+        // (`.id(finishAttemptID)`) when End can be asked for again, which is a fresh contract.
+        var gate = HoldToConfirmContract()
+        XCTAssertTrue(gate.begin())
+        XCTAssertTrue(gate.complete())
+        XCTAssertFalse(gate.begin(), "sticky until rebuilt")
+        gate = HoldToConfirmContract()
+        XCTAssertTrue(gate.begin(), "a rebuilt button holds again")
+    }
+
     func testPaperToastUsesTwoPointFourSecondDefaultDwell() {
         XCTAssertEqual(PaperToastDwellState.defaultDwellNanoseconds, 2_400_000_000)
     }

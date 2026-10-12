@@ -18,7 +18,8 @@ import WhoopStore
 /// start-workout, rhythm, smart-alarm,
 /// hydration, fitness-age, coupled, lab-book, trends-report, coach-workouts-sheet (the Workouts hub at the root of a sheet,
 /// as Coach's plan opens it), live-workout (the in-exercise screen over a synthetic workout; pick its state with
-/// `--demo-live-workout running|paused|stale|indoor|ending|ending-quiet`), marker-editor, lift, lift-history, lift-progress, lift-routines.
+/// `--demo-live-workout running|paused|stale|indoor|ending|ending-quiet|failed|saving|nothing-to-save|no-strap|gps-lost|long|cycling|strength|paused-nothing`;
+/// `--demo-live-page focus|heart|route` picks its page), workout-countdown, marker-editor, lift, lift-history, lift-progress, lift-routines.
 ///
 /// The Lift routes show whatever Lift holds; `--noop-lift-demo <variant>` and `--noop-lift-scene <scene>` (see
 /// `ReceiptLiftDemo` and `LiftQAScene`) load generated data and open a deeper screen.
@@ -57,6 +58,8 @@ enum QARoute: String, CaseIterable {
     case journal
     case intervals
     case startWorkout = "start-workout"
+    /// The three-second countdown before a workout starts; `--demo-countdown-frozen 3` holds the digit still.
+    case workoutCountdown = "workout-countdown"
     case rhythm
     case smartAlarm = "smart-alarm"
     case hydration
@@ -66,6 +69,8 @@ enum QARoute: String, CaseIterable {
     case trendsReport = "trends-report"
     case coachWorkoutsSheet = "coach-workouts-sheet"
     case liveWorkout = "live-workout"
+    /// A workout in flight with the journey closed: the resume bar over whichever tab `--demo-tab` names.
+    case workoutMinimized = "workout-minimized"
     case markerEditor = "marker-editor"
     case lift
     case liftHistory = "lift-history"
@@ -76,7 +81,9 @@ enum QARoute: String, CaseIterable {
     enum Tab: Int { case today = 0, trends = 1, sleep = 2 }
 
     /// What the app shell (`RootTabView`) presents itself, for routes that live in its sheets.
-    enum ShellTarget { case updates, settings, rhythm, liveHR, breathe, journal, intervals, startWorkout, liveWorkout }
+    enum ShellTarget {
+        case updates, settings, rhythm, liveHR, breathe, journal, intervals, startWorkout, workoutCountdown, liveWorkout, workoutMinimized
+    }
 
     enum Presentation {
         case push(Tab)
@@ -110,7 +117,9 @@ enum QARoute: String, CaseIterable {
         case .journal: return .shell(.journal)
         case .intervals: return .shell(.intervals)
         case .startWorkout: return .shell(.startWorkout)
+        case .workoutCountdown: return .shell(.workoutCountdown)
         case .liveWorkout: return .shell(.liveWorkout)
+        case .workoutMinimized: return .shell(.workoutMinimized)
         }
     }
 
@@ -129,7 +138,7 @@ enum QARoute: String, CaseIterable {
     /// capture script never takes a frame of the root it fell back to.
     func logDismissed() { NSLog("[qa-route] dismissed %@", rawValue) }
 
-    /// The state `--demo-live-workout running|paused|stale|indoor|ending|ending-quiet` names for the `live-workout` route.
+    /// The state `--demo-live-workout running|paused|stale|indoor|ending|ending-quiet|failed|saving|nothing-to-save|no-strap|gps-lost|long|cycling|strength|paused-nothing` names for the `live-workout` route.
     static var liveWorkoutScenario: AppModel.DemoLiveWorkoutScenario {
         let arguments = ProcessInfo.processInfo.arguments
         return arguments.firstIndex(of: "--demo-live-workout")
@@ -137,14 +146,9 @@ enum QARoute: String, CaseIterable {
             .flatMap(AppModel.DemoLiveWorkoutScenario.init(rawValue:)) ?? .running
     }
 
-    /// True while any modal is presented over the app's root view controller (the shell's quick-action and
-    /// routed-pillar sheets), which is how the shell route knows its sheet was not dropped.
-    @MainActor static var modalIsPresented: Bool {
-        UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-            .flatMap(\.windows)
-            .contains { $0.rootViewController?.presentedViewController != nil }
-    }
+    /// True while any modal is presented over the app's root view controller (the shell's quick-action sheets, routed
+    /// pillars, the workout journey), which is how the shell route knows its presentation was not dropped.
+    @MainActor static var modalIsPresented: Bool { ModalPresentationProbe.isAnyModalPresented }
 
     static let requested: QARoute? = {
         let arguments = ProcessInfo.processInfo.arguments

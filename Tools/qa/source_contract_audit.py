@@ -559,8 +559,10 @@ def main() -> int:
     ios_root = ROOT / "StrandiOS/App/RootTabView.swift"
     ios_root_text = ios_root.read_text(encoding="utf-8")
     for contract in (
-        "withAnimation(Self.sheetEase) { quickAction = .activeWorkout }",
-        "case .activeWorkout:\n            quickScreen(LiveWorkoutView",
+        # The running workout is the journey's: one full-screen cover owned by the shell, opened through the router.
+        ".fullScreenCover(item: $journey",
+        "WorkoutJourneyView(entry: entry",
+        "case .activeWorkout:\n                // The deep-link key for the running workout: the journey opens at the live screen.\n                router.openActiveWorkout()",
     ):
         if contract not in ios_root_text:
             errors.append(f"{relative(ios_root)} is missing direct active-workout route {contract!r}.")

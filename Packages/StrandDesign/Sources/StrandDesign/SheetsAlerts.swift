@@ -160,58 +160,134 @@ public struct ConfirmGateCard: View {
     }
 }
 
+/// How a `HoldToConfirmButton` looks. Presets: `.destructive` (the small rose bar the destructive gates have always used),
+/// `.glanceEnd` (the workout screen's big red capsule). The hold itself, 1.2 seconds, is the same for every style.
+public struct HoldToConfirmStyle: Equatable, Sendable {
+    public enum Shape: Equatable, Sendable {
+        case rounded(CGFloat)
+        case capsule
+    }
+
+    public var tint: Color
+    public var icon: String
+    public var completedIcon: String
+    /// The least height. The button grows with its label at the accessibility sizes.
+    public var height: CGFloat
+    public var shape: Shape
+    public var font: Font
+
+    public init(tint: Color, icon: String, completedIcon: String = "checkmark", height: CGFloat, shape: Shape, font: Font) {
+        self.tint = tint
+        self.icon = icon
+        self.completedIcon = completedIcon
+        self.height = height
+        self.shape = shape
+        self.font = font
+    }
+
+    /// The rose bar of `DestructiveGateCard`.
+    public static let destructive = HoldToConfirmStyle(
+        tint: StrandPalette.metricRose, icon: "trash", height: 44, shape: .rounded(13),
+        font: StrandFont.caption.weight(.semibold))
+
+    /// End a workout: the live red, a stop glyph, the height of the workout screen's other big button.
+    public static let glanceEnd = HoldToConfirmStyle(
+        tint: StrandPalette.liveRed, icon: "stop.fill", height: GlanceActionButtonStyle.minimumHeight, shape: .capsule,
+        font: .system(.title3, design: .default).weight(.semibold))
+
+    var iconPointSize: CGFloat { height > 60 ? 18 : 12 }
+}
+
 /// A destructive button that calls its action only after one uninterrupted hold.
 public struct HoldToConfirmButton: View {
     private let title: String
     private let completedTitle: String
     private let holdSeconds: Double
+    private let style: HoldToConfirmStyle
+    private let tapHint: String?
+    private let accessibilityConfirm: (() -> Void)?
     private let action: () -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var typeSize
     @State private var progress: Double = 0
     @State private var contract = HoldToConfirmContract()
     @State private var confirmationTask: Task<Void, Never>?
+    @State private var hintTask: Task<Void, Never>?
+    @State private var showsHint = false
 
+    /// - Parameters:
+    ///   - tapHint: What the label says for a moment after a hold is let go early ("Keep holding"), so a tap is not a silent
+    ///     failure.
+    ///   - accessibilityConfirm: What VoiceOver and Switch Control run instead of a hold (a hold is not possible for them);
+    ///     it usually opens the confirmation the hold stands in for.
     public init(
         title: String,
         completedTitle: String? = nil,
         holdSeconds: Double = 1.2,
+        style: HoldToConfirmStyle = .destructive,
+        tapHint: String? = nil,
+        accessibilityConfirm: (() -> Void)? = nil,
         action: @escaping () -> Void
     ) {
         self.title = title
         self.completedTitle = completedTitle ?? String(localized: "Removed", bundle: .module)
         self.holdSeconds = HoldToConfirmContract.normalized(seconds: holdSeconds)
+        self.style = style
+        self.tapHint = tapHint
+        self.accessibilityConfirm = accessibilityConfirm
         self.action = action
     }
 
+    private var surface: AnyShape {
+        switch style.shape {
+        case .rounded(let radius): AnyShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
+        case .capsule: AnyShape(Capsule(style: .continuous))
+        }
+    }
+
+    private var shownTitle: String {
+        if contract.confirmed { return completedTitle }
+        if showsHint, let tapHint { return tapHint }
+        return title
+    }
+
     public var body: some View {
-        GeometryReader { proxy in
+        HStack(spacing: 7) {
+            Image(systemName: contract.confirmed ? style.completedIcon : style.icon)
+                .font(.system(size: style.iconPointSize, weight: .bold))
+            Text(shownTitle)
+                .font(style.font)
+                .modifier(HoldToConfirmWrapAlignment(centered: style.shape == .capsule || typeSize.isAccessibilitySize))
+                .modifier(HoldToConfirmAccessibilityFit(active: typeSize.isAccessibilitySize))
+                .contentTransition(.opacity)
+        }
+        .foregroundStyle(progress > 0.45 || contract.confirmed ? StrandPalette.surfaceRaised : style.tint)
+        // A capsule's ends curve in, so its label keeps the same inset the big action button's does: a long translation
+        // wraps or scales before it meets the curve. The bar's own label has always run edge to edge and still does.
+        .padding(.horizontal, style.shape == .capsule ? NoopMetrics.space5 : 0)
+        .frame(maxWidth: .infinity, minHeight: style.height)
+        .background {
             ZStack(alignment: .leading) {
-                RoundedRectangle(cornerRadius: 13, style: .continuous)
-                    .fill(StrandPalette.metricRose.opacity(0.12))
-                RoundedRectangle(cornerRadius: 13, style: .continuous)
-                    .fill(StrandPalette.metricRose.opacity(contract.confirmed ? 1 : 0.82))
-                    .frame(width: proxy.size.width * progress)
-                HStack(spacing: 7) {
-                    Image(systemName: contract.confirmed ? "checkmark" : "trash")
-                        .font(.system(size: 12, weight: .bold))
-                    Text(contract.confirmed ? completedTitle : title)
-                        .font(StrandFont.caption.weight(.semibold))
-                        .contentTransition(.opacity)
+                surface.fill(style.tint.opacity(0.12))
+                GeometryReader { proxy in
+                    surface.fill(style.tint.opacity(contract.confirmed ? 1 : 0.82))
+                        .frame(width: proxy.size.width * progress)
                 }
-                .foregroundStyle(progress > 0.45 || contract.confirmed ? StrandPalette.surfaceRaised : StrandPalette.metricRose)
-                .frame(maxWidth: .infinity)
             }
         }
-        .frame(height: 44)
-        .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+        .clipShape(surface)
         .scaleEffect(contract.holding && !reduceMotion ? 0.985 : 1)
         .contentShape(Rectangle())
         .gesture(holdGesture)
         .accessibilityElement(children: .ignore)
         .accessibilityAddTraits(.isButton)
         .accessibilityLabel(contract.confirmed ? completedTitle : String(localized: "\(title). Hold to confirm", bundle: .module))
-        .onDisappear { cancelHold(playWarning: false) }
+        .modifier(HoldToConfirmAccessibilityAction(perform: accessibilityConfirm))
+        .onDisappear {
+            cancelHold(playWarning: false)
+            hintTask?.cancel()
+        }
     }
 
     private var holdGesture: some Gesture {
@@ -225,6 +301,8 @@ public struct HoldToConfirmButton: View {
     private func startHold() {
         guard contract.begin() else { return }
         StrandHaptic.light.play()
+        hintTask?.cancel()
+        showsHint = false
         withAnimation(.linear(duration: holdSeconds)) { progress = 1 }
         confirmationTask?.cancel()
         confirmationTask = Task { @MainActor in
@@ -242,9 +320,65 @@ public struct HoldToConfirmButton: View {
         confirmationTask = nil
         if !contract.confirmed {
             withAnimation(reduceMotion ? nil : StrandMotion.value) { progress = 0 }
-            if playWarning { StrandHaptic.warning.play() }
+            if playWarning {
+                StrandHaptic.warning.play()
+                flashHint()
+            }
         }
         contract.cancel()
+    }
+
+    /// The label names what the hold needs for 1.5 seconds, then goes back to its title.
+    private func flashHint() {
+        guard tapHint != nil else { return }
+        showsHint = true
+        hintTask?.cancel()
+        hintTask = Task { @MainActor in
+            do { try await Task.sleep(nanoseconds: 1_500_000_000) } catch { return }
+            showsHint = false
+        }
+    }
+}
+
+/// A label that wraps (the accessibility sizes, or the workout screen's big capsule) is centred. A one-line label gets no
+/// alignment modifier at all, so the destructive gates draw exactly what they always drew.
+private struct HoldToConfirmWrapAlignment: ViewModifier {
+    let centered: Bool
+
+    @ViewBuilder func body(content: Content) -> some View {
+        if centered {
+            content.multilineTextAlignment(.center)
+        } else {
+            content
+        }
+    }
+}
+
+/// At the accessibility sizes the label wraps to two lines and then scales down, so a long translation is never cut off
+/// with an ellipsis when the button is squeezed. Every other size is left exactly as it was.
+private struct HoldToConfirmAccessibilityFit: ViewModifier {
+    let active: Bool
+
+    @ViewBuilder func body(content: Content) -> some View {
+        if active {
+            content.lineLimit(2).minimumScaleFactor(0.6)
+        } else {
+            content
+        }
+    }
+}
+
+/// Adds the assistive-technology action only when the caller supplied one, so a button without it keeps exactly the
+/// accessibility element it always had.
+private struct HoldToConfirmAccessibilityAction: ViewModifier {
+    let perform: (() -> Void)?
+
+    @ViewBuilder func body(content: Content) -> some View {
+        if let perform {
+            content.accessibilityAction(.default, perform)
+        } else {
+            content
+        }
     }
 }
 
@@ -319,7 +453,7 @@ public struct DestructiveGateCard: View {
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            HoldToConfirmButton(title: confirmTitle, completedTitle: completedTitle, action: confirm)
+            HoldToConfirmButton(title: confirmTitle, completedTitle: completedTitle, accessibilityConfirm: confirm, action: confirm)
             gateButton(cancelTitle, foreground: StrandPalette.textPrimary,
                        background: StrandPalette.surfaceInset, action: cancel)
         }

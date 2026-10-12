@@ -161,10 +161,13 @@ public struct UnitValueText: View {
                 // "Unavailable" at tile size in a half-width column shrinks instead of truncating.
                 .minimumScaleFactor(0.6)
             if !missing {
+                // A unit shrinks to fit its row rather than being cut ("/k…") when a big value shares a narrow one.
                 if let unit {
                     Text(unit).font(StrandFont.caption).foregroundStyle(StrandPalette.textTertiary).lineLimit(1)
+                        .minimumScaleFactor(0.6)
                 } else if let split = parts.unit {
                     Text(split).font(StrandFont.caption).foregroundStyle(StrandPalette.textTertiary).lineLimit(1)
+                        .minimumScaleFactor(0.6)
                 }
             }
         }
@@ -177,6 +180,14 @@ public struct UnitValueText: View {
 /// Equal columns, labels on one line, values on one baseline; steps down in size and then stacks as rows before
 /// anything truncates.
 public struct FactStrip: View {
+    /// How a fact's label is drawn.
+    public enum LabelStyle: Sendable {
+        /// A sentence-case caption: "Strain".
+        case caption
+        /// The caps eyebrow every glance screen names a number with, a size down: "STRAIN".
+        case eyebrow
+    }
+
     public struct Fact {
         public let label: LocalizedStringKey
         public let value: String
@@ -209,12 +220,45 @@ public struct FactStrip: View {
         }
     }
 
+    /// A caps eyebrow in the glance numerals' own style, a size down so the labels stay under the numbers' own. A fixed,
+    /// scaled size, so a long word wraps or shrinks and is never hyphenated.
+    private struct EyebrowLabel: ViewModifier {
+        @ScaledMetric(relativeTo: .caption2) private var size: CGFloat = 10
+        @Environment(\.dynamicTypeSize) private var typeSize
+
+        func body(content: Content) -> some View {
+            content
+                .font(.system(size: size, weight: .bold, design: .default))
+                .tracking(StrandFont.overlineTracking)
+                .textCase(.uppercase)
+                .foregroundStyle(StrandPalette.textTertiary)
+                .lineLimit(typeSize.isAccessibilitySize ? 2 : 1)
+                .minimumScaleFactor(0.5)
+        }
+    }
+
     private let facts: [Fact]
+    private let labelStyle: LabelStyle
     @ScaledMetric(relativeTo: .title3) private var valueSize: CGFloat = WidgetMetrics.statValueSize
     @Environment(\.dynamicTypeSize) private var typeSize
 
-    public init(facts: [Fact]) {
+    public init(facts: [Fact], labelStyle: LabelStyle = .caption) {
         self.facts = facts
+        self.labelStyle = labelStyle
+    }
+
+    @ViewBuilder private func columnLabel(_ fact: Fact) -> some View {
+        switch labelStyle {
+        case .caption: Text(fact.label).font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary).lineLimit(1)
+        case .eyebrow: Text(fact.label).modifier(EyebrowLabel())
+        }
+    }
+
+    @ViewBuilder private func rowLabel(_ fact: Fact) -> some View {
+        switch labelStyle {
+        case .caption: Text(fact.label).font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
+        case .eyebrow: Text(fact.label).modifier(EyebrowLabel())
+        }
     }
 
     public var body: some View {
@@ -238,7 +282,7 @@ public struct FactStrip: View {
                         .accessibilityHidden(true)
                 }
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(fact.label).font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary).lineLimit(1)
+                    columnLabel(fact)
                     UnitValueText(value: fact.value, unit: fact.unit, size: size)
                         // One-line sizes report their full width, so ViewThatFits moves to the next size
                         // rather than truncating one column.
@@ -256,7 +300,7 @@ public struct FactStrip: View {
         VStack(alignment: .leading, spacing: NoopMetrics.space3) {
             ForEach(Array(facts.enumerated()), id: \.offset) { _, fact in
                 HStack(alignment: .firstTextBaseline, spacing: NoopMetrics.space2) {
-                    Text(fact.label).font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
+                    rowLabel(fact)
                     Spacer(minLength: NoopMetrics.space2)
                     UnitValueText(value: fact.value, unit: fact.unit, size: valueSize)
                 }

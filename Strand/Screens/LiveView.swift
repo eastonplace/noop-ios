@@ -47,11 +47,6 @@ struct LiveView: View {
         return active.displayName
     }
 
-    /// Live workout mode (#238) — presents the full in-exercise screen while a manual workout is
-    /// active. Auto-opens when a workout begins; closing just hides it (the workout keeps recording).
-    @State private var showLiveWorkout = false
-    @State private var showStartSport = false
-
     /// iOS presents Live as a modal quick action, whose scaffold header owns the single close button, so a
     /// back chevron here would be a second one. macOS keeps its dismiss chevron.
     private var scaffoldBackAction: (() -> Void)? {
@@ -99,7 +94,7 @@ struct LiveView: View {
         #if os(iOS)
         .toolbar(.hidden, for: .navigationBar)
         #endif
-        .onAppear { refreshLiveSession(); consumeActiveWorkoutRequest() }
+        .onAppear { refreshLiveSession() }
         .onDisappear { model.stopRealtimeHR() }
         // A fresh bond/connection re-arms the BLE stream (Apple must re-send startRealtime on a new
         // connection) WITHOUT bumping the ref-count — `refreshLiveSession`'s `startRealtimeHR` already
@@ -108,22 +103,6 @@ struct LiveView: View {
         // the stream stuck armed after leaving Live (#681 ref-count balance).
         .onChangeCompat(of: live.bonded) { _ in reconnectLiveSession() }
         .onChangeCompat(of: live.connected) { _ in reconnectLiveSession() }
-        // Live workout mode (#238): open the in-exercise screen the moment a workout starts.
-        .onChangeCompat(of: model.activeWorkout != nil) { active in
-            if active && !showStartSport { showLiveWorkout = true }
-        }
-        .sheet(isPresented: $showLiveWorkout) {
-            LiveWorkoutView(onClose: { showLiveWorkout = false })
-                .environmentObject(model)
-                .environmentObject(live)
-        }
-        // Pick a named sport before starting (#519) — the live workout view then opens
-        // off the activeWorkout change above, so no extra navigation is needed here.
-        .sheet(isPresented: $showStartSport, onDismiss: {
-            if model.activeWorkout != nil { showLiveWorkout = true }
-        }) {
-            StartWorkoutSheet { name in model.startWorkout(sport: name) }
-        }
     }
 
     // MARK: - Section helper (flat content section on iOS, bounded card elsewhere)
@@ -238,8 +217,8 @@ struct LiveView: View {
         NoopButton(model.activeWorkout == nil ? "Start workout" : "Open active workout",
                    systemImage: model.activeWorkout == nil ? "figure.run" : "timer",
                    kind: .primary, fullWidth: true) {
-            if model.activeWorkout == nil { showStartSport = true }
-            else { showLiveWorkout = true }
+            if model.activeWorkout == nil { router.beginWorkout() }
+            else { router.openActiveWorkout() }
         }
     }
 
@@ -482,17 +461,6 @@ struct LiveView: View {
         guard activeConnection else { return }
         model.startRealtimeHR()
         model.getBattery()
-    }
-
-    /// Honour a one-shot "Return to workout" from the Today indicator card: present the in-exercise screen
-    /// for an already-running workout, then clear the flag. The #238 "a workout just started" transition
-    /// trigger never fires for a session that is already in flight, so this is the path that re-opens it.
-    /// Guarded on a live `activeWorkout` so a stale flag can never present an empty live-workout sheet, and
-    /// it sets the SAME `showLiveWorkout` one-shot the manual re-open button uses (no new sheet machinery).
-    private func consumeActiveWorkoutRequest() {
-        guard router.presentActiveWorkout else { return }
-        router.presentActiveWorkout = false
-        if model.activeWorkout != nil { showLiveWorkout = true }
     }
 
     /// A fresh bond/connection landed while the Live tab is up: re-arm the BLE stream (Apple re-sends

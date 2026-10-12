@@ -105,6 +105,20 @@ final class ActiveWorkoutIndicatorPauseTests: XCTestCase {
         XCTAssertEqual(w.activeElapsed(at: t(500)), 500, accuracy: 0.001)
     }
 
+    /// The live figures use the flat paused grey whenever nothing is live: paused, or End was tried (saving, failed).
+    func testTheFiguresAreStillWhilePausedAndOnceAFinishIsPendingAndLiveOtherwise() throws {
+        let w = workout()
+        XCTAssertFalse(w.isStill)
+        XCTAssertTrue(w.setPaused(true, at: t(60)))
+        XCTAssertTrue(w.isStill, "paused")
+        XCTAssertTrue(w.setPaused(false, at: t(120)))
+        XCTAssertFalse(w.isStill)
+        w.freeze(at: t(300))
+        XCTAssertTrue(w.isStill, "End was tried: ending, failed and nothing-to-save are all frozen")
+        w.freeze(at: nil)
+        XCTAssertFalse(w.isStill, "nothing to save: the workout carries on")
+    }
+
     func testEveryPendingFinishSurfaceAgreesOnEnding() throws {
         let w = workout()
         XCTAssertFalse(w.isEnding)

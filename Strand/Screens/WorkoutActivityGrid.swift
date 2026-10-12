@@ -106,6 +106,8 @@ struct WorkoutActivityGrid: View {
 /// The title row of a workout sheet: the title, and a close button with a 44pt target.
 struct WorkoutSheetHeader: View {
     let title: LocalizedStringKey
+    /// What Close does. nil dismisses the sheet this header is in.
+    var onClose: (() -> Void)?
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -115,7 +117,7 @@ struct WorkoutSheetHeader: View {
                 .foregroundStyle(StrandPalette.textPrimary)
                 .accessibilityAddTraits(.isHeader)
             Spacer(minLength: NoopMetrics.space2)
-            Button { dismiss() } label: {
+            Button { if let onClose { onClose() } else { dismiss() } } label: {
                 Image(systemName: "xmark")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(StrandPalette.textPrimary)
@@ -161,7 +163,8 @@ struct WorkoutCancelButton: View {
 struct WorkoutActivityPickerSheet: View {
     let selected: String
     let onSelect: (String) -> Void
-    let onCustom: (String) -> Void
+    /// Offered when a search matches nothing. nil offers nothing: a live start takes only named sports.
+    var onCustom: ((String) -> Void)?
 
     @Environment(\.dismiss) private var dismiss
 
@@ -169,7 +172,7 @@ struct WorkoutActivityPickerSheet: View {
         ScrollView {
             WorkoutActivityGrid(
                 selected: selected,
-                onCustom: { name in onCustom(name); dismiss() },
+                onCustom: onCustom.map { handler in { name in handler(name); dismiss() } },
                 onSelect: { name in onSelect(name); dismiss() })
                 .padding(.horizontal, NoopMetrics.space4)
                 .padding(.bottom, NoopMetrics.space4)

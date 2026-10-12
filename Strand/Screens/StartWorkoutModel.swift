@@ -69,13 +69,14 @@ enum StartWorkoutChoices {
     }
 
     /// What the sheet calls an activity in its title and its button ("Run", "Ride"). Catalogue names are stored
-    /// verbatim and shown as they are; these three read better as the thing you do.
+    /// verbatim (they are data); what is drawn is the person's language, from `WorkoutSportTitle`, and these three read
+    /// better as the thing you do.
     static func displayTitle(for sport: String) -> String {
         switch sport {
         case "Running": return String(localized: "Run")
         case "Hiking": return String(localized: "Hike")
         case "Cycling": return String(localized: "Ride")
-        default: return sport
+        default: return WorkoutSportTitle.isKnown(sport) ? WorkoutSportTitle.name(for: sport) : sport
         }
     }
 }

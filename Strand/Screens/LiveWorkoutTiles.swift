@@ -67,6 +67,22 @@ enum LiveWorkoutTiles {
         }
     }
 
+    /// What VoiceOver reads for a distance: "5.49 kilometers" (a language orders the number and its unit as it likes; the
+    /// drawn "km" is read letter by letter).
+    static func spokenDistance(_ text: String, imperial: Bool) -> String {
+        imperial ? String(localized: "\(text) miles") : String(localized: "\(text) kilometers")
+    }
+
+    /// "9.6 kilometers per hour" for what is drawn as "9.6 km/h".
+    static func spokenSpeed(_ text: String, imperial: Bool) -> String {
+        imperial ? String(localized: "\(text) miles per hour") : String(localized: "\(text) kilometers per hour")
+    }
+
+    /// "142 beats per minute" for what is drawn as "142 bpm".
+    static func spokenHeartRate(_ bpm: Int) -> String {
+        String(localized: "\(bpm) beats per minute")
+    }
+
     /// What VoiceOver reads for the timer: "34 minutes, 12 seconds".
     static func spokenElapsed(_ seconds: TimeInterval) -> String {
         Duration.seconds(Int(seconds.rounded())).formatted(.units(allowed: [.hours, .minutes, .seconds], width: .wide))
@@ -130,7 +146,7 @@ enum LiveWorkoutTiles {
 
     private static func positive(_ value: Int) -> Int? { value > 0 ? value : nil }
 
-    private static func count(_ value: Int?, locale: Locale) -> String {
+    static func count(_ value: Int?, locale: Locale) -> String {
         guard let value, value > 0 else { return missing }
         return value.formatted(.number.locale(locale))
     }
@@ -149,6 +165,10 @@ enum LiveWorkoutSignals {
         var heartRateIsStale = false
         /// nil when the workout records no route.
         var gps: GpsWorkoutRecorder.SignalState?
+        /// The workout has never had a reading and no strap is connected: there is no strap to wait for.
+        var strapNeverConnected = false
+        /// A route is armed but location is off (denied or restricted), so no route is being recorded.
+        var locationIsOff = false
 
         /// The pace or speed is worked out from GPS fixes that have stopped arriving.
         var paceIsStale: Bool { gps == .lost }

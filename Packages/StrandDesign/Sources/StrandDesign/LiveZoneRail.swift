@@ -71,25 +71,66 @@ public struct LiveZoneRail: View {
 
     // MARK: Readout
 
-    private var readout: some View {
-        HStack(alignment: .firstTextBaseline, spacing: NoopMetrics.space2) {
-            if let zone {
-                Circle().fill(HRZoneStyle.zoneColor(zone)).frame(width: 8, height: 8).accessibilityHidden(true)
-                Text(verbatim: Self.word(zone)).font(StrandFont.subhead.weight(.semibold))
-                    .foregroundStyle(StrandPalette.textPrimary)
-            } else {
-                Text(verbatim: WidgetMetrics.missingValue).font(StrandFont.subhead.weight(.semibold))
-                    .foregroundStyle(StrandPalette.textTertiary)
+    @ScaledMetric(relativeTo: .subheadline) private var scaledDotSize: CGFloat = 8
+
+    @ViewBuilder private var readout: some View {
+        if typeSize.isAccessibilitySize {
+            // On one line while the zone and the reading fit side by side; stacked when they do not, so the unit is never
+            // cut ("bp…"). The dot grows with the type and sits level with the word.
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .firstTextBaseline, spacing: NoopMetrics.space2) {
+                    accessibilityZoneLabel
+                    Spacer(minLength: NoopMetrics.space2)
+                    if let bpm { bpmText(bpm) }
+                }
+                .lineLimit(1)
+                VStack(alignment: .leading, spacing: NoopMetrics.space1) {
+                    accessibilityZoneLabel
+                    if let bpm { bpmText(bpm).lineLimit(1).minimumScaleFactor(0.6) }
+                }
             }
-            Spacer(minLength: NoopMetrics.space2)
-            if let bpm {
-                Text(verbatim: "\(bpm)").font(StrandFont.bodyNumber.weight(.semibold)).monospacedDigit()
-                    .foregroundStyle(StrandPalette.textPrimary)
-                + Text(verbatim: " ")
-                + Text("bpm", bundle: .module).font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
+        } else {
+            HStack(alignment: .firstTextBaseline, spacing: NoopMetrics.space2) {
+                if let zone {
+                    Circle().fill(HRZoneStyle.zoneColor(zone)).frame(width: 8, height: 8).accessibilityHidden(true)
+                    zoneWord(zone)
+                } else {
+                    missingWord
+                }
+                Spacer(minLength: NoopMetrics.space2)
+                if let bpm { bpmText(bpm) }
+            }
+            .lineLimit(1)
+        }
+    }
+
+    private var accessibilityZoneLabel: some View {
+        HStack(alignment: .center, spacing: NoopMetrics.space2) {
+            if let zone {
+                Circle().fill(HRZoneStyle.zoneColor(zone)).frame(width: scaledDotSize, height: scaledDotSize)
+                    .accessibilityHidden(true)
+                zoneWord(zone)
+            } else {
+                missingWord
             }
         }
-        .lineLimit(1)
+    }
+
+    private func zoneWord(_ zone: Int) -> some View {
+        Text(verbatim: Self.word(zone)).font(StrandFont.subhead.weight(.semibold))
+            .foregroundStyle(StrandPalette.textPrimary)
+    }
+
+    private var missingWord: some View {
+        Text(verbatim: WidgetMetrics.missingValue).font(StrandFont.subhead.weight(.semibold))
+            .foregroundStyle(StrandPalette.textTertiary)
+    }
+
+    private func bpmText(_ bpm: Int) -> Text {
+        Text(verbatim: "\(bpm)").font(StrandFont.bodyNumber.weight(.semibold)).monospacedDigit()
+            .foregroundStyle(StrandPalette.textPrimary)
+        + Text(verbatim: " ")
+        + Text("bpm", bundle: .module).font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
     }
 
     // MARK: Rail
@@ -178,7 +219,7 @@ public struct LiveZoneRail: View {
 
 /// Lays its children side by side, each as wide as its weight's share of the row. The rail and its legend use the same
 /// weights, so every word sits under the start of its own zone.
-private struct ProportionalRow: Layout {
+struct ProportionalRow: Layout {
     let weights: [Double]
     let spacing: CGFloat
 

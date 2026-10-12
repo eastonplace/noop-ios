@@ -29,14 +29,14 @@ struct WorkoutsView: View {
     /// Quick-action FAB or the tab) had no way to begin one from the obvious place. The model is captured
     /// as a plain command reference below rather than observed by this large history root.
     @State private var appModel: AppModel?
+    /// Starting or returning to a workout is the shell's job (one full-screen journey), so this screen only asks.
+    @EnvironmentObject private var router: NavRouter
     private var model: AppModel {
         guard let appModel else {
             preconditionFailure("WorkoutsView rendered before AppModelReferenceCapture supplied AppModel")
         }
         return appModel
     }
-    @State private var showLiveWorkout = false
-    @State private var showStartSport = false
     @State private var historyScope: WorkoutHistoryScope = .current
     @State private var liftDestination: LiftDestination?
 
@@ -266,30 +266,23 @@ struct WorkoutsView: View {
             .frame(width: 620, height: 720)
             #endif
         }
-        // #459: the in-exercise view, presented when Start Workout is tapped here (same screen LiveView
-        // shows). activeWorkout is global on AppModel, so ending it from either surface stays in sync.
-        .sheet(isPresented: $showLiveWorkout) {
-            LiveWorkoutView(onClose: { showLiveWorkout = false })
-                // Inject the shared live snapshot so the in-exercise sensor readout (speed/cadence/power)
-                // resolves here too, matching how LiveView presents the same screen.
-                .environmentObject(model.live)
-        }
-        // #519: name the sport before a live session starts, then open the in-exercise view directly
-        // (same direct present as the button's already-active path — no cross-view auto-present race).
-        .sheet(isPresented: $showStartSport, onDismiss: {
-            if model.activeWorkout != nil { showLiveWorkout = true }
-        }) {
-            StartWorkoutSheet { name in
-                model.startWorkout(sport: name)
-            }
-        }
         // #64: name the merged session when every selected row is a bare detected bout (there's no sport
         // to inherit). Reuses the "Start a workout" named-sport picker.
         .sheet(item: $mergeSportPrompt) { target in
-            StartWorkoutSheet(purpose: .nameMergedSession) { name in
+            StartWorkoutSheet { name in
                 performMerge(target.rows, sport: name)
             }
         }
+        // A workout request (Quick Actions, the Live Activity, a deep link) closes what this screen is presenting, so the
+        // workout journey's cover can open at the root.
+        #if os(iOS)
+        .collapsesForWorkoutJourney {
+            sheet = nil
+            detail = nil
+            liftDestination = nil
+            mergeSportPrompt = nil
+        }
+        #endif
     }
 
     /// Present the read-only detail for a tapped row. The primary affordance; the ••• menu stays the
@@ -397,8 +390,8 @@ struct WorkoutsView: View {
         ChipRow {
             WorkoutsActiveWorkoutButtonLeaf(
                 model: model,
-                onStart: { showStartSport = true },
-                onOpen: { showLiveWorkout = true })
+                onStart: { router.beginWorkout() },
+                onOpen: { router.openActiveWorkout() })
             Button { sheet = WorkoutSheetTarget(editing: nil) } label: {
                 Label("Add workout", systemImage: "plus")
             }

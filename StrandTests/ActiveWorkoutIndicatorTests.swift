@@ -1,8 +1,7 @@
 import XCTest
 @testable import Strand
 
-/// Pins the Today active-workout indicator: its value-typed visibility model, the route+one-shot contract
-/// the indicator card uses to re-open the in-exercise screen, the deep-link key, and the elapsed-clock
+/// Pins the active-workout indicator model (now the resume bar's), the router request that re-opens the workout journey, the deep-link key, and the elapsed-clock
 /// formatter (including the H:MM:SS extension past one hour). Pure / @MainActor, no UI host needed.
 @MainActor
 final class ActiveWorkoutIndicatorTests: XCTestCase {
@@ -23,9 +22,10 @@ final class ActiveWorkoutIndicatorTests: XCTestCase {
 
         router.openActiveWorkout()
 
-        // Routes to the Live surface AND raises the one-shot flag LiveView consumes to open the workout.
-        XCTAssertEqual(router.requestedDestination, .activeWorkout)
-        XCTAssertTrue(router.presentActiveWorkout)
+        // The shell answers with the workout journey's one full-screen cover, opened at the live screen. No routed
+        // destination and no one-shot flag are raised any more.
+        XCTAssertEqual(router.workoutJourneyRequest, .live)
+        XCTAssertNil(router.requestedDestination)
         XCTAssertEqual(NavRouter.Destination(deepLinkKey: "activeWorkout"), .activeWorkout)
     }
 
@@ -39,13 +39,13 @@ final class ActiveWorkoutIndicatorTests: XCTestCase {
         XCTAssertNil(ActiveWorkoutIndicatorModel.make(from: nil))
 
         router.openActiveWorkout()
-        XCTAssertEqual(router.requestedDestination, .activeWorkout)
+        XCTAssertEqual(router.workoutJourneyRequest, .live)
         XCTAssertEqual(ActiveWorkoutIndicatorModel.make(from: workout)?.sport, "Rowing")
 
         // The shell clears the request once handled; the indicator clears once the workout ends. Neither
         // leaves a stale request that would re-route on the next appearance.
-        router.requestedDestination = nil
-        XCTAssertNil(router.requestedDestination)
+        router.workoutJourneyRequest = nil
+        XCTAssertNil(router.workoutJourneyRequest)
         XCTAssertNil(ActiveWorkoutIndicatorModel.make(from: nil))
     }
 
