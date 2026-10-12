@@ -108,6 +108,33 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
         try await body()
     }
 
+    // MARK: - F2 skin
+
+    /// A full chunked rescore over 95 days with unchanged inputs leaves every stored skin-temperature
+    /// deviation as it was (F2: the as-of skin baseline used to see only the chunk, so the oldest four days of
+    /// every chunk were wiped).
+    func testFullChunkedRescoreKeepsEveryStoredValue() async throws {
+        try await withRecalibrationEpochsRestored {
+            let days = 95
+            let harness = try await makeHarness(days: days)
+            let single = await pass(harness, maxDays: days)
+            XCTAssertTrue(single)
+            let before = try await stored(harness)
+            XCTAssertGreaterThan(before.values.compactMap(\.recovery).count, 80, "fixture must score Charge")
+            XCTAssertGreaterThan(before.values.compactMap(\.skinTempDevC).count, 80, "fixture must score skin")
+
+            let chunked = await chunkedRescore(harness, days: days)
+            XCTAssertTrue(chunked)
+            let after = try await stored(harness)
+
+            for day in harness.dayKeys {
+                let a = before[day], b = after[day]
+                if a?.skinTempDevC != nil { XCTAssertNotNil(b?.skinTempDevC, "\(day) skin") }
+                XCTAssertEqual(b?.skinTempDevC, a?.skinTempDevC, "\(day) skin deviation unchanged")
+            }
+        }
+    }
+
     // MARK: - F1
 
     /// Recalibrating on day 30 and then rescoring the whole history leaves every earlier day's Charge as it

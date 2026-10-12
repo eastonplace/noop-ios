@@ -211,6 +211,10 @@ final class IntelligenceEngine: ObservableObject {
     /// v4 (D3b): the daily calorie total fills resting energy for the hours without valid heart rate.
     nonisolated static let analyzeScanVersion = "cache-v4"
 
+    /// F2: each scored night's raw skin-temperature mean (°C), persisted under the computed id so the skin
+    /// baseline folds the whole history, as HRV / resting HR / respiration do from the computed rows.
+    nonisolated static let nightlySkinMetricKey = "skin_temp_night_mean_c"
+
     private var dayScanCache: [String: CachedDayScan] = [:]
     private var dayScanCacheConfigSignature = ""
     private var analyzeRecentCacheTestingSeams: AnalyzeRecentCacheTestingSeams?
@@ -823,15 +827,16 @@ final class IntelligenceEngine: ObservableObject {
         // Resolve today's real LOCAL civil-day boundary (#277). A fixed-offset epoch floor is wrong on a
         // daylight-saving transition because the offset at `referenceNow` may differ from the offset at
         // that day's midnight. Use the same calendar enumerator as every scored day instead.
-        guard let currentCivilDayStart = Self.civilDayWindows(
+        guard let currentCivilDay = Self.civilDayWindows(
             reference: referenceNow,
             startOffset: 0,
             count: 1,
-            calendar: analysisCalendar).first?.start else {
+            calendar: analysisCalendar).first else {
             performanceChangedRows = 0
             note = String(localized: "Unable to establish a valid local-day window.")
             return false
         }
+        let currentCivilDayStart = currentCivilDay.start
         let civilDays = Self.civilDayWindows(
             reference: referenceNow,
             startOffset: startOffset,
@@ -1523,9 +1528,12 @@ final class IntelligenceEngine: ObservableObject {
         // invisible to a strap-only user, whose baseline then held only the window). Lowest precedence:
         // imported values and this pass's fresh values win.
         let computedHist: [DailyMetric]
+        let storedNightlySkin: [MetricPoint]
         do {
             computedHist = try await store.dailyMetrics(
                 deviceId: computedId, from: "0000-01-01", to: "9999-12-31")
+            storedNightlySkin = try await store.metricSeries(
+                deviceId: computedId, key: Self.nightlySkinMetricKey, from: "0000-01-01", to: "9999-12-31")
         } catch {
             note = String(localized: "Recovery analysis is waiting for the local database.")
             NSLog("IntelligenceEngine: required baseline read failed: \(error)")
@@ -1538,6 +1546,8 @@ final class IntelligenceEngine: ObservableObject {
             Dictionary(computedHist.map { ($0.day, $0.restingHr.map(Double.init)) }, uniquingKeysWith: { a, _ in a }))
         Self.mergeNightlyIntoHistory(
             &histRespByDay, Dictionary(computedHist.map { ($0.day, $0.respRateBpm) }, uniquingKeysWith: { a, _ in a }))
+        // F2: a completed day whose skin baseline can't be built here keeps its stored deviation.
+        let storedComputedByDay = Dictionary(computedHist.map { ($0.day, $0) }, uniquingKeysWith: { a, _ in a })
         // rhr/resp/skin honour the Charge-wide recalibration epoch (noop.recoveryBaselineEpoch); 0 = no-op,
         // so this is byte-identical to the plain fold until the user taps Recalibrate, at which point the
         // whole Charge build-up (HRV + resting HR + resp + skin) re-anchors together.
@@ -1548,10 +1558,15 @@ final class IntelligenceEngine: ObservableObject {
         let rhrSeq = rhrDayKeys.map { histRhrByDay[$0]! }
         let respDayKeys = histRespByDay.keys.sorted()
         let respSeq = respDayKeys.map { histRespByDay[$0]! }
-        // Skin-temp baseline is on-device-only (imported rows carry skinTempDevC, not the raw mean),
-        // so fold purely over the pass-1 nightly means in chronological order.
-        let skinDayKeys = nightlySkinByDay.keys.sorted()
-        let skinSeq = skinDayKeys.map { nightlySkinByDay[$0]! }
+        // Skin-temp baseline is on-device-only (imported rows carry skinTempDevC, not the raw mean), so it
+        // folds the nightly means: this pass's, then the ones earlier passes persisted (F2: a window-only fold
+        // left the oldest days of every pass without a usable baseline and wiped their stored deviation).
+        var histSkinByDay = nightlySkinByDay
+        Self.mergeNightlyIntoHistory(
+            &histSkinByDay,
+            Dictionary(storedNightlySkin.map { ($0.day, Optional($0.value)) }, uniquingKeysWith: { a, _ in a }))
+        let skinDayKeys = histSkinByDay.keys.sorted()
+        let skinSeq = skinDayKeys.map { histSkinByDay[$0]! }
         // Resp baseline gated on `usable`: RecoveryScorer includes the resp term whenever a
         // baseline object is present , a CALIBRATING (<4-night) baseline would let one noisy
         // RSA night move recovery (mirrors the skin-temp use-site gate; honest cold-start).
@@ -1780,7 +1795,13 @@ final class IntelligenceEngine: ObservableObject {
                     diagnosticSink?(line, .recovery)
                 }
             }
-            let skinDev = recomputeSkinTempDev(night.nightlySkin, dayBaselines.skinTemp)
+            var skinDev = recomputeSkinTempDev(night.nightlySkin, dayBaselines.skinTemp)
+            // F2: a completed day whose as-of skin baseline isn't usable here (its earlier nights predate the
+            // persisted nightly means) keeps its stored deviation instead of losing it.
+            if skinDev == nil, night.nightlySkin != nil, dayBaselines.skinTemp == nil,
+               daily.day < currentCivilDay.day {
+                skinDev = storedComputedByDay[daily.day]?.skinTempDevC
+            }
             let source = DaySource.classify(day: daily.day, importedWhoopDays: importedWhoopDays,
                                             appleHealthDays: appleHealthDays)
             // SHARED CONTRACT enrichment: the ordered Charge driver list + the relative skin-temp marker,
@@ -2173,6 +2194,24 @@ final class IntelligenceEngine: ObservableObject {
             )
         } catch {
             NSLog("IntelligenceEngine: shadow metric reconciliation failed: \(error)")
+            return false
+        }
+        // F2: persist each scored night's raw skin mean, so later passes and the v3 chunks fold the skin
+        // baseline over the whole history instead of only their own window.
+        do {
+            guard !Task.isCancelled else { performanceChangedRows = persistedMutationCount; return false }
+            let nightlySkinPoints = scoredNights.compactMap { night in
+                night.nightlySkin.map { MetricPoint(day: night.daily.day, key: Self.nightlySkinMetricKey, value: $0) }
+            }
+            persistedMutationCount += try await store.reconcileMetricSeries(
+                nightlySkinPoints,
+                deviceId: computedId,
+                keys: [Self.nightlySkinMetricKey],
+                from: oldestDay,
+                to: newestDay
+            )
+        } catch {
+            NSLog("IntelligenceEngine: nightly skin mean persistence failed: \(error)")
             return false
         }
         if !restPoints.isEmpty {
