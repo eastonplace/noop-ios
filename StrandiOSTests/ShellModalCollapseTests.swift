@@ -56,5 +56,60 @@ final class ShellModalCollapseTests: XCTestCase {
         XCTAssertEqual(order, ["clear", "force", "present"])
         XCTAssertGreaterThanOrEqual(slept, ShellModalCollapse.patience + ShellModalCollapse.settle)
     }
+
+    /// A Live Activity tap arrives twice (the link, and the app becoming active). The second request must not start a second
+    /// wait: it would find the cover the first one presented, take it for something in the way, and dismiss it.
+    func testASecondRequestDuringACollapseIsCoalescedAndDismissesNothing() async {
+        var up = true
+        var polls = 0
+        var presented = 0
+        var forced = 0
+        let done = expectation(description: "presented")
+        let first = ShellModalCollapse.run(
+            clearShellState: {},
+            isModalPresented: { up },
+            forceDismiss: { forced += 1 },
+            sleep: { _ in
+                polls += 1
+                if polls == 2 { up = false }
+            },
+            then: { presented += 1; done.fulfill() })
+        XCTAssertTrue(first)
+        XCTAssertTrue(ShellModalCollapse.isCollapsing)
+
+        var secondCleared = false
+        let second = ShellModalCollapse.run(
+            clearShellState: { secondCleared = true },
+            isModalPresented: { up },
+            forceDismiss: { forced += 1 },
+            sleep: { _ in XCTFail("the second request waits for nothing") },
+            then: { XCTFail("the first collapse presents for both") })
+        XCTAssertFalse(second)
+        XCTAssertFalse(secondCleared, "it closes nothing a second time")
+
+        await fulfillment(of: [done], timeout: 2)
+        XCTAssertEqual(presented, 1)
+        XCTAssertEqual(forced, 0)
+        XCTAssertFalse(ShellModalCollapse.isCollapsing, "the next request is a request again")
+    }
+
+    func testItStopsWaitingWithoutDismissingOnceWhatItWasPresentingIsUp() async {
+        // The probe reports a modal throughout: from the second poll on it is the target cover itself.
+        var targetIsUp = false
+        var polls = 0
+        let done = expectation(description: "finished")
+        ShellModalCollapse.run(
+            clearShellState: {},
+            isSatisfied: { targetIsUp },
+            isModalPresented: { true },
+            forceDismiss: { XCTFail("it would tear down the cover it presented") },
+            sleep: { _ in
+                polls += 1
+                if polls == 2 { targetIsUp = true }
+            },
+            then: { done.fulfill() })
+        await fulfillment(of: [done], timeout: 2)
+        XCTAssertEqual(polls, 2, "no patience spent, no settle")
+    }
 }
 #endif

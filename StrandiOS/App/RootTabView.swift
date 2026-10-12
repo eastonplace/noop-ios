@@ -190,7 +190,7 @@ struct RootTabView: View {
         }
         .onChange(of: router.requestedDestination) { _, destination in
             // While the journey is up nothing else presents underneath it: the request waits for the cover to close.
-            if journey != nil, let destination, destination != .activeWorkout {
+            if journey != nil || ShellModalCollapse.isCollapsing, let destination, destination != .activeWorkout {
                 pendingDestinationAfterJourney = destination
                 router.requestedDestination = nil
                 return
@@ -222,7 +222,7 @@ struct RootTabView: View {
         .onChange(of: router.activeLiftRequested) { _, requested in
             guard requested else { return }
             router.activeLiftRequested = false
-            if journey != nil {
+            if journey != nil || ShellModalCollapse.isCollapsing {
                 // The lift opens once the journey's cover has closed.
                 liftAfterJourney = true
                 journey = nil
@@ -289,6 +289,8 @@ struct RootTabView: View {
     private func presentJourney(_ start: WorkoutJourneyStart) {
         // Already up: only the live screen is ever re-requested while it is open, and it is already where it should be.
         guard journey == nil else { return }
+        // A collapse already under way will present it: a second request (a Live Activity tap arrives as a link and as the app
+        // becoming active) must not start a second wait.
         ShellModalCollapse.run(
             clearShellState: {
                 quickAction = nil
@@ -297,6 +299,7 @@ struct RootTabView: View {
                 showLift = false
                 router.collapseModals()
             },
+            isSatisfied: { journey != nil },
             then: {
                 if journey == nil { journey = WorkoutJourneyEntry(start: start) }
             })

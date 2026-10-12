@@ -16,35 +16,49 @@ enum ShellModalCollapse {
     /// Air left after a forced dismissal, so the presentation that follows does not meet a half-dismissed controller.
     static let settle: Duration = .milliseconds(150)
 
-    /// Calls `present` once nothing is presented. With nothing up it is called at once, synchronously.
+    /// True from the moment a collapse starts waiting until it has presented. Requests that arrive meanwhile are coalesced into
+    /// it: a second poll would find the cover the first one just presented and take it for something in the way.
+    private(set) static var isCollapsing = false
+
+    /// Calls `present` once nothing is presented. With nothing up it is called at once, synchronously. Returns false when a
+    /// collapse is already under way: that one will present, so this request changes nothing (and `clearShellState` and
+    /// `present` are not called).
     ///
     /// - Parameters:
     ///   - clearShellState: closes the shell's own sheets (and bumps the router's collapse generation).
+    ///   - isSatisfied: whether what is being presented is already up. The wait ends then, and nothing is dismissed: the modal
+    ///     the probe reports is the target itself.
     ///   - isModalPresented / forceDismiss / sleep: the system seams, replaceable in tests.
+    @discardableResult
     static func run(
         clearShellState: () -> Void,
+        isSatisfied: @escaping @MainActor () -> Bool = { false },
         isModalPresented: @escaping @MainActor () -> Bool = { ModalPresentationProbe.isAnyModalPresented },
         forceDismiss: @escaping @MainActor () -> Void = { ModalPresentationProbe.dismissAll() },
         sleep: @escaping @MainActor (Duration) async -> Void = { try? await Task.sleep(for: $0) },
         then present: @escaping @MainActor () -> Void
-    ) {
+    ) -> Bool {
+        guard !isCollapsing else { return false }
         guard isModalPresented() else {
             present()
-            return
+            return true
         }
         clearShellState()
+        isCollapsing = true
         Task { @MainActor in
+            defer { isCollapsing = false }
             var waited: Duration = .zero
-            while isModalPresented(), waited < patience {
+            while isModalPresented(), !isSatisfied(), waited < patience {
                 await sleep(pollInterval)
                 waited += pollInterval
             }
-            if isModalPresented() {
+            if isModalPresented(), !isSatisfied() {
                 forceDismiss()
                 await sleep(settle)
             }
             present()
         }
+        return true
     }
 }
 
