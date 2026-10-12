@@ -76,6 +76,8 @@ struct ExploreFlatRow<Trailing: View>: View {
     let tint: DomainTint
     let title: Text
     var subtitle: Text? = nil
+    /// An optional third line under the subtitle, quieter still (how many days a figure rests on, say).
+    var detail: Text? = nil
     var showsChevron = true
     /// What VoiceOver says for the whole row; nil reads the title, the line and the trailing view as they are shown.
     var spoken: String? = nil
@@ -127,6 +129,12 @@ struct ExploreFlatRow<Trailing: View>: View {
                     .longWordFit(.footnote, standard: StrandFont.footnote, weight: .regular, lines: 4)
                     .fixedSize(horizontal: false, vertical: true)
             }
+            if let detail {
+                detail
+                    .foregroundStyle(StrandPalette.textTertiary)
+                    .longWordFit(.footnote, standard: StrandFont.micro, weight: .regular, lines: 3)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 
@@ -150,10 +158,10 @@ struct ExploreFlatRow<Trailing: View>: View {
 }
 
 extension ExploreFlatRow where Trailing == EmptyView {
-    init(symbol: String, tint: DomainTint, title: Text, subtitle: Text? = nil, showsChevron: Bool = true,
-         spoken: String? = nil) {
-        self.init(symbol: symbol, tint: tint, title: title, subtitle: subtitle, showsChevron: showsChevron,
-                  spoken: spoken, trailing: { EmptyView() })
+    init(symbol: String, tint: DomainTint, title: Text, subtitle: Text? = nil, detail: Text? = nil,
+         showsChevron: Bool = true, spoken: String? = nil) {
+        self.init(symbol: symbol, tint: tint, title: title, subtitle: subtitle, detail: detail,
+                  showsChevron: showsChevron, spoken: spoken, trailing: { EmptyView() })
     }
 }
 
@@ -231,5 +239,95 @@ struct ExploreMessage: View {
         }
         .padding(.top, NoopMetrics.space4)
         .accessibilityElement(children: .combine)
+    }
+}
+
+/// The right side of a correlation row: the signed r over the strength word. Side by side it trails; a stacked row
+/// (from `.xxxLarge`) has no right edge, so it lines both up with the row's text.
+struct CorrelationTrailing: View {
+    let value: String
+    let word: String
+    let color: Color
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    var body: some View {
+        VStack(alignment: ExploreRowLayout.stacks(typeSize) ? .leading : .trailing, spacing: NoopMetrics.space1) {
+            Text(verbatim: value)
+                .font(.system(.subheadline, design: .default).weight(.semibold).monospacedDigit())
+                .foregroundStyle(color)
+                .lineLimit(1)
+            ValuePill(word, tint: color)
+        }
+    }
+}
+
+/// The W / M / 3M / 6M / 1Y / ALL control and the window it picks ("Last 30 days"). At the accessibility sizes six chips
+/// would stack into a column taller than the chart above them, so one menu chip names the range and changes it. A range
+/// `isEnabled` says no to stays visible but dimmed and inert (the Metric Explorer's #943 locking).
+struct ExploreRangeControl: View {
+    @Binding var selection: ExploreRange
+    var isEnabled: (ExploreRange) -> Bool = { _ in true }
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    var body: some View {
+        if typeSize.isAccessibilitySize {
+            menu
+        } else {
+            TrendsControlRow(
+                leading: { _ in
+                    Text(selection.title)
+                        .font(StrandFont.caption)
+                        .foregroundStyle(StrandPalette.textSecondary)
+                        .lineLimit(1)
+                },
+                trailing: { picker }
+            )
+        }
+    }
+
+    /// The canonical segmented pill, announced as one adjustable "Range" control so VoiceOver reads "30 days" instead of
+    /// the bare "M" (the same treatment the Trends tab gives it).
+    private var picker: some View {
+        let ranges = ExploreRange.allCases
+        return SegmentedPillControl(ranges, selection: $selection, isEnabled: isEnabled) { $0.label }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Range")
+            .accessibilityValue(selection.title)
+            .accessibilityAdjustableAction { direction in
+                guard let index = ranges.firstIndex(of: selection) else { return }
+                switch direction {
+                case .increment:
+                    if let next = ranges[(index + 1)...].first(where: isEnabled) { selection = next }
+                case .decrement:
+                    if let previous = ranges[..<index].last(where: isEnabled) { selection = previous }
+                default: break
+                }
+            }
+            .accessibilityActions {
+                ForEach(ranges.filter(isEnabled)) { option in
+                    Button(option.title) { selection = option }
+                }
+            }
+    }
+
+    private var menu: some View {
+        ChipMenu(
+            verbatimTitle: selection.title,
+            accessibilityLabel: "Range",
+            accessibilityValue: selection.title
+        ) {
+            ForEach(ExploreRange.allCases) { option in
+                Button {
+                    selection = option
+                } label: {
+                    if option == selection {
+                        Label(option.title, systemImage: "checkmark")
+                    } else {
+                        Text(option.title)
+                    }
+                }
+                .disabled(!isEnabled(option))
+            }
+        }
     }
 }

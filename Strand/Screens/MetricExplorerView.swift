@@ -291,7 +291,6 @@ private struct MetricRow: View {
 /// Low / Average / High, and what correlates with it.
 struct MetricDetailView: View {
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.dynamicTypeSize) private var typeSize
     let metric: MetricDescriptor
     @EnvironmentObject var repo: Repository
 
@@ -626,79 +625,17 @@ struct MetricDetailView: View {
             : date.formatted(.dateTime.day().month(.abbreviated).year())
     }
 
-    /// What the range control selects ("Last 30 days") with the control beside it, then the one caption under both.
-    /// At the accessibility sizes the six chips would stack into a column taller than the chart, so one menu chip
-    /// names the range and changes it.
+    /// What the range control selects ("Last 30 days") with the control beside it, then the one caption under both. A
+    /// range the history is too short for stays visible but dimmed and inert (#943).
     @ViewBuilder
     private func rangeControls(caption: (text: String, widened: Bool)?) -> some View {
-        if typeSize.isAccessibilitySize {
-            rangeMenu
-        } else {
-            TrendsControlRow(
-                leading: { _ in
-                    Text(coercedSelection.title)
-                        .font(StrandFont.caption)
-                        .foregroundStyle(StrandPalette.textSecondary)
-                        .lineLimit(1)
-                },
-                trailing: { rangePicker }
-            )
-        }
+        ExploreRangeControl(selection: selectionBinding, isEnabled: isUnlocked)
         if let caption {
             Text(caption.text)
                 .font(StrandFont.micro)
                 .foregroundStyle(caption.widened ? StrandPalette.statusWarning : StrandPalette.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
         }
-    }
-
-    /// The accessibility-size range control: the current range in a chip that opens the list. A range the history is
-    /// too short for stays in the list, dimmed and inert (#943).
-    private var rangeMenu: some View {
-        ChipMenu(
-            verbatimTitle: coercedSelection.title,
-            accessibilityLabel: "Range",
-            accessibilityValue: coercedSelection.title
-        ) {
-            ForEach(ExploreRange.allCases) { option in
-                Button {
-                    range = option
-                } label: {
-                    if option == coercedSelection {
-                        Label(option.title, systemImage: "checkmark")
-                    } else {
-                        Text(option.title)
-                    }
-                }
-                .disabled(!isUnlocked(option))
-            }
-        }
-    }
-
-    /// The canonical segmented pill, announced as one adjustable "Range" control so VoiceOver reads "30 days"
-    /// instead of the bare "M" (the same treatment the Trends tab gives it). A range the history is too short for
-    /// stays visible but dimmed and inert (#943).
-    private var rangePicker: some View {
-        let ranges = ExploreRange.allCases
-        return SegmentedPillControl(ranges, selection: selectionBinding, isEnabled: isUnlocked) { $0.label }
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel("Range")
-            .accessibilityValue(coercedSelection.title)
-            .accessibilityAdjustableAction { direction in
-                guard let index = ranges.firstIndex(of: coercedSelection) else { return }
-                switch direction {
-                case .increment:
-                    if let next = ranges[(index + 1)...].first(where: isUnlocked) { range = next }
-                case .decrement:
-                    if let previous = ranges[..<index].last(where: isUnlocked) { range = previous }
-                default: break
-                }
-            }
-            .accessibilityActions {
-                ForEach(ranges.filter(isUnlocked)) { option in
-                    Button(option.title) { range = option }
-                }
-            }
     }
 
     @ViewBuilder
@@ -974,25 +911,6 @@ struct MetricDetailView: View {
         // A difference between two readings: route through the delta formatter so a temperature Δ
         // scales without the +32 offset.
         (delta >= 0 ? "+" : "−") + metric.formatDelta(abs(delta), system: unitSystem, temperature: temperatureUnit, effortScale: effortScale)
-    }
-}
-
-/// The right side of a correlation row: the signed r over the strength word. Side by side it trails; a stacked row
-/// (from `.xxxLarge`) has no right edge, so it lines both up with the row's text.
-private struct CorrelationTrailing: View {
-    let value: String
-    let word: String
-    let color: Color
-    @Environment(\.dynamicTypeSize) private var typeSize
-
-    var body: some View {
-        VStack(alignment: ExploreRowLayout.stacks(typeSize) ? .leading : .trailing, spacing: NoopMetrics.space1) {
-            Text(verbatim: value)
-                .font(.system(.subheadline, design: .default).weight(.semibold).monospacedDigit())
-                .foregroundStyle(color)
-                .lineLimit(1)
-            ValuePill(word, tint: color)
-        }
     }
 }
 
