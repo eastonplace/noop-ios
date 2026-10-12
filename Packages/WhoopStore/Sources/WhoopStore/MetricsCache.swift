@@ -545,6 +545,20 @@ extension WhoopStore {
         }
     }
 
+    /// DL-11: whether any of these sources holds a nightly HRV value on any day. The Apple SDNN fallback keys
+    /// off this person-level fact; the rows of one read window can't tell a strap-less week from no strap.
+    public func hasDailyHrv(deviceIds: [String]) async throws -> Bool {
+        let ids = Array(Set(deviceIds)).sorted()
+        guard !ids.isEmpty else { return false }
+        return try syncRead { db in
+            let placeholders = Array(repeating: "?", count: ids.count).joined(separator: ",")
+            return try Bool.fetchOne(db, sql: """
+                SELECT EXISTS(SELECT 1 FROM dailyMetric
+                              WHERE deviceId IN (\(placeholders)) AND avgHrv IS NOT NULL)
+                """, arguments: StatementArguments(ids)) ?? false
+        }
+    }
+
     /// Cached daily metrics for days in [from, to] (lexicographic YYYY-MM-DD compare), oldest first.
     public func dailyMetrics(deviceId: String, from: String, to: String) async throws -> [DailyMetric] {
         try syncRead { db in

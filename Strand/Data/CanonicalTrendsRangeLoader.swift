@@ -33,7 +33,9 @@ extension Repository {
         let sourceIds = importedReadIds + computedReadIds + [Self.appleHealthSource]
 
         let read: CanonicalHealthSurfaceStoreSnapshot
+        let hasRMSSDSource: Bool
         do {
+            hasRMSSDSource = try await hasStoredRMSSD(in: store)
             read = try await store.canonicalHealthSurfaceSnapshot(
                 sourceIds: sourceIds,
                 windows: windows,
@@ -98,7 +100,7 @@ extension Repository {
             imported: importedDaily, computed: computedDaily, userEditedDays: editedDays)
         let canonicalDays = Repository.mergeDaily(
             imported: merged,
-            computed: Repository.appleFallbackDaily(appleDaily, rmssdSources: importedDaily, computedDaily))
+            computed: Repository.appleFallbackDaily(appleDaily, hasRMSSDSource: hasRMSSDSource))
 
         return TrendsLoadedData(
             loadIdentity: TrendsLoadIdentity(

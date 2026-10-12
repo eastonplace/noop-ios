@@ -2321,7 +2321,9 @@ final class Repository: ObservableObject {
         let cons: [MetricPoint]
         let need: [MetricPoint]
         let debt: [MetricPoint]
+        let hasRMSSDSource: Bool
         do {
+            hasRMSSDSource = try await hasStoredRMSSD(in: store)
             importedRows = try await requiredUnionDailyMetricsWithSource(
                 store: store, ids: importedReadIds, from: fromDay, to: toDay)
             computedRows = try await requiredUnionDailyMetricsWithSource(
@@ -2418,7 +2420,7 @@ final class Repository: ObservableObject {
                     into: Self.mergeDaily(
                         imported: Self.mergeDaily(
                             imported: imported, computed: computed, userEditedDays: editedDays),
-                        computed: Self.appleFallbackDaily(apple, rmssdSources: imported, computed)),
+                        computed: Self.appleFallbackDaily(apple, hasRMSSDSource: hasRMSSDSource)),
                     activityFile),
                 sleeps: Self.mergeSleep(imported: impSleep, computed: compSleep),
                 vitalRows: Self.sourceRows(imported: imported, computed: computed, apple: apple),
@@ -2814,12 +2816,18 @@ final class Repository: ObservableObject {
     }
 
     /// DL-11: Apple Health's `avgHrv` is SDNN, a different metric on a different scale from the strap's
-    /// nightly RMSSD. As the final merge fallback it fills HRV only for someone with no RMSSD source in the
-    /// rows at hand; otherwise a strap-less night would switch the HRV tile and trend to SDNN unlabelled.
-    nonisolated static func appleFallbackDaily(_ apple: [DailyMetric],
-                                               rmssdSources: [DailyMetric]...) -> [DailyMetric] {
-        guard rmssdSources.contains(where: { rows in rows.contains { $0.avgHrv != nil } }) else { return apple }
+    /// nightly RMSSD. As the final merge fallback it fills HRV only for someone with no RMSSD source at all;
+    /// otherwise a strap-less night would switch the HRV tile and trend to SDNN unlabelled. Callers pass
+    /// `hasStoredRMSSD(in:)`, never a test over their own read window: a narrow refresh, exact-day merge or
+    /// short Trends range over strap-less nights would let SDNN back in until the next wide read.
+    nonisolated static func appleFallbackDaily(_ apple: [DailyMetric], hasRMSSDSource: Bool) -> [DailyMetric] {
+        guard hasRMSSDSource else { return apple }
         return apple.map { $0.avgHrv == nil ? $0 : $0.replacing(avgHrv: .some(nil)) }
+    }
+
+    /// DL-11: whether this person has strap or WHOOP RMSSD on any stored day, independent of a read window.
+    func hasStoredRMSSD(in store: WhoopStore, alsoChecking extraIds: [String] = []) async throws -> Bool {
+        try await store.hasDailyHrv(deviceIds: importedReadIds + computedReadIds + extraIds)
     }
 
     nonisolated static func mergeActivityFileSteps(into base: [DailyMetric],
@@ -5250,6 +5258,8 @@ extension Repository {
             importedSourceIds: namespace.importedBaselineDeviceIds,
             computedSourceIds: [namespace.computedDeviceId],
             appleSourceId: Self.appleHealthSource,
+            hasRMSSDSource: try await hasStoredRMSSD(
+                in: store, alsoChecking: namespace.importedBaselineDeviceIds + [namespace.computedDeviceId]),
             sleepMode: SleepPerformanceV2Prefs.mode,
             analysisGeneration: analysis.analysisGeneration,
             rawFrontierTs: analysis.rawFrontierTs,
@@ -5626,6 +5636,7 @@ extension Repository {
             exactComputedIds = computedReadIds
             exactReadIds = Self.stableUniqueSourceIds(importedReadIds + computedReadIds + [Self.appleHealthSource])
         }
+        let hasRMSSDSource = try await hasStoredRMSSD(in: store, alsoChecking: exactImportedIds + exactComputedIds)
         let read = try await store.canonicalHealthSurfaceSnapshot(
             sourceIds: exactReadIds,
             windows: windows,
@@ -5682,7 +5693,7 @@ extension Repository {
                 imported: importedDaily,
                 computed: computedDaily,
                 userEditedDays: exactEditedDays),
-            computed: Self.appleFallbackDaily(appleDaily, rmssdSources: importedDaily, computedDaily)
+            computed: Self.appleFallbackDaily(appleDaily, hasRMSSDSource: hasRMSSDSource)
         )
         let exactImportedSource = importedWinners.mapValues(\.sourceId)
         let exactComputedSource = computedWinners.mapValues(\.sourceId)
