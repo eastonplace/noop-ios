@@ -441,7 +441,7 @@ struct SettingsDetailHost: View {
                 }
                 .onChange(of: clockPreference) { _, _ in AppClock.invalidate() }
                 Picker("Temperature", selection: $temperatureRaw) {
-                    Text("Match measurement system").tag("")
+                    Text("Automatic").tag("")
                     Text("Celsius").tag(TemperatureUnit.celsius.rawValue)
                     Text("Fahrenheit").tag(TemperatureUnit.fahrenheit.rawValue)
                 }
@@ -1471,7 +1471,8 @@ struct SettingsDetailHost: View {
     }
 
     // Shares LiveState.connectionStatus* with the sidebar footer (RootView) so the two never drift (#266).
-    private var strapStatusTitle: String { live.connectionStatusLabel }
+    /// The model owns the English status words; the catalog carries their translations, looked up at display time.
+    private var strapStatusTitle: String { String(localized: String.LocalizationValue(live.connectionStatusLabel)) }
 
     private var strapTone: StrandTone {
         if live.connectionStatusIsActive { return .positive }
@@ -2291,6 +2292,7 @@ struct SettingsDetailHost: View {
                         trailingSymbol: "arrow.up.right"
                     )
                 }
+                .foregroundStyle(.primary)
                 .accessibilityLabel("Project home and source code on GitHub")
                 // noop.fans carries every release alongside GitHub, a fallback if GitHub is ever unreachable (#606).
                 Link(destination: URL(string: "https://noop.fans")!) {
@@ -2300,6 +2302,7 @@ struct SettingsDetailHost: View {
                         trailingSymbol: "arrow.up.right"
                     )
                 }
+                .foregroundStyle(.primary)
                 .accessibilityLabel("Mirror at noop dot fans, a fallback if GitHub is down")
             } header: {
                 Text("Project")

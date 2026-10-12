@@ -218,7 +218,8 @@ struct DataSourcesView: View {
             presentImporter(target)
         } label: {
             HStack {
-                Text(importing ? String(localized: "Importing…") : title)
+                // `title` is a catalog key passed as a String, so it is looked up here rather than shown as written.
+                Text(importing ? LocalizedStringKey("Importing…") : LocalizedStringKey(title))
                 Spacer()
                 if importing { ProgressView().controlSize(.small) }
             }

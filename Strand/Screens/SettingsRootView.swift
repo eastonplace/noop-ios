@@ -77,6 +77,7 @@ private struct SettingsProfileRow: View {
     @EnvironmentObject private var profile: ProfileStore
     @AppStorage(UnitPrefs.systemKey) private var unitSystemRaw = UnitSystem.metric.rawValue
     @ScaledMetric(relativeTo: .title) private var avatarSide: CGFloat = 60
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     private var summary: String {
         let system = UnitSystem(rawValue: unitSystemRaw) ?? .metric
@@ -88,7 +89,12 @@ private struct SettingsProfileRow: View {
 
     var body: some View {
         NavigationLink(value: SettingsRouteID.personalProfile) {
-            HStack(spacing: 14) {
+            // At accessibility sizes the avatar sits above the name so "Personal profile" keeps the row's width
+            // instead of breaking across lines beside it.
+            let layout = typeSize.isAccessibilitySize
+                ? AnyLayout(VStackLayout(alignment: .leading, spacing: 10))
+                : AnyLayout(HStackLayout(spacing: 14))
+            layout {
                 avatar
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Personal profile")
@@ -106,7 +112,7 @@ private struct SettingsProfileRow: View {
     }
 
     private var avatar: some View {
-        let side = min(avatarSide, 90)
+        let side = min(avatarSide, typeSize.isAccessibilitySize ? 64 : 90)
         return Group {
             if let image = profile.avatarImage {
                 image

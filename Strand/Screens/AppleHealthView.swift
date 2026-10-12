@@ -141,26 +141,26 @@ struct AppleHealthSettingsView: View {
 
     private var statusLabel: String {
         switch health.auth {
-        case .unknown: "Not enabled"
-        case .unavailable: "Unavailable"
-        case .denied: "Permission needed"
-        case .authorized: health.syncing ? "Syncing" : "Connected"
-        case .entitlementMissing: "Unsupported by this build"
+        case .unknown: String(localized: "Not enabled")
+        case .unavailable: String(localized: "Unavailable")
+        case .denied: String(localized: "Permission needed")
+        case .authorized: health.syncing ? String(localized: "Syncing") : String(localized: "Connected")
+        case .entitlementMissing: String(localized: "Unsupported by this build")
         }
     }
 
     private var connectionExplanation: String {
         switch health.auth {
         case .unknown:
-            "Enable Apple Health to read and write the categories listed below. You choose each permission in Apple's system sheet."
+            String(localized: "Enable Apple Health to read and write the categories listed below. You choose each permission in Apple's system sheet.")
         case .unavailable:
-            "Apple Health is not available on this device."
+            String(localized: "Apple Health is not available on this device.")
         case .denied:
-            "Allow access in iOS Settings to resume Apple Health sync."
+            String(localized: "Allow access in iOS Settings to resume Apple Health sync.")
         case .authorized:
-            "NOOP reads on launch and when you return to the app. Sync Now requests an immediate refresh."
+            String(localized: "NOOP reads on launch and when you return to the app. Sync Now requests an immediate refresh.")
         case .entitlementMissing:
-            "This installed build was signed without Apple's HealthKit entitlement. File import remains available and does not require that entitlement."
+            String(localized: "This installed build was signed without Apple's HealthKit entitlement. File import remains available and does not require that entitlement.")
         }
     }
 }

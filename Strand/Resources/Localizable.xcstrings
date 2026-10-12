@@ -13269,8 +13269,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "(nada que partilhar todavía)"
+            "state": "translated",
+            "value": "(ainda nada para partilhar)"
           }
         },
         "zh-Hans": {
@@ -14163,8 +14163,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "1 trama capturado en esta sessão."
+            "state": "translated",
+            "value": "1 trama capturada nesta sessão."
           }
         },
         "zh-Hans": {
@@ -15039,8 +15039,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "1 trama de transferência histórica tipo 0x2F visto fuera de nuestra sincronização. Son histórico (p. ej., outra app extrayendo el ficheiro da bracelete), no uma transmisión R22 em tempo real (#494)."
+            "state": "translated",
+            "value": "1 trama de transferência de histórico do tipo 0x2F vista fora da nossa sincronização. São dados do histórico (por exemplo, outra app a extrair os dados acumulados da bracelete), não um fluxo R22 em tempo real (#494)."
           }
         },
         "zh-Hans": {
@@ -18279,8 +18279,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Uma exportação de só leitura dos flujos de sensores decodificados que NOOP já armazena. Funciona com qualquer bracelete. No se escribe nada en o teu dispositivo e no se sobe nada."
+            "state": "translated",
+            "value": "Uma exportação só de leitura dos fluxos de sensores descodificados que o NOOP já guarda. Funciona com qualquer bracelete. Nada é escrito no dispositivo e nada é enviado."
           }
         },
         "zh-Hans": {
@@ -23961,8 +23961,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Añade uma tarjeta de registo de agua a o teu panel"
+            "state": "translated",
+            "value": "Acrescenta um cartão de registo de água ao painel"
           }
         },
         "zh-Hans": {
@@ -30409,6 +30409,58 @@
         }
       }
     },
+    "Bonded · idle": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gekoppelt · inaktiv"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vinculado · inactivo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Associé · inactif"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Associato · inattivo"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Emparelhado · inativo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сопряжено · ожидание"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已配对 · 空闲"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已配對 · 閒置"
+          }
+        }
+      }
+    },
     "BPM": {
       "localizations": {
         "de": {
@@ -30939,8 +30991,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Copia de seguridad e restauración"
+            "state": "translated",
+            "value": "Cópia de segurança e restauro"
           }
         },
         "ru": {
@@ -31767,8 +31819,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Alertas de batería"
+            "state": "translated",
+            "value": "Alertas de bateria"
           }
         },
         "ru": {
@@ -34475,8 +34527,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "A difusión de FC está ACTIVADA. O teu bracelete está anunciando o seu frequência cardíaca continuamente, lo que mantiene a radio ativa e gasta a batería mais rápido. Desactívala quando no a uses com outro dispositivo."
+            "state": "translated",
+            "value": "A transmissão da FC está ATIVA. A sua bracelete anuncia continuamente a frequência cardíaca, o que mantém o rádio ativo e gasta a bateria mais depressa. Desative quando não a estiver a usar com outro dispositivo."
           }
         },
         "ru": {
@@ -35723,8 +35775,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Crea um .zip com dados censurados, te muestra exactamente qué contiene e depois abre um issue de GitHub prellenado. Adjuntas el ficheiro na seguinte ecrã."
+            "state": "translated",
+            "value": "Cria um .zip com dados ocultados, mostra exatamente o que contém e depois abre um issue do GitHub pré-preenchido. Anexa o ficheiro no ecrã seguinte."
           }
         },
         "zh-Hans": {
@@ -35973,6 +36025,12 @@
             "value": "Vibración de respuesta (confirmar)"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vibration de retour (confirmation)"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -35981,8 +36039,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Vibración de respuesta (confirmar)"
+            "state": "translated",
+            "value": "Vibrar em resposta (confirmar)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ответная вибрация (подтверждение)"
           }
         },
         "zh-Hans": {
@@ -36233,6 +36297,12 @@
             "value": "Vibrar la hora"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Faire vibrer l’heure"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -36243,6 +36313,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Vibrar a hora"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показать время вибрацией"
           }
         },
         "zh-Hans": {
@@ -38509,6 +38585,58 @@
           "stringUnit": {
             "state": "translated",
             "value": "已連線"
+          }
+        }
+      }
+    },
+    "Connected · streaming": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbunden · Streaming"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conectado · transmitiendo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connecté · diffusion"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connesso · in streaming"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ligado · a transmitir"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подключено · передача"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已连接 · 传输中"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已連接 · 傳輸中"
           }
         }
       }
@@ -41355,8 +41483,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Muda el nombre Bluetooth que anuncia o teu WHOOP 4.0 (lo que ves al emparelhar). A bracelete se reinicia para aplicarlo, así que el novo nombre aparece a próxima vez que se conecte. Só WHOOP 4.0."
+            "state": "translated",
+            "value": "Altera o nome Bluetooth que a sua WHOOP 4.0 anuncia (o que vê ao emparelhar). A bracelete reinicia para aplicar a alteração, por isso o novo nome aparece da próxima vez que se ligar. Apenas WHOOP 4.0."
           }
         },
         "zh-Hans": {
@@ -42327,8 +42455,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Escolhe como se muestran as distancias, pesos, alturas, temperaturas e Esforço. Os teus dados sempre se almacenan igual. Isto só muda a visualización."
+            "state": "translated",
+            "value": "Escolha como são apresentadas as distâncias, os pesos, as alturas, as temperaturas e o Esforço. Os seus dados são sempre guardados da mesma forma. Isto só altera a apresentação."
           }
         },
         "zh-Hans": {
@@ -46251,8 +46379,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Conectada. Finalizando el emparelhamento seguro…"
+            "state": "translated",
+            "value": "Ligada. A concluir o emparelhamento seguro…"
           }
         },
         "ru": {
@@ -47219,8 +47347,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Copiar el informe anonimizado al portapapeles"
+            "state": "translated",
+            "value": "Copiar o relatório anonimizado para a área de transferência"
           }
         },
         "zh-Hans": {
@@ -47345,8 +47473,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "No se pudo mudar el icono da app"
+            "state": "translated",
+            "value": "Não foi possível alterar o ícone da app"
           }
         },
         "ru": {
@@ -47397,8 +47525,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "No se pudo comprobar. Inténtalo de novo."
+            "state": "translated",
+            "value": "Não foi possível verificar. Tente novamente."
           }
         },
         "ru": {
@@ -47937,8 +48065,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "No se pudo escribir el registo da bracelete en este momento."
+            "state": "translated",
+            "value": "Não foi possível escrever o registo da bracelete neste momento."
           }
         },
         "ru": {
@@ -47983,8 +48111,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Pulsos do contador por passo. Déjalo en 1.0 salvo que os teus passos salgan altos. En uma WHOOP 5/MG podem salir muito altos (10× o mais), por eso llega até 30. Camina 1.000 passos conocidos e divide el conteo de NOOP entre el conteo real para obtener o teu valor."
+            "state": "translated",
+            "value": "Impulsos do contador por passo. Deixe em 1,0, a menos que a contagem de passos seja elevada. Numa WHOOP 5/MG pode ser muito elevada (10× ou mais), por isso o valor vai até 30. Caminhe 1000 passos conhecidos e divida a contagem do NOOP pela contagem real para obter o seu valor."
           }
         },
         "zh-Hans": {
@@ -52059,8 +52187,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Os dados profundos (R22) precisam um iPhone o Android. Uma Mac no pode formar el ligação cifrado que requiere uma 5/MG."
+            "state": "translated",
+            "value": "Os dados profundos (R22) requerem um iPhone ou Android. Um Mac não consegue criar a ligação cifrada de que uma 5/MG precisa."
           }
         },
         "zh-Hans": {
@@ -53473,6 +53601,12 @@
             "value": "Desconectado"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Déconnecté"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -53483,6 +53617,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Desligado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отключено"
           }
         },
         "zh-Hans": {
@@ -61332,8 +61472,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Clasificación de fases do sono experimental (V2)"
+            "state": "translated",
+            "value": "Classificação experimental das fases do sono (V2)"
           }
         },
         "ru": {
@@ -64827,8 +64967,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Indicadores aceptados, mas a secuencia de activación no inicia uma transmisión em tempo real separada. Os registos profundos llegan como parte da sincronização normal do histórico (#494)."
+            "state": "translated",
+            "value": "Indicadores aceites, mas a sequência de ativação não inicia um fluxo em tempo real separado. Os registos profundos chegam como parte da sincronização normal do histórico (#494)."
           }
         },
         "zh-Hans": {
@@ -64953,8 +65093,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Para uma WHOOP 4.0, que no envía recuento de passos: NOOP estima os passos a partir do movimento, calibrado com o teu telemóvel. toca para ver qué tan preciso es e ajustarlo."
+            "state": "translated",
+            "value": "Para uma WHOOP 4.0, que não envia contagem de passos: o NOOP estima os passos a partir do movimento, calibrado com o seu telemóvel. Toque para ver a precisão e ajustar."
           }
         },
         "zh-Hans": {
@@ -66003,8 +66143,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Recibe uma notificação quando a batería da bracelete esté baixa (15%) para que puedas cargarla antes de esta noite, e quando termine de cargarse."
+            "state": "translated",
+            "value": "Receba uma notificação quando a bateria da bracelete estiver fraca (15%), para a carregar antes desta noite, e quando terminar de carregar."
           }
         },
         "ru": {
@@ -66795,8 +66935,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Copia isto quando reportes um error. Me dice lo que vio a app."
+            "state": "translated",
+            "value": "Copie isto ao comunicar um erro. Mostra o que a app viu."
           }
         },
         "zh-Hans": {
@@ -66835,8 +66975,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Copia isto quando reportes um error. Me dice lo que vio a app. (El registo em tempo real completo também está na ecrã Em tempo real.)"
+            "state": "translated",
+            "value": "Copie isto ao comunicar um erro. Mostra o que a app viu. (O registo completo em tempo real também está no ecrã Em tempo real.)"
           }
         },
         "zh-Hans": {
@@ -71767,8 +71907,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Mantiene a ecrã despierta enquanto grabas um treino, para que o teu frequência cardíaca em tempo real siga visible sem que el dispositivo se atenúe. Só aplica durante uma grabación. A ecrã se apaga com normalidad el resto do tempo. Dejarlo activado consume um pouco mais de batería e significa que o teu ecrã desbloqueada queda visible durante tudo el treino, así que desactívalo si eso te preocupa."
+            "state": "translated",
+            "value": "Mantém o ecrã ligado enquanto grava um treino, para que a frequência cardíaca em tempo real fique visível sem o dispositivo escurecer. Aplica-se apenas durante uma gravação; no resto do tempo o ecrã desliga-se normalmente. Deixá-lo ativo consome um pouco mais de bateria e mantém o ecrã desbloqueado visível durante todo o treino, por isso desative-o se isso o preocupar."
           }
         },
         "zh-Hans": {
@@ -79902,6 +80042,110 @@
         }
       }
     },
+    "Live HR only · paused": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nur Live-HF · pausiert"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo FC en vivo · en pausa"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "FC en direct seule · en pause"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo FC live · in pausa"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Só FC em direto · em pausa"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Только пульс онлайн · пауза"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仅实时心率 · 已暂停"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "僅即時心率 · 已暫停"
+          }
+        }
+      }
+    },
+    "Live HR only · securing": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nur Live-HF · wird gesichert"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo FC en vivo · asegurando"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "FC en direct seule · sécurisation"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo FC live · protezione in corso"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Só FC em direto · a proteger"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Только пульс онлайн · защита"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仅实时心率 · 正在加密"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "僅即時心率 · 正在加密"
+          }
+        }
+      }
+    },
     "LIVE PHYSIOLOGY": {
       "localizations": {
         "de": {
@@ -80462,6 +80706,58 @@
           "stringUnit": {
             "state": "translated",
             "value": "鎖定畫面"
+          }
+        }
+      }
+    },
+    "Lock Screen (legacy)": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sperrbildschirm (veraltet)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pantalla de bloqueo (obsoleto)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Écran verrouillé (ancien)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schermata di blocco (obsoleto)"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ecrã de bloqueio (antigo)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Экран блокировки (устарело)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "锁定屏幕（旧版）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "鎖定畫面（舊版）"
           }
         }
       }
@@ -86000,6 +86296,12 @@
             "value": "Registrar una marca de sueño"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enregistrer un repère de sommeil"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -86008,8 +86310,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "registar uma marca de sono"
+            "state": "translated",
+            "value": "Registar uma marca de sono"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Записать отметку сна"
           }
         },
         "zh-Hans": {
@@ -88266,8 +88574,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "há que o teu WHOOP 5.0/MG anuncie o seu frequência cardíaca como um sensor de FC Bluetooth estándar, de modo que um Garmin (Edge/relógio), Zwift o equipo de gimnasio puedan usarla durante um treino. Se aplica na seguinte ligação (e inmediatamente si está conectada); escribe el flag whoop_live_hr_in_adv_ind_pkt da bracelete. Reversible. Só desde el iPhone. Um Mac no pode escribir en uma 5/MG."
+            "state": "translated",
+            "value": "Faz a sua WHOOP 5.0/MG anunciar a frequência cardíaca como um sensor de FC Bluetooth padrão, para que um Garmin (Edge/relógio), o Zwift ou equipamento de ginásio a possam usar durante um treino. Aplica-se na próxima ligação (e de imediato, se estiver ligada); escreve o indicador whoop_live_hr_in_adv_ind_pkt da bracelete. Reversível. Apenas no iPhone. Um Mac não consegue escrever numa 5/MG."
           }
         },
         "zh-Hans": {
@@ -88548,8 +88856,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Anulación manual"
+            "state": "translated",
+            "value": "Substituição manual"
           }
         },
         "ru": {
@@ -88792,6 +89100,12 @@
             "value": "Marcar un momento"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Marquer un moment"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -88802,6 +89116,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Marcar um momento"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отметить момент"
           }
         },
         "zh-Hans": {
@@ -89342,8 +89662,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Anulación da frequência cardíaca máxima"
+            "state": "translated",
+            "value": "Substituição da frequência cardíaca máxima"
           }
         },
         "ru": {
@@ -95699,8 +96019,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Necesita al menos 14 dias de histórico. Quando dos o mais sinais se desvían à vez, verás um aviso no panel e uma notificação, como máximo uma vez al dia."
+            "state": "translated",
+            "value": "Requer pelo menos 14 dias de histórico. Quando dois ou mais sinais se desviam em simultâneo, recebe um aviso no painel e uma notificação, no máximo uma vez por dia."
           }
         },
         "ru": {
@@ -95831,8 +96151,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Necesita el ligação cifrado completo: cierra a app oficial de WHOOP e empareja primeiro a bracelete com NOOP (um enlace de só frequência cardíaca em tempo real no pode llevar el desbloqueo)."
+            "state": "translated",
+            "value": "Requer a ligação cifrada completa: feche a app oficial da WHOOP e emparelhe primeiro a bracelete com o NOOP (uma ligação só de FC em tempo real não permite o desbloqueio)."
           }
         },
         "ru": {
@@ -96193,8 +96513,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "novo nombre da bracelete"
+            "state": "translated",
+            "value": "Novo nome da bracelete"
           }
         },
         "ru": {
@@ -98545,8 +98865,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ainda não há frequência cardíaca em tempo real. Abre Em tempo real para emparelhar o teu bracelete."
+            "state": "translated",
+            "value": "Ainda não há frequência cardíaca em tempo real. Abra Em tempo real para emparelhar a bracelete."
           }
         },
         "ru": {
@@ -99301,8 +99621,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ainda no se ha grabado nenhuma captura en bruto en esta sessão."
+            "state": "translated",
+            "value": "Ainda não foi gravada nenhuma captura em bruto nesta sessão."
           }
         },
         "ru": {
@@ -99359,8 +99679,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "No se registraron leituras."
+            "state": "translated",
+            "value": "Não foram registadas leituras."
           }
         },
         "ru": {
@@ -100487,8 +100807,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "No se encontró uma atividade utilizable. Selecciona um ficheiro de treino .gpx, .tcx o .fit."
+            "state": "translated",
+            "value": "Não foi encontrada nenhuma atividade utilizável. Escolha um ficheiro de treino .gpx, .tcx ou .fit."
           }
         },
         "ru": {
@@ -100728,8 +101048,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "No se encontraron treinos. Selecciona uma exportação CSV de Hevy o uma exportação JSON de Liftosaur."
+            "state": "translated",
+            "value": "Não foram encontrados treinos. Escolha uma exportação CSV do Hevy ou uma exportação JSON do Liftosaur."
           }
         },
         "ru": {
@@ -101567,8 +101887,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "No ligado. Abre Em tempo real para emparelhar."
+            "state": "translated",
+            "value": "Não ligada. Abra Em tempo real para emparelhar."
           }
         },
         "ru": {
@@ -102995,6 +103315,12 @@
             "value": "Nada"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rien"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -103005,6 +103331,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Nada"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ничего"
           }
         },
         "zh-Hans": {
@@ -104189,8 +104521,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Avisar com batería baixa e llena"
+            "state": "translated",
+            "value": "Avisar com bateria fraca e carregada"
           }
         },
         "ru": {
@@ -104959,8 +105291,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Ofrece guardar um treino quando detecta frequência cardíaca elevada sostenida"
+            "state": "translated",
+            "value": "Propõe guardar um treino quando deteta uma frequência cardíaca elevada e sustentada"
           }
         },
         "zh-Hans": {
@@ -105189,8 +105521,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "En uma ligação 5/MG, NOOP enviará uma pedido de transmisión en tempo real «puffin» após el handshake e registará lo que reciba. Si tienes uma bracelete 5/MG, ativar isto e partilhar el registo de o teu bracelete ayuda a mapear el protocolo. No afecta à WHOOP 4.0."
+            "state": "translated",
+            "value": "Numa ligação 5/MG, o NOOP envia um pedido de fluxo em tempo real «puffin» após o handshake e regista o que recebe. Se tiver uma bracelete 5/MG, ativar isto e partilhar o registo da bracelete ajuda a mapear o protocolo. Sem efeito na WHOOP 4.0."
           }
         },
         "ru": {
@@ -108201,8 +108533,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Opcional: añade o teu estimativa de VO₂max. A Edad fitness en sí no lo precisa. Mide cerca de o teu cintura, à altura do ombligo."
+            "state": "translated",
+            "value": "Opcional: acrescenta a sua estimativa de VO₂máx. A Idade Fitness não precisa deste valor. Meça à volta da cintura, à altura do umbigo."
           }
         },
         "zh-Hans": {
@@ -114867,8 +115199,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Emparejada antes mas no conectada agora. Vuelve a escanear para reconectar."
+            "state": "translated",
+            "value": "Emparelhada anteriormente, mas não ligada neste momento. Volte a procurar para a ligar novamente."
           }
         },
         "ru": {
@@ -115637,8 +115969,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Ponte a bracelete primeiro. A transmisión profunda só funciona na pulso."
+            "state": "translated",
+            "value": "Coloque primeiro a bracelete. O fluxo profundo só funciona no pulso."
           }
         },
         "ru": {
@@ -121553,8 +121885,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Reconexiones en esta ejecución"
+            "state": "translated",
+            "value": "Religações nesta execução"
           }
         },
         "zh-Hans": {
@@ -123373,8 +123705,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Recuperação, Esforço e Descanso (y en qué se diferencian de WHOOP)."
+            "state": "translated",
+            "value": "Recuperação, Esforço e Descanso (e em que diferem da WHOOP)."
           }
         },
         "ru": {
@@ -126295,8 +126627,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Reinicia desde esta noite a acumulación de unas 4 noites para a Recuperação e o teu linha de base de VFC. Úsalo si uma mala primeira semana desajustó o teu linha de base. O teu histórico se conserva."
+            "state": "translated",
+            "value": "Reinicia, a partir desta noite, a criação de cerca de 4 noites da base de Recuperação e de VFC. Use se uma primeira semana má desviou a sua base. O seu histórico mantém-se."
           }
         },
         "zh-Hans": {
@@ -127583,8 +127915,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Vuelve al icono de perfil predefinição"
+            "state": "translated",
+            "value": "Repõe o ícone de perfil predefinido"
           }
         },
         "zh-Hans": {
@@ -128545,8 +128877,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Ejecutar um atajo al ponértela de novo"
+            "state": "translated",
+            "value": "Executar um atalho ao voltar a colocar"
           }
         },
         "ru": {
@@ -128597,8 +128929,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Ejecutar um atajo al quitártela"
+            "state": "translated",
+            "value": "Executar um atalho ao retirar"
           }
         },
         "ru": {
@@ -128635,6 +128967,12 @@
             "value": "Ejecutar un atajo…"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lancer un raccourci…"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -128643,8 +128981,14 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Ejecutar um atajo…"
+            "state": "translated",
+            "value": "Executar um atalho…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Запустить команду…"
           }
         },
         "zh-Hans": {
@@ -128769,8 +129113,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Ejecutar agora"
+            "state": "translated",
+            "value": "Executar agora"
           }
         },
         "ru": {
@@ -129300,7 +129644,7 @@
         "pt-PT": {
           "stringUnit": {
             "state": "translated",
-            "value": "A guardar uma cópia na sua pasta."
+            "value": "A guardar uma cópia de segurança na sua pasta."
           }
         },
         "ru": {
@@ -130113,6 +130457,110 @@
           "stringUnit": {
             "state": "translated",
             "value": "秒"
+          }
+        }
+      }
+    },
+    "Secure · connected": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gesichert · verbunden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seguro · conectado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sécurisé · connecté"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sicuro · connesso"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seguro · ligado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Защищено · подключено"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安全 · 已连接"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安全 · 已連接"
+          }
+        }
+      }
+    },
+    "Secure · streaming": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gesichert · Streaming"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seguro · transmitiendo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sécurisé · diffusion"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sicuro · in streaming"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seguro · a transmitir"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Защищено · передача"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安全 · 传输中"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安全 · 傳輸中"
           }
         }
       }
@@ -134693,8 +135141,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Guarda cada trama 5/MG en bruto (com marca de tempo e a frequência cardíaca em tempo real) en um ficheiro JSON que podes partilhar para ayudar a mapear el diseño biométrico. Só registra tramas que a bracelete já envió (nunca escribe en o teu bracelete), así que es seguro dejarlo activado. Exporta el ficheiro e adjúntalo a um issue de mapeo de protocolo."
+            "state": "translated",
+            "value": "Guarda cada trama 5/MG em bruto (com marca de tempo e a frequência cardíaca em tempo real) num ficheiro JSON que pode partilhar para ajudar a mapear a estrutura biométrica. Só regista tramas que a bracelete já enviou (nunca escreve na bracelete), por isso pode deixá-lo ativo sem receio. Exporte o ficheiro e anexe-o a um issue de mapeamento do protocolo."
           }
         },
         "zh-Hans": {
@@ -134733,8 +135181,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Guarda a captura en bruto e el registo da bracelete juntos como um par emparelhado. Adjunta ambos a um issue de mapeo de protocolo."
+            "state": "translated",
+            "value": "Guarda a captura em bruto e o registo da bracelete juntos, como um par correspondente. Anexe ambos a um issue de mapeamento do protocolo."
           }
         },
         "zh-Hans": {
@@ -134785,7 +135233,7 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Guardar…"
           }
         },
@@ -136305,8 +136753,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Enviar secuencia de activación à bracelete"
+            "state": "translated",
+            "value": "Enviar a sequência de ativação para a bracelete"
           }
         },
         "zh-Hans": {
@@ -137293,8 +137741,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Nombre do atajo"
+            "state": "translated",
+            "value": "Nome do atalho"
           }
         },
         "ru": {
@@ -137345,8 +137793,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "exportação de Atajos"
+            "state": "translated",
+            "value": "Exportação para Atalhos"
           }
         },
         "ru": {
@@ -137397,8 +137845,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "exportação de ficheiro de Atajos"
+            "state": "translated",
+            "value": "Exportação de ficheiro para Atalhos"
           }
         },
         "ru": {
@@ -138399,8 +138847,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Muestra o teu frequência cardíaca em tempo real na ecrã de bloqueo e na Dynamic Island enquanto a bracelete está conectada. Desactívalo para mantener o teu FC em tempo real fuera da Dynamic Island. (Cualquiera que já se muestre desaparece en um momento.)"
+            "state": "translated",
+            "value": "Mostra a sua frequência cardíaca em tempo real no ecrã de bloqueio e na Dynamic Island enquanto a bracelete está ligada. Desative para manter a FC em tempo real fora da Dynamic Island. (A que já estiver visível desaparece num instante.)"
           }
         },
         "zh-Hans": {
@@ -140319,8 +140767,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Clasificación do sono, puntuaciones, registo e de onde vienen os teus números."
+            "state": "translated",
+            "value": "Classificação do sono, pontuações, gravação e a origem dos seus números."
           }
         },
         "ru": {
@@ -145251,8 +145699,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Nombre da bracelete"
+            "state": "translated",
+            "value": "Nome da bracelete"
           }
         },
         "zh-Hans": {
@@ -149192,7 +149640,7 @@
         "pt-PT": {
           "stringUnit": {
             "state": "translated",
-            "value": "O alarme de despertar pode fazer vibrar o seu pulso a partir do firmware da bracelete depois de esta confirmar que está armada. A notificação de cópia de segurança no telemóvel não é garantida: o Foco, o modo silencioso ou uma permissão de notificações recusada podem impedir que receba o alerta. Mantenha o alarme da app Relógio do telemóvel como cópia de segurança fiável."
+            "value": "O alarme de despertar pode fazer vibrar o seu pulso a partir do firmware da bracelete depois de esta confirmar que está armada. A notificação de reserva no telemóvel é feita com o melhor esforço: o Foco, o modo silencioso ou a permissão de notificações recusada podem impedir que o alerte. Mantenha o alarme do Relógio do telemóvel como reserva fiável."
           }
         },
         "ru": {
@@ -149419,6 +149867,58 @@
           "stringUnit": {
             "state": "translated",
             "value": "此備份超過 %@ 的一般資料庫上限。請前往設定 → 備份與匯出 → 匯入完整備份…，查看針對大型還原的明確警告。"
+          }
+        }
+      }
+    },
+    "This installed build was signed without Apple's HealthKit entitlement. File import remains available and does not require that entitlement.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser installierte Build wurde ohne Apples HealthKit-Berechtigung signiert. Der Dateiimport bleibt verfügbar und benötigt diese Berechtigung nicht."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta compilación instalada se firmó sin el permiso de HealthKit de Apple. La importación de archivos sigue disponible y no requiere ese permiso."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette version installée a été signée sans le droit HealthKit d’Apple. L’importation de fichiers reste disponible et n’exige pas ce droit."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questa build installata è stata firmata senza l’entitlement HealthKit di Apple. L’importazione da file resta disponibile e non richiede quell’entitlement."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta compilação instalada foi assinada sem a autorização HealthKit da Apple. A importação de ficheiros continua disponível e não requer essa autorização."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Установленная сборка подписана без разрешения Apple HealthKit. Импорт из файла по-прежнему доступен и этого разрешения не требует."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已安装的此版本在签名时未包含 Apple 的 HealthKit 权限。文件导入仍然可用，且不需要该权限。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已安裝的此版本在簽署時未包含 Apple 的 HealthKit 權限。檔案匯入仍可使用，且不需要該權限。"
           }
         }
       }
@@ -163527,8 +164027,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "As braceletes WHOOP 5/MG só dan frequência cardíaca em tempo real a uma app nova. A app oficial ativa os flujos mais profundos (FC de alta frequência + movimento + histórico) escribiendo um conjunto de indicadores, uma secuencia que dos proyectos independientes han documentado. Com isto activado, el botón de abajo envía esa secuencia exacta a o teu bracelete. A diferencia de tudo lo demás aquí, sí escribe na bracelete, mas es reversible (só muda qué dados escolhe emitir a bracelete) e es lo mesmo que há a app oficial. Experimental: pode que no haga nada en o teu firmware. Só iPhone/Android. Um Mac no pode escribir en uma 5/MG."
+            "state": "translated",
+            "value": "As braceletes WHOOP 5/MG só fornecem a frequência cardíaca em tempo real a uma app nova. A app oficial ativa os fluxos mais profundos (FC de alta frequência + movimento + histórico) ao escrever um conjunto de indicadores, uma sequência documentada por dois projetos independentes. Com esta opção ativa, o botão abaixo envia essa sequência exata para a bracelete. Ao contrário de tudo o resto aqui, escreve de facto na bracelete, mas é reversível (só altera os dados que a bracelete escolhe emitir) e é o mesmo que a app oficial faz. Experimental: pode não ter efeito no seu firmware. Apenas iPhone/Android. Um Mac não consegue escrever numa 5/MG."
           }
         },
         "zh-Hans": {
@@ -166573,8 +167073,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Ponte a bracelete, toca uma vez, depois deja que sincronice e comparte el registo de o teu bracelete."
+            "state": "translated",
+            "value": "Coloque a bracelete, toque uma vez, deixe-a sincronizar e partilhe o registo da bracelete."
           }
         },
         "ru": {
@@ -172073,8 +172573,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "O teu puntuación de Recuperação aprende uma linha de base personal a partir de o teu variabilidade da frequência cardíaca, o teu frequência cardíaca en repouso e mais com el tempo. Si uma mala primeira semana a desvió, podes voltar a aprenderla desde esta noite. O teu histórico se conserva."
+            "state": "translated",
+            "value": "A sua pontuação de Recuperação aprende, com o tempo, uma base pessoal a partir da variabilidade da frequência cardíaca, da frequência cardíaca em repouso e de outros dados. Se uma primeira semana má a desviou, pode voltar a aprendê-la a partir desta noite. O seu histórico mantém-se."
           }
         },
         "zh-Hans": {
@@ -173857,8 +174357,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "O teu bracelete está emparejada e enviando dados. Abre Em tempo real para ver a frequência cardíaca en tempo real."
+            "state": "translated",
+            "value": "A sua bracelete está emparelhada e a enviar dados. Abra Em tempo real para ver a frequência cardíaca em tempo real."
           }
         },
         "ru": {
@@ -179527,8 +180027,8 @@
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ainda sem calibración"
+            "state": "translated",
+            "value": "ainda sem calibração"
           }
         },
         "zh-Hans": {
