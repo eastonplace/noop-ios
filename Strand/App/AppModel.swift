@@ -38,11 +38,11 @@ enum WorkoutFinishError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .noActiveWorkout: return "No workout is recording."
-        case .insufficientEvidence: return "Keep recording until heart-rate data or a GPS route is available."
-        case .storeUnavailable: return "Workout storage is unavailable. Try again."
-        case .persistenceFailed(let message): return "Couldn’t save the workout: \(message)"
-        case .readBackMissing: return "The workout could not be verified after saving. Try again."
+        case .noActiveWorkout: return String(localized: "No workout is recording.")
+        case .insufficientEvidence: return String(localized: "Keep recording until heart-rate data or a GPS route is available.")
+        case .storeUnavailable: return String(localized: "Workout storage is unavailable. Try again.")
+        case .persistenceFailed(let message): return String(localized: "Couldn’t save the workout: \(message)")
+        case .readBackMissing: return String(localized: "The workout could not be verified after saving. Try again.")
         }
     }
 }

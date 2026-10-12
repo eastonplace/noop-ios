@@ -448,18 +448,29 @@ struct StartWorkoutSheet: View {
         .overlay(alignment: .top) { Rectangle().fill(StrandPalette.hairline).frame(height: 1).accessibilityHidden(true) }
     }
 
-    /// Why Start would do nothing, and what to do instead.
-    private var liftBlockRow: some View {
-        let layout = typeSize.isAccessibilitySize
-            ? AnyLayout(VStackLayout(alignment: .leading, spacing: NoopMetrics.space2))
-            : AnyLayout(HStackLayout(alignment: .center, spacing: NoopMetrics.space3))
-        return layout {
-            StatePill("Finish your lift first", tone: .warning)
-            if !typeSize.isAccessibilitySize { Spacer(minLength: 0) }
-            if let onOpenLift {
-                Button(action: onOpenLift) { Text("Open lift") }
-                    .buttonStyle(SecondaryPillButtonStyle())
+    /// Why Start would do nothing, and what to do instead. Side by side while both fit on one line; stacked when a longer
+    /// translation or a larger type size would otherwise wrap a word of the pill ("Kraft-training").
+    @ViewBuilder private var liftBlockRow: some View {
+        if typeSize.isAccessibilitySize {
+            VStack(alignment: .leading, spacing: NoopMetrics.space2) { liftBlockPill; liftBlockAction }
+        } else {
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .center, spacing: NoopMetrics.space3) {
+                    liftBlockPill.fixedSize(horizontal: true, vertical: false)
+                    Spacer(minLength: 0)
+                    liftBlockAction.fixedSize(horizontal: true, vertical: false)
+                }
+                VStack(alignment: .leading, spacing: NoopMetrics.space2) { liftBlockPill; liftBlockAction }
             }
+        }
+    }
+
+    private var liftBlockPill: some View { StatePill("Finish your lift first", tone: .warning) }
+
+    @ViewBuilder private var liftBlockAction: some View {
+        if let onOpenLift {
+            Button(action: onOpenLift) { Text("Open lift") }
+                .buttonStyle(SecondaryPillButtonStyle())
         }
     }
 

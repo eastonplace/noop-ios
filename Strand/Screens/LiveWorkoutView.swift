@@ -50,36 +50,59 @@ private struct LiveWorkoutLayout: View {
     let model: AppModel
     @ObservedObject var workout: AppModel.ActiveWorkout
     let onMinimize: () -> Void
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    /// The most of the screen the dock may take at the accessibility sizes. A taller dock scrolls inside this height, so
+    /// the header and the page above it are never squeezed out and no button label is cut off.
+    private static let accessibilityDockShare: CGFloat = 0.7
 
     var body: some View {
-        VStack(spacing: 0) {
-            LiveWorkoutHeader(model: model, workout: workout, recorder: model.gpsRecorder, onMinimize: onMinimize)
-                .screenPadding()
-            LiveNoticeSlot(model: model, workout: workout, recorder: model.gpsRecorder)
-                .screenPadding()
-            ScrollView {
-                LiveFocusPage(workout: workout, recorder: model.gpsRecorder, profile: model.profile, live: model.live)
+        GeometryReader { proxy in
+            VStack(spacing: 0) {
+                // The header and the notice never give up height: when the dock is tall (accessibility sizes, a long
+                // translation) it is the page between them and the dock that scrolls, not the header that gets cut.
+                LiveWorkoutHeader(model: model, workout: workout, recorder: model.gpsRecorder, onMinimize: onMinimize)
                     .screenPadding()
-                    .padding(.vertical, NoopMetrics.space2)
-            }
-            .scrollBounceBehavior(.basedOnSize)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(StrandPalette.appCanvas.ignoresSafeArea())
-        // The dock stays where the thumb is; the page above it scrolls only when it does not fit (accessibility sizes,
-        // a small screen with large text).
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            WorkoutLiveDock(model: model, workout: workout, recorder: model.gpsRecorder)
-                .screenPadding()
-                .padding(.top, NoopMetrics.space3)
-                .padding(.bottom, NoopMetrics.space2)
-                .background(StrandPalette.appCanvas.ignoresSafeArea(edges: .bottom))
-                .overlay(alignment: .top) {
-                    Rectangle().fill(StrandPalette.hairline).frame(height: 1).accessibilityHidden(true)
+                    .fixedSize(horizontal: false, vertical: true)
+                LiveNoticeSlot(model: model, workout: workout, recorder: model.gpsRecorder)
+                    .screenPadding()
+                    .fixedSize(horizontal: false, vertical: true)
+                ScrollView {
+                    LiveFocusPage(workout: workout, recorder: model.gpsRecorder, profile: model.profile, live: model.live)
+                        .screenPadding()
+                        .padding(.vertical, NoopMetrics.space2)
                 }
+                .scrollBounceBehavior(.basedOnSize)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(StrandPalette.appCanvas.ignoresSafeArea())
+            // The dock stays where the thumb is; the page above it scrolls only when it does not fit (accessibility
+            // sizes, a small screen with large text).
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                dock(maxHeight: proxy.size.height * Self.accessibilityDockShare)
+                    .screenPadding()
+                    .padding(.top, NoopMetrics.space3)
+                    .padding(.bottom, NoopMetrics.space2)
+                    .background(StrandPalette.appCanvas.ignoresSafeArea(edges: .bottom))
+                    .overlay(alignment: .top) {
+                        Rectangle().fill(StrandPalette.hairline).frame(height: 1).accessibilityHidden(true)
+                    }
+            }
         }
         .onAppear { model.startRealtimeHR() }
         .onDisappear { model.stopRealtimeHR() }
+    }
+
+    @ViewBuilder private func dock(maxHeight: CGFloat) -> some View {
+        if typeSize.isAccessibilitySize {
+            ViewThatFits(in: .vertical) {
+                WorkoutLiveDock(model: model, workout: workout, recorder: model.gpsRecorder)
+                WorkoutLiveDock(model: model, workout: workout, recorder: model.gpsRecorder, overflow: true)
+            }
+            .frame(maxHeight: maxHeight)
+        } else {
+            WorkoutLiveDock(model: model, workout: workout, recorder: model.gpsRecorder)
+        }
     }
 }
 

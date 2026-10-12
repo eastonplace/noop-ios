@@ -259,6 +259,7 @@ public struct HoldToConfirmButton: View {
             Text(shownTitle)
                 .font(style.font)
                 .modifier(HoldToConfirmWrapAlignment(centered: style.shape == .capsule || typeSize.isAccessibilitySize))
+                .modifier(HoldToConfirmAccessibilityFit(active: typeSize.isAccessibilitySize))
                 .contentTransition(.opacity)
         }
         .foregroundStyle(progress > 0.45 || contract.confirmed ? StrandPalette.surfaceRaised : style.tint)
@@ -344,6 +345,20 @@ private struct HoldToConfirmWrapAlignment: ViewModifier {
     @ViewBuilder func body(content: Content) -> some View {
         if centered {
             content.multilineTextAlignment(.center)
+        } else {
+            content
+        }
+    }
+}
+
+/// At the accessibility sizes the label wraps to two lines and then scales down, so a long translation is never cut off
+/// with an ellipsis when the button is squeezed. Every other size is left exactly as it was.
+private struct HoldToConfirmAccessibilityFit: ViewModifier {
+    let active: Bool
+
+    @ViewBuilder func body(content: Content) -> some View {
+        if active {
+            content.lineLimit(2).minimumScaleFactor(0.6)
         } else {
             content
         }

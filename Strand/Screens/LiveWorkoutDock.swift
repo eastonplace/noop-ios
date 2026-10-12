@@ -14,6 +14,9 @@ struct WorkoutLiveDock: View {
     @ObservedObject var model: AppModel
     @ObservedObject var workout: AppModel.ActiveWorkout
     @ObservedObject var recorder: GpsWorkoutRecorder
+    /// The variant the screen uses when the dock is taller than the share of the screen it may take (accessibility sizes, a
+    /// long translation): what is above the buttons scrolls and the buttons stay in view.
+    var overflow = false
     @AppStorage(UnitPrefs.systemKey) private var unitSystemRaw = UnitSystem.metric.rawValue
     @Environment(\.dynamicTypeSize) private var typeSize
     /// The accessibility path to End: VoiceOver and Switch Control cannot hold, so the hold button's action opens this.
@@ -25,11 +28,17 @@ struct WorkoutLiveDock: View {
             if model.workoutFinishState == .saving {
                 saving
             } else if model.isWorkoutFinishPending {
-                WorkoutFinishPanel(kind: .failed(failureText), onPrimary: endNow, onDiscard: { confirmingDiscard = true })
+                WorkoutFinishPanel(kind: .failed(failureText), scrollsText: overflow, onPrimary: endNow,
+                                   onDiscard: { confirmingDiscard = true })
             } else if model.finishNeedsMoreEvidence {
-                WorkoutFinishPanel(kind: .nothingToSave, onPrimary: keepRecording, onDiscard: { confirmingDiscard = true })
+                WorkoutFinishPanel(kind: .nothingToSave, scrollsText: overflow, onPrimary: keepRecording,
+                                   onDiscard: { confirmingDiscard = true })
             } else if workout.isPaused {
-                paused
+                if overflow {
+                    ScrollView { paused }.scrollBounceBehavior(.basedOnSize)
+                } else {
+                    paused
+                }
             } else {
                 running
             }
@@ -116,6 +125,8 @@ struct WorkoutLiveDock: View {
                 Text("Discard workout")
                     .font(StrandFont.subhead.weight(.semibold))
                     .foregroundStyle(StrandPalette.textSecondary)
+                    .modifier(DockLabelFit())
+                    .multilineTextAlignment(.center)
                     .frame(maxWidth: .infinity, minHeight: 44)
                     .contentShape(Rectangle())
             }
@@ -127,14 +138,14 @@ struct WorkoutLiveDock: View {
     @ViewBuilder private var preview: some View {
         if model.workoutWouldSave {
             Text(verbatim: previewText)
-                .font(StrandFont.caption)
                 .foregroundStyle(StrandPalette.textSecondary)
+                .modifier(DockCaption())
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity)
         } else {
             Text("Nothing to save yet · no heart rate or route")
-                .font(StrandFont.caption)
                 .foregroundStyle(StrandPalette.statusWarning)
+                .modifier(DockCaption())
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity)
         }
@@ -143,8 +154,10 @@ struct WorkoutLiveDock: View {
     private var previewText: String {
         var parts = [String(localized: "Saves \(LiveWorkoutTiles.elapsedText(workout.activeElapsed()))")]
         if model.activeWorkoutIsGps, recorder.pointCount >= 2, recorder.distanceM > 0 {
-            let system = UnitSystem(rawValue: unitSystemRaw) ?? .metric
-            parts.append(UnitFormatter.distanceFromMeters(recorder.distanceM, system: system))
+            // The same text as the page's distance and the resume bar (locale decimal separator, the chosen unit).
+            let imperial = unitSystemRaw == UnitSystem.imperial.rawValue
+            let distance = LiveWorkoutTiles.distanceText(meters: recorder.distanceM, imperial: imperial)
+            parts.append("\(distance) \(imperial ? "mi" : "km")")
         }
         switch workout.liveStrainState {
         case .scored(let stored): parts.append(String(localized: "strain \(StrainScale.formatted(stored))"))
@@ -168,6 +181,50 @@ struct WorkoutLiveDock: View {
     }
 }
 
+/// The dock's small print: the caption role, and at the accessibility sizes a fixed, scaled size that wraps to three lines
+/// and then shrinks instead of hyphenating a word or growing the dock past the screen.
+private struct DockCaption: ViewModifier {
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    @ViewBuilder func body(content: Content) -> some View {
+        if typeSize.isAccessibilitySize {
+            content.captionLabelFit(lines: 3)
+        } else {
+            content.font(StrandFont.caption)
+        }
+    }
+}
+
+/// A paragraph of the finish panel: its own text role below the accessibility sizes (exactly as it was); at the accessibility
+/// sizes a fixed, scaled size that wraps and then shrinks, so a long word is never hyphenated ("Versu-che") or cut off.
+private struct PanelText: ViewModifier {
+    enum Role { case footnote, caption }
+    let role: Role
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    @ViewBuilder func body(content: Content) -> some View {
+        if typeSize.isAccessibilitySize {
+            content.captionLabelFit(lines: 5, weight: .regular).fixedSize(horizontal: false, vertical: true)
+        } else {
+            content.font(role == .footnote ? StrandFont.footnote : StrandFont.caption)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+}
+
+/// A one-line dock label that, at the accessibility sizes, wraps once and then scales rather than growing the dock.
+private struct DockLabelFit: ViewModifier {
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    @ViewBuilder func body(content: Content) -> some View {
+        if typeSize.isAccessibilitySize {
+            content.lineLimit(2).minimumScaleFactor(0.7)
+        } else {
+            content
+        }
+    }
+}
+
 /// The dock when End did not end the workout: the save failed (Try again; the workout is still on the phone), or there was
 /// nothing in it to save (Keep recording).
 struct WorkoutFinishPanel: View {
@@ -177,6 +234,8 @@ struct WorkoutFinishPanel: View {
     }
 
     let kind: Kind
+    /// The text above the buttons scrolls, so the buttons stay in view when the panel is taller than the room it has.
+    var scrollsText = false
     /// Try again (failed) or Keep recording (nothing to save).
     let onPrimary: () -> Void
     let onDiscard: () -> Void
@@ -184,45 +243,65 @@ struct WorkoutFinishPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: NoopMetrics.space3) {
-            switch kind {
-            case .failed(let message):
-                StatePill("Couldn't save", tone: .warning)
-                if !message.isEmpty {
-                    Text(verbatim: message)
-                        .font(StrandFont.footnote)
-                        .foregroundStyle(StrandPalette.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                Text("Your workout is still on this phone.")
-                    .font(StrandFont.caption)
-                    .foregroundStyle(StrandPalette.textTertiary)
-                    .fixedSize(horizontal: false, vertical: true)
-            case .nothingToSave:
-                Text("Nothing to save yet")
-                    .font(StrandFont.headline)
-                    .foregroundStyle(StrandPalette.textPrimary)
-                    .accessibilityAddTraits(.isHeader)
-                Text("NOOP needs heart rate or a GPS route to save a workout.")
-                    .font(StrandFont.footnote)
-                    .foregroundStyle(StrandPalette.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
+            if scrollsText {
+                ScrollView { messages.frame(maxWidth: .infinity, alignment: .leading) }
+                    .scrollBounceBehavior(.basedOnSize)
+            } else {
+                messages
             }
             let layout = typeSize.isAccessibilitySize
                 ? AnyLayout(VStackLayout(spacing: NoopMetrics.space2))
                 : AnyLayout(HStackLayout(spacing: NoopMetrics.space3))
             layout {
+                // Two lines, then smaller: a long translation wraps at its spaces and a long single word shrinks; neither
+                // is cut off with an ellipsis.
                 Button(action: onPrimary) {
-                    Text(kind == .nothingToSave ? "Keep recording" : "Try again").frame(maxWidth: .infinity)
+                    Text(kind == .nothingToSave ? "Keep recording" : "Try again")
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.6)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(PrimaryPillButtonStyle())
                 Button(action: onDiscard) {
-                    Text("Discard").frame(maxWidth: .infinity)
+                    Text("Discard")
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.6)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(SecondaryPillButtonStyle())
             }
         }
         .widgetCardSurface(tint: .neutral)
         .accessibilityElement(children: .contain)
+    }
+
+    /// What happened and what is safe: the pill or headline and the sentences under it.
+    @ViewBuilder private var messages: some View {
+        VStack(alignment: .leading, spacing: NoopMetrics.space3) {
+            switch kind {
+            case .failed(let message):
+                StatePill("Couldn't save", tone: .warning)
+                if !message.isEmpty {
+                    Text(verbatim: message)
+                        .foregroundStyle(StrandPalette.textSecondary)
+                        .modifier(PanelText(role: .footnote))
+                }
+                Text("Your workout is still on this phone.")
+                    .foregroundStyle(StrandPalette.textTertiary)
+                    .modifier(PanelText(role: .caption))
+            case .nothingToSave:
+                Text("Nothing to save yet")
+                    .font(StrandFont.headline)
+                    .foregroundStyle(StrandPalette.textPrimary)
+                    .modifier(DockLabelFit())
+                    .accessibilityAddTraits(.isHeader)
+                Text("NOOP needs heart rate or a GPS route to save a workout.")
+                    .foregroundStyle(StrandPalette.textSecondary)
+                    .modifier(PanelText(role: .footnote))
+            }
+        }
     }
 }
 #endif
