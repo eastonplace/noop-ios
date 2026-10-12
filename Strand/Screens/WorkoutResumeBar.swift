@@ -116,7 +116,9 @@ struct WorkoutResumeBar: View {
         .padding(.trailing, NoopMetrics.space2)
         .padding(.vertical, NoopMetrics.space2)
         .frame(maxWidth: .infinity, minHeight: 56)
-        .background(WidgetCardSurface(tint: .workout))
+        // A dark capsule of the live screen's own language: no border, the clock in mint, the glyph a 15% mint circle.
+        .background(RoundedRectangle(cornerRadius: 30, style: .continuous).fill(Color(white: 0.12)))
+        .shadow(color: .black.opacity(0.35), radius: 12, y: 4)
     }
 
     // MARK: The body of the bar
@@ -168,10 +170,15 @@ struct WorkoutResumeBar: View {
         }
     }
 
-    private func icon(_ state: WorkoutResumeBarState) -> some View {
-        EyebrowPulseIcon(systemName: state.isPausedLook ? "pause.fill" : "waveform.path.ecg",
-                         color: state.isPausedLook ? StrandPalette.statusWarning : StrandPalette.liveRed,
-                         pulses: state.pulses)
+    @ViewBuilder private func icon(_ state: WorkoutResumeBarState) -> some View {
+        if state.isPausedLook {
+            Image(systemName: "pause.fill")
+                .font(.system(size: 11, weight: .bold))
+                .foregroundStyle(LivePalette.amber)
+                .accessibilityHidden(true)
+        } else {
+            LiveStateDot(color: LivePalette.mint, pulses: state.pulses)
+        }
     }
 
     private func sportName(lines: Int) -> some View {
@@ -192,12 +199,12 @@ struct WorkoutResumeBar: View {
     private func clock(_ state: WorkoutResumeBarState) -> some View {
         let model = ActiveWorkoutIndicatorModel.make(from: workout)
         return TimelineView(.periodic(from: .now, by: 1)) { context in
+            // Time is mint; a paused workout's is the flat grey of the live screen's frozen figures.
             Text(model?.elapsedText(at: context.date) ?? "")
                 .font(StrandFont.bodyNumber)
-                .foregroundStyle(StrandPalette.textPrimary)
+                .foregroundStyle(state.isPausedLook ? LivePalette.frozenNumeral : LivePalette.time)
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
-                .opacity(state.isPausedLook ? 0.45 : 1)
         }
     }
 
@@ -210,7 +217,7 @@ struct WorkoutResumeBar: View {
                 .lineLimit(2)
                 .minimumScaleFactor(0.8)
         case .running, .paused:
-            ResumeBarMetric(workout: workout, recorder: model.gpsRecorder, live: model.live)
+            ResumeBarMetric(workout: workout, recorder: model.gpsRecorder, profile: model.profile, isPaused: state.isPausedLook)
         }
     }
 
@@ -260,11 +267,13 @@ enum WorkoutResumeBarState: Equatable {
     var allowsPauseToggle: Bool { self == .running || self == .paused }
 }
 
-/// The number the workout is about, small: distance for a route, heart rate otherwise (the clock is already beside it).
+/// The number the workout is about, small: distance for a route, heart rate otherwise (the clock is already beside it). In the
+/// colours of the live screen: distance white, heart rate in its zone's colour, both flat grey while paused.
 private struct ResumeBarMetric: View {
     @ObservedObject var workout: AppModel.ActiveWorkout
     @ObservedObject var recorder: GpsWorkoutRecorder
-    let live: LiveState
+    @ObservedObject var profile: ProfileStore
+    let isPaused: Bool
     @AppStorage(UnitPrefs.systemKey) private var unitSystemRaw = UnitSystem.metric.rawValue
 
     var body: some View {
@@ -272,22 +281,25 @@ private struct ResumeBarMetric: View {
         let tracksRoute = recorder.isRecording && recorder.canRecordRoute
         let distance = LiveWorkoutTiles.distanceText(meters: recorder.distanceM, imperial: imperial)
         if tracksRoute, distance != LiveWorkoutTiles.missing {
-            Text(verbatim: "\(distance) \(imperial ? "mi" : "km")")
-                .font(StrandFont.subhead).monospacedDigit().foregroundStyle(StrandPalette.textSecondary)
+            Text(verbatim: "\(distance) \(LiveWorkoutGlance.Units.distance(imperial: imperial))")
+                .font(StrandFont.subhead).monospacedDigit()
+                .foregroundStyle(isPaused ? LivePalette.frozenNumeral : LivePalette.distance)
         } else if let bpm = workout.currentBPM {
+            let thresholds = ProfileStore.hrZoneThresholds(override: profile.hrMaxOverride, age: profile.age)
             TimelineView(.periodic(from: .now, by: 2)) { context in
                 let stale = LiveWorkoutSignals.heartRateIsStale(
                     lastReadingAt: workout.lastReadingAt, workoutStart: workout.start,
                     isPaused: workout.isPaused, isEnding: workout.isEnding, now: context.date)
-                Text(verbatim: "\(bpm) bpm")
-                    .font(StrandFont.subhead).monospacedDigit().foregroundStyle(StrandPalette.textSecondary)
+                Text(verbatim: "\(bpm) \(LiveWorkoutGlance.Units.heartRate)")
+                    .font(StrandFont.subhead).monospacedDigit()
+                    .foregroundStyle(isPaused ? LivePalette.frozenNumeral : LivePalette.zone(thresholds.zone(for: Double(bpm))))
                     .opacity(stale ? 0.6 : 1)
             }
         }
     }
 }
 
-/// The 44 pt circle at the end of the bar. Pauses or resumes without opening anything; unavailable while a finish is pending.
+/// The 44 pt circle at the end of the bar: a 15% mint circle with a mint glyph. Pauses or resumes without opening anything; unavailable while a finish is pending.
 private struct WorkoutResumeBarPauseButton: View {
     @ObservedObject var model: AppModel
     @ObservedObject var workout: AppModel.ActiveWorkout
@@ -300,10 +312,10 @@ private struct WorkoutResumeBarPauseButton: View {
             model.setWorkoutPaused(!paused)
         } label: {
             Image(systemName: paused ? "play.fill" : "pause.fill")
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(state.allowsPauseToggle ? StrandPalette.onInk : StrandPalette.textTertiary)
+                .font(.system(size: 15, weight: .bold))
+                .foregroundStyle(state.allowsPauseToggle ? LivePalette.mint : LivePalette.missing)
                 .frame(width: 44, height: 44)
-                .background(Circle().fill(state.allowsPauseToggle ? StrandPalette.ink : StrandPalette.chipFill))
+                .background(Circle().fill(state.allowsPauseToggle ? LivePalette.mint.opacity(0.15) : LivePalette.fill))
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
