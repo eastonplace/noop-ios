@@ -5,8 +5,16 @@ import StrandDesign
 // MARK: - Ready
 //
 // What the setup page checks before Start, one row each: the strap, the GPS (for a sport that records a route), what today's
-// strain target is, whether the screen stays on, and whether a countdown comes first. Quiet rows on black: each says its state in
-// words (coloured, never in colour alone), and each row that can be fixed from here has a mint text button that fixes it.
+// strain target is, which number the live screen leads with, whether the screen stays on, and whether a countdown comes first.
+// Quiet rows on black: each says its state in words (coloured, never in colour alone), and each row that can be fixed from here
+// has a mint text button that fixes it.
+
+/// The number the live screen leads with ("Big number"): what is chosen, what can be chosen, and what choosing does.
+struct WorkoutBigNumberChoice {
+    let current: LiveWorkoutGlance.Metric
+    let choices: [LiveWorkoutGlance.Metric]
+    let onChoose: (LiveWorkoutGlance.Metric) -> Void
+}
 
 struct WorkoutReadinessStrip: View {
     /// A sport that records a route shows the GPS row; a treadmill run or a strength session does not.
@@ -14,6 +22,7 @@ struct WorkoutReadinessStrip: View {
     @ObservedObject var probe: GpsReadinessProbe
     let live: LiveState
     let today: WorkoutReadinessToday?
+    let bigNumber: WorkoutBigNumberChoice
     @Binding var keepScreenOn: Bool
     @Binding var countdownOn: Bool
     /// Low Power Mode is on: the screen cannot be held awake, whatever the switch says.
@@ -34,6 +43,7 @@ struct WorkoutReadinessStrip: View {
                 StrapReadinessRow(live: live, onConnect: onConnect)
                 if showsGps { gpsRow }
                 if let today { todayRow(today) }
+                bigNumberRow
                 screenRow
                 countdownRow
             }
@@ -87,6 +97,38 @@ struct WorkoutReadinessStrip: View {
         .frame(minHeight: 44, alignment: .leading)
         .padding(.vertical, NoopMetrics.space1)
         .accessibilityElement(children: .combine)
+    }
+
+    // MARK: Big number
+
+    /// "Big number: Time" with the chevrons of a menu: which figure the live screen leads with, for this kind of sport.
+    private var bigNumberRow: some View {
+        ReadinessRow(systemImage: "textformat.123", title: "Big number") {
+            Menu {
+                ForEach(bigNumber.choices, id: \.self) { metric in
+                    Button { bigNumber.onChoose(metric) } label: {
+                        if metric == bigNumber.current {
+                            Label(LiveWorkoutGlance.name(of: metric), systemImage: "checkmark")
+                        } else {
+                            Text(verbatim: LiveWorkoutGlance.name(of: metric))
+                        }
+                    }
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    Text(verbatim: LiveWorkoutGlance.name(of: bigNumber.current))
+                        .foregroundStyle(StrandPalette.textPrimary)
+                        .liveText(15, weight: .medium, maxSize: 21, lines: 2)
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(LivePalette.secondaryText)
+                }
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
+            }
+            .accessibilityLabel(Text("Big number"))
+            .accessibilityValue(Text(verbatim: LiveWorkoutGlance.name(of: bigNumber.current)))
+        }
     }
 
     // MARK: Switches

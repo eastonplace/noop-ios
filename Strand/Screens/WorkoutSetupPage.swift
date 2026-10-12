@@ -10,8 +10,8 @@ import WhoopStore
 //
 // In the order people reach for things:
 //  • the sport (a run chooses outdoor or treadmill), the recent ones as one-tap chips, and every activity behind a chip;
-//  • Ready: the strap, the GPS for a route sport, the day's strain target, the screen, the countdown;
-//  • which number the live screen leads with, and the last time in this sport;
+//  • Ready: the strap, the GPS for a route sport, the day's strain target, the big number the live screen leads with (a menu
+//    row: it stays up where it is seen, not below the pinned Start), the screen, the countdown; then the last time in this sport;
 //  • a lifting session is its own flow, one row away;
 //  • one pinned solid-mint 88 pt Start circle. Tap it to start (with the countdown, when that is on); press and hold it to
 //    start straight away, the ring filling as it is held. Pure black, quiet rows, no rules between them.
@@ -109,11 +109,11 @@ private struct WorkoutSetupContent: View {
                 selectionSection
                 recentSection.padding(.top, Self.sectionGap)
                 WorkoutReadinessStrip(
-                    showsGps: isRouteSport, probe: probe, live: model.live, today: today,
+                    showsGps: isRouteSport, probe: probe, live: model.live, today: today, bigNumber: bigNumberChoice,
                     keepScreenOn: $keepScreenOn, countdownOn: $countdownOn, lowPowerMode: lowPowerMode,
                     imperial: unitSystem == .imperial, onConnect: { showsDevices = true })
                     .padding(.top, Self.sectionGap)
-                bigNumberSection.padding(.top, Self.sectionGap)
+                lastTimeLine
                 // At the accessibility sizes the pinned bar is the circle alone; what Start will not record reads here.
                 if typeSize.isAccessibilitySize, let caption = presentation.captionText {
                     startCaption(caption).padding(.top, NoopMetrics.space3)
@@ -263,7 +263,7 @@ private struct WorkoutSetupContent: View {
             .accessibilityAddTraits(.isHeader)
     }
 
-    // MARK: Big number, last time
+    // MARK: Big number (a row of the Ready list), last time
 
     private var sportClass: Glance.SportClass {
         Glance.sportClass(sport: selected, tracksRoute: isRouteSport && probe.readiness.canRecordRoute)
@@ -288,59 +288,20 @@ private struct WorkoutSetupContent: View {
         StrandHaptic.selection.play()
     }
 
-    private var bigNumberSection: some View {
-        let current = Glance.layout(for: sportClass, chosenFocus: chosenFocus).focus
-        return VStack(alignment: .leading, spacing: NoopMetrics.space3) {
-            Group {
-                if typeSize.isAccessibilitySize {
-                    VStack(alignment: .leading, spacing: NoopMetrics.space2) { bigNumberLabel; bigNumberMenu(current) }
-                } else {
-                    HStack(alignment: .center, spacing: NoopMetrics.space3) {
-                        bigNumberLabel
-                        Spacer(minLength: NoopMetrics.space2)
-                        bigNumberMenu(current)
-                    }
-                }
-            }
-            .frame(minHeight: 44)
-            if let last = Self.lastLine(rows: rows, sport: selected, title: title, system: unitSystem) {
-                Text(verbatim: last)
-                    .foregroundStyle(LivePalette.secondaryText)
-                    .liveText(14, weight: .regular, maxSize: 20, lines: 3)
-                    .accessibilityLabel(Text(verbatim: Self.spokenLastLine(rows: rows, sport: selected, title: title, system: unitSystem) ?? last))
-            }
-        }
+    private var bigNumberChoice: WorkoutBigNumberChoice {
+        WorkoutBigNumberChoice(current: Glance.layout(for: sportClass, chosenFocus: chosenFocus).focus,
+                               choices: Glance.FocusPreference.choices(for: sportClass), onChoose: { choose($0) })
     }
 
-    private var bigNumberLabel: some View {
-        sectionTitle("Big number")
-    }
-
-    private func bigNumberMenu(_ current: Glance.Metric) -> some View {
-        Menu {
-            ForEach(Glance.FocusPreference.choices(for: sportClass), id: \.self) { metric in
-                Button { choose(metric) } label: {
-                    if metric == current {
-                        Label(Glance.name(of: metric), systemImage: "checkmark")
-                    } else {
-                        Text(verbatim: Glance.name(of: metric))
-                    }
-                }
-            }
-        } label: {
-            HStack(spacing: 6) {
-                Text(verbatim: Glance.name(of: current))
-                    .foregroundStyle(StrandPalette.textPrimary)
-                    .liveText(17, weight: .semibold, maxSize: 24, lines: 2)
-                Image(systemName: "chevron.up.chevron.down")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(LivePalette.secondaryText)
-            }
-            .frame(minHeight: 44)
-            .contentShape(Rectangle())
+    /// The last time in this sport, one quiet line under the rows.
+    @ViewBuilder private var lastTimeLine: some View {
+        if let last = Self.lastLine(rows: rows, sport: selected, title: title, system: unitSystem) {
+            Text(verbatim: last)
+                .foregroundStyle(LivePalette.secondaryText)
+                .liveText(14, weight: .regular, maxSize: 20, lines: 3)
+                .accessibilityLabel(Text(verbatim: Self.spokenLastLine(rows: rows, sport: selected, title: title, system: unitSystem) ?? last))
+                .padding(.top, NoopMetrics.space3)
         }
-        .accessibilityLabel(Text("Big number"))
-        .accessibilityValue(Text(verbatim: Glance.name(of: current)))
     }
 
     static func spokenLastLine(rows: [WorkoutRow], sport: String, title: String, system: UnitSystem) -> String? {
