@@ -262,9 +262,10 @@ struct RootTabView: View {
         for attempt in 0..<10 {
             try? await Task.sleep(for: .milliseconds(attempt == 0 ? 1800 : 3500))
             // The workout routes are presented by the journey cover, whatever else (the lift flow the demo data resumes) is up.
-            let presented = target == .startWorkout || target == .liveWorkout ? journey != nil : QARoute.modalIsPresented
+            let isJourney = target == .startWorkout || target == .workoutCountdown || target == .liveWorkout
+            let presented = isJourney ? journey != nil : QARoute.modalIsPresented
             if presented { route.logPresented(); return }
-            if target != .startWorkout, target != .liveWorkout {
+            if !isJourney {
                 quickAction = nil
                 routedPillar = nil
             }
@@ -277,6 +278,7 @@ struct RootTabView: View {
             case .journal: quickAction = .journal
             case .intervals: quickAction = .intervals
             case .startWorkout: router.beginWorkout()
+            case .workoutCountdown: router.quickStartWorkout(sport: "Running")
             case .liveWorkout: router.openActiveWorkout()
             case .workoutMinimized: break
             }
@@ -385,6 +387,9 @@ struct RootTabView: View {
             }, onWorkout: { active in
                 // The journey opens after this sheet is gone (`.sheet(item:onDismiss:)` above).
                 pendingJourneyAfterQuickActions = active ? .live : .setup(initialSport: nil)
+                quickAction = nil
+            }, onQuickStart: { sport in
+                pendingJourneyAfterQuickActions = .quickStart(sport: sport)
                 quickAction = nil
             })
             .presentationDetents([.medium, .large])
@@ -533,8 +538,12 @@ private struct QuickActionSheet: View {
     let onPick: (QuickAction) -> Void
     /// The workout row: `active` is whether a workout is already recording (the row then returns to it).
     let onWorkout: (_ active: Bool) -> Void
+    /// "Start <last sport>": into the countdown on that sport, without the setup page.
+    let onQuickStart: (_ sport: String) -> Void
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var model: AppModel
+    /// The sport the quick row offers, worked out when the sheet appears (never in `body`).
+    @State private var quickStartSport: String?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -569,6 +578,10 @@ private struct QuickActionSheet: View {
                     } else {
                         row("Start workout", subtitle: "Track a workout", icon: "figure.run",
                             tint: StrandPalette.ink) { onWorkout(false) }
+                        if let sport = quickStartSport {
+                            row("Start \(StartWorkoutChoices.displayTitle(for: sport))", subtitle: "Skips setup",
+                                icon: sportSymbol(sport), tint: StrandPalette.ink) { onQuickStart(sport) }
+                        }
                     }
                     row("Log journal", subtitle: "How are you feeling?", icon: "square.and.pencil",
                         tint: StrandPalette.journalAccent) { onPick(.journal) }
@@ -582,6 +595,11 @@ private struct QuickActionSheet: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(StrandPalette.card.ignoresSafeArea())
+        .onAppear {
+            quickStartSport = WorkoutQuickStart.offer(
+                recents: RecentSportsPrefs.recent(), gps: WorkoutQuickStart.currentGps(),
+                blockedByLift: model.workoutStartBlock != nil)
+        }
     }
 
     private func row(

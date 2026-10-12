@@ -16,7 +16,8 @@ import WhoopStore
 /// Recovery ⓘ opens it), updates, live-hr, breathe, journal, intervals, start-workout, rhythm, smart-alarm,
 /// hydration, fitness-age, coupled, lab-book, trends-report, coach-workouts-sheet (the Workouts hub at the root of a sheet,
 /// as Coach's plan opens it), live-workout (the in-exercise screen over a synthetic workout; pick its state with
-/// `--demo-live-workout running|paused|stale|indoor|ending|ending-quiet|failed|saving|nothing-to-save|no-strap|gps-lost|long|cycling|strength|paused-nothing`), marker-editor, lift, lift-history, lift-progress, lift-routines.
+/// `--demo-live-workout running|paused|stale|indoor|ending|ending-quiet|failed|saving|nothing-to-save|no-strap|gps-lost|long|cycling|strength|paused-nothing`;
+/// `--demo-live-page focus|heart|route` picks its page), workout-countdown, marker-editor, lift, lift-history, lift-progress, lift-routines.
 ///
 /// The Lift routes show whatever Lift holds; `--noop-lift-demo <variant>` and `--noop-lift-scene <scene>` (see
 /// `ReceiptLiftDemo` and `LiftQAScene`) load generated data and open a deeper screen.
@@ -54,6 +55,8 @@ enum QARoute: String, CaseIterable {
     case journal
     case intervals
     case startWorkout = "start-workout"
+    /// The three-second countdown before a workout starts; `--demo-countdown-frozen 3` holds the digit still.
+    case workoutCountdown = "workout-countdown"
     case rhythm
     case smartAlarm = "smart-alarm"
     case hydration
@@ -75,7 +78,7 @@ enum QARoute: String, CaseIterable {
     enum Tab: Int { case today = 0, trends = 1, sleep = 2 }
 
     /// What the app shell (`RootTabView`) presents itself, for routes that live in its sheets.
-    enum ShellTarget { case updates, rhythm, liveHR, breathe, journal, intervals, startWorkout, liveWorkout, workoutMinimized }
+    enum ShellTarget { case updates, rhythm, liveHR, breathe, journal, intervals, startWorkout, workoutCountdown, liveWorkout, workoutMinimized }
 
     enum Presentation {
         case push(Tab)
@@ -108,6 +111,7 @@ enum QARoute: String, CaseIterable {
         case .journal: return .shell(.journal)
         case .intervals: return .shell(.intervals)
         case .startWorkout: return .shell(.startWorkout)
+        case .workoutCountdown: return .shell(.workoutCountdown)
         case .liveWorkout: return .shell(.liveWorkout)
         case .workoutMinimized: return .shell(.workoutMinimized)
         }
