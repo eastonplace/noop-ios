@@ -161,6 +161,36 @@ final class AppModelWorkoutJourneyTests: XCTestCase {
         XCTAssertNil(m.pendingWorkoutRowKey)
     }
 
+    /// The key of a row a failed save already wrote is kept on disk: after the app is closed and reopened, the restored workout
+    /// is still the one whose row is in Workouts, and discarding it must take that row back.
+    func testThePendingRowKeySurvivesARelaunch() {
+        let suite = "noop.tests.rowkey.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        addTeardownBlock { defaults.removePersistentDomain(forName: suite) }
+        XCTAssertNil(AppModel.loadPendingRowKey(from: defaults))
+        let key = AppModel.WorkoutRowKey(startTs: 1_000_000_011, sport: "Rowing")
+        AppModel.storePendingRowKey(key, in: defaults)
+        XCTAssertEqual(AppModel.loadPendingRowKey(from: defaults), key)
+        AppModel.storePendingRowKey(nil, in: defaults)
+        XCTAssertNil(AppModel.loadPendingRowKey(from: defaults))
+    }
+
+    func testDiscardAfterARelaunchStillRemovesTheRowAFailedSaveWrote() {
+        let key = AppModel.WorkoutRowKey(startTs: 1_000_000_013, sport: "Relaunch Discard Sport")
+        model(.failed).pendingWorkoutRowKey = key          // the process that wrote it
+        let relaunched = model(.failed)                      // a new process: nothing in memory
+        XCTAssertEqual(relaunched.pendingWorkoutRowKey, key)
+        RouteStore.store(WorkoutRoute(segmentPolylines: [RouteMath.encode([RouteMath.LatLng(40.0, -73.0), RouteMath.LatLng(40.001, -73.0)])],
+                                      distanceM: 111), startTs: key.startTs, sport: key.sport)
+        addTeardownBlock {
+            AppModel.storePendingRowKey(nil, in: .standard)
+            RouteStore.remove(startTs: key.startTs, sport: key.sport)
+        }
+        XCTAssertTrue(relaunched.discardWorkout())
+        XCTAssertNil(RouteStore.load(startTs: key.startTs, sport: key.sport))
+        XCTAssertNil(relaunched.pendingWorkoutRowKey)
+    }
+
     // MARK: Why the durability warning is up
 
     func testDataThatIsNotSafelyStoredIsTheRecoverabilityWarning() {

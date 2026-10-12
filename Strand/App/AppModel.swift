@@ -260,11 +260,31 @@ final class AppModel: ObservableObject {
     private var pendingWorkoutRoute: WorkoutRoute?
     private var pendingWorkoutWasGps = false
     /// The natural key of the workout row a finish that then failed had already written (its route or read-back failed after
-    /// the row was saved). Discarding the workout removes that row too, so "Nothing will be saved" is true.
-    var pendingWorkoutRowKey: WorkoutRowKey?
+    /// the row was saved). Discarding the workout removes that row too, so "Nothing will be saved" is true. It is kept in
+    /// UserDefaults, not only in memory: after the app was closed and reopened the restored workout is still the one whose
+    /// row is in Workouts, and discarding it must still take the row back.
+    var pendingWorkoutRowKey: WorkoutRowKey? {
+        get { Self.loadPendingRowKey(from: .standard) }
+        set { Self.storePendingRowKey(newValue, in: .standard) }
+    }
     struct WorkoutRowKey: Equatable {
         let startTs: Int
         let sport: String
+    }
+    static let pendingRowKeyDefaultsKey = "pendingWorkoutRowKey"
+
+    static func storePendingRowKey(_ key: WorkoutRowKey?, in defaults: UserDefaults) {
+        if let key {
+            defaults.set(["startTs": key.startTs, "sport": key.sport], forKey: pendingRowKeyDefaultsKey)
+        } else {
+            defaults.removeObject(forKey: pendingRowKeyDefaultsKey)
+        }
+    }
+
+    static func loadPendingRowKey(from defaults: UserDefaults) -> WorkoutRowKey? {
+        guard let stored = defaults.dictionary(forKey: pendingRowKeyDefaultsKey),
+              let startTs = stored["startTs"] as? Int, let sport = stored["sport"] as? String else { return nil }
+        return WorkoutRowKey(startTs: startTs, sport: sport)
     }
     /// Queue admission and durable pointer commit are separate facts. A background writer may accept a
     /// checkpoint then fail later because storage became unavailable or protected.
@@ -476,6 +496,9 @@ final class AppModel: ObservableObject {
             strainAccumulator = accumulator
             self.energy = energy
             zones = PersonalZoneSeconds.compute(samples: canonical, pauses: pauses, thresholds: zoneThresholds)
+            // The same trailing pause ends the zone stretch too: the first reading after the resume starts a new one and is not
+            // credited for the time since the last reading before the pause.
+            if trailingPause { zones.breakStretch() }
             personalZoneSeconds = zones.quantized(step: 5)
             chartAccumulator = WorkoutHeartChartAccumulator(samples: canonical)
             chartProjection = chartAccumulator.projection

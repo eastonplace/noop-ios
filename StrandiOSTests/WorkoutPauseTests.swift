@@ -179,6 +179,24 @@ final class WorkoutPauseTests: XCTestCase {
         XCTAssertEqual(restored.pauseLedger.segments(of: restored.samples).count, 3)
     }
 
+    /// A workout restored while paused ends its zone stretch like its strain stretch: the first reading after the resume is not
+    /// credited for the time since the last reading before the pause.
+    func testARestoredPausedWorkoutDoesNotCreditTheGapToTheFirstReadingAfterResume() {
+        let w = workout()
+        feed(w, from: 1, to: 300, bpm: 150)
+        w.setPaused(true, at: t(300.5))
+        let restored = AppModel.ActiveWorkout(sessionID: w.sessionID, start: start, sport: "Running",
+                                              maxHR: 190, energyProfile: profile)
+        restored.restore(samples: w.samples, pauses: w.pauseLedger)
+        let before = restored.personalZoneSeconds.reduce(0, +)
+        XCTAssertGreaterThan(before, 0)
+        XCTAssertTrue(restored.setPaused(false, at: t(900.5)))
+        restored.ingest(HRSample(ts: 1_700_000_901, bpm: 150))
+        XCTAssertEqual(restored.personalZoneSeconds.reduce(0, +), before, "the first reading after the pause starts a stretch")
+        restored.ingest(HRSample(ts: 1_700_000_906, bpm: 150))
+        XCTAssertEqual(restored.personalZoneSeconds.reduce(0, +), before + 5, "and the next one is credited as usual")
+    }
+
     func testAStoredLedgerBelongsToItsSessionOnly() {
         let defaults = ephemeralDefaults()
         var ledger = WorkoutPauseLedger()
