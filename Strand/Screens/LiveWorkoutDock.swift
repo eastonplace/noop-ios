@@ -14,9 +14,6 @@ struct WorkoutLiveDock: View {
     @ObservedObject var model: AppModel
     @ObservedObject var workout: AppModel.ActiveWorkout
     @ObservedObject var recorder: GpsWorkoutRecorder
-    /// The variant the screen uses when the dock is taller than the share of the screen it may take (accessibility sizes, a
-    /// long translation): what is above the buttons scrolls and the buttons stay in view.
-    var overflow = false
     @AppStorage(UnitPrefs.systemKey) private var unitSystemRaw = UnitSystem.metric.rawValue
     @Environment(\.dynamicTypeSize) private var typeSize
     /// The accessibility path to End: VoiceOver and Switch Control cannot hold, so the hold button's action opens this.
@@ -28,14 +25,16 @@ struct WorkoutLiveDock: View {
             if model.workoutFinishState == .saving {
                 saving
             } else if model.isWorkoutFinishPending {
-                WorkoutFinishPanel(kind: .failed(failureText), scrollsText: overflow, onPrimary: endNow,
+                WorkoutFinishPanel(kind: .failed(failureText), onPrimary: endNow,
                                    onDiscard: { confirmingDiscard = true })
             } else if model.finishNeedsMoreEvidence {
-                WorkoutFinishPanel(kind: .nothingToSave, scrollsText: overflow, onPrimary: keepRecording,
+                WorkoutFinishPanel(kind: .nothingToSave, onPrimary: keepRecording,
                                    onDiscard: { confirmingDiscard = true })
             } else if workout.isPaused {
-                if overflow {
-                    ScrollView { paused }.scrollBounceBehavior(.basedOnSize)
+                // The screen caps the dock at a share of its height. Short of the accessibility sizes the paused dock never
+                // reaches it; above them it may, and then its buttons scroll rather than push the page out of view.
+                if typeSize.isAccessibilitySize {
+                    FittingScroll { paused }
                 } else {
                     paused
                 }
@@ -183,6 +182,25 @@ struct WorkoutLiveDock: View {
     }
 }
 
+/// A vertical scroll view that is exactly as tall as its content while the content fits, and scrolls (no more than the room
+/// it is given) when it does not. While it fits, scrolling is off, so a hold or a tap inside it is never taken for a drag.
+private struct FittingScroll<Content: View>: View {
+    @ViewBuilder let content: Content
+    @State private var contentHeight: CGFloat = 0
+    @State private var viewportHeight: CGFloat = 0
+
+    var body: some View {
+        ScrollView {
+            content.onGeometryChange(for: CGFloat.self) { $0.size.height } action: { contentHeight = $0 }
+        }
+        .scrollBounceBehavior(.basedOnSize)
+        // Visible while there is more below, so a half-shown line reads as "scroll", not as cut off.
+        .scrollIndicators(.visible)
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { viewportHeight = $0 }
+        .scrollDisabled(contentHeight <= viewportHeight + 0.5)
+    }
+}
+
 /// The dock's small print: the caption role, and at the accessibility sizes a fixed, scaled size that wraps to three lines
 /// and then shrinks instead of hyphenating a word or growing the dock past the screen.
 private struct DockCaption: ViewModifier {
@@ -236,8 +254,6 @@ struct WorkoutFinishPanel: View {
     }
 
     let kind: Kind
-    /// The text above the buttons scrolls, so the buttons stay in view when the panel is taller than the room it has.
-    var scrollsText = false
     /// Try again (failed) or Keep recording (nothing to save).
     let onPrimary: () -> Void
     let onDiscard: () -> Void
@@ -245,12 +261,9 @@ struct WorkoutFinishPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: NoopMetrics.space3) {
-            if scrollsText {
-                ScrollView { messages.frame(maxWidth: .infinity, alignment: .leading) }
-                    .scrollBounceBehavior(.basedOnSize)
-            } else {
-                messages
-            }
+            // The text above the buttons scrolls if the panel is taller than the room the screen gives the dock, so the
+            // buttons stay in view. It is as tall as its text otherwise.
+            FittingScroll { messages.frame(maxWidth: .infinity, alignment: .leading) }
             let layout = typeSize.isAccessibilitySize
                 ? AnyLayout(VStackLayout(spacing: NoopMetrics.space2))
                 : AnyLayout(HStackLayout(spacing: NoopMetrics.space3))

@@ -50,59 +50,70 @@ private struct LiveWorkoutLayout: View {
     let model: AppModel
     @ObservedObject var workout: AppModel.ActiveWorkout
     let onMinimize: () -> Void
-    @Environment(\.dynamicTypeSize) private var typeSize
-
-    /// The most of the screen the dock may take at the accessibility sizes. A taller dock scrolls inside this height, so
-    /// the header and the page above it are never squeezed out and no button label is cut off.
-    private static let accessibilityDockShare: CGFloat = 0.7
 
     var body: some View {
-        GeometryReader { proxy in
+        // Three regions, top to bottom: the header and notice (as tall as they are), the dock (as tall as its buttons, never
+        // more than a share of the screen) and, between them, the page, which gets the rest and scrolls only when it does
+        // not fit. `LiveWorkoutRegions` does the arithmetic, so the dock hugs its content at every size.
+        LiveWorkoutRegions {
             VStack(spacing: 0) {
-                // The header and the notice never give up height: when the dock is tall (accessibility sizes, a long
-                // translation) it is the page between them and the dock that scrolls, not the header that gets cut.
                 LiveWorkoutHeader(model: model, workout: workout, recorder: model.gpsRecorder, onMinimize: onMinimize)
                     .screenPadding()
-                    .fixedSize(horizontal: false, vertical: true)
                 LiveNoticeSlot(model: model, workout: workout, recorder: model.gpsRecorder)
                     .screenPadding()
-                    .fixedSize(horizontal: false, vertical: true)
-                ScrollView {
-                    LiveFocusPage(workout: workout, recorder: model.gpsRecorder, profile: model.profile, live: model.live)
-                        .screenPadding()
-                        .padding(.vertical, NoopMetrics.space2)
-                }
-                .scrollBounceBehavior(.basedOnSize)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(StrandPalette.appCanvas.ignoresSafeArea())
-            // The dock stays where the thumb is; the page above it scrolls only when it does not fit (accessibility
-            // sizes, a small screen with large text).
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                dock(maxHeight: proxy.size.height * Self.accessibilityDockShare)
+            ScrollView {
+                LiveFocusPage(workout: workout, recorder: model.gpsRecorder, profile: model.profile, live: model.live)
                     .screenPadding()
-                    .padding(.top, NoopMetrics.space3)
-                    .padding(.bottom, NoopMetrics.space2)
-                    .background(StrandPalette.appCanvas.ignoresSafeArea(edges: .bottom))
-                    .overlay(alignment: .top) {
-                        Rectangle().fill(StrandPalette.hairline).frame(height: 1).accessibilityHidden(true)
-                    }
+                    .padding(.vertical, NoopMetrics.space2)
             }
+            .scrollBounceBehavior(.basedOnSize)
+            WorkoutLiveDock(model: model, workout: workout, recorder: model.gpsRecorder)
+                .screenPadding()
+                .padding(.top, NoopMetrics.space3)
+                .padding(.bottom, NoopMetrics.space2)
+                .background(StrandPalette.appCanvas.ignoresSafeArea(edges: .bottom))
+                .overlay(alignment: .top) {
+                    Rectangle().fill(StrandPalette.hairline).frame(height: 1).accessibilityHidden(true)
+                }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(StrandPalette.appCanvas.ignoresSafeArea())
         .onAppear { model.startRealtimeHR() }
         .onDisappear { model.stopRealtimeHR() }
     }
+}
 
-    @ViewBuilder private func dock(maxHeight: CGFloat) -> some View {
-        if typeSize.isAccessibilitySize {
-            ViewThatFits(in: .vertical) {
-                WorkoutLiveDock(model: model, workout: workout, recorder: model.gpsRecorder)
-                WorkoutLiveDock(model: model, workout: workout, recorder: model.gpsRecorder, overflow: true)
-            }
-            .frame(maxHeight: maxHeight)
-        } else {
-            WorkoutLiveDock(model: model, workout: workout, recorder: model.gpsRecorder)
-        }
+/// Lays the live screen out in three stacked regions: chrome, page, dock.
+///
+/// The chrome and the dock are given the height they ask for, so a dock that holds one button is one button tall and the
+/// header is never squeezed. What the dock may take has a ceiling: the page keeps `minimumPage`, enough for the focus numeral
+/// (a fixed 132 pt, whatever the text size) and its eyebrow. A taller dock (accessibility sizes, a long translation) is
+/// proposed the height that is left and scrolls its own text or buttons. The page takes everything the dock does not.
+private struct LiveWorkoutRegions: Layout {
+    /// The page's least height: the focus eyebrow, the numeral and the air round them.
+    static let minimumPage: CGFloat = 220
+    /// The dock always keeps at least this share of the height, so a very short screen still shows its buttons.
+    static let minimumDockShare: CGFloat = 0.35
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        proposal.replacingUnspecifiedDimensions()
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard subviews.count == 3 else { return }
+        let width = bounds.width
+        let chrome = subviews[0].sizeThatFits(ProposedViewSize(width: width, height: nil)).height
+        let dockWanted = subviews[2].sizeThatFits(ProposedViewSize(width: width, height: nil)).height
+        let dockCeiling = max(bounds.height - chrome - Self.minimumPage, bounds.height * Self.minimumDockShare)
+        let dock = min(dockWanted, dockCeiling)
+        let page = max(0, bounds.height - chrome - dock)
+        subviews[0].place(at: CGPoint(x: bounds.minX, y: bounds.minY), anchor: .topLeading,
+                          proposal: ProposedViewSize(width: width, height: chrome))
+        subviews[1].place(at: CGPoint(x: bounds.minX, y: bounds.minY + chrome), anchor: .topLeading,
+                          proposal: ProposedViewSize(width: width, height: page))
+        subviews[2].place(at: CGPoint(x: bounds.minX, y: bounds.maxY - dock), anchor: .topLeading,
+                          proposal: ProposedViewSize(width: width, height: dock))
     }
 }
 
