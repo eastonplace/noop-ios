@@ -900,12 +900,12 @@ struct AppleHealthView: View {
         let rows = resolvedWindow(key)
         let eff = effectiveRange(key)
         let n = rows.count
-        // Whole-phrase variants per count so translators see complete sentences (never a stitched plural).
-        if eff != range {
-            return n == 1
-                ? String(localized: "1 reading · sparse, widened to \(eff.name)")
-                : String(localized: "\(n) readings · sparse, widened to \(eff.name)")
+        // A widened window: the count (one plural key) and the whole phrase for the range it widened to, so a language can
+        // inflect both. The same pattern as the Metric Explorer's caption.
+        if eff != range, let widened = eff.widenedPhrase {
+            return "\(String(localized: "\(n) readings")) \u{00B7} \(widened)"
         }
+        // Whole-phrase variants per count so translators see complete sentences (never a stitched plural).
         return n == 1
             ? String(localized: "1 reading · \(range.name)")
             : String(localized: "\(n) readings · \(range.name)")

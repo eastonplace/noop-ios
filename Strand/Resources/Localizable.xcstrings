@@ -10861,64 +10861,6 @@
         }
       }
     },
-    "%lld readings · sparse, widened to %@": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$lld Messwerte · lückenhaft, verbreitert auf %2$@"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "new",
-            "value": "%1$lld readings · sparse, widened to %2$@"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld lecturas · dispersas, ampliadas a %@"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld mesures · données éparses, élargi à %@"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld letture · sparse, allargate a %@"
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld leituras · dispersas, alargadas a %@"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld измерений · данных мало, расширено до %@"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld 条读数 · 稀疏，已加宽至 %@"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld 筆讀數 · 稀疏，已放寬至 %@"
-          }
-        }
-      }
-    },
     "%lld readings · your own entries": {
       "localizations": {
         "de": {
@@ -15519,58 +15461,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "1 筆讀數 · %@"
-          }
-        }
-      }
-    },
-    "1 reading · sparse, widened to %@": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "1 Messwert · lückenhaft, verbreitert auf %@"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "1 lectura · dispersa, ampliada a %@"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "1 mesure · données éparses, élargi à %@"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "1 lettura · sparsa, ampliata a %@"
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "1 leitura · dispersa, alargada a %@"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "1 измерение · данных мало, расширено до %@"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "1 条读数 · 稀疏，已加宽至 %@"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "1 筆讀數 · 稀疏，已加寬至 %@"
           }
         }
       }
