@@ -1,5 +1,4 @@
 import Foundation
-import WhoopProtocol
 
 /// Curated, SAFE WHOOP command set for *sending* to the strap.
 ///
@@ -17,7 +16,7 @@ import WhoopProtocol
 ///     the correct frame is unknown, so the probe tries this alongside 29-with-payload on real 4.0
 ///     hardware to find which one actually reboots. Driven only by `BLEManager.rebootProbe(_:)`.
 /// See the "Destructive commands" note in docs/PROTOCOL.md.
-public enum WhoopCommand: UInt8, CaseIterable {
+public enum WhoopCommand: UInt8, CaseIterable, Sendable {
     case toggleRealtimeHR      = 3
     case reportVersionInfo     = 7
     case setClock              = 10
@@ -188,8 +187,33 @@ public enum WhoopCommand: UInt8, CaseIterable {
         return [0x00, 0x00] + Array(clamped.utf8) + [0x00]
     }
 
+    /// SET_CLOCK(10) payload — the 8-byte form `[seconds u32 LE][subseconds u32 LE]`, subseconds in
+    /// 1/32768 s (0 is fine). The payload LENGTH is firmware-specific and LOAD-BEARING: newer WHOOP 4
+    /// firmware latches this form, but fw 41.17.x ignores it outright — no COMMAND_RESPONSE, RTC
+    /// unchanged — and latches only the legacy 9-byte form below. A strap that misses the set keeps an
+    /// invalid RTC and stops banking sensor data to flash entirely, which surfaces as endless
+    /// console-only syncs and no sleep/recovery (#120). Send WHOOP 4 through
+    /// BLEManager.sendSetClockBothForms() so either firmware latches.
+    public static func setClockPayload(now: UInt32 = UInt32(Date().timeIntervalSince1970)) -> [UInt8] {
+        [UInt8(now & 0xFF), UInt8((now >> 8) & 0xFF),
+         UInt8((now >> 16) & 0xFF), UInt8((now >> 24) & 0xFF),
+         0, 0, 0, 0]
+    }
+
+    /// SET_CLOCK(10) payload — the legacy 9-byte form `[seconds u32 LE][5 zero]` required by WHOOP 4
+    /// fw 41.17.x, which ignores the 8-byte form. On a strap whose RTC was stuck in the past, days of
+    /// 8-byte sends drew no response; the 9-byte form was ack'd (COMMAND_RESPONSE cmd 10), the clock
+    /// latched and ticked, and the strap resumed banking history to flash (#120). On newer firmware
+    /// this form is ack'd but NOT latched, so sending it after the 8-byte form is a no-op there — both
+    /// forms carry the same seconds, so whichever one latches sets the same time.
+    public static func setClockPayloadLegacy(now: UInt32 = UInt32(Date().timeIntervalSince1970)) -> [UInt8] {
+        [UInt8(now & 0xFF), UInt8((now >> 8) & 0xFF),
+         UInt8((now >> 16) & 0xFF), UInt8((now >> 24) & 0xFF),
+         0, 0, 0, 0, 0]
+    }
+
     /// COMMAND packet type byte (PacketType.COMMAND).
-    static let commandType: UInt8 = 35
+    public static let commandType: UInt8 = 35
 
     /// Build a complete, framed COMMAND packet ready to write to char 61080002.
     ///
@@ -242,13 +266,13 @@ public enum RebootProbeVariant: String, CaseIterable, Sendable {
     /// E — opcode 29 REBOOT_STRAP, payload [0x00]: the zero-byte sub-command (vs empty vs 0x01).
     case reboot29Payload0
 
-    var command: WhoopCommand {
+    public var command: WhoopCommand {
         switch self {
         case .powerCycle32Empty, .powerCycle32Payload1: return .powerCycleStrap
         default:                                         return .rebootStrap
         }
     }
-    var payload: [UInt8] {
+    public var payload: [UInt8] {
         switch self {
         case .reboot29Payload1, .powerCycle32Payload1: return [0x01]
         case .reboot29Payload0:                        return [0x00]

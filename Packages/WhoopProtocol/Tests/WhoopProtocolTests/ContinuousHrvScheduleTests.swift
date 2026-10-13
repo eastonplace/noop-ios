@@ -1,5 +1,5 @@
 import XCTest
-@testable import Strand
+import WhoopProtocol
 
 /// Pins the #927 Continuous HRV "overnight only" window predicate (`ContinuousHrvSchedule`).
 ///

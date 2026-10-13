@@ -5,9 +5,12 @@ import Foundation
 /// so every surface tells the same story.
 enum AppChangelog {
 
-    /// Bump this when you add a release below. The "What's New" sheet shows automatically when the
-    /// stored last-seen version is behind this. (Decoupled from the bundle version on purpose.)
-    static let currentVersion = "9.0.1"
+    /// The running build's version. The "What's New" sheet shows automatically when the stored last-seen
+    /// version is behind this. CORE-09: read from `CFBundleShortVersionString` (project.yml's
+    /// MARKETING_VERSION) instead of a third hand-maintained copy that drifted; the literal is only the
+    /// fallback outside an app bundle. Add the matching entry to `releases` when the version changes.
+    static let currentVersion: String =
+        (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "9.0.1"
 
     struct Release: Identifiable {
         let version: String

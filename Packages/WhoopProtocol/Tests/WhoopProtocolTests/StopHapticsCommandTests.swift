@@ -1,5 +1,4 @@
 import XCTest
-@testable import Strand
 import WhoopProtocol
 
 /// #769: the Breathe / biofeedback teardown clears an in-progress strap haptic pattern with STOP_HAPTICS

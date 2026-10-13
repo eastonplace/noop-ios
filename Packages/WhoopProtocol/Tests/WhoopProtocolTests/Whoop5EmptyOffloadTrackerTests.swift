@@ -1,5 +1,5 @@
 import XCTest
-@testable import Strand
+import WhoopProtocol
 
 /// Pins the #580 fix: a connected WHOOP 5/MG whose firmware acks SEND_HISTORICAL_DATA but emits ZERO
 /// type-0x2F offload frames. Live HR streams fine over 0x2A37, but every offload times out — and the old

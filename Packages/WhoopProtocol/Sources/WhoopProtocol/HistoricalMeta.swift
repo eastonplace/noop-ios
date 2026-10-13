@@ -17,6 +17,20 @@ public enum HistoricalMeta: Equatable {
 ///   (byte offset 6, u8, MetadataType enum, cat="meta" → stored in parsed dict by FieldBuilder)
 /// - For HISTORY_END the metadata post-hook additionally stores in p.parsed:
 ///   `"unix"` → `.int(unix_seconds)` and `"trim_cursor"` → `.int(trim_value)`
+/// BLE-2: classify a raw history frame, paying for a full `parseFrame` only when its type byte says it
+/// is METADATA (type 49, or the 5/MG alias). Every other frame — the thousands of type-47 records of an
+/// offload — is `.other` by definition, so skipping their parse is byte-identical to classifying the full
+/// parse (`frameTypeName` mirrors `parseFrame`'s family split and type lookup exactly). `parse` is the
+/// injection seam for counting tests.
+public func classifyHistoricalMeta(
+    frame: [UInt8],
+    family: DeviceFamily,
+    parse: ([UInt8], DeviceFamily) -> ParsedFrame = { parseFrame($0, family: $1) }
+) -> HistoricalMeta {
+    guard frameTypeName(frame, family: family) == "METADATA" else { return .other }
+    return classifyHistoricalMeta(parse(frame, family))
+}
+
 public func classifyHistoricalMeta(_ p: ParsedFrame) -> HistoricalMeta {
     // Integrity gate: only act on a complete, fully checksum-verified envelope. A forged or truncated
     // END/COMPLETE must never advance the durable cursor or make the strap discard history.

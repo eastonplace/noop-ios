@@ -48,7 +48,12 @@ protocol details these tools exercise.
 
 ## Setup (first time)
 
-Step by step from a fresh machine. Run these from inside this directory (`tools/linux-capture/`).
+Step by step from a fresh machine. Run these from inside this directory (`Tools/linux-capture/`).
+
+> **Moved from `tools/linux-capture/`.** On a case-sensitive (Linux) checkout made before the move, the old
+> lowercase directory can still hold your `.venv` and `captures/*.db` (which carry the strap serial, session
+> token and MAC). The root `.gitignore` covers both spellings, but move those files here or delete the old
+> directory.
 
 ```bash
 # 1. System packages: Python venv support + BlueZ (Debian/Ubuntu/Pop!_OS)

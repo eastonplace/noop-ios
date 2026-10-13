@@ -93,20 +93,24 @@ struct LiftPersistenceGenerationTests {
     #expect(persisted.sessions.first?.id == finished?.id)
   }
 
-  @Test func logSetMutationReturnsUnder100Milliseconds() async throws {
+  /// ORG-8: this used to assert logSet returned in under 100 ms of wall-clock time, which failed at random
+  /// on a loaded, parallel Debug run. What it guards is that logSet never writes synchronously, so it now
+  /// counts writes instead: none during logSet, exactly one once the pending save is flushed.
+  @Test func logSetMutationDoesNotWriteSynchronously() async throws {
     let fixture = try makeFixture()
     defer { try? FileManager.default.removeItem(at: fixture.directory) }
     let store = LiftStore(dataURL: fixture.dataURL, saveDebounceInterval: 10)
     await store.loadAndWait()
     let exercise = try #require(store.exercises.first)
     store.startRoutine(nil)
+    let baselineWrites = store.persistenceWriteCount
 
-    let elapsed = ContinuousClock().measure {
-      store.logSet(exercise: exercise, weight: 100, reps: 8, rpe: 8, isWarmup: false)
-    }
+    store.logSet(exercise: exercise, weight: 100, reps: 8, rpe: 8, isWarmup: false)
+    #expect(store.persistenceWriteCount == baselineWrites)
+
     store.flushPendingSave()
-
-    #expect(elapsed < .milliseconds(100))
+    await store.waitForScheduledWrites()
+    #expect(store.persistenceWriteCount == baselineWrites + 1)
   }
 
   private func makeFixture() throws -> GenerationFixture {

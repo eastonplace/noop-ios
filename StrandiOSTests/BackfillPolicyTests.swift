@@ -2,6 +2,7 @@ import XCTest
 import CoreBluetooth
 @testable import NOOP
 import NoopPhase34Core
+import WhoopProtocol
 import WhoopStore
 
 @MainActor
@@ -234,14 +235,15 @@ final class BackfillPolicyTests: XCTestCase {
                 family: .whoop5,
                 intentional: false,
                 state: state,
-                hasSessionID: true))
+                hasSessionID: true,
+                helloHeld: false))
         }
         XCTAssertFalse(BLEManager.shouldRecordWhoop5PreSecureDisconnect(
-            family: .whoop5, intentional: true, state: .standardOnly, hasSessionID: true))
+            family: .whoop5, intentional: true, state: .standardOnly, hasSessionID: true, helloHeld: false))
         XCTAssertFalse(BLEManager.shouldRecordWhoop5PreSecureDisconnect(
-            family: .whoop5, intentional: false, state: .secureReady, hasSessionID: true))
+            family: .whoop5, intentional: false, state: .secureReady, hasSessionID: true, helloHeld: false))
         XCTAssertFalse(BLEManager.shouldRecordWhoop5PreSecureDisconnect(
-            family: .whoop4, intentional: false, state: .standardOnly, hasSessionID: true))
+            family: .whoop4, intentional: false, state: .standardOnly, hasSessionID: true, helloHeld: false))
     }
 
     func testSixWhoopFiveClientHelloRefusalsKeepTheFullSecureRetrySchedule() {
@@ -723,14 +725,19 @@ final class BackfillPolicyTests: XCTestCase {
         XCTAssertEqual(passes.productivePasses, 1)
     }
 
-    func testDisconnectContributesToAdaptiveBackoff() {
+    /// BLE-7: an interrupted offload is a transport failure, not an empty attempt. It never stretches the
+    /// adaptive backoff; it climbs the bounded interrupted-resume ladder instead.
+    func testDisconnectCountsAsInterruptionNotEmptyBackoff() {
         var tracker = HistoricalEmptyBackoffTracker()
         tracker.recordDisconnect(inFlight: true, freshProgress: false)
-        XCTAssertEqual(tracker.consecutiveEmpty, 1)
+        XCTAssertEqual(tracker.consecutiveEmpty, 0)
+        XCTAssertEqual(tracker.interruptedSessions, 1)
         tracker.recordDisconnect(inFlight: true, freshProgress: true)
         XCTAssertEqual(tracker.consecutiveEmpty, 0)
+        XCTAssertEqual(tracker.interruptedSessions, 1)
         tracker.recordDisconnect(inFlight: false, freshProgress: false)
         XCTAssertEqual(tracker.consecutiveEmpty, 0)
+        XCTAssertEqual(tracker.interruptedSessions, 1)
     }
 
     func testSourceFrontierExcludesOtherDatabaseLineageEpochAndTrimScope() {

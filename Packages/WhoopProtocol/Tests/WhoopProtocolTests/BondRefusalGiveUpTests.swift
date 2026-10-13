@@ -1,5 +1,5 @@
 import XCTest
-@testable import Strand
+import WhoopProtocol
 
 /// Pins the #747 / #750 bond-refusal give-up: a strap that keeps REFUSING the encrypted bond
 /// ("Encryption/Authentication is insufficient", no genuine bond between) eventually trips a give-up that

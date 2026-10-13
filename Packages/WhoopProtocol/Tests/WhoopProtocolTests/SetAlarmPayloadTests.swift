@@ -1,5 +1,5 @@
 import XCTest
-@testable import Strand
+import WhoopProtocol
 
 /// Pins the WHOOP 4.0 SET_ALARM_TIME (cmd 66) payload byte-for-byte.
 ///

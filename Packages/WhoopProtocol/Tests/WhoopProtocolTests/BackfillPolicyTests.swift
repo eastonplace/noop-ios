@@ -1,8 +1,10 @@
 import XCTest
-@testable import Strand
+import WhoopProtocol
 
-/// `BackfillPolicy` rate-limiter. Empty-history warnings remain user-visible, but cadence only changes
-/// when explicit Power Saving is active so normal automatic syncs stay predictable.
+/// `BackfillPolicy` rate-limiter. Ported from the uncompiled StrandTests folder (ORG-1). Two of its
+/// assertions predated the empty-attempt backoff and pinned behaviour the policy no longer has (a strap
+/// prompt, foreground or low-power timer ignoring the empty streak); they now pin the current, deliberate
+/// behaviour.
 final class BackfillPolicyTests: XCTestCase {
     private let fe = BackfillPolicy.eventFloorSeconds      // 90
     private let fp = BackfillPolicy.periodicFloorSeconds   // 900
@@ -31,24 +33,34 @@ final class BackfillPolicyTests: XCTestCase {
         XCTAssertTrue (BackfillPolicy.shouldRun(trigger: .periodic, now: 10000, lastBackfillAt: 10000 - fp))
     }
 
-    func testEmptyStreakDoesNotDelayDefaultStrapCadence() {
+    /// With no empty streak a strap prompt only waits the event floor; after empty attempts it joins the
+    /// adaptive periodic backoff, so a chatty strap cannot keep re-kicking empty offloads.
+    func testEmptyStreakMovesStrapPromptOntoThePeriodicBackoff() {
         let last = 1000.0 - 200
         XCTAssertTrue (BackfillPolicy.shouldRun(trigger: .strap, now: 1000, lastBackfillAt: last, emptyStreak: 0))
-        XCTAssertTrue (BackfillPolicy.shouldRun(trigger: .strap, now: 1000, lastBackfillAt: last, emptyStreak: 5))
+        XCTAssertFalse(BackfillPolicy.shouldRun(trigger: .strap, now: 1000, lastBackfillAt: last, emptyStreak: 5))
     }
 
     func testLowPowerPeriodicFloorIsTheSchedulerInterval() {
         XCTAssertEqual(BackfillPolicy.periodicFloorSeconds(powerSaving: true), 2_700)
         XCTAssertFalse(BackfillPolicy.shouldRun(trigger: .periodic, now: 2_699, lastBackfillAt: 0,
-                                                emptyStreak: 99, powerSaving: true))
+                                                emptyStreak: 0, powerSaving: true))
         XCTAssertTrue(BackfillPolicy.shouldRun(trigger: .periodic, now: 2_700, lastBackfillAt: 0,
+                                               emptyStreak: 0, powerSaving: true))
+        // After empty attempts low power joins the same 60-minute ceiling as normal power.
+        XCTAssertFalse(BackfillPolicy.shouldRun(trigger: .periodic, now: 3_599, lastBackfillAt: 0,
+                                                emptyStreak: 99, powerSaving: true))
+        XCTAssertTrue(BackfillPolicy.shouldRun(trigger: .periodic, now: 3_600, lastBackfillAt: 0,
                                                emptyStreak: 99, powerSaving: true))
     }
 
-    func testBackoffNeverDelaysConnectOrForeground() {
+    /// The per-connection pass is never stretched by the empty backoff; a foreground kick is, once the
+    /// strap has handed back empty attempts.
+    func testBackoffNeverDelaysConnectButDoesDelayForeground() {
         let last = 1000 - fe   // exactly at the baseline event floor
         XCTAssertTrue(BackfillPolicy.shouldRun(trigger: .connect, now: 1000, lastBackfillAt: last, emptyStreak: 99))
-        XCTAssertTrue(BackfillPolicy.shouldRun(trigger: .foreground, now: 1000, lastBackfillAt: last, emptyStreak: 99))
+        XCTAssertTrue(BackfillPolicy.shouldRun(trigger: .foreground, now: 1000, lastBackfillAt: last, emptyStreak: 0))
+        XCTAssertFalse(BackfillPolicy.shouldRun(trigger: .foreground, now: 1000, lastBackfillAt: last, emptyStreak: 99))
     }
 
     // MARK: - #160: future-dated clock backoff

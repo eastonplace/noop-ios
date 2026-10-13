@@ -141,6 +141,7 @@ targets:
       - package: CoachPresentation
       - package: MarkdownUI
       - package: ZIPFoundation
+      - package: GRDB
       - target: NOOPiOSWidgets
 
   NOOPiOSWidgets:
@@ -227,7 +228,7 @@ targets:
     platform: iOS
     deploymentTarget: "17.0"
     sources:
-      - tools/LiftPreviewApp
+      - Tools/LiftPreviewApp
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.eastonplace.noop.liftpreview
