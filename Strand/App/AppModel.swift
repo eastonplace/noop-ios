@@ -316,6 +316,10 @@ final class AppModel: ObservableObject {
         didSet { if !gpsHadTerminatedGap { gpsGapRestoredAt = nil; gpsGapNoticeShownAt = nil } }
     }
     private var applicationIsActive = true
+    /// Whether UIApplication reports the app in the background. A property so a test can stand in for it: a
+    /// unit-test host is always active.
+    var isGenuinelyBackground: @MainActor () -> Bool = { RescoreBackgroundPolicy.isGenuinelyBackground }
+    var isLowPowerModeEnabled: @MainActor () -> Bool = { ProcessInfo.processInfo.isLowPowerModeEnabled }
     /// The one in-flight v3/settle rescore grant a background edge may start; cancelled on foreground return.
     private let effortRescoreGrant = EffortRescoreGrant()
     /// The body-clock estimate's 14-day hourly HR profile cache (see `CircadianInputsCache`). Anything that changes the heart rate it covers without moving the newest
@@ -2750,9 +2754,14 @@ final class AppModel: ObservableObject {
     /// the processing task skips it: it has no screen), the app not active, and no import, strap backfill or
     /// workout in progress.
     private func effortRescoreMayRun(requiresFirstPaint: Bool) -> Bool {
-        repo.loaded
+        // `applicationIsActive` only changes on a scene-phase edge, and a process iOS launches in the background (the
+        // rescore processing task, Bluetooth restoration) gets none: it keeps its initial `true`. The scene-edge
+        // grant is started by such an edge. The processing-task path has none, so UIApplication's own state decides
+        // for it as well. The flag's initial value stays: full-history repair admission and the live-strain poll read it.
+        let notActive = !applicationIsActive || (!requiresFirstPaint && isGenuinelyBackground())
+        return repo.loaded
             && (!requiresFirstPaint || repo.todayHealthSnapshot != nil)
-            && !applicationIsActive
+            && notActive
             && !hasActiveImport
             && !live.backfilling
             && !hasActiveWorkoutSession
@@ -2760,7 +2769,7 @@ final class AppModel: ObservableObject {
 
     private func startEffortRescoreGrant(requiresFirstPaint: Bool) {
         effortRescoreGrant.start(
-            isBackground: { RescoreBackgroundPolicy.isGenuinelyBackground },
+            isBackground: { [weak self] in self?.isGenuinelyBackground() ?? false },
             mayRun: { [weak self] in self?.effortRescoreMayRun(requiresFirstPaint: requiresFirstPaint) ?? false },
             run: { [weak self] shouldPause in
                 await self?.intelligence.runEffortRescoreIfNeeded(shouldPause: shouldPause)
@@ -2778,7 +2787,7 @@ final class AppModel: ObservableObject {
     /// and a scene-edge grant already running is joined, never doubled). Expiry cancels the waiting worker, which
     /// cancels the grant; a chunk that was cut off leaves its durable cursor where it was. Low Power Mode skips it.
     func runEffortRescoreForBackgroundTask(maxChunks: Int = 4) async {
-        guard !ProcessInfo.processInfo.isLowPowerModeEnabled else { return }
+        guard !isLowPowerModeEnabled() else { return }
         for _ in 0..<maxChunks {
             guard !Task.isCancelled, effortRescoreMayRun(requiresFirstPaint: false),
                   await intelligence.effortRescoreIsPending() else { return }
