@@ -409,6 +409,57 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
         }
     }
 
+    /// Review round 4 (4): computed rows the wearable fold wrote stay out of the strap baseline after the import
+    /// is re-imported with different values. The fold marks the rows it writes; a row from before the marker
+    /// is a fold copy when no strap recorded heart rate that night, and that classification is persisted.
+    /// Matching a row to its import by exact vitals let every fold copy into the strap baseline once a
+    /// re-import changed the import's values.
+    func testFoldRowsStayOutOfTheStrapBaselineAfterAReimportChangesTheirValues() async throws {
+        try await withRecalibrationEpochsRestored {
+            let days = 36
+            let harness = try await makeHarness(days: days, strapDays: 30..<days)
+            let ouraDays = (0..<30).map { dayKey($0) }
+            func ouraRows(hrvShift: Double) -> [DailyMetric] {
+                (0..<30).map { k in
+                    DailyMetric(day: ouraDays[k], totalSleepMin: 450, efficiency: 0.9, deepMin: 80, remMin: 100,
+                                lightMin: 270, disturbances: nil, restingHr: 50,
+                                avgHrv: 130 + Double(k % 3) + hrvShift,
+                                recovery: nil, strain: nil, exerciseCount: nil)
+                }
+            }
+            _ = try await harness.store.upsertDailyMetrics(ouraRows(hrvShift: 0), deviceId: "oura-import")
+            // Days 0-15: copies an earlier build's fold wrote under the computed id, with no marker.
+            _ = try await harness.store.upsertDailyMetrics(
+                ouraRows(hrvShift: 0).prefix(16).map { $0.with(recovery: 60, skinTempDevC: nil) },
+                deviceId: harness.computedId)
+            // Days 16-35: the fold writes the Oura days and the strap scores days 30-35.
+            let first = await pass(harness, maxDays: 20)
+            XCTAssertTrue(first)
+
+            _ = try await harness.store.upsertDailyMetrics(ouraRows(hrvShift: 7), deviceId: "oura-import")
+            let second = await pass(harness, maxDays: 6)
+            XCTAssertTrue(second)
+            let after = try await stored(harness)
+            XCTAssertNotNil(after[dayKey(30)]?.avgHrv, "the first strap night is scored")
+            XCTAssertNil(after[dayKey(30)]?.recovery, "with no strap history its Charge is still calibrating")
+
+            let markers = try await harness.store.metricSeries(
+                deviceId: harness.computedId, key: IntelligenceEngine.computedRowSourceMetricKey,
+                from: "0000-01-01", to: "9999-12-31")
+            let markerByDay = Dictionary(markers.map { ($0.day, $0.value) }, uniquingKeysWith: { a, _ in a })
+            for k in 0..<16 {
+                XCTAssertEqual(markerByDay[dayKey(k)], IntelligenceEngine.wearableFoldRowSource, "legacy day \(k)")
+            }
+            for k in 16..<30 where after[dayKey(k)] != nil {
+                XCTAssertEqual(markerByDay[dayKey(k)], IntelligenceEngine.wearableFoldRowSource, "fold day \(k)")
+            }
+            XCTAssertNotNil(after[dayKey(29)], "the fold wrote the Oura days in its window")
+            for k in 30..<days {
+                XCTAssertEqual(markerByDay[dayKey(k)], IntelligenceEngine.strapRowSource, "strap day \(k)")
+            }
+        }
+    }
+
     // MARK: - F8
 
     /// A watch-only user's Apple-scored days stay in the pass results, so Smart Alarm's green wake mode and

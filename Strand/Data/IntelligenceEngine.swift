@@ -240,6 +240,16 @@ final class IntelligenceEngine: ObservableObject {
     /// run, and a strap swap stays continuous instead of reading the old strap's nights on the new offset.
     nonisolated static let nightlySkinWhoop4RawKeyPrefix = "skin_temp_night_raw_whoop4."
     nonisolated static let nightlySkinWhoop4AnchorKeyPrefix = "skin_temp_night_anchor_whoop4."
+    /// Review round 4 (4): who wrote each computed row, persisted beside it for every day the pass reconciles:
+    /// `strapRowSource` for a night the raw-HR loop scored, `wearableFoldRowSource` for a wearable import's
+    /// row the fold copied in with its Charge. Fold copies carry the import's vitals and stay out of the
+    /// strap baselines however the import's values change on a re-import.
+    nonisolated static let computedRowSourceMetricKey = "computed_row_source"
+    nonisolated static let strapRowSource = 1.0
+    nonisolated static let wearableFoldRowSource = 2.0
+    /// A legacy unmarked row is a strap night when a strap recorded at least this many heart-rate rows in its
+    /// night window (an hour at the slowest 30 s cadence; a worn night records thousands).
+    nonisolated static let legacyStrapNightMinHrRows = 120
 
     private var dayScanCache: [String: CachedDayScan] = [:]
     private var dayScanCacheConfigSignature = ""
@@ -1611,12 +1621,44 @@ final class IntelligenceEngine: ObservableObject {
                 return false
             }
         }
-        // Review round 3 (A): only the rows the fold wrote are left out. The fold never writes on a day the strap
-        // scored, so a computed row on a day an import also covers is still the strap's own night.
-        let wearableRowsByDay = Dictionary(grouping: wearableRowsBySource.values.joined(), by: \.day)
-        let strapComputedHist = computedHist.filter {
-            !Self.isWearableFoldRow($0, importRows: wearableRowsByDay[$0.day] ?? [])
+        // Review round 4 (4): only the rows the fold wrote are left out, by the marker each pass persists beside
+        // its rows. A row from before the marker is classified once and the result persisted: it is a strap
+        // night if a strap recorded heart rate during that night, and otherwise, on a day a wearable import
+        // with vitals covers, the fold's copy. The fold never writes on a day the strap scored.
+        var rowSourceByDay: [String: Double]
+        do {
+            let marked = try await store.metricSeries(
+                deviceId: computedId, key: Self.computedRowSourceMetricKey, from: "0000-01-01", to: "9999-12-31")
+            rowSourceByDay = Dictionary(marked.map { ($0.day, $0.value) }, uniquingKeysWith: { a, _ in a })
+            let importVitalsDays = Set(wearableRowsBySource.values.joined().compactMap { row in
+                row.avgHrv != nil || row.restingHr != nil || row.respRateBpm != nil ? row.day : nil
+            })
+            let strapIds = Set([deviceId, regActiveId] + regDevices.compactMap { device in
+                device.status != .archived && !device.isImportSource && device.sourceKind != .activityFile
+                    ? device.id : nil
+            }).sorted()
+            var legacyPoints: [MetricPoint] = []
+            for row in computedHist where rowSourceByDay[row.day] == nil && importVitalsDays.contains(row.day) {
+                guard let dayStart = Self.civilDayStart(row.day, calendar: analysisCalendar) else { continue }
+                var strapNight = false
+                for id in strapIds where !strapNight {
+                    let rows = try await store.hrFingerprint(
+                        deviceId: id, from: dayStart - 6 * 3_600, to: dayStart + 12 * 3_600)
+                    strapNight = rows.count >= Self.legacyStrapNightMinHrRows
+                }
+                let source = strapNight ? Self.strapRowSource : Self.wearableFoldRowSource
+                rowSourceByDay[row.day] = source
+                legacyPoints.append(MetricPoint(day: row.day, key: Self.computedRowSourceMetricKey, value: source))
+            }
+            if !legacyPoints.isEmpty {
+                _ = try await store.upsertMetricSeries(legacyPoints, deviceId: computedId)
+            }
+        } catch {
+            note = String(localized: "Recovery analysis is waiting for the local database.")
+            NSLog("IntelligenceEngine: computed row provenance read failed: \(error)")
+            return false
         }
+        let strapComputedHist = computedHist.filter { rowSourceByDay[$0.day] != Self.wearableFoldRowSource }
         Self.mergeNightlyIntoHistory(
             &histHrvByDay,
             Dictionary(strapComputedHist.map { ($0.day, $0.avgHrv) }, uniquingKeysWith: { a, _ in a }))
@@ -2120,6 +2162,7 @@ final class IntelligenceEngine: ObservableObject {
         // already scored this pass (`dailies`) or owned by a WHOOP/Apple import. The window matches the
         // computed reconcile below, so the fold's rows survive the stale-row eviction.
         var importScoredDays = Set(dailies.map { $0.day }).union(importedWhoopDays).union(appleHealthDays)
+        var wearableFoldDays = Set<String>()
         for source in Repository.wearableImportSources {
             // DL-04: the baseline reads the source's whole history up to the window's end (read once above);
             // only days inside the window are scored and written below. A window-only read starved the
@@ -2133,6 +2176,7 @@ final class IntelligenceEngine: ObservableObject {
                 let scored = row.with(recovery: recovery, skinTempDevC: row.skinTempDevC)
                 dailies.append(scored)
                 importScoredDays.insert(w.day)
+                wearableFoldDays.insert(w.day)
                 if let rest = AnalyticsEngine.Rest.composite(daily: scored) {
                     restPoints.append(MetricPoint(day: w.day, key: "sleep_performance", value: rest))
                 }
@@ -2266,6 +2310,20 @@ final class IntelligenceEngine: ObservableObject {
                 from: oldestDay,
                 to: newestDay,
                 protectedDays: protectedDailyDays
+            )
+            // Review round 4 (4): the provenance marker covers exactly the rows reconciled above.
+            let rowSourcePoints = Dictionary(reconciledDailies.compactMap { row -> (String, MetricPoint)? in
+                guard row.day >= oldestDay, row.day <= newestDay else { return nil }
+                return (row.day, MetricPoint(
+                    day: row.day, key: Self.computedRowSourceMetricKey,
+                    value: wearableFoldDays.contains(row.day) ? Self.wearableFoldRowSource : Self.strapRowSource))
+            }, uniquingKeysWith: { _, last in last })
+            persistedMutationCount += try await store.reconcileMetricSeries(
+                Array(rowSourcePoints.values),
+                deviceId: computedId,
+                keys: [Self.computedRowSourceMetricKey],
+                from: oldestDay,
+                to: newestDay
             )
         } catch {
             note = String(localized: "Recovery history could not be reconciled. NOOP will retry.")
@@ -2877,15 +2935,13 @@ final class IntelligenceEngine: ObservableObject {
         return DayOwnerResolver.resolve(day: day, lockedOwner: nil, candidates: candidates) ?? fallbackDeviceId
     }
 
-    /// Whether a computed row is one the wearable fold wrote (review round 3, A): that day's import row copied
-    /// with the Charge the fold added, so its HRV, resting HR and respiration are the import's. A strap night
-    /// never matches an import's vitals exactly, and a steps-only import row (no vitals) is never folded.
-    nonisolated static func isWearableFoldRow(_ computed: DailyMetric, importRows: [DailyMetric]) -> Bool {
-        importRows.contains { row in
-            (row.avgHrv != nil || row.restingHr != nil || row.respRateBpm != nil)
-                && row.avgHrv == computed.avgHrv && row.restingHr == computed.restingHr
-                && row.respRateBpm == computed.respRateBpm
-        }
+    /// The start of civil day `day` ("yyyy-MM-dd") in `calendar`'s time zone.
+    nonisolated static func civilDayStart(_ day: String, calendar: Calendar) -> Int? {
+        let parts = day.split(separator: "-").compactMap { Int($0) }
+        guard parts.count == 3,
+              let date = calendar.date(from: DateComponents(year: parts[0], month: parts[1], day: parts[2]))
+        else { return nil }
+        return Int(date.timeIntervalSince1970)
     }
 
     /// A WHOOP 4.0 nightly mean (°C under `anchorRaw`) as the raw register value it maps from (review round 3, B).
