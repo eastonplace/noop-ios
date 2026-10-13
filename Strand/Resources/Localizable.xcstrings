@@ -79768,6 +79768,110 @@
         }
       }
     },
+    "Much faster": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deutlich schneller"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mucho más rápido"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Molto più veloce"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Muito mais rápido"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "快得多"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "快得多"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beaucoup plus rapide"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Намного быстрее"
+          }
+        }
+      }
+    },
+    "Much slower": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deutlich langsamer"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mucho más lento"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Molto più lento"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Muito mais lento"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "慢得多"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "慢得多"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beaucoup plus lent"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Намного медленнее"
+          }
+        }
+      }
+    },
     "Muscle": {
       "localizations": {
         "de": {
@@ -160105,6 +160209,110 @@
           "stringUnit": {
             "state": "translated",
             "value": "你近期的體能年齡趨勢比典型情況變化得更快。"
+          }
+        }
+      }
+    },
+    "Your recent Fitness Age trend is moving much faster than typical.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dein Fitnessalter-Trend verläuft zuletzt deutlich schneller als typisch."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La tendencia reciente de tu Edad fitness avanza mucho más rápido de lo habitual."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L'andamento recente della tua Età fitness procede molto più velocemente del normale."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A tendência recente da tua Idade fitness avança muito mais depressa do que o habitual."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你近期的体能年龄趋势比典型情况变化得快得多。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你近期的體能年齡趨勢比典型情況變化得快得多。"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ta tendance récente d'Âge fitness évolue beaucoup plus vite que la normale."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Твой недавний тренд фитнес-возраста меняется намного быстрее обычного."
+          }
+        }
+      }
+    },
+    "Your recent Fitness Age trend is moving much slower than typical.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dein Fitnessalter-Trend verläuft zuletzt deutlich langsamer als typisch."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La tendencia reciente de tu Edad fitness avanza mucho más despacio de lo habitual."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L'andamento recente della tua Età fitness procede molto più lentamente del normale."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A tendência recente da tua Idade fitness avança muito mais devagar do que o habitual."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你近期的体能年龄趋势比典型情况变化得慢得多。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你近期的體能年齡趨勢比典型情況變化得慢得多。"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ta tendance récente d'Âge fitness évolue beaucoup plus lentement que la normale."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Твой недавний тренд фитнес-возраста меняется намного медленнее обычного."
           }
         }
       }

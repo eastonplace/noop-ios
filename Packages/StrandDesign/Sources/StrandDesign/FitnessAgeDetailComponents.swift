@@ -114,7 +114,27 @@ public struct FitnessAgeRail: View {
 
 /// How fast the Fitness Age is moving against a calendar year: a scale from slower to faster with 1.0x at its middle, the
 /// pace as a dot, and a sentence on what it means. With too little history it says "Calibrating" and what it needs.
+///
+/// The pace is the slope of the weekly Fitness Ages in years per calendar year, fitted over a window that may be only a
+/// few months, so a steep stretch annualises to a number nobody can act on (8 years in under 4 months is "-29.2×").
+/// Beyond `displayLimit` either way the row says "Much slower" or "Much faster" than typical instead of printing it.
 public struct FitnessAgePaceRow: View {
+    /// Where the number gives way to words: a pace beyond ±3× is not a reading a person can use.
+    public static let displayLimit: Double = 3
+
+    /// How a pace reads against 1.0× ("typical"), with the extremes named instead of quoted.
+    public enum Band: Equatable, Sendable {
+        case muchSlower, slower, typical, faster, muchFaster
+
+        public init(pace: Double, limit: Double = FitnessAgePaceRow.displayLimit) {
+            if pace < -limit { self = .muchSlower }
+            else if pace > limit { self = .muchFaster }
+            else if pace < 0.97 { self = .slower }
+            else if pace > 1.03 { self = .faster }
+            else { self = .typical }
+        }
+    }
+
     public let pace: Double?
     @Environment(\.dynamicTypeSize) private var typeSize
 
@@ -133,11 +153,21 @@ public struct FitnessAgePaceRow: View {
         .accessibilityElement(children: .combine)
     }
 
+    private var band: Band? { pace.map { Band(pace: $0) } }
+
+    private var valueString: String {
+        switch band {
+        case nil: String(localized: "Calibrating")
+        case .muchSlower?: String(localized: "Much slower")
+        case .muchFaster?: String(localized: "Much faster")
+        default: (pace ?? 0).formatted(.number.precision(.fractionLength(1))) + "×"
+        }
+    }
+
     private var valueText: some View {
-        Text(verbatim: pace.map { $0.formatted(.number.precision(.fractionLength(1))) + "×" }
-                ?? String(localized: "Calibrating"))
+        Text(verbatim: valueString)
             .font(StrandFont.captionNumber).foregroundStyle(tint)
-            .lineLimit(1)
+            .lineLimit(typeSize.isAccessibilitySize ? 2 : 1)
     }
 
     private var scale: some View {
@@ -175,17 +205,23 @@ public struct FitnessAgePaceRow: View {
     }
 
     private var tint: Color {
-        guard let pace else { return StrandPalette.textTertiary }
-        if pace < 0.97 { return StrandPalette.statusPositive }
-        if pace > 1.03 { return StrandPalette.metricRose }
-        return StrandPalette.textSecondary
+        switch band {
+        case nil: StrandPalette.textTertiary
+        case .muchSlower?, .slower?: StrandPalette.statusPositive
+        case .muchFaster?, .faster?: StrandPalette.metricRose
+        case .typical?: StrandPalette.textSecondary
+        }
     }
 
     private var caption: String {
-        guard let pace else { return String(localized: "Needs 12 weekly readings spanning at least 90 days.") }
-        if pace < 0.97 { return String(localized: "Your recent Fitness Age trend is moving slower than typical.") }
-        if pace > 1.03 { return String(localized: "Your recent Fitness Age trend is moving faster than typical.") }
-        return String(localized: "Right at a typical pace.")
+        switch band {
+        case nil: String(localized: "Needs 12 weekly readings spanning at least 90 days.")
+        case .muchSlower?: String(localized: "Your recent Fitness Age trend is moving much slower than typical.")
+        case .slower?: String(localized: "Your recent Fitness Age trend is moving slower than typical.")
+        case .muchFaster?: String(localized: "Your recent Fitness Age trend is moving much faster than typical.")
+        case .faster?: String(localized: "Your recent Fitness Age trend is moving faster than typical.")
+        case .typical?: String(localized: "Right at a typical pace.")
+        }
     }
 }
 
