@@ -27,4 +27,21 @@ final class BodyClockCopyTests: XCTestCase {
                        "About in sync with your schedule")
         XCTAssertEqual(BodyClockCard.offsetTitle(offsetMinutes: 300, unreadable: true), "Hard to read right now")
     }
+
+    func testTheSectionLeadsWithTheOffsetAsAValueAndADirectionWord() throws {
+        let earlier = try XCTUnwrap(BodyClockCard.offsetValue(offsetMinutes: -194, unreadable: false))
+        XCTAssertEqual(earlier.value, "3 h 14 min")
+        XCTAssertEqual(earlier.unit, "earlier")
+        let later = try XCTUnwrap(BodyClockCard.offsetValue(offsetMinutes: 25, unreadable: false))
+        XCTAssertEqual(later.value, "25 min")
+        XCTAssertEqual(later.unit, "later")
+        // 59.6 rounds to an hour, like the sentence.
+        XCTAssertEqual(try XCTUnwrap(BodyClockCard.offsetValue(offsetMinutes: 59.6, unreadable: false)).value, "1 h")
+    }
+
+    func testNoNumberToLeadWithWhenInSyncOrUnreadable() {
+        XCTAssertNil(BodyClockCard.offsetValue(offsetMinutes: 20, unreadable: false))
+        XCTAssertNil(BodyClockCard.offsetValue(offsetMinutes: -5, unreadable: false))
+        XCTAssertNil(BodyClockCard.offsetValue(offsetMinutes: 300, unreadable: true))
+    }
 }

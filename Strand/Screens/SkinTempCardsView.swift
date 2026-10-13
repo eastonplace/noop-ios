@@ -331,10 +331,21 @@ struct BodyClockCard: View {
                     .foregroundStyle(StrandPalette.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
 
-                Text(verbatim: offsetTitle)
-                    .font(StrandFont.title2)
-                    .foregroundStyle(StrandPalette.textPrimary)
-                    .fixedSize(horizontal: false, vertical: true)
+                // A section leads with a value: "3 h 13 min" bright, "earlier" muted beside it, as every metric here
+                // does, then the sentence in body text. With no number to lead with ("about in sync", "hard to read")
+                // the headline is that sentence, at body size.
+                if let lead = Self.offsetValue(
+                    offsetMinutes: estimate.offsetVsScheduleMinutes, unreadable: estimate.confidence == .unreadable) {
+                    HeroValue(value: lead.value, unit: lead.unit, caption: String(localized: "vs your schedule"),
+                              captionPlacement: .below)
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel(Text(verbatim: offsetTitle))
+                } else {
+                    Text(verbatim: offsetTitle)
+                        .font(StrandFont.subhead)
+                        .foregroundStyle(StrandPalette.textPrimary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
 
                 Text(verbatim: estimate.note)
                     .font(StrandFont.subhead)
@@ -405,6 +416,15 @@ struct BodyClockCard: View {
         return later
             ? String(localized: "About \(span) later than your schedule")
             : String(localized: "About \(span) earlier than your schedule")
+    }
+
+    /// The offset as the value the section leads with and the direction word beside it: ("3 h 14 min", "earlier"),
+    /// ("25 min", "later"). Nil when there is no number to lead with (about in sync, or hard to read).
+    static func offsetValue(offsetMinutes: Double, unreadable: Bool) -> (value: String, unit: String)? {
+        let mins = Int(abs(offsetMinutes).rounded())
+        if unreadable || mins <= 20 { return nil }
+        let value = mins < 60 ? String(localized: "\(mins) min") : durationText(minutes: mins)
+        return (value, offsetMinutes > 0 ? String(localized: "later") : String(localized: "earlier"))
     }
 
     /// "3 h 14 min", or "3 h" on the hour.
