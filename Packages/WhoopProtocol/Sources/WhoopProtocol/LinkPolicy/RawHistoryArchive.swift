@@ -54,8 +54,9 @@ public actor RawHistoryArchive {
         /// were dropped (counted as unarchived so the sync status never claims "saved").
         case capReached(count: Int)
         /// The write genuinely failed. The caller must NOT ack — hold the cursor so the strap
-        /// re-sends the chunk (no data loss either way).
-        case failed
+        /// re-sends the chunk (no data loss either way). `evicted` is non-zero when a rotation had
+        /// already dropped old lines before the failure: those are gone even though this write failed.
+        case failed(evicted: Int = 0)
     }
 
     private let directory: URL
@@ -119,37 +120,44 @@ public actor RawHistoryArchive {
         // The batch alone can't fit even an empty segment: nothing rotation frees makes room, so skip
         // it (the offload may still ack — by now there is ample sample material).
         guard incomingBytes <= segmentBytes else { return .capReached(count: frames.count) }
+        // Once the previous segment is replaced its evicted lines are gone, so the count is reported
+        // whatever fails after that (clearing the active segment, or the append itself).
+        var evicted = 0
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             let activeSize = (try? FileManager.default.attributesOfItem(atPath: fileURL.path)[.size] as? Int)
                 .flatMap { $0 } ?? 0
-            var evicted = 0
             if activeSize + incomingBytes > segmentBytes {
-                evicted = try rotate()
+                evicted = try replacePreviousSegment()
+                try clearActiveSegment()
             }
             try appendDurably(Data(newLines.joined().utf8), to: fileURL)
             return .written(count: frames.count, evicted: evicted)
         } catch {
-            return .failed
+            return .failed(evicted: evicted)
         }
     }
 
-    /// The active segment (up to `maxBytes`, the newest records) becomes the previous one, and only the
-    /// segment it replaces, which is entirely older than `maxBytes` of newer records, is evicted. Its lines
-    /// survive only while they are within the newest `perVersionFloor` lines of their version across both
-    /// segments, so a rare layout is never binned by a flood of a common one. The new previous segment is
-    /// written durably BEFORE the active one is cleared: a crash in between duplicates lines, never loses
-    /// them. Returns how many lines were evicted.
-    private func rotate() throws -> Int {
+    /// Rotation, step 1: the active segment (up to `maxBytes`, the newest records) becomes the previous
+    /// one, and only the segment it replaces, which is entirely older than `maxBytes` of newer records, is
+    /// evicted. Its lines survive only while they are within the newest `perVersionFloor` lines of their
+    /// version across both segments, so a rare layout is never binned by a flood of a common one. The new
+    /// previous segment is written durably BEFORE the active one is cleared (step 2): a crash in between
+    /// duplicates lines, never loses them. Returns how many lines were evicted.
+    private func replacePreviousSegment() throws -> Int {
         let older = Self.readLines(previousFileURL)
         let active = Self.readLines(fileURL)
         let protected = Self.protectedIndices(older + active, floor: perVersionFloor)
         let carried = older.indices.filter { protected.contains($0) }.map { older[$0] }
         try writeDurably(Data((carried + active).joined().utf8), to: previousFileURL)
+        return older.count - carried.count
+    }
+
+    /// Rotation, step 2: clear the active segment its lines were carried out of.
+    private func clearActiveSegment() throws {
         if FileManager.default.fileExists(atPath: fileURL.path) {
             try FileManager.default.removeItem(at: fileURL)
         }
-        return older.count - carried.count
     }
 
     /// Append `data` to `url`, fsyncing before returning so it is durable BEFORE the trim ack.

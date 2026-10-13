@@ -79,6 +79,37 @@ final class RawHistoryArchiveRotationTests: XCTestCase {
         XCTAssertEqual(survivors + evictedTotal, frames.count, "every record is either kept or reported evicted")
     }
 
+    /// A hand-built archive line in the writer's format.
+    private func line(_ frame: [UInt8], capturedAtMs: Int) -> String {
+        let hex = frame.map { String(format: "%02x", $0) }.joined()
+        return "{\"capturedAtMs\":\(capturedAtMs),\"trim\":1,\"family\":\"whoop4\",\"version\":18,\"frameHex\":\"\(hex)\"}\n"
+    }
+
+    /// Review #5: once the previous segment is replaced, its evicted lines are gone even if the rest of
+    /// the write fails. The failure used to drop the count, and the retry rotated nothing, so the loss was
+    /// never logged. Here clearing the active segment fails (it cannot be removed).
+    func testEvictionsAreReportedWhenTheWriteFailsAfterRotating() async throws {
+        let dir = tmpDir("fail")
+        let archive = RawHistoryArchive(directory: dir, maxBytes: 200, perVersionFloor: 0)
+        let locked = archive.fileURL.appendingPathComponent("locked", isDirectory: true)
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: locked.path)
+            try? FileManager.default.removeItem(at: dir)
+        }
+        let older = (0..<5).map { line(whoop4Frame(version: 18, filler: UInt8($0)), capturedAtMs: $0) }
+        try Data(older.joined().utf8).write(to: archive.previousFileURL)
+        // An active segment that cannot be removed: a directory holding a file in a read-only folder.
+        try FileManager.default.createDirectory(at: locked, withIntermediateDirectories: true)
+        try Data("x".utf8).write(to: locked.appendingPathComponent("pinned"))
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: locked.path)
+
+        let result = await archive.archive([whoop4Frame(version: 18, filler: 0xEE)], trim: 9, family: .whoop4)
+
+        XCTAssertEqual(result, .failed(evicted: 5), "the ack is held, and the five evicted lines are reported")
+        let previous = try String(contentsOf: archive.previousFileURL, encoding: .utf8)
+        XCTAssertTrue(previous.isEmpty, "the rotation really did drop them before the failure")
+    }
+
     func testNewLinesStoreTheVersionAsItsOwnField() async throws {
         let dir = tmpDir("field"); defer { try? FileManager.default.removeItem(at: dir) }
         let archive = RawHistoryArchive(directory: dir)

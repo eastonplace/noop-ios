@@ -3429,13 +3429,16 @@ public final class BLEManager: NSObject, ObservableObject {
         let archivingSession = currentBackfillDrainToken
         let result = await rejectedHistoryArchive.archive(frames, trim: trim, family: family)
         let sessionIsCurrent = archivingSession != nil && archivingSession == currentBackfillDrainToken
+        // F3: evicted records are ones the strap already deleted; say so loudly, whether or not the
+        // write that rotated them out went on to succeed.
+        func logEvictions(_ evicted: Int) {
+            guard evicted > 0 else { return }
+            log("Backfill: WARNING reject archive full — evicted the \(evicted) oldest archived record(s) beyond the retention budget; they can no longer be recovered by a later decoder update")
+        }
         switch result {
         case .written(let count, let evicted):
             if sessionIsCurrent { state.rejectedFramesThisSession += count }
-            if evicted > 0 {
-                // F3: these are records the strap already deleted; say so loudly.
-                log("Backfill: WARNING reject archive full — evicted the \(evicted) oldest archived record(s) beyond the retention budget; they can no longer be recovered by a later decoder update")
-            }
+            logEvictions(evicted)
             return true
         case .capReached(let count):
             // Cap reached: succeed WITHOUT writing (wedging the offload over a full archive would be
@@ -3444,7 +3447,8 @@ public final class BLEManager: NSObject, ObservableObject {
             if sessionIsCurrent { state.rejectedFramesUnarchived += count }
             log("Backfill: rejected-frame archive is FULL — \(count) frame(s) NOT preserved (acking anyway so the offload can finish)")
             return true
-        case .failed:
+        case .failed(let evicted):
+            logEvictions(evicted)
             log("Backfill: rejected-frame archive FAILED — holding ack so the strap re-sends")
             return false
         }
