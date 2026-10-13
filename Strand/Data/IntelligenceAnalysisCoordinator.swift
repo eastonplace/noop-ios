@@ -184,6 +184,7 @@ final class EditedDayRescoreQueue {
     var parkedTimestamps: Set<Int> { Set(entries.filter { $0.value.parked }.keys) }
     private var drainable: [Int: Entry] { entries.filter { !$0.value.parked } }
     private let defaults: UserDefaults?
+    /// `<storageKey>.v2` holds the versioned record; `<storageKey>.v1` mirrors the bare timestamp list.
     private let storageKey: String
     private let debounce: Duration
     private let now: @MainActor () -> Date
@@ -231,7 +232,7 @@ final class EditedDayRescoreQueue {
 
     /// `defaults: nil` keeps the queue in memory (tests).
     init(defaults: UserDefaults? = .standard,
-         storageKey: String = "noop.editedDayRescoreQueue.v1",
+         storageKey: String = "noop.editedDayRescoreQueue",
          debounce: Duration = .seconds(5),
          now: @escaping @MainActor () -> Date = { Date() },
          calendar: @escaping @MainActor () -> Calendar = { .current },
@@ -349,7 +350,8 @@ final class EditedDayRescoreQueue {
         drainTask = nil
     }
 
-    /// Persisted form. The first release stored a bare `[Int]` under the same key; `load` still reads it.
+    /// Persisted form, under `<storageKey>.v2`. Builds before it read and write a bare `[Int]` under
+    /// `<storageKey>.v1`, so `persist` keeps that list current for an older build installed in place.
     private struct Stored: Codable {
         struct Entry: Codable {
             var timestamp: Int
@@ -368,25 +370,31 @@ final class EditedDayRescoreQueue {
     private static func load(from defaults: UserDefaults?, key: String)
         -> (entries: [Int: Entry], lastVersion: UInt64, retryNotBefore: Date?, unpublishedFrom: Date?) {
         guard let defaults else { return ([:], 0, nil, nil) }
-        if let data = defaults.data(forKey: key),
-           let stored = try? JSONDecoder().decode(Stored.self, from: data) {
-            var entries: [Int: Entry] = [:]
-            for entry in stored.entries where entry.timestamp > 0 && entry.version > (entries[entry.timestamp]?.version ?? 0) {
-                entries[entry.timestamp] = Entry(
-                    version: entry.version, failures: entry.failures ?? 0, parked: entry.parked ?? false,
-                    parkedBuild: entry.parkedBuild,
-                    parkedAt: entry.parkedAt.map { Date(timeIntervalSince1970: $0) })
-            }
-            return (entries, max(stored.lastVersion, entries.values.map(\.version).max() ?? 0),
-                    stored.retryNotBefore.map { Date(timeIntervalSince1970: $0) },
-                    stored.unpublishedFrom.map { Date(timeIntervalSince1970: $0) })
-        }
-        let legacy = (defaults.array(forKey: key) as? [Int] ?? []).filter { $0 > 0 }
+        // The v2 record, else the same record a pre-v2 build of this format wrote under v1.
+        let stored = [key + ".v2", key + ".v1"].lazy
+            .compactMap { defaults.data(forKey: $0) }
+            .compactMap { try? JSONDecoder().decode(Stored.self, from: $0) }
+            .first
         var entries: [Int: Entry] = [:]
-        for (index, timestamp) in Set(legacy).sorted().enumerated() {
-            entries[timestamp] = Entry(version: UInt64(index + 1))
+        for entry in stored?.entries ?? [] where entry.timestamp > 0 && entry.version > (entries[entry.timestamp]?.version ?? 0) {
+            entries[entry.timestamp] = Entry(
+                version: entry.version, failures: entry.failures ?? 0, parked: entry.parked ?? false,
+                parkedBuild: entry.parkedBuild,
+                parkedAt: entry.parkedAt.map { Date(timeIntervalSince1970: $0) })
         }
-        return (entries, UInt64(entries.count), nil, nil)
+        var lastVersion = max(stored?.lastVersion ?? 0, entries.values.map(\.version).max() ?? 0)
+        // The v1 list says which days are pending: an older build may have drained some or queued more.
+        if let pending = defaults.array(forKey: key + ".v1") as? [Int] {
+            let pending = Set(pending.filter { $0 > 0 })
+            entries = entries.filter { pending.contains($0.key) }
+            for timestamp in pending.sorted() where entries[timestamp] == nil {
+                lastVersion += 1
+                entries[timestamp] = Entry(version: lastVersion)
+            }
+        }
+        return (entries, lastVersion,
+                stored?.retryNotBefore.map { Date(timeIntervalSince1970: $0) },
+                stored?.unpublishedFrom.map { Date(timeIntervalSince1970: $0) })
     }
 
     private func persist() {
@@ -402,7 +410,8 @@ final class EditedDayRescoreQueue {
             retryNotBefore: retryNotBefore?.timeIntervalSince1970,
             unpublishedFrom: unpublishedFrom?.timeIntervalSince1970)
         guard let data = try? JSONEncoder().encode(stored) else { return }
-        defaults.set(data, forKey: storageKey)
+        defaults.set(data, forKey: storageKey + ".v2")
+        defaults.set(timestamps.sorted(), forKey: storageKey + ".v1")
     }
 
     /// Drops the entries a finished step took, unless they were enqueued again since.

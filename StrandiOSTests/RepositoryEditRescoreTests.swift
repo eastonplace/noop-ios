@@ -597,13 +597,41 @@ final class RepositoryEditRescoreTests: XCTestCase {
 
     func testTheFirstReleasesPersistedQueueStillLoads() throws {
         let defaults = try isolatedDefaults()
-        defaults.set([1_790_000_000, 1_790_086_400], forKey: "queue") // the original bare [Int] format
+        defaults.set([1_790_000_000, 1_790_086_400], forKey: "queue.v1") // the original bare [Int] format
         let upgraded = EditedDayRescoreQueue(defaults: defaults, storageKey: "queue", isBackgrounded: { false })
         XCTAssertEqual(upgraded.timestamps, [1_790_000_000, 1_790_086_400])
 
         upgraded.enqueue([1_790_172_800])
         let reloaded = EditedDayRescoreQueue(defaults: defaults, storageKey: "queue", isBackgrounded: { false })
         XCTAssertEqual(reloaded.timestamps, [1_790_000_000, 1_790_086_400, 1_790_172_800])
+    }
+
+    func testAnOlderBuildInstalledInPlaceSeesThePendingDaysAndTheRoundTripKeepsTheirState() async throws {
+        let calendar = try newYorkCalendar()
+        let start = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 10, day: 12, hour: 15)))
+        let defaults = try isolatedDefaults()
+        let clock = EditedDayAnalyzeRecorder()
+        clock.now = start
+        let failing = virtualClockQueue(clock, calendar: calendar, defaults: defaults, build: "100")
+        failing.register(clock) { _ in false }
+        let parked = Int(try XCTUnwrap(calendar.date(byAdding: .day, value: -45, to: start)).timeIntervalSince1970)
+        failing.enqueue([parked])
+        await settle(failing)
+        failing.cancel()
+        let noEngine = virtualClockQueue(clock, calendar: calendar, defaults: defaults, build: "100")
+        let pending = Int(try XCTUnwrap(calendar.date(byAdding: .day, value: -3, to: start)).timeIntervalSince1970)
+        noEngine.enqueue([pending])
+        XCTAssertNotNil(defaults.data(forKey: "queue.v2"))
+        XCTAssertEqual(defaults.array(forKey: "queue.v1") as? [Int], [parked, pending],
+                       "an older build reads the bare list and sees both pending days")
+
+        // The older build rescored `pending`, then queued a new edit, writing only its bare list.
+        let added = Int(try XCTUnwrap(calendar.date(byAdding: .day, value: -1, to: start)).timeIntervalSince1970)
+        defaults.set([parked, added], forKey: "queue.v1")
+
+        let reinstalled = virtualClockQueue(clock, calendar: calendar, defaults: defaults, build: "100")
+        XCTAssertEqual(reinstalled.timestamps, [parked, added])
+        XCTAssertEqual(reinstalled.parkedTimestamps, [parked], "the v2 record still carries the park")
     }
 
     func testEveryWorkoutMutatorQueuesItsDay() async throws {
