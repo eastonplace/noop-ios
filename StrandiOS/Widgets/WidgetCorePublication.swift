@@ -22,6 +22,27 @@ enum WidgetCoreDay {
     static func isCurrent(_ coreDay: CivilDay, now: Date, calendar: Calendar = .current) -> Bool {
         coreDay.key == currentKey(now: now, calendar: calendar)
     }
+
+    /// The day the delivery-time reads of the per-night figures (HRV, Resting HR) are anchored on: the day Today's
+    /// row is for. For a current core that is the day the generation describes, which is its logical day except
+    /// when Today prefers the calendar day that already holds the night just banked (#304: a night that ends
+    /// before 04:00), and then the projection's own metrics are dated that next day. For a core that is behind it
+    /// is the current logical day, so Apple Health's figure for today is read and a night older than
+    /// `CarriedVitalWindow` allows is not carried as today's.
+    static func nightlyAnchor(
+        bundle: VerifiedExternalProjectionBundle,
+        now: Date,
+        calendar: Calendar = .current
+    ) -> CivilDay {
+        let logical = bundle.widgetCore.logicalDay
+        guard isCurrent(logical, now: now, calendar: calendar) else {
+            return (try? CivilDay(key: currentKey(now: now, calendar: calendar))) ?? logical
+        }
+        guard let latest = bundle.projection.metrics.values.map(\.metricDay).max(),
+              latest > logical,
+              CarriedVitalWindow.ageDays(of: logical.key, relativeTo: latest.key) == 1 else { return logical }
+        return latest
+    }
 }
 
 /// O(1) durable Widget payload. History-series and stress enrichment are intentionally absent from this
@@ -191,7 +212,8 @@ enum WidgetCorePublication {
     ///
     /// When the core is from an earlier day (`WidgetCoreDay`), its Strain, Steps and Calories are not today's:
     /// Strain and Steps are replaced by `currentDayStrain` and `steps`, which are Today's for the current logical
-    /// day, or by nothing, and Calories (a running day total) are left out.
+    /// day, or by nothing, and Calories (a running day total) are left out. Resting HR is then the delivery's
+    /// alone: the core's own value is a night counted from the core's day, not from today.
     static func makeCoreSnapshot(
         bundle: VerifiedExternalProjectionBundle,
         bpm: Int?,
@@ -215,7 +237,7 @@ enum WidgetCorePublication {
             batteryPct: batteryPct,
             bonded: bonded,
             hrv: hrv.map(Double.init),
-            restingHr: restingHR ?? core.restingHR,
+            restingHr: dayIsCurrent ? (restingHR ?? core.restingHR) : restingHR,
             recoveryDelta: core.recoveryDelta,
             sleepMinutes: core.sleepMinutes,
             steps: dayIsCurrent ? (steps ?? core.steps) : steps,

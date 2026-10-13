@@ -141,8 +141,9 @@ extension WidgetSnapshot {
         let now = Date()
         let steps = await todaySteps(repository: model.repo, bundle: verifiedBundle, now: now)
         let store = await model.repo.storeHandle()
-        let hrv = await todayHRV(store: store, bundle: verifiedBundle)
-        let restingHR = await todayRestingHR(store: store, bundle: verifiedBundle)
+        let nightsFrom = WidgetCoreDay.nightlyAnchor(bundle: verifiedBundle, now: now)
+        let hrv = await todayHRV(store: store, bundle: verifiedBundle, anchorDay: nightsFrom)
+        let restingHR = await todayRestingHR(store: store, bundle: verifiedBundle, anchorDay: nightsFrom)
         // This is the durable acknowledgement path. It contains only the verified core and in-memory Today
         // fields. HRV history, raw stress scans, and other enrichment run after the caller receives success.
         // What an earlier enrichment already added is carried over, so this commit cannot take it away.
@@ -217,12 +218,16 @@ extension WidgetSnapshot {
         return liveStoredStrain(repository.canonicalStrain(for: key), day: day)
     }
 
-    /// The HRV scalar for the bundle's night, computed in the core path so every core carries it: the night's own
-    /// RMSSD, else the freshest earlier night inside the window Today carries one for (`CarriedVitalWindow`),
-    /// read from the same sources and by the same rule the enrichment uses. A failed read leaves nil.
-    static func todayHRV(store: WhoopStore?, bundle: VerifiedExternalProjectionBundle) async -> Int? {
+    /// The HRV scalar for `anchorDay` (`WidgetCoreDay.nightlyAnchor`), computed in the core path so every core
+    /// carries it: that night's own RMSSD, else the freshest earlier night inside the window Today carries one
+    /// for (`CarriedVitalWindow`), read from the bundle's sources by the rule the enrichment uses. A failed read
+    /// leaves nil.
+    static func todayHRV(
+        store: WhoopStore?,
+        bundle: VerifiedExternalProjectionBundle,
+        anchorDay: CivilDay
+    ) async -> Int? {
         guard let store else { return nil }
-        let anchorDay = bundle.widgetCore.logicalDay
         let series = (try? await verifiedHRVSeries(
             store: store,
             sourceIds: bundle.verifiedEnrichmentSourceIds,
@@ -231,16 +236,17 @@ extension WidgetSnapshot {
         return widgetHRVProjection(from: series, anchorDay: anchorDay).current
     }
 
-    /// The Resting HR Today shows for the bundle's night, with Apple Health in it. The exact read behind the core
+    /// The Resting HR Today shows for `anchorDay` (`WidgetCoreDay.nightlyAnchor`), with Apple Health in it. The exact read behind the core
     /// is the strap's only, but Today's row takes Apple's Resting HR wherever the strap has none, and a HealthKit
     /// sync never mints a generation, so Apple's nights are read here, at delivery, like Steps. The strap's
     /// nights come from the bundle's own sources in their precedence order, Apple's from its own source; the
     /// rule is `resolvedRestingHR`. nil when the read fails, and then the core's own value stands.
-    static func todayRestingHR(store: WhoopStore?, bundle: VerifiedExternalProjectionBundle) async -> Int? {
-        guard let store, let first = try? CarriedVitalWindow.earliestDay(anchorDay: bundle.widgetCore.logicalDay) else {
-            return nil
-        }
-        let anchorDay = bundle.widgetCore.logicalDay
+    static func todayRestingHR(
+        store: WhoopStore?,
+        bundle: VerifiedExternalProjectionBundle,
+        anchorDay: CivilDay
+    ) async -> Int? {
+        guard let store, let first = try? CarriedVitalWindow.earliestDay(anchorDay: anchorDay) else { return nil }
         var strap: [String: Int] = [:]
         var apple: [String: Int] = [:]
         do {

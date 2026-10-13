@@ -300,14 +300,16 @@ final class WidgetStalenessTests: XCTestCase {
 
     private func bundle(
         day: String, steps: Int?, generation: Int64 = 4, strain: Double? = nil, recovery: Double? = nil,
-        calories: Int? = nil
+        calories: Int? = nil, recoveryDay: String? = nil
     ) throws -> VerifiedExternalProjectionBundle {
         let civil = try CivilDay(key: day)
         var metrics: [HealthMetricKind: VerifiedHealthMetric] = [:]
         for (kind, value) in [(HealthMetricKind.strain, strain), (.recovery, recovery)] {
             guard let value else { continue }
+            var metricDay = civil
+            if kind == .recovery, let recoveryDay { metricDay = try CivilDay(key: recoveryDay) }
             metrics[kind] = try VerifiedHealthMetric(
-                kind: kind, value: value, metricDay: civil, sourceId: "my-whoop-noop",
+                kind: kind, value: value, metricDay: metricDay, sourceId: "my-whoop-noop",
                 algorithmVersion: "v1", generation: generation, freshness: .fresh)
         }
         let projection = try VerifiedHealthProjection(
@@ -842,7 +844,7 @@ final class WidgetStalenessTests: XCTestCase {
         XCTAssertNil(morning.snapshot.calories, "not yesterday's running total")
         XCTAssertNil(morning.snapshot.strain, "not yesterday's Strain")
         XCTAssertEqual(morning.snapshot.recovery, 71, "the per-night figures still carry")
-        XCTAssertEqual(morning.snapshot.restingHr, 52)
+        XCTAssertNil(morning.snapshot.restingHr, "the core's own is a night counted from its day: the delivery's alone")
         XCTAssertEqual(morning.snapshot.hrvSparkline, [58, 60, 61])
         let shown = try XCTUnwrap(VerifiedWidgetEnvelopeStore.rawActiveEnvelope(defaults: defaults)).snapshot
         XCTAssertNil(shown.hourlyStress)
@@ -983,7 +985,7 @@ final class WidgetStalenessTests: XCTestCase {
         try await store.upsertDailyMetrics([night("2026-08-07", hrv: 55), night("2026-08-08", hrv: 64)],
                                            deviceId: "my-whoop-noop")
         let g6 = try bundle(day: "2026-08-08", steps: nil, generation: 6)
-        let hrv = await WidgetSnapshot.todayHRV(store: store, bundle: g6)
+        let hrv = await WidgetSnapshot.todayHRV(store: store, bundle: g6, anchorDay: g6.widgetCore.logicalDay)
         XCTAssertEqual(hrv, 64)
 
         let committed = WidgetCorePublication.commitCore(
@@ -1012,22 +1014,22 @@ final class WidgetStalenessTests: XCTestCase {
     func testTheCoreHRVIsTodaysNightElseTheCarriedOneInsideTheWindow() async throws {
         let store = try await WhoopStore.inMemory()
         let aug8 = try bundle(day: "2026-08-08", steps: nil)
-        let none = await WidgetSnapshot.todayHRV(store: store, bundle: aug8)
+        let none = await WidgetSnapshot.todayHRV(store: store, bundle: aug8, anchorDay: aug8.widgetCore.logicalDay)
         XCTAssertNil(none)
-        let noStore = await WidgetSnapshot.todayHRV(store: nil, bundle: aug8)
+        let noStore = await WidgetSnapshot.todayHRV(store: nil, bundle: aug8, anchorDay: aug8.widgetCore.logicalDay)
         XCTAssertNil(noStore)
 
         try await store.upsertDailyMetrics([night("2026-08-05", hrv: 50)], deviceId: "my-whoop-noop")
-        let stale = await WidgetSnapshot.todayHRV(store: store, bundle: aug8)
+        let stale = await WidgetSnapshot.todayHRV(store: store, bundle: aug8, anchorDay: aug8.widgetCore.logicalDay)
         XCTAssertNil(stale, "three nights back is outside Today's window")
 
         try await store.upsertDailyMetrics([night("2026-08-06", hrv: 52)], deviceId: "my-whoop-noop")
-        let carried = await WidgetSnapshot.todayHRV(store: store, bundle: aug8)
+        let carried = await WidgetSnapshot.todayHRV(store: store, bundle: aug8, anchorDay: aug8.widgetCore.logicalDay)
         XCTAssertEqual(carried, 52)
 
         try await store.upsertDailyMetrics([night("2026-08-08", hrv: 66)], deviceId: "my-whoop-noop")
         try await store.upsertDailyMetrics([night("2026-08-08", hrv: 31)], deviceId: "apple-health")
-        let own = await WidgetSnapshot.todayHRV(store: store, bundle: aug8)
+        let own = await WidgetSnapshot.todayHRV(store: store, bundle: aug8, anchorDay: aug8.widgetCore.logicalDay)
         XCTAssertEqual(own, 66, "the night's own RMSSD, never Apple's SDNN")
     }
 
@@ -1066,22 +1068,22 @@ final class WidgetStalenessTests: XCTestCase {
         let store = try await WhoopStore.inMemory()
         let aug8 = try bundle(day: "2026-08-08", steps: nil)
         try await store.upsertDailyMetrics([nightRHR("2026-08-07", rhr: 52)], deviceId: "my-whoop-noop")
-        let carried = await WidgetSnapshot.todayRestingHR(store: store, bundle: aug8)
+        let carried = await WidgetSnapshot.todayRestingHR(store: store, bundle: aug8, anchorDay: aug8.widgetCore.logicalDay)
         XCTAssertEqual(carried, 52, "no Apple night: the strap's last night")
 
         try await store.upsertDailyMetrics([nightRHR("2026-08-08", rhr: 58)], deviceId: "apple-health")
-        let apple = await WidgetSnapshot.todayRestingHR(store: store, bundle: aug8)
+        let apple = await WidgetSnapshot.todayRestingHR(store: store, bundle: aug8, anchorDay: aug8.widgetCore.logicalDay)
         XCTAssertEqual(apple, 58)
 
         // The strap scores its night: its own value outranks Apple's, and an import outranks the computed night.
         try await store.upsertDailyMetrics([nightRHR("2026-08-08", rhr: 49)], deviceId: "my-whoop-noop")
-        let strap = await WidgetSnapshot.todayRestingHR(store: store, bundle: aug8)
+        let strap = await WidgetSnapshot.todayRestingHR(store: store, bundle: aug8, anchorDay: aug8.widgetCore.logicalDay)
         XCTAssertEqual(strap, 49)
         try await store.upsertDailyMetrics([nightRHR("2026-08-08", rhr: 47)], deviceId: "my-whoop")
-        let imported = await WidgetSnapshot.todayRestingHR(store: store, bundle: aug8)
+        let imported = await WidgetSnapshot.todayRestingHR(store: store, bundle: aug8, anchorDay: aug8.widgetCore.logicalDay)
         XCTAssertEqual(imported, 47)
 
-        let noStore = await WidgetSnapshot.todayRestingHR(store: nil, bundle: aug8)
+        let noStore = await WidgetSnapshot.todayRestingHR(store: nil, bundle: aug8, anchorDay: aug8.widgetCore.logicalDay)
         XCTAssertNil(noStore)
     }
 
@@ -1090,7 +1092,7 @@ final class WidgetStalenessTests: XCTestCase {
         let aug8 = try bundle(day: "2026-08-08", steps: nil)
         try await store.upsertDailyMetrics([nightRHR("2026-08-05", rhr: 54)], deviceId: "my-whoop-noop")
         try await store.upsertDailyMetrics([nightRHR("2026-08-05", rhr: 57)], deviceId: "apple-health")
-        let stale = await WidgetSnapshot.todayRestingHR(store: store, bundle: aug8)
+        let stale = await WidgetSnapshot.todayRestingHR(store: store, bundle: aug8, anchorDay: aug8.widgetCore.logicalDay)
         XCTAssertNil(stale)
     }
 
@@ -1289,5 +1291,91 @@ final class WidgetStalenessTests: XCTestCase {
             XCTAssertNotEqual(WidgetLogicalDay.key(of: rollover, calendar: ny),
                               WidgetLogicalDay.key(of: from, calendar: ny))
         }
+    }
+
+    // MARK: - HRV and Resting HR are anchored on the day Today's row is for
+
+    func testTheNightlyAnchorIsTheDayTodaysRowIsFor() throws {
+        let ny = newYork()
+        // A core on the current logical day: the day it describes.
+        let plain = try bundle(day: "2026-08-08", steps: nil, recovery: 71)
+        XCTAssertEqual(WidgetCoreDay.nightlyAnchor(bundle: plain, now: at(ny, 8, 15), calendar: ny).key, "2026-08-08")
+        // A night banked before 04:00: Today's row is the calendar day, and the projection's metrics are dated so.
+        let banked = try bundle(day: "2026-08-08", steps: nil, recovery: 71, recoveryDay: "2026-08-09")
+        XCTAssertEqual(WidgetCoreDay.nightlyAnchor(bundle: banked, now: at(ny, 9, 2, 50), calendar: ny).key,
+                       "2026-08-09", "#304: the display day is the day after the logical day")
+        // A carried night is older, never later.
+        let carried = try bundle(day: "2026-08-08", steps: nil, recovery: 71, recoveryDay: "2026-08-07")
+        XCTAssertEqual(WidgetCoreDay.nightlyAnchor(bundle: carried, now: at(ny, 8, 15), calendar: ny).key, "2026-08-08")
+        // Nothing beyond the next day is a day Today's row can be for.
+        let far = try bundle(day: "2026-08-08", steps: nil, recovery: 71, recoveryDay: "2026-08-12")
+        XCTAssertEqual(WidgetCoreDay.nightlyAnchor(bundle: far, now: at(ny, 8, 15), calendar: ny).key, "2026-08-08")
+        // A core that is behind: Today's day.
+        XCTAssertEqual(WidgetCoreDay.nightlyAnchor(bundle: plain, now: at(ny, 9, 10), calendar: ny).key, "2026-08-09")
+        XCTAssertEqual(WidgetCoreDay.nightlyAnchor(bundle: banked, now: at(ny, 9, 10), calendar: ny).key, "2026-08-09")
+    }
+
+    /// The carve-out: the night ended at 02:40 and the strap synced at 02:50, so the generation's logical day is
+    /// still Aug 8 but its Recovery, Sleep and Resting HR are Aug 9's night. The delivery anchored on the logical
+    /// day replaced the core's correct Resting HR with the night before's.
+    func testTheDeliveryReadsTheNightTheGenerationDescribes() async throws {
+        let store = try await WhoopStore.inMemory()
+        try await store.upsertDailyMetrics([
+            DailyMetric(day: "2026-08-08", totalSleepMin: nil, efficiency: nil, deepMin: nil, remMin: nil,
+                        lightMin: nil, disturbances: nil, restingHr: 55, avgHrv: 60,
+                        recovery: nil, strain: nil, exerciseCount: nil),
+            DailyMetric(day: "2026-08-09", totalSleepMin: nil, efficiency: nil, deepMin: nil, remMin: nil,
+                        lightMin: nil, disturbances: nil, restingHr: 49, avgHrv: 66,
+                        recovery: nil, strain: nil, exerciseCount: nil),
+        ], deviceId: "my-whoop-noop")
+        let ny = newYork()
+        let banked = try bundle(day: "2026-08-08", steps: nil, recovery: 71, recoveryDay: "2026-08-09")
+        let now = at(ny, 9, 2, 50)
+        let anchor = WidgetCoreDay.nightlyAnchor(bundle: banked, now: now, calendar: ny)
+
+        let restingHR = await WidgetSnapshot.todayRestingHR(store: store, bundle: banked, anchorDay: anchor)
+        let hrv = await WidgetSnapshot.todayHRV(store: store, bundle: banked, anchorDay: anchor)
+        XCTAssertEqual(restingHR, 49)
+        XCTAssertEqual(hrv, 66)
+        // The same reads anchored on the logical day would have returned the night before.
+        let before = await WidgetSnapshot.todayRestingHR(store: store, bundle: banked, anchorDay: banked.widgetCore.logicalDay)
+        XCTAssertEqual(before, 55)
+    }
+
+    /// The strap stays home and the newest generation is Aug 8's. On Aug 9 Apple writes 58 for the day; Today's row
+    /// has it, so the widget does too, and a night older than Today's window is a dash, not today's.
+    func testABehindCoreReadsApplesRestingHRForToday() async throws {
+        let ny = newYork()
+        let store = try await WhoopStore.inMemory()
+        try await store.upsertDailyMetrics([nightRHR("2026-08-08", rhr: 52)], deviceId: "my-whoop-noop")
+        try await store.upsertDailyMetrics([nightRHR("2026-08-09", rhr: 58)], deviceId: "apple-health")
+        let aug8 = try bundle(day: "2026-08-08", steps: nil)
+        let now = at(ny, 9, 10)
+        let anchor = WidgetCoreDay.nightlyAnchor(bundle: aug8, now: now, calendar: ny)
+        XCTAssertEqual(anchor.key, "2026-08-09")
+        let apple = await WidgetSnapshot.todayRestingHR(store: store, bundle: aug8, anchorDay: anchor)
+        XCTAssertEqual(apple, 58, "Today's day, with Apple Health's figure")
+
+        // The core itself shows the delivery's value, or nothing; never its own, counted from Aug 8.
+        let token = try install(contextId: "ctx")
+        let shown = WidgetCorePublication.commitCore(
+            bundle: aug8, token: token, defaults: defaults,
+            delivery: WidgetCorePublication.CoreDelivery(
+                bpm: 64, batteryPct: 81, bonded: true, steps: nil, restingHR: apple, olderGenerationDay: nil),
+            now: now, calendar: ny)
+        XCTAssertEqual(shown.snapshot.restingHr, 58)
+        let none = WidgetCorePublication.commitCore(
+            bundle: aug8, token: token, defaults: defaults, delivery: delivery(), now: now, calendar: ny)
+        XCTAssertNil(none.snapshot.restingHr)
+
+        // Four nights old: Aug 5's strap value is outside Today's window.
+        let stale = try await WhoopStore.inMemory()
+        try await stale.upsertDailyMetrics([nightRHR("2026-08-05", rhr: 54)], deviceId: "my-whoop-noop")
+        let aug5 = try bundle(day: "2026-08-05", steps: nil)
+        let staleAnchor = WidgetCoreDay.nightlyAnchor(bundle: aug5, now: now, calendar: ny)
+        let dash = await WidgetSnapshot.todayRestingHR(store: stale, bundle: aug5, anchorDay: staleAnchor)
+        XCTAssertNil(dash)
+        let noHRV = await WidgetSnapshot.todayHRV(store: stale, bundle: aug5, anchorDay: staleAnchor)
+        XCTAssertNil(noHRV)
     }
 }
