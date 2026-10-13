@@ -46,17 +46,22 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
     /// is converted with an anchor each pass learns from its own window; its nightly raws drift up 2 units a
     /// night, so passes over different windows learn different anchors. `whoop4SwapDay` instead swaps to a
     /// second WHOOP 4.0 on that day: neither strap drifts, and the second one's register reads 30 units
-    /// (1.5 °C) higher for the same skin.
+    /// (1.5 °C) higher for the same skin. `whoop4SameIdSwapDay` reads the same way, but the replacement keeps
+    /// the registry id: the strap starts on peripheral "strap-A", and the test adopts the replacement's.
     private func makeHarness(days: Int, strapDays: Range<Int>? = nil, lateNights: Set<Int> = [],
-                             whoop4: Bool = false, whoop4SwapDay: Int? = nil) async throws -> Harness {
+                             whoop4: Bool = false, whoop4SwapDay: Int? = nil,
+                             whoop4SameIdSwapDay: Int? = nil) async throws -> Harness {
         let store = try await WhoopStore.inMemory()
-        let whoop4 = whoop4 || whoop4SwapDay != nil
+        let whoop4 = whoop4 || whoop4SwapDay != nil || whoop4SameIdSwapDay != nil
         if whoop4 {
             let registry = DeviceRegistryStore(dbQueue: store.registryWriter)
             try registry.add(PairedDevice(
                 id: Repository.whoopSource, brand: "WHOOP", model: "WHOOP 4.0", sourceKind: .liveBLE,
                 capabilities: [.hr, .hrv, .skinTemp, .sleep], status: .active, addedAt: 0, lastSeenAt: 0))
             try registry.setActive(Repository.whoopSource)
+            if whoop4SameIdSwapDay != nil {
+                try registry.setPeripheralId(Repository.whoopSource, peripheralId: "strap-A")
+            }
             if whoop4SwapDay != nil {
                 try registry.add(PairedDevice(
                     id: secondWhoop4Id, brand: "WHOOP", model: "WHOOP 4.0", sourceKind: .liveBLE,
@@ -86,7 +91,7 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
                 streams.gravity.append(GravitySample(ts: ts, x: 0, y: 0, z: 1))
                 if ts % 60 == 0 {
                     let raw: Int
-                    if let swap = whoop4SwapDay {
+                    if let swap = whoop4SwapDay ?? whoop4SameIdSwapDay {
                         raw = (k >= swap ? 1_330 : 1_300) + (ts / 60) % 3
                     } else {
                         raw = whoop4 ? 1_300 + 2 * k + (ts / 60) % 3 : 3_450 + (k % 5) * 8
@@ -319,6 +324,51 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
             let today = harness.dayKeys[days - 1]
             XCTAssertEqual(try XCTUnwrap(second[today]?.skinTempDevC),
                            try XCTUnwrap(first[today]?.skinTempDevC), accuracy: 0.011)
+        }
+    }
+
+    /// Review round 5 (4): a replacement WHOOP 4.0 that takes over the same registry id (it adopts a new BLE
+    /// peripheral) does not read as a fever either. The first strap's stored nights keep their own identity and
+    /// anchor, so the passes after the swap stay continuous, and a rescore over the swap keeps the first strap's
+    /// nights under its identity. Keyed by registry id, its nights were converted with the replacement's anchor.
+    func testSameIdWhoop4ReplacementKeepsSkinDeviationsContinuous() async throws {
+        try await withRecalibrationEpochsRestored {
+            let days = 30
+            let harness = try await makeHarness(days: days, whoop4SameIdSwapDay: 20)
+            let beforeSwap = Date(timeIntervalSince1970: TimeInterval(firstDayStart + 19 * 86_400 + 22 * 3_600))
+            let first = await pass(harness, maxDays: 20, at: beforeSwap)
+            XCTAssertTrue(first)
+            let strapA = IntelligenceEngine.nightlySkinWhoop4RawKeyPrefix
+                + IntelligenceEngine.whoop4SkinIdentity(owner: Repository.whoopSource, peripheralId: "strap-A")
+            let strapB = IntelligenceEngine.nightlySkinWhoop4RawKeyPrefix
+                + IntelligenceEngine.whoop4SkinIdentity(owner: Repository.whoopSource, peripheralId: "strap-B")
+            let storedA = try await harness.store.metricSeries(
+                deviceId: harness.computedId, key: strapA, from: dayKey(0), to: dayKey(19))
+            XCTAssertEqual(storedA.count, 20, "the first strap's nights are stored under its identity")
+
+            let registry = DeviceRegistryStore(dbQueue: harness.store.registryWriter)
+            try registry.setPeripheralId(Repository.whoopSource, peripheralId: "strap-B")
+            let afterSwap = await pass(harness, maxDays: 10)
+            XCTAssertTrue(afterSwap)
+            let second = try await stored(harness)
+            for k in 20..<days {
+                let deviation = try XCTUnwrap(second[dayKey(k)]?.skinTempDevC, "day \(k) has a skin deviation")
+                XCTAssertEqual(deviation, 0, accuracy: 0.3, "day \(k): the replacement is continuous")
+            }
+
+            let rescore = await pass(harness, maxDays: 15)
+            XCTAssertTrue(rescore)
+            let third = try await stored(harness)
+            for k in 15..<days {
+                let deviation = try XCTUnwrap(third[dayKey(k)]?.skinTempDevC, "day \(k) has a skin deviation")
+                XCTAssertEqual(deviation, 0, accuracy: 0.3, "day \(k): the rescore is continuous")
+            }
+            let keptA = try await harness.store.metricSeries(
+                deviceId: harness.computedId, key: strapA, from: dayKey(15), to: dayKey(19))
+            XCTAssertEqual(keptA.map(\.day), (15..<20).map(dayKey), "rescored nights keep the first strap's identity")
+            let movedToB = try await harness.store.metricSeries(
+                deviceId: harness.computedId, key: strapB, from: dayKey(15), to: dayKey(19))
+            XCTAssertTrue(movedToB.isEmpty)
         }
     }
 

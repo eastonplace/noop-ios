@@ -1612,7 +1612,7 @@ final class IntelligenceEngine: ObservableObject {
         // imported values and this pass's fresh values win.
         let computedHist: [DailyMetric]
         let storedNightlySkin: [MetricPoint]
-        var storedWhoop4SkinByOwner: [String: (raw: [MetricPoint], anchor: [MetricPoint])] = [:]
+        var storedWhoop4SkinByIdentity: [String: (raw: [MetricPoint], anchor: [MetricPoint])] = [:]
         do {
             computedHist = try await store.dailyMetrics(
                 deviceId: computedId, from: "0000-01-01", to: "9999-12-31")
@@ -1620,12 +1620,12 @@ final class IntelligenceEngine: ObservableObject {
                 deviceId: computedId, key: Self.nightlySkinMetricKey, from: "0000-01-01", to: "9999-12-31")
             for key in try await store.metricKeys(deviceId: computedId)
             where key.hasPrefix(Self.nightlySkinWhoop4RawKeyPrefix) {
-                let owner = String(key.dropFirst(Self.nightlySkinWhoop4RawKeyPrefix.count))
-                storedWhoop4SkinByOwner[owner] = (
+                let identity = String(key.dropFirst(Self.nightlySkinWhoop4RawKeyPrefix.count))
+                storedWhoop4SkinByIdentity[identity] = (
                     raw: try await store.metricSeries(
                         deviceId: computedId, key: key, from: "0000-01-01", to: "9999-12-31"),
                     anchor: try await store.metricSeries(
-                        deviceId: computedId, key: Self.nightlySkinWhoop4AnchorKeyPrefix + owner,
+                        deviceId: computedId, key: Self.nightlySkinWhoop4AnchorKeyPrefix + identity,
                         from: "0000-01-01", to: "9999-12-31"))
             }
         } catch {
@@ -1712,16 +1712,50 @@ final class IntelligenceEngine: ObservableObject {
         // Skin-temp baseline is on-device-only (imported rows carry skinTempDevC, not the raw mean), so it
         // folds the nightly means: this pass's, then the ones earlier passes persisted (F2: a window-only fold
         // left the oldest days of every pass without a usable baseline and wiped their stored deviation).
-        var histSkinByDay = nightlySkinByDay
         // Review round 4 (1): persisted WHOOP 4.0 nights are raw register values per strap, each strap's converted
         // with its own anchor: the one this pass converted that strap's fresh nights with, else the newest
-        // anchor stored for it.
-        var passWhoop4AnchorByOwner: [String: Double] = [:]
-        for (day, anchor) in whoop4SkinAnchorByDay {
-            if let owner = readOwnerByDay[day]?.owner { passWhoop4AnchorByOwner[owner] = anchor }
+        // anchor stored for it. Review round 5 (4): a strap is its physical identity, the registry owner plus the
+        // BLE peripheral it had adopted when the night was first stored, so a replacement strap that takes over
+        // the same registry id gets its own anchor. A rescored night keeps the identity it was stored under, and
+        // a night of an earlier identity is converted with that identity's stored anchor, here and when scored.
+        // Limit: samples carry no physical identity, so a pass whose anchor window spans a same-id swap learns
+        // one anchor from both straps' samples, and the first nights after the swap can read up to half the
+        // register offset between them.
+        let whoop4IdentityByDay = storedWhoop4SkinByIdentity.keys.sorted().reduce(into: [String: String]()) {
+            result, identity in
+            for point in storedWhoop4SkinByIdentity[identity]?.raw ?? [] where result[point.day] == nil {
+                result[point.day] = identity
+            }
         }
-        for (owner, stored) in storedWhoop4SkinByOwner {
-            guard let anchor = passWhoop4AnchorByOwner[owner] ?? stored.anchor.last?.value else { continue }
+        func currentWhoop4Identity(_ owner: String) -> String {
+            Self.whoop4SkinIdentity(owner: owner, peripheralId: regDevices.first { $0.id == owner }?.peripheralId)
+        }
+        func whoop4Identity(day: String, owner: String) -> String {
+            if let kept = whoop4IdentityByDay[day], Self.whoop4SkinOwner(identity: kept) == owner { return kept }
+            return currentWhoop4Identity(owner)
+        }
+        var passWhoop4AnchorByOwner: [String: Double] = [:]
+        for (day, anchor) in whoop4SkinAnchorByDay.sorted(by: { $0.key < $1.key }) {
+            guard let owner = readOwnerByDay[day]?.owner else { continue }
+            let identity = whoop4Identity(day: day, owner: owner)
+            if identity == currentWhoop4Identity(owner) {
+                passWhoop4AnchorByOwner[owner] = anchor
+            } else if let kept = storedWhoop4SkinByIdentity[identity]?.anchor.last?.value,
+                      let celsius = nightlySkinByDay[day] ?? nil {
+                let converted = Self.whoop4SkinCelsius(
+                    raw: Self.whoop4SkinRaw(celsius: celsius, anchorRaw: anchor), anchorRaw: kept)
+                nightlySkinByDay[day] = converted
+                whoop4SkinAnchorByDay[day] = kept
+                if let index = scoredNights.firstIndex(where: { $0.daily.day == day }) {
+                    scoredNights[index].nightlySkin = converted
+                }
+            }
+        }
+        var histSkinByDay = nightlySkinByDay
+        for (identity, stored) in storedWhoop4SkinByIdentity {
+            let owner = Self.whoop4SkinOwner(identity: identity)
+            let passAnchor = identity == currentWhoop4Identity(owner) ? passWhoop4AnchorByOwner[owner] : nil
+            guard let anchor = passAnchor ?? stored.anchor.last?.value else { continue }
             Self.mergeNightlyIntoHistory(
                 &histSkinByDay,
                 Dictionary(stored.raw.map {
@@ -2473,19 +2507,21 @@ final class IntelligenceEngine: ObservableObject {
         }
         // F2: persist each scored night's raw skin mean, so later passes and the v3 chunks fold the skin
         // baseline over the whole history instead of only their own window. A WHOOP 4.0 night is stored as a
-        // raw register value under the strap that recorded it, with its anchor (review round 3 B, round 4 1).
+        // raw register value under the strap that recorded it, with its anchor (review round 3 B, round 4 1), keyed
+        // by the strap's physical identity (review round 5, 4).
         do {
             guard !Task.isCancelled else { performanceChangedRows = persistedMutationCount; return false }
-            var whoop4Owners = Set(storedWhoop4SkinByOwner.keys)
+            var whoop4Identities = Set(storedWhoop4SkinByIdentity.keys)
             let nightlySkinPoints = scoredNights.flatMap { night -> [MetricPoint] in
                 guard let mean = night.nightlySkin else { return [] }
                 let day = night.daily.day
                 if let anchor = whoop4SkinAnchorByDay[day], let owner = readOwnerByDay[day]?.owner {
-                    whoop4Owners.insert(owner)
+                    let identity = whoop4Identity(day: day, owner: owner)
+                    whoop4Identities.insert(identity)
                     return [
-                        MetricPoint(day: day, key: Self.nightlySkinWhoop4RawKeyPrefix + owner,
+                        MetricPoint(day: day, key: Self.nightlySkinWhoop4RawKeyPrefix + identity,
                                     value: Self.whoop4SkinRaw(celsius: mean, anchorRaw: anchor)),
-                        MetricPoint(day: day, key: Self.nightlySkinWhoop4AnchorKeyPrefix + owner, value: anchor),
+                        MetricPoint(day: day, key: Self.nightlySkinWhoop4AnchorKeyPrefix + identity, value: anchor),
                     ]
                 }
                 return [MetricPoint(day: day, key: Self.nightlySkinMetricKey, value: mean)]
@@ -2493,7 +2529,7 @@ final class IntelligenceEngine: ObservableObject {
             persistedMutationCount += try await store.reconcileMetricSeries(
                 nightlySkinPoints,
                 deviceId: computedId,
-                keys: [Self.nightlySkinMetricKey] + whoop4Owners.sorted().flatMap {
+                keys: [Self.nightlySkinMetricKey] + whoop4Identities.sorted().flatMap {
                     [Self.nightlySkinWhoop4RawKeyPrefix + $0, Self.nightlySkinWhoop4AnchorKeyPrefix + $0]
                 },
                 from: oldestDay,
@@ -3140,6 +3176,19 @@ final class IntelligenceEngine: ObservableObject {
     /// A WHOOP 4.0 nightly mean (°C under `anchorRaw`) as the raw register value it maps from (review round 3, B).
     nonisolated static func whoop4SkinRaw(celsius: Double, anchorRaw: Double) -> Double {
         anchorRaw + (celsius - Whoop4SkinTemp.anchorCelsius) / Whoop4SkinTemp.provisionalSlopeCPerRaw
+    }
+
+    /// A WHOOP 4.0 strap's physical identity for its stored skin nights (review round 5, 4): the registry owner
+    /// plus the BLE peripheral the owner had adopted, empty before one is. A replacement strap that takes over a
+    /// registry id adopts a new peripheral, so its nights get their own identity and anchor.
+    nonisolated static func whoop4SkinIdentity(owner: String, peripheralId: String?) -> String {
+        owner + "|" + (peripheralId ?? "")
+    }
+
+    /// The registry owner of a stored identity. A key from before identities (review round 4) is the owner alone.
+    nonisolated static func whoop4SkinOwner(identity: String) -> String {
+        identity.split(separator: "|", maxSplits: 1, omittingEmptySubsequences: false).first.map(String.init)
+            ?? identity
     }
 
     /// The inverse: a persisted WHOOP 4.0 raw mean in °C under `anchorRaw`, the same map the funnel applies.
