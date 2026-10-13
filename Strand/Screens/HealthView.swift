@@ -157,11 +157,19 @@ enum SyncStatusTone: Equatable {
     /// Saved history older than this reads as needing attention.
     static let staleAfter: TimeInterval = 2 * 86_400
 
+    /// Failure, then staleness, then success: a sync that completed but left the newest saved history more than two
+    /// days old is not a good one, so staleness is checked before success.
     static func of(_ status: HistoricalSyncStatus, newestHistoryAt: TimeInterval?, now: TimeInterval) -> SyncStatusTone {
         if status.isFailure { return .attention }
-        if status.isCurrentSuccess { return .good }
         if let newestHistoryAt, now - newestHistoryAt > staleAfter { return .attention }
+        if status.isCurrentSuccess { return .good }
         return .quiet
+    }
+
+    /// The "Showing saved history through ..." detail line says what the status above it does not. A clean, current
+    /// sync already says it all, but a completed sync over stale history needs it to say how old the data is.
+    static func showsSavedHistoryLine(_ status: HistoricalSyncStatus, tone: SyncStatusTone) -> Bool {
+        !status.isCurrentSuccess || tone == .attention
     }
 }
 
@@ -243,7 +251,8 @@ private struct SyncStatusSection: View {
                 statusLabel(Self.localized(status.primary), color: statusColor(status))
                 // The resolver's primary line IS the saved-history sentence when there is nothing else to say
                 // (`primary: saved ?? ...`), so the detail line only shows when it adds something.
-                if !status.isCurrentSuccess, let saved = status.savedHistory, saved != status.primary {
+                if SyncStatusTone.showsSavedHistoryLine(status, tone: tone(status)),
+                   let saved = status.savedHistory, saved != status.primary {
                     Text(verbatim: saved)
                         .font(StrandFont.footnote)
                         .foregroundStyle(StrandPalette.textSecondary)
@@ -273,10 +282,14 @@ private struct SyncStatusSection: View {
 
     /// Mint says good or live, so it is only for a sync that just worked. A strap that is offline or still waiting
     /// reads in quiet ink, and amber when the newest saved history is more than two days old or a sync failed.
-    private func statusColor(_ status: HistoricalSyncStatus) -> Color {
-        switch SyncStatusTone.of(
+    private func tone(_ status: HistoricalSyncStatus) -> SyncStatusTone {
+        SyncStatusTone.of(
             status, newestHistoryAt: live.historicalDataFrontierAt ?? live.lastSyncedAt,
-            now: Date().timeIntervalSince1970) {
+            now: Date().timeIntervalSince1970)
+    }
+
+    private func statusColor(_ status: HistoricalSyncStatus) -> Color {
+        switch tone(status) {
         case .good: StrandTone.positive.color
         case .quiet: StrandPalette.textSecondary
         case .attention: StrandTone.warning.color

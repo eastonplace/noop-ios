@@ -28,6 +28,26 @@ final class SyncStatusToneTests: XCTestCase {
         XCTAssertEqual(SyncStatusTone.of(status(), newestHistoryAt: nil, now: now), .quiet)
     }
 
+    func testASuccessfulSyncOverStaleHistoryIsNotGood() {
+        // A strap clock reset can finish a sync that banks nothing newer: "synced just now" over 14-month-old data.
+        let ok = status(success: true)
+        XCTAssertEqual(SyncStatusTone.of(ok, newestHistoryAt: now - 400 * day, now: now), .attention)
+        XCTAssertEqual(SyncStatusTone.of(ok, newestHistoryAt: now - 2 * day - 1, now: now), .attention)
+        XCTAssertEqual(SyncStatusTone.of(ok, newestHistoryAt: now - 2 * day, now: now), .good)
+        XCTAssertEqual(SyncStatusTone.of(ok, newestHistoryAt: nil, now: now), .good)
+    }
+
+    func testTheSavedHistoryLineShowsWhenASuccessLeavesStaleHistory() {
+        let ok = status(success: true)
+        let stale = SyncStatusTone.of(ok, newestHistoryAt: now - 400 * day, now: now)
+        let fresh = SyncStatusTone.of(ok, newestHistoryAt: now - 60, now: now)
+        XCTAssertTrue(SyncStatusTone.showsSavedHistoryLine(ok, tone: stale))
+        XCTAssertFalse(SyncStatusTone.showsSavedHistoryLine(ok, tone: fresh))
+        // Anything that is not a current success keeps its detail line.
+        XCTAssertTrue(SyncStatusTone.showsSavedHistoryLine(status(), tone: .quiet))
+        XCTAssertTrue(SyncStatusTone.showsSavedHistoryLine(status(failure: true), tone: .attention))
+    }
+
     func testAFailureNeedsAttentionWhateverTheHistory() {
         XCTAssertEqual(SyncStatusTone.of(status(failure: true), newestHistoryAt: now, now: now), .attention)
         XCTAssertEqual(SyncStatusTone.of(status(failure: true), newestHistoryAt: nil, now: now), .attention)
