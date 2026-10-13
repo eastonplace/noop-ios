@@ -257,8 +257,10 @@ final class IntelligenceEngine: ObservableObject {
     /// coverage `DailyCalories.total` weighs the strap total by.
     nonisolated static let strapWornSecondsMetricKey = "strap_worn_seconds"
     /// A legacy unmarked row is a strap night when a strap recorded at least this many heart-rate rows in its
-    /// night window (an hour at the slowest 30 s cadence; a worn night records thousands).
-    nonisolated static let legacyStrapNightMinHrRows = 120
+    /// night window: the raw-HR loop's own scoring gate (`hr.count >= 200`). The night window lies inside the
+    /// loop's read window, so a day this many rows mark would have been scored by the strap, and the fold never
+    /// writes such a day; a fold copy can't be read as a strap night.
+    nonisolated static let legacyStrapNightMinHrRows = 200
 
     private var dayScanCache: [String: CachedDayScan] = [:]
     private var dayScanCacheConfigSignature = ""
