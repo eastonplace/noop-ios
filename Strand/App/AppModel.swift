@@ -315,6 +315,8 @@ final class AppModel: ObservableObject {
         didSet { if !gpsHadTerminatedGap { gpsGapRestoredAt = nil; gpsGapNoticeShownAt = nil } }
     }
     private var applicationIsActive = true
+    /// The one in-flight v3/settle rescore grant a background edge may start; cancelled on foreground return.
+    private let effortRescoreGrant = EffortRescoreGrant()
 
     /// A manual workout in progress. `samples` accumulate from the smoothed live `bpm`; `liveStrain`
     /// is updated by an O(1) accumulator so the active card can show strain building in real time.
@@ -2744,21 +2746,27 @@ final class AppModel: ObservableObject {
                 refreshWorkoutDurabilityWarning()
             }
             // Effort history migration is maintenance work. Run one 30-day batch only after Today first
-            // paint and only while the app is inactive. Every batch persists its cursor before yielding.
-            Task(priority: .background) { [weak self] in
-                guard let self,
-                      self.repo.loaded,
-                      self.repo.todayHealthSnapshot != nil,
-                      !self.applicationIsActive,
-                      !self.hasActiveImport,
-                      !self.live.backfilling,
-                      !self.hasActiveWorkoutSession else { return }
-                await self.intelligence.runEffortRescoreIfNeeded {
-                    self.applicationIsActive || self.hasActiveImport
-                        || self.live.backfilling || self.hasActiveWorkoutSession
-                }
-            }
+            // paint and only once iOS has really moved the app to the background: an `.inactive` edge
+            // (Control Center, the app switcher) would otherwise run a full-history chunk in the foreground,
+            // holding the analysis lock and the store queue. Every batch persists its cursor before yielding,
+            // and returning to the foreground cancels the grant (see below).
+            effortRescoreGrant.start(
+                isBackground: { RescoreBackgroundPolicy.isGenuinelyBackground },
+                mayRun: { [weak self] in
+                    guard let self else { return false }
+                    return self.repo.loaded
+                        && self.repo.todayHealthSnapshot != nil
+                        && !self.applicationIsActive
+                        && !self.hasActiveImport
+                        && !self.live.backfilling
+                        && !self.hasActiveWorkoutSession
+                },
+                run: { [weak self] shouldPause in
+                    await self?.intelligence.runEffortRescoreIfNeeded(shouldPause: shouldPause)
+                })
         } else {
+            // The chunk is idempotent and replays from its durable cursor, so a foreground return simply stops it.
+            effortRescoreGrant.cancel()
             // A GPS run keeps recording through a screen lock. On return, make sure CoreLocation is still
             // streaming and that the background session is live (no-op unless a route is recording).
             gpsRecorder.resumeUpdatesIfNeeded()

@@ -1740,6 +1740,9 @@ final class IntelligenceEngine: ObservableObject {
             NSLog("IntelligenceEngine: required baseline read failed: \(error)")
             return false
         }
+        // Cancellation checkpoint (a background grant ended or the app came back to the foreground): nothing has
+        // been persisted yet, and every read below is whole-history work that should not outlive the grant.
+        guard !Task.isCancelled else { performanceChangedRows = 0; return false }
         // N2-UPG-2: the wearable fold below writes Oura / Fitbit / Garmin / Health Connect rows under the
         // computed id on days the strap did not score, and those rows carry that device's HRV and resting HR,
         // not the strap's, so they stay out of the strap baseline (#459 device-scale mix). Read once; the
@@ -1756,6 +1759,7 @@ final class IntelligenceEngine: ObservableObject {
                 return false
             }
         }
+        guard !Task.isCancelled else { performanceChangedRows = 0; return false }
         // Review round 4 (4): only the rows the fold wrote are left out, by the marker each pass persists beside
         // its rows. A row from before the marker is classified once and the result persisted: on a day a
         // wearable import with vitals covers, it is a strap night if the raw loop would have scored the day (its
@@ -2021,6 +2025,7 @@ final class IntelligenceEngine: ObservableObject {
         // The WHOLE apple-health daily history, chronological. Used both as a key-presence set for the
         // By-Day badge AND as the SDNN+RHR input for the Apple-Watch recovery fold below (a watch-only user
         // has these daily aggregates but no raw stream, so the raw-HR scoring loop never touched them).
+        guard !Task.isCancelled else { return false }
         let appleRows: [DailyMetric]
         do {
             appleRows = try await store.dailyMetrics(

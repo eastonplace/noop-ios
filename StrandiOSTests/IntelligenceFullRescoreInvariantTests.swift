@@ -897,6 +897,62 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
         XCTAssertEqual(kept, [unproducible], "v3 and settle chunks keep a day they can't produce")
     }
 
+    /// A grant that is cancelled mid-chunk (the app came back to the foreground) stops at the next checkpoint, reports
+    /// the chunk as not done and leaves the durable cursor where it was. Replaying the migration afterwards lands on
+    /// exactly the rows an uninterrupted run stores.
+    func testACancelledMigrationChunkLeavesTheCursorAndTheReplayMatchesAnUninterruptedRun() async throws {
+        let defaults = UserDefaults.standard
+        let keys = [IntelligenceEngine.effortRescoreFlagKey, IntelligenceEngine.effortRescoreOffsetKey]
+        let saved = keys.map { defaults.object(forKey: $0) }
+        for key in keys { defaults.removeObject(forKey: key) }
+        defer {
+            for (key, value) in zip(keys, saved) {
+                if let value { defaults.set(value, forKey: key) } else { defaults.removeObject(forKey: key) }
+            }
+        }
+        let calendar = utcCalendar
+        let interrupted = try await makeHarness(days: 45, strapDays: 0..<2)
+        let uninterrupted = try await makeHarness(days: 45, strapDays: 0..<2)
+        let v3Key = IntelligenceEngine.effortRescoreDurableProgressKey
+
+        func runBatch(_ harness: Harness) async {
+            await harness.engine.runEffortRescoreIfNeeded(
+                historyDays: 60, reference: harness.reference, calendar: calendar)
+        }
+
+        // Cancel from inside the first chunk's analysis: the first diagnostic line is replayed on the main actor
+        // after the day scan and before any row is written.
+        final class TaskBox { var task: Task<Void, Never>? }
+        let box = TaskBox()
+        interrupted.engine.diagnosticSink = { _, _ in box.task?.cancel() }
+        box.task = Task { @MainActor in
+            await interrupted.engine.runEffortRescoreIfNeeded(
+                historyDays: 60, reference: interrupted.reference, calendar: calendar)
+        }
+        await box.task?.value
+        interrupted.engine.diagnosticSink = nil
+        XCTAssertTrue(box.task?.isCancelled ?? false)
+
+        let afterCancel = try await interrupted.store.durableMigrationProgress(key: v3Key)
+        XCTAssertEqual(afterCancel?.state, .pending)
+        XCTAssertEqual(afterCancel?.nextOffset, 0, "a cancelled chunk does not advance the cursor")
+        XCTAssertEqual(defaults.integer(forKey: IntelligenceEngine.effortRescoreOffsetKey), 0)
+        XCTAssertFalse(defaults.bool(forKey: IntelligenceEngine.effortRescoreFlagKey))
+        let writtenByTheCancelledChunk = try await stored(interrupted)
+        XCTAssertTrue(writtenByTheCancelledChunk.isEmpty, "the chunk stopped before it wrote a row")
+
+        // Replay: v3 (two chunks) then settle (two chunks), one batch per grant, as the app runs them.
+        for _ in 0..<4 { await runBatch(interrupted) }
+        for _ in 0..<4 { await runBatch(uninterrupted) }
+        let replayed = try await interrupted.store.durableMigrationProgress(
+            key: IntelligenceEngine.effortRescoreSettleDurableProgressKey)
+        XCTAssertEqual(replayed?.state, .complete)
+        let replayedRows = try await stored(interrupted)
+        let referenceRows = try await stored(uninterrupted)
+        XCTAssertFalse(referenceRows.isEmpty)
+        XCTAssertEqual(replayedRows, referenceRows)
+    }
+
     /// Older rows stored with a different resting HR and HRV (an earlier build's values) skew the Charge of the v3
     /// chunks newer than them, since v3 runs newest first. After the settle pass every Charge equals a
     /// from-scratch oldest-first run over the same chunks.

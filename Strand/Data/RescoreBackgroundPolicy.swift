@@ -39,6 +39,18 @@ enum RescoreBackgroundPolicy {
         #endif
     }
 
+    /// True only once iOS has actually moved the app to the background. `isBackgrounded` also counts
+    /// `.inactive` (Control Center, the notification shade, the app switcher, an incoming call), where the user
+    /// is still looking at the app and a full-history chunk would run flat out in the foreground.
+    @MainActor
+    static var isGenuinelyBackground: Bool {
+        #if os(iOS)
+        UIApplication.shared.applicationState == .background
+        #else
+        false
+        #endif
+    }
+
     /// Rest after each accumulated work quantum while iOS keeps the process alive in the background. The
     /// throwing sleep is deliberate: BG task expiration must cancel the detached analysis and return its
     /// durable lease to pending instead of letting CPU work continue after the grant ends.
@@ -68,5 +80,55 @@ enum RescoreBackgroundPolicy {
         case .cadenceBackstop:
             return .skip
         }
+    }
+}
+
+
+/// Owns the one maintenance rescore grant a scene edge may start. The v3/settle chunks are full-history work:
+/// while one runs it holds `IntelligenceEngine.computing` and the store queue, which blocks post-sync scoring,
+/// refreshes and edits. So a grant starts only when the app is genuinely in the background (not on an
+/// `.inactive` edge), is paused the moment that stops being true, and is cancelled on return to the foreground.
+/// A cancelled chunk never advances the durable cursor (`analyzeRecent` reports non-completion and the
+/// migration throws), so the next grant replays it from the same offset.
+@MainActor
+final class EffortRescoreGrant {
+    private var task: Task<Void, Never>?
+    private var token: UUID?
+
+    /// A grant is pending its start checks or running.
+    var isActive: Bool { task != nil }
+
+    /// - Parameters:
+    ///   - isBackground: iOS has moved the app to the background. Checked when the grant starts and again
+    ///     before every chunk (through `shouldPause`), which is after the first `await` of the migration.
+    ///   - mayRun: the other gates (first paint done, no import, no strap backfill, no workout, not active).
+    ///   - run: the migration. It must poll the `shouldPause` it is handed between chunks.
+    func start(
+        isBackground: @escaping @MainActor () -> Bool,
+        mayRun: @escaping @MainActor () -> Bool,
+        run: @escaping @MainActor (_ shouldPause: () -> Bool) async -> Void
+    ) {
+        guard task == nil else { return }
+        let token = UUID()
+        self.token = token
+        task = Task(priority: .background) { [weak self] in
+            if isBackground(), mayRun() {
+                await run { !isBackground() || !mayRun() }
+            }
+            self?.finish(token)
+        }
+    }
+
+    /// Foreground return: stop the in-flight grant. Its chunk unwinds at the next cooperative checkpoint.
+    func cancel() {
+        task?.cancel()
+        task = nil
+        token = nil
+    }
+
+    private func finish(_ finished: UUID) {
+        guard token == finished else { return }
+        task = nil
+        token = nil
     }
 }
