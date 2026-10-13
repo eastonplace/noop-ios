@@ -394,7 +394,7 @@ extension WidgetSnapshot {
         token: VerifiedSinkToken
     ) async {
         let projection = bundle.projection
-        let anchorDay = bundle.widgetCore.logicalDay
+        let anchorDay = WidgetCoreDay.nightlyAnchor(bundle: bundle, now: Date())
         let hrvSeries: [(day: String, value: Double)]?
         if let store = await model.repo.storeHandle() {
             hrvSeries = try? await verifiedHRVSeries(
@@ -405,7 +405,7 @@ extension WidgetSnapshot {
         } else {
             hrvSeries = nil
         }
-        let hrvProjection = widgetHRVProjection(from: hrvSeries ?? [], anchorDay: anchorDay)
+        let hrvSparkline = widgetHRVProjection(from: hrvSeries ?? []).sparkline
         let stress = await enrichmentStress(
             store: await model.repo.storeHandle(), bundle: bundle, now: Date())
         guard let defaults = UserDefaults(suiteName: WidgetSnapshot.suiteName),
@@ -413,8 +413,7 @@ extension WidgetSnapshot {
                 defaults: defaults,
                 token: token,
                 bundle: bundle,
-                hrv: hrvProjection,
-                hrvRead: hrvSeries != nil,
+                hrvSparkline: hrvSparkline,
                 stress: stress,
                 now: Date()),
               committed.result == .published || committed.result == .alreadyCurrent else { return }
@@ -426,8 +425,10 @@ extension WidgetSnapshot {
     /// Write the enrichment onto the committed core of its generation. Start from the immutable verified payload,
     /// never the display view. The display view may contain a transient live overlay; baking it back into the
     /// envelope would turn non-durable HR/battery fields into verified state and could resurrect them after a
-    /// transition or relaunch. The core already carries the HRV scalar, so a read that failed outright
-    /// (`hrvRead` false) must not blank it. nil when the envelope is no longer this generation's.
+    /// transition or relaunch. The HRV scalar is not written here: the core's delivery owns it
+    /// (`CoreDelivery.hrv`), read for the night Today's row is for (`WidgetCoreDay.nightlyAnchor`), and this
+    /// enrichment, anchored on the logical day, used to overwrite it with another night's value. Only the history
+    /// strip is written, read up to that same anchor. nil when the envelope is no longer this generation's.
     ///
     /// The strip was computed for a day that was current when the enrichment started, but the scan can straddle
     /// 04:00, and a re-commit of the same generation then restamps the core after the rollover. The day is
@@ -437,8 +438,7 @@ extension WidgetSnapshot {
         defaults: UserDefaults,
         token: VerifiedSinkToken,
         bundle: VerifiedExternalProjectionBundle,
-        hrv: (current: Int?, sparkline: [Int]),
-        hrvRead: Bool,
+        hrvSparkline: [Int],
         stress: (hours: [Double?]?, summary: String?),
         now: Date,
         calendar: Calendar = .current
@@ -449,8 +449,7 @@ extension WidgetSnapshot {
             token: token,
             contextId: projection.contextId,
             generation: projection.generation) else { return nil }
-        if hrvRead { enriched.hrv = hrv.current }
-        enriched.hrvSparkline = hrv.sparkline
+        enriched.hrvSparkline = hrvSparkline
         enriched.hourlyStress = stress.hours
         enriched.stressSummary = stress.summary
         if !WidgetCoreDay.isCurrent(bundle.widgetCore.logicalDay, now: now, calendar: calendar)

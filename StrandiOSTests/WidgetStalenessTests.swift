@@ -1396,13 +1396,12 @@ final class WidgetStalenessTests: XCTestCase {
 
         let committed = try XCTUnwrap(WidgetSnapshot.commitEnrichment(
             defaults: defaults, token: token, bundle: try bundle(day: "2026-08-08", steps: nil, generation: 5),
-            hrv: (current: 64, sparkline: [60, 64]), hrvRead: true, stress: aStrip,
+            hrvSparkline: [60, 64], stress: aStrip,
             now: at(ny, 9, 4, 0).addingTimeInterval(6), calendar: ny))
         XCTAssertEqual(committed.result, .published)
         XCTAssertNil(committed.snapshot.hourlyStress)
         XCTAssertNil(committed.snapshot.stressSummary)
-        XCTAssertEqual(committed.snapshot.hrv, 64, "the rest of the enrichment still lands")
-        XCTAssertEqual(committed.snapshot.hrvSparkline, [60, 64])
+        XCTAssertEqual(committed.snapshot.hrvSparkline, [60, 64], "the rest of the enrichment still lands")
         let shown = try XCTUnwrap(VerifiedWidgetEnvelopeStore.rawActiveEnvelope(defaults: defaults)).snapshot
         XCTAssertNil(shown.hourlyStress)
     }
@@ -1417,14 +1416,14 @@ final class WidgetStalenessTests: XCTestCase {
 
         let committed = try XCTUnwrap(WidgetSnapshot.commitEnrichment(
             defaults: defaults, token: token, bundle: try bundle(day: "2026-08-08", steps: nil, generation: 5),
-            hrv: (current: nil, sparkline: []), hrvRead: false, stress: aStrip,
+            hrvSparkline: [], stress: aStrip,
             now: at(ny, 9, 3, 59), calendar: ny))
         XCTAssertEqual(committed.snapshot.hourlyStress?.count, 24)
         XCTAssertEqual(committed.snapshot.stressSummary, "Moderate")
     }
 
-    /// A read that failed outright must not blank the HRV the core already carries; one that found nothing may.
-    func testAFailedHRVReadDoesNotBlankTheCoresHRV() throws {
+    /// The HRV scalar is the core's delivery's; the enrichment writes the history strip and never the scalar.
+    func testTheEnrichmentNeverWritesTheHRVScalar() throws {
         let ny = newYork()
         let token = try install(contextId: "ctx")
         var base = core("ctx", generation: 5)
@@ -1434,14 +1433,68 @@ final class WidgetStalenessTests: XCTestCase {
             token: token, generation: 5, snapshot: base, defaults: defaults), .published)
         let aug8 = try bundle(day: "2026-08-08", steps: nil, generation: 5)
 
-        let failed = try XCTUnwrap(WidgetSnapshot.commitEnrichment(
-            defaults: defaults, token: token, bundle: aug8, hrv: (current: nil, sparkline: []), hrvRead: false,
+        let strip = try XCTUnwrap(WidgetSnapshot.commitEnrichment(
+            defaults: defaults, token: token, bundle: aug8, hrvSparkline: [58, 70, 72],
             stress: (nil, nil), now: at(ny, 8, 11), calendar: ny))
-        XCTAssertEqual(failed.snapshot.hrv, 61)
+        XCTAssertEqual(strip.snapshot.hrv, 61, "the scalar stays the core's, whatever the strip ends on")
+        XCTAssertEqual(strip.snapshot.hrvSparkline, [58, 70, 72])
         let empty = try XCTUnwrap(WidgetSnapshot.commitEnrichment(
-            defaults: defaults, token: token, bundle: aug8, hrv: (current: nil, sparkline: []), hrvRead: true,
-            stress: (nil, nil), now: at(ny, 8, 11), calendar: ny))
-        XCTAssertNil(empty.snapshot.hrv)
+            defaults: defaults, token: token, bundle: aug8, hrvSparkline: [],
+            stress: (nil, nil), now: at(ny, 8, 12), calendar: ny))
+        XCTAssertEqual(empty.snapshot.hrv, 61)
+    }
+
+    /// The carve-out: the night ended at 02:40 on Aug 9, the strap synced at 02:50, and the generation's logical
+    /// day is still Aug 8. The delivery writes the Aug 9 night's 66 (the anchor is the 9th); the enrichment,
+    /// anchored on the 8th, used to overwrite it with Aug 8's 60, and the two flipped on every re-commit.
+    func testTheEnrichmentDoesNotFightTheDeliveryInTheCarveOut() throws {
+        let ny = newYork()
+        let token = try install(contextId: "ctx")
+        let banked = try bundle(day: "2026-08-08", steps: nil, recovery: 71, recoveryDay: "2026-08-09")
+        let now = at(ny, 9, 2, 50)
+        XCTAssertEqual(WidgetCoreDay.nightlyAnchor(bundle: banked, now: now, calendar: ny).key, "2026-08-09")
+
+        let first = WidgetCorePublication.commitCore(
+            bundle: banked, token: token, defaults: defaults, delivery: delivery(hrv: 66), now: now, calendar: ny)
+        XCTAssertEqual(first.snapshot.hrv, 66)
+        for round in 0..<2 {
+            let enriched = try XCTUnwrap(WidgetSnapshot.commitEnrichment(
+                defaults: defaults, token: token, bundle: banked, hrvSparkline: [58, 60, 66],
+                stress: (nil, nil), now: now.addingTimeInterval(5), calendar: ny))
+            XCTAssertEqual(enriched.snapshot.hrv, 66, "enrichment \(round) leaves the delivered night")
+            XCTAssertEqual(enriched.snapshot.hrvSparkline, [58, 60, 66])
+            let recommit = WidgetCorePublication.commitCore(
+                bundle: banked, token: token, defaults: defaults, delivery: delivery(hrv: 66),
+                now: now.addingTimeInterval(60), calendar: ny)
+            XCTAssertEqual(recommit.snapshot.hrv, 66)
+            XCTAssertEqual(recommit.snapshot.hrvSparkline, [58, 60, 66], "the strip still carries")
+        }
+        XCTAssertEqual(try XCTUnwrap(VerifiedWidgetEnvelopeStore.rawActiveEnvelope(defaults: defaults)).snapshot.hrv, 66)
+    }
+
+    /// A core four nights old: its HRV was Aug 5's when it was current, and no night inside Today's window is
+    /// left on the 9th. A re-commit of the same generation must not hand the old scalar back through the carry,
+    /// and the enrichment that follows must not add one.
+    func testACoreFourNightsOldHasNoHRVAndNothingBringsOneBack() throws {
+        let ny = newYork()
+        let token = try install(contextId: "ctx")
+        let aug5 = try bundle(day: "2026-08-05", steps: nil, generation: 5)
+        let current = WidgetCorePublication.commitCore(
+            bundle: aug5, token: token, defaults: defaults, delivery: delivery(hrv: 58), now: at(ny, 5, 15), calendar: ny)
+        XCTAssertEqual(current.snapshot.hrv, 58)
+        _ = try XCTUnwrap(WidgetSnapshot.commitEnrichment(
+            defaults: defaults, token: token, bundle: aug5, hrvSparkline: [55, 57, 58],
+            stress: (nil, nil), now: at(ny, 5, 15, 1), calendar: ny))
+
+        let behind = WidgetCorePublication.commitCore(
+            bundle: aug5, token: token, defaults: defaults, delivery: delivery(), now: at(ny, 9, 10), calendar: ny)
+        XCTAssertNil(behind.snapshot.hrv, "the same generation's old scalar is not carried onto a core that is behind")
+        XCTAssertEqual(behind.snapshot.hrvSparkline, [55, 57, 58], "the history still carries")
+        let enriched = try XCTUnwrap(WidgetSnapshot.commitEnrichment(
+            defaults: defaults, token: token, bundle: aug5, hrvSparkline: [55, 57, 58],
+            stress: (nil, nil), now: at(ny, 9, 10, 1), calendar: ny))
+        XCTAssertNil(enriched.snapshot.hrv)
+        XCTAssertNil(try XCTUnwrap(VerifiedWidgetEnvelopeStore.rawActiveEnvelope(defaults: defaults)).snapshot.hrv)
     }
 
     func testNoEnrichmentIsWrittenOnceTheGenerationIsNoLongerTheEnvelopes() throws {
@@ -1451,7 +1504,7 @@ final class WidgetStalenessTests: XCTestCase {
             token: token, generation: 6, snapshot: core("ctx", generation: 6), defaults: defaults), .published)
         XCTAssertNil(WidgetSnapshot.commitEnrichment(
             defaults: defaults, token: token, bundle: try bundle(day: "2026-08-08", steps: nil, generation: 5),
-            hrv: (current: 64, sparkline: [64]), hrvRead: true, stress: aStrip, now: at(ny, 8, 15), calendar: ny))
+            hrvSparkline: [64], stress: aStrip, now: at(ny, 8, 15), calendar: ny))
     }
 
     // MARK: - publish's delivery: every read, assembled and driven against an in-memory store

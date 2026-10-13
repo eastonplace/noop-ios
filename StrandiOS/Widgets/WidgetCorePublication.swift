@@ -172,7 +172,9 @@ enum WidgetCorePublication {
     /// - the HRV scalar is the night that generation was scored on, and a newer generation can have a different
     ///   night (it is scored after the older one was committed), so it is never carried across generations: the
     ///   core computes it itself (`CoreDelivery.hrv`). Only a re-commit of the same generation, whose core
-    ///   could not compute it, keeps the one already there. The sparkline is history and carries as above;
+    ///   could not compute it, keeps the one already there, and only while the core is the current day's
+    ///   (`dayIsCurrent`): a core that is behind has the delivery's night or none, never the one it was
+    ///   committed with a day ago. The sparkline is history and carries as above;
     /// - the hourly stress and its summary are the core's day's, so they carry only while that day is the current
     ///   logical day (`dayIsCurrent`); a core that is behind has no strip, not yesterday's;
     /// - an envelope of another epoch or context carries nothing.
@@ -196,7 +198,7 @@ enum WidgetCorePublication {
                   older.day == logicalDay else { return core }
         }
         var carried = core
-        if carried.hrv == nil, existing.generation == generation { carried.hrv = existing.snapshot.hrv }
+        if carried.hrv == nil, dayIsCurrent, existing.generation == generation { carried.hrv = existing.snapshot.hrv }
         if carried.hrvSparkline == nil { carried.hrvSparkline = existing.snapshot.hrvSparkline }
         if dayIsCurrent {
             if carried.hourlyStress == nil { carried.hourlyStress = existing.snapshot.hourlyStress }
