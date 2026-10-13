@@ -390,4 +390,70 @@ final class WidgetStalenessTests: XCTestCase {
         XCTAssertFalse(WidgetStressFreshness.isCurrent(updated: updated, now: at(calendar, 9, 0, 15), calendar: calendar))
         XCTAssertFalse(WidgetStressFreshness.isCurrent(updated: updated, now: at(calendar, 9, 8, 0), calendar: calendar))
     }
+
+    // MARK: - M8: Resting HR carries the last valid night like Recovery and Sleep
+
+    private func row(_ source: String, _ day: String, rhr: Int?, priority: Int = 0) -> StoredSourcedDailyMetric {
+        StoredSourcedDailyMetric(
+            sourceId: source, sourcePriority: priority,
+            metric: DailyMetric(day: day, totalSleepMin: nil, efficiency: nil, deepMin: nil, remMin: nil,
+                                lightMin: nil, disturbances: nil, restingHr: rhr, avgHrv: nil,
+                                recovery: nil, strain: nil, exerciseCount: nil))
+    }
+
+    private func carriedRHR(stored: Int? = nil, _ rows: [StoredSourcedDailyMetric]) -> Int? {
+        RepositoryPostAnalysisSnapshotBuilder.widgetRestingHR(
+            stored: stored, displayDay: "2026-08-08", dailyRows: rows,
+            importedSourceIds: ["strap"], computedSourceIds: ["strap-noop"], appleSourceId: "apple-health")
+    }
+
+    /// Today's Resting HR is missing until tonight's sleep is scored. Recovery and Sleep show last night's in
+    /// the meantime; Resting HR showed a dash.
+    func testRestingHRCarriesLastNightUntilTodayIsScored() {
+        XCTAssertEqual(carriedRHR([
+            row("strap-noop", "2026-08-07", rhr: 52),
+            row("strap-noop", "2026-08-08", rhr: nil),
+        ]), 52)
+        XCTAssertEqual(carriedRHR([row("strap-noop", "2026-08-07", rhr: 52)]), 52,
+                       "the display day need not have a row at all")
+    }
+
+    func testRestingHRPrefersTodaysOwnValueOverACarry() {
+        XCTAssertEqual(carriedRHR(stored: 49, [row("strap-noop", "2026-08-07", rhr: 52)]), 49)
+    }
+
+    /// A value from another day is never presented as today's once Today itself would stop calling it "Last night".
+    func testRestingHRNeverCarriesAStaleNight() {
+        XCTAssertEqual(carriedRHR([row("strap-noop", "2026-08-06", rhr: 54)]), 54, "two nights back: still carried")
+        XCTAssertNil(carriedRHR([row("strap-noop", "2026-08-05", rhr: 54)]), "three nights back: stale")
+        XCTAssertNil(carriedRHR([
+            row("strap-noop", "2026-08-07", rhr: nil),
+            row("strap-noop", "2026-08-06", rhr: nil),
+            row("strap-noop", "2026-08-05", rhr: 54),
+        ]))
+    }
+
+    func testRestingHRNeverTakesAFutureDayOrAnImplausibleValue() {
+        XCTAssertNil(carriedRHR([row("strap-noop", "2026-08-09", rhr: 55)]), "tomorrow's row is not a carry")
+        XCTAssertNil(carriedRHR([row("strap-noop", "2026-08-07", rhr: 19)]))
+        XCTAssertEqual(carriedRHR([
+            row("strap-noop", "2026-08-07", rhr: 301),
+            row("strap-noop", "2026-08-06", rhr: 53),
+        ]), 53, "an implausible night is skipped for the next valid one inside the window")
+    }
+
+    /// The carried night resolves per field the way the day's row does: the import first, the computed night
+    /// filling what the import lacks; Apple Health only when the read carried it.
+    func testRestingHRCarryFollowsTheDailyMergePrecedence() {
+        XCTAssertEqual(carriedRHR([
+            row("strap", "2026-08-07", rhr: 50, priority: 2),
+            row("strap-noop", "2026-08-07", rhr: 53, priority: 1),
+        ]), 50)
+        XCTAssertEqual(carriedRHR([
+            row("strap", "2026-08-07", rhr: nil, priority: 2),
+            row("strap-noop", "2026-08-07", rhr: 53, priority: 1),
+        ]), 53)
+        XCTAssertEqual(carriedRHR([row("apple-health", "2026-08-07", rhr: 58, priority: 0)]), 58)
+        XCTAssertNil(carriedRHR([row("somebody-else", "2026-08-07", rhr: 60)]), "outside the namespace")
+    }
 }
