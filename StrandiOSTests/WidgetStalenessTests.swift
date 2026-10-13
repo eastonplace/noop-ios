@@ -299,7 +299,8 @@ final class WidgetStalenessTests: XCTestCase {
     // MARK: - M5: the widget shows the Steps figure Today shows
 
     private func bundle(
-        day: String, steps: Int?, generation: Int64 = 4, strain: Double? = nil, recovery: Double? = nil
+        day: String, steps: Int?, generation: Int64 = 4, strain: Double? = nil, recovery: Double? = nil,
+        calories: Int? = nil
     ) throws -> VerifiedExternalProjectionBundle {
         let civil = try CivilDay(key: day)
         var metrics: [HealthMetricKind: VerifiedHealthMetric] = [:]
@@ -313,7 +314,7 @@ final class WidgetStalenessTests: XCTestCase {
             contextId: "ctx", deviceId: "my-whoop", generation: generation, logicalDay: civil, metrics: metrics)
         let core = try VerifiedWidgetCorePayload(
             contextId: "ctx", projectionGeneration: generation, logicalDay: civil, restingHR: 52,
-            sleepMinutes: 420, steps: steps, calories: nil, recoveryDelta: nil,
+            sleepMinutes: 420, steps: steps, calories: calories, recoveryDelta: nil,
             recordedTimeZoneIdentifier: "America/New_York", enrichmentSourceIds: ["my-whoop", "my-whoop-noop"])
         return try VerifiedExternalProjectionBundle(projection: projection, widgetCore: core)
     }
@@ -815,13 +816,15 @@ final class WidgetStalenessTests: XCTestCase {
         evening.strain = StrainScale.displayValue(fromStored: 30)
         XCTAssertEqual(VerifiedWidgetEnvelopeStore.commit(
             token: token, generation: 5, snapshot: evening, defaults: defaults), .published)
-        let aug8 = try bundle(day: "2026-08-08", steps: 3_000, generation: 5, strain: 30, recovery: 71)
+        let aug8 = try bundle(day: "2026-08-08", steps: 3_000, generation: 5, strain: 30, recovery: 71,
+                              calories: 2_140)
 
         // 02:30 on the 9th is still Aug 8: the figures stand and the strip is carried.
         let night = WidgetCorePublication.commitCore(
             bundle: aug8, token: token, defaults: defaults, delivery: delivery(),
             now: at(ny, 9, 2, 30), calendar: ny)
         XCTAssertEqual(night.snapshot.steps, 3_000)
+        XCTAssertEqual(night.snapshot.calories, 2_140)
         XCTAssertEqual(night.snapshot.strain, StrainScale.displayValue(fromStored: 30))
         XCTAssertEqual(night.snapshot.hourlyStress?.count, 24)
         XCTAssertTrue(WidgetStressFreshness.isCurrent(updated: night.snapshot.updated, now: at(ny, 9, 3, 0), calendar: ny))
@@ -836,6 +839,7 @@ final class WidgetStalenessTests: XCTestCase {
         XCTAssertNil(morning.snapshot.hourlyStress, "the strip is not carried onto a core that is behind")
         XCTAssertNil(morning.snapshot.stressSummary)
         XCTAssertNil(morning.snapshot.steps, "not the strap's count for yesterday")
+        XCTAssertNil(morning.snapshot.calories, "not yesterday's running total")
         XCTAssertNil(morning.snapshot.strain, "not yesterday's Strain")
         XCTAssertEqual(morning.snapshot.recovery, 71, "the per-night figures still carry")
         XCTAssertEqual(morning.snapshot.restingHr, 52)
@@ -850,6 +854,7 @@ final class WidgetStalenessTests: XCTestCase {
                 bpm: 64, batteryPct: 81, bonded: true, steps: 640, currentDayStrain: 12, olderGenerationDay: nil),
             now: at(ny, 9, 10), calendar: ny)
         XCTAssertEqual(resolved.snapshot.steps, 640)
+        XCTAssertNil(resolved.snapshot.calories)
         XCTAssertEqual(resolved.snapshot.strain, StrainScale.displayValue(fromStored: 12))
         XCTAssertNil(resolved.snapshot.hourlyStress)
     }

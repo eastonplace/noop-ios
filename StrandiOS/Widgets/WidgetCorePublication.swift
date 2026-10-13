@@ -7,7 +7,7 @@ import WhoopStore
 ///
 /// A generation is only replaced when a strap pass mints a newer one, so after the 04:00 rollover the newest core
 /// can still be yesterday's, and it is re-committed (activation, the day-boundary handler, a HealthKit drain)
-/// with a fresh timestamp. Its day-scoped figures (Strain, Steps, the Stress strip) are then yesterday's, and
+/// with a fresh timestamp. Its day-scoped figures (Strain, Steps, Calories, the Stress strip) are then yesterday's, and
 /// the widget must not present them as today's: each is either resolved for the current logical day, exactly as
 /// Today resolves it, or left out. The per-night figures (Recovery, Sleep, Resting HR, HRV) are not day-scoped;
 /// they carry the last scored night inside `CarriedVitalWindow`, as Today does.
@@ -188,8 +188,9 @@ enum WidgetCorePublication {
     /// strap's count, so a day Today fills from Apple Health or the estimate would otherwise read as a dash on
     /// the widget. While the core is the current day's, nil keeps its own count.
     ///
-    /// When the core is from an earlier day (`WidgetCoreDay`), its Strain and Steps are not today's: they are
-    /// replaced by `currentDayStrain` and `steps`, which are Today's for the current logical day, or by nothing.
+    /// When the core is from an earlier day (`WidgetCoreDay`), its Strain, Steps and Calories are not today's:
+    /// Strain and Steps are replaced by `currentDayStrain` and `steps`, which are Today's for the current logical
+    /// day, or by nothing, and Calories (a running day total) are left out.
     static func makeCoreSnapshot(
         bundle: VerifiedExternalProjectionBundle,
         bpm: Int?,
@@ -217,7 +218,7 @@ enum WidgetCorePublication {
             recoveryDelta: core.recoveryDelta,
             sleepMinutes: core.sleepMinutes,
             steps: dayIsCurrent ? (steps ?? core.steps) : steps,
-            calories: core.calories,
+            calories: dayIsCurrent ? core.calories : nil,
             hourlyStress: nil,
             stressSummary: nil,
             hrSparkline: nil,
