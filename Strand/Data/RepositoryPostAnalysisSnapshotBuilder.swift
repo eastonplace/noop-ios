@@ -20,6 +20,8 @@ struct PostAnalysisTodaySnapshotInput: Sendable {
     let rawFrontierTs: Int?
     let recordedTimeZoneIdentifier: String
     let now: Date
+    /// The profile's resting energy per day, for the calorie resolver (review round 4, 5).
+    var bmrKcalPerDay: Double? = nil
 }
 
 enum PostAnalysisTodaySnapshotBuilderError: Error {
@@ -221,11 +223,36 @@ enum RepositoryPostAnalysisSnapshotBuilder {
             ),
         ]
 
+        // Review round 4 (5): the day's calorie total by the one resolver, from this same read, so the payloads
+        // built from this snapshot show the number Trends and the Coupled view show.
+        let appleEnergy = input.read.appleDailyRows
+            .filter { $0.day == displayDay.key && $0.sourceId == input.appleSourceId }
+            .max { $0.sourcePriority < $1.sourcePriority }
+        let strapWornSeconds = input.read.metricRows
+            .filter {
+                $0.day == displayDay.key && computedIds.contains($0.sourceId)
+                    && $0.key == IntelligenceEngine.strapWornSecondsMetricKey
+            }
+            .max { $0.sourcePriority < $1.sourcePriority }?.value
+        let dayTiming = DailyCalories.dayTiming(
+            day: displayDay.key,
+            timeZone: TimeZone(identifier: input.recordedTimeZoneIdentifier) ?? .current,
+            now: input.now)
+        let calories = DailyCalories.total(
+            strapKcal: base.activeKcalEst,
+            strapWornSeconds: strapWornSeconds,
+            appleActiveKcal: appleEnergy?.activeKcal,
+            appleBasalKcal: appleEnergy?.basalKcal,
+            bmrKcalPerDay: input.bmrKcalPerDay,
+            daySeconds: dayTiming?.daySeconds ?? 86_400,
+            elapsedSeconds: dayTiming?.elapsedSeconds)
+
         // Keep this row truthful for its own day. Carried prior-night values stay only in metricStates.
         let daily = base.replacing(
             totalSleepMin: .some(sleepDuration?.value),
             recovery: .some(recovery?.value),
             strain: .some(strain?.value),
+            activeKcalEst: .some(calories),
             strainVersion: .some(strain == nil ? nil : 2)
         )
         return TodayHealthSnapshot(

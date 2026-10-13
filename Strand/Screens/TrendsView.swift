@@ -198,7 +198,9 @@ struct TrendsView: View {
                         walkingHr: $0.walkingHr,
                         weightKg: $0.weightKg
                     )
-                }.sorted { $0.day < $1.day }
+                }.sorted { $0.day < $1.day },
+                strapWornSecondsByDay: repo.strapWornSecondsByDay,
+                bmrKcalPerDay: ProfileStore.storedBmrKcalPerDay()
             )
             if provisional != loadedData { loadedData = provisional }
         }
@@ -237,7 +239,9 @@ struct TrendsView: View {
             canonicalDays: next.canonicalDays,
             sleepPerfByDay: next.sleepPerfByDay,
             stressByDay: next.stressByDay,
-            appleDays: next.appleDays
+            appleDays: next.appleDays,
+            strapWornSecondsByDay: next.strapWornSecondsByDay,
+            bmrKcalPerDay: next.bmrKcalPerDay
         )
         if revisionAdjusted != loadedData { loadedData = revisionAdjusted }
         _ = loadState.finish(

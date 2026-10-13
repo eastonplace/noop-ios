@@ -124,6 +124,9 @@ public enum AnalyticsEngine {
         /// Where this day's Effort cycle started (AN-05): the main night's detected onset, nil with no sleep.
         /// The pass hands it to the previous day as that day's `CycleEnd`.
         public let cycleStart: Int?
+        /// Review round 4 (5): how long the strap recorded valid heart rate on the civil day
+        /// (`DailyCalories.wornSeconds`), the coverage `DailyCalories.total` weighs the strap total by.
+        public let strapWornSeconds: Int?
 
         public init(daily: DailyMetric, sleepSessions: [SleepSession],
                     cachedSleep: [CachedSleepSession], workouts: [ExerciseSession],
@@ -137,7 +140,8 @@ public enum AnalyticsEngine {
                     sessionSleepStateByStart: [Int: [Int]] = [:],
                     chargeDrivers: [ChargeDriver] = [],
                     skinTempRelative: SkinTempRelative? = nil,
-                    cycleStart: Int? = nil) {
+                    cycleStart: Int? = nil,
+                    strapWornSeconds: Int? = nil) {
             self.daily = daily; self.sleepSessions = sleepSessions
             self.cachedSleep = cachedSleep; self.workouts = workouts
             self.recovery = recovery; self.strain = strain
@@ -152,6 +156,7 @@ public enum AnalyticsEngine {
             self.sessionMotionByStart = sessionMotionByStart
             self.sessionSleepStateByStart = sessionSleepStateByStart
             self.cycleStart = cycleStart
+            self.strapWornSeconds = strapWornSeconds
         }
     }
 
@@ -1020,7 +1025,8 @@ public enum AnalyticsEngine {
                          sessionSleepStateByStart: sessionSleepStateByStart,
                          chargeDrivers: chargeDrivers,
                          skinTempRelative: skinTempRelative,
-                         cycleStart: cycleStartTs)
+                         cycleStart: cycleStartTs,
+                         strapWornSeconds: DailyCalories.wornSeconds(dayHrFiltered))
     }
 
     // MARK: - Rest composite (Charge/Effort/Rest)

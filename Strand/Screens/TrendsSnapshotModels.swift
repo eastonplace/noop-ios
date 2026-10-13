@@ -400,7 +400,7 @@ struct TrendsScreenSnapshot: Sendable {
             return CalendarMetricDay(
                 date: calendar.startOfDay(for: date),
                 value: data.canonicalByDay[key].flatMap {
-                    value(for: metric, day: $0, data: data)
+                    value(for: metric, day: $0, data: data, now: referenceDate)
                 }
             )
         }
@@ -544,7 +544,8 @@ struct TrendsScreenSnapshot: Sendable {
     private static func value(
         for metric: ProductionTrendMetric,
         day: DailyMetric,
-        data: TrendsLoadedData
+        data: TrendsLoadedData,
+        now: Date
     ) -> Double? {
         let candidate: Double?
         switch metric {
@@ -559,11 +560,19 @@ struct TrendsScreenSnapshot: Sendable {
         case .skinTemp: candidate = day.skinTempDevC
         case .steps: candidate = day.steps.map(Double.init) ?? data.appleByDay[day.day]?.steps.map(Double.init)
         case .calories:
-            // D3b: every calorie total is TOTAL energy (resting + active), like NOOP's own estimate, so the
-            // Apple fallback adds basal energy. Without basal for the day (e.g. a Shortcuts import), Apple's
-            // active energy is all there is, and that day reads lower.
+            // Review round 4 (5): the shared resolver, the same total the Coupled view and the widgets show.
             let apple = data.appleByDay[day.day]
-            candidate = day.activeKcalEst ?? apple?.activeKcal.map { $0 + (apple?.basalKcal ?? 0) }
+            let timing = TimeZone(identifier: data.timeZoneIdentifier).flatMap {
+                DailyCalories.dayTiming(day: day.day, timeZone: $0, now: now)
+            }
+            candidate = DailyCalories.total(
+                strapKcal: day.activeKcalEst,
+                strapWornSeconds: data.strapWornSecondsByDay[day.day],
+                appleActiveKcal: apple?.activeKcal,
+                appleBasalKcal: apple?.basalKcal,
+                bmrKcalPerDay: data.bmrKcalPerDay,
+                daySeconds: timing?.daySeconds ?? 86_400,
+                elapsedSeconds: timing?.elapsedSeconds)
         case .stress: candidate = data.stressByDay[day.day]
         }
         guard let value = finite(candidate), metric.acceptsForDisplay(value) else { return nil }

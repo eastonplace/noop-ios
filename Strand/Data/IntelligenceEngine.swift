@@ -253,6 +253,9 @@ final class IntelligenceEngine: ObservableObject {
     /// for a completed day, the pass's "now" for today. A production pass scores today only, so without it
     /// yesterday kept the total its last pass filled up to that moment.
     nonisolated static let calorieFillEndMetricKey = "calorie_fill_end"
+    /// Review round 4 (5): how long the strap recorded valid heart rate on each computed row's day, the
+    /// coverage `DailyCalories.total` weighs the strap total by.
+    nonisolated static let strapWornSecondsMetricKey = "strap_worn_seconds"
     /// A legacy unmarked row is a strap night when a strap recorded at least this many heart-rate rows in its
     /// night window (an hour at the slowest 30 s cadence; a worn night records thousands).
     nonisolated static let legacyStrapNightMinHrRows = 120
@@ -868,6 +871,7 @@ final class IntelligenceEngine: ObservableObject {
         var nightlyRespByDay: [String: Double?] = [:]
         var nightlySkinByDay: [String: Double?] = [:]
         var whoop4SkinAnchorByDay: [String: Double] = [:]   // review round 3 (B): each WHOOP 4.0 night's anchor
+        var strapWornSecondsByDay: [String: Int] = [:]      // review round 4 (5): calorie coverage
 
         // Device-registry snapshot for per-day owner resolution (invariant I2 , a day's scores come from
         // exactly ONE source). Read once before the loop: the paired-device list + the active id are
@@ -1560,6 +1564,7 @@ final class IntelligenceEngine: ObservableObject {
             if let anchor = res.skinTempDiagnostic?.resolvedAnchorRaw {
                 whoop4SkinAnchorByDay[res.daily.day] = anchor
             }
+            strapWornSecondsByDay[res.daily.day] = res.strapWornSeconds
             if let line = scan.rhrLine { diagnosticSink?(line, nil) }
             if let line = scan.skinTempTrace { diagnosticSink?(line, nil) }
             // Sleep & Rest test mode (E5): replay this day's gate-trace + Rest lines tagged `.sleep` so they
@@ -2351,6 +2356,19 @@ final class IntelligenceEngine: ObservableObject {
                 Array(fillEndPoints.values),
                 deviceId: computedId,
                 keys: [Self.calorieFillEndMetricKey],
+                from: oldestDay,
+                to: newestDay
+            )
+            // Review round 4 (5): and how much of the day the strap covered.
+            let wornPoints = Dictionary(reconciledDailies.compactMap { row -> (String, MetricPoint)? in
+                guard row.activeKcalEst != nil, civilDayByKey[row.day] != nil,
+                      let worn = strapWornSecondsByDay[row.day] else { return nil }
+                return (row.day, MetricPoint(day: row.day, key: Self.strapWornSecondsMetricKey, value: Double(worn)))
+            }, uniquingKeysWith: { _, last in last })
+            persistedMutationCount += try await store.reconcileMetricSeries(
+                Array(wornPoints.values),
+                deviceId: computedId,
+                keys: [Self.strapWornSecondsMetricKey],
                 from: oldestDay,
                 to: newestDay
             )

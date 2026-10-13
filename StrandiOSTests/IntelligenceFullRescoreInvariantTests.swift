@@ -530,6 +530,21 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
         }
     }
 
+    /// Review round 4 (5): each scored day stores how long the strap recorded valid heart rate, the coverage the
+    /// shared calorie resolver weighs the strap total by. A fixture day with a next night has readings around the
+    /// clock: its own night and day until 23:00, then the next night from 23:00.
+    func testEachScoredDayStoresTheStrapWornTime() async throws {
+        try await withRecalibrationEpochsRestored {
+            let harness = try await makeHarness(days: 3)
+            let completed = await pass(harness, maxDays: 3)
+            XCTAssertTrue(completed)
+            let worn = try await harness.store.metricSeries(
+                deviceId: harness.computedId, key: IntelligenceEngine.strapWornSecondsMetricKey,
+                from: harness.dayKeys[1], to: harness.dayKeys[1])
+            XCTAssertEqual(worn.first?.value, 24 * 3_600)
+        }
+    }
+
     // MARK: - F8
 
     /// A watch-only user's Apple-scored days stay in the pass results, so Smart Alarm's green wake mode and

@@ -547,31 +547,44 @@ final class TrendsSnapshotTests: XCTestCase {
         XCTAssertGreaterThan(snapshot.weeklyDigest.summary(.rhr)?.thisWeek.n ?? 0, 0)
     }
 
-    /// D3b: a day NOOP didn't score falls back to Apple Health as TOTAL energy (active + basal), the same
-    /// meaning as NOOP's own total. A day with no Apple basal energy keeps active energy alone.
-    func testCaloriesAppleFallbackIsActivePlusBasal() throws {
+    /// D3b and review round 4 (5): calories go through the shared resolver. A strap sliver loses to Apple
+    /// Health's measured active + basal energy; a day NOOP didn't score falls back to Apple as TOTAL energy,
+    /// adding the profile's resting energy (prorated today) when Apple has no basal for the day. With no
+    /// profile rate that day is skipped rather than plotted as active energy alone.
+    func testCaloriesUseTheSharedResolver() throws {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(identifier: "UTC")!
-        let anchor = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 7, day: 22)))
-        func day(_ key: String) -> DailyMetric {
+        let reference = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 7, day: 22, hour: 6)))
+        func day(_ key: String, strapKcal: Double? = nil) -> DailyMetric {
             DailyMetric(day: key, totalSleepMin: nil, efficiency: nil, deepMin: nil, remMin: nil,
                         lightMin: nil, disturbances: nil, restingHr: nil, avgHrv: nil, recovery: nil,
-                        strain: nil, exerciseCount: nil)
+                        strain: nil, exerciseCount: nil, activeKcalEst: strapKcal)
         }
         func apple(_ key: String, active: Double, basal: Double?) -> AppleDaily {
             AppleDaily(day: key, steps: nil, activeKcal: active, basalKcal: basal, vo2max: nil,
                        avgHr: nil, maxHr: nil, walkingHr: nil, weightKg: nil)
         }
-        let loaded = TrendsLoadedData(
-            revision: 12, anchorDay: "2026-07-22", timeZoneIdentifier: "UTC",
-            canonicalDays: [day("2026-07-21"), day("2026-07-22")],
-            sleepPerfByDay: [:], stressByDay: [:],
-            appleDays: [apple("2026-07-21", active: 500, basal: 1_700), apple("2026-07-22", active: 450, basal: nil)])
-        let snapshot = try XCTUnwrap(TrendsScreenSnapshot.build(
-            key: key(revision: 12, metric: "Calories"), data: loaded, metric: .calories, range: .week,
-            weekOffset: 0, referenceDate: anchor, calendar: calendar, effortDisplayFactor: 1
-        ))
-        XCTAssertEqual(snapshot.selectedPoints.map(\.value), [2_200, 450])
+        func loaded(bmr: Double?) -> TrendsLoadedData {
+            TrendsLoadedData(
+                revision: 12, anchorDay: "2026-07-22", timeZoneIdentifier: "UTC",
+                canonicalDays: [day("2026-07-19", strapKcal: 1_780), day("2026-07-20"), day("2026-07-21"),
+                                day("2026-07-22")],
+                sleepPerfByDay: [:], stressByDay: [:],
+                appleDays: [apple("2026-07-19", active: 900, basal: 1_750),
+                            apple("2026-07-20", active: 500, basal: 1_700),
+                            apple("2026-07-21", active: 450, basal: nil),
+                            apple("2026-07-22", active: 300, basal: nil)],
+                strapWornSecondsByDay: ["2026-07-19": 120],
+                bmrKcalPerDay: bmr)
+        }
+        func points(_ data: TrendsLoadedData) throws -> [Double] {
+            try XCTUnwrap(TrendsScreenSnapshot.build(
+                key: key(revision: 12, metric: "Calories"), data: data, metric: .calories, range: .week,
+                weekOffset: 0, referenceDate: reference, calendar: calendar, effortDisplayFactor: 1
+            )).selectedPoints.map(\.value)
+        }
+        XCTAssertEqual(try points(loaded(bmr: 1_728)), [2_650, 2_200, 2_178, 300 + 1_728 / 4])
+        XCTAssertEqual(try points(loaded(bmr: nil)), [2_650, 2_200])
     }
 
     private func key(

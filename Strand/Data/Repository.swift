@@ -253,6 +253,9 @@ final class Repository: ObservableObject {
     @Published var todayHealthSnapshot: TodayHealthSnapshot?
     /// One source-generation read model shared by Today, Sleep, Trends, widgets, Watch, and exports.
     @Published var canonicalHealth = CanonicalHealthReadModel.empty
+    /// Review round 4 (5): the strap's worn time per day in the refresh window, the coverage the calorie
+    /// resolver weighs the strap total by. Published with `canonicalHealth`.
+    private(set) var strapWornSecondsByDay: [String: Double] = [:]
     /// The last projection that passed the verified snapshot boundary.
     @Published var verifiedHealthProjection: VerifiedHealthProjection?
     /// Source-transition fence for latest-state sinks. An old context cannot
@@ -1878,10 +1881,13 @@ final class Repository: ObservableObject {
             )
         }
         guard loaded || recovery != nil || strain != nil || sleepDuration != nil else { return nil }
+        // Review round 4 (5): the snapshot carries the day's calorie total by the one resolver, so every payload
+        // built from it (widgets, the watch face) shows the same number as Trends and the Coupled view.
         let daily = baseDaily.replacing(
             totalSleepMin: .some(sleepDuration?.value),
             recovery: .some(recovery?.value),
             strain: .some(strain?.value),
+            activeKcalEst: .some(dailyCaloriesTotal(baseDaily, now: now)),
             strainVersion: .some(strain?.strainVersion)
         )
 
@@ -2079,6 +2085,7 @@ final class Repository: ObservableObject {
         persistedStrainByDay = [:]
         canonicalStrainByDay = [:]
         importedStrainByDay = [:]
+        strapWornSecondsByDay = [:]
         liveDayStrain = nil
         loaded = false
         refreshSeq &+= 1
@@ -2317,6 +2324,7 @@ final class Repository: ObservableObject {
                     Self.sleepPerformanceV2SourceKey, Self.sleepNeedV2Key,
                     "noop_sleep_baseline_need_v2_min", "noop_sleep_strain_need_v2_min",
                     "noop_sleep_debt_need_v2_min", "noop_sleep_nap_credit_v2_min",
+                    IntelligenceEngine.strapWornSecondsMetricKey,
                 ]
             )
             let importedIds = Set(importedReadIds)
@@ -2411,10 +2419,13 @@ final class Repository: ObservableObject {
             from: canonicalRead,
             importedReadIds: importedReadIds,
             computedReadIds: computedReadIds,
-            authoritativeDayKeys: Set(canonicalRead.metricRows.map(\.day)),
+            authoritativeDayKeys: Set(canonicalRead.metricRows.compactMap {
+                $0.key == IntelligenceEngine.strapWornSecondsMetricKey ? nil : $0.day
+            }),
             previous: canonicalHealth,
             sourceGeneration: canonicalGeneration
         ) else { return false }
+        strapWornSecondsByDay = Self.strapWornSecondsByDay(canonicalRead, computedReadIds: computedReadIds)
         if nextCanonical != canonicalHealth { canonicalHealth = nextCanonical }
         if let extent = try? await store.repositoryHistoryExtent(
             importedDeviceIds: importedReadIds,
@@ -2464,6 +2475,33 @@ final class Repository: ObservableObject {
     nonisolated static func stableUniqueSourceIds(_ ids: [String]) -> [String] {
         var seen = Set<String>()
         return ids.filter { !$0.isEmpty && seen.insert($0).inserted }
+    }
+
+    /// The computed sources' worn-time rows in `read`, the highest-priority source per day (review round 4, 5).
+    nonisolated static func strapWornSecondsByDay(_ read: CanonicalHealthSurfaceStoreSnapshot,
+                                                  computedReadIds: [String]) -> [String: Double] {
+        let computed = Set(computedReadIds)
+        var best: [String: (priority: Int, value: Double)] = [:]
+        for row in read.metricRows
+        where row.key == IntelligenceEngine.strapWornSecondsMetricKey && computed.contains(row.sourceId) {
+            if let current = best[row.day], current.priority >= row.sourcePriority { continue }
+            best[row.day] = (row.sourcePriority, row.value)
+        }
+        return best.mapValues(\.value)
+    }
+
+    /// Review round 4 (5): `day`'s calorie total by the one resolver, from the strap row, the strap's worn time,
+    /// Apple Health's energy for the day and the profile's resting energy. Today counts as a partial day.
+    func dailyCaloriesTotal(_ day: DailyMetric, now: Date = Date()) -> Double? {
+        let apple = canonicalHealth.appleDailyByDay[day.day]
+        let timing = DailyCalories.dayTiming(day: day.day, timeZone: .current, now: now)
+        return DailyCalories.total(strapKcal: day.activeKcalEst,
+                                   strapWornSeconds: strapWornSecondsByDay[day.day],
+                                   appleActiveKcal: apple?.activeKcal,
+                                   appleBasalKcal: apple?.basalKcal,
+                                   bmrKcalPerDay: ProfileStore.storedBmrKcalPerDay(),
+                                   daySeconds: timing?.daySeconds ?? 86_400,
+                                   elapsedSeconds: timing?.elapsedSeconds)
     }
 
     private static func buildCanonicalHealthReadModel(
@@ -4999,6 +5037,7 @@ extension Repository {
                 Self.sleepPerformanceV2SourceKey, Self.sleepNeedV2Key,
                 "noop_sleep_baseline_need_v2_min", "noop_sleep_strain_need_v2_min",
                 "noop_sleep_debt_need_v2_min", "noop_sleep_nap_credit_v2_min",
+                IntelligenceEngine.strapWornSecondsMetricKey,
             ]
         )
         guard read.databaseInstanceId == context.databaseInstanceId else {
@@ -5017,7 +5056,8 @@ extension Repository {
             analysisGeneration: analysis.analysisGeneration,
             rawFrontierTs: analysis.rawFrontierTs,
             recordedTimeZoneIdentifier: work.recordedTimeZoneIdentifier,
-            now: now
+            now: now,
+            bmrKcalPerDay: ProfileStore.storedBmrKcalPerDay()
         )
         let candidate = try snapshotBuilder.build(postAnalysisInput)
         let healthKitPayload = try RepositoryHistoricalHealthKitPayloadBuilder.build(
