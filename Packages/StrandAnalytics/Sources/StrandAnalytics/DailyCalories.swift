@@ -11,6 +11,22 @@ public enum DailyCalories {
     /// Today's strap total is trusted once the strap has been worn for half the day so far.
     public static let todayStrapCoverageFraction: Double = 0.5
 
+    /// Where a day's calorie total came from.
+    public enum Source: Sendable, Equatable {
+        /// The strap's full-day heart-rate estimate (`DailyMetric.activeKcalEst`), whether or not it covered the day.
+        case strap
+        /// Apple Health's measured active + basal energy.
+        case appleActivePlusBasal
+        /// Apple Health's active energy plus the profile's resting energy.
+        case appleActivePlusProfileResting
+    }
+
+    /// A day's calorie total and where it came from.
+    public struct Resolution: Sendable, Equatable {
+        public let kcal: Double
+        public let source: Source
+    }
+
     /// The day's calorie total, in order:
     /// 1. the strap total when the strap covered the day (12 h worn; today, half the elapsed day),
     /// 2. else Apple Health's active + basal energy when it has both,
@@ -18,6 +34,8 @@ public enum DailyCalories {
     /// 4. else Apple's active energy plus the profile's resting energy for the seconds the day has run (all of
     ///    it for a completed day, so a 23 h or 25 h day gets 23 or 25 hours of it),
     /// 5. else nil.
+    /// This is the only place the order lives: `total` is this rule's number alone, and a screen that needs to
+    /// say where the number came from reads `source` from here instead of re-deciding it.
     /// - Parameters:
     ///   - strapKcal: the strap's full-day estimate (`DailyMetric.activeKcalEst`).
     ///   - strapWornSeconds: how long the strap recorded valid heart rate that day. Nil for a total stored
@@ -26,13 +44,13 @@ public enum DailyCalories {
     ///   - daySeconds: the civil day's length (23 h or 25 h across a DST change); nil counts as 24 h.
     ///   - elapsedSeconds: seconds since the day began, for today; nil for a completed day.
     ///   `dayTiming(day:timeZone:now:)` gives both.
-    public static func total(strapKcal: Double?,
-                             strapWornSeconds: Double?,
-                             appleActiveKcal: Double?,
-                             appleBasalKcal: Double?,
-                             bmrKcalPerDay: Double?,
-                             daySeconds: Double? = nil,
-                             elapsedSeconds: Double? = nil) -> Double? {
+    public static func resolve(strapKcal: Double?,
+                               strapWornSeconds: Double?,
+                               appleActiveKcal: Double?,
+                               appleBasalKcal: Double?,
+                               bmrKcalPerDay: Double?,
+                               daySeconds: Double? = nil,
+                               elapsedSeconds: Double? = nil) -> Resolution? {
         if let strapKcal {
             let covered: Bool
             if let worn = strapWornSeconds {
@@ -41,17 +59,32 @@ public enum DailyCalories {
             } else {
                 covered = true
             }
-            if covered { return strapKcal }
+            if covered { return Resolution(kcal: strapKcal, source: .strap) }
         }
-        if let active = appleActiveKcal, let basal = appleBasalKcal { return active + basal }
-        if let strapKcal { return strapKcal }
+        if let active = appleActiveKcal, let basal = appleBasalKcal {
+            return Resolution(kcal: active + basal, source: .appleActivePlusBasal)
+        }
+        if let strapKcal { return Resolution(kcal: strapKcal, source: .strap) }
         if let active = appleActiveKcal, let bmr = bmrKcalPerDay {
             // Review round 5 (3): resting energy accrues per real second, not as a share of the day.
             let length = daySeconds ?? 86_400
             let seconds = elapsedSeconds.map { min(max(0, $0), length) } ?? length
-            return active + bmr * seconds / 86_400
+            return Resolution(kcal: active + bmr * seconds / 86_400, source: .appleActivePlusProfileResting)
         }
         return nil
+    }
+
+    /// `resolve(...)`'s number: the day's calorie total by the one rule, or nil.
+    public static func total(strapKcal: Double?,
+                             strapWornSeconds: Double?,
+                             appleActiveKcal: Double?,
+                             appleBasalKcal: Double?,
+                             bmrKcalPerDay: Double?,
+                             daySeconds: Double? = nil,
+                             elapsedSeconds: Double? = nil) -> Double? {
+        resolve(strapKcal: strapKcal, strapWornSeconds: strapWornSeconds, appleActiveKcal: appleActiveKcal,
+                appleBasalKcal: appleBasalKcal, bmrKcalPerDay: bmrKcalPerDay, daySeconds: daySeconds,
+                elapsedSeconds: elapsedSeconds)?.kcal
     }
 
     /// The profile's resting energy per 24 h, at the rate the strap's full-day estimate fills off-wrist time

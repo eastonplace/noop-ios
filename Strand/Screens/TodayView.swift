@@ -5013,7 +5013,9 @@ struct TodayView: View {
     /// The Calories card for the day on screen: that day's TOTAL energy and its sparkline, from the same function
     /// the Calories page reads (`HealthDailyPick`), so the card and the page it opens always agree.
     private var caloriesCard: HealthDailyPick.CaloriesCard {
-        HealthDailyPick.caloriesCard(dayKey: selectedDayKey, strap: repo.days, phone: appleDays)
+        HealthDailyPick.caloriesCard(
+            dayKey: selectedDayKey, strap: repo.days, phone: appleDays,
+            context: HealthDailyPick.calorieContext(repo: repo))
     }
 
     private var caloriesText: String {

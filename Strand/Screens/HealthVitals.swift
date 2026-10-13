@@ -502,16 +502,36 @@ enum HealthDailyPick {
 
     // MARK: Calories: TOTAL energy for the whole day (owner decision D3), on the card and on the page
 
-    /// One day's calories: TOTAL energy (resting + active) for the whole day, never active energy alone. It is the
-    /// phone's active plus resting (basal) energy when it has both, else the strap's whole-day estimate
-    /// (`DailyMetric.activeKcalEst` already includes resting energy), else nothing. `isStrapEstimate` says which, so
-    /// a screen only calls the number an estimate when it is one. The Today card, its sparkline and the Calories
-    /// page all read this one function, so they cannot drift apart.
+    /// What the calorie rule needs besides a day's own rows: the strap's worn time per day (how much of the day the
+    /// strap's estimate covered), the profile's resting energy, and the clock that tells today from a finished day.
+    struct CalorieContext {
+        var strapWornSecondsByDay: [String: Double] = [:]
+        var bmrKcalPerDay: Double?
+        var timeZone: TimeZone = .current
+        var now: Date = Date()
+    }
+
+    /// The context Trends, the Coupled view and the widgets resolve calories with.
+    @MainActor
+    static func calorieContext(repo: Repository) -> CalorieContext {
+        CalorieContext(strapWornSecondsByDay: repo.strapWornSecondsByDay, bmrKcalPerDay: ProfileStore.storedBmrKcalPerDay())
+    }
+
+    /// One day's calories: TOTAL energy (resting + active) for the whole day, never active energy alone. The order of
+    /// sources is `DailyCalories`'s (the one rule Trends, the Coupled view and the widgets share); this only hands it
+    /// the day's rows and reports whether the answer is the strap's heart-rate estimate (`isStrapEstimate`), so a
+    /// screen only calls the number an estimate when it is one. The Today card, its sparkline and the Calories page
+    /// all read this one function, so they cannot drift apart.
     static func calories(
-        phoneActiveKcal: Double?, phoneBasalKcal: Double?, strapTotalKcal: Double?
+        day: String, strapKcal: Double?, phoneActiveKcal: Double?, phoneBasalKcal: Double?, context: CalorieContext
     ) -> (value: Double, isStrapEstimate: Bool)? {
-        if let active = phoneActiveKcal, let basal = phoneBasalKcal { return (active + basal, false) }
-        return strapTotalKcal.map { ($0, true) }
+        let timing = DailyCalories.dayTiming(day: day, timeZone: context.timeZone, now: context.now)
+        return DailyCalories.resolve(
+            strapKcal: strapKcal, strapWornSeconds: context.strapWornSecondsByDay[day],
+            appleActiveKcal: phoneActiveKcal, appleBasalKcal: phoneBasalKcal,
+            bmrKcalPerDay: context.bmrKcalPerDay,
+            daySeconds: timing?.daySeconds, elapsedSeconds: timing?.elapsedSeconds
+        ).map { ($0.kcal, $0.source == .strap) }
     }
 
     /// One day's calories with the day it is for.
@@ -522,13 +542,16 @@ enum HealthDailyPick {
     }
 
     /// Every day that has a calories number, oldest first, from the strap's daily rows and the phone's.
-    static func caloriesByDay(strap: [DailyMetric], phone: [AppleDaily]) -> [CaloriesDay] {
+    static func caloriesByDay(
+        strap: [DailyMetric], phone: [AppleDaily], context: CalorieContext = CalorieContext()
+    ) -> [CaloriesDay] {
         let strapByDay = Dictionary(strap.map { ($0.day, $0) }, uniquingKeysWith: { _, last in last })
         let phoneByDay = Dictionary(phone.map { ($0.day, $0) }, uniquingKeysWith: { _, last in last })
         return Set(strapByDay.keys).union(phoneByDay.keys).sorted().compactMap { day in
             calories(
+                day: day, strapKcal: strapByDay[day]?.activeKcalEst,
                 phoneActiveKcal: phoneByDay[day]?.activeKcal, phoneBasalKcal: phoneByDay[day]?.basalKcal,
-                strapTotalKcal: strapByDay[day]?.activeKcalEst
+                context: context
             ).map { CaloriesDay(day: day, value: $0.value, isStrapEstimate: $0.isStrapEstimate) }
         }
     }
@@ -552,8 +575,11 @@ enum HealthDailyPick {
         let sparkline: [Double]
     }
 
-    static func caloriesCard(dayKey: String, strap: [DailyMetric], phone: [AppleDaily], window: Int = 14) -> CaloriesCard {
-        let upToDay = caloriesByDay(strap: strap, phone: phone).filter { $0.day <= dayKey }
+    static func caloriesCard(
+        dayKey: String, strap: [DailyMetric], phone: [AppleDaily], context: CalorieContext = CalorieContext(),
+        window: Int = 14
+    ) -> CaloriesCard {
+        let upToDay = caloriesByDay(strap: strap, phone: phone, context: context).filter { $0.day <= dayKey }
         let shown = upToDay.last(where: { $0.day == dayKey })
         return CaloriesCard(
             value: shown?.value, isStrapEstimate: shown?.isStrapEstimate ?? false,
@@ -612,9 +638,10 @@ struct HealthMetricTrendView: View {
         }
     }
 
-    /// The calories per day (total energy), from the strap's rows and the phone's.
+    /// The calories per day (total energy), from the strap's rows and the phone's, by `DailyCalories`'s one rule.
     private var caloriesDays: [HealthDailyPick.CaloriesDay] {
-        HealthDailyPick.caloriesByDay(strap: repo.days, phone: Array(appleByDay.values))
+        HealthDailyPick.caloriesByDay(
+            strap: repo.days, phone: Array(appleByDay.values), context: HealthDailyPick.calorieContext(repo: repo))
     }
 
     /// Whether any day this page shows or averages (its chart reaches back 6 months) is the strap's heart-rate

@@ -66,6 +66,39 @@ final class DailyCaloriesTests: XCTestCase {
         XCTAssertEqual(total(strap: 2_100, worn: nil, active: 900, basal: 1_750), 2_100)
     }
 
+    /// The one rule also says where its number came from, so a screen never re-decides the order to label it.
+    func testResolveNamesTheSourceOfEachStep() throws {
+        func resolve(strap: Double? = nil, worn: Double? = nil, active: Double? = nil, basal: Double? = nil,
+                     bmr: Double? = 1_700) -> DailyCalories.Resolution? {
+            DailyCalories.resolve(strapKcal: strap, strapWornSeconds: worn, appleActiveKcal: active,
+                                  appleBasalKcal: basal, bmrKcalPerDay: bmr, daySeconds: 86_400)
+        }
+        let covered = try XCTUnwrap(resolve(strap: 2_400, worn: 12 * 3_600, active: 900, basal: 1_750))
+        XCTAssertEqual(covered, DailyCalories.Resolution(kcal: 2_400, source: .strap))
+        let apple = try XCTUnwrap(resolve(strap: 1_780, worn: 120, active: 900, basal: 1_750))
+        XCTAssertEqual(apple, DailyCalories.Resolution(kcal: 2_650, source: .appleActivePlusBasal))
+        let shortStrap = try XCTUnwrap(resolve(strap: 1_900, worn: 3 * 3_600, active: 450))
+        XCTAssertEqual(shortStrap, DailyCalories.Resolution(kcal: 1_900, source: .strap))
+        let resting = try XCTUnwrap(resolve(active: 450))
+        XCTAssertEqual(resting, DailyCalories.Resolution(kcal: 2_150, source: .appleActivePlusProfileResting))
+        XCTAssertNil(resolve())
+    }
+
+    /// `total` is `resolve`'s number, so the two cannot disagree about a day.
+    func testTotalIsResolvesNumber() {
+        let cases: [(strap: Double?, worn: Double?, active: Double?, basal: Double?, elapsed: Double?)] = [
+            (2_400, 12 * 3_600, 900, 1_750, nil), (1_780, 120, 900, 1_750, nil), (1_900, 3 * 3_600, 450, nil, nil),
+            (nil, nil, 450, nil, nil), (1_200, 4 * 3_600, 300, 700, 10 * 3_600), (nil, nil, nil, nil, nil),
+        ]
+        for c in cases {
+            XCTAssertEqual(
+                total(strap: c.strap, worn: c.worn, active: c.active, basal: c.basal, elapsed: c.elapsed),
+                DailyCalories.resolve(strapKcal: c.strap, strapWornSeconds: c.worn, appleActiveKcal: c.active,
+                                      appleBasalKcal: c.basal, bmrKcalPerDay: 1_700, daySeconds: 86_400,
+                                      elapsedSeconds: c.elapsed)?.kcal)
+        }
+    }
+
     func testWornSecondsCountMinutesWithAPlausibleReading() {
         let samples = [HRSample(ts: 0, bpm: 60), HRSample(ts: 30, bpm: 61), HRSample(ts: 60, bpm: 62),
                        HRSample(ts: 125, bpm: 0), HRSample(ts: 190, bpm: 300), HRSample(ts: 250, bpm: 70)]
