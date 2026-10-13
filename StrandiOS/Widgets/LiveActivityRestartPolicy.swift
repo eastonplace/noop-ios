@@ -37,6 +37,12 @@ struct LiveActivityRestartPolicy: Equatable {
         return liveFor >= renderedAfter ? .person : .system
     }
 
+    /// How long the activity showed before it went: from when it started showing to when the state observer saw it
+    /// dismissed, or, when the observer missed that, to the last drive that found it showing.
+    static func liveFor(since: Date, dismissedSeenAt: Date?, lastSeenLive: Date?) -> TimeInterval {
+        max(0, (dismissedSeenAt ?? lastSeenLive ?? since).timeIntervalSince(since))
+    }
+
     /// Every drive says whether a workout is active. The first workout drive after one without a workout starts a new
     /// workout, and the dismissal and the restart budget go with the old one.
     mutating func noteDrive(workoutIsActive: Bool) {

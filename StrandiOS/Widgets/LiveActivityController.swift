@@ -114,6 +114,9 @@ final class LiveActivityController {
     /// showed tells a person's swipe from a render the system gave up on.
     private var activityLiveSince: Date?
     private var activityLastSeenLive: Date?
+    /// When the observer saw the activity dismissed. Drives can be sparse (the strap out of range), so this, not the last
+    /// drive, is the better end of the time it showed.
+    private var activityDismissedSeenAt: Date?
     #if DEBUG
     private var component41QAMode = false
     #endif
@@ -243,10 +246,11 @@ final class LiveActivityController {
         // restart policy allows one.
         // The state is read on every drive, so an `ended` is seen here even when the observer has not reported it yet.
         if let current = activity, let gone = Self.disappearance(current.activityState) {
-            let liveSince = activityLiveSince ?? Date()
             let cause = LiveActivityRestartPolicy.cause(
                 of: gone, endObserved: endObserved.contains(current.id),
-                liveFor: (activityLastSeenLive ?? liveSince).timeIntervalSince(liveSince))
+                liveFor: LiveActivityRestartPolicy.liveFor(
+                    since: activityLiveSince ?? Date(), dismissedSeenAt: activityDismissedSeenAt,
+                    lastSeenLive: activityLastSeenLive))
             restartPolicy.noteGone(cause, now: Date())
             NSLog("NOOP LiveActivity: %@ by the %@", gone.rawValue, cause.rawValue)
             trace(input, "gone", "state=\(gone.rawValue) cause=\(cause.rawValue) id=\(Self.shortId(current))")
@@ -597,8 +601,12 @@ final class LiveActivityController {
         stateObserver?.cancel()
         let id = activity.id
         stateObserver = Task { [weak self] in
-            for await state in activity.activityStateUpdates where state == .ended {
-                self?.endObserved.insert(id)
+            for await state in activity.activityStateUpdates {
+                switch state {
+                case .ended: self?.endObserved.insert(id)
+                case .dismissed: self?.activityDismissedSeenAt = self?.activityDismissedSeenAt ?? Date()
+                default: break
+                }
             }
         }
     }
@@ -616,6 +624,7 @@ final class LiveActivityController {
         endObserved.removeAll()
         activityLiveSince = nil
         activityLastSeenLive = nil
+        activityDismissedSeenAt = nil
         lastModeWasWorkout = nil
         workoutStateCache.clear()
         lastContentState = nil

@@ -33,6 +33,21 @@ final class LiveActivityRestartPolicyTests: XCTestCase {
         XCTAssertEqual(policy.verdict(now: afterBackoff, isForeground: true), .allowed)
     }
 
+    /// The time an activity showed runs to when the observer saw it dismissed, not to the last drive: with the strap out of
+    /// range drives are sparse, and a card up for ten minutes must not read as one that never rendered.
+    func testTheTimeShownRunsToTheObservedDismissalAndFallsBackToTheLastDrive() {
+        let liveFor = LiveActivityRestartPolicy.liveFor(
+            since: start, dismissedSeenAt: start.addingTimeInterval(600), lastSeenLive: start.addingTimeInterval(2))
+        XCTAssertEqual(liveFor, 600)
+        XCTAssertEqual(LiveActivityRestartPolicy.cause(of: .dismissed, endObserved: false, liveFor: liveFor), .person)
+
+        XCTAssertEqual(LiveActivityRestartPolicy.liveFor(
+            since: start, dismissedSeenAt: nil, lastSeenLive: start.addingTimeInterval(45)), 45, "the fallback")
+        XCTAssertEqual(LiveActivityRestartPolicy.liveFor(since: start, dismissedSeenAt: nil, lastSeenLive: nil), 0)
+        XCTAssertEqual(LiveActivityRestartPolicy.liveFor(
+            since: start, dismissedSeenAt: start.addingTimeInterval(-5), lastSeenLive: nil), 0, "never negative")
+    }
+
     func testAFreshPolicyAllowsARequest() {
         XCTAssertEqual(LiveActivityRestartPolicy().verdict(now: start, isForeground: true), .allowed)
     }
