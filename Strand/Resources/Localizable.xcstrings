@@ -28856,6 +28856,18 @@
             "state": "translated",
             "value": "平均每分鐘 %1$lld 次，峰值 %2$lld，最低 %3$lld"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Moyenne %1$lld battements par minute, pic %2$lld, minimum %3$lld"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В среднем %1$lld ударов в минуту, максимум %2$lld, минимум %3$lld"
+          }
         }
       }
     },

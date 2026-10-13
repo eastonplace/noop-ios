@@ -375,11 +375,10 @@ struct WorkoutSummaryTrace: View {
         ]
     }
 
-    /// The same, as it is spoken (the unit as words, not the letters "bpm").
+    /// The same, as it is spoken: the one localized sentence the detail screen's curve speaks (the unit as words, not the letters
+    /// "bpm", and a word order each language can set).
     private var spoken: String {
-        [(String(localized: "Avg"), series.average), (String(localized: "Peak"), series.peak), (String(localized: "Low"), series.low)]
-            .map { name, bpm in "\(name) \(LiveWorkoutTiles.spokenHeartRate(Int(bpm.rounded())))" }
-            .joined(separator: ", ")
+        String(localized: "Average \(Int(series.average.rounded())) beats per minute, peak \(Int(series.peak.rounded())), low \(Int(series.low.rounded()))")
     }
 }
 #endif
