@@ -44,10 +44,14 @@ final class EffortRescoreGrantTests: XCTestCase {
 
     /// Waits for an effect of the grant's `.background`-priority task. `Task.yield` alone is not enough: with only a
     /// background-priority job pending, the runtime hands the main actor straight back to the (higher-priority) test
-    /// without running it, so the test has to suspend for real. Polls, so a slow machine only makes it wait longer.
+    /// without running it, so the test has to suspend for real. Polls a bounded number of times rather than until a
+    /// wall-clock deadline, so a starved machine only makes it wait longer: the round-2 sim run hit 20 s deadlines on
+    /// a host at load 200+ (one test took 575 s) although the grant was fine. A real hang still fails after 4,000
+    /// polls (about 20 s on a healthy machine).
     private func waitUntil(_ condition: () -> Bool) async {
-        let deadline = ContinuousClock.now + .seconds(20)
-        while !condition(), ContinuousClock.now < deadline {
+        var polls = 0
+        while !condition(), polls < 4_000 {
+            polls += 1
             try? await Task.sleep(for: .milliseconds(5))
         }
     }
