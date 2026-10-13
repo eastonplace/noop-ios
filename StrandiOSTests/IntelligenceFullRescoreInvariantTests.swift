@@ -530,6 +530,37 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
         }
     }
 
+    /// Review round 5 (2): after a day with no pass, the next pass reaches back two days to finish the total of
+    /// the last day it scored part of the way.
+    func testACalorieTotalBeforeADayWithoutAPassIsFinishedOnTheNextPass() async throws {
+        try await withRecalibrationEpochsRestored {
+            let harness = try await makeHarness(days: 4)
+            let day = harness.dayKeys[1]
+            let dayStart = firstDayStart + 86_400
+            let afternoon = Date(timeIntervalSince1970: TimeInterval(dayStart + 15 * 3_600 + 1_800))
+            let partialPass = await pass(harness, maxDays: 1, at: afternoon)
+            XCTAssertTrue(partialPass)
+            let afterAfternoon = try await stored(harness)
+            let partial = try XCTUnwrap(afterAfternoon[day]?.activeKcalEst)
+
+            let twoMidnightsLater = Date(timeIntervalSince1970: TimeInterval(dayStart + 2 * 86_400 + 600))
+            let nextPass = await pass(harness, maxDays: 1, at: twoMidnightsLater)
+            XCTAssertTrue(nextPass)
+            let afterNextPass = try await stored(harness)
+            let finished = try XCTUnwrap(afterNextPass[day]?.activeKcalEst)
+            XCTAssertGreaterThan(finished, partial)
+            let fillEnd = try await harness.store.metricSeries(
+                deviceId: harness.computedId, key: IntelligenceEngine.calorieFillEndMetricKey, from: day, to: day)
+            XCTAssertEqual(fillEnd.first?.value, Double(dayStart + 86_400), "filled through midnight")
+
+            let threeDays = await pass(harness, maxDays: 3, at: twoMidnightsLater)
+            XCTAssertTrue(threeDays)
+            let afterThreeDays = try await stored(harness)
+            XCTAssertEqual(finished, try XCTUnwrap(afterThreeDays[day]?.activeKcalEst),
+                           accuracy: 0.5, "the same total a three-day pass gives")
+        }
+    }
+
     /// Review round 4 (5): each scored day stores how long the strap recorded valid heart rate, the coverage the
     /// shared calorie resolver weighs the strap total by. A fixture day with a next night has readings around the
     /// clock: its own night and day until 23:00, then the next night from 23:00.

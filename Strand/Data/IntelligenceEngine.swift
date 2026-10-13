@@ -253,6 +253,9 @@ final class IntelligenceEngine: ObservableObject {
     /// for a completed day, the pass's "now" for today. A production pass scores today only, so without it
     /// yesterday kept the total its last pass filled up to that moment.
     nonisolated static let calorieFillEndMetricKey = "calorie_fill_end"
+    /// Review round 5 (2): how many days before today a production pass reaches back to finish a calorie total
+    /// filled only part of the way, so a pass is at most three days long.
+    nonisolated static let calorieFillCatchUpDays = 2
     /// Review round 4 (5): how long the strap recorded valid heart rate on each computed row's day, the
     /// coverage `DailyCalories.total` weighs the strap total by.
     nonisolated static let strapWornSecondsMetricKey = "strap_worn_seconds"
@@ -801,14 +804,15 @@ final class IntelligenceEngine: ObservableObject {
         }
 
         // Review round 4 (2): the first pass after midnight (or any later one, until it succeeds) also rescores
-        // yesterday if its calorie total was filled only part of the way, so the day's off-wrist resting energy
-        // is counted through midnight. Once that pass stores yesterday filled to its end, passes cover today
-        // only again.
+        // the newest earlier day if its calorie total was filled only part of the way, so the day's off-wrist
+        // resting energy is counted through midnight. Once that pass stores the day filled to its end, passes
+        // cover today only again. Review round 5 (2): that day can be two days back after a day without a pass;
+        // the pass widens to reach it, never past `calorieFillCatchUpDays` before today.
         var maxDays = maxDays
         if maxDays == 1, startOffset == 0, sourceContext == nil,
-           await yesterdayCalorieFillIsUnfinished(store: store, reference: referenceNow,
-                                                  calendar: analysisCalendar) {
-            maxDays = 2
+           let offset = await unfinishedCalorieFillOffset(store: store, reference: referenceNow,
+                                                          calendar: analysisCalendar) {
+            maxDays = offset + 1
         }
 
         let up = UserProfile(weightKg: profile.weightKg, heightCm: profile.heightCm,
@@ -3052,20 +3056,24 @@ final class IntelligenceEngine: ObservableObject {
         return DayOwnerResolver.resolve(day: day, lockedOwner: nil, candidates: candidates) ?? fallbackDeviceId
     }
 
-    /// Whether yesterday's stored computed row has a calorie total filled only part of the way through the day
-    /// (review round 4, 2). A row from before the fill marker counts as unfinished, so it is finished once.
-    private func yesterdayCalorieFillIsUnfinished(store: WhoopStore, reference: Date,
-                                                  calendar: Calendar) async -> Bool {
-        guard let yesterday = Self.civilDayWindows(
-            reference: reference, startOffset: 1, count: 1, calendar: calendar).first else { return false }
+    /// The start offset of the newest stored computed day before today with a calorie total, when that total was
+    /// filled only part of the way through the day (review round 4, 2; round 5, 2). Only the
+    /// `calorieFillCatchUpDays` days before today are looked at, in one range read. A row from before the fill
+    /// marker counts as unfinished, so it is finished once.
+    private func unfinishedCalorieFillOffset(store: WhoopStore, reference: Date,
+                                             calendar: Calendar) async -> Int? {
+        let windows = Self.civilDayWindows(
+            reference: reference, startOffset: 1, count: Self.calorieFillCatchUpDays, calendar: calendar)
+        guard let newest = windows.first, let oldest = windows.last else { return nil }
         let computedId = deviceId + "-noop"
-        guard let row = try? await store.dailyMetrics(
-                deviceId: computedId, from: yesterday.day, to: yesterday.day).first,
-              row.activeKcalEst != nil,
+        guard let row = try? await store.dailyMetrics(deviceId: computedId, from: oldest.day, to: newest.day)
+                .last(where: { $0.activeKcalEst != nil }),
+              let index = windows.firstIndex(where: { $0.day == row.day }),
               let marker = try? await store.metricSeries(
-                deviceId: computedId, key: Self.calorieFillEndMetricKey, from: yesterday.day, to: yesterday.day)
-        else { return false }
-        return marker.first.map { $0.value < Double(yesterday.nextStart) } ?? true
+                deviceId: computedId, key: Self.calorieFillEndMetricKey, from: row.day, to: row.day)
+        else { return nil }
+        let unfinished = marker.first.map { $0.value < Double(windows[index].nextStart) } ?? true
+        return unfinished ? index + 1 : nil
     }
 
     /// One day's breakdown as metric points (review round 4, 3).
