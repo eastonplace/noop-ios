@@ -7,6 +7,7 @@ import WhoopStore
 /// Perf 5: the Calories and Steps trend pages build their series, display filter, dates and estimate note once per
 /// refresh, off the main actor (`HealthTrendPage.build`), instead of in `body`. The page must be the one the body
 /// used to compute.
+@MainActor
 final class HealthTrendPageTests: XCTestCase {
     private func strapDay(_ day: String, steps: Int? = nil, kcal: Double? = nil, hrv: Double? = nil,
                           skin: Double? = nil) -> DailyMetric {
