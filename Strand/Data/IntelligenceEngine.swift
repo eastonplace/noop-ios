@@ -3212,6 +3212,11 @@ final class IntelligenceEngine: ObservableObject {
     /// 240 bpm, plus PPG) reach the gate in that day. Only when it misses does the strap with the most plausible
     /// rows take the day, so a second strap worn alongside, a long chest-strap session or an off-wrist strap's
     /// 0 bpm stream can't take a day the active strap covered.
+    ///
+    /// Review round 8 (1): that early keep is the active strap's only. A lower-priority owner, such as a paired
+    /// chest strap with an hour's session, competes on plausible rows with every completed-day candidate (live
+    /// and archived straps and sources, the priority owner included), so an archived strap that recorded the
+    /// whole day keeps it.
     nonisolated static func resolveDayOwner(day: String, from: Int, to: Int, store: WhoopStore,
                                             devices: [PairedDevice], activeId: String,
                                             registry: DeviceRegistryStore,
@@ -3264,12 +3269,16 @@ final class IntelligenceEngine: ObservableObject {
                 deviceId: deviceId, from: completedDay.start, to: completedDay.nextStart - 1,
                 bpmRange: HRValidity.bpmRange, cap: cap)) ?? 0
         }
-        if await plausibleRows(priorityOwner, cap: rawLoopMinHrRows) >= rawLoopMinHrRows { return priorityOwner }
+        if priorityOwner == activeId,
+           await plausibleRows(priorityOwner, cap: rawLoopMinHrRows) >= rawLoopMinHrRows {
+            return priorityOwner
+        }
+        // The priority owner is counted first, so it keeps a tie.
         var best: (deviceId: String, rows: Int)?
-        for d in completedDayStraps where d.id != priorityOwner {
-            let rows = await plausibleRows(d.id, cap: completedDay.nextStart - completedDay.start)
+        for id in [priorityOwner] + completedDayStraps.map(\.id).filter({ $0 != priorityOwner }) {
+            let rows = await plausibleRows(id, cap: completedDay.nextStart - completedDay.start)
             guard rows >= rawLoopMinHrRows, rows > (best?.rows ?? 0) else { continue }
-            best = (d.id, rows)
+            best = (id, rows)
         }
         return best?.deviceId ?? priorityOwner
     }

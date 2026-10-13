@@ -488,6 +488,31 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
         }
     }
 
+    /// Review round 8 (1): an archived WHOOP that recorded the whole of day 10 keeps it against a paired chest
+    /// strap's one-hour session. The chest strap is the day's priority owner (the active strap has no readings
+    /// near it), but only the active strap keeps a day just by reaching the gate; any other owner competes on
+    /// plausible rows with every completed-day candidate.
+    func testAnArchivedStrapsFullDayBeatsAChestStrapSession() async throws {
+        try await withRecalibrationEpochsRestored {
+            let harness = try await makeHarness(days: 30, earlierStrapUntil: 20)
+            let registry = DeviceRegistryStore(dbQueue: harness.store.registryWriter)
+            try registry.setActive(Repository.whoopSource)
+            try registry.archive(earlierStrapId)
+            try registry.add(PairedDevice(
+                id: "chest-strap", brand: "Polar", model: "H10", sourceKind: .liveBLE,
+                capabilities: [.hr], status: .paired, addedAt: 0, lastSeenAt: 0))
+            let start = firstDayStart + 10 * 86_400
+            var whoopDay = Streams()
+            whoopDay.hr = stride(from: start, to: start + 86_400, by: 1).map { HRSample(ts: $0, bpm: 58 + $0 % 9) }
+            _ = try await harness.store.insert(whoopDay, deviceId: earlierStrapId)
+            var session = Streams()
+            session.hr = (0..<3_600).map { HRSample(ts: start + 17 * 3_600 + $0, bpm: 120 + $0 % 25) }
+            _ = try await harness.store.insert(session, deviceId: "chest-strap")
+            let owner = try await resolvedOwner(harness, day: 10, completed: true)
+            XCTAssertEqual(owner, earlierStrapId)
+        }
+    }
+
     /// The owner `resolveDayOwner` gives fixture day `k`, with the scan loop's read window.
     private func resolvedOwner(_ harness: Harness, day k: Int, completed: Bool) async throws -> String {
         let registry = DeviceRegistryStore(dbQueue: harness.store.registryWriter)
