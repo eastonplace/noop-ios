@@ -48,6 +48,8 @@ struct WorkoutSummaryView: View {
     private static let restScaleAccessibility: CGFloat = 0.8
     private static let sectionGap: CGFloat = 34
     private static let sideWidth: CGFloat = 84
+    /// How tall the soft black fade above the pinned Done is: what scrolls up under it dissolves instead of being cut.
+    private static let footerFade: CGFloat = 40
 
     var body: some View {
         ScrollView {
@@ -61,7 +63,8 @@ struct WorkoutSummaryView: View {
             }
             .screenPadding()
             .padding(.top, NoopMetrics.space4)
-            .padding(.bottom, NoopMetrics.space4)
+            // The last thing on the page rests clear of the footer's fade, not under it.
+            .padding(.bottom, Self.footerFade)
         }
         .scrollBounceBehavior(.basedOnSize)
         .background(LivePalette.canvas.ignoresSafeArea())
@@ -256,6 +259,14 @@ struct WorkoutSummaryView: View {
             .frame(maxWidth: .infinity)
             // Opaque and edge to edge, so what scrolls beneath it never shows through.
             .background(LivePalette.canvas.ignoresSafeArea(edges: .bottom))
+            // And a soft black fade above it, so a figure that scrolls up to the footer dissolves into it rather than being cut.
+            .overlay(alignment: .top) {
+                LinearGradient(colors: [LivePalette.canvas.opacity(0), LivePalette.canvas], startPoint: .top, endPoint: .bottom)
+                    .frame(height: Self.footerFade)
+                    .offset(y: -Self.footerFade)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
     }
 
     // MARK: Load
