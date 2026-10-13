@@ -16,6 +16,7 @@ runs on a bare Linux runner without PyYAML.
 """
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 import sys
@@ -190,15 +191,20 @@ def check_private_captures(root: Path, files: list[str]) -> list[str]:
     errors = [f"private capture file is tracked: `{path}`" for path in files if PRIVATE_CAPTURE.search(path)]
     # Evaluate the ROOT .gitignore alone, as a case-sensitive (Linux) checkout would: a folder's own
     # .gitignore only exists under one spelling there, while a case-insensitive disk would find it under
-    # both and hide the gap. So the probes run in a scratch repo holding just a copy of the root rules.
+    # both and hide the gap. So the probes run in a scratch repo holding just a copy of the root rules,
+    # hermetic: no inherited GIT_* variables, no global or system config, and no global excludes file
+    # (a developer's ~/.config/git/ignore listing `*.db` would otherwise pass a missing root rule).
     root_rules = (root / ".gitignore").read_text(encoding="utf-8") if (root / ".gitignore").is_file() else ""
+    env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+    env.update(GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1")
     with tempfile.TemporaryDirectory() as scratch:
-        subprocess.run(["git", "init", "-q"], cwd=scratch, check=True)
+        subprocess.run(["git", "init", "-q"], cwd=scratch, env=env, check=True)
         (Path(scratch) / ".gitignore").write_text(root_rules, encoding="utf-8")
         for probe in CAPTURE_PROBES:
             ignored = subprocess.run(
-                ["git", "-c", "core.ignorecase=false", "check-ignore", "-q", "--no-index", probe],
-                cwd=scratch).returncode == 0
+                ["git", "-c", "core.ignorecase=false", "-c", f"core.excludesFile={os.devnull}",
+                 "check-ignore", "-q", "--no-index", probe],
+                cwd=scratch, env=env).returncode == 0
             if not ignored:
                 errors.append(f"capture path `{probe}` is not covered by the root .gitignore")
     return errors

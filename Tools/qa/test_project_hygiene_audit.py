@@ -1,4 +1,5 @@
 import importlib.util
+import os
 import subprocess
 import sys
 import tempfile
@@ -143,6 +144,25 @@ class ProjectHygieneAuditTests(unittest.TestCase):
         subprocess.run(["git", "add", "-f", str(export)], cwd=root, check=True)
         errors, _ = module.audit(root)
         self.assertTrue(any("exports/all.json" in line and "tracked" in line for line in errors), errors)
+
+    def test_global_git_excludes_cannot_mask_a_missing_root_rule(self):
+        root = self.make_repo({".gitignore": ""})
+        home = Path(tempfile.mkdtemp())
+        self.addCleanup(lambda: subprocess.run(["rm", "-rf", str(home)], check=False))
+        (home / "ignore").write_text("captures/\n*.json\n*.db\n*.db-wal\n*.db-shm\n.venv/\n", encoding="utf-8")
+        (home / "config").write_text(f"[core]\n\texcludesFile = {home / 'ignore'}\n", encoding="utf-8")
+        saved = {key: os.environ.get(key) for key in ("GIT_CONFIG_GLOBAL", "XDG_CONFIG_HOME")}
+        os.environ["GIT_CONFIG_GLOBAL"] = str(home / "config")
+        os.environ["XDG_CONFIG_HOME"] = str(home)
+        try:
+            errors, _ = module.audit(root)
+        finally:
+            for key, value in saved.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
+        self.assertTrue(any("tools/linux-capture/whoop.db" in line for line in errors), errors)
 
     def test_reader_handles_inline_and_mapping_sources(self):
         targets = module.parse_targets(PROJECT.format(version="1", package_path="P", app_tool_path="T"))
