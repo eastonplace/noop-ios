@@ -347,4 +347,76 @@ final class EffortRescoreGrantTests: XCTestCase {
         XCTAssertTrue(probe.sawCancellation, "an expired processing task stops the chunk it was waiting on")
         XCTAssertFalse(grant.isActive)
     }
+
+    // MARK: - A grant that waits behind an unwinding one
+
+    /// A migration chunk past its first write runs to completion after a cancel, and the cancel ended its assertion.
+    /// A grant started in that window takes its own assertion before it waits, so that write tail is not left with
+    /// nothing keeping the process alive.
+    func testAGrantWaitingBehindAnUnwindingOneTakesItsAssertionBeforeWaiting() async {
+        let assertion = FakeAssertion()
+        let grant = EffortRescoreGrant(assertion: assertion.provider)
+        let probe = Probe()
+        probe.background = true
+        start(grant, probe) { probe, _ in
+            await withCheckedContinuation { probe.resume = $0 }
+        }
+        await waitUntil { probe.resume != nil }
+        grant.cancel()
+        XCTAssertEqual(assertion.ended, [1], "the cancelled grant's own assertion ended at the cancel")
+
+        start(grant, probe) { _, _ in }
+        await waitUntil { assertion.begun == 2 }
+        XCTAssertEqual(assertion.begun, 2, "the new grant protects the old one's tail while it waits")
+        XCTAssertEqual(probe.runs, 1, "and has not entered the engine")
+        XCTAssertEqual(assertion.ended, [1])
+
+        probe.resume?.resume()
+        await waitUntil { probe.runs == 2 && !grant.isActive && !grant.isUnwinding }
+        XCTAssertEqual(probe.runs, 2)
+        XCTAssertEqual(assertion.begun, 2, "it does not take a second one to run")
+        XCTAssertEqual(assertion.ended, [1, 2], "ended once, when the grant finished")
+    }
+
+    func testAWaitingGrantCancelledBeforeItRunsEndsItsAssertionOnce() async {
+        let assertion = FakeAssertion()
+        let grant = EffortRescoreGrant(assertion: assertion.provider)
+        let probe = Probe()
+        probe.background = true
+        start(grant, probe) { probe, _ in
+            await withCheckedContinuation { probe.resume = $0 }
+        }
+        await waitUntil { probe.resume != nil }
+        grant.cancel()
+        start(grant, probe) { _, _ in }
+        await waitUntil { assertion.begun == 2 }
+        grant.cancel()
+        XCTAssertEqual(assertion.ended, [1, 2])
+
+        probe.resume?.resume()
+        await waitUntil { !grant.isUnwinding }
+        await settle()
+        XCTAssertEqual(probe.runs, 1, "the cancelled waiter never enters the engine")
+        XCTAssertEqual(assertion.ended, [1, 2], "and does not end its assertion again")
+    }
+
+    func testAWaitingGrantThatMayNoLongerRunEndsItsAssertion() async {
+        let assertion = FakeAssertion()
+        let grant = EffortRescoreGrant(assertion: assertion.provider)
+        let probe = Probe()
+        probe.background = true
+        start(grant, probe) { probe, _ in
+            await withCheckedContinuation { probe.resume = $0 }
+        }
+        await waitUntil { probe.resume != nil }
+        grant.cancel()
+        start(grant, probe) { _, _ in }
+        await waitUntil { assertion.begun == 2 }
+
+        probe.background = false          // the owner is back by the time the old tail has finished
+        probe.resume?.resume()
+        await waitUntil { !grant.isActive && !grant.isUnwinding }
+        XCTAssertEqual(probe.runs, 1, "a grant that is no longer in the background does not run")
+        XCTAssertEqual(assertion.ended, [1, 2], "and ends the assertion it took")
+    }
 }

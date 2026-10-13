@@ -129,7 +129,8 @@ struct BackgroundExecutionAssertion {
 /// processing-task entry cancels it when its own task expires, through `waitUntilIdle`.
 ///
 /// A cancelled grant may still be inside the engine, waiting for its next checkpoint. A grant started in that
-/// window waits for it first, so the engine's single-run guard never drops the new grant silently.
+/// window waits for it first, so the engine's single-run guard never drops the new grant silently. It takes its
+/// assertion before it waits, so the cancelled grant's write tail is protected, and ends it if it then does not run.
 @MainActor
 final class EffortRescoreGrant {
     /// One grant's assertion: begun at most once, ended at most once, never begun after it ended.
@@ -192,12 +193,15 @@ final class EffortRescoreGrant {
         unwinding = nil
         unwindingToken = nil
         task = Task(priority: .background) { [weak self] in
+            // iOS calling the expiration handler ends the assertion before it returns; the grant itself carries on.
+            let begin = { hold.begin { hold.end() } }
+            // A cancelled grant still unwinding runs its uncancellable write tail (the rows a migration chunk has begun
+            // writing, see `IntelligenceEngine.analyzeRecent`) while this one waits. Its own assertion ended at the
+            // cancel, so take this grant's now, or nothing keeps the process alive for that tail.
+            if previous != nil, isBackground() { begin() }
             await previous?.value
             if !Task.isCancelled, isBackground(), mayRun() {
-                hold.begin { [weak self] in
-                    guard let self else { hold.end(); return }
-                    self.expire(hold: hold)
-                }
+                begin()
                 await run { !isBackground() || !mayRun() }
             }
             hold.end()
@@ -226,11 +230,6 @@ final class EffortRescoreGrant {
         } onCancel: {
             Task { @MainActor [weak self] in self?.cancel() }
         }
-    }
-
-    /// iOS is about to end the background time: end the assertion before returning. The grant is not cancelled.
-    private func expire(hold: Hold) {
-        hold.end()
     }
 
     private func finish(_ finished: UUID) {
