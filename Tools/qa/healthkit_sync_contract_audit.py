@@ -201,11 +201,14 @@ try:
     app = "StrandiOS/App/StrandiOSApp.swift"
     require(
         app,
-        "HealthKitScoringCoordinator.shared.runAndWait(",
+        # The singleton is bound to a local so the drain can read `scoring.pending` after the coordinator-owned run.
+        "let scoring = HealthKitScoringCoordinator.shared",
+        "await scoring.runAndWait(",
+        "return scoring.pending == nil",
         "analyze: { window in",
         "analyzeRecentForPublication(",
         "IntelligenceRecoveryPersistenceReceipt.verify(",
-        "publish: { window in",
+        "publish: { _ in",
         "guard await model.repo.refresh(days: 1) else { return false }",
         "await health.foregroundCatchUp()",
         "await drainCommittedHealthScoring()",
