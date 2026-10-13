@@ -3,6 +3,8 @@
 # Cheap source-contract audits run independently on Linux so macOS runner allocation cannot hide static
 # regressions. The Xcode job starts only after every audit passes, then generates the project, builds the app
 # and WidgetKit/Live Activity extension, and runs the complete iOS and retained-package test suites.
+# `.gitignore` and `Tools/linux-capture/**` are watched so the hygiene audit's private-capture rule runs on
+# the changes it exists to catch.
 name: iOS build and tests
 
 on:
@@ -15,6 +17,8 @@ on:
       - 'StrandiOSTests/**'
       - 'Packages/**'
       - 'Tools/qa/**'
+      - 'Tools/linux-capture/**'
+      - '.gitignore'
       - 'project.yml'
       - '.github/workflows/app-build.yml'
   push:
@@ -27,6 +31,8 @@ on:
       - 'StrandiOSTests/**'
       - 'Packages/**'
       - 'Tools/qa/**'
+      - 'Tools/linux-capture/**'
+      - '.gitignore'
       - 'project.yml'
       - '.github/workflows/app-build.yml'
   workflow_dispatch:
