@@ -59,7 +59,7 @@ struct WorkoutSummaryView: View {
     /// The same under the pinned header, and the distance over which it comes in as the page starts to scroll.
     private static let headerFade: CGFloat = 32
     private static let headerFadeRamp: CGFloat = 24
-    private static let scrollSpace = "workoutSummaryScroll"
+    private nonisolated static let scrollSpace = "workoutSummaryScroll"
 
     var body: some View {
         ScrollView {
