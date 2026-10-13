@@ -155,12 +155,20 @@ public struct FitnessAgePaceRow: View {
 
     private var band: Band? { pace.map { Band(pace: $0) } }
 
+    /// A pace to one decimal and a "×". A slope that rounds to nothing (-0.04, or -1e-17 on a perfectly flat trend)
+    /// reads "0.0×", never "-0.0×". VoiceOver reads this same string.
+    public static func paceText(_ pace: Double) -> String {
+        let rounded = (pace * 10).rounded() / 10
+        let shown = rounded == 0 ? 0 : rounded
+        return shown.formatted(.number.precision(.fractionLength(1))) + "×"
+    }
+
     private var valueString: String {
         switch band {
         case nil: String(localized: "Calibrating")
         case .muchSlower?: String(localized: "Much slower")
         case .muchFaster?: String(localized: "Much faster")
-        default: (pace ?? 0).formatted(.number.precision(.fractionLength(1))) + "×"
+        default: Self.paceText(pace ?? 0)
         }
     }
 

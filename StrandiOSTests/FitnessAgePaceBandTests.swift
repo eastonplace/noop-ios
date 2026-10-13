@@ -24,4 +24,20 @@ final class FitnessAgePaceBandTests: XCTestCase {
         XCTAssertEqual(band(1.04), .faster)
         XCTAssertEqual(band(3), .faster)
     }
+
+    func testASlopeThatRoundsToNothingNeverShowsAMinusSign() {
+        XCTAssertEqual(FitnessAgePaceRow.paceText(-0.04), "0.0×")
+        XCTAssertEqual(FitnessAgePaceRow.paceText(-1e-17), "0.0×")
+        XCTAssertEqual(FitnessAgePaceRow.paceText(-0.0), "0.0×")
+        XCTAssertEqual(FitnessAgePaceRow.paceText(0.04), "0.0×")
+        XCTAssertEqual(FitnessAgePaceRow.paceText(0), "0.0×")
+    }
+
+    func testARealPaceKeepsOneDecimalAndItsSign() {
+        XCTAssertEqual(FitnessAgePaceRow.paceText(1.0), "1.0×")
+        XCTAssertEqual(FitnessAgePaceRow.paceText(0.4), "0.4×")
+        let negative = FitnessAgePaceRow.paceText(-0.4)
+        XCTAssertNotEqual(negative, "0.4×")
+        XCTAssertTrue(negative.hasSuffix("0.4×"), negative)
+    }
 }
