@@ -526,18 +526,15 @@ struct CompareView: View {
         let n: Int
     }
 
-    /// A stable fingerprint of the inputs the correlation scan depends on: the non-empty series (in order) and their
-    /// windowed content. Row content only changes when `selected`, `range`, or fetched `fullSeries` change, so this
-    /// covers every case that alters the scan result. Used to invalidate `pairCache`.
+    /// A stable fingerprint of the inputs the correlation scan depends on: the non-empty series (in order) and every
+    /// (day, value) pair in their windows, so a sync that changes a value but not the count or the edge days still
+    /// invalidates the scan. Used to invalidate `pairCache`.
     private func correlationKey(_ series: [ResolvedCompareSeries]) -> String {
-        series
-            .filter { !$0.rows.isEmpty }
-            .map { s in "\(s.id):\(s.rows.count):\(s.rows.first?.day ?? "")>\(s.rows.last?.day ?? "")" }
-            .joined(separator: "|")
+        CompareLogic.correlationKey(series.map { ($0.id, $0.rows) })
     }
 
-    /// What the overlay chart is built from. Wider than `correlationKey`: a line's colour, its readings (a sync that changes
-    /// today's value leaves the count and the edge days alone) and the time zone its days were read in all change what is drawn.
+    /// What the overlay chart is built from. Wider than `correlationKey`: a line's colour and the time zone its days were read
+    /// in change what is drawn without changing a correlation.
     private func overlayKey(_ shown: [ResolvedCompareSeries]) -> String {
         CompareLogic.overlayKey(shown.map { ($0.id, $0.colorIndex, $0.rows) }, timeZone: TimeZone.current.identifier)
     }

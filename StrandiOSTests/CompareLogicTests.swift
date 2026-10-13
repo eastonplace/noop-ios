@@ -71,6 +71,21 @@ final class CompareLogicTests: XCTestCase {
         XCTAssertNotEqual(base, overlayKey([("hrv", 0, hrv), ("steps", 3, steps)], zone: "America/Los_Angeles"))
     }
 
+    /// The pair scan is redone when a reading's value changes (a sync leaves the count and edge days alone), and not for a
+    /// series that has no readings.
+    func testTheCorrelationKeyChangesWithReadingsAndIgnoresEmptySeries() {
+        let steps: [Row] = [("2026-10-10", 4000), ("2026-10-11", 6000), ("2026-10-12", 4000)]
+        let hrv: [Row] = [("2026-10-10", 50), ("2026-10-11", 55), ("2026-10-12", 52)]
+        let base = CompareLogic.correlationKey([("hrv", hrv), ("steps", steps)])
+        XCTAssertEqual(base, CompareLogic.correlationKey([("hrv", hrv), ("steps", steps)]))
+        XCTAssertEqual(base, CompareLogic.correlationKey([("hrv", hrv), ("mood", []), ("steps", steps)]), "No readings, no part in the scan")
+        var synced = steps
+        synced[2].value = 9000
+        XCTAssertNotEqual(base, CompareLogic.correlationKey([("hrv", hrv), ("steps", synced)]))
+        XCTAssertNotEqual(base, CompareLogic.correlationKey([("steps", steps), ("hrv", hrv)]))
+        XCTAssertNotEqual(base, CompareLogic.correlationKey([("hrv", hrv)]))
+    }
+
     func testAFingerprintSeesEveryReadingAndIsStableForTheSameOnes() {
         let rows: [Row] = (0..<1100).map { (ExploreDayKey.key(forDayNumber: 20_000 + $0), Double($0 % 97)) }
         XCTAssertEqual(CompareLogic.fingerprint(rows), CompareLogic.fingerprint(rows))

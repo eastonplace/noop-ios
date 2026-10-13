@@ -47,6 +47,15 @@ enum CompareLogic {
         return hasher.finalize()
     }
 
+    /// What the pairwise correlation scan depends on, as a cache key: the series that have readings (in order) and a fingerprint
+    /// of every (day, value) pair in them. A series with no readings takes no part in the scan, so it does not change the key.
+    static func correlationKey(_ series: [(id: String, rows: [Row])]) -> String {
+        series
+            .filter { !$0.rows.isEmpty }
+            .map { "\($0.id)/\($0.rows.count)/\(fingerprint($0.rows))" }
+            .joined(separator: "|")
+    }
+
     /// Everything the overlay chart is drawn from, as one cache key: which series (in order), the palette slot each line takes,
     /// a fingerprint of every (day, value) pair, and the time zone the days are read in. Anything that would change a line, its
     /// colour or the day under the finger changes the key; scrubbing does not.
