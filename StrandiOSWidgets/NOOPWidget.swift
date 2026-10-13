@@ -22,13 +22,20 @@ struct NOOPProvider: TimelineProvider {
     }
 
     func getSnapshot(in context: Context, completion: @escaping (NOOPEntry) -> Void) {
-        completion(NOOPEntry(date: Date(), snapshot: WidgetSnapshot.loadForDisplay() ?? (context.isPreview ? .placeholder : .empty)))
+        let now = Date()
+        completion(NOOPEntry(date: now, snapshot: WidgetSnapshot.loadForDisplay(now: now) ?? (context.isPreview ? .placeholder : .empty)))
     }
 
+    /// Strain, Steps, Calories and the stress strip are one logical day's, and nothing re-commits the core at
+    /// 04:00 in the background, so each entry is drawn without the figures of a day that is over at its date.
+    /// The second entry is dated at the next rollover, so the figures go at 04:00 without a reload.
     func getTimeline(in context: Context, completion: @escaping (Timeline<NOOPEntry>) -> Void) {
-        let snapshot = WidgetSnapshot.loadForDisplay() ?? .empty
-        let next = Calendar.current.date(byAdding: .minute, value: 15, to: Date()) ?? Date().addingTimeInterval(900)
-        completion(Timeline(entries: [NOOPEntry(date: Date(), snapshot: snapshot)], policy: .after(next)))
+        let now = Date()
+        let entries = WidgetLogicalDay.timelineDates(from: now).map {
+            NOOPEntry(date: $0, snapshot: WidgetSnapshot.loadForDisplay(now: $0) ?? .empty)
+        }
+        let next = Calendar.current.date(byAdding: .minute, value: 15, to: now) ?? now.addingTimeInterval(900)
+        completion(Timeline(entries: entries, policy: .after(next)))
     }
 }
 
