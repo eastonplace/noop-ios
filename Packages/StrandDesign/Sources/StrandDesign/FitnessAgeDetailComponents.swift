@@ -10,20 +10,36 @@ import SwiftUI
 // MARK: - Rail
 
 /// The Fitness Age against the calendar age on one rail: a tick for the calendar age ("YOU"), a dot for the Fitness Age
-/// and the gap between them washed green when the Fitness Age is the younger, amber when it is the older.
+/// and the gap between them washed green when the Fitness Age is the younger, amber when it is the older, and neither
+/// (quiet ink, no wash) when the sentence beside it says "about the same". The screen passes the two ages as the whole
+/// numbers it prints and the `reading` its sentence uses, so the dot's side and the rail's colour can never disagree
+/// with the words next to it.
 public struct FitnessAgeRail: View {
+    /// How the sentence beside the rail reads the gap between the two ages.
+    public enum Reading: Equatable, Sendable {
+        case younger, older, same
+
+        /// Read straight from the two ages: the Fitness Age before, after or at the calendar age.
+        public init(fitnessAge: Double, chronologicalAge: Double) {
+            self = fitnessAge < chronologicalAge ? .younger : (fitnessAge > chronologicalAge ? .older : .same)
+        }
+    }
+
     public let fitnessAge: Double?
     public let chronologicalAge: Double
     public let range: ClosedRange<Double>
+    public let reading: Reading?
 
     /// The "YOU · N" band's height follows the label's type size.
     @ScaledMetric(relativeTo: .caption2) private var labelHeight: CGFloat = 14
     @Environment(\.dynamicTypeSize) private var typeSize
 
-    public init(fitnessAge: Double?, chronologicalAge: Double, range: ClosedRange<Double>) {
+    /// `reading` is how the sentence next to the rail reads the gap; nil reads it from the two ages.
+    public init(fitnessAge: Double?, chronologicalAge: Double, range: ClosedRange<Double>, reading: Reading? = nil) {
         self.fitnessAge = fitnessAge
         self.chronologicalAge = chronologicalAge
         self.range = range
+        self.reading = reading
     }
 
     public var body: some View {
@@ -41,10 +57,13 @@ public struct FitnessAgeRail: View {
                 Capsule().fill(StrandPalette.surfaceInset).frame(height: 5)
                 if let fitnessAge {
                     let fitX = x(fitnessAge, width: proxy.size.width)
-                    Capsule().fill(tone(fitnessAge).opacity(0.35))
-                        .frame(width: abs(fitX - chronoX), height: 5)
-                        .offset(x: min(fitX, chronoX))
-                    Circle().fill(tone(fitnessAge))
+                    let resolved = reading ?? Reading(fitnessAge: fitnessAge, chronologicalAge: chronologicalAge)
+                    if resolved != .same {
+                        Capsule().fill(tone(resolved).opacity(0.35))
+                            .frame(width: abs(fitX - chronoX), height: 5)
+                            .offset(x: min(fitX, chronoX))
+                    }
+                    Circle().fill(tone(resolved))
                         .frame(width: 11, height: 11).position(x: fitX, y: 11)
                 }
                 Rectangle().fill(StrandPalette.textPrimary).frame(width: 2, height: 14)
@@ -77,8 +96,12 @@ public struct FitnessAgeRail: View {
         return min(1, max(0, (chronologicalAge - range.lowerBound) / span))
     }
 
-    private func tone(_ fitnessAge: Double) -> Color {
-        fitnessAge <= chronologicalAge ? StrandPalette.statusPositive : StrandPalette.statusWarning
+    private func tone(_ reading: Reading) -> Color {
+        switch reading {
+        case .younger: StrandPalette.statusPositive
+        case .older: StrandPalette.statusWarning
+        case .same: StrandPalette.textSecondary
+        }
     }
 
     private func x(_ value: Double, width: CGFloat) -> CGFloat {

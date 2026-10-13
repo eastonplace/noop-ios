@@ -75,9 +75,16 @@ struct FitnessAgeDetailView: View {
                 .font(StrandFont.subhead)
                 .foregroundStyle(delta.map(FitnessAgeCopy.deltaColor) ?? StrandPalette.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
-            FitnessAgeRail(
-                fitnessAge: latestAge, chronologicalAge: calendarAge,
-                range: FitnessAgePresentation.dynamicRailRange(fitnessAge: latestAge, chronologicalAge: calendarAge))
+            if let latestAge, let marks = FitnessAgeCopy.railMarks(fitnessAge: latestAge, calendarAge: calendarAge) {
+                FitnessAgeRail(
+                    fitnessAge: marks.fitness, chronologicalAge: marks.calendar,
+                    range: FitnessAgePresentation.dynamicRailRange(fitnessAge: marks.fitness, chronologicalAge: marks.calendar),
+                    reading: marks.reading)
+            } else {
+                FitnessAgeRail(
+                    fitnessAge: nil, chronologicalAge: Double(FitnessAgeCopy.shownCalendarAge(calendarAge)),
+                    range: FitnessAgePresentation.dynamicRailRange(fitnessAge: nil, chronologicalAge: calendarAge))
+            }
             Text(verbatim: FitnessAgeCopy.bandCaption)
                 .font(StrandFont.micro)
                 .foregroundStyle(StrandPalette.textTertiary)

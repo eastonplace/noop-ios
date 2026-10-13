@@ -1,5 +1,6 @@
 import XCTest
 import StrandAnalytics
+import StrandDesign
 @testable import NOOP
 
 /// The "N years younger" sentence is the gap between the two whole numbers the screens print, so the hero, the
@@ -61,5 +62,42 @@ final class FitnessAgeCopyTests: XCTestCase {
         XCTAssertLessThan(FitnessAgeCopy.withinWholeYear(31.0002, wholeYears: 30), 31)
         XCTAssertEqual(FitnessAgeCopy.shownCalendarAge(FitnessAgeCopy.withinWholeYear(31.0002, wholeYears: 30)), 30)
         XCTAssertTrue(FitnessAgeCopy.withinWholeYear(.nan, wholeYears: 30).isNaN)
+    }
+
+    // MARK: The rail says what the sentence says
+
+    func testTheRailIsDrawnOnTheShownNumbersAndReadsLikeTheSentence() throws {
+        // Fitness 29.6 shows as 30 against a calendar age shown as 29: "1 year older". The raw fractions put the dot
+        // left of the tick, in green.
+        let older = try XCTUnwrap(FitnessAgeCopy.railMarks(fitnessAge: 29.6, calendarAge: 29.7))
+        XCTAssertEqual(older.fitness, 30)
+        XCTAssertEqual(older.calendar, 29)
+        XCTAssertEqual(older.reading, .older)
+        // Fitness 30.4 against 30.2: both show as 30, "about the same": no side, no colour.
+        let same = try XCTUnwrap(FitnessAgeCopy.railMarks(fitnessAge: 30.4, calendarAge: 30.2))
+        XCTAssertEqual(same.fitness, same.calendar)
+        XCTAssertEqual(same.reading, .same)
+        let younger = try XCTUnwrap(FitnessAgeCopy.railMarks(fitnessAge: 38.6, calendarAge: 42.3))
+        XCTAssertEqual(younger.fitness, 39)
+        XCTAssertEqual(younger.calendar, 42)
+        XCTAssertEqual(younger.reading, .younger)
+        XCTAssertNil(FitnessAgeCopy.railMarks(fitnessAge: .nan, calendarAge: 30))
+        XCTAssertNil(FitnessAgeCopy.railMarks(fitnessAge: 30, calendarAge: .infinity))
+    }
+
+    func testTheDotIsOnTheSideTheSentenceNamesForEveryPair() throws {
+        for tenthsFitness in stride(from: 200, through: 600, by: 7) {
+            for tenthsCalendar in stride(from: 200, through: 600, by: 11) {
+                let fitness = Double(tenthsFitness) / 10, calendar = Double(tenthsCalendar) / 10
+                let marks = try XCTUnwrap(FitnessAgeCopy.railMarks(fitnessAge: fitness, calendarAge: calendar))
+                let delta = FitnessAgeCopy.delta(fitnessAge: fitness, calendarAge: calendar)
+                switch delta.direction {
+                case .younger: XCTAssertEqual(marks.reading, .younger); XCTAssertLessThan(marks.fitness, marks.calendar)
+                case .older: XCTAssertEqual(marks.reading, .older); XCTAssertGreaterThan(marks.fitness, marks.calendar)
+                case .same: XCTAssertEqual(marks.reading, .same); XCTAssertEqual(marks.fitness, marks.calendar)
+                }
+                XCTAssertEqual(abs(marks.fitness - marks.calendar), Double(delta.years), "F=\(fitness) C=\(calendar)")
+            }
+        }
     }
 }

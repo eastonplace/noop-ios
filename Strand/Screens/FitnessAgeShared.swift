@@ -42,6 +42,23 @@ enum FitnessAgeCopy {
         return FitnessAgeDelta(years: abs(gap), direction: gap > 0 ? .younger : .older)
     }
 
+    /// The two marks the detail's rail draws and how it reads them: the whole numbers the screen prints and the
+    /// direction the sentence uses (`delta`), so the dot is on the side the sentence names and the rail's colour is
+    /// the sentence's. Drawn on the raw fractions, a Fitness Age of 29.6 against a calendar age of 29.7 put the dot
+    /// left of the tick, in green, over "1 year older". Nil for a non-finite age.
+    static func railMarks(
+        fitnessAge: Double, calendarAge: Double
+    ) -> (fitness: Double, calendar: Double, reading: FitnessAgeRail.Reading)? {
+        guard fitnessAge.isFinite, calendarAge.isFinite else { return nil }
+        let reading: FitnessAgeRail.Reading
+        switch delta(fitnessAge: fitnessAge, calendarAge: calendarAge).direction {
+        case .younger: reading = .younger
+        case .older: reading = .older
+        case .same: reading = .same
+        }
+        return (Double(shownAge(fitnessAge)), Double(shownCalendarAge(calendarAge)), reading)
+    }
+
     /// The younger/older-than-your-age sentence as whole-phrase variants per count and direction, so translators see
     /// complete sentences (never a stitched plural or direction fragment).
     static func deltaLine(_ delta: FitnessAgeDelta) -> String {
