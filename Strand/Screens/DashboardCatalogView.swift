@@ -18,7 +18,7 @@ struct DashboardCatalogDestination: View {
     @Binding var selectionRaw: String
     let hydrationEnabled: Bool
 
-    var body: some View {
+    var body: DashboardCatalogView {
         DashboardCatalogView(items: items(), selectionRaw: $selectionRaw, hydrationEnabled: hydrationEnabled)
     }
 }
