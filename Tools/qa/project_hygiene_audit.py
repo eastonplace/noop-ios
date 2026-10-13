@@ -30,12 +30,15 @@ ALLOWLISTED_ORPHAN_TEST_FOLDERS = {"StrandTests"}
 CHANGELOG_PATH = "Strand/System/AppChangelog.swift"
 
 PRIVATE_CAPTURE = re.compile(
-    r"(^|/)linux-capture/(captures/|\.venv[^/]*/|[^/]*\.db(-wal|-shm)?$|[^/]*\.json$)", re.IGNORECASE)
-# Paths that must be ignored under both spellings of the tools folder.
+    r"(^|/)linux-capture/(captures/|\.venv[^/]*/|(.*/)?[^/]*\.db(-wal|-shm)?$|(.*/)?[^/]*\.json$)",
+    re.IGNORECASE)
+# Paths that must be ignored under both spellings of the tools folder, including nested export and
+# database outputs (`whoop_sync.py` creates the parent folders of --out and --db).
 CAPTURE_PROBES = tuple(
     f"{folder}/linux-capture/{leaf}"
     for folder in ("tools", "Tools")
-    for leaf in ("captures/whoop.db", "whoop.db", "whoop.db-wal", "export.json", ".venv/bin/python")
+    for leaf in ("captures/whoop.db", "whoop.db", "whoop.db-wal", "export.json", ".venv/bin/python",
+                 "exports/all.json", "runs/whoop.db", "runs/whoop.db-wal", "runs/whoop.db-shm")
 )
 
 

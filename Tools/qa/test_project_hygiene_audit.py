@@ -48,10 +48,10 @@ enum AppChangelog {{
 
 IGNORE_RULES = """\
 **/linux-capture/captures/
-**/linux-capture/*.json
-**/linux-capture/*.db
-**/linux-capture/*.db-wal
-**/linux-capture/*.db-shm
+**/linux-capture/**/*.json
+**/linux-capture/**/*.db
+**/linux-capture/**/*.db-wal
+**/linux-capture/**/*.db-shm
 **/linux-capture/.venv*/
 """
 
@@ -126,6 +126,23 @@ class ProjectHygieneAuditTests(unittest.TestCase):
         root = self.make_repo({".gitignore": "Tools/linux-capture/captures/\n"})
         errors, _ = module.audit(root)
         self.assertTrue(any("tools/linux-capture/captures/whoop.db" in line for line in errors), errors)
+
+    def test_nested_capture_outputs_must_be_ignored(self):
+        one_level = IGNORE_RULES.replace("/**/*.", "/*.")
+        root = self.make_repo({".gitignore": one_level})
+        errors, _ = module.audit(root)
+        self.assertTrue(any("tools/linux-capture/exports/all.json" in line for line in errors), errors)
+        self.assertTrue(any("Tools/linux-capture/runs/whoop.db-wal" in line for line in errors), errors)
+        self.assertFalse(any("linux-capture/whoop.db`" in line for line in errors), errors)
+
+    def test_tracked_nested_export_is_an_error(self):
+        root = self.make_repo({})
+        export = root / "Tools/linux-capture/exports/all.json"
+        export.parent.mkdir(parents=True, exist_ok=True)
+        export.write_text("{}", encoding="utf-8")
+        subprocess.run(["git", "add", "-f", str(export)], cwd=root, check=True)
+        errors, _ = module.audit(root)
+        self.assertTrue(any("exports/all.json" in line and "tracked" in line for line in errors), errors)
 
     def test_reader_handles_inline_and_mapping_sources(self):
         targets = module.parse_targets(PROJECT.format(version="1", package_path="P", app_tool_path="T"))
