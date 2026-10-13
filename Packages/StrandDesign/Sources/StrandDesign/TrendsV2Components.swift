@@ -527,7 +527,7 @@ public enum TrendCalendar {
     ) -> String {
         let target = calendar.startOfDay(for: date)
         let reference = calendar.startOfDay(for: referenceDate)
-        let difference = calendar.dateComponents([.day], from: target, to: reference).day ?? 0
+        let difference = dayCount(from: target, to: reference, calendar: calendar)
         if difference == 0 { return String(localized: "Today", bundle: .module) }
         if difference == 1 { return String(localized: "Yesterday", bundle: .module) }
         return TrendsDateFormatters.shared.string(from: target, template: "EEE MMM d", calendar: displayCalendar ?? calendar)
@@ -622,7 +622,7 @@ public enum TrendCalendar {
             lhs.1 == rhs.1 ? lhs.0 < rhs.0 : lhs.1 < rhs.1
         }) else { return nil }
         let today = calendar.startOfDay(for: referenceDate)
-        let age = calendar.dateComponents([.day], from: best.0, to: today).day ?? 0
+        let age = dayCount(from: best.0, to: today, calendar: calendar)
         return TrendCalendarBest(date: best.0, value: best.1, daysAgo: max(0, age))
     }
 
@@ -679,8 +679,18 @@ public enum TrendCalendar {
     /// target day has no midnight (the clocks change at 00:00, as in Egypt on 24 April 2026) the sum is 01:00, and every
     /// day counted on from there would stay at 01:00 while readings are keyed at `startOfDay`. Snapping each result back
     /// to its day's start keeps slots, domains and lookups on the same instants; on an ordinary day it changes nothing.
-    private static func startOfDay(addingDays days: Int, to date: Date, calendar: Calendar) -> Date? {
+    static func startOfDay(addingDays days: Int, to date: Date, calendar: Calendar) -> Date? {
         calendar.date(byAdding: .day, value: days, to: date).map(calendar.startOfDay(for:))
+    }
+
+    /// Whole calendar days from `start`'s day to `end`'s day, whatever the clock times. A date difference counts a day that
+    /// starts at 01:00 (no midnight) as one hour, and so one day, short; counting the days themselves does not.
+    public static func dayCount(from start: Date, to end: Date, calendar: Calendar) -> Int {
+        if let first = calendar.ordinality(of: .day, in: .era, for: start),
+           let last = calendar.ordinality(of: .day, in: .era, for: end) {
+            return last - first
+        }
+        return calendar.dateComponents([.day], from: calendar.startOfDay(for: start), to: calendar.startOfDay(for: end)).day ?? 0
     }
 }
 

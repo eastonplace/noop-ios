@@ -360,6 +360,39 @@ final class TrendCalendarTests: XCTestCase {
         XCTAssertEqual(calendar.component(.day, from: week.lowerBound), 25)
     }
 
+    /// Days are counted as days, not as elapsed clock time: a day that starts at 01:00 is a whole day.
+    func testWholeDaysAreCountedAcrossTheSkippedMidnight() throws {
+        let calendar = try cairo()
+        let skipped = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 4, day: 24)))
+        let sixth = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 4, day: 30)))
+        let end = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 6, day: 30)))
+        XCTAssertEqual(TrendCalendar.dayCount(from: skipped, to: sixth, calendar: calendar), 6)
+        XCTAssertEqual(TrendCalendar.dayCount(from: skipped, to: end, calendar: calendar), 67)
+        XCTAssertEqual(TrendCalendar.dayCount(from: sixth, to: skipped, calendar: calendar), -6)
+        XCTAssertEqual(TrendCalendar.dayCount(from: skipped, to: skipped, calendar: calendar), 0)
+        // Clock times inside a day do not matter.
+        let evening = try XCTUnwrap(calendar.date(byAdding: .hour, value: 20, to: skipped))
+        XCTAssertEqual(TrendCalendar.dayCount(from: evening, to: sixth, calendar: calendar), 6)
+        // The same on an ordinary day.
+        XCTAssertEqual(TrendCalendar.dayCount(from: try date(2026, 3, 1), to: try date(2026, 3, 8), calendar: self.calendar), 7)
+    }
+
+    /// Two adjacent days never read the same, and the skipped day counts from its own day: with 25 April as the reference, 24 April
+    /// is Yesterday (not Today), and from 26 April it is two days back (not Yesterday).
+    func testRelativeLabelsAreRightForTheSkippedMidnightDay() throws {
+        let calendar = try cairo()
+        let skipped = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 4, day: 24)))
+        let twentyFifth = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 4, day: 25)))
+        let twentySixth = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 4, day: 26)))
+        let today = TrendCalendar.relativeLabel(for: twentyFifth, relativeTo: twentyFifth, calendar: calendar)
+        let yesterday = TrendCalendar.relativeLabel(for: skipped, relativeTo: twentyFifth, calendar: calendar)
+        XCTAssertNotEqual(today, yesterday)
+        XCTAssertEqual(yesterday, TrendCalendar.relativeLabel(for: twentyFifth, relativeTo: twentySixth, calendar: calendar))
+        let twoBack = TrendCalendar.relativeLabel(for: skipped, relativeTo: twentySixth, calendar: calendar)
+        XCTAssertNotEqual(twoBack, yesterday)
+        XCTAssertNotEqual(twoBack, today)
+    }
+
     private func date(_ year: Int, _ month: Int, _ day: Int) throws -> Date {
         try XCTUnwrap(calendar.date(from: DateComponents(year: year, month: month, day: day)))
     }
