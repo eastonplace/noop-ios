@@ -1106,4 +1106,40 @@ final class WidgetStalenessTests: XCTestCase {
             now: at(ny, 8, 15), calendar: ny)
         XCTAssertEqual(own.snapshot.restingHr, 52, "the bundle's own Resting HR when the delivery read found none")
     }
+
+    // MARK: - The read behind a generation holds every night the core can carry from
+
+    /// The exact read is planned from the analysed days plus a small window around now. A night carried for two
+    /// days back was in it only on the first pass after the rollover, so the Resting HR and HRV of later passes
+    /// of the same day lost it and the widget flipped between a value and a dash.
+    func testThePlannedReadCoversEveryNightTheCoreCanCarryFrom() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone.autoupdatingCurrent
+        let now = calendar.date(from: DateComponents(year: 2026, month: 8, day: 5, hour: 12))!
+        let display = "2026-08-05"
+        let template = TodayHealthSnapshot(
+            scopeId: "scope", deviceId: "device", displayDay: display, logicalDay: display, localDay: display,
+            generatedAt: 1, dailyMetric: nightRHR(display, rhr: 52))
+
+        let windows = try RepositoryHistoricalWindowPlanner.make(
+            analyzedDays: [try CivilDay(key: "2026-07-01")],
+            recordedTimeZoneIdentifier: "UTC", template: template, now: now)
+
+        let earliest = try CarriedVitalWindow.earliestDay(anchorDay: CivilDay(key: display))
+        XCTAssertEqual(earliest.key, "2026-08-03")
+        XCTAssertTrue(windows.contains { $0.fromDay <= earliest.key && display <= $0.throughDay },
+                      "one window holds the display day and the two nights before it")
+        // The sparse analysed day stays its own window.
+        XCTAssertTrue(windows.contains { $0.fromDay <= "2026-07-01" && "2026-07-01" <= $0.throughDay })
+        XCTAssertFalse(windows.contains { $0.fromDay <= "2026-07-01" && "2026-08-03" <= $0.throughDay })
+    }
+
+    func testTheEarliestCarriedNightIsTheWindowsEdgeAcrossAMonthAndAYear() throws {
+        XCTAssertEqual(try CarriedVitalWindow.earliestDay(anchorDay: CivilDay(key: "2026-03-01")).key, "2026-02-27")
+        XCTAssertEqual(try CarriedVitalWindow.earliestDay(anchorDay: CivilDay(key: "2026-01-01")).key, "2025-12-30")
+        for anchor in ["2026-08-08", "2026-03-01", "2026-01-01"] {
+            let earliest = try CarriedVitalWindow.earliestDay(anchorDay: CivilDay(key: anchor))
+            XCTAssertTrue(CarriedVitalWindow.permits(day: earliest.key, anchorDay: anchor))
+        }
+    }
 }

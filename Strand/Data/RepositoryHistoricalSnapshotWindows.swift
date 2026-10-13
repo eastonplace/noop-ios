@@ -40,6 +40,13 @@ enum RepositoryHistoricalWindowPlanner {
             currentDays.insert(day)
             currentDays.insert(try current.adding(days: -1, to: day))
         }
+        // The Widget core carries the last night's Resting HR and HRV from up to `CarriedVitalWindow` back, so
+        // the read behind every generation of the day has to hold those nights, not only on the first pass.
+        if let display = try? CivilDay(key: template.displayDay), currentDays.contains(display) {
+            for age in 1...CarriedVitalWindow.maximumAgeDays {
+                currentDays.insert(try current.adding(days: -age, to: display))
+            }
+        }
 
         var windows = try windowsForRuns(
             days: analyzedDays,
