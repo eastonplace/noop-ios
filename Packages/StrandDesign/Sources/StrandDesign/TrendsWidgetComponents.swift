@@ -1132,7 +1132,7 @@ public struct TrendsHeroChart: View {
         displayCalendar: Calendar,
         template: String
     ) -> [(label: String, fraction: Double)] {
-        let totalDays = calendar.dateComponents([.day], from: domain.lowerBound, to: domain.upperBound).day ?? 0
+        let totalDays = TrendCalendar.dayCount(from: domain.lowerBound, to: domain.upperBound, calendar: calendar)
         guard totalDays > 0 else {
             return [(TrendCalendar.relativeLabel(
                 for: domain.upperBound, relativeTo: referenceDate, calendar: calendar, displayCalendar: displayCalendar), 0)]
@@ -1143,7 +1143,7 @@ public struct TrendsHeroChart: View {
         for index in 0..<count {
             let dayIndex = Int((Double(totalDays) * Double(index) / Double(max(count - 1, 1))).rounded())
             guard seen.insert(dayIndex).inserted,
-                  let date = calendar.date(byAdding: .day, value: dayIndex, to: domain.lowerBound) else { continue }
+                  let date = TrendCalendar.startOfDay(addingDays: dayIndex, to: domain.lowerBound, calendar: calendar) else { continue }
             let isLast = dayIndex == totalDays
             let label = isLast
                 ? TrendCalendar.relativeLabel(for: date, relativeTo: referenceDate, calendar: calendar, displayCalendar: displayCalendar)

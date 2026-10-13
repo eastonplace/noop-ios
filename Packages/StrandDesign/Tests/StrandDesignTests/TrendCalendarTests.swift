@@ -393,6 +393,33 @@ final class TrendCalendarTests: XCTestCase {
         XCTAssertNotEqual(twoBack, today)
     }
 
+    /// The axis labels count day slots: the last one sits under the latest day and reads Today (not Yesterday), on the ALL window
+    /// that starts on the skipped day and on a week that does.
+    func testTheAxisLabelsKeepTheirDaysWhereTheWindowStartsOnTheSkippedMidnight() throws {
+        let calendar = try cairo()
+        func chart(from first: DateComponents, to last: DateComponents, count: Int) throws -> (TrendsHeroChart, today: String) {
+            let end = try XCTUnwrap(calendar.date(from: last))
+            let days = TrendCalendar.buildRollingWindow(observations: [], through: end, count: count, calendar: calendar)
+            let domain = try XCTUnwrap(TrendCalendar.dateDomain(through: end, count: count, calendar: calendar))
+            XCTAssertEqual(domain.lowerBound, calendar.date(from: first).map(calendar.startOfDay(for:)))
+            let view = TrendsHeroChart(
+                days: days, dateDomain: domain, referenceDate: end, calendar: calendar,
+                baseline: 1, typical: 0...2, tint: .neutral, unit: "", longRange: count > 60)
+            return (view, TrendCalendar.relativeLabel(for: end, relativeTo: end, calendar: calendar))
+        }
+        for (first, last, count) in [
+            (DateComponents(year: 2026, month: 4, day: 24), DateComponents(year: 2026, month: 6, day: 30), 68),
+            (DateComponents(year: 2026, month: 4, day: 24), DateComponents(year: 2026, month: 4, day: 30), 7),
+        ] {
+            let (view, today) = try chart(from: first, to: last, count: count)
+            let ticks = view.tickLabels
+            XCTAssertEqual(ticks.last?.label, today, "\(ticks)")
+            XCTAssertEqual(ticks.last?.fraction, 1)
+            XCTAssertEqual(ticks.first?.fraction, 0)
+            XCTAssertEqual(ticks.count, 4, "\(ticks)")
+        }
+    }
+
     private func date(_ year: Int, _ month: Int, _ day: Int) throws -> Date {
         try XCTUnwrap(calendar.date(from: DateComponents(year: year, month: month, day: day)))
     }
