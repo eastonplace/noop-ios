@@ -3189,6 +3189,11 @@ final class IntelligenceEngine: ObservableObject {
     /// A WHOOP 4.0 strap's physical identity for its stored skin nights (review round 5, 4): the registry owner
     /// plus the BLE peripheral the owner had adopted, empty before one is. A replacement strap that takes over a
     /// registry id adopts a new peripheral, so its nights get their own identity and anchor.
+    /// Limit (review round 6, 3): the same strap rebound to a new peripheral (a new or restored iPhone gives it a
+    /// new CoreBluetooth identifier) also gets a new identity, splitting its nights into two anchor frames. For
+    /// one strap the two anchors are close, so the error is small and fades over the skin fold's 14-night
+    /// half-life. Telling a phone change from a replacement needs an explicit replacement signal or the strap's
+    /// serial, neither of which the registry has.
     nonisolated static func whoop4SkinIdentity(owner: String, peripheralId: String?) -> String {
         owner + "|" + (peripheralId ?? "")
     }
