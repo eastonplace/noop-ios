@@ -68,6 +68,30 @@ final class VerifiedSinkBootstrapTests: XCTestCase {
         XCTAssertNil(defaults.data(forKey: ActiveVerifiedSinkEpochStore.liveActivityGenerationKey))
     }
 
+    /// The Widget envelope is fenced to its epoch: left behind, it would make every commit under the new epoch superseded
+    /// and the Home Screen widget blank for good.
+    func testAContextMoveClearsTheOldEpochsWidgetSoTheNextPublishIsReadable() throws {
+        let old = try install(contextId: "context-A")
+        let oldSnapshot = WidgetSnapshot(recovery: 71, bpm: nil, batteryPct: nil, bonded: false, updated: Date(),
+                                         verifiedContextId: "context-A", verifiedProjectionGeneration: 3)
+        XCTAssertEqual(VerifiedWidgetEnvelopeStore.commit(
+            token: old, generation: 3, snapshot: oldSnapshot, defaults: defaults), .published)
+        XCTAssertNotNil(VerifiedWidgetEnvelopeStore.loadForDisplay(defaults: defaults))
+
+        XCTAssertEqual(bootstrap(context: "context-B"), .activated)
+        XCTAssertNil(VerifiedWidgetEnvelopeStore.load(defaults: defaults), "the old epoch's envelope is gone")
+        XCTAssertNil(defaults.data(forKey: ActiveVerifiedSinkEpochStore.widgetLiveOverlayKey))
+
+        let token = try XCTUnwrap(ActiveVerifiedSinkEpochStore.activeToken(defaults: defaults))
+        let snapshot = WidgetSnapshot(recovery: 64, bpm: nil, batteryPct: nil, bonded: false, updated: Date(),
+                                      verifiedContextId: "context-B", verifiedProjectionGeneration: 1)
+        XCTAssertEqual(VerifiedWidgetEnvelopeStore.commit(
+            token: token, generation: 1, snapshot: snapshot, defaults: defaults), .published,
+                       "the next publish under the new epoch commits")
+        XCTAssertEqual(VerifiedWidgetEnvelopeStore.loadForDisplay(defaults: defaults)?.verifiedContextId, "context-B",
+                       "and the widget can read it")
+    }
+
     func testAMatchingTokenIsKept() throws {
         let token = try install(contextId: "context-A")
         let before = activeRecord

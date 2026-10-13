@@ -987,12 +987,15 @@ final class AppModel: ObservableObject {
         case .clearClosedSource:
             return .closedSourceLeftAlone
         case .activate(let contextId):
-            // A fresh epoch above every surviving record, as a transition takes one. The Live Activity's generation
-            // record is fenced to its epoch and would reject every verified write under the new one, so it goes too.
+            // A fresh epoch above every surviving record, as a transition takes one. Everything fenced to the old epoch
+            // goes with it, as the transition's privacy clear does: the Widget envelope (its commit refuses any other
+            // epoch, so the Home Screen widget would stay blank for good), its overlay and generation, and the Live
+            // Activity's generation record (which would reject every verified write under the new epoch).
             guard let epoch = ActiveSinkEpochRecovery.beginTransitionRecovering(defaults: defaults) else {
                 return .failed
             }
             ActiveVerifiedSinkEpochStore.clearLegacyKeys(defaults: defaults)
+            ActiveSinkEpochRecovery.clearVerifiedWidgetState(defaults: defaults)
             ActiveSinkEpochRecovery.clearLiveActivityGeneration(defaults: defaults)
             guard ActiveVerifiedSinkEpochStore.activate(contextId: contextId, epoch: epoch, defaults: defaults) != nil,
                   activateSinks(contextId, epoch) else { return .failed }
@@ -1021,7 +1024,11 @@ final class AppModel: ObservableObject {
                 verifiedSinkLifecycle?.activate(contextId: contextId, epoch: epoch) ?? false
             })
         NSLog("NOOP verified sink: token: %@, %@", tokenState, outcome.rawValue)
-        if outcome == .activated { await signalExternalPublication() }
+        guard outcome == .activated else { return }
+        // The widget was cleared with the old epoch: publish the current projection under the new one now, rather than
+        // waiting for a new generation or the next foreground.
+        await signalExternalPublication()
+        _ = await WidgetSnapshot.publish(from: self)
     }
 
     private func makeHistoricalPipelineRuntime() -> HistoricalPipelineRuntime {
