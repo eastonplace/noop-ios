@@ -214,20 +214,97 @@ final class BLEBackgroundReconnectHandoffTests: XCTestCase {
         var discoveries = 0
         manager.pauseAutoReconnectForBackgroundCapForTesting()
 
-        manager.handlePowerOnWithRestoredPeripheral(UUID(), isConnected: false,
-                                                    reconnect: { reconnects += 1 },
-                                                    resumeDiscovery: { discoveries += 1 })
+        manager.handleBluetoothPoweredOn(restored: (UUID(), false),
+                                         reconnect: { reconnects += 1 },
+                                         resumeDiscovery: { discoveries += 1 })
         XCTAssertEqual(reconnects, 0, "paused: no reconnect")
-        manager.handlePowerOnWithRestoredPeripheral(UUID(), isConnected: true,
-                                                    reconnect: { reconnects += 1 },
-                                                    resumeDiscovery: { discoveries += 1 })
+        manager.handleBluetoothPoweredOn(restored: (UUID(), true),
+                                         reconnect: { reconnects += 1 },
+                                         resumeDiscovery: { discoveries += 1 })
         XCTAssertEqual(discoveries, 1, "a live restored link is still attached")
 
         manager.resumeAutoReconnectInForeground()
-        manager.handlePowerOnWithRestoredPeripheral(UUID(), isConnected: false,
-                                                    reconnect: { reconnects += 1 },
-                                                    resumeDiscovery: { discoveries += 1 })
+        manager.handleBluetoothPoweredOn(restored: (UUID(), false),
+                                         reconnect: { reconnects += 1 },
+                                         resumeDiscovery: { discoveries += 1 })
         XCTAssertEqual(reconnects, 1, "once the pause lifts, the restored strap reconnects")
+    }
+
+    /// Review R3d 2(b): the WHOOP 5/MG secure-recovery pause holds on Bluetooth power-on too, through the
+    /// seam centralManagerDidUpdateState calls, with and without a restored strap.
+    func testBluetoothPowerOnRespectsTheSecureRecoveryPause() {
+        let state = LiveState()
+        let manager = BLEManager(state: state, collector: nil)
+        var reconnects = 0
+        var discoveries = 0
+        manager.pauseAutoReconnectForWhoop5SecureFailureForTesting()
+
+        manager.handleBluetoothPoweredOn(restored: (UUID(), false),
+                                         reconnect: { reconnects += 1 },
+                                         resumeDiscovery: { discoveries += 1 })
+        XCTAssertEqual(reconnects, 0, "paused: a restored strap is not reconnected")
+        manager.handleBluetoothPoweredOn(restored: (UUID(), true),
+                                         reconnect: { reconnects += 1 },
+                                         resumeDiscovery: { discoveries += 1 })
+        XCTAssertEqual(discoveries, 1, "a live restored link is still attached")
+
+        // connectCore sets the rated battery life first thing, so an untouched marker means it never ran.
+        state.batteryRatedHours = -1
+        manager.handleBluetoothPoweredOn(restored: nil,
+                                         reconnect: { reconnects += 1 },
+                                         resumeDiscovery: { discoveries += 1 })
+        XCTAssertEqual(state.batteryRatedHours, -1, "paused: no restored strap, and no system connect either")
+        XCTAssertEqual(reconnects, 0)
+        XCTAssertEqual(discoveries, 1)
+    }
+
+    /// Review R3d 2(a): a hello released after its deadline is written before the background task ends,
+    /// so the app cannot suspend between the two.
+    func testAHelloReleasedAfterItsDeadlineIsWrittenBeforeTheBackgroundTaskEnds() {
+        let manager = BLEManager(state: LiveState(), collector: nil)
+        let session = Whoop5SecureSessionID(peripheralID: UUID(), connectGeneration: 1, attemptEpoch: 1)
+        var events: [String] = []
+        manager.whoop5HelloWriteForTesting = { _ in events.append("write") }
+        manager.whoop5HoldBackgroundTaskEndedForTesting = { events.append("end") }
+        let start = Date()
+        manager.holdWhoop5ClientHelloForTesting(session, until: start.addingTimeInterval(60))
+        XCTAssertTrue(manager.whoop5HoldBackgroundTaskActiveForTesting)
+
+        manager.noteStrapNotification(now: start.addingTimeInterval(61))
+
+        XCTAssertEqual(events, ["write", "end"])
+        XCTAssertNil(manager.whoop5HeldClientHelloForTesting)
+        XCTAssertNil(manager.whoop5HandshakeHoldForTesting, "the hello went out, so the deadline is spent")
+        XCTAssertFalse(manager.whoop5HoldTimerArmedForTesting)
+        XCTAssertFalse(manager.whoop5HoldBackgroundTaskActiveForTesting)
+        manager.disconnect()
+    }
+
+    /// Review R3d 2(c): on a connected but quiet link, background expiry sends the hello early, and only
+    /// then ends the task.
+    func testBackgroundExpiryOnAQuietLiveLinkSendsTheHelloEarly() {
+        let manager = BLEManager(state: LiveState(), collector: nil)
+        let session = Whoop5SecureSessionID(peripheralID: UUID(), connectGeneration: 1, attemptEpoch: 1)
+        var events: [String] = []
+        var written: Whoop5SecureSessionID?
+        manager.whoop5HelloWriteForTesting = { id in
+            written = id
+            events.append("write")
+        }
+        manager.whoop5HoldBackgroundTaskEndedForTesting = { events.append("end") }
+        let start = Date()
+        manager.holdWhoop5ClientHelloForTesting(session, until: start.addingTimeInterval(60))
+        manager.noteStrapNotification(now: start.addingTimeInterval(10))
+        XCTAssertEqual(events, [], "a notification before the deadline sends nothing")
+
+        manager.whoop5HoldBackgroundTimeExpiring(now: start.addingTimeInterval(30))
+
+        XCTAssertEqual(written, session, "quiet for 20 s: sent 30 s before the deadline")
+        XCTAssertEqual(events, ["write", "end"])
+        XCTAssertNil(manager.whoop5HeldClientHelloForTesting)
+        XCTAssertNil(manager.whoop5HandshakeHoldForTesting)
+        XCTAssertFalse(manager.whoop5HoldBackgroundTaskActiveForTesting)
+        manager.disconnect()
     }
 
     /// Review R3d 1: the strap is busy when the background time runs out (the hold is kept, the task

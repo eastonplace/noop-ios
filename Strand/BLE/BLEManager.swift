@@ -1583,6 +1583,8 @@ public final class BLEManager: NSObject, ObservableObject {
 
     func pauseAutoReconnectForBackgroundCapForTesting() { autoReconnectPausedForBackgroundCap = true }
 
+    func pauseAutoReconnectForWhoop5SecureFailureForTesting() { autoReconnectPausedForWhoop5SecureFailure = true }
+
     var autoReconnectPausedForBackgroundCapForTesting: Bool { autoReconnectPausedForBackgroundCap }
 
     var whoop5HoldTimerArmedForTesting: Bool { whoop5HeldClientHelloWork != nil }
@@ -1605,6 +1607,11 @@ public final class BLEManager: NSObject, ObservableObject {
     }
 
     var whoop5HeldClientHelloForTesting: Whoop5SecureSessionID? { whoop5HeldClientHello }
+
+    /// Test seams (a test has no CBPeripheral): stands in for a connected link and its CLIENT_HELLO write
+    /// when a held hello is released, and hears each end of the hold's background task.
+    var whoop5HelloWriteForTesting: ((Whoop5SecureSessionID) -> Void)?
+    var whoop5HoldBackgroundTaskEndedForTesting: (() -> Void)?
 
     // MARK: Multi-WHOOP (additive — inert on the single-WHOOP path)
 
@@ -4877,23 +4884,20 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
         }
         // Bootstrap the async store once on first poweredOn (idempotent if already set).
         Task { @MainActor in await bootstrapStore() }
-        if let p = restoredPeripheral {
-            handlePowerOnWithRestoredPeripheral(
-                p.identifier, isConnected: p.state == .connected,
-                reconnect: { [central] in central.connect(p, options: nil) },
-                resumeDiscovery: {
-                    if selectedModel.deviceFamily == .whoop5 {
-                        startWhoop5DiscoveryIfNeeded(on: p)
-                    } else {
-                        discoverPrimaryServices(on: p)
-                    }
-                })
-        } else {
-            // #78 hole-2: poweredOn is SYSTEM-initiated (every Bluetooth toggle / bluetoothd restart
-            // lands here), so it must not reset a latched bond-loop give-up - it gets ONE bounded
-            // attempt with the give-up intact (Android onBluetoothRadioOn parity), not a fresh hammer.
-            connectFromSystem()
-        }
+        let restored = restoredPeripheral
+        handleBluetoothPoweredOn(
+            restored: restored.map { (identifier: $0.identifier, isConnected: $0.state == .connected) },
+            reconnect: { [central] in
+                if let restored { central.connect(restored, options: nil) }
+            },
+            resumeDiscovery: {
+                guard let restored else { return }
+                if selectedModel.deviceFamily == .whoop5 {
+                    startWhoop5DiscoveryIfNeeded(on: restored)
+                } else {
+                    discoverPrimaryServices(on: restored)
+                }
+            })
     }
 
     public func centralManager(_ central: CBCentralManager,
@@ -5384,21 +5388,29 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
             existing: whoop5SecureHandshakeNotBefore, new: hold, now: Date())
     }
 
-    /// Bluetooth came on with a strap restored by CoreBluetooth. A connected one resumes discovery; a
-    /// disconnected one is reconnected unless a system reconnect is paused (F1: the background-cap pause
-    /// was bypassed here because this path called CoreBluetooth directly).
-    func handlePowerOnWithRestoredPeripheral(_ identifier: UUID, isConnected: Bool,
-                                             reconnect: () -> Void, resumeDiscovery: () -> Void) {
-        guard !isConnected else {
-            log("poweredOn with restored peripheral — reconnecting \(identifier)")
+    /// What Bluetooth power-on does about the strap; centralManagerDidUpdateState passes the strap
+    /// CoreBluetooth restored (nil when none) and how to reach it. A connected restored strap resumes
+    /// discovery; a disconnected one is reconnected unless a system reconnect is paused (F1: the
+    /// background-cap pause was bypassed here because this path called CoreBluetooth directly).
+    func handleBluetoothPoweredOn(restored: (identifier: UUID, isConnected: Bool)?,
+                                  reconnect: () -> Void, resumeDiscovery: () -> Void) {
+        guard let restored else {
+            // #78 hole-2: poweredOn is SYSTEM-initiated (every Bluetooth toggle / bluetoothd restart
+            // lands here), so it must not reset a latched bond-loop give-up - it gets ONE bounded
+            // attempt with the give-up intact (Android onBluetoothRadioOn parity), not a fresh hammer.
+            connectFromSystem()
+            return
+        }
+        guard !restored.isConnected else {
+            log("poweredOn with restored peripheral — reconnecting \(restored.identifier)")
             resumeDiscovery()
             return
         }
         if let reason = systemReconnectPauseReason {
-            log("poweredOn with restored peripheral \(identifier) — not reconnecting: \(reason)")
+            log("poweredOn with restored peripheral \(restored.identifier) — not reconnecting: \(reason)")
             return
         }
-        log("poweredOn with restored peripheral — reconnecting \(identifier)")
+        log("poweredOn with restored peripheral — reconnecting \(restored.identifier)")
         reconnect()
     }
 
@@ -5877,6 +5889,7 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
         if whoop5HoldBackgroundTask != .invalid {
             UIApplication.shared.endBackgroundTask(whoop5HoldBackgroundTask)
             whoop5HoldBackgroundTask = .invalid
+            whoop5HoldBackgroundTaskEndedForTesting?()
         }
         #endif
     }
@@ -5888,8 +5901,7 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
         guard let sessionID = whoop5HeldClientHello else { return }
         let deadlinePassed = whoop5SecureHandshakeNotBefore.map { now >= $0 } ?? true
         if !force && !deadlinePassed { return }
-        guard currentWhoop5SecureSessionID == sessionID,
-              let peripheral, peripheral.state == .connected else {
+        guard let writeHello = heldWhoop5ClientHelloWrite(for: sessionID) else {
             if deadlinePassed { clearWhoop5SecureHold() } else { cancelHeldWhoop5ClientHello() }
             return
         }
@@ -5898,8 +5910,17 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
         whoop5HeldClientHello = nil
         whoop5SecureHandshakeNotBefore = nil
         log("WHOOP 5/MG: secure recovery delay over; continuing the secure handshake")
-        proceedToWhoop5ClientHello(on: peripheral, sessionID: sessionID)
+        writeHello()
         stopWhoop5HoldKeepAlive()
+    }
+
+    /// How to write the held attempt's CLIENT_HELLO: on its link while that attempt is still the current
+    /// one and connected (or through the test seam that stands in for one), else nil.
+    private func heldWhoop5ClientHelloWrite(for sessionID: Whoop5SecureSessionID) -> (() -> Void)? {
+        if currentWhoop5SecureSessionID == sessionID, let peripheral, peripheral.state == .connected {
+            return { [weak self] in self?.proceedToWhoop5ClientHello(on: peripheral, sessionID: sessionID) }
+        }
+        return whoop5HelloWriteForTesting.map { write in { write(sessionID) } }
     }
 
     /// The held attempt is over (released, or its link dropped). Its deadline stands.
