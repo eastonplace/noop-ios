@@ -804,10 +804,10 @@ final class IntelligenceEngine: ObservableObject {
         }
 
         // Review round 4 (2): the first pass after midnight (or any later one, until it succeeds) also rescores
-        // the newest earlier day if its calorie total was filled only part of the way, so the day's off-wrist
+        // an earlier day if its calorie total was filled only part of the way, so the day's off-wrist
         // resting energy is counted through midnight. Once that pass stores the day filled to its end, passes
         // cover today only again. Review round 5 (2): that day can be two days back after a day without a pass;
-        // the pass widens to reach it, never past `calorieFillCatchUpDays` before today.
+        // the pass widens to reach the oldest such day (round 6, 2), never past `calorieFillCatchUpDays`.
         var maxDays = maxDays
         if maxDays == 1, startOffset == 0, sourceContext == nil,
            let offset = await unfinishedCalorieFillOffset(store: store, reference: referenceNow,
@@ -3096,24 +3096,28 @@ final class IntelligenceEngine: ObservableObject {
         return DayOwnerResolver.resolve(day: day, lockedOwner: nil, candidates: candidates) ?? fallbackDeviceId
     }
 
-    /// The start offset of the newest stored computed day before today with a calorie total, when that total was
-    /// filled only part of the way through the day (review round 4, 2; round 5, 2). Only the
-    /// `calorieFillCatchUpDays` days before today are looked at, in one range read. A row from before the fill
-    /// marker counts as unfinished, so it is finished once.
+    /// The start offset of the oldest stored computed day before today whose calorie total was filled only part of
+    /// the way through the day (review round 4, 2; round 5, 2; round 6, 2). Every day with a total in the
+    /// `calorieFillCatchUpDays` days before today is checked, with one range read of the rows and one of the fill
+    /// markers, so a newer day an exact pass finished can't hide an older unfinished one. A row from before the
+    /// fill marker counts as unfinished, so it is finished once.
     private func unfinishedCalorieFillOffset(store: WhoopStore, reference: Date,
                                              calendar: Calendar) async -> Int? {
         let windows = Self.civilDayWindows(
             reference: reference, startOffset: 1, count: Self.calorieFillCatchUpDays, calendar: calendar)
         guard let newest = windows.first, let oldest = windows.last else { return nil }
         let computedId = deviceId + "-noop"
-        guard let row = try? await store.dailyMetrics(deviceId: computedId, from: oldest.day, to: newest.day)
-                .last(where: { $0.activeKcalEst != nil }),
-              let index = windows.firstIndex(where: { $0.day == row.day }),
-              let marker = try? await store.metricSeries(
-                deviceId: computedId, key: Self.calorieFillEndMetricKey, from: row.day, to: row.day)
+        guard let rows = try? await store.dailyMetrics(deviceId: computedId, from: oldest.day, to: newest.day),
+              let markers = try? await store.metricSeries(
+                deviceId: computedId, key: Self.calorieFillEndMetricKey, from: oldest.day, to: newest.day)
         else { return nil }
-        let unfinished = marker.first.map { $0.value < Double(windows[index].nextStart) } ?? true
-        return unfinished ? index + 1 : nil
+        let daysWithTotal = Set(rows.compactMap { $0.activeKcalEst != nil ? $0.day : nil })
+        let fillEndByDay = Dictionary(markers.map { ($0.day, $0.value) }, uniquingKeysWith: { a, _ in a })
+        return windows.indices.last { index in
+            let window = windows[index]
+            return daysWithTotal.contains(window.day)
+                && (fillEndByDay[window.day].map { $0 < Double(window.nextStart) } ?? true)
+        }.map { $0 + 1 }
     }
 
     /// One day's breakdown as metric points (review round 4, 3).

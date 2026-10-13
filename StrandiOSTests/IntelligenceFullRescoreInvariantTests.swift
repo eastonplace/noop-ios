@@ -693,6 +693,43 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
         }
     }
 
+    /// Review round 6 (2): a newer day an exact pass finished doesn't hide an older unfinished one. The first
+    /// production pass of the day checks every day in reach and widens to the oldest unfinished one.
+    func testAnExactPassFinishingYesterdayDoesNotHideAnUnfinishedDayBefore() async throws {
+        try await withRecalibrationEpochsRestored {
+            let harness = try await makeHarness(days: 4)
+            let twoDaysAgo = harness.dayKeys[1]
+            let twoDaysAgoStart = firstDayStart + 86_400
+            let afternoon = Date(timeIntervalSince1970: TimeInterval(twoDaysAgoStart + 15 * 3_600 + 1_800))
+            let partialPass = await pass(harness, maxDays: 1, at: afternoon)
+            XCTAssertTrue(partialPass)
+            let afterAfternoon = try await stored(harness)
+            let partial = try XCTUnwrap(afterAfternoon[twoDaysAgo]?.activeKcalEst)
+
+            let yesterday = harness.dayKeys[2]
+            let justAfterMidnight = Date(timeIntervalSince1970: TimeInterval(twoDaysAgoStart + 2 * 86_400 + 600))
+            let exactYesterday = try exactSource(Repository.whoopSource, day: yesterday, createdAt: justAfterMidnight)
+            let exact = await pass(harness, maxDays: 1, startOffset: 1, at: justAfterMidnight,
+                                   sourceContext: exactYesterday)
+            XCTAssertTrue(exact)
+            let yesterdayFill = try await harness.store.metricSeries(
+                deviceId: harness.computedId, key: IntelligenceEngine.calorieFillEndMetricKey,
+                from: yesterday, to: yesterday)
+            XCTAssertEqual(yesterdayFill.first?.value, Double(twoDaysAgoStart + 2 * 86_400),
+                           "the exact pass finished yesterday")
+
+            let productionPass = await pass(harness, maxDays: 1, at: justAfterMidnight.addingTimeInterval(600))
+            XCTAssertTrue(productionPass)
+            let afterProductionPass = try await stored(harness)
+            let finished = try XCTUnwrap(afterProductionPass[twoDaysAgo]?.activeKcalEst)
+            XCTAssertGreaterThan(finished, partial)
+            let fillEnd = try await harness.store.metricSeries(
+                deviceId: harness.computedId, key: IntelligenceEngine.calorieFillEndMetricKey,
+                from: twoDaysAgo, to: twoDaysAgo)
+            XCTAssertEqual(fillEnd.first?.value, Double(twoDaysAgoStart + 86_400), "filled through midnight")
+        }
+    }
+
     /// Review round 4 (5): each scored day stores how long the strap recorded valid heart rate, the coverage the
     /// shared calorie resolver weighs the strap total by. A fixture day with a next night has readings around the
     /// clock: its own night and day until 23:00, then the next night from 23:00.
