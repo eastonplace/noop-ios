@@ -46,6 +46,22 @@ final class DailyCaloriesTests: XCTestCase {
         XCTAssertEqual(value, 300 + 1_728 / 4, accuracy: 1e-9)
     }
 
+    /// Review round 5 (3): resting energy is per real second, so a daylight-saving day is not a 24 h day.
+    func testRestingEnergyFollowsTheRealLengthOfADaylightSavingDay() throws {
+        func value(daySeconds: Double, elapsed: Double?) throws -> Double {
+            try XCTUnwrap(DailyCalories.total(strapKcal: nil, strapWornSeconds: nil, appleActiveKcal: 300,
+                                              appleBasalKcal: nil, bmrKcalPerDay: 1_728,
+                                              daySeconds: daySeconds, elapsedSeconds: elapsed))
+        }
+        XCTAssertEqual(try value(daySeconds: 25 * 3_600, elapsed: nil), 300 + 1_728 * 25 / 24, accuracy: 1e-9)
+        XCTAssertEqual(try value(daySeconds: 23 * 3_600, elapsed: nil), 300 + 1_728 * 23 / 24, accuracy: 1e-9)
+        XCTAssertEqual(try value(daySeconds: 23 * 3_600, elapsed: 22.5 * 3_600), 300 + 1_728 * 22.5 / 24,
+                       accuracy: 1e-9)
+        XCTAssertEqual(try value(daySeconds: 25 * 3_600, elapsed: 12 * 3_600), 300 + 1_728 / 2, accuracy: 1e-9)
+        XCTAssertEqual(try value(daySeconds: 23 * 3_600, elapsed: 30 * 3_600), 300 + 1_728 * 23 / 24,
+                       accuracy: 1e-9, "never past the day's end")
+    }
+
     func testATotalStoredBeforeCoverageCountsAsCovered() {
         XCTAssertEqual(total(strap: 2_100, worn: nil, active: 900, basal: 1_750), 2_100)
     }

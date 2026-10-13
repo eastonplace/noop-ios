@@ -15,14 +15,15 @@ public enum DailyCalories {
     /// 1. the strap total when the strap covered the day (12 h worn; today, half the elapsed day),
     /// 2. else Apple Health's active + basal energy when it has both,
     /// 3. else the strap total, if any,
-    /// 4. else Apple's active energy plus the profile's resting energy for the day (prorated today),
+    /// 4. else Apple's active energy plus the profile's resting energy for the seconds the day has run (all of
+    ///    it for a completed day, so a 23 h or 25 h day gets 23 or 25 hours of it),
     /// 5. else nil.
     /// - Parameters:
     ///   - strapKcal: the strap's full-day estimate (`DailyMetric.activeKcalEst`).
     ///   - strapWornSeconds: how long the strap recorded valid heart rate that day. Nil for a total stored
     ///     before coverage was, which counts as covered (the estimate it always was).
     ///   - bmrKcalPerDay: the profile's resting energy per 24 h (`bmrKcalPerDay(profile:)`).
-    ///   - daySeconds: the civil day's length (23 h or 25 h across a DST change), used to prorate today.
+    ///   - daySeconds: the civil day's length (23 h or 25 h across a DST change); nil counts as 24 h.
     ///   - elapsedSeconds: seconds since the day began, for today; nil for a completed day.
     ///   `dayTiming(day:timeZone:now:)` gives both.
     public static func total(strapKcal: Double?,
@@ -45,11 +46,10 @@ public enum DailyCalories {
         if let active = appleActiveKcal, let basal = appleBasalKcal { return active + basal }
         if let strapKcal { return strapKcal }
         if let active = appleActiveKcal, let bmr = bmrKcalPerDay {
-            var share = 1.0
-            if let elapsed = elapsedSeconds, let length = daySeconds, length > 0 {
-                share = min(1, max(0, elapsed / length))
-            }
-            return active + bmr * share
+            // Review round 5 (3): resting energy accrues per real second, not as a share of the day.
+            let length = daySeconds ?? 86_400
+            let seconds = elapsedSeconds.map { min(max(0, $0), length) } ?? length
+            return active + bmr * seconds / 86_400
         }
         return nil
     }
