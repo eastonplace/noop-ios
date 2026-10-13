@@ -14,6 +14,33 @@ enum WorkoutLifecycleProjection {
     static func identity(_ workout: AppModel.ActiveWorkout?) -> ObjectIdentifier? {
         workout.map(ObjectIdentifier.init)
     }
+
+    /// The workout's Start and End edges.
+    @MainActor static func edges(of model: AppModel) -> AnyPublisher<ObjectIdentifier?, Never> {
+        model.$activeWorkout
+            .map(WorkoutLifecycleProjection.identity)
+            .removeDuplicates()
+            .dropFirst()
+            .eraseToAnyPublisher()
+    }
+
+    /// The running workout's heart-rate readings, nil while none runs. The first is sent from inside the Start assignment.
+    @MainActor static func readings(of model: AppModel) -> AnyPublisher<Int?, Never> {
+        model.$activeWorkout.map { workout -> AnyPublisher<Int?, Never> in
+            guard let workout else { return Just<Int?>(nil).eraseToAnyPublisher() }
+            return workout.$currentBPM.eraseToAnyPublisher()
+        }.switchToLatest().eraseToAnyPublisher()
+    }
+
+    /// Run a drive raised by `edges` or `readings` once the assignment behind it has happened. `@Published` sends from
+    /// `willSet` and `onReceive` runs its closure inside that call, so a drive made there still saw the model from before the
+    /// edge: the Start drive went out as a heart-rate drive, and the workout's own request waited for a later reading, often
+    /// after the phone was locked, where ActivityKit refuses it. On the next main-queue turn the workout is there and the
+    /// request is made while the app is still in front. A dispatched block rather than a scheduler on the publisher:
+    /// SwiftUI may resubscribe an `onReceive` publisher when the body is rebuilt, and a delivery in flight would go with it.
+    @MainActor static func afterAssignment(_ drive: @escaping @MainActor () -> Void) {
+        DispatchQueue.main.async { drive() }
+    }
 }
 
 @main
@@ -315,18 +342,15 @@ struct StrandiOSApp: App {
     }
 
     private var workoutBPMUpdates: AnyPublisher<Int?, Never> {
-        model.$activeWorkout.map { workout -> AnyPublisher<Int?, Never> in
-            guard let workout else { return Just<Int?>(nil).eraseToAnyPublisher() }
-            return workout.$currentBPM.eraseToAnyPublisher()
-        }.switchToLatest().eraseToAnyPublisher()
+        WorkoutLifecycleProjection.readings(of: model)
     }
 
-    private func driveLiveActivity(connected: Bool? = nil, workoutReading: Int? = nil) {
+    private func driveLiveActivity(_ source: LiveActivityDriveSource, connected: Bool? = nil, workoutReading: Int? = nil) {
         LiveActivityFeed.current(
             model: model, projections: workoutProjection, liveActivity: liveActivity,
             connected: connected, workoutReading: workoutReading
         ).update(
-            liveActivity,
+            liveActivity, source: source,
             recovery: externalSurface?.recovery,
             effort: externalSurface?.effort,
             verifiedContextId: externalSurface?.contextId,
@@ -431,7 +455,7 @@ struct StrandiOSApp: App {
         guard await model.repo.refresh(days: 1) else { return false }
         let surface = model.repo.verifiedHealthProjection.map(ExternalSurfaceProjection.init)
         LiveActivityFeed.current(model: model, projections: workoutProjection, liveActivity: liveActivity).update(
-            liveActivity,
+            liveActivity, source: .scoring,
             recovery: surface?.recovery,
             effort: surface?.effort,
             verifiedContextId: surface?.contextId,
@@ -561,18 +585,18 @@ struct StrandiOSApp: App {
                 .preferredColorScheme(AppearanceMode.resolve(appearanceRaw).colorScheme)
                 .chartStyle(chartStyleRaw)
                 .onReceive(model.live.$heartRate) { _ in
-                    if model.activeWorkout == nil { driveLiveActivity() }
+                    if model.activeWorkout == nil { driveLiveActivity(.passiveHR) }
                 }
                 .onReceive(workoutBPMUpdates) { reading in
-                    driveLiveActivity(workoutReading: reading)
+                    WorkoutLifecycleProjection.afterAssignment { driveLiveActivity(.workoutHR, workoutReading: reading) }
                 }
-                .onReceive(model.live.$connected) { driveLiveActivity(connected: $0) }
+                .onReceive(model.live.$connected) { driveLiveActivity(.connectivity, connected: $0) }
                 // A pause or resume (or the workout starting to finish) reaches the Lock Screen and the Dynamic Island at
                 // once, not on the next heart-rate tick, so the activity and the app never disagree about whether the
                 // workout is running or can be paused.
                 .onReceive(model.$workoutPauseEdge.dropFirst()) { _ in
                     liveActivity.noteWorkoutPauseEdge()
-                    driveLiveActivity()
+                    driveLiveActivity(.pauseEdge)
                 }
                 // A strap that stops sending publishes nothing, so nothing would ever tell the activity its reading has gone
                 // stale. The app decides that on a clock (`LiveWorkoutSignals.heartRateIsStale`, the rule its own tiles use)
@@ -584,21 +608,18 @@ struct StrandiOSApp: App {
                     activityHeartRateWasStale = stale
                     guard model.activeWorkout != nil else { return }
                     liveActivity.noteWorkoutPauseEdge()
-                    driveLiveActivity()
+                    driveLiveActivity(.timer)
                 }
                 .onReceive(model.live.$connectSettled.removeDuplicates().dropFirst()) { settled in
                     guard settled != 0 else { return }
                     Task { await model.correctSeededWhoopModelIfNeeded() }
                 }
-                .onReceive(
-                    model.$activeWorkout
-                        .map(WorkoutLifecycleProjection.identity)
-                        .removeDuplicates()
-                        .dropFirst()
-                ) { identity in
-                    if identity == nil { workoutProjection.reset() }
-                    driveLiveActivity()
-                    WidgetSnapshot.publishLive(from: model)
+                .onReceive(WorkoutLifecycleProjection.edges(of: model)) { identity in
+                    WorkoutLifecycleProjection.afterAssignment {
+                        if identity == nil { workoutProjection.reset() }
+                        driveLiveActivity(identity == nil ? .endEdge : .startEdge)
+                        WidgetSnapshot.publishLive(from: model)
+                    }
                 }
                 .onReceive(model.repo.$refreshSeq.dropFirst()) { _ in
                     guard scenePhase == .active else { return }
@@ -611,7 +632,7 @@ struct StrandiOSApp: App {
                     // Home, widget, and Live Activity day labels to become stale. Publish from the same boundary
                     // source that invalidated Today instead of waiting for the next sync.
                     refreshExternalSurface()
-                    driveLiveActivity()
+                    driveLiveActivity(.dayBoundary)
                     Task { await WidgetSnapshot.publish(from: model) }
                 }
                 .onReceive(
@@ -623,10 +644,12 @@ struct StrandiOSApp: App {
                         await drainCommittedHealthScoring()
                     }
                 }
-                .onReceive(model.repo.$verifiedHealthProjection.dropFirst()) { _ in
+                .onReceive(model.repo.$verifiedHealthProjection.dropFirst()) { projection in
+                    // A context the App Group token does not name supersedes every verified write until it is repaired.
+                    Task { await model.repairVerifiedSinkIfContextMoved(to: projection?.contextId) }
                     guard scenePhase == .active else { return }
                     refreshExternalSurface()
-                    driveLiveActivity()
+                    driveLiveActivity(.projection)
                     WidgetSnapshot.publishLive(from: model)
                 }
                 .onReceive(model.live.$batteryPct.dropFirst()) { _ in
@@ -728,6 +751,10 @@ struct StrandiOSApp: App {
             if phase == .active {
                 model.drainPendingIntents()
                 WorkoutPauseCommand.drain()
+                // ActivityKit refuses a request made from the background, so a missed one is asked again the moment the app
+                // is in front.
+                refreshExternalSurface()
+                driveLiveActivity(.foreground)
                 alarmRuntime.handleForeground()
                 // A historical offload holds the strap link for about a minute and suspends the realtime-HR
                 // keep-alive re-arm while it runs (BLEManager `guard !backfilling`). Unlocking mid-workout

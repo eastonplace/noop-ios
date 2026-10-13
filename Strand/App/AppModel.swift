@@ -947,6 +947,133 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// What the normal-launch verified-sink repair did. Logged; no context identity is ever logged.
+    enum VerifiedSinkBootstrapOutcome: String, Equatable {
+        case repositoryNotLoaded = "repository not loaded"
+        case waitingForSourceTransition = "waiting for source transition"
+        case kept
+        case closedSourceLeftAlone = "no context, left alone"
+        case waitingForProjection = "waiting for projection"
+        case activated
+        case failed
+    }
+
+    /// Only a source transition writes the App Group's verified-sink token, so an install that predates the token, or a
+    /// context that moved outside a transition (a lineage or database change), left every Widget and Live Activity write
+    /// that carries health superseded, for good. This repairs it through `VerifiedSinkBootstrapPolicy`, under the source
+    /// transition fence and after durable transition recovery:
+    /// - a non-terminal transition record owns the token, so the token is not touched while one exists;
+    /// - a nil context before the repository has loaded is transient, never a closed source;
+    /// - a closed source stays as the transition that closed it left it. Every writer checks the token against the
+    ///   repository's current context, so a token naming a context the repository no longer has publishes nothing.
+    /// Static, with the App Group and the sink activation passed in, so it is testable without a running app.
+    static func bootstrapVerifiedSink(
+        repositoryLoaded: Bool,
+        projectionContextId: String?,
+        snapshotContextId: String?,
+        hasPendingTransition: Bool,
+        defaults: UserDefaults,
+        activateSinks: (_ contextId: String, _ epoch: UInt64) -> Bool
+    ) -> VerifiedSinkBootstrapOutcome {
+        if hasPendingTransition { return .waitingForSourceTransition }
+        guard repositoryLoaded else { return .repositoryNotLoaded }
+        let activeToken = ActiveVerifiedSinkEpochStore.activeToken(defaults: defaults)
+        // The snapshot's context stands in for a missing token only. At a cold launch there is no projection yet (the
+        // historical pipeline publishes it after this runs), and the token that exists may name the projection the
+        // widgets render: rotating it from the snapshot would blank them. It is left alone, and the projection observer
+        // repairs it once a projection loads (`repairVerifiedSinkIfContextMoved`). A token naming another database (one
+        // restored in place, then relaunched) can never match again, so it is not waited for: it is rotated below.
+        if projectionContextId == nil, let snapshotContextId, let activeToken,
+           activeToken.contextId != snapshotContextId,
+           !isFromAnotherDatabase(activeToken.contextId, snapshot: snapshotContextId) {
+            return .waitingForProjection
+        }
+        let expectedContextId = verifiedSinkContextId(projection: projectionContextId, snapshot: snapshotContextId)
+        switch VerifiedSinkBootstrapPolicy.decide(
+            activeToken: activeToken,
+            expectedContextId: expectedContextId,
+            hasPendingTransition: false
+        ) {
+        case .keep:
+            return .kept
+        case .waitForPendingTransition:
+            return .waitingForSourceTransition
+        case .clearClosedSource:
+            return .closedSourceLeftAlone
+        case .activate(let contextId):
+            // A fresh epoch above every surviving record, as a transition takes one. Everything fenced to the old epoch
+            // goes with it, as the transition's privacy clear does: the Widget envelope (its commit refuses any other
+            // epoch, so the Home Screen widget would stay blank for good), its overlay and generation, and the Live
+            // Activity's generation record (which would reject every verified write under the new epoch).
+            guard let epoch = ActiveSinkEpochRecovery.beginTransitionRecovering(defaults: defaults) else {
+                return .failed
+            }
+            ActiveVerifiedSinkEpochStore.clearLegacyKeys(defaults: defaults)
+            ActiveSinkEpochRecovery.clearVerifiedWidgetState(defaults: defaults)
+            ActiveSinkEpochRecovery.clearLiveActivityGeneration(defaults: defaults)
+            guard ActiveVerifiedSinkEpochStore.activate(contextId: contextId, epoch: epoch, defaults: defaults) != nil,
+                  activateSinks(contextId, epoch) else { return .failed }
+            return .activated
+        }
+    }
+
+    /// The context the repair names. Widget and Live Activity writes are admitted only under a token naming the verified
+    /// projection's context (`WidgetSnapshot.publish`, `LiveActivityDriveAdmission`), so the projection's comes first: a
+    /// token that matches it is kept even while the day's snapshot has moved on, and the widgets it feeds keep working.
+    /// The snapshot's context stands in only while there is no projection yet, and only for a missing token (an existing
+    /// one waits for the projection); when one arrives naming another context, the projection observer repairs again
+    /// (`repairVerifiedSinkIfContextMoved`).
+    ///
+    /// A projection from another database is not the current one: a database restored in place keeps the old projection in
+    /// memory until the pipeline publishes for the new one, and keeping its token would leave the old database's values on
+    /// the widgets and admit its Recovery onto the Lock Screen. The snapshot's context is named then.
+    static func verifiedSinkContextId(projection: String?, snapshot: String?) -> String? {
+        if isFromAnotherDatabase(projection, snapshot: snapshot) { return snapshot }
+        return projection ?? snapshot
+    }
+
+    /// Whether the projection's context names another database than the snapshot's. The database instance is the first
+    /// field of `TodayHealthSnapshotContext.identifier`, which the projection's context is built from. An id without that
+    /// field carries no evidence of another database, so it never counts as one.
+    static func isFromAnotherDatabase(_ projection: String?, snapshot: String?) -> Bool {
+        guard let projection, let snapshot, projection.contains("|"), snapshot.contains("|") else { return false }
+        return projection.prefix { $0 != "|" } != snapshot.prefix { $0 != "|" }
+    }
+
+    /// Run the repair for this model. Call only while `sourceTransitionFence` owns source mutation.
+    private func bootstrapVerifiedSinkIfNeededUnfenced() async {
+        guard let store = await repo.storeHandle(), let defaults = try? sinkDefaults() else { return }
+        let hasPendingTransition: Bool
+        do {
+            hasPendingTransition = try await store.latestSourceTransitionRecovery() != nil
+        } catch {
+            return   // the journal could not be read: never act on a guess
+        }
+        // `currentVerifiedSinkContextIdForActivation` is the snapshot's context, or the projection's when there is none.
+        let projectionContextId = repo.verifiedHealthProjection?.contextId
+        let snapshotContextId = repo.currentVerifiedSinkContextIdForActivation
+        let expectedContextId = Self.verifiedSinkContextId(projection: projectionContextId, snapshot: snapshotContextId)
+        let token = ActiveVerifiedSinkEpochStore.activeToken(defaults: defaults)
+        let tokenState = token == nil ? "missing" : (token?.contextId == expectedContextId ? "match" : "mismatch")
+        let outcome = Self.bootstrapVerifiedSink(
+            repositoryLoaded: repo.loaded && !repo.verifiedExternalSurfaceFenced,
+            projectionContextId: projectionContextId,
+            snapshotContextId: snapshotContextId,
+            hasPendingTransition: hasPendingTransition,
+            defaults: defaults,
+            activateSinks: { [verifiedSinkLifecycle] contextId, epoch in
+                verifiedSinkLifecycle?.activate(contextId: contextId, epoch: epoch) ?? false
+            })
+        NSLog("NOOP verified sink: token: %@, %@", tokenState, outcome.rawValue)
+        LiveActivityTrace.shared.record(
+            "sink-bootstrap result=\(outcome.rawValue.replacingOccurrences(of: " ", with: "-")) token=\(tokenState)")
+        guard outcome == .activated else { return }
+        // The widget was cleared with the old epoch: publish the current projection under the new one now, rather than
+        // waiting for a new generation or the next foreground.
+        await signalExternalPublication()
+        _ = await WidgetSnapshot.publish(from: self)
+    }
+
     private func makeHistoricalPipelineRuntime() -> HistoricalPipelineRuntime {
         let postAnalysisSnapshotBuilder = RepositoryPostAnalysisSnapshotBuilder.self
         let classifyError: @Sendable (any Error) -> PipelineFailureClassification =
@@ -1684,7 +1811,18 @@ final class AppModel: ObservableObject {
     func recoverPendingSourceTransition() async {
         await sourceTransitionFence.run { @MainActor [weak self] in
             await self?.recoverDurableSourceTransitionIfNeededUnfenced()
+            // A transition that just completed has activated the sink itself; one still pending keeps it untouched.
+            await self?.bootstrapVerifiedSinkIfNeededUnfenced()
         }
+    }
+
+    /// The verified projection now names a context the App Group token does not (a lineage or database change outside a
+    /// source transition). Run the same repair, under the same fence.
+    func repairVerifiedSinkIfContextMoved(to contextId: String?) async {
+        guard let contextId,
+              let defaults = try? sinkDefaults(),
+              ActiveVerifiedSinkEpochStore.activeToken(defaults: defaults)?.contextId != contextId else { return }
+        await recoverPendingSourceTransition()
     }
 
     /// A prepared record aborts safely. Postcommit stages load the exact commit payload captured in the same
