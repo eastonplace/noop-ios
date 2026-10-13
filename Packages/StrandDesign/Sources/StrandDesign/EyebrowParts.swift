@@ -26,8 +26,9 @@ public struct EyebrowPulseIcon: View {
 
     @State private var breathing = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.strandRendersStatically) private var rendersStatically
 
-    private var isPulsing: Bool { pulses && !reduceMotion }
+    private var isPulsing: Bool { pulses && !reduceMotion && !rendersStatically }
 
     public var body: some View {
         Image(systemName: systemName)
@@ -63,6 +64,13 @@ public struct EyebrowPulseIcon: View {
             withAnimation(.easeOut(duration: duration).repeatForever(autoreverses: false)) { breathing = true }
         }
     }
+}
+
+public extension EnvironmentValues {
+    /// Set by a host that draws a snapshot of the view rather than running it: a Live Activity, whose Lock Screen card
+    /// and Dynamic Island the system renders in the widget extension against a watchdog. Nothing there starts a task or a
+    /// repeating animation (the system would not play it anyway), so the render is done when the layout is.
+    @Entry var strandRendersStatically: Bool = false
 }
 
 /// The compact footer / header chip: an optional symbol, a title, and a chevron on a quiet capsule ("2H ›",

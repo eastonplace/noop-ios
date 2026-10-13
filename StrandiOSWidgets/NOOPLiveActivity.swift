@@ -39,6 +39,7 @@ struct NOOPLiveActivity: Widget {
             .activityBackgroundTint(.black)
             .activitySystemActionForegroundColor(.white)
             .widgetURL(context.state.isWorkout ? WorkoutDeepLink.activeRun.url : nil)
+            .environment(\.strandRendersStatically, true)
         } dynamicIsland: { context in
             DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
@@ -49,6 +50,7 @@ struct NOOPLiveActivity: Widget {
                             pausedAt: context.state.pausedAt,
                             frozenAt: context.state.frozenAt,
                             isEnding: context.state.finishing)
+                        .environment(\.strandRendersStatically, true)
                     } else {
                         NOOPDynamicIslandHeartRateView(bpm: context.state.bpm, maxHR: liveMaxHR(context.state))
                     }
@@ -121,10 +123,10 @@ struct NOOPLiveActivity: Widget {
     }
 }
 
-/// The wearer's maximum heart rate: the one the app put in the activity, else the one it shared with the widgets, else nil
-/// (the fixed 60 / 110 split).
+/// The wearer's maximum heart rate, as the app put it in the activity (in both modes), else nil (the fixed 60 / 110 split).
+/// Read from the state only: the render does no App Group read, it is asked for once per region on every update.
 private func liveMaxHR(_ state: NOOPActivityAttributes.ContentState) -> Double? {
-    state.maxHR ?? WidgetPersonalZones.hrMax()
+    state.maxHR
 }
 
 private func liveThresholds(_ state: NOOPActivityAttributes.ContentState) -> HRZoneStyle.Thresholds {

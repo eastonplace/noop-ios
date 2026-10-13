@@ -317,7 +317,8 @@ final class LiveActivityController {
             calories: workoutState?.calories,
             hrTrace: workoutState?.hrTrace,
             zoneSeconds: workoutState?.zoneSeconds,
-            maxHR: workoutState?.maxHR,
+            // The extension reads nothing at render time: the wearer's maximum rides in the state in both modes.
+            maxHR: workoutState?.maxHR ?? WidgetPersonalZones.hrMax(),
             isPaused: workoutState.map { $0.pausedAt != nil },
             pausedAt: workoutState?.pausedAt,
             isFinishing: workoutState.flatMap { $0.isFinishing ? true : nil },
