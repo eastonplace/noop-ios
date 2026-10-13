@@ -15,6 +15,8 @@ struct PostAnalysisTodaySnapshotInput: Sendable {
     let importedSourceIds: [String]
     let computedSourceIds: [String]
     let appleSourceId: String
+    /// DL-11: `Repository.hasStoredRMSSD(in:)`, decided over the whole store rather than these read windows.
+    let hasRMSSDSource: Bool
     let sleepMode: SleepPerformanceV2Prefs.Mode
     let analysisGeneration: Int64
     let rawFrontierTs: Int?
@@ -62,7 +64,9 @@ enum RepositoryPostAnalysisSnapshotBuilder {
             computed: computedMetrics,
             userEditedDays: editedWakeDays
         )
-        let allDaily = Repository.mergeDaily(imported: importedAndComputed, computed: appleMetrics)
+        let allDaily = Repository.mergeDaily(
+            imported: importedAndComputed,
+            computed: Repository.appleFallbackDaily(appleMetrics, hasRMSSDSource: input.hasRMSSDSource))
         let base = allDaily.last(where: { $0.day == displayDay.key })
             ?? emptyDailyMetric(day: displayDay.key)
 

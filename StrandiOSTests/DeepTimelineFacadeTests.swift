@@ -3,7 +3,7 @@ import Foundation
 import WhoopStore
 import WhoopProtocol
 import StrandDesign
-@testable import Strand
+@testable import NOOP
 
 /// Deep Timeline read facade (#575): the adaptive bucket-vs-raw decision that keeps the chart from ever
 /// drawing ~86k points, and the live read path that preserves the #156 PPG COALESCE so a PPG-only WHOOP 5
@@ -169,5 +169,29 @@ final class DeepTimelineFacadeTests: XCTestCase {
         XCTAssertFalse(day.isRaw)
         XCTAssertGreaterThan(day.points.count, 0, "PPG-only day-scale read must not be empty")
         XCTAssertEqual(day.points.first?.value ?? 0, 55, accuracy: 0.001)
+    }
+
+    /// UIP-1: a pan or pinch cancels the in-flight read. A cancelled read must stop before it queues the
+    /// remaining per-source store reads, instead of finishing all of them for a result nobody shows.
+    @MainActor
+    func testCancelledReadStopsBeforeTheStoreWork() async throws {
+        let store = try await WhoopStore.inMemory()
+        let dev = "my-whoop"
+        try await store.upsertDevice(id: dev, mac: nil, name: "WHOOP")
+        let base = 1_780_000_000
+        try await store.insert(Streams(hr: (0..<120).map { HRSample(ts: base + $0, bpm: 70) }), deviceId: dev)
+        let repo = Repository(deviceId: dev)
+        repo.setStoreForTesting(store)
+        _ = await repo.storeHandle()
+
+        let read = Task { @MainActor in
+            withUnsafeCurrentTask { $0?.cancel() }
+            return await repo.timelineSeries(metric: .hr, from: base, to: base + 120, targetPoints: 600)
+        }
+        let cancelled = await read.value
+        XCTAssertTrue(cancelled.points.isEmpty, "a cancelled read returns nothing rather than finishing the work")
+
+        let settled = await repo.timelineSeries(metric: .hr, from: base, to: base + 120, targetPoints: 600)
+        XCTAssertEqual(settled.points.count, 120)
     }
 }

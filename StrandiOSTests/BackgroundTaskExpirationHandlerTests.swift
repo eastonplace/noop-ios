@@ -21,15 +21,40 @@ final class BackgroundTaskExpirationHandlerTests: XCTestCase {
             let handler = HistoricalScoringBackgroundTaskRegistrar.makeExpirationHandler(
                 cancelWorker: { log.append("cancelWorker") },
                 rearm: { log.append("rearm") },
-                cancelDurableWork: { log.append("cancelDurableWork") },
-                complete: { success in
-                    log.append("complete:\(success)")
+                cancelDurableWork: {
+                    log.append("cancelDurableWork")
                     finished.resume()
-                }
+                },
+                complete: { success in log.append("complete:\(success)") }
             )
             DispatchQueue.global().async { handler() }
         }
-        XCTAssertEqual(log.values, ["cancelWorker", "rearm", "cancelDurableWork", "complete:false"])
+        // CC-2: completion is reported before the durable cleanup starts, never after it.
+        XCTAssertEqual(log.values, ["cancelWorker", "rearm", "complete:false", "cancelDurableWork"])
+    }
+
+    /// CC-2 / CORE-08: quiesce can wait indefinitely behind a held fence or a long analysis. The handler must
+    /// still report completion before it returns, or iOS terminates the app for overrunning an expired task.
+    func testScoringExpirationCompletesBeforeReturningEvenWhenQuiesceNeverReturns() async {
+        let log = ExpirationEventLog()
+        let handler = HistoricalScoringBackgroundTaskRegistrar.makeExpirationHandler(
+            cancelWorker: { log.append("cancelWorker") },
+            rearm: { log.append("rearm") },
+            cancelDurableWork: {
+                log.append("cancelDurableWork")
+                try? await Task.sleep(nanoseconds: 3_600_000_000_000)
+            },
+            complete: { success in log.append("complete:\(success)") }
+        )
+        await withCheckedContinuation { (returned: CheckedContinuation<Void, Never>) in
+            DispatchQueue.global().async {
+                handler()
+                log.append("handler-returned")
+                returned.resume()
+            }
+        }
+        XCTAssertEqual(log.values.filter { $0 != "cancelDurableWork" },
+                       ["cancelWorker", "rearm", "complete:false", "handler-returned"])
     }
 
     func testHistoricalSyncExpirationRunsOffMainAndRearmsBeforeCompleting() async {

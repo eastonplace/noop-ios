@@ -95,7 +95,7 @@ struct NOOPWidgetView: View {
 }
 
 struct NOOPWidget: Widget {
-    let kind = "NOOPWidget"
+    let kind = WidgetKinds.main
 
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: NOOPProvider()) { entry in
@@ -112,7 +112,7 @@ struct NOOPWidget: Widget {
 
 /// Separate selectable Lock Screen circle. Recovery remains available in `NOOPWidget`.
 struct NOOPStrainAccessoryWidget: Widget {
-    let kind = "NOOPStrainAccessoryWidget"
+    let kind = WidgetKinds.strainAccessory
 
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: NOOPProvider()) { entry in

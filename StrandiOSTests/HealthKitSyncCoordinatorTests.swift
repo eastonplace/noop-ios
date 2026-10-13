@@ -1,4 +1,5 @@
 import HealthKit
+import UIKit
 import XCTest
 import WhoopStore
 @testable import NOOP
@@ -255,16 +256,19 @@ final class HealthKitSyncCoordinatorTests: XCTestCase {
         XCTAssertFalse(retired)
     }
     @MainActor
+    /// Tests drive retries by hand, so the default policy has no backoff; retry tests pass their own.
     private func makeScoring(
         persistence: PendingWindowMemoryStore,
-        notificationCenter: NotificationCenter = NotificationCenter()
+        notificationCenter: NotificationCenter = NotificationCenter(),
+        retryPolicy: HealthKitScoringRetryPolicy = HealthKitScoringRetryPolicy(maximumAttempts: 3, backoff: [.zero])
     ) -> (HealthKitScoringCoordinator, RepositoryPublicationBarrier) {
         let barrier = RepositoryPublicationBarrier()
         return (
             HealthKitScoringCoordinator(
                 persistence: persistence,
                 notificationCenter: notificationCenter,
-                publicationBarrier: barrier),
+                publicationBarrier: barrier,
+                retryPolicy: retryPolicy),
             barrier)
     }
 
@@ -388,7 +392,7 @@ final class HealthKitSyncCoordinatorTests: XCTestCase {
         XCTAssertEqual(scoringPersistence.value, a.union(b))
         XCTAssertEqual(recorder.windows, [a, a.union(b)],
                        "each pre-import journal edge is durable; scoring consumes only the final union")
-        XCTAssertTrue(barrier.blocksRefreshes)
+        XCTAssertFalse(barrier.blocksRefreshes, "the fence opens with the import run, not with the journal")
 
         var scored: [HealthKitSyncWindow] = []
         await scoring.runAndWait(operation: { window in
@@ -440,26 +444,116 @@ final class HealthKitSyncCoordinatorTests: XCTestCase {
         await observed.runAndWait(operation: { _ in true })
     }
 
+    /// CC-1 + CORE-05 (D4): a restored journal no longer closes the fence from init, and a failing receipt
+    /// releases it when the run ends. Before the fix, `.initialLoad` was deferred for the whole session.
     @MainActor
-    func testRestoredScoringJournalClosesPublicationBeforeDrain() async throws {
+    func testRestoredJournalAndFailingReceiptDoNotBlockInitialLoad() async throws {
         let window = HealthKitSyncWindow(
             start: Date(timeIntervalSince1970: 100),
             end: Date(timeIntervalSince1970: 200))
         let persistence = PendingWindowMemoryStore()
         persistence.value = window
-        let (scoring, barrier) = makeScoring(persistence: persistence)
+        let barrier = RepositoryPublicationBarrier.shared
+        let scoring = HealthKitScoringCoordinator(
+            persistence: persistence,
+            notificationCenter: NotificationCenter(),
+            publicationBarrier: barrier,
+            retryPolicy: HealthKitScoringRetryPolicy(maximumAttempts: 3, backoff: [.zero]))
 
         XCTAssertEqual(scoring.pending, window)
-        XCTAssertTrue(barrier.blocksRefreshes,
-                      "launch must fence Repository before AppModel schedules its initial refresh")
+        XCTAssertFalse(barrier.blocksRefreshes, "a restored journal must not fence launch's first refresh")
 
-        await scoring.runAndWait(operation: { candidate in
-            XCTAssertEqual(candidate, window)
+        await scoring.runAndWait(operation: { _ in false })
+        XCTAssertEqual(scoring.pending, window, "the journal survives for a bounded retry")
+        XCTAssertFalse(barrier.blocksRefreshes)
+
+        let store = try await WhoopStore.inMemory()
+        let repository = Repository(deviceId: Repository.whoopSource)
+        repository.setStoreForTesting(store)
+        let loaded = await repository.refresh(.initialLoad)
+        XCTAssertTrue(loaded, "initial load runs instead of parking behind a failed scoring journal")
+    }
+
+    @MainActor
+    func testRepeatedScoringFailureParksAfterThreeAttemptsUntilForeground() async throws {
+        let persistence = PendingWindowMemoryStore()
+        let notificationCenter = NotificationCenter()
+        let (scoring, barrier) = makeScoring(persistence: persistence, notificationCenter: notificationCenter)
+        let window = HealthKitSyncWindow(
+            start: Date(timeIntervalSince1970: 100),
+            end: Date(timeIntervalSince1970: 200))
+        try await scoring.offer(window)
+
+        var attempts = 0
+        for _ in 0..<4 {
+            await scoring.runAndWait(operation: { _ in
+                attempts += 1
+                return false
+            })
+            XCTAssertFalse(barrier.blocksRefreshes, "every failed run releases the fence")
+        }
+        XCTAssertEqual(attempts, 3, "the fourth trigger finds the journal parked")
+        XCTAssertTrue(scoring.isParked)
+        XCTAssertEqual(scoring.pending, window)
+
+        notificationCenter.post(name: UIApplication.willEnterForegroundNotification, object: nil)
+        for _ in 0..<100 where scoring.isParked { await Task.yield() }
+        XCTAssertFalse(scoring.isParked, "the next foreground retries a parked journal")
+        await scoring.runAndWait(operation: { _ in
+            attempts += 1
             return true
         })
+        XCTAssertEqual(attempts, 4)
         XCTAssertNil(scoring.pending)
-        XCTAssertNil(persistence.value)
+        XCTAssertEqual(scoring.consecutiveFailures, 0)
+    }
+
+    @MainActor
+    func testBackoffDefersTheNextTriggerAndANewImportRetriesAtOnce() async throws {
+        let persistence = PendingWindowMemoryStore()
+        let (scoring, barrier) = makeScoring(
+            persistence: persistence,
+            retryPolicy: HealthKitScoringRetryPolicy(maximumAttempts: 3, backoff: [.seconds(600)]))
+        let first = HealthKitSyncWindow(start: Date(timeIntervalSince1970: 100), end: Date(timeIntervalSince1970: 200))
+        let second = HealthKitSyncWindow(start: Date(timeIntervalSince1970: 300), end: Date(timeIntervalSince1970: 400))
+        try await scoring.offer(first)
+
+        var analyzed: [HealthKitSyncWindow] = []
+        await scoring.runAndWait(operation: { analyzed.append($0); return false })
+        await scoring.runAndWait(operation: { analyzed.append($0); return true })
+        XCTAssertEqual(analyzed, [first], "a trigger inside the backoff window does not re-run the analysis")
         XCTAssertFalse(barrier.blocksRefreshes)
+
+        try await scoring.offer(second)
+        await scoring.runAndWait(operation: { analyzed.append($0); return true })
+        XCTAssertEqual(analyzed, [first, first.union(second)], "new import data retries at once")
+        XCTAssertNil(scoring.pending)
+    }
+
+    @MainActor
+    func testFailedScoringSchedulesOneAutomaticRetryAfterBackoff() async throws {
+        let notificationCenter = NotificationCenter()
+        let (scoring, _) = makeScoring(
+            persistence: PendingWindowMemoryStore(),
+            notificationCenter: notificationCenter,
+            retryPolicy: HealthKitScoringRetryPolicy(maximumAttempts: 3, backoff: [.milliseconds(20)]))
+        let window = HealthKitSyncWindow(start: Date(timeIntervalSince1970: 100), end: Date(timeIntervalSince1970: 200))
+        try await scoring.offer(window)
+        let recorder = CommittedWindowRecorder()
+        let token = notificationCenter.addObserver(
+            forName: HealthKitSyncPublication.name,
+            object: scoring,
+            queue: nil
+        ) { notification in
+            if let window = HealthKitSyncPublication.window(from: notification) { recorder.record(window) }
+        }
+        defer { notificationCenter.removeObserver(token) }
+
+        await scoring.runAndWait(operation: { _ in false })
+        for _ in 0..<500 where recorder.windows.isEmpty {
+            try await Task.sleep(nanoseconds: 2_000_000)
+        }
+        XCTAssertEqual(recorder.windows, [window], "the app's scoring drain observes the retry edge")
     }
 
     @MainActor
@@ -541,7 +635,7 @@ final class HealthKitSyncCoordinatorTests: XCTestCase {
         XCTAssertEqual(scoring.pending, window,
                        "a failure after local commit/write-back must not strand Recovery scoring")
         XCTAssertEqual(scoringPersistence.value, window)
-        XCTAssertTrue(barrier.blocksRefreshes)
+        XCTAssertFalse(barrier.blocksRefreshes)
 
         var scored: [HealthKitSyncWindow] = []
         await scoring.runAndWait(operation: { candidate in
@@ -565,7 +659,7 @@ final class HealthKitSyncCoordinatorTests: XCTestCase {
         XCTAssertNil(importPersistence.value)
         XCTAssertEqual(scoring.pending, window,
                        "the successful replay creates a fresh scoring edge after the prior one was consumed")
-        XCTAssertTrue(barrier.blocksRefreshes)
+        XCTAssertFalse(barrier.blocksRefreshes)
         await scoring.runAndWait(operation: { _ in true })
     }
 
@@ -625,12 +719,12 @@ final class HealthKitSyncCoordinatorTests: XCTestCase {
         XCTAssertEqual(operationCount, 1, "the idempotent import operation runs after handoff recovery")
         XCTAssertNil(importPersistence.value)
         XCTAssertEqual(scoring.pending, window)
-        XCTAssertTrue(barrier.blocksRefreshes)
+        XCTAssertFalse(barrier.blocksRefreshes)
         await scoring.runAndWait(operation: { _ in true })
     }
 
     @MainActor
-    func testFailedScoringRetainsJournalAndPublicationFenceUntilLaterDrain() async throws {
+    func testFailedReceiptRetainsJournalButReleasesFenceAfterRun() async throws {
         let persistence = PendingWindowMemoryStore()
         let (scoring, barrier) = makeScoring(persistence: persistence)
         let window = HealthKitSyncWindow(
@@ -646,7 +740,7 @@ final class HealthKitSyncCoordinatorTests: XCTestCase {
         XCTAssertEqual(attempts, 1)
         XCTAssertEqual(scoring.pending, window)
         XCTAssertEqual(persistence.value, window)
-        XCTAssertTrue(barrier.blocksRefreshes)
+        XCTAssertFalse(barrier.blocksRefreshes, "a failed receipt must not keep every typed refresh deferred")
 
         await scoring.runAndWait(operation: { _ in
             attempts += 1
@@ -659,7 +753,7 @@ final class HealthKitSyncCoordinatorTests: XCTestCase {
     }
 
     @MainActor
-    func testFailedRepositoryPublicationRetainsJournalAndFenceForReplay() async throws {
+    func testFailedRepositoryPublicationRetainsJournalForReplayWithoutTheFence() async throws {
         let persistence = PendingWindowMemoryStore()
         let (scoring, barrier) = makeScoring(persistence: persistence)
         let window = HealthKitSyncWindow(
@@ -678,7 +772,7 @@ final class HealthKitSyncCoordinatorTests: XCTestCase {
         XCTAssertEqual(publications, 1)
         XCTAssertEqual(scoring.pending, window)
         XCTAssertEqual(persistence.value, window)
-        XCTAssertTrue(barrier.blocksRefreshes)
+        XCTAssertFalse(barrier.blocksRefreshes)
 
         await scoring.runAndWait(
             analyze: { _ in true },

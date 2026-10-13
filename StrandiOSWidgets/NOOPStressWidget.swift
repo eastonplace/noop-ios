@@ -4,7 +4,7 @@ import StrandDesign
 
 /// Reuses the verified app snapshot; never opens the health database in the extension.
 struct NOOPStressWidget: Widget {
-    let kind = "NOOPStressWidget"
+    let kind = WidgetKinds.stress
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: NOOPStressProvider()) { entry in
             NOOPStressWidgetView(snapshot: entry.snapshot, date: entry.date)

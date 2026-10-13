@@ -175,7 +175,43 @@ final class HistoricalScoringBackgroundTaskRegistrarTests: XCTestCase {
         XCTAssertEqual(order, ["health-import-locked", "health-scoring", "historical"])
     }
 
-    func testCancelledBackgroundDrainKeepsHealthKitJournalAndFenceAndSkipsHistorical() async {
+    /// Review finding (parked HealthKit journal starves BG): a parked or backing-off scoring journal returns
+    /// false at once, and the registrar returned before the strap pipeline on every BG wake.
+    func testAParkedHealthScoringJournalStillRunsTheStrapPipelineAndRetries() async {
+        let completed = HistoricalPipelineRuntimeResult(
+            admittedReceipts: 1,
+            completedWork: 1,
+            deferredWork: 0,
+            pendingWork: 0,
+            alreadyRunning: false
+        )
+        var order: [String] = []
+
+        let result = await HistoricalScoringBackgroundTaskRegistrar.runBackgroundWork(
+            drainHealthImport: {
+                order.append("health-import")
+                return true
+            },
+            drainHealthScoring: {
+                order.append("health-scoring-parked")
+                return false
+            },
+            runHistorical: {
+                order.append("historical")
+                return completed
+            }
+        )
+
+        XCTAssertEqual(result, completed)
+        XCTAssertEqual(order, ["health-import", "health-scoring-parked", "historical"])
+        XCTAssertEqual(
+            HistoricalScoringBackgroundTaskRegistrar.completionDisposition(
+                for: result, healthImportPending: false, healthScoringPending: true),
+            .retry,
+            "the parked journal still keeps the request armed")
+    }
+
+    func testCancelledBackgroundDrainKeepsHealthKitJournalReleasesFenceAndSkipsHistorical() async {
         let window = HealthKitSyncWindow(
             start: Date(timeIntervalSince1970: 300),
             end: Date(timeIntervalSince1970: 400)
@@ -231,7 +267,7 @@ final class HistoricalScoringBackgroundTaskRegistrarTests: XCTestCase {
         XCTAssertNil(result)
         XCTAssertFalse(historicalRan)
         XCTAssertEqual(persistence.value, window)
-        XCTAssertTrue(barrier.blocksRefreshes)
+        XCTAssertFalse(barrier.blocksRefreshes, "a cancelled run releases the fence (CC-1)")
     }
 
     func testCancelledBackgroundDrainCannotPublishWhenAnalysisFinishesAfterCancellation() async {
@@ -284,7 +320,7 @@ final class HistoricalScoringBackgroundTaskRegistrarTests: XCTestCase {
         XCTAssertFalse(publicationRan)
         XCTAssertFalse(historicalRan)
         XCTAssertEqual(persistence.value, window)
-        XCTAssertTrue(barrier.blocksRefreshes)
+        XCTAssertFalse(barrier.blocksRefreshes, "a cancelled run releases the fence (CC-1)")
     }
 }
 #endif

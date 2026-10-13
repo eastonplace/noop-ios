@@ -119,6 +119,9 @@ enum HistoricalScoringBackgroundTaskRegistrar {
                 cancelWorker: { worker.cancel() },
                 rearm: { submitRequest(identifier: taskIdentifier) },
                 cancelDurableWork: {
+                    // Forced analysis runs in the coordinator's own task and ignores caller cancellation, so
+                    // expiry stops it explicitly; the engine then stops between days. Quiesce follows.
+                    IntelligenceAnalysisCoordinator.shared.cancelRunningWork()
                     if let cancelWork = Self.cancelWork {
                         await cancelWork()
                     }
@@ -131,6 +134,11 @@ enum HistoricalScoringBackgroundTaskRegistrar {
 
     /// Built `nonisolated` and `@Sendable` so it is safe on whichever queue iOS expires the task from;
     /// the only main-actor work (durable lease cleanup) hops explicitly.
+    ///
+    /// CC-2 / CORE-08: completion is reported synchronously, before the handler returns, like the sibling
+    /// registrars. Quiesce waits for every in-flight drain and can take arbitrarily long; reporting completion
+    /// after it made iOS terminate the app for overrunning an expired task. Durable leases expire and recover
+    /// by themselves, so the cleanup is fire-and-forget.
     nonisolated static func makeExpirationHandler(
         cancelWorker: @escaping @Sendable () -> Void,
         rearm: @escaping @Sendable () -> Void,
@@ -139,13 +147,12 @@ enum HistoricalScoringBackgroundTaskRegistrar {
     ) -> @Sendable () -> Void {
         {
             cancelWorker()
-            // Submit synchronously before reporting completion. iOS may suspend the process as soon as
-            // the task is completed; the durable lease cleanup below is best-effort, but the next wake
-            // must already be armed even if this process is reclaimed first.
+            // Submit before reporting completion. iOS may suspend the process as soon as the task is
+            // completed, so the next wake must already be armed.
             rearm()
+            complete(false)
             Task { @MainActor in
                 await cancelDurableWork()
-                complete(false)
             }
         }
     }
@@ -193,7 +200,10 @@ enum HistoricalScoringBackgroundTaskRegistrar {
         // database remains locked; completion policy keeps the same request armed for another import pass.
         _ = await drainHealthImport()
         guard !Task.isCancelled else { return nil }
-        guard await drainHealthScoring() else { return nil }
+        // The strap pipeline doesn't depend on HealthKit scoring succeeding. A parked or backing-off scoring
+        // journal returns false at once, and gating on it skipped strap scoring on every BG wake until the
+        // next foreground. A pending journal still makes the completion policy retry.
+        _ = await drainHealthScoring()
         guard !Task.isCancelled else { return nil }
         return await runHistorical()
     }

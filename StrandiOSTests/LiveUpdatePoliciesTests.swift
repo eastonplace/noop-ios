@@ -400,7 +400,10 @@ final class LiveUpdatePoliciesTests: XCTestCase {
     }
 
     private func written(_ write: LiveActivityWorkoutStateCache.Write) throws -> WorkoutLiveActivityState {
-        guard case .state(let state) = write else { throw XCTSkip("expected a workout state, got \(write)") }
+        // ORG-8: a wrong write is a failure, not a skip.
+        guard case .state(let state) = write else {
+            return try XCTUnwrap(nil as WorkoutLiveActivityState?, "expected a workout state, got \(write)")
+        }
         return state
     }
 

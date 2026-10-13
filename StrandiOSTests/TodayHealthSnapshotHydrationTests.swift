@@ -94,8 +94,9 @@ final class TodayHealthSnapshotHydrationTests: XCTestCase {
             readWindows: [.init(fromDay: "2026-09-27", throughDay: "2026-09-28",
                                 sleepFromTs: 1_790_478_000, sleepThroughTs: 1_790_647_200)],
             importedSourceIds: [Repository.whoopSource], computedSourceIds: [source],
-            appleSourceId: Repository.appleHealthSource, sleepMode: .off,
-            analysisGeneration: 42, rawFrontierTs: 1_790_604_000,
+            appleSourceId: Repository.appleHealthSource,
+            hasRMSSDSource: try await store.hasDailyHrv(deviceIds: [Repository.whoopSource, source]),
+            sleepMode: .off, analysisGeneration: 42, rawFrontierTs: 1_790_604_000,
             recordedTimeZoneIdentifier: "America/New_York", now: now))
     }
 
@@ -367,7 +368,7 @@ final class TodayHealthSnapshotHydrationTests: XCTestCase {
             algorithmBundleVersion: snapshotContext.algorithmBundleVersion
         )
         let publicationBarrier = RepositoryPublicationBarrier()
-        await publicationBarrier.acquireExclusive()
+        let healthKitOwnership = try await publicationBarrier.acquireExclusive()
         var completed = false
         let commitTask = Task { @MainActor in
             defer { completed = true }
@@ -393,7 +394,7 @@ final class TodayHealthSnapshotHydrationTests: XCTestCase {
             writeToken: oldOwnership.writeToken
         ), "waiting historical work must not supersede HealthKit's Repository refresh generation")
 
-        publicationBarrier.releaseExclusive()
+        publicationBarrier.releaseExclusive(healthKitOwnership)
         let receipt = try await commitTask.value
 
         XCTAssertEqual(receipt.projection.metrics[.recovery]?.value, 91)

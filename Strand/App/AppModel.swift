@@ -1970,6 +1970,12 @@ final class AppModel: ObservableObject {
 
         await intelligence.enqueuePendingTimestampHealMaintenance()
         let result = await historicalPipelineRuntime.signal()
+        // CORE-01 (#980): the pipeline's commitOutbox step only enqueues widget, Live Activity and HealthKit
+        // rows. A strap backfill usually finishes while the app is backgrounded, where no scene event drains
+        // them, so a pass that committed work wakes the outbox here, before broad maintenance can delay it.
+        if result.committedExternalPublicationWork {
+            await signalExternalPublication()
+        }
         // Broad repair is intentionally separate from the exact receipt drain. It can only acquire work
         // after this call has had a chance to admit/finish current-day work, and its own idle gate enforces
         // Today-first-paint plus background/no-import/no-workout conditions.
@@ -2021,23 +2027,6 @@ final class AppModel: ObservableObject {
     /// whitelist re-arm and drains immediately; structural rows remain blocked.
     func resumeEnvironmentalBlockedHistoricalWorkAndDrain() async {
         _ = await signalHistoricalPipeline()
-    }
-
-    /// One post-analysis refresh publishes both committed raw history and its computed rows. It runs only
-    /// after receipt acknowledgement or the pre-existing heal-only path, so it never replaces a visible
-    /// dashboard generation with a half-analyzed result.
-    private func publishAfterCommittedHistoricalAnalysis() async {
-        _ = await repo.refresh(.currentDay)
-        await refreshV5Signals()
-        #if os(iOS)
-        // #980: a strap backfill routinely completes while the app is BACKGROUNDED (it runs as a
-        // bluetooth-central, so it stays alive to receive the offload). The only other widget-publish
-        // sites are gated on scenePhase == .active, so a background sync would rescore today's data but
-        // never rewrite the shared App-Group snapshot or call WidgetCenter.reloadAllTimelines — the
-        // widget kept showing yesterday's numbers. Publishing here, on the real "new data landed"
-        // signal, pushes the fresh snapshot to the home-screen widget without needing a foreground.
-        _ = await WidgetSnapshot.publish(from: self)
-        #endif
     }
 
     /// Direct HR and R-R are independent live streams. Keeping their sinks separate prevents one R-R

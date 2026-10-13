@@ -1,6 +1,8 @@
 #if os(iOS)
 import Foundation
 import HealthKit
+import NoopPhase34Core
+import UIKit
 import WhoopStore
 
 struct HealthKitSyncWindow: Codable, Equatable, Sendable {
@@ -187,6 +189,24 @@ final class HealthKitPendingWindowDefaultsStore: HealthKitPendingWindowPersistin
     }
 }
 
+/// Bounded retry for a failed HealthKit scoring run (CC-1). A failure keeps the durable journal but never the
+/// Repository fence. Each failure waits out its backoff before the next automatic attempt; after
+/// `maximumAttempts` consecutive failures the journal parks until the next foreground or HealthKit import.
+struct HealthKitScoringRetryPolicy: Equatable, Sendable {
+    var maximumAttempts: Int
+    /// Wait after the first, second, … failure. The last entry repeats. `.zero` means no automatic retry:
+    /// the next trigger runs at once.
+    var backoff: [Duration]
+
+    static let standard = Self(maximumAttempts: 3, backoff: [.seconds(30), .seconds(120)])
+
+    func delay(afterFailure failure: Int) -> Duration {
+        guard let last = backoff.last else { return .zero }
+        let index = failure - 1
+        return backoff.indices.contains(index) ? backoff[index] : last
+    }
+}
+
 /// Durable handoff from HealthKit ingestion to IntelligenceEngine scoring. The import coordinator writes this
 /// journal before it clears its own pending window. If iOS suspends or kills the process before the app-level
 /// scoring task runs, the next app mount drains the same union instead of waiting for the 15-minute cadence.
@@ -194,11 +214,11 @@ final class HealthKitPendingWindowDefaultsStore: HealthKitPendingWindowPersistin
 /// This coordinator owns two related fences:
 /// 1. an import/scoring lease, so a newer HealthKit writer cannot commit between analysis and publication;
 /// 2. the shared Repository publication barrier, so an unrelated BLE/foreground refresh cannot expose fresh
-///    HRV/RHR before the matching Recovery generation is durable.
+///    HRV/RHR in the middle of an import or a scoring generation.
 ///
-/// The Repository barrier is acquired before any HealthKit import operation and remains closed while a durable
-/// scoring journal exists—even if the process is suspended or scoring fails. It opens only after the journal is
-/// successfully cleared following coherent Repository/widget publication.
+/// The Repository barrier is held only while an import or scoring run is active, and every run releases it
+/// on exit (CC-1, D4). A failed run keeps the durable journal for a bounded retry, never the fence, and a
+/// relaunch never closes the fence from `init`. Both waits honour Task cancellation (CC-3).
 @MainActor
 final class HealthKitScoringCoordinator: NSObject {
     typealias Operation = @MainActor (HealthKitSyncWindow) async -> Bool
@@ -208,26 +228,31 @@ final class HealthKitScoringCoordinator: NSObject {
     static let shared = HealthKitScoringCoordinator(
         persistence: HealthKitPendingWindowDefaultsStore(key: "healthKit.pendingScoringWindow.v1"))
 
-    private enum PipelineLease: Equatable {
+    private enum PipelineLease: Equatable, Sendable {
         case importing
         case scoring
     }
 
-    private struct LeaseWaiter {
-        let kind: PipelineLease
-        let continuation: CheckedContinuation<Void, Never>
+    private enum RunOutcome {
+        case cleared
+        case cancelled
+        case failed(String)
     }
 
     private let persistence: any HealthKitPendingWindowPersisting
     private let notificationCenter: NotificationCenter
     private let publicationBarrier: RepositoryPublicationBarrier
+    private let retryPolicy: HealthKitScoringRetryPolicy
     private(set) var pending: HealthKitSyncWindow?
     private(set) var isRunning = false
     private var revision: UInt64 = 0
-    private var waiters: [CheckedContinuation<Void, Never>] = []
+    private let runWaiters = CancellableWaiterQueue<Void>()
     private var activeLease: PipelineLease?
-    private var leaseWaiters: [LeaseWaiter] = []
-    private var publicationBarrierHeld = false
+    private let leaseWaiters = CancellableWaiterQueue<PipelineLease>()
+    private(set) var consecutiveFailures = 0
+    private(set) var isParked = false
+    private var retryNotBefore: ContinuousClock.Instant?
+    private var retryTask: Task<Void, Never>?
 
     #if DEBUG
     private(set) var diagnosticPhase = "idle"
@@ -236,18 +261,23 @@ final class HealthKitScoringCoordinator: NSObject {
     init(
         persistence: any HealthKitPendingWindowPersisting,
         notificationCenter: NotificationCenter = .default,
-        publicationBarrier: RepositoryPublicationBarrier = .shared
+        publicationBarrier: RepositoryPublicationBarrier = .shared,
+        retryPolicy: HealthKitScoringRetryPolicy = .standard
     ) {
         self.persistence = persistence
         self.notificationCenter = notificationCenter
         self.publicationBarrier = publicationBarrier
+        self.retryPolicy = retryPolicy
         pending = persistence.load()
         super.init()
-
-        // StrandiOSApp constructs the production singleton before AppModel. A restored scoring journal can
-        // therefore close publication synchronously before launch's first Repository refresh is scheduled.
-        if pending != nil {
-            publicationBarrierHeld = publicationBarrier.acquireRestoredExclusiveIfIdle()
+        // A restored journal no longer closes the Repository fence here (D4). The launch drain takes the fence
+        // when it actually runs, so `.initialLoad` and first paint never wait on a scoring receipt.
+        notificationCenter.addObserver(
+            forName: UIApplication.willEnterForegroundNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.resetRetryBudget() }
         }
     }
 
@@ -262,72 +292,101 @@ final class HealthKitScoringCoordinator: NSObject {
         return await publish()
     }
 
-    /// Durably widen the scoring dependency. This method is async because a direct caller must first close the
-    /// shared Repository fence. Production import calls already hold it, so the await is a no-op there.
+    /// Durably widen the scoring dependency. Production offers arrive inside an import lease, which already
+    /// holds the Repository fence; a direct offer never takes the fence on its own. New import data is fresh
+    /// evidence, so it also restores a parked journal's retry budget.
     func offer(_ window: HealthKitSyncWindow) async throws {
-        let hadPending = pending != nil
-        await ensurePublicationBarrierHeld()
         let widened = pending.map { $0.union(window) } ?? window
-        do {
-            try persistence.save(widened)
-        } catch {
-            if !hadPending { releasePublicationBarrierIfIdle() }
-            throw error
-        }
+        try persistence.save(widened)
         pending = widened
         revision &+= 1
-        notificationCenter.post(
-            name: HealthKitSyncPublication.name,
-            object: self,
-            userInfo: [HealthKitSyncPublication.windowKey: widened])
+        resetRetryBudget()
+        postJournalEdge(widened)
     }
 
     /// Run one importer while excluding scoring publication and every typed Repository refresh. A second
     /// import request can still widen the import coordinator's durable window while the operation awaits; it is
-    /// retained for the next import lease. The scoring notification may arrive immediately, but its drain
-    /// waits on the same pipeline lease and inherits the still-closed Repository fence.
-    func withImportLease<T>(_ operation: @MainActor () async -> T) async -> T {
-        await acquireLease(.importing)
-        await ensurePublicationBarrierHeld()
-        defer {
-            releaseLease(.importing)
-            releasePublicationBarrierIfIdle()
-        }
+    /// retained for the next import lease. The scoring notification may arrive immediately; its drain waits on
+    /// the same pipeline lease and takes the fence again when it runs.
+    /// - Throws: `CancellationError` when the caller is cancelled while waiting for the lease or the fence.
+    func withImportLease<T>(_ operation: @MainActor () async -> T) async throws -> T {
+        try await acquireLease(.importing)
+        defer { releaseLease(.importing) }
+        let ownership = try await publicationBarrier.acquireExclusive()
+        defer { publicationBarrier.releaseExclusive(ownership) }
         return await operation()
     }
 
     /// Drain the durable scoring union. The revision check occurs after analysis and before publication, so a
     /// widened window never publishes the older analyzed generation. The source pipeline and every unrelated
-    /// typed Repository refresh remain fenced through the final Repository/widget publication.
+    /// typed Repository refresh remain fenced through the final Repository/widget publication, and the fence
+    /// opens when the run ends, whether or not the journal cleared.
     func runAndWait(
         analyze: @escaping Analysis,
         publish: @escaping Publication
     ) async {
         if isRunning {
-            await withCheckedContinuation { waiters.append($0) }
+            // Coalesce onto the active run. A cancelled caller stops waiting without disturbing that run.
+            try? await runWaiters.wait(())
             return
         }
+        guard pending != nil, admitsAttempt() else { return }
         isRunning = true
+        defer {
+            isRunning = false
+            runWaiters.resumeAll()
+        }
         #if DEBUG
         diagnosticPhase = "waiting_for_scoring_lease"
         #endif
-        await acquireLease(.scoring)
-        await ensurePublicationBarrierHeld()
-        defer {
-            releaseLease(.scoring)
-            releasePublicationBarrierIfIdle()
-            isRunning = false
-            let continuations = waiters
-            waiters.removeAll()
-            continuations.forEach { $0.resume() }
+        do {
+            try await acquireLease(.scoring)
+        } catch {
+            #if DEBUG
+            diagnosticPhase = "cancelled_waiting_for_scoring_lease"
+            #endif
+            return
         }
+        defer { releaseLease(.scoring) }
+        let ownership: RepositoryPublicationBarrier.Ownership
+        do {
+            ownership = try await publicationBarrier.acquireExclusive()
+        } catch {
+            #if DEBUG
+            diagnosticPhase = "cancelled_waiting_for_publication_fence"
+            #endif
+            return
+        }
+        // CC-1: the fence covers this run only. It always opens here, so a failure can never freeze every
+        // typed refresh for the session, or, through the journal, for every later launch.
+        defer { publicationBarrier.releaseExclusive(ownership) }
 
+        recordOutcome(await drainJournal(analyze: analyze, publish: publish))
+    }
+
+    /// Backward-compatible operation-only seam used by existing coordinator tests. It receives all revision
+    /// and fence guarantees; it simply has no separate publication phase.
+    func runAndWait(operation: @escaping Operation) async {
+        await runAndWait(analyze: operation, publish: { _ in true })
+    }
+
+    /// The next foreground or HealthKit import retries a parked or backing-off journal at once, with a fresh
+    /// attempt budget.
+    func resetRetryBudget() {
+        consecutiveFailures = 0
+        isParked = false
+        retryNotBefore = nil
+        retryTask?.cancel()
+        retryTask = nil
+    }
+
+    private func drainJournal(analyze: Analysis, publish: Publication) async -> RunOutcome {
         while let snapshot = pending {
             guard !Task.isCancelled else {
                 #if DEBUG
                 diagnosticPhase = "cancelled_before_analysis"
                 #endif
-                return
+                return .cancelled
             }
             let snapshotRevision = revision
             #if DEBUG
@@ -335,17 +394,18 @@ final class HealthKitScoringCoordinator: NSObject {
             NSLog("Health scoring: analyze %@ to %@", snapshot.start.description, snapshot.end.description)
             #endif
             guard await analyze(snapshot) else {
+                if Task.isCancelled { return .cancelled }
                 #if DEBUG
                 diagnosticPhase = "analysis_or_receipt_failed"
                 NSLog("Health scoring: analysis or receipt did not complete")
                 #endif
-                return
+                return .failed("analysis_or_receipt_failed")
             }
             guard !Task.isCancelled else {
                 #if DEBUG
                 diagnosticPhase = "cancelled_after_analysis"
                 #endif
-                return
+                return .cancelled
             }
             guard revision == snapshotRevision else { continue }
 
@@ -353,16 +413,17 @@ final class HealthKitScoringCoordinator: NSObject {
             diagnosticPhase = "publishing"
             #endif
             guard await publish(snapshot) else {
+                if Task.isCancelled { return .cancelled }
                 #if DEBUG
                 diagnosticPhase = "publication_failed"
                 #endif
-                return
+                return .failed("publication_failed")
             }
             guard !Task.isCancelled else {
                 #if DEBUG
                 diagnosticPhase = "cancelled_after_publication"
                 #endif
-                return
+                return .cancelled
             }
             // Production offers cannot occur while the scoring lease is held. Keep the second check as a
             // defensive/test guard for any direct future caller that widens the journal during publication.
@@ -376,50 +437,104 @@ final class HealthKitScoringCoordinator: NSObject {
                 NSLog("Health scoring: published and cleared journal")
                 #endif
             } catch {
-                // Publication may already be correct, but retaining the journal AND Repository fence is
-                // conservative: the next mount repeats the idempotent analysis rather than losing the handoff.
+                // Publication may already be correct. Keeping the journal repeats the idempotent analysis on
+                // the next attempt rather than losing the handoff; the fence still opens with this run.
+                return .failed("journal_clear_failed")
+            }
+        }
+        return .cleared
+    }
+
+    private func admitsAttempt() -> Bool {
+        if isParked {
+            #if DEBUG
+            diagnosticPhase = "parked"
+            #endif
+            return false
+        }
+        if let retryNotBefore, ContinuousClock.now < retryNotBefore {
+            #if DEBUG
+            diagnosticPhase = "backing_off"
+            #endif
+            return false
+        }
+        return true
+    }
+
+    private func recordOutcome(_ outcome: RunOutcome) {
+        switch outcome {
+        case .cleared:
+            resetRetryBudget()
+        case .cancelled:
+            // Cancellation (BG expiry, quiesce) is not a failed attempt.
+            break
+        case .failed(let code):
+            consecutiveFailures += 1
+            guard consecutiveFailures < retryPolicy.maximumAttempts else {
+                isParked = true
+                retryNotBefore = nil
+                retryTask?.cancel()
+                retryTask = nil
+                #if DEBUG
+                diagnosticPhase = "parked"
+                #endif
+                NSLog("Health scoring: parked the journal after %ld failed attempts (%@); "
+                      + "the next foreground or HealthKit import retries it", consecutiveFailures, code)
                 return
             }
+            let delay = retryPolicy.delay(afterFailure: consecutiveFailures)
+            NSLog("Health scoring: attempt %ld failed (%@); retrying in %@",
+                  consecutiveFailures, code, String(describing: delay))
+            scheduleRetry(after: delay)
         }
     }
 
-    /// Backward-compatible operation-only seam used by existing coordinator tests. It receives all revision
-    /// and fence guarantees; it simply has no separate publication phase.
-    func runAndWait(operation: @escaping Operation) async {
-        await runAndWait(analyze: operation, publish: { _ in true })
+    private func scheduleRetry(after delay: Duration) {
+        retryTask?.cancel()
+        retryTask = nil
+        guard delay > .zero else {
+            retryNotBefore = nil
+            return
+        }
+        retryNotBefore = ContinuousClock.now.advanced(by: delay)
+        retryTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(for: delay)
+            } catch {
+                return
+            }
+            guard let self, !self.isParked, let pending = self.pending else { return }
+            self.retryNotBefore = nil
+            self.retryTask = nil
+            // The app's scoring drain observes this edge, exactly as it does for a new import.
+            self.postJournalEdge(pending)
+        }
     }
 
-    private func ensurePublicationBarrierHeld() async {
-        guard !publicationBarrierHeld else { return }
-        await publicationBarrier.acquireExclusive()
-        publicationBarrierHeld = true
+    private func postJournalEdge(_ window: HealthKitSyncWindow) {
+        notificationCenter.post(
+            name: HealthKitSyncPublication.name,
+            object: self,
+            userInfo: [HealthKitSyncPublication.windowKey: window])
     }
 
-    private func releasePublicationBarrierIfIdle() {
-        guard publicationBarrierHeld, pending == nil, activeLease == nil else { return }
-        publicationBarrierHeld = false
-        publicationBarrier.releaseExclusive()
-    }
-
-    private func acquireLease(_ kind: PipelineLease) async {
+    private func acquireLease(_ kind: PipelineLease) async throws {
+        try Task.checkCancellation()
         guard activeLease != nil else {
             activeLease = kind
             return
         }
-        await withCheckedContinuation { continuation in
-            leaseWaiters.append(LeaseWaiter(kind: kind, continuation: continuation))
+        try await leaseWaiters.wait(kind)
+        // `releaseLease` recorded this waiter as the owner in the turn that resumed it.
+        if Task.isCancelled {
+            releaseLease(kind)
+            throw CancellationError()
         }
     }
 
     private func releaseLease(_ kind: PipelineLease) {
         precondition(activeLease == kind, "HealthKit pipeline lease released by non-owner")
-        guard !leaseWaiters.isEmpty else {
-            activeLease = nil
-            return
-        }
-        let next = leaseWaiters.removeFirst()
-        activeLease = next.kind
-        next.continuation.resume()
+        activeLease = leaseWaiters.resumeNext()
     }
 }
 
@@ -493,39 +608,46 @@ final class HealthKitSyncCoordinator {
 
         while pending != nil {
             // Release after each committed batch so continuous observers cannot starve scoring.
-            let committed = await scoringCoordinator.withImportLease { () async -> Bool in
-                // Offers can arrive while this worker waits for scoring to release the lease.
-                guard let snapshot = pending else { return true }
-                followUp = nil
-                importInFlight = true
-                do {
-                    // Journal the scoring dependency BEFORE any import/write-back awaits. If local rows commit
-                    // and a later outbound HealthKit write fails—or the process is suspended—the score request
-                    // already survives. Scoring itself cannot begin until this import lease is released.
-                    try await scoringCoordinator.offer(snapshot)
-                } catch {
-                    return false
-                }
+            let committed: Bool
+            do {
+                committed = try await scoringCoordinator.withImportLease { () async -> Bool in
+                    // Offers can arrive while this worker waits for scoring to release the lease.
+                    guard let snapshot = pending else { return true }
+                    followUp = nil
+                    importInFlight = true
+                    do {
+                        // Journal the scoring dependency BEFORE any import/write-back awaits. If local rows commit
+                        // and a later outbound HealthKit write fails—or the process is suspended—the score request
+                        // already survives. Scoring itself cannot begin until this import lease is released.
+                        try await scoringCoordinator.offer(snapshot)
+                    } catch {
+                        return false
+                    }
 
-                guard await operation(snapshot) else {
-                    // Import work remains pending for retry, while the durable scoring journal may safely
-                    // reconcile either unchanged rows or a partially committed transaction.
-                    return false
-                }
+                    guard await operation(snapshot) else {
+                        // Import work remains pending for retry, while the durable scoring journal may safely
+                        // reconcile either unchanged rows or a partially committed transaction.
+                        return false
+                    }
 
-                // The snapshot committed. Keep only wakes received during that import; replaying the
-                // full durable union can restart a decade of history on every live observer wake.
-                // Until this save succeeds the original union remains durable for crash recovery.
-                do {
-                    try persistence.save(followUp)
-                    pending = followUp
-                    importInFlight = false
-                } catch {
-                    // Clearing failure is conservative: repeat the idempotent import on the next wake. The
-                    // scoring dependency is already durable and will run after this lease is released.
-                    return false
+                    // The snapshot committed. Keep only wakes received during that import; replaying the
+                    // full durable union can restart a decade of history on every live observer wake.
+                    // Until this save succeeds the original union remains durable for crash recovery.
+                    do {
+                        try persistence.save(followUp)
+                        pending = followUp
+                        importInFlight = false
+                    } catch {
+                        // Clearing failure is conservative: repeat the idempotent import on the next wake. The
+                        // scoring dependency is already durable and will run after this lease is released.
+                        return false
+                    }
+                    return true
                 }
-                return true
+            } catch {
+                // Cancelled while waiting for the lease or the Repository fence. The import journal is still
+                // durable, so the next observer wake, foreground or BG task replays it.
+                return
             }
             guard committed else {
                 // The import journal is still durable, but an observer acknowledgement or app launch is

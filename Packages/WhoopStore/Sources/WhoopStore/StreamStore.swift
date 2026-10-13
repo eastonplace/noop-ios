@@ -72,6 +72,15 @@ extension WhoopStore {
         return counts.legacyCoreTuple
     }
 
+    /// DL-15: lifts a conflicting beat's provenance only when the incoming source outranks the stored one.
+    /// Arguments: source, sourceOrdinal, deviceId, ts, rrMs, seq, incoming priority.
+    static let rrProvenanceUpgradeSQL = """
+        UPDATE rrInterval
+        SET source = ?, sourceOrdinal = ?
+        WHERE deviceId = ? AND ts = ? AND rrMs = ? AND seq = ?
+          AND \(RRReadPolicy.sqlPriority(ofColumn: "source")) < ?
+        """
+
     /// One decoded-stream write body shared by ordinary inserts and the atomic historical-chunk commit.
     /// Callers that need a durable historical boundary wrap this inside their own `syncWrite` transaction.
     static func insertDecodedStreams(
@@ -107,6 +116,13 @@ extension WhoopStore {
                 // distinct beats keep seq 0 and their own (ts, rrMs, 0) key, so a distinct beat is never
                 // dropped even across batches (rrMs stays in the key). Re-syncing identical rows reproduces
                 // the same (ts, rrMs, seq) → still idempotent. Nested dict = (ts, rrMs) occurrence counter.
+                // The existing custom key intentionally remains the conflict boundary. When a standard
+                // WHOOP 5 beat arrives after a proprietary duplicate, or vice versa, retain the higher-priority
+                // provenance without rewriting the row or changing the established equal-beat sequence
+                // semantics. DL-15: one cached UPDATE guarded by the stored row's priority replaces the
+                // per-row SELECT, so a replayed batch no longer prepares two statements per beat. The insert's
+                // change count stays the inserted-row count.
+                let upgrade = try db.cachedStatement(sql: Self.rrProvenanceUpgradeSQL)
                 var seqBySource: [RRSource: [Int: [Int: Int]]] = [:]
                 for r in streams.rr {
                     let seq = seqBySource[r.source]?[r.ts]?[r.rrMs] ?? 0
@@ -115,24 +131,9 @@ extension WhoopStore {
                                                  r.source.rawValue, r.sourceOrdinal ?? seq])
                     rr += db.changesCount
                     if db.changesCount == 0 {
-                        // The existing custom key intentionally remains the conflict boundary. When a
-                        // standard WHOOP 5 beat arrives after a proprietary duplicate, or vice versa,
-                        // retain the higher-priority provenance without rewriting the row or changing
-                        // the established equal-beat sequence semantics.
-                        if let existing = try Row.fetchOne(db, sql: """
-                            SELECT source, sourceOrdinal FROM rrInterval
-                            WHERE deviceId = ? AND ts = ? AND rrMs = ? AND seq = ?
-                            """, arguments: [deviceId, r.ts, r.rrMs, seq]) {
-                            let current = RRReadPolicy.source(from: existing["source"] as String?)
-                            if RRReadPolicy.priority(for: r.source) > RRReadPolicy.priority(for: current) {
-                                try db.execute(sql: """
-                                    UPDATE rrInterval
-                                    SET source = ?, sourceOrdinal = ?
-                                    WHERE deviceId = ? AND ts = ? AND rrMs = ? AND seq = ?
-                                    """, arguments: [r.source.rawValue, r.sourceOrdinal ?? seq,
-                                                       deviceId, r.ts, r.rrMs, seq])
-                            }
-                        }
+                        try upgrade.execute(arguments: [r.source.rawValue, r.sourceOrdinal ?? seq,
+                                                        deviceId, r.ts, r.rrMs, seq,
+                                                        RRReadPolicy.priority(for: r.source)])
                     }
                 }
             }

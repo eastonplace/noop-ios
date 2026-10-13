@@ -63,13 +63,27 @@ struct LocalCoachPersistence {
 
     /// Settings are global so master off also applies after the user changes the selected source.
     func loadPreferences() throws -> LocalCoachPreferences {
-        guard let bytes = try read(directory.appendingPathComponent("settings.json")) else { return .init() }
-        return try JSONDecoder().decode(Settings.self, from: bytes).preferences
+        let url = directory.appendingPathComponent("settings.json")
+        guard let bytes = try read(url) else { return .init() }
+        let preferences = try JSONDecoder().decode(Settings.self, from: bytes).preferences
+        // CORE-04: settings written by an earlier build carry `.complete`; move them to the readable-after-
+        // first-unlock class so a later locked background launch can read them.
+        if (try? FileManager.default.attributesOfItem(atPath: url.path)[.protectionKey] as? FileProtectionType)
+            == .complete {
+            try? FileManager.default.setAttributes([.protectionKey: Self.settingsProtection], ofItemAtPath: url.path)
+        }
+        return preferences
     }
 
     func savePreferences(_ preferences: LocalCoachPreferences) throws {
-        try write(Settings(preferences: preferences), to: directory.appendingPathComponent("settings.json"))
+        try write(Settings(preferences: preferences), to: directory.appendingPathComponent("settings.json"),
+                  protection: .completeFileProtectionUntilFirstUserAuthentication)
     }
+
+    /// CORE-04: settings hold switches and a style string, nothing personal. They must stay readable in a
+    /// locked background launch after first unlock (BLE restoration overnight), like the app's other state
+    /// (StorePaths). Conversations and memories keep `.complete`.
+    static let settingsProtection = FileProtectionType.completeUntilFirstUserAuthentication
 
     private func read(_ url: URL) throws -> Data? {
         let attributes: [FileAttributeKey: Any]
@@ -87,7 +101,8 @@ struct LocalCoachPersistence {
         return bytes
     }
 
-    private func write<T: Encodable>(_ value: T, to url: URL) throws {
+    private func write<T: Encodable>(_ value: T, to url: URL,
+                                     protection: Data.WritingOptions = .completeFileProtection) throws {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         let bytes = try encoder.encode(value)
@@ -99,7 +114,7 @@ struct LocalCoachPersistence {
         try directory.setResourceValues(flags)
         #if os(iOS)
         try FileManager.default.setAttributes([.protectionKey: FileProtectionType.complete], ofItemAtPath: directory.path)
-        try bytes.write(to: url, options: [.atomic, .completeFileProtection])
+        try bytes.write(to: url, options: [.atomic, protection])
         #else
         try bytes.write(to: url, options: .atomic)
         #endif

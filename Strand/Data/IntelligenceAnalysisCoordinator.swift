@@ -1,4 +1,7 @@
 import Foundation
+#if os(iOS)
+import UIKit
+#endif
 
 /// One bounded request for `IntelligenceEngine.analyzeRecent`.
 ///
@@ -66,16 +69,485 @@ struct IntelligenceAnalysisRequest: Equatable, Sendable {
     }
 }
 
-/// Immutable observation around one post-backfill analysis pass. The caller may publish only when the store
-/// is still quiescent and the durable-data edge is unchanged after analysis. A reconnect or periodic burst
-/// that starts or completes in the middle therefore forces another pass over the newest data instead of
-/// allowing an older generation to publish a final-looking blank Recovery state.
-struct BackfillAnalysisSnapshot: Equatable, Sendable {
-    let dataAvailableAt: TimeInterval?
-    let backfilling: Bool
+extension IntelligenceAnalysisRequest {
+    /// DL-03: the forward dependency closure of edited days. An edit to an older night changes that day and
+    /// every later baseline, carry and sleep-debt value, so the window runs from the earliest edited day
+    /// through today. Future timestamps clamp to today. Nil when nothing was edited.
+    static func editedDays(
+        containingTimestamps timestamps: some Collection<Int>,
+        now: Date = Date(),
+        calendar: Calendar = .current
+    ) -> Self? {
+        guard let earliest = timestamps.min() else { return nil }
+        let today = calendar.startOfDay(for: now)
+        let editedDay = min(calendar.startOfDay(for: Date(timeIntervalSince1970: TimeInterval(earliest))), today)
+        let span = (calendar.dateComponents([.day], from: editedDay, to: today).day ?? 0) + 1
+        return Self(maxDays: max(1, span), startOffset: 0, force: true, refreshRepository: true)
+    }
 
-    func isSettledAndUnchanged(since earlier: Self) -> Bool {
-        !backfilling && !earlier.backfilling && dataAvailableAt == earlier.dataAvailableAt
+    /// One drain step over `editedDays`: its oldest `chunkDays` days at most, plus a timestamp inside the first
+    /// day after the chunk when the range continues (nil once the chunk reaches today). Oldest first, because
+    /// each pass reads the baselines, carry and sleep debt the previous one wrote. Nil when nothing was edited.
+    static func editedDayChunk(
+        containingTimestamps timestamps: some Collection<Int>,
+        chunkDays: Int,
+        now: Date = Date(),
+        calendar: Calendar = .current
+    ) -> (request: Self, remainderTimestamp: Int?)? {
+        guard let range = editedDays(containingTimestamps: timestamps, now: now, calendar: calendar) else {
+            return nil
+        }
+        let chunk = max(1, chunkDays)
+        guard range.maxDays > chunk else { return (range, nil) }
+        let uncoveredOffset = range.maxDays - chunk - 1
+        guard let firstUncovered = calendar.date(byAdding: .day, value: -uncoveredOffset,
+                                                 to: calendar.startOfDay(for: now)),
+              let midday = calendar.date(byAdding: .hour, value: 12, to: firstUncovered) else {
+            return (range, nil)
+        }
+        let request = Self(maxDays: chunk, startOffset: range.maxDays - chunk, force: true,
+                           refreshRepository: range.refreshRepository)
+        return (request, Int(midday.timeIntervalSince1970))
+    }
+}
+
+/// DL-03: timestamps of sleeps and workouts the user edited, waiting for a rescore from their day through
+/// today. The edit flows only ask for the one-day `analyzeRecent()`, so editing any night but last night never
+/// rescored that day. Repository's mutators enqueue here, and every enqueue schedules a debounced background
+/// drain, because the workout delete, dismiss, relabel and bulk-delete flows and the auto-detect save never
+/// call `analyzeRecent()` at all. `analyzeRecent()` keeps its one-day pass, so the sleep editor returns once
+/// that is saved, and then starts the drain at once. The queue persists in UserDefaults, and the live engine
+/// registers on every analysis it submits, so a range left by a kill, a cancellation or a failed chunk drains
+/// again after the next launch or pass.
+///
+/// The drain rescores the oldest chunk first, at most `chunkDays` per pass, so each pass reads the carry the
+/// previous one wrote and a long range never runs as one uncancellable forced batch. It stops between chunks
+/// when cancelled (BG expiry) or once the app is in the background, and resumes when the app becomes active
+/// again. A chunk that doesn't complete leaves the whole taken range queued, and edits that arrive mid-chunk
+/// stay queued for the next step. An edit that arrives while a finished drain is still publishing starts
+/// another drain instead of waiting for the next unrelated analysis.
+///
+/// Every enqueue stamps its timestamps with a new version. A finished chunk removes only the entries whose
+/// version it took, so the same timestamp enqueued again while its chunk runs (an undo, a re-edit of the same
+/// night, a re-saved workout) stays queued: the running pass read its inputs before that edit.
+///
+/// A chunk that fails is not retried on every live analysis. Its entries back off (2 min, then 4 min) and
+/// are parked after `maximumFailures`, so newer edited days drain past a range that keeps failing. Parked
+/// entries stay persisted and come back when the same timestamp is enqueued again, when a later chunk that
+/// covers their day completes (they are dropped, already rescored), or at load once the app build changed or
+/// the park is older than `parkExpiry`, so a transient failure or a since-fixed bug can't lose an edit for
+/// good. A drain that stops on a
+/// backoff arms one timer for the end of it, and a drain that parks a range reschedules at once for the
+/// newer days, so neither waits for an unrelated analysis. A backoff further out than `retryMaximumDelay`
+/// (a wall clock moved backwards) counts as expired.
+///
+/// The chunks don't publish one by one: the engine's closing refresh is current-day only, and the DL-01 splice
+/// keeps older cached days, so a rescored older night never reached Home. When the drain stops after at least
+/// one chunk it publishes one refresh covering the rescored range through the closure Repository enqueued with.
+/// A drain cancelled before it could publish (BG expiry) persists the oldest rescored day, and the next drain's
+/// publish covers it too.
+@MainActor
+final class EditedDayRescoreQueue {
+    static let shared = EditedDayRescoreQueue(activationCenter: .default)
+    static let chunkDays = 30
+
+    typealias Analyze = @MainActor (IntelligenceAnalysisRequest) async -> Bool
+    /// Republishes the dashboard caches over the last `days` days (oldest rescored day through today).
+    typealias Publish = @MainActor (_ days: Int) async -> Void
+
+    static let maximumFailures = 3
+    static let retryBaseDelay: TimeInterval = 120
+    static let retryMaximumDelay: TimeInterval = 1_800
+    static let parkExpiry: TimeInterval = 86_400
+
+    /// CFBundleVersion rarely changes between installs, so the executable's modification date makes every
+    /// in-place install a new build.
+    static var currentBuild: String {
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? ""
+        let modified = (try? Bundle.main.executableURL?.resourceValues(forKeys: [.contentModificationDateKey]))?
+            .contentModificationDate
+        return modified.map { "\(version)-\(Int($0.timeIntervalSince1970))" } ?? version
+    }
+
+    private struct Entry: Equatable {
+        /// Version of the latest enqueue of this timestamp.
+        var version: UInt64
+        var failures = 0
+        var parked = false
+        /// The app build and the time the entry parked; a new build or an old park un-parks it at load.
+        var parkedBuild: String?
+        var parkedAt: Date?
+    }
+
+    private var entries: [Int: Entry]
+    private var lastVersion: UInt64
+    /// No drain step runs before this, after a failed chunk.
+    private var retryNotBefore: Date?
+    /// Start of the oldest day rescored but not yet published (a drain cancelled before its publish).
+    private var unpublishedFrom: Date?
+    var timestamps: Set<Int> { Set(entries.keys) }
+    var parkedTimestamps: Set<Int> { Set(entries.filter { $0.value.parked }.keys) }
+    private var drainable: [Int: Entry] { entries.filter { !$0.value.parked } }
+    private let defaults: UserDefaults?
+    /// `<storageKey>.v2` holds the versioned record; `<storageKey>.v1` mirrors the bare timestamp list.
+    private let storageKey: String
+    private let debounce: Duration
+    private let now: @MainActor () -> Date
+    private let calendar: @MainActor () -> Calendar
+    private let isBackgrounded: @MainActor () -> Bool
+    private let sleep: @MainActor (Duration) async -> Void
+    private let build: String
+    private weak var analyzer: AnyObject?
+    private var analyze: Analyze?
+    private var publish: Publish?
+    private weak var publisher: AnyObject?
+    private var drainTask: Task<Void, Never>?
+    private var lastDrain: Task<Void, Never>?
+    private var drainGeneration: UInt64 = 0
+    /// Set when a drain was asked for while one was already in flight.
+    private var rerunRequested = false
+    private var activationObserver: NSObjectProtocol?
+
+    private enum DrainEnd {
+        /// The queue was empty at a chunk boundary.
+        case drained
+        /// A chunk failed, or the drain reached an unexpired backoff: one timer for its end.
+        case backedOff
+        /// A failing range just parked; newer entries may drain now.
+        case parked
+        /// Cancelled, backgrounded, or no engine.
+        case stopped
+    }
+
+    /// Only `.background` pauses the drain. `.inactive` (Control Center, the notification shade, the app
+    /// switcher, a system alert) is a transient overlay on an app that is still in the foreground.
+    #if os(iOS)
+    static func pausesDrain(in state: UIApplication.State) -> Bool {
+        state == .background
+    }
+    #endif
+
+    static var appIsInBackground: Bool {
+        #if os(iOS)
+        pausesDrain(in: UIApplication.shared.applicationState)
+        #else
+        false
+        #endif
+    }
+
+    /// `defaults: nil` keeps the queue in memory (tests).
+    init(defaults: UserDefaults? = .standard,
+         storageKey: String = "noop.editedDayRescoreQueue",
+         debounce: Duration = .seconds(5),
+         now: @escaping @MainActor () -> Date = { Date() },
+         calendar: @escaping @MainActor () -> Calendar = { .current },
+         isBackgrounded: @escaping @MainActor () -> Bool = { EditedDayRescoreQueue.appIsInBackground },
+         activationCenter: NotificationCenter? = nil,
+         sleep: @escaping @MainActor (Duration) async -> Void = { try? await Task.sleep(for: $0) },
+         build: String = EditedDayRescoreQueue.currentBuild) {
+        self.defaults = defaults
+        self.storageKey = storageKey
+        self.debounce = debounce
+        let stored = Self.load(from: defaults, key: storageKey)
+        self.entries = stored.entries
+        self.lastVersion = stored.lastVersion
+        self.retryNotBefore = stored.retryNotBefore
+        self.unpublishedFrom = stored.unpublishedFrom
+        self.now = now
+        self.calendar = calendar
+        self.isBackgrounded = isBackgrounded
+        self.sleep = sleep
+        self.build = build
+        clampStaleBackoff()
+        unparkExpired()
+        #if os(iOS)
+        // A drain paused by the background resumes when the app is active again.
+        activationObserver = activationCenter?.addObserver(
+            forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.scheduleDrain(after: self?.debounce ?? .zero) }
+        }
+        #endif
+    }
+
+    var isDraining: Bool { drainTask != nil }
+
+    func enqueue(_ edited: [Int], publish: Publish? = nil) {
+        let valid = edited.filter { $0 > 0 }
+        guard !valid.isEmpty else { return }
+        for timestamp in valid {
+            lastVersion &+= 1
+            entries[timestamp] = Entry(version: lastVersion) // a new edit also un-parks the timestamp
+        }
+        if let publish { self.publish = publish }
+        persist()
+        scheduleDrain(after: debounce)
+    }
+
+    /// Removes and returns everything queued and stops any drain. Tests reset the shared queue with it.
+    func take() -> Set<Int> {
+        cancel()
+        let taken = timestamps
+        entries.removeAll()
+        retryNotBefore = nil
+        persist()
+        return taken
+    }
+
+    /// The engine that rescores drained chunks, held weakly through `owner`. Registering also restarts a
+    /// pending range (after a relaunch, a cancellation or a failed chunk).
+    func register(_ owner: AnyObject, analyze: @escaping Analyze) {
+        if analyzer !== owner || self.analyze == nil {
+            analyzer = owner
+            self.analyze = analyze
+        }
+        scheduleDrain(after: debounce)
+    }
+
+    /// A Repository offers to publish at creation so a range persisted across a relaunch still republishes;
+    /// it takes over only when no live Repository holds the role. An enqueue always takes it over.
+    func offerPublisher(_ owner: AnyObject, publish: @escaping Publish) {
+        guard publisher == nil else { return }
+        publisher = owner
+        self.publish = publish
+    }
+
+    /// Starts a drain after `delay` unless one is already pending or running.
+    func scheduleDrain(after delay: Duration = .zero) {
+        unparkExpired() // the process can outlive a park by days
+        guard drainTask == nil else {
+            rerunRequested = true
+            return
+        }
+        guard !drainable.isEmpty || (unpublishedFrom != nil && publish != nil), analyze != nil else { return }
+        drainGeneration &+= 1
+        rerunRequested = false
+        let generation = drainGeneration
+        drainTask = Task { @MainActor [weak self] in
+            if delay > .zero { await self?.sleep(delay) }
+            guard let self else { return }
+            let end = await self.drain(generation: generation)
+            guard self.drainGeneration == generation else { return }
+            self.drainTask = nil
+            guard !Task.isCancelled, !self.drainable.isEmpty else { return }
+            switch end {
+            case .drained:
+                // An edit that landed during the closing publish found this drain still in flight.
+                if self.rerunRequested { self.scheduleDrain(after: self.debounce) }
+            case .backedOff:
+                // One timer for the end of the backoff. Each failure lengthens it and the third parks the
+                // range, so this can't become a loop.
+                guard let retryNotBefore = self.retryNotBefore else { return }
+                let wait = max(1, retryNotBefore.timeIntervalSince(self.now()))
+                self.scheduleDrain(after: .seconds(wait))
+            case .parked:
+                self.scheduleDrain(after: self.debounce)
+            case .stopped:
+                break
+            }
+        }
+        lastDrain = drainTask
+    }
+
+    /// Stops the drain at its next chunk boundary. The unfinished range stays queued.
+    func cancel() {
+        drainGeneration &+= 1
+        drainTask?.cancel()
+        drainTask = nil
+    }
+
+    /// Persisted form, under `<storageKey>.v2`. Builds before it read and write a bare `[Int]` under
+    /// `<storageKey>.v1`, so `persist` keeps that list current for an older build installed in place.
+    private struct Stored: Codable {
+        struct Entry: Codable {
+            var timestamp: Int
+            var version: UInt64
+            var failures: Int?
+            var parked: Bool?
+            var parkedBuild: String?
+            var parkedAt: TimeInterval?
+        }
+        var lastVersion: UInt64
+        var entries: [Entry]
+        var retryNotBefore: TimeInterval?
+        var unpublishedFrom: TimeInterval?
+    }
+
+    private static func load(from defaults: UserDefaults?, key: String)
+        -> (entries: [Int: Entry], lastVersion: UInt64, retryNotBefore: Date?, unpublishedFrom: Date?) {
+        guard let defaults else { return ([:], 0, nil, nil) }
+        // The v2 record, else the same record a pre-v2 build of this format wrote under v1.
+        let stored = [key + ".v2", key + ".v1"].lazy
+            .compactMap { defaults.data(forKey: $0) }
+            .compactMap { try? JSONDecoder().decode(Stored.self, from: $0) }
+            .first
+        var entries: [Int: Entry] = [:]
+        for entry in stored?.entries ?? [] where entry.timestamp > 0 && entry.version > (entries[entry.timestamp]?.version ?? 0) {
+            entries[entry.timestamp] = Entry(
+                version: entry.version, failures: entry.failures ?? 0, parked: entry.parked ?? false,
+                parkedBuild: entry.parkedBuild,
+                parkedAt: entry.parkedAt.map { Date(timeIntervalSince1970: $0) })
+        }
+        var lastVersion = max(stored?.lastVersion ?? 0, entries.values.map(\.version).max() ?? 0)
+        // The v1 list says which days are pending: an older build may have drained some or queued more.
+        if let pending = defaults.array(forKey: key + ".v1") as? [Int] {
+            let pending = Set(pending.filter { $0 > 0 })
+            entries = entries.filter { pending.contains($0.key) }
+            for timestamp in pending.sorted() where entries[timestamp] == nil {
+                lastVersion += 1
+                entries[timestamp] = Entry(version: lastVersion)
+            }
+        }
+        return (entries, lastVersion,
+                stored?.retryNotBefore.map { Date(timeIntervalSince1970: $0) },
+                stored?.unpublishedFrom.map { Date(timeIntervalSince1970: $0) })
+    }
+
+    private func persist() {
+        guard let defaults else { return }
+        let stored = Stored(
+            lastVersion: lastVersion,
+            entries: entries.sorted { $0.key < $1.key }.map {
+                Stored.Entry(timestamp: $0.key, version: $0.value.version,
+                             failures: $0.value.failures, parked: $0.value.parked,
+                             parkedBuild: $0.value.parkedBuild,
+                             parkedAt: $0.value.parkedAt?.timeIntervalSince1970)
+            },
+            retryNotBefore: retryNotBefore?.timeIntervalSince1970,
+            unpublishedFrom: unpublishedFrom?.timeIntervalSince1970)
+        guard let data = try? JSONEncoder().encode(stored) else { return }
+        defaults.set(data, forKey: storageKey + ".v2")
+        defaults.set(timestamps.sorted(), forKey: storageKey + ".v1")
+    }
+
+    /// Drops the entries a finished step took, unless they were enqueued again since.
+    private func remove(taken: [Int: Entry]) {
+        for (timestamp, entry) in taken where (entries[timestamp]?.version ?? .max) <= entry.version {
+            entries.removeValue(forKey: timestamp)
+        }
+    }
+
+    /// A backoff further out than the longest one this queue sets came from a wall clock that moved back.
+    private func clampStaleBackoff() {
+        guard let retryNotBefore, retryNotBefore.timeIntervalSince(now()) > Self.retryMaximumDelay else { return }
+        self.retryNotBefore = nil
+        persist()
+    }
+
+    /// A park ends when the app build changed (the failure may be fixed) or after `parkExpiry`. A park dated
+    /// in the future came from a wall clock that moved back, so it counts as expired.
+    private func unparkExpired() {
+        var changed = false
+        for (timestamp, entry) in entries where entry.parked {
+            let age = entry.parkedAt.map { now().timeIntervalSince($0) }
+            let expired = age.map { $0 > Self.parkExpiry || $0 < 0 } ?? true
+            guard entry.parkedBuild != build || expired else { continue }
+            entries[timestamp] = Entry(version: entry.version)
+            changed = true
+        }
+        if changed { persist() }
+    }
+
+    /// A completed chunk rescored every day in [from, through): parked entries there are done.
+    private func dropParked(from start: Date, before end: Int?) {
+        let from = Int(start.timeIntervalSince1970)
+        for (timestamp, entry) in entries where entry.parked && timestamp >= from && end.map({ timestamp < $0 }) ?? true {
+            entries.removeValue(forKey: timestamp)
+        }
+    }
+
+    /// A chunk didn't complete: its entries (those before `chunkEnd`, or all of them when the chunk reached
+    /// today) back off, and park after `maximumFailures`. Entries enqueued again since are left alone.
+    private func recordFailure(of taken: [Int: Entry], before chunkEnd: Int?) {
+        var backoffFailures = 0
+        for (timestamp, entry) in taken where chunkEnd.map({ timestamp < $0 }) ?? true {
+            guard var current = entries[timestamp], current.version == entry.version else { continue }
+            current.failures += 1
+            current.parked = current.failures >= Self.maximumFailures
+            if current.parked {
+                current.parkedBuild = build
+                current.parkedAt = now()
+            }
+            entries[timestamp] = current
+            if !current.parked { backoffFailures = max(backoffFailures, current.failures) }
+        }
+        if backoffFailures > 0 {
+            let delay = min(Self.retryMaximumDelay, Self.retryBaseDelay * pow(2, Double(backoffFailures - 1)))
+            retryNotBefore = now().addingTimeInterval(delay)
+        } else {
+            retryNotBefore = nil // the failing range parked; newer days may drain at once
+        }
+        persist()
+    }
+
+    /// Test/diagnostic: waits for the most recent drain to stop, including one that was just cancelled.
+    func waitForDrain() async {
+        await lastDrain?.value
+    }
+
+    private func drain(generation: UInt64) async -> DrainEnd {
+        var end = DrainEnd.stopped
+        while generation == drainGeneration, let analyze, analyzer != nil {
+            let taken = drainable
+            if taken.isEmpty {
+                end = .drained
+                break
+            }
+            if Task.isCancelled || isBackgrounded() { break }
+            clampStaleBackoff()
+            if let retryNotBefore, now() < retryNotBefore {
+                end = .backedOff
+                break
+            }
+            let calendar = calendar()
+            guard let chunk = IntelligenceAnalysisRequest.editedDayChunk(
+                containingTimestamps: taken.keys, chunkDays: Self.chunkDays, now: now(), calendar: calendar) else {
+                remove(taken: taken)
+                persist()
+                continue
+            }
+            let request = IntelligenceAnalysisRequest(
+                maxDays: chunk.request.maxDays, startOffset: chunk.request.startOffset, force: true,
+                refreshRepository: publish == nil)
+            let chunkEnd = chunk.remainderTimestamp.map {
+                Int(calendar.startOfDay(for: Date(timeIntervalSince1970: TimeInterval($0))).timeIntervalSince1970)
+            }
+            guard await analyze(request) else {
+                // A cancelled chunk (BG expiry) isn't a failure of the range.
+                if !Task.isCancelled {
+                    recordFailure(of: taken, before: chunkEnd)
+                    end = retryNotBefore == nil ? .parked : .backedOff
+                }
+                break
+            }
+            remove(taken: taken)
+            retryNotBefore = nil
+            if let next = chunk.remainderTimestamp {
+                lastVersion &+= 1
+                entries[next] = Entry(version: lastVersion)
+            }
+            // Recorded before the publish, so a cancelled drain hands its rescored days to the next one.
+            if let oldest = calendar.date(byAdding: .day, value: -(request.endOffsetExclusive - 1),
+                                          to: calendar.startOfDay(for: now())) {
+                unpublishedFrom = min(unpublishedFrom ?? oldest, oldest)
+                dropParked(from: oldest, before: chunkEnd)
+            }
+            persist()
+        }
+        if let from = unpublishedFrom, !Task.isCancelled, let publish {
+            let calendar = calendar()
+            let days = (calendar.dateComponents([.day], from: calendar.startOfDay(for: from),
+                                                to: calendar.startOfDay(for: now())).day ?? 0) + 1
+            // An unstructured task inherits the disposition of whoever scheduled it; this publish is the drain's own.
+            await RepositoryRefreshContext.$disposition.withValue(.allow) {
+                await publish(max(1, days))
+            }
+            if unpublishedFrom == from {
+                unpublishedFrom = nil
+                persist()
+            }
+        }
+        return end
     }
 }
 
@@ -118,7 +590,16 @@ final class IntelligenceAnalysisCoordinator {
         var pending: [PendingBatch] = []
     }
 
+    private struct Runner {
+        let token: UInt64
+        let task: Task<Void, Never>
+    }
+
     private var queues: [ObjectIdentifier: QueueState] = [:]
+    /// The unstructured runner per owner. Callers' cancellation never reaches it, by design, so background
+    /// expiry cancels it through `cancelRunningWork()`. The token tells a runner whether it still owns its queue.
+    private var runners: [ObjectIdentifier: Runner] = [:]
+    private var lastRunnerToken: UInt64 = 0
     private let retryDelay: TimeInterval
     private let maximumRetryCount: Int
 
@@ -163,18 +644,48 @@ final class IntelligenceAnalysisCoordinator {
             if shouldStartRunner {
                 // The runner retains the coordinator until every queued batch has either executed or been
                 // coalesced. Individual submitters remain suspended only on their own batch continuation.
-                Task { @MainActor in
-                    await self.drain(ownerKey: key)
-                }
+                lastRunnerToken &+= 1
+                let token = lastRunnerToken
+                runners[key] = Runner(token: token, task: Task { @MainActor in
+                    await self.drain(ownerKey: key, token: token)
+                })
             }
         }
     }
 
-    private func drain(ownerKey key: ObjectIdentifier) async {
+    /// CC-2 / CORE-08 cancellation token for background expiry. Forced work ignores caller cancellation, so
+    /// a cancelled BG task used to leave a multi-day rescore burning CPU after its grant ended. This cancels
+    /// the work in hand when expiry fires: each running batch stops at IntelligenceEngine's next per-day
+    /// checkpoint without a retry, and every batch already queued resumes its callers with `false`. Durable
+    /// sources (HealthKit journal, historical work rows, the edited-day queue) keep their own record of the
+    /// work, so nothing is lost.
+    ///
+    /// The cancelled runners are detached from their queues at once. Work submitted afterwards (the foreground
+    /// pass, a HealthKit drain, an edit) starts a fresh runner instead of joining the cancelled one and being
+    /// abandoned with it; IntelligenceEngine's `computing` flag still keeps it behind the stopping batch.
+    func cancelRunningWork() {
+        let cancelled = runners
+        runners.removeAll()
+        for (key, runner) in cancelled {
+            runner.task.cancel()
+            let abandoned = queues.removeValue(forKey: key)?.pending ?? []
+            abandoned.forEach { batch in batch.waiters.forEach { $0.resume(returning: false) } }
+        }
+        EditedDayRescoreQueue.shared.cancel()
+    }
+
+    private func drain(ownerKey key: ObjectIdentifier, token: UInt64) async {
         while true {
+            // Detached by `cancelRunningWork()`: the queue under this key now belongs to a newer runner.
+            guard runners[key]?.token == token else { return }
+            if Task.isCancelled {
+                abandonQueue(ownerKey: key)
+                return
+            }
             guard var state = queues[key],
                   let index = nextBatchIndex(in: state.pending) else {
                 queues.removeValue(forKey: key)
+                runners.removeValue(forKey: key)
                 return
             }
 
@@ -189,7 +700,7 @@ final class IntelligenceAnalysisCoordinator {
                 }
                 completed = true
             } catch IntelligenceAnalysisCoordinatorError.analysisDidNotComplete
-                where batch.request.force && batch.retryCount < maximumRetryCount {
+                where batch.request.force && batch.retryCount < maximumRetryCount && !Task.isCancelled {
                 // The source-change request is durable. Re-read the live queue before appending it: other
                 // callers may have arrived while `run` was suspended, and restoring the pre-run local state
                 // would silently erase those requests. Compatible work can coalesce with this retry and every
@@ -206,6 +717,12 @@ final class IntelligenceAnalysisCoordinator {
             }
             batch.waiters.forEach { $0.resume(returning: completed) }
         }
+    }
+
+    private func abandonQueue(ownerKey key: ObjectIdentifier) {
+        let abandoned = queues.removeValue(forKey: key)?.pending ?? []
+        runners.removeValue(forKey: key)
+        abandoned.forEach { batch in batch.waiters.forEach { $0.resume(returning: false) } }
     }
 
     private func waitBeforeRetry(attempt: Int) async {
@@ -294,6 +811,13 @@ extension IntelligenceEngine {
             requiresDurableRecoveryReceipt: durableRecoveryPostcondition != nil,
             committedAnalysisExecutionContext: committedAnalysisExecutionContext)
 
+        if committedAnalysisExecutionContext == nil {
+            // The live engine drains edited days (DL-03); exact historical work runs on its own engines.
+            EditedDayRescoreQueue.shared.register(self) { [weak self] request in
+                await self?.rescoreEditedDays(request) ?? false
+            }
+        }
+
         return await IntelligenceAnalysisCoordinator.shared.submit(owner: self, request: request) { [weak self] queued in
             guard let self else { throw IntelligenceAnalysisCoordinatorError.ownerReleased }
 
@@ -301,8 +825,10 @@ extension IntelligenceEngine {
             // in-engine re-arm task may nevertheless already own `computing`; forced work waits instead of
             // disappearing, while a disposable cadence tick still drops. Once forced work is queued it ignores
             // caller-task cancellation—the durable source change still needs to be scored and published.
+            // Only `cancelRunningWork()` (background expiry) cancels this runner task.
             while self.computing {
                 guard queued.force else { throw IntelligenceAnalysisCoordinatorError.deferred }
+                try Task.checkCancellation()
                 await Self.waitForAnalysisPoll()
             }
             guard queued.force || !Task.isCancelled else { throw IntelligenceAnalysisCoordinatorError.deferred }
@@ -333,8 +859,18 @@ extension IntelligenceEngine {
     // Define every proper subset of the original four labels. Swift prefers these exact signatures over the
     // original method's default arguments, so every production shorthand call is serialized. The fully-spelled
     // four-label call remains the private bypass used only by `submitSerializedAnalysis` above.
+    /// The one-day pass the UI asks for after an edit or a manual re-run. The editor awaits it, so it stays one
+    /// day; the days the user edited (DL-03) then drain in the background, so an older night's Rest, Charge
+    /// and Strain are rescored from that day forward without holding the editor on "Saving…".
     func analyzeRecent() async {
         await submitSerializedAnalysis(maxDays: 1, startOffset: 0, force: true, refreshRepository: true)
+        EditedDayRescoreQueue.shared.scheduleDrain()
+    }
+
+    /// One drained chunk of edited days, serialized with every other pass.
+    private func rescoreEditedDays(_ request: IntelligenceAnalysisRequest) async -> Bool {
+        await submitSerializedAnalysis(maxDays: request.maxDays, startOffset: request.startOffset, force: true,
+                                       refreshRepository: request.refreshRepository)
     }
 
     func analyzeRecent(maxDays: Int) async {
@@ -401,7 +937,7 @@ extension IntelligenceEngine {
 
     /// Stronger publication contract for a durable source handoff. The verifier runs against the exact results
     /// produced by this admitted batch before any queued analysis can replace them. A false receipt is treated
-    /// as a retryable forced failure, so the source journal and Repository publication fence remain intact.
+    /// as a retryable forced failure, so the source journal remains intact for the caller's bounded retry.
     @discardableResult
     func analyzeRecentForPublication(
         maxDays: Int,
