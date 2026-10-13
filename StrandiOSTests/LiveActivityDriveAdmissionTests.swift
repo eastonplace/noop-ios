@@ -72,6 +72,7 @@ final class LiveActivityDriveAdmissionTests: XCTestCase {
                 recovery: nil, effort: nil, verifiedContextId: nil, verifiedProjectionGeneration: nil,
                 activeToken: activeToken)
             XCTAssertFalse(admission.strippedHealth, "nothing to remove")
+            XCTAssertEqual(admission.tokenState, .unused, "no surface, so no token was compared: never a mismatch")
             XCTAssertNil(admission.token)
             XCTAssertNil(admission.recovery)
             XCTAssertNil(admission.effort)

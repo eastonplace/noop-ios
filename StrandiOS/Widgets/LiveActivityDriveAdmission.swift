@@ -10,9 +10,10 @@ import Foundation
 /// health field removed: an unverified or stale context still never shows Recovery, and the workout still starts. A workout's
 /// effort comes from the workout state, not from here, so it still shows.
 struct LiveActivityDriveAdmission: Equatable {
-    /// How the App Group token relates to the drive. Logged; never the context itself.
+    /// How the App Group token relates to the drive. Logged; never the context itself. `unused`: the drive carries no
+    /// verified surface, so no token is asked for and none is compared.
     enum TokenState: String, Equatable {
-        case match, mismatch, missing
+        case match, mismatch, missing, unused
     }
 
     /// Non-nil only when the token names this drive's context; the drive then goes on the verified lane.
@@ -39,11 +40,13 @@ struct LiveActivityDriveAdmission: Equatable {
                   activeToken.contextId == contextId else { return nil }
             return activeToken
         }()
-        let tokenState: TokenState = matching != nil ? .match : (activeToken == nil ? .missing : .mismatch)
         let carriesHealth = recovery != nil
             || effort != nil
             || verifiedContextId != nil
             || verifiedProjectionGeneration != nil
+        let tokenState: TokenState = matching != nil
+            ? .match
+            : (!carriesHealth ? .unused : (activeToken == nil ? .missing : .mismatch))
         guard carriesHealth, matching == nil else {
             return LiveActivityDriveAdmission(
                 token: matching, recovery: recovery, effort: effort, verifiedContextId: verifiedContextId,
