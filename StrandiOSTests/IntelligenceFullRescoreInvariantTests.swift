@@ -1104,6 +1104,72 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
         XCTAssertEqual(replayedRows, referenceRows)
     }
 
+    private struct ChunkWrites: Equatable {
+        let daily: [String: DailyMetric]
+        let rest: [MetricPoint]
+        let sleepV2: [MetricPoint]
+        let sessions: [CachedSleepSession]
+        let workouts: [WorkoutRow]
+    }
+
+    /// Everything a pass persists after the daily reconcile, read back for `days` fixture days.
+    private func chunkWrites(_ harness: Harness, days: Int) async throws -> ChunkWrites {
+        let first = dayKey(0), last = dayKey(days - 1)
+        let from = firstDayStart - 86_400, to = firstDayStart + (days + 1) * 86_400
+        return ChunkWrites(
+            daily: try await stored(harness),
+            rest: try await harness.store.metricSeries(
+                deviceId: harness.computedId, key: "sleep_performance", from: first, to: last),
+            sleepV2: try await harness.store.metricSeries(
+                deviceId: harness.computedId, key: Repository.sleepNeedV2Key, from: first, to: last),
+            sessions: try await harness.store.sleepSessions(
+                deviceId: harness.computedId, from: from, to: to, limit: 4_000),
+            workouts: try await harness.store.workouts(
+                deviceId: harness.computedId, from: from, to: to, limit: 4_000))
+    }
+
+    /// A migration chunk that is cancelled after its daily rows committed finishes the rest of its writes (Rest,
+    /// Sleep V2, sleep sessions, detected workouts) and lands exactly on the rows an uninterrupted chunk stores. The
+    /// writes are separate transactions, so stopping between them left new daily rows beside old Rest scores and
+    /// sleep sessions, and no later pass rewrites an older chunk's days until the same chunk replays. An ordinary
+    /// pass cancelled at the same point still stops.
+    func testACancelledMigrationChunkFinishesItsWritesOnceTheyHaveBegun() async throws {
+        try await withRecalibrationEpochsRestored {
+            let days = 12
+            let uninterrupted = try await makeHarness(days: days)
+            let finished = await pass(uninterrupted, maxDays: days, keepUnproducedHistory: true)
+            XCTAssertTrue(finished)
+            let expected = try await chunkWrites(uninterrupted, days: days)
+            XCTAssertFalse(expected.rest.isEmpty, "the fixture scores Rest")
+            XCTAssertFalse(expected.sleepV2.isEmpty, "the fixture scores Sleep V2")
+            XCTAssertFalse(expected.sessions.isEmpty, "the fixture stores sleep sessions")
+
+            final class TaskBox { var task: Task<Bool, Never>? }
+            let cancelledChunk = try await makeHarness(days: days)
+            let chunkBox = TaskBox()
+            cancelledChunk.engine.afterDailyReconcileForTesting = { chunkBox.task?.cancel() }
+            chunkBox.task = Task { @MainActor in
+                await self.pass(cancelledChunk, maxDays: days, keepUnproducedHistory: true)
+            }
+            let chunkCompleted = await chunkBox.task?.value
+            XCTAssertTrue(chunkBox.task?.isCancelled ?? false, "the cancel landed after the daily reconcile")
+            XCTAssertEqual(chunkCompleted, true, "a chunk past its first write runs to completion")
+            let afterCancelledChunk = try await chunkWrites(cancelledChunk, days: days)
+            XCTAssertEqual(afterCancelledChunk, expected)
+
+            // An ordinary pass keeps stopping at its checkpoints: its Rest series is never written.
+            let cancelledPass = try await makeHarness(days: days)
+            let passBox = TaskBox()
+            cancelledPass.engine.afterDailyReconcileForTesting = { passBox.task?.cancel() }
+            passBox.task = Task { @MainActor in await self.pass(cancelledPass, maxDays: days) }
+            let passCompleted = await passBox.task?.value
+            XCTAssertEqual(passCompleted, false)
+            let afterCancelledPass = try await chunkWrites(cancelledPass, days: days)
+            XCTAssertTrue(afterCancelledPass.rest.isEmpty)
+            XCTAssertTrue(afterCancelledPass.sessions.isEmpty)
+        }
+    }
+
     /// Older rows stored with a different resting HR and HRV (an earlier build's values) skew the Charge of the v3
     /// chunks newer than them, since v3 runs newest first. After the settle pass every Charge equals a
     /// from-scratch oldest-first run over the same chunks.

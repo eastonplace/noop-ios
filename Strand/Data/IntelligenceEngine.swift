@@ -457,6 +457,10 @@ final class IntelligenceEngine: ObservableObject {
     /// optionally tagged with the TestDomain so the Sleep/Battery emitters land under their profile tag.
     var diagnosticSink: ((String, TestDomain?) -> Void)?
 
+    /// Test seam: runs on the main actor right after the daily-row reconcile commits, before the rest of the
+    /// persistence phase. A test cancels the pass from here to prove what a mid-write cancel leaves behind.
+    var afterDailyReconcileForTesting: (() -> Void)?
+
     init(repo: Repository, profile: ProfileStore, deviceId: String) {
         self.repo = repo; self.profile = profile; self.deviceId = deviceId
     }
@@ -2631,6 +2635,13 @@ final class IntelligenceEngine: ObservableObject {
         // Replace the full computed range in one SQLite transaction. Upsert-then-read-then-delete used three
         // separate transactions; any unrelated reader could observe the intermediate generation even when
         // Repository publication was fenced. Manual-Recovery triggers restore protected rows atomically.
+        // A migration chunk (`keepUnproducedHistory`: the v3 and settle rescores) is cancelled when the app returns
+        // to the foreground, but only up to its first durable write. From the daily reconcile to the end of the
+        // persistence phase it runs to completion: the writes are separate transactions, so stopping between them
+        // left a day with the new daily row beside its old Rest score, sleep sessions and detected workouts, and
+        // no later pass rewrites those days until the same chunk replays. The write phase is short next to the scan.
+        // Ordinary passes keep stopping at every checkpoint.
+        let writesStopOnCancel = !keepUnproducedHistory
         do {
             guard !Task.isCancelled else { performanceChangedRows = persistedMutationCount; return false }
             persistedMutationCount += try await store.reconcileDailyMetrics(
@@ -2688,13 +2699,14 @@ final class IntelligenceEngine: ObservableObject {
             NSLog("IntelligenceEngine: computed daily reconciliation failed: \(error)")
             return false
         }
+        afterDailyReconcileForTesting?()
         // Review round 4 (3): each day's Charge breakdown, persisted beside the Charge it explains for every fold.
         // In the window: the strap and wearable-fold days whose reconciled row carries exactly the Charge the
         // drivers were built against, and the Apple Watch days no computed Charge overrides. The Apple fold
         // rescores the whole history, so its days outside the window are rewritten only where their Charge
         // changed.
         do {
-            guard !Task.isCancelled else { performanceChangedRows = persistedMutationCount; return false }
+            guard !(writesStopOnCancel && Task.isCancelled) else { performanceChangedRows = persistedMutationCount; return false }
             let reconciledRecoveryByDay = Dictionary(reconciledDailies.map { ($0.day, $0.recovery) },
                                                      uniquingKeysWith: { _, last in last })
             var windowBreakdowns: [String: StoredChargeBreakdown] = [:]
@@ -2759,7 +2771,7 @@ final class IntelligenceEngine: ObservableObject {
             return false
         }
         do {
-            guard !Task.isCancelled else { performanceChangedRows = persistedMutationCount; return false }
+            guard !(writesStopOnCancel && Task.isCancelled) else { performanceChangedRows = persistedMutationCount; return false }
             // Exact committed work is source-maintenance, not a consent owner. It must still reconcile
             // validation-only primary-session RHR for the exact raw source, but it cannot interpret the
             // deliberately absent pre-sleep observations as deletion. Those five rows belong exclusively
@@ -2784,7 +2796,7 @@ final class IntelligenceEngine: ObservableObject {
         // raw register value under the strap that recorded it, with its anchor (review round 3 B, round 4 1), keyed
         // by the strap's physical identity (review round 5, 4).
         do {
-            guard !Task.isCancelled else { performanceChangedRows = persistedMutationCount; return false }
+            guard !(writesStopOnCancel && Task.isCancelled) else { performanceChangedRows = persistedMutationCount; return false }
             var whoop4Identities = Set(storedWhoop4SkinByIdentity.keys)
             let nightlySkinPoints = scoredNights.flatMap { night -> [MetricPoint] in
                 guard let mean = night.nightlySkin else { return [] }
@@ -2816,7 +2828,7 @@ final class IntelligenceEngine: ObservableObject {
         }
         if !restPoints.isEmpty {
             do {
-                guard !Task.isCancelled else { performanceChangedRows = persistedMutationCount; return false }
+                guard !(writesStopOnCancel && Task.isCancelled) else { performanceChangedRows = persistedMutationCount; return false }
                 persistedMutationCount += try await store.upsertMetricSeries(restPoints, deviceId: computedId)
             } catch {
                 NSLog("IntelligenceEngine: Rest series persistence failed: \(error)")
@@ -2825,7 +2837,7 @@ final class IntelligenceEngine: ObservableObject {
         }
         if !sleepV2Points.isEmpty {
             do {
-                guard !Task.isCancelled else { performanceChangedRows = persistedMutationCount; return false }
+                guard !(writesStopOnCancel && Task.isCancelled) else { performanceChangedRows = persistedMutationCount; return false }
                 persistedMutationCount += try await store.upsertMetricSeries(
                     sleepV2Points, deviceId: computedId)
             } catch {
@@ -2860,7 +2872,7 @@ final class IntelligenceEngine: ObservableObject {
             heightCm: profile.heightCm, weightKg: profile.weightKg, computedId: computedId,
             satKey: IntelligenceEngine.saturdayKey(onOrBefore: newestDay))
         if !faPts.isEmpty {
-            guard !Task.isCancelled else { performanceChangedRows = persistedMutationCount; return false }
+            guard !(writesStopOnCancel && Task.isCancelled) else { performanceChangedRows = persistedMutationCount; return false }
             persistedMutationCount += (try? await store.upsertMetricSeries(
                 faPts, deviceId: computedId)) ?? 0
         }
@@ -2883,7 +2895,7 @@ final class IntelligenceEngine: ObservableObject {
             steps: vSteps.isEmpty ? nil : vSteps.reduce(0, +) / Double(vSteps.count))
         if let vRes = VitalityEngine.compute(vInputs) {
             let satKey = IntelligenceEngine.saturdayKey(onOrBefore: newestDay)
-            guard !Task.isCancelled else { performanceChangedRows = persistedMutationCount; return false }
+            guard !(writesStopOnCancel && Task.isCancelled) else { performanceChangedRows = persistedMutationCount; return false }
             persistedMutationCount += (try? await store.upsertMetricSeries([
                 MetricPoint(day: satKey, key: "vitality", value: vRes.vitality),
                 MetricPoint(day: satKey, key: "body_age", value: vRes.bodyAge),
@@ -2992,7 +3004,7 @@ final class IntelligenceEngine: ObservableObject {
                     estPts.append(MetricPoint(day: dm.day, key: "steps_est", value: Double(est)))
                 }
                 if !estPts.isEmpty {
-                    guard !Task.isCancelled else { performanceChangedRows = persistedMutationCount; return false }
+                    guard !(writesStopOnCancel && Task.isCancelled) else { performanceChangedRows = persistedMutationCount; return false }
                     persistedMutationCount += (try? await store.upsertMetricSeries(
                         estPts, deviceId: computedId)) ?? 0
                 }
@@ -3076,7 +3088,13 @@ final class IntelligenceEngine: ObservableObject {
                 }
                 let gathered: StepsCalibrationGather
                 do {
-                    gathered = try await CooperativeAnalysisCancellation.runDetached(operation: gather)
+                    if writesStopOnCancel {
+                        gathered = try await CooperativeAnalysisCancellation.runDetached(operation: gather)
+                    } else {
+                        // A migration chunk is past its first write here and runs to completion (see
+                        // `writesStopOnCancel`), so its gather is not cancelled with the grant.
+                        gathered = try await Task.detached(priority: .utility, operation: gather).value
+                    }
                 } catch is CancellationError {
                     performanceChangedRows = persistedMutationCount
                     return false
@@ -3096,7 +3114,7 @@ final class IntelligenceEngine: ObservableObject {
                     }
                 }
                 if !estPts.isEmpty {
-                    guard !Task.isCancelled else { performanceChangedRows = persistedMutationCount; return false }
+                    guard !(writesStopOnCancel && Task.isCancelled) else { performanceChangedRows = persistedMutationCount; return false }
                     persistedMutationCount += (try? await store.upsertMetricSeries(
                         estPts, deviceId: computedId)) ?? 0
                 }
@@ -3143,7 +3161,7 @@ final class IntelligenceEngine: ObservableObject {
         }
         if !cachedSleepKept.isEmpty {
             do {
-                guard !Task.isCancelled else { performanceChangedRows = persistedMutationCount; return false }
+                guard !(writesStopOnCancel && Task.isCancelled) else { performanceChangedRows = persistedMutationCount; return false }
                 persistedMutationCount += try await store.upsertSleepSessions(
                     cachedSleepKept, deviceId: computedId)
             } catch {
@@ -3218,7 +3236,7 @@ final class IntelligenceEngine: ObservableObject {
         }
         let healDropped = SleepSessionDedup.dedupe(healable, freshStarts: keptStarts).dropped
         do {
-            guard !Task.isCancelled else { performanceChangedRows = persistedMutationCount; return false }
+            guard !(writesStopOnCancel && Task.isCancelled) else { performanceChangedRows = persistedMutationCount; return false }
             let auxResult = try await store.applySleepAuxiliaryMutations(
                 deviceId: computedId,
                 motionByStart: motionByStart,
@@ -3272,7 +3290,7 @@ final class IntelligenceEngine: ObservableObject {
         // scored window (a bout's startTs can drift as more HR arrives, which would otherwise orphan
         // stale rows under the (deviceId,startTs,sport) key), then re-insert.
         do {
-            guard !Task.isCancelled else { performanceChangedRows = persistedMutationCount; return false }
+            guard !(writesStopOnCancel && Task.isCancelled) else { performanceChangedRows = persistedMutationCount; return false }
             // Review round 7 (1): a migration chunk keeps the detected workouts of the days it keeps, and of the
             // older chunk's evening before its window, which that chunk reconciles itself. A stored bout this
             // pass re-detected (overlapping a produced row) is replaced, not duplicated.
@@ -3299,7 +3317,7 @@ final class IntelligenceEngine: ObservableObject {
         // #137: a manually-started workout is scored from sparse live HR at save time , near-zero
         // calories/strain on a 5/MG. Now that offloaded HR may cover the window, re-score the
         // under-sampled ones from that denser data.
-        guard !Task.isCancelled else { performanceChangedRows = persistedMutationCount; return false }
+        guard !(writesStopOnCancel && Task.isCancelled) else { performanceChangedRows = persistedMutationCount; return false }
         let measuredRestingHRByDay: [ManualWorkoutRescore.DailyRestingHR] = civilDays.compactMap { window in
             guard let restingHR = out.first(where: { $0.day == window.day })?.rhr,
                   let owner = readOwnerByDay[window.day]?.owner else { return nil }
@@ -3325,7 +3343,7 @@ final class IntelligenceEngine: ObservableObject {
         // pass (#899 dedup deleted stale session rows but no daily changed) must refresh too, so the
         // Sleep tab stops showing the removed duplicates right away.
         if persistedMutationCount > 0 && refreshRepository {
-            guard !Task.isCancelled else { performanceChangedRows = persistedMutationCount; return false }
+            guard !(writesStopOnCancel && Task.isCancelled) else { performanceChangedRows = persistedMutationCount; return false }
             _ = await repo.refresh(.currentDay)
         }
         performanceChangedRows = persistedMutationCount
@@ -3333,7 +3351,7 @@ final class IntelligenceEngine: ObservableObject {
         // #836: record the raw-HR fingerprint this run scored against, so a later NON-forced tick can
         // short-circuit while it's unchanged. Written ONLY here at the end of a completed run (never on an
         // early guard-return), so an interrupted/failed run can't advance the watermark past unscored data.
-        guard !Task.isCancelled else { performanceChangedRows = persistedMutationCount; return false }
+        guard !(writesStopOnCancel && Task.isCancelled) else { performanceChangedRows = persistedMutationCount; return false }
         if sourceContext == nil {
             // Pruning happens only here, after the complete pass: `nextCache` contains exactly the eligible
             // days in this active civil-day window. A failed/cancelled pass leaves the prior cache untouched.
