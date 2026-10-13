@@ -134,6 +134,20 @@ final class PersonalZoneSecondsTests: XCTestCase {
                        live.seconds)
     }
 
+    func testComputeTakesReadingsInAsTheLivePathDoes() {
+        // A zero from a reconnect, a spike and a reading below any pulse are dropped; one without a timestamp too; a repeated
+        // second keeps its last reading; and the order the readings arrive in does not matter.
+        let noisy = [sample(6, 80), sample(0, 80), sample(1, 0), sample(3, 255), sample(4, 80), sample(4, 150), sample(5, 29),
+                     HRSample(ts: 0, bpm: 80), sample(2, 80)]
+        let clean = [sample(0, 80), sample(2, 80), sample(4, 150), sample(6, 80)]
+        let expected = PersonalZoneSeconds.compute(samples: clean, pauses: WorkoutPauseLedger(), thresholds: thresholds)
+        XCTAssertEqual(expected.seconds, [4, 0, 2])
+        XCTAssertEqual(PersonalZoneSeconds.compute(samples: noisy, pauses: WorkoutPauseLedger(), thresholds: thresholds).seconds,
+                       expected.seconds)
+        XCTAssertEqual(PersonalZoneSeconds.canonical(noisy).map(\.ts), [t0, t0 + 2, t0 + 4, t0 + 6])
+        XCTAssertEqual(PersonalZoneSeconds.canonical(noisy).map(\.bpm), [80, 80, 150, 80])
+    }
+
     func testQuantizedSecondsRoundDownSoTheScreenChangesEveryFiveSeconds() {
         var zones = PersonalZoneSeconds()
         zones.append(sample(0, 150), thresholds: thresholds)

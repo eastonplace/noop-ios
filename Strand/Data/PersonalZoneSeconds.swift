@@ -55,10 +55,23 @@ struct PersonalZoneSeconds: Equatable, Codable, Sendable {
         lastCreditedSeconds = 0
     }
 
+    /// The readings a workout counts, the way the live path takes them in: in time order, with a timestamp, between 30 and 240
+    /// bpm (a strap that reconnects can report a zero, and nothing living reads 255), and one per second, the last of a
+    /// repeated second.
+    static func canonical(_ samples: [HRSample]) -> [HRSample] {
+        var canonical: [HRSample] = []
+        for sample in samples.sorted(by: { $0.ts < $1.ts }) where sample.ts > 0 && (30...240).contains(sample.bpm) {
+            if canonical.last?.ts == sample.ts { canonical[canonical.count - 1] = sample } else { canonical.append(sample) }
+        }
+        return canonical
+    }
+
     /// The same numbers rebuilt from a workout's readings and pauses, stretch by stretch, the way the live path builds them.
+    /// Whatever readings it is given, they are first taken in as the live path takes them (`canonical`), so the numbers do not
+    /// depend on which caller is asking.
     static func compute(samples: [HRSample], pauses: WorkoutPauseLedger, thresholds: HRZoneStyle.Thresholds) -> PersonalZoneSeconds {
         var result = PersonalZoneSeconds()
-        for (index, stretch) in pauses.segments(of: samples).enumerated() {
+        for (index, stretch) in pauses.segments(of: canonical(samples)).enumerated() {
             if index > 0 { result.breakStretch() }
             for sample in stretch { result.append(sample, thresholds: thresholds) }
         }
