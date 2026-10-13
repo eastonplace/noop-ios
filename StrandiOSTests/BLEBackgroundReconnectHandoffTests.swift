@@ -126,6 +126,29 @@ final class BLEBackgroundReconnectHandoffTests: XCTestCase {
         XCTAssertFalse(manager.autoReconnectPausedForBackgroundCapForTesting)
     }
 
+    /// Review R3b #4/#6: a suspended app runs no timer and a quiet strap sends no notification, so a
+    /// CLIENT_HELLO hold takes a background task for its length, and the task ends with the hold.
+    func testAHoldKeepsTheAppRunningUntilTheSeriesEnds() {
+        let manager = BLEManager(state: LiveState(), collector: nil)
+        manager.startWhoop5HoldKeepAliveForTesting(until: Date().addingTimeInterval(30))
+        XCTAssertTrue(manager.whoop5HoldTimerArmedForTesting)
+        XCTAssertTrue(manager.whoop5HoldBackgroundTaskActiveForTesting, "a background task covers the hold")
+        manager.disconnect()
+        XCTAssertFalse(manager.whoop5HoldTimerArmedForTesting)
+        XCTAssertFalse(manager.whoop5HoldBackgroundTaskActiveForTesting, "the task ends with the hold")
+    }
+
+    func testTheHoldDeadlineEndsTheBackgroundTask() async throws {
+        let manager = BLEManager(state: LiveState(), collector: nil)
+        manager.startWhoop5HoldKeepAliveForTesting(until: Date().addingTimeInterval(0.2))
+        XCTAssertTrue(manager.whoop5HoldBackgroundTaskActiveForTesting)
+        for _ in 0..<50 where manager.whoop5HoldBackgroundTaskActiveForTesting {
+            try await Task.sleep(nanoseconds: 100_000_000)
+        }
+        XCTAssertFalse(manager.whoop5HoldTimerArmedForTesting)
+        XCTAssertFalse(manager.whoop5HoldBackgroundTaskActiveForTesting, "the app is free to suspend once the hold ends")
+    }
+
     /// End to end through the real target lookup: with no powered-on central (the simulator) there is no
     /// strap to hand off to, so the timer stays armed for when the app comes back.
     func testWithNoReachableStrapTheBackgroundTransitionKeepsTheTimer() {

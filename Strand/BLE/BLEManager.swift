@@ -750,6 +750,10 @@ public final class BLEManager: NSObject, ObservableObject {
     /// The secure attempt whose CLIENT_HELLO is being held, and the timer that releases it.
     private var whoop5HeldClientHello: Whoop5SecureSessionID?
     private var whoop5HeldClientHelloWork: DispatchWorkItem?
+    #if os(iOS)
+    /// Keeps the app running through a CLIENT_HELLO hold (a suspended app runs no timer).
+    private var whoop5HoldBackgroundTask: UIBackgroundTaskIdentifier = .invalid
+    #endif
     /// NotificationCenter token for the background reconnect handoff (installBackgroundReconnectHandoff).
     private var backgroundReconnectHandoffObserver: NSObjectProtocol?
     /// When the current link came up, and whether it carried a confirmed history ACK — the two health
@@ -1486,6 +1490,7 @@ public final class BLEManager: NSObject, ObservableObject {
     /// F1: the app is in the foreground, where the ladder paces retries again. The background attempt
     /// count starts over, and a background-cap pause lifts with one system reconnect.
     func resumeAutoReconnectInForeground() {
+        releaseHeldWhoop5ClientHelloIfDue()
         reconnectPolicy.enteredForeground()
         guard autoReconnectPausedForBackgroundCap else { return }
         autoReconnectPausedForBackgroundCap = false
@@ -1510,6 +1515,7 @@ public final class BLEManager: NSObject, ObservableObject {
     /// would be pending to wake it. Hand it to an OS-managed pending connect now; a secure-recovery delay
     /// moves onto the secure handshake.
     func handOffArmedReconnectForBackground() {
+        releaseHeldWhoop5ClientHelloIfDue()
         let target = pendingReconnectTarget(dropped: peripheral)
         handOffArmedReconnect(targetState: target.map { Self.reconnectLinkState($0) }) { [weak self] holdUntil in
             guard let self, let target else { return }
@@ -1564,6 +1570,18 @@ public final class BLEManager: NSObject, ObservableObject {
     func pauseAutoReconnectForBackgroundCapForTesting() { autoReconnectPausedForBackgroundCap = true }
 
     var autoReconnectPausedForBackgroundCapForTesting: Bool { autoReconnectPausedForBackgroundCap }
+
+    func startWhoop5HoldKeepAliveForTesting(until notBefore: Date) { startWhoop5HoldKeepAlive(until: notBefore) }
+
+    var whoop5HoldTimerArmedForTesting: Bool { whoop5HeldClientHelloWork != nil }
+
+    var whoop5HoldBackgroundTaskActiveForTesting: Bool {
+        #if os(iOS)
+        whoop5HoldBackgroundTask != .invalid
+        #else
+        false
+        #endif
+    }
 
     var whoop5HandshakeHoldForTesting: Date? { whoop5SecureHandshakeNotBefore }
 
@@ -5734,20 +5752,53 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
         }
     }
 
-    /// F1: hold the CLIENT_HELLO until the secure-recovery delay ends. The release does not depend on a
-    /// timer waking a suspended app: standard HR keeps notifying on this link while the hello is held,
-    /// and every inbound notification checks the deadline (`releaseHeldWhoop5ClientHelloIfDue`). The
-    /// timer covers a link with no notifications while the app is running.
+    /// F1: hold the CLIENT_HELLO until the secure-recovery delay ends. A suspended app runs no timer and
+    /// a quiet strap (off-wrist, resting) may send no notification for minutes, so a background task keeps
+    /// the app running through the hold. If iOS grants less time than the hold, the task's expiration
+    /// sends the hello early rather than leaving the link connected and unauthenticated. Inbound
+    /// notifications and the app changing foreground state also release a hold that has run out
+    /// (`releaseHeldWhoop5ClientHelloIfDue`).
     private func holdWhoop5ClientHello(_ sessionID: Whoop5SecureSessionID, until notBefore: Date) {
         // Discovery is complete; its 20 s deadline must not fail the attempt during a longer hold.
         finishWhoop5DiscoveryDeadline()
         whoop5HeldClientHello = sessionID
-        whoop5HeldClientHelloWork?.cancel()
-        let work = DispatchWorkItem { [weak self] in self?.releaseHeldWhoop5ClientHelloIfDue(force: true) }
-        whoop5HeldClientHelloWork = work
+        startWhoop5HoldKeepAlive(until: notBefore)
         let remaining = max(0, notBefore.timeIntervalSinceNow)
-        DispatchQueue.main.asyncAfter(deadline: .now() + remaining, execute: work)
         log("WHOOP 5/MG: secure recovery delay - holding CLIENT_HELLO for \(Int(remaining.rounded(.up)))s after the reconnect")
+    }
+
+    /// The hold's release timer, on the wall clock (an uptime timer stretches while the device sleeps),
+    /// and on iOS a background task that lasts until the hold ends.
+    private func startWhoop5HoldKeepAlive(until notBefore: Date) {
+        whoop5HeldClientHelloWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.whoop5HoldDeadlineReached() }
+        whoop5HeldClientHelloWork = work
+        DispatchQueue.main.asyncAfter(wallDeadline: .now() + max(0, notBefore.timeIntervalSinceNow), execute: work)
+        #if os(iOS)
+        if whoop5HoldBackgroundTask == .invalid {
+            whoop5HoldBackgroundTask = UIApplication.shared.beginBackgroundTask(
+                withName: "WHOOP secure recovery hold") { [weak self] in
+                self?.whoop5HoldDeadlineReached()
+            }
+        }
+        #endif
+    }
+
+    /// The hold ran out, or iOS is about to end the background time: send the hello now.
+    private func whoop5HoldDeadlineReached() {
+        releaseHeldWhoop5ClientHelloIfDue(force: true)
+        stopWhoop5HoldKeepAlive()
+    }
+
+    private func stopWhoop5HoldKeepAlive() {
+        whoop5HeldClientHelloWork?.cancel()
+        whoop5HeldClientHelloWork = nil
+        #if os(iOS)
+        if whoop5HoldBackgroundTask != .invalid {
+            UIApplication.shared.endBackgroundTask(whoop5HoldBackgroundTask)
+            whoop5HoldBackgroundTask = .invalid
+        }
+        #endif
     }
 
     /// Release a held CLIENT_HELLO once its delay has run out (or at once when `force` is set, or the
@@ -5765,8 +5816,7 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
     /// The held attempt is over (released, or its link dropped). Its deadline stands.
     private func cancelHeldWhoop5ClientHello() {
         whoop5HeldClientHello = nil
-        whoop5HeldClientHelloWork?.cancel()
-        whoop5HeldClientHelloWork = nil
+        stopWhoop5HoldKeepAlive()
     }
 
     /// The recovery series ended (user disconnect or forget, or the hold ran out): drop the deadline too.
