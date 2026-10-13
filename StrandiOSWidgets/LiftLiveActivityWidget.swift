@@ -24,6 +24,8 @@ struct LiftLiveActivityWidget: Widget {
         .activityBackgroundTint(.black)
         .activitySystemActionForegroundColor(.white)
         .widgetURL(WorkoutDeepLink.activeLift.url)
+        // Rendered by the system against a watchdog: the eyebrow starts no task or repeating animation here.
+        .environment(\.strandRendersStatically, true)
     } dynamicIsland: { context in
       DynamicIsland {
         DynamicIslandExpandedRegion(.leading) {
