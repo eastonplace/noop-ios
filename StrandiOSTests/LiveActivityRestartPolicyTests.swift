@@ -8,12 +8,28 @@ final class LiveActivityRestartPolicyTests: XCTestCase {
     private let start = Date(timeIntervalSince1970: 1_800_000_000)
 
     func testAnEndedActivityOrADismissalAfterAnObservedEndIsTheSystems() {
-        XCTAssertEqual(LiveActivityRestartPolicy.cause(of: .ended, endObserved: false), .system)
-        XCTAssertEqual(LiveActivityRestartPolicy.cause(of: .ended, endObserved: true), .system)
-        XCTAssertEqual(LiveActivityRestartPolicy.cause(of: .dismissed, endObserved: true), .system,
+        XCTAssertEqual(LiveActivityRestartPolicy.cause(of: .ended, endObserved: false, liveFor: 600), .system)
+        XCTAssertEqual(LiveActivityRestartPolicy.cause(of: .ended, endObserved: true, liveFor: 600), .system)
+        XCTAssertEqual(LiveActivityRestartPolicy.cause(of: .dismissed, endObserved: true, liveFor: 600), .system,
                        "the system ended it, then removed it")
-        XCTAssertEqual(LiveActivityRestartPolicy.cause(of: .dismissed, endObserved: false), .person,
-                       "a swipe removes it with no end before")
+    }
+
+    /// `dismissed` alone is a person's swipe only once the activity had shown long enough to have rendered. A removal
+    /// sooner is a render the system gave up on, and goes through the backoff and the cap instead of a hold.
+    func testABareDismissalIsAPersonsOnlyAfterTheActivityHadRendered() {
+        XCTAssertEqual(LiveActivityRestartPolicy.cause(of: .dismissed, endObserved: false, liveFor: 5), .system)
+        XCTAssertEqual(LiveActivityRestartPolicy.cause(
+            of: .dismissed, endObserved: false, liveFor: LiveActivityRestartPolicy.renderedAfter - 0.1), .system)
+        XCTAssertEqual(LiveActivityRestartPolicy.cause(
+            of: .dismissed, endObserved: false, liveFor: LiveActivityRestartPolicy.renderedAfter), .person)
+        XCTAssertEqual(LiveActivityRestartPolicy.cause(of: .dismissed, endObserved: false, liveFor: 600), .person)
+
+        var policy = LiveActivityRestartPolicy()
+        policy.noteDrive(workoutIsActive: true)
+        policy.noteGone(LiveActivityRestartPolicy.cause(of: .dismissed, endObserved: false, liveFor: 3), now: start)
+        XCTAssertFalse(policy.dismissedByPerson, "no hold for the rest of the workout")
+        XCTAssertEqual(policy.systemEnds, 1)
+        XCTAssertEqual(policy.verdict(now: start.addingTimeInterval(LiveActivityRestartPolicy.firstBackoff)), .allowed)
     }
 
     func testAFreshPolicyAllowsARequest() {

@@ -16,16 +16,20 @@ struct LiveActivityRestartPolicy: Equatable {
 
     static let firstBackoff: TimeInterval = 30
     static let maxRestartsPerWorkout = 4
+    /// An activity that showed this long before it was removed had rendered, so a removal with no end before it is a
+    /// person's swipe. Removed sooner, it is the system's (a render that never finished).
+    static let renderedAfter: TimeInterval = 20
 
     private(set) var systemEnds = 0
     private(set) var nextRequestAt: Date?
     private(set) var dismissedByPerson = false
     private var lastWorkoutIsActive: Bool?
 
-    /// A person's swipe removes the activity at once: `dismissed`, with no `ended` before it. The system ends an activity
-    /// first (`ended`) and may then remove it, so a `dismissed` that followed an observed `ended` is the system's.
-    static func cause(of disappearance: Disappearance, endObserved: Bool) -> Cause {
-        disappearance == .ended || endObserved ? .system : .person
+    /// `dismissed` can come from a person or the system. It is the system's when an `ended` came first (observed, or read
+    /// on a drive), or when the activity was removed before it had shown for `renderedAfter`; otherwise a person's.
+    static func cause(of disappearance: Disappearance, endObserved: Bool, liveFor: TimeInterval) -> Cause {
+        if disappearance == .ended || endObserved { return .system }
+        return liveFor >= renderedAfter ? .person : .system
     }
 
     /// Every drive says whether a workout is active. The first workout drive after one without a workout starts a new

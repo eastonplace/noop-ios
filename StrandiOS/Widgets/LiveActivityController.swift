@@ -109,6 +109,10 @@ final class LiveActivityController {
     /// The activities whose `ended` state was seen, so a later `dismissed` reads as the system's end, not a person's.
     private var endObserved: Set<String> = []
     private var stateObserver: Task<Void, Never>?
+    /// When this process started (or adopted) its activity, and the last drive that found it still showing: how long it
+    /// showed tells a person's swipe from a render the system gave up on.
+    private var activityLiveSince: Date?
+    private var activityLastSeenLive: Date?
     #if DEBUG
     private var component41QAMode = false
     #endif
@@ -222,19 +226,26 @@ final class LiveActivityController {
             lastContentState = existing.content.state
             lastPush = .distantPast
             observeState(of: existing)
+            noteActivityShowing(since: Date())
         }
 
         // An activity the app did not end is gone (the system could not render it, it went stale or ran out of time, or a
         // person swiped it away). Updating it does nothing, so drop it: the request below starts another when the
         // restart policy allows one.
+        // The state is read on every drive, so an `ended` is seen here even when the observer has not reported it yet.
         if let current = activity, let gone = Self.disappearance(current.activityState) {
-            let cause = LiveActivityRestartPolicy.cause(of: gone, endObserved: endObserved.contains(current.id))
+            let liveSince = activityLiveSince ?? Date()
+            let cause = LiveActivityRestartPolicy.cause(
+                of: gone, endObserved: endObserved.contains(current.id),
+                liveFor: (activityLastSeenLive ?? liveSince).timeIntervalSince(liveSince))
             restartPolicy.noteGone(cause, now: Date())
             NSLog("NOOP LiveActivity: %@ by the %@", gone.rawValue, cause.rawValue)
             trace(input, "gone", "state=\(gone.rawValue) cause=\(cause.rawValue) id=\(Self.shortId(current))")
             // An ended activity can stay on the Lock Screen, frozen; the one that replaces it must not appear beside it.
             if gone == .ended { await current.end(nil, dismissalPolicy: .immediate) }
             resetCachedState()
+        } else if activity != nil {
+            activityLastSeenLive = Date()
         }
 
         let enabled = UnitPrefs.liveActivityEnabled()
@@ -379,6 +390,7 @@ final class LiveActivityController {
                 lastLoggedExit = nil
                 if let activity {
                     observeState(of: activity)
+                    noteActivityShowing(since: now)
                     trace(input, "requested", "id=\(Self.shortId(activity)) state=\(activity.activityState)")
                 } else {
                     trace(input, "requested")
@@ -576,12 +588,19 @@ final class LiveActivityController {
         }
     }
 
+    private func noteActivityShowing(since date: Date) {
+        activityLiveSince = date
+        activityLastSeenLive = date
+    }
+
     private func resetCachedState() {
         pauseEdges.reset()
         activity = nil
         stateObserver?.cancel()
         stateObserver = nil
         endObserved.removeAll()
+        activityLiveSince = nil
+        activityLastSeenLive = nil
         lastModeWasWorkout = nil
         workoutStateCache.clear()
         lastContentState = nil
