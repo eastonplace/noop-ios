@@ -1647,6 +1647,8 @@ final class IntelligenceEngine: ObservableObject {
         }
         let skinDayKeys = histSkinByDay.keys.sorted()
         let skinSeq = skinDayKeys.map { histSkinByDay[$0]! }
+        // Review round 3 (F): whether the skin fold holds any night from before this pass's window.
+        let skinHistoryReachesBeforeWindow = histSkinByDay.contains { $0.key < oldestCivilDay.day && $0.value != nil }
         // Resp baseline gated on `usable`: RecoveryScorer includes the resp term whenever a
         // baseline object is present , a CALIBRATING (<4-night) baseline would let one noisy
         // RSA night move recovery (mirrors the skin-temp use-site gate; honest cold-start).
@@ -1878,10 +1880,14 @@ final class IntelligenceEngine: ObservableObject {
             }
             var skinDev = recomputeSkinTempDev(night.nightlySkin, dayBaselines.skinTemp)
             // F2: a completed day whose as-of skin baseline isn't usable here (its earlier nights predate the
-            // persisted nightly means) keeps its stored deviation instead of losing it.
-            if skinDev == nil, night.nightlySkin != nil, dayBaselines.skinTemp == nil,
-               daily.day < currentCivilDay.day {
-                skinDev = storedComputedByDay[daily.day]?.skinTempDevC
+            // persisted nightly means) keeps its stored deviation instead of losing it. Review round 3 (F): so
+            // does every completed day while the skin fold starts inside this pass's window, as on an upgraded
+            // device whose v3 chunks run newest first before any nightly mean is persisted. A chunk-local
+            // baseline is no better than the one the stored value was scored against.
+            if night.nightlySkin != nil, daily.day < currentCivilDay.day,
+               let storedSkinDev = storedComputedByDay[daily.day]?.skinTempDevC,
+               (skinDev == nil && dayBaselines.skinTemp == nil) || !skinHistoryReachesBeforeWindow {
+                skinDev = storedSkinDev
             }
             let source = DaySource.classify(day: daily.day, importedWhoopDays: importedWhoopDays,
                                             appleHealthDays: appleHealthDays)

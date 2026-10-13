@@ -39,10 +39,11 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
     }
 
     /// Nights for days `strapDays` (0 = the first fixture day). The pass's "now" is 22:00 on the last day, so no
-    /// reading is in the future. `whoop4` pairs the strap as a WHOOP 4.0, whose skin register
+    /// reading is in the future. A day in `lateNights` stays up past midnight instead: awake from 23:00, an hour
+    /// of exercise from 00:00, asleep at 01:30. `whoop4` pairs the strap as a WHOOP 4.0, whose skin register
     /// is converted with an anchor each pass learns from its own window; its nightly raws drift up 2 units a
     /// night, so passes over different windows learn different anchors.
-    private func makeHarness(days: Int, strapDays: Range<Int>? = nil,
+    private func makeHarness(days: Int, strapDays: Range<Int>? = nil, lateNights: Set<Int> = [],
                              whoop4: Bool = false) async throws -> Harness {
         let store = try await WhoopStore.inMemory()
         if whoop4 {
@@ -58,7 +59,18 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
         for k in strapDays ?? 0..<days {
             let s = firstDayStart + k * 86_400
             var streams = Streams()
-            for ts in stride(from: s - 3_600, to: s + 6 * 3_600, by: 30) {
+            let late = lateNights.contains(k)
+            let onset = late ? s + 5_400 : s - 3_600
+            if late {
+                for ts in stride(from: s - 3_600, to: onset, by: 30) {
+                    let exercising = ts >= s && ts < s + 3_600
+                    streams.hr.append(HRSample(ts: ts, bpm: exercising ? 135 + ts % 11 : 78 + ts % 9))
+                    let wobble = Double(ts % 11) * 0.2
+                    streams.gravity.append(GravitySample(ts: ts, x: wobble, y: 0.3 - wobble, z: 0.8))
+                    if !whoop4, ts % 60 == 0 { streams.skinTemp.append(SkinTempSample(ts: ts, raw: 3_300)) }
+                }
+            }
+            for ts in stride(from: onset, to: s + 6 * 3_600, by: 30) {
                 streams.hr.append(HRSample(ts: ts, bpm: 52 + k % 3))
                 streams.gravity.append(GravitySample(ts: ts, x: 0, y: 0, z: 1))
                 if ts % 60 == 0 {
@@ -68,7 +80,8 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
             }
             var toggle = false
             let swing = 8 + (k % 4) * 3
-            for ts in stride(from: s + 3_600, to: s + 2 * 3_600, by: 2) {
+            let rrStart = late ? s + 9_000 : s + 3_600
+            for ts in stride(from: rrStart, to: rrStart + 3_600, by: 2) {
                 toggle.toggle()
                 streams.rr.append(RRInterval(ts: ts, rrMs: 1_150 + (toggle ? swing : -swing)))
             }
@@ -126,10 +139,14 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
     /// deviation, HRV or resting HR into nil (F3). Skin deviations come out identical (F2: the as-of skin
     /// baseline used to see only the chunk, so the oldest four days of every chunk were wiped), and so does
     /// Effort on the chunk edges (F5: the newest day of each chunk had no successor and was cut at midnight).
+    /// The night after each chunk's newest day is a late one with exercise from midnight to 01:00, so a cycle
+    /// cut at midnight loses that hour and Effort differs (review round 3, finding 11).
     func testFullChunkedRescoreKeepsEveryStoredValue() async throws {
         try await withRecalibrationEpochsRestored {
             let days = 95
-            let harness = try await makeHarness(days: days)
+            let chunk = IntelligenceEngine.effortRescoreChunkDays
+            let chunkEdges = Array(stride(from: days - 1 - chunk, through: 0, by: -chunk))
+            let harness = try await makeHarness(days: days, lateNights: Set(chunkEdges.map { $0 + 1 }))
             let single = await pass(harness, maxDays: days)
             XCTAssertTrue(single)
             let before = try await stored(harness)
@@ -149,6 +166,46 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
                 XCTAssertEqual(b?.skinTempDevC, a?.skinTempDevC, "\(day) skin deviation unchanged")
                 XCTAssertEqual(b?.recovery, a?.recovery, "\(day) Charge unchanged")
                 XCTAssertEqual(b?.strain, a?.strain, "\(day) Effort unchanged")
+            }
+            for edge in chunkEdges {
+                XCTAssertNotNil(before[harness.dayKeys[edge]]?.strain, "chunk edge \(edge) must score Effort")
+            }
+        }
+    }
+
+    // MARK: - Upgrade path (review round 3, findings 7 and 12)
+
+    /// An upgraded device has stored rows and no persisted nightly skin means. The v3 chunks run newest first,
+    /// so no chunk's skin history reaches before its own window: every completed day keeps its stored
+    /// deviation instead of being rewritten against a chunk-local baseline, and no stored field turns nil.
+    func testUpgradeRescoreKeepsStoredSkinDeviationsWithoutPersistedMeans() async throws {
+        try await withRecalibrationEpochsRestored {
+            let days = 40
+            let harness = try await makeHarness(days: days)
+            let single = await pass(harness, maxDays: days)
+            XCTAssertTrue(single)
+            // Rows "from before the upgrade": scored by older code (a different deviation), no nightly means.
+            let scored = try await stored(harness)
+            let preUpgrade = harness.dayKeys.compactMap { scored[$0] }.map { row in
+                row.with(recovery: row.recovery, skinTempDevC: row.skinTempDevC.map { $0 + 0.07 })
+            }
+            _ = try await harness.store.upsertDailyMetrics(preUpgrade, deviceId: harness.computedId)
+            _ = try await harness.store.deleteMetricSeriesGlobally(keys: ["skin_temp_night_mean_c"])
+            let before = try await stored(harness)
+            XCTAssertGreaterThan(before.values.compactMap(\.skinTempDevC).count, 30, "fixture must store skin")
+
+            let chunked = await chunkedRescore(harness, days: days)
+            XCTAssertTrue(chunked)
+            let after = try await stored(harness)
+
+            let today = harness.dayKeys[days - 1]
+            for day in harness.dayKeys {
+                let a = before[day], b = after[day]
+                if a?.recovery != nil { XCTAssertNotNil(b?.recovery, "\(day) recovery") }
+                if a?.skinTempDevC != nil { XCTAssertNotNil(b?.skinTempDevC, "\(day) skin") }
+                if a?.avgHrv != nil { XCTAssertNotNil(b?.avgHrv, "\(day) hrv") }
+                if a?.restingHr != nil { XCTAssertNotNil(b?.restingHr, "\(day) rhr") }
+                if day != today { XCTAssertEqual(b?.skinTempDevC, a?.skinTempDevC, "\(day) stored deviation kept") }
             }
         }
     }
