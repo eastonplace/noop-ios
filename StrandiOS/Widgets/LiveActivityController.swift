@@ -104,6 +104,11 @@ final class LiveActivityController {
     /// activity every second, so an unchanged reason is not logged again.
     private var lastLoggedExit: String?
     private let traceLog = LiveActivityTrace.shared
+    /// Whether a new activity may be requested after the last one went away without the app ending it.
+    private var restartPolicy = LiveActivityRestartPolicy()
+    /// The activities whose `ended` state was seen, so a later `dismissed` reads as the system's end, not a person's.
+    private var endObserved: Set<String> = []
+    private var stateObserver: Task<Void, Never>?
     #if DEBUG
     private var component41QAMode = false
     #endif
@@ -189,6 +194,8 @@ final class LiveActivityController {
         // A drive behind the verified generation is written without its health values (below).
         var input = input
         var expectedToken = expectedToken
+        // Barriers carry no workout state of their own; every drive says whether a workout is active.
+        if input.source != .lifecycle { restartPolicy.noteDrive(workoutIsActive: input.workoutIsActive) }
         guard expectedActiveContextId == nil || expectedActiveContextId == input.verifiedContextId else {
             trace(input, "superseded", "reason=context-changed")
             return .superseded
@@ -206,11 +213,28 @@ final class LiveActivityController {
             return .notApplicable
         }
 
-        if activity == nil, let existing = Activity<NOOPActivityAttributes>.activities.first {
+        if activity == nil,
+           let existing = Activity<NOOPActivityAttributes>.activities.first(where: {
+               Self.disappearance($0.activityState) == nil
+           }) {
             activity = existing
             lastModeWasWorkout = existing.content.state.isWorkout
             lastContentState = existing.content.state
             lastPush = .distantPast
+            observeState(of: existing)
+        }
+
+        // An activity the app did not end is gone (the system could not render it, it went stale or ran out of time, or a
+        // person swiped it away). Updating it does nothing, so drop it: the request below starts another when the
+        // restart policy allows one.
+        if let current = activity, let gone = Self.disappearance(current.activityState) {
+            let cause = LiveActivityRestartPolicy.cause(of: gone, endObserved: endObserved.contains(current.id))
+            restartPolicy.noteGone(cause, now: Date())
+            NSLog("NOOP LiveActivity: %@ by the %@", gone.rawValue, cause.rawValue)
+            trace(input, "gone", "state=\(gone.rawValue) cause=\(cause.rawValue) id=\(Self.shortId(current))")
+            // An ended activity can stay on the Lock Screen, frozen; the one that replaces it must not appear beside it.
+            if gone == .ended { await current.end(nil, dismissalPolicy: .immediate) }
+            resetCachedState()
         }
 
         let enabled = UnitPrefs.liveActivityEnabled()
@@ -326,6 +350,22 @@ final class LiveActivityController {
             pauseEdges.delivered(builtAt: edgesCarried)
             return .published
         } else {
+            switch restartPolicy.verdict(now: now) {
+            case .allowed:
+                break
+            case .dismissedByPerson:
+                logExit("not shown, dismissed on the Lock Screen until the next workout")
+                trace(input, "not-shown", "reason=dismissed-by-person")
+                return .notApplicable
+            case .backoff:
+                logExit("not shown, waiting before asking again after the system ended it")
+                trace(input, "not-shown", "reason=restart-backoff")
+                return .notApplicable
+            case .exhausted:
+                logExit("not shown, the system ended it too often during this workout")
+                trace(input, "not-shown", "reason=restarts-exhausted")
+                return .notApplicable
+            }
             do {
                 activity = try Activity.request(
                     attributes: NOOPActivityAttributes(
@@ -336,7 +376,12 @@ final class LiveActivityController {
                 )
                 NSLog("NOOP LiveActivity: started (%@)", desiredModeIsWorkout ? "workout" : "heart rate")
                 lastLoggedExit = nil
-                trace(input, "requested")
+                if let activity {
+                    observeState(of: activity)
+                    trace(input, "requested", "id=\(Self.shortId(activity)) state=\(activity.activityState)")
+                } else {
+                    trace(input, "requested")
+                }
                 if let expectedToken,
                    !recordVerifiedGeneration(input, token: expectedToken) {
                     trace(input, "ended", "reason=generation-record")
@@ -505,9 +550,37 @@ final class LiveActivityController {
         NSLog("NOOP LiveActivity: %@", reason)
     }
 
+    /// `ended` and `dismissed` are the states an activity cannot come back from; every other state is still showing.
+    private static func disappearance(_ state: ActivityState) -> LiveActivityRestartPolicy.Disappearance? {
+        switch state {
+        case .ended: return .ended
+        case .dismissed: return .dismissed
+        default: return nil
+        }
+    }
+
+    /// Enough of the activity's identifier to match it with the system's log. It carries nothing about the wearer.
+    private static func shortId(_ activity: Activity<NOOPActivityAttributes>) -> String {
+        String(activity.id.prefix(8))
+    }
+
+    /// Remembers whether the activity reported `ended` before it went, which tells a system end from a person's swipe.
+    private func observeState(of activity: Activity<NOOPActivityAttributes>) {
+        stateObserver?.cancel()
+        let id = activity.id
+        stateObserver = Task { [weak self] in
+            for await state in activity.activityStateUpdates where state == .ended {
+                self?.endObserved.insert(id)
+            }
+        }
+    }
+
     private func resetCachedState() {
         pauseEdges.reset()
         activity = nil
+        stateObserver?.cancel()
+        stateObserver = nil
+        endObserved.removeAll()
         lastModeWasWorkout = nil
         workoutStateCache.clear()
         lastContentState = nil
