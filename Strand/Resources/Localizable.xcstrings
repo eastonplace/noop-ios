@@ -45976,6 +45976,18 @@
             "state": "translated",
             "value": "與你的常規相比"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Par rapport à votre habitude"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "По сравнению с вашей нормой"
+          }
         }
       }
     },
@@ -54265,6 +54277,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "詳情"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Détails"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подробности"
           }
         }
       }
@@ -71909,6 +71933,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ 期間的心率"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fréquence cardiaque pendant %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пульс во время: %@"
           }
         }
       }
@@ -91587,6 +91623,18 @@
             "state": "translated",
             "value": "你的 %@ 路線地圖，%@。"
           }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Carte de votre parcours de %@, %@."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Карта вашего маршрута (%@), %@."
+          }
         }
       }
     },
@@ -97732,6 +97780,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "NOOP 根據鍛鍊期間記錄的心率為鍛鍊評分。"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NOOP évalue un entraînement à partir de la fréquence cardiaque enregistrée pendant celui-ci."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NOOP оценивает тренировку по пульсу, записанному во время неё."
           }
         }
       }
@@ -106047,6 +106107,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "未評分"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non évalué"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Без оценки"
           }
         }
       }
@@ -139517,6 +139589,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "已儲存"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enregistré"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сохранено"
           }
         }
       }
@@ -193748,6 +193832,58 @@
           "stringUnit": {
             "state": "translated",
             "value": "時長"
+          }
+        }
+      }
+    },
+    "Saved at %@": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gespeichert um %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Guardado a las %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enregistré à %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Salvato alle %@"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Guardado às %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сохранено в %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已保存于 %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已儲存於 %@"
           }
         }
       }

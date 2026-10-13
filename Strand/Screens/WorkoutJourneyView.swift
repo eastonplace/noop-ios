@@ -18,7 +18,8 @@ enum WorkoutJourneyPhase: Equatable {
     case countdown(sport: String)
     /// The workout is recording.
     case live
-    /// The workout was saved: the screen that says how it went (the workout's detail, with Done).
+    /// The workout was saved: the screen that says how it went (`WorkoutSummaryView`, with Done; its Details opens the workout's
+    /// full detail screen).
     case summary(WorkoutRow)
 }
 
@@ -93,7 +94,8 @@ extension WorkoutJourneyPhase {
     }
 }
 
-/// Raised by the summary's Done and read by `WorkoutDetailView`, whose bottom button then says "Done" and calls it.
+/// Read by `WorkoutDetailView`, whose bottom button then says "Done" and calls it. The journey's summary is its own screen now and
+/// no longer raises it; only the DEBUG "legacy summary" fixture (the way the summary was drawn before the redesign) does.
 struct WorkoutJourneyDoneAction {
     let perform: () -> Void
 }
@@ -125,6 +127,9 @@ private struct WorkoutJourneyHost: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage(WorkoutPrefs.keepScreenOnKey) private var keepScreenOn = WorkoutPrefs.keepScreenOnDefault
     @AppStorage(WorkoutPrefs.countdownOnKey) private var countdownOn = WorkoutPrefs.countdownOnDefault
+    #if DEBUG
+    @EnvironmentObject private var repo: Repository
+    #endif
     @State private var phase: WorkoutJourneyPhase
     /// Whether the GPS had a lock when Start was pressed, for the countdown to say.
     @State private var gpsLockedAtStart: Bool?
@@ -166,6 +171,13 @@ private struct WorkoutJourneyHost: View {
         .task {
             if case .countdown(let sport) = phase, !countdownOn { start(sport) }
         }
+        #if DEBUG
+        // Screenshot fixture: open on the summary of one of the demo week's workouts (`--demo-journey-summary`).
+        .task {
+            guard let scenario = WorkoutSummaryDemo.requested, let row = await WorkoutSummaryDemo.row(for: scenario, in: repo) else { return }
+            phase = .summary(row)
+        }
+        #endif
         .onChange(of: keepScreenOn) { _, _ in updateKeepAwake() }
         // Posted on whatever thread noticed the change; the idle timer is UIKit's, so this hops to the main thread first.
         .onReceive(NotificationCenter.default.publisher(for: .NSProcessInfoPowerStateDidChange)
@@ -173,9 +185,11 @@ private struct WorkoutJourneyHost: View {
         .onDisappear { ScreenIdle.keepAwake(false) }
     }
 
-    /// Setup, the countdown and the live screen are pure black; the summary is the workout's own detail screen.
+    /// Every phase is pure black: setup, the countdown, the live screen and the summary.
     private var phaseCanvas: Color {
-        if case .summary = phase { return StrandPalette.appCanvas }
+        #if DEBUG
+        if case .summary = phase, WorkoutSummaryDemo.usesLegacySummary { return StrandPalette.appCanvas }
+        #endif
         return LivePalette.canvas
     }
 
@@ -202,10 +216,22 @@ private struct WorkoutJourneyHost: View {
         case .live:
             LiveWorkoutView(onClose: onClose, pageMemory: router.workoutPageMemory)
         case .summary(let row):
+            summaryRoot(row)
+        }
+    }
+
+    @ViewBuilder private func summaryRoot(_ row: WorkoutRow) -> some View {
+        #if DEBUG
+        if WorkoutSummaryDemo.usesLegacySummary {
             WorkoutDetailView(row: row)
                 .sheetScreenScaffoldEnvironment(onClose: done)
                 .environment(\.workoutJourneyDone, WorkoutJourneyDoneAction(perform: done))
+        } else {
+            WorkoutSummaryView(row: row, onDone: done)
         }
+        #else
+        WorkoutSummaryView(row: row, onDone: done)
+        #endif
     }
 
     // MARK: Events
