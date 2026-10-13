@@ -310,15 +310,19 @@ final class IntelligenceEngine: ObservableObject {
     /// The calibration a pass that does not fit one applies: the manual override when the owner set one, else the
     /// coefficient the last normal pass fitted and mirrored to the profile. nil until there is one (the estimate is
     /// inert before then, as it always was).
+    ///
+    /// A mirror still flagged `manual` while the override is off is the owner's old manual value, left there until the
+    /// next normal pass refits (or clears) it. It is not a fit, so a gated pass ignores it, exactly as the normal pass
+    /// (which reads the override live) no longer applies it.
     nonisolated static func persistedStepsCalibration(
         manualOverride: Double?, coefficient: Double, sampleDays: Int, confidence: Double, manual: Bool
     ) -> StepsEstimateEngine.Calibration? {
         if let k = manualOverride, k > 0 {
             return StepsEstimateEngine.Calibration(coefficient: k, sampleDays: sampleDays, confidence: 1.0, manual: true)
         }
-        guard coefficient > 0 else { return nil }
+        guard coefficient > 0, !manual else { return nil }
         return StepsEstimateEngine.Calibration(
-            coefficient: coefficient, sampleDays: sampleDays, confidence: confidence, manual: manual)
+            coefficient: coefficient, sampleDays: sampleDays, confidence: confidence, manual: false)
     }
 
     /// One civil day's motion volume for the steps estimate, answered from `cached` when the day's owner, read

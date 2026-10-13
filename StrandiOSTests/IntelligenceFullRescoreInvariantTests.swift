@@ -1007,6 +1007,53 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
         }
     }
 
+    /// The owner turns the manual override OFF. The profile mirror still holds the manual coefficient (only the next
+    /// normal pass refits or clears it), and a gated pass used to keep writing that old manual value into the days it
+    /// scored. It reads the same live override state the normal pass does, so with the override off the stale manual
+    /// mirror is not a calibration and the gated pass writes nothing.
+    func testAGatedPassIgnoresAStaleManualMirrorOnceTheOverrideIsOff() async throws {
+        try await withManualStepsCoefficient(0.05) {
+            // A normal pass with the override on mirrors the manual coefficient to the profile.
+            let mirror = try await makeHarness(days: 45, strapDays: 0..<2)
+            _ = await pass(mirror, maxDays: 60)
+            XCTAssertEqual(calibratedCoefficient, 0.05, accuracy: 1e-12)
+            XCTAssertTrue(UserDefaults.standard.bool(forKey: "profile.stepsCalibrationManual"))
+            let on = try await makeHarness(days: 45, strapDays: 0..<2)
+            _ = await pass(on, maxDays: 30, startOffset: 30, keepUnproducedHistory: true)
+            let whileOn = try await stepsEstimates(on)
+            XCTAssertEqual(Set(whileOn.keys), [dayKey(0), dayKey(1)], "override on: a gated pass applies it")
+
+            // The override goes off; the manual mirror stays on the profile.
+            UserDefaults.standard.set(0.0, forKey: "profile.stepsManualCoefficient")
+            XCTAssertEqual(calibratedCoefficient, 0.05, accuracy: 1e-12, "the stale mirror is still there")
+            let off = try await makeHarness(days: 45, strapDays: 0..<2)
+            _ = await pass(off, maxDays: 30, startOffset: 30, keepUnproducedHistory: true)
+            let whileOff = try await stepsEstimates(off)
+            XCTAssertTrue(whileOff.isEmpty, "override off: a gated pass does not write the old manual k")
+        }
+    }
+
+    /// The pure rule behind it: the override wins when set; a mirror flagged manual is only the override's echo, so
+    /// without the override it is no calibration; a fitted mirror is one.
+    func testPersistedStepsCalibrationNeverTreatsAManualMirrorAsAFit() {
+        let overridden = IntelligenceEngine.persistedStepsCalibration(
+            manualOverride: 0.05, coefficient: 0.03, sampleDays: 12, confidence: 0.8, manual: false)
+        XCTAssertEqual(overridden?.coefficient, 0.05)
+        XCTAssertEqual(overridden?.manual, true)
+
+        XCTAssertNil(IntelligenceEngine.persistedStepsCalibration(
+            manualOverride: nil, coefficient: 0.05, sampleDays: 0, confidence: 1.0, manual: true),
+                     "override off, mirror still manual: nothing to apply")
+
+        let fitted = IntelligenceEngine.persistedStepsCalibration(
+            manualOverride: nil, coefficient: 0.03, sampleDays: 12, confidence: 0.8, manual: false)
+        XCTAssertEqual(fitted?.coefficient, 0.03)
+        XCTAssertEqual(fitted?.manual, false)
+
+        XCTAssertNil(IntelligenceEngine.persistedStepsCalibration(
+            manualOverride: nil, coefficient: 0, sampleDays: 3, confidence: 0, manual: false))
+    }
+
     /// A cached day answers without reading its gravity, and the answer is the one a cold read gives: the next pass
     /// stores the same estimates from the cache, new gravity on a cached day re-reads that day, and a fresh engine
     /// with no cache stores what the cached engine stored.
