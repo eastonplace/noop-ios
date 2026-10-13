@@ -214,6 +214,10 @@ final class IntelligenceEngine: ObservableObject {
     /// F2: each scored night's raw skin-temperature mean (°C), persisted under the computed id so the skin
     /// baseline folds the whole history, as HRV / resting HR / respiration do from the computed rows.
     nonisolated static let nightlySkinMetricKey = "skin_temp_night_mean_c"
+    /// Review round 3 (B): a WHOOP 4.0 night's mean as a raw register value. Its °C depends on the anchor the
+    /// pass learned from its own window (#938), so it is stored anchor-free and converted with the folding
+    /// pass's anchor: every night in the fold then shares one anchor and the offset cancels in the deviation.
+    nonisolated static let nightlySkinWhoop4RawMetricKey = "skin_temp_night_raw_whoop4"
 
     private var dayScanCache: [String: CachedDayScan] = [:]
     private var dayScanCacheConfigSignature = ""
@@ -814,6 +818,7 @@ final class IntelligenceEngine: ObservableObject {
         // seed resp/skin-temp baselines the same way avgHrv seeds the HRV baseline.
         var nightlyRespByDay: [String: Double?] = [:]
         var nightlySkinByDay: [String: Double?] = [:]
+        var whoop4SkinAnchorByDay: [String: Double] = [:]   // review round 3 (B): each WHOOP 4.0 night's anchor
 
         // Device-registry snapshot for per-day owner resolution (invariant I2 , a day's scores come from
         // exactly ONE source). Read once before the loop: the paired-device list + the active id are
@@ -1503,6 +1508,9 @@ final class IntelligenceEngine: ObservableObject {
             nightlyRhrByDay[res.daily.day] = res.daily.restingHr.map(Double.init)
             nightlyRespByDay[res.daily.day] = res.daily.respRateBpm
             nightlySkinByDay[res.daily.day] = res.nightlySkinTempC
+            if let anchor = res.skinTempDiagnostic?.resolvedAnchorRaw {
+                whoop4SkinAnchorByDay[res.daily.day] = anchor
+            }
             if let line = scan.rhrLine { diagnosticSink?(line, nil) }
             if let line = scan.skinTempTrace { diagnosticSink?(line, nil) }
             // Sleep & Rest test mode (E5): replay this day's gate-trace + Rest lines tagged `.sleep` so they
@@ -1544,11 +1552,15 @@ final class IntelligenceEngine: ObservableObject {
         // imported values and this pass's fresh values win.
         let computedHist: [DailyMetric]
         let storedNightlySkin: [MetricPoint]
+        let storedNightlySkinWhoop4Raw: [MetricPoint]
         do {
             computedHist = try await store.dailyMetrics(
                 deviceId: computedId, from: "0000-01-01", to: "9999-12-31")
             storedNightlySkin = try await store.metricSeries(
                 deviceId: computedId, key: Self.nightlySkinMetricKey, from: "0000-01-01", to: "9999-12-31")
+            storedNightlySkinWhoop4Raw = try await store.metricSeries(
+                deviceId: computedId, key: Self.nightlySkinWhoop4RawMetricKey, from: "0000-01-01",
+                to: "9999-12-31")
         } catch {
             note = String(localized: "Recovery analysis is waiting for the local database.")
             NSLog("IntelligenceEngine: required baseline read failed: \(error)")
@@ -1605,6 +1617,15 @@ final class IntelligenceEngine: ObservableObject {
         Self.mergeNightlyIntoHistory(
             &histSkinByDay,
             Dictionary(storedNightlySkin.map { ($0.day, Optional($0.value)) }, uniquingKeysWith: { a, _ in a }))
+        // Review round 3 (B): persisted WHOOP 4.0 nights are raw register values, converted here with the anchor
+        // of this pass's newest WHOOP 4.0 night, the one its fresh nights were converted with.
+        if let anchor = whoop4SkinAnchorByDay.max(by: { $0.key < $1.key })?.value {
+            Self.mergeNightlyIntoHistory(
+                &histSkinByDay,
+                Dictionary(storedNightlySkinWhoop4Raw.map {
+                    ($0.day, Optional(Self.whoop4SkinCelsius(raw: $0.value, anchorRaw: anchor)))
+                }, uniquingKeysWith: { a, _ in a }))
+        }
         let skinDayKeys = histSkinByDay.keys.sorted()
         let skinSeq = skinDayKeys.map { histSkinByDay[$0]! }
         // Resp baseline gated on `usable`: RecoveryScorer includes the resp term whenever a
@@ -2230,16 +2251,22 @@ final class IntelligenceEngine: ObservableObject {
             return false
         }
         // F2: persist each scored night's raw skin mean, so later passes and the v3 chunks fold the skin
-        // baseline over the whole history instead of only their own window.
+        // baseline over the whole history instead of only their own window. A WHOOP 4.0 night is stored as a
+        // raw register value, free of this pass's anchor (review round 3, B).
         do {
             guard !Task.isCancelled else { performanceChangedRows = persistedMutationCount; return false }
-            let nightlySkinPoints = scoredNights.compactMap { night in
-                night.nightlySkin.map { MetricPoint(day: night.daily.day, key: Self.nightlySkinMetricKey, value: $0) }
+            let nightlySkinPoints = scoredNights.compactMap { night -> MetricPoint? in
+                guard let mean = night.nightlySkin else { return nil }
+                if let anchor = whoop4SkinAnchorByDay[night.daily.day] {
+                    return MetricPoint(day: night.daily.day, key: Self.nightlySkinWhoop4RawMetricKey,
+                                       value: Self.whoop4SkinRaw(celsius: mean, anchorRaw: anchor))
+                }
+                return MetricPoint(day: night.daily.day, key: Self.nightlySkinMetricKey, value: mean)
             }
             persistedMutationCount += try await store.reconcileMetricSeries(
                 nightlySkinPoints,
                 deviceId: computedId,
-                keys: [Self.nightlySkinMetricKey],
+                keys: [Self.nightlySkinMetricKey, Self.nightlySkinWhoop4RawMetricKey],
                 from: oldestDay,
                 to: newestDay
             )
@@ -2800,6 +2827,16 @@ final class IntelligenceEngine: ObservableObject {
                 && row.avgHrv == computed.avgHrv && row.restingHr == computed.restingHr
                 && row.respRateBpm == computed.respRateBpm
         }
+    }
+
+    /// A WHOOP 4.0 nightly mean (°C under `anchorRaw`) as the raw register value it maps from (review round 3, B).
+    nonisolated static func whoop4SkinRaw(celsius: Double, anchorRaw: Double) -> Double {
+        anchorRaw + (celsius - Whoop4SkinTemp.anchorCelsius) / Whoop4SkinTemp.provisionalSlopeCPerRaw
+    }
+
+    /// The inverse: a persisted WHOOP 4.0 raw mean in °C under `anchorRaw`, the same map the funnel applies.
+    nonisolated static func whoop4SkinCelsius(raw: Double, anchorRaw: Double) -> Double {
+        Whoop4SkinTemp.anchorCelsius + (raw - anchorRaw) * Whoop4SkinTemp.provisionalSlopeCPerRaw
     }
 
     /// The strap family that wrote `owner`'s skin-temp rows (#938), so the nightly funnel converts the raw

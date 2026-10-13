@@ -38,21 +38,33 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
         return formatter.string(from: Date(timeIntervalSince1970: TimeInterval(firstDayStart + index * 86_400)))
     }
 
-    /// Nights for days `range` (0 = the first fixture day). The pass's "now" is 22:00 on the last day, so no
-    /// reading is in the future.
-    private func makeHarness(days: Int, strapDays: Range<Int>? = nil) async throws -> Harness {
+    /// Nights for days `strapDays` (0 = the first fixture day). The pass's "now" is 22:00 on the last day, so no
+    /// reading is in the future. `whoop4` pairs the strap as a WHOOP 4.0, whose skin register
+    /// is converted with an anchor each pass learns from its own window; its nightly raws drift up 2 units a
+    /// night, so passes over different windows learn different anchors.
+    private func makeHarness(days: Int, strapDays: Range<Int>? = nil,
+                             whoop4: Bool = false) async throws -> Harness {
         let store = try await WhoopStore.inMemory()
+        if whoop4 {
+            let registry = DeviceRegistryStore(dbQueue: store.registryWriter)
+            try registry.add(PairedDevice(
+                id: Repository.whoopSource, brand: "WHOOP", model: "WHOOP 4.0", sourceKind: .liveBLE,
+                capabilities: [.hr, .hrv, .skinTemp, .sleep], status: .active, addedAt: 0, lastSeenAt: 0))
+            try registry.setActive(Repository.whoopSource)
+        }
         let repository = Repository(deviceId: Repository.whoopSource)
         repository.setStoreForTesting(store)
         let engine = IntelligenceEngine(repo: repository, profile: ProfileStore(), deviceId: Repository.whoopSource)
         for k in strapDays ?? 0..<days {
             let s = firstDayStart + k * 86_400
             var streams = Streams()
-            let sleepRange = (s - 3_600)..<(s + 6 * 3_600)
-            for ts in stride(from: sleepRange.lowerBound, to: sleepRange.upperBound, by: 30) {
+            for ts in stride(from: s - 3_600, to: s + 6 * 3_600, by: 30) {
                 streams.hr.append(HRSample(ts: ts, bpm: 52 + k % 3))
                 streams.gravity.append(GravitySample(ts: ts, x: 0, y: 0, z: 1))
-                if ts % 60 == 0 { streams.skinTemp.append(SkinTempSample(ts: ts, raw: 3_450 + (k % 5) * 8)) }
+                if ts % 60 == 0 {
+                    let raw = whoop4 ? 1_300 + 2 * k + (ts / 60) % 3 : 3_450 + (k % 5) * 8
+                    streams.skinTemp.append(SkinTempSample(ts: ts, raw: raw))
+                }
             }
             var toggle = false
             let swing = 8 + (k % 4) * 3
@@ -65,7 +77,7 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
                 streams.hr.append(HRSample(ts: ts, bpm: exercising ? 135 + ts % 11 : 78 + ts % 9))
                 let wobble = Double(ts % 11) * 0.2
                 streams.gravity.append(GravitySample(ts: ts, x: wobble, y: 0.3 - wobble, z: 0.8))
-                if ts % 60 == 0 { streams.skinTemp.append(SkinTempSample(ts: ts, raw: 3_300)) }
+                if !whoop4, ts % 60 == 0 { streams.skinTemp.append(SkinTempSample(ts: ts, raw: 3_300)) }
             }
             _ = try await store.insert(streams, deviceId: Repository.whoopSource)
         }
@@ -185,6 +197,28 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
             let afterOneDay = try await stored(harness)
             XCTAssertNotNil(afterOneDay[today]?.recovery, "a one-day pass still sees the strap's history")
             XCTAssertEqual(afterOneDay[today]?.recovery, expected[today]?.recovery)
+        }
+    }
+
+    // MARK: - WHOOP 4.0 skin anchor (review round 3, findings 2 and 10)
+
+    /// A WHOOP 4.0's skin register is converted with an anchor each pass learns from its own window. A 30-day
+    /// pass and a later one-day pass learn different anchors over the same raw data, yet today's deviation
+    /// is the same: the persisted history is converted with the current pass's anchor, so the offset cancels.
+    func testWhoop4SkinDeviationDoesNotDependOnThePassAnchor() async throws {
+        try await withRecalibrationEpochsRestored {
+            let days = 30
+            let harness = try await makeHarness(days: days, whoop4: true)
+            let wide = await pass(harness, maxDays: days)
+            XCTAssertTrue(wide)
+            let today = harness.dayKeys[days - 1]
+            let first = try await stored(harness)
+            let deviation = try XCTUnwrap(first[today]?.skinTempDevC, "a usable WHOOP 4.0 skin baseline")
+
+            let narrow = await pass(harness, maxDays: 1)
+            XCTAssertTrue(narrow)
+            let second = try await stored(harness)
+            XCTAssertEqual(try XCTUnwrap(second[today]?.skinTempDevC), deviation, accuracy: 0.011)
         }
     }
 
