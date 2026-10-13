@@ -1,5 +1,5 @@
 import XCTest
-@testable import Strand
+@testable import NOOP
 
 /// Pins the #943 Metric Explorer chip-coercion rule (Swift twin of Android VitalRangeGatingTest's
 /// largestUnlockedRangeIsTheCoercionTarget). A LOCKED selection renders as the largest unlocked range

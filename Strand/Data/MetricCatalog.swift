@@ -45,7 +45,14 @@ struct MetricDescriptor: Identifiable, Hashable {
 
     func format(_ v: Double) -> String {
         let n = decimals == 0 ? String(Int(v.rounded())) : String(format: "%.\(decimals)f", v)
-        return unit.isEmpty ? n : "\(n) \(unit)"
+        return Self.joined(number: n, unit: unit)
+    }
+
+    /// A number and its unit as one reading: "62 bpm", but "7.2/21" for a scale's denominator, which is part of the number
+    /// ("out of 21") and not a word set after it.
+    static func joined(number: String, unit: String) -> String {
+        if unit.isEmpty { return number }
+        return unit.hasPrefix("/") ? "\(number)\(unit)" : "\(number) \(unit)"
     }
 
     /// Effort-aware plain format (#268): the Effort metric's stored 0–100 value is shown on the selected
@@ -54,7 +61,7 @@ struct MetricDescriptor: Identifiable, Hashable {
     func format(_ v: Double, effortScale: EffortScale) -> String {
         guard isEffort else { return format(v) }
         let n = StrainScale.formatted(v)
-        return "\(n) \(displayUnit(effortScale: effortScale))"
+        return Self.joined(number: n, unit: displayUnit(effortScale: effortScale))
     }
 
     /// Unit-aware format: for the three SI-stored metrics that have a non-metric counterpart
@@ -90,7 +97,7 @@ struct MetricDescriptor: Identifiable, Hashable {
             guard isEffort else { return format(v) }
             // A delta on the 0–100 axis rescales by the same ×21/100 factor (the offset-free `effortValue`).
             let n = StrainScale.formattedDelta(v)
-            return "\(n) \(displayUnit(effortScale: effortScale))"
+            return Self.joined(number: n, unit: displayUnit(effortScale: effortScale))
         }
     }
 
@@ -165,7 +172,7 @@ enum MetricCatalog {
         d("noop_sleep_performance_v2", String(localized: "Sleep Performance (V2 preview)"), "Rest", "%", "my-whoop", "moon.stars.fill", 0, true,
           String(localized: "How completely and efficiently you met your dynamic Sleep Need, led by sleep sufficiency. On-device preview series; not yet the Sleep tab's headline score.")),
         d("noop_sleep_need_v2_min", String(localized: "Dynamic Sleep Need"), "Rest", "min", "my-whoop", "gauge", 0, nil,
-          String(localized: "Tonight's computed need: baseline, plus yesterday's Effort and sleep-debt repayment, minus nap credit.")),
+          String(localized: "Tonight's computed need: baseline, plus yesterday's Strain and sleep-debt repayment, minus nap credit.")),
 
         // ── Effort (was Strain)
         d("strain", String(localized: "Strain"), "Effort", "/21", "my-whoop", "flame", 1, nil,

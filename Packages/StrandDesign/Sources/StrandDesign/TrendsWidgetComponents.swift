@@ -478,6 +478,8 @@ public struct TrendsHeroChart: View {
     private let dateDomain: ClosedRange<Date>
     private let referenceDate: Date
     private let calendar: Calendar
+    /// The calendar the dates are printed in (month names, years). Day counts always use `calendar`.
+    private let displayCalendar: Calendar
     private let baseline: Double
     private let typical: ClosedRange<Double>
     private let tint: DomainTint
@@ -486,6 +488,15 @@ public struct TrendsHeroChart: View {
     let valueFormat: (Double) -> String
     private let direction: TrendPanelChart.Direction
     private let metricName: String
+    /// The longest stretch between two readings the line still bridges. Three days for the daily default; a
+    /// weekly or sparse series passes a limit that matches its own cadence so it still draws one connected line.
+    private let gapLimitDays: Int
+    /// Colour the change pill by the typical band instead of by the sign of the move: neutral while the value sits
+    /// inside the band, the metric's good or bad colour only once it is outside it. False for every default chart.
+    private let neutralInsideTypical: Bool
+    /// At an accessibility text size, put the change pill under the value instead of beside it, so neither is
+    /// squeezed onto a second line. False for every default chart.
+    private let stacksPillAtAccessibilitySizes: Bool
     /// A window of a year or more, whose ticks fall in different months: axis and reading dates carry the year
     /// so two Octobers are never alike. False for every default (W/M/3M/6M) chart.
     private let showsYear: Bool
@@ -493,7 +504,7 @@ public struct TrendsHeroChart: View {
     let points: [TrendPoint]
     private let axis: TrendsAxis
     private let dayIndices: [Int]
-    private let tickLabels: [(label: String, fraction: Double)]
+    let tickLabels: [(label: String, fraction: Double)]
     /// Indices (into `points`) of days with no neighbour inside the gap limit: no line reaches them, so they
     /// always get their own dot.
     /// Points that stand alone between gaps: no line reaches them, so each is drawn as a dot at any range.
@@ -514,13 +525,13 @@ public struct TrendsHeroChart: View {
     @State private var adjustReset: Task<Void, Never>?
 
     private static let plotHeight: CGFloat = 148
-    private static let maxGapDays = 3
 
     public init(
         days: [CalendarMetricDay],
         dateDomain: ClosedRange<Date>,
         referenceDate: Date,
         calendar: Calendar = .autoupdatingCurrent,
+        displayCalendar: Calendar? = nil,
         baseline: Double,
         typical: ClosedRange<Double>,
         tint: DomainTint,
@@ -530,13 +541,17 @@ public struct TrendsHeroChart: View {
         valueBounds: ClosedRange<Double> = (-Double.greatestFiniteMagnitude)...Double.greatestFiniteMagnitude,
         direction: TrendPanelChart.Direction = .contextual,
         metricName: String = "Trend",
-        longRange: Bool = false
+        longRange: Bool = false,
+        maxGapDays: Int = 3,
+        neutralInsideTypical: Bool = false,
+        stacksPillAtAccessibilitySizes: Bool = false
     ) {
         let sorted = days.sorted { $0.date < $1.date }
         self.days = sorted
         self.dateDomain = dateDomain
         self.referenceDate = referenceDate
         self.calendar = calendar
+        self.displayCalendar = displayCalendar ?? calendar
         self.baseline = baseline
         self.typical = typical
         self.tint = tint
@@ -545,6 +560,9 @@ public struct TrendsHeroChart: View {
         self.valueFormat = valueFormat
         self.direction = direction
         self.metricName = metricName
+        self.gapLimitDays = max(maxGapDays, 1)
+        self.neutralInsideTypical = neutralInsideTypical
+        self.stacksPillAtAccessibilitySizes = stacksPillAtAccessibilitySizes
 
         var series: [TrendPoint] = []
         var indices: [Int] = []
@@ -560,16 +578,17 @@ public struct TrendsHeroChart: View {
         // month of data) would repeat one month under every tick, so it falls back to day labels.
         var labels = Self.makeTickLabels(
             domain: dateDomain, referenceDate: referenceDate, calendar: calendar,
-            template: longRange ? "MMM yyyy" : "MMM d")
+            displayCalendar: displayCalendar ?? calendar, template: longRange ? "MMM yyyy" : "MMM d")
         var yearLabels = longRange
         if longRange, Set(labels.map(\.label)).count < labels.count {
             labels = Self.makeTickLabels(
-                domain: dateDomain, referenceDate: referenceDate, calendar: calendar, template: "MMM d")
+                domain: dateDomain, referenceDate: referenceDate, calendar: calendar,
+                displayCalendar: displayCalendar ?? calendar, template: "MMM d")
             yearLabels = false
         }
         self.tickLabels = labels
         self.showsYear = yearLabels
-        let runs = TrendCurve.runs(dayIndices: indices, maxGapDays: Self.maxGapDays)
+        let runs = TrendCurve.runs(dayIndices: indices, maxGapDays: max(maxGapDays, 1))
         self.singletonIndices = Set(runs.filter { $0.count == 1 }.map(\.lowerBound))
 
         var hasher = Hasher()
@@ -585,6 +604,7 @@ public struct TrendsHeroChart: View {
         hasher.combine(typical.upperBound)
         hasher.combine(colorsLineByBand)
         hasher.combine(unit)
+        hasher.combine(max(maxGapDays, 1))
         self.layoutToken = hasher.finalize()
 
         let suffix = TrendsUnitSuffix.text(for: unit)
@@ -636,21 +656,39 @@ public struct TrendsHeroChart: View {
     // MARK: Hero
 
     private var heroRow: some View {
-        HStack(alignment: .firstTextBaseline, spacing: NoopMetrics.space2) {
-            HeroValue(
-                value: shownValue.map(valueFormat) ?? WidgetMetrics.missingValue,
-                unit: shownValue == nil || unit.isEmpty ? nil : unit,
-                caption: heroCaption,
-                captionPlacement: .below
-            )
-            Spacer(minLength: NoopMetrics.space2)
-            if let shownValue {
-                let pill = deltaPill(for: shownValue)
-                StatePill(pill.title, tone: pill.tone, showsDot: false)
-                    .accessibilityLabel(pill.spoken)
+        Group {
+            if stacksPillAtAccessibilitySizes && typeSize.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+                    heroValue
+                    deltaPillView
+                }
+            } else {
+                HStack(alignment: .firstTextBaseline, spacing: NoopMetrics.space2) {
+                    heroValue
+                    Spacer(minLength: NoopMetrics.space2)
+                    deltaPillView
+                }
             }
         }
         .animation(StrandMotion.fade, value: scrubDay)
+    }
+
+    private var heroValue: some View {
+        HeroValue(
+            value: shownValue.map(valueFormat) ?? WidgetMetrics.missingValue,
+            unit: shownValue == nil || unit.isEmpty ? nil : unit,
+            caption: heroCaption,
+            captionPlacement: .below
+        )
+    }
+
+    @ViewBuilder
+    private var deltaPillView: some View {
+        if let shownValue {
+            let pill = deltaPill(for: shownValue)
+            StatePill(pill.title, tone: pill.tone, showsDot: false)
+                .accessibilityLabel(pill.spoken)
+        }
     }
 
     private var heroCaption: String {
@@ -672,16 +710,41 @@ public struct TrendsHeroChart: View {
         guard delta.isFinite, !trendsFormattedIsZero(magnitude) else {
             return ("On average", String(localized: "On average"), .neutral)
         }
-        let tone: StrandTone
-        switch direction {
-        case .higherIsBetter: tone = delta > 0 ? .positive : .critical
-        case .lowerIsBetter: tone = delta < 0 ? .positive : .critical
-        case .contextual: tone = .neutral
-        }
+        let tone = Self.deltaTone(
+            value: value, baseline: baseline, typical: typical, direction: direction,
+            neutralInsideTypical: neutralInsideTypical)
         if delta > 0 {
             return ("▲ \(magnitude) vs avg", String(localized: "up \(magnitude) vs avg"), tone)
         }
         return ("▼ \(magnitude) vs avg", String(localized: "down \(magnitude) vs avg"), tone)
+    }
+
+    /// The pill's tone. By default the sign of the move against the range average decides it: green when it is the
+    /// good direction for the metric, red when it is not. With `neutralInsideTypical` a value inside the typical band
+    /// stays neutral (an ordinary day is not a warning), and only a value outside the band takes the good or bad
+    /// colour for the side it fell on. A metric with no good direction is always neutral.
+    static func deltaTone(
+        value: Double,
+        baseline: Double,
+        typical: ClosedRange<Double>,
+        direction: TrendPanelChart.Direction,
+        neutralInsideTypical: Bool
+    ) -> StrandTone {
+        if neutralInsideTypical {
+            guard !typical.contains(value) else { return .neutral }
+            let above = value > typical.upperBound
+            switch direction {
+            case .higherIsBetter: return above ? .positive : .critical
+            case .lowerIsBetter: return above ? .critical : .positive
+            case .contextual: return .neutral
+            }
+        }
+        let delta = value - baseline
+        switch direction {
+        case .higherIsBetter: return delta > 0 ? .positive : .critical
+        case .lowerIsBetter: return delta < 0 ? .positive : .critical
+        case .contextual: return .neutral
+        }
     }
 
     // MARK: Plot
@@ -873,7 +936,7 @@ public struct TrendsHeroChart: View {
     /// The line, sampled every few points along every run, for keeping labels off it.
     private func lineSamples(_ rendered: [CGPoint]) -> [CGPoint] {
         var out: [CGPoint] = []
-        for run in TrendCurve.runs(dayIndices: dayIndices, maxGapDays: Self.maxGapDays) where !run.isEmpty {
+        for run in TrendCurve.runs(dayIndices: dayIndices, maxGapDays: gapLimitDays) where !run.isEmpty {
             let slice = Array(rendered[run])
             out.append(contentsOf: slice)
             for pair in zip(slice, slice.dropFirst()) {
@@ -992,7 +1055,7 @@ public struct TrendsHeroChart: View {
 
     private func linePath(_ rendered: [CGPoint]) -> Path {
         var path = Path()
-        for run in TrendCurve.runs(dayIndices: dayIndices, maxGapDays: Self.maxGapDays) where run.count >= 2 {
+        for run in TrendCurve.runs(dayIndices: dayIndices, maxGapDays: gapLimitDays) where run.count >= 2 {
             TrendCurve.append(Array(rendered[run]), to: &path)
         }
         return path
@@ -1000,7 +1063,7 @@ public struct TrendsHeroChart: View {
 
     private func areaPath(_ rendered: [CGPoint], height: CGFloat) -> Path {
         var path = Path()
-        for run in TrendCurve.runs(dayIndices: dayIndices, maxGapDays: Self.maxGapDays) where run.count >= 2 {
+        for run in TrendCurve.runs(dayIndices: dayIndices, maxGapDays: gapLimitDays) where run.count >= 2 {
             let slice = Array(rendered[run])
             TrendCurve.append(slice, to: &path)
             if let first = slice.first, let last = slice.last {
@@ -1066,11 +1129,13 @@ public struct TrendsHeroChart: View {
         domain: ClosedRange<Date>,
         referenceDate: Date,
         calendar: Calendar,
+        displayCalendar: Calendar,
         template: String
     ) -> [(label: String, fraction: Double)] {
-        let totalDays = calendar.dateComponents([.day], from: domain.lowerBound, to: domain.upperBound).day ?? 0
+        let totalDays = TrendCalendar.dayCount(from: domain.lowerBound, to: domain.upperBound, calendar: calendar)
         guard totalDays > 0 else {
-            return [(TrendCalendar.relativeLabel(for: domain.upperBound, relativeTo: referenceDate, calendar: calendar), 0)]
+            return [(TrendCalendar.relativeLabel(
+                for: domain.upperBound, relativeTo: referenceDate, calendar: calendar, displayCalendar: displayCalendar), 0)]
         }
         let count = min(WidgetMetrics.maxXAxisLabels, totalDays + 1)
         var seen = Set<Int>()
@@ -1078,11 +1143,11 @@ public struct TrendsHeroChart: View {
         for index in 0..<count {
             let dayIndex = Int((Double(totalDays) * Double(index) / Double(max(count - 1, 1))).rounded())
             guard seen.insert(dayIndex).inserted,
-                  let date = calendar.date(byAdding: .day, value: dayIndex, to: domain.lowerBound) else { continue }
+                  let date = TrendCalendar.startOfDay(addingDays: dayIndex, to: domain.lowerBound, calendar: calendar) else { continue }
             let isLast = dayIndex == totalDays
             let label = isLast
-                ? TrendCalendar.relativeLabel(for: date, relativeTo: referenceDate, calendar: calendar)
-                : TrendsDateFormatters.shared.string(from: date, template: template, calendar: calendar)
+                ? TrendCalendar.relativeLabel(for: date, relativeTo: referenceDate, calendar: calendar, displayCalendar: displayCalendar)
+                : TrendsDateFormatters.shared.string(from: date, template: template, calendar: displayCalendar)
             labels.append((label, Double(dayIndex) / Double(totalDays)))
         }
         return labels
@@ -1096,13 +1161,15 @@ public struct TrendsHeroChart: View {
         return "\(dayLabel(day.date)), \(value)"
     }
 
-    /// Today, Yesterday, else the date: with the year when the window spans a year or more.
-    private func dayLabel(_ date: Date) -> String {
-        let relative = TrendCalendar.relativeLabel(for: date, relativeTo: referenceDate, calendar: calendar)
+    /// Today, Yesterday, else the date in the person's calendar: with the year when the window spans a year or more.
+    /// `internal` so the tests can read the caption and the spoken day without a view.
+    func dayLabel(_ date: Date) -> String {
+        let relative = TrendCalendar.relativeLabel(
+            for: date, relativeTo: referenceDate, calendar: calendar, displayCalendar: displayCalendar)
         guard showsYear, !calendar.isDate(date, inSameDayAs: referenceDate),
               let yesterday = calendar.date(byAdding: .day, value: -1, to: referenceDate),
               !calendar.isDate(date, inSameDayAs: yesterday) else { return relative }
-        return TrendsDateFormatters.shared.string(from: date, template: "EEE MMM d yyyy", calendar: calendar)
+        return TrendsDateFormatters.shared.string(from: date, template: "EEE MMM d yyyy", calendar: displayCalendar)
     }
 }
 

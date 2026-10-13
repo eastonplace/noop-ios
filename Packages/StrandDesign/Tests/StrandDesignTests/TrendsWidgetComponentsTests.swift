@@ -121,6 +121,120 @@ final class TrendsWidgetComponentsTests: XCTestCase {
         XCTAssertEqual(hero.singletonIndices, Set([lone].compactMap { $0 }))
     }
 
+    /// Day counts use the calendar the window is built in, but the labels are printed in the calendar the person reads dates
+    /// in: on a Buddhist-calendar device a year-long axis says 2568 and 2569, the same era the rest of the page uses.
+    func testTheAxisLabelsFollowTheDisplayCalendarWhileTheWindowKeepsItsOwn() {
+        let gregorian = Calendar(identifier: .gregorian)
+        let start = gregorian.startOfDay(for: Date(timeIntervalSince1970: 1_750_000_000))
+        let end = gregorian.date(byAdding: .day, value: 400, to: start)!
+        let days = (0...400).map { CalendarMetricDay(date: gregorian.date(byAdding: .day, value: $0, to: start)!, value: 60) }
+        func chart(display: Calendar?) -> TrendsHeroChart {
+            TrendsHeroChart(
+                days: days, dateDomain: start...end, referenceDate: end, calendar: gregorian, displayCalendar: display,
+                baseline: 60, typical: 55...65, tint: .neutral, unit: "", longRange: true)
+        }
+        let plain = chart(display: nil).tickLabels.map(\.label)
+        let buddhist = chart(display: Calendar(identifier: .buddhist)).tickLabels.map(\.label)
+        XCTAssertEqual(plain.count, buddhist.count)
+        // The last label is "Today"-style wording from the window's own calendar; the others carry a year.
+        XCTAssertTrue(plain.dropLast().contains { $0.contains("2025") || $0.contains("2026") }, "\(plain)")
+        XCTAssertTrue(buddhist.dropLast().contains { $0.contains("2568") || $0.contains("2569") }, "\(buddhist)")
+        XCTAssertFalse(buddhist.dropLast().contains { $0.contains("2025") || $0.contains("2026") }, "\(buddhist)")
+    }
+
+    /// The scrub caption and the day VoiceOver speaks are printed in the person's calendar as the axis is, on a short range as
+    /// well as a year-long one; Today and Yesterday still count days in the window's own calendar.
+    func testTheScrubCaptionAndSpokenDayFollowTheDisplayCalendarOnShortRanges() {
+        let gregorian = Calendar(identifier: .gregorian)
+        let end = gregorian.startOfDay(for: Date(timeIntervalSince1970: 1_750_000_000))
+        let start = gregorian.date(byAdding: .day, value: -29, to: end)!
+        let days = (0...29).map { CalendarMetricDay(date: gregorian.date(byAdding: .day, value: $0, to: start)!, value: 60) }
+        func chart(display: Calendar?) -> TrendsHeroChart {
+            TrendsHeroChart(
+                days: days, dateDomain: start...end, referenceDate: end, calendar: gregorian, displayCalendar: display,
+                baseline: 60, typical: 55...65, tint: .neutral, unit: "")
+        }
+        let earlier = gregorian.date(byAdding: .day, value: -12, to: end)!
+        let yesterday = gregorian.date(byAdding: .day, value: -1, to: end)!
+        let plain = chart(display: nil)
+        let persian = chart(display: Calendar(identifier: .persian))
+
+        XCTAssertEqual(plain.dayLabel(earlier), TrendCalendar.relativeLabel(for: earlier, relativeTo: end, calendar: gregorian))
+        XCTAssertNotEqual(persian.dayLabel(earlier), plain.dayLabel(earlier), "Same day, a different calendar")
+        XCTAssertEqual(
+            persian.dayLabel(earlier),
+            TrendsDateFormatters.shared.string(from: earlier, template: "EEE MMM d", calendar: Calendar(identifier: .persian)))
+        XCTAssertEqual(persian.dayLabel(end), plain.dayLabel(end))
+        XCTAssertEqual(persian.dayLabel(yesterday), plain.dayLabel(yesterday))
+        // The last axis label reads the same way when the window does not end on the reference day.
+        let behind = gregorian.date(byAdding: .day, value: 5, to: end)!
+        XCTAssertNotEqual(
+            TrendCalendar.relativeLabel(for: end, relativeTo: behind, calendar: gregorian, displayCalendar: Calendar(identifier: .persian)),
+            TrendCalendar.relativeLabel(for: end, relativeTo: behind, calendar: gregorian))
+    }
+
+    /// A weekly series has a reading every seven days, past the default three-day gap limit, so by default every
+    /// reading stands alone with no line between them. A caller that knows the cadence passes a limit to match and
+    /// gets one connected line with no stranded dots.
+    func testAWeeklySeriesDrawsOneConnectedLineWhenTheGapLimitMatchesItsCadence() {
+        let calendar = Calendar(identifier: .gregorian)
+        let start = calendar.startOfDay(for: Date(timeIntervalSince1970: 1_750_000_000))
+        // The chart takes one entry per calendar day, with no value on the days nothing was recorded.
+        let days = (0..<70).map { offset in
+            CalendarMetricDay(
+                date: calendar.date(byAdding: .day, value: offset, to: start)!,
+                value: offset % 7 == 0 ? 70 + Double(offset % 5) : nil)
+        }
+        func chart(maxGapDays: Int?) -> TrendsHeroChart {
+            let domain = start...calendar.date(byAdding: .day, value: 69, to: start)!
+            if let maxGapDays {
+                return TrendsHeroChart(
+                    days: days, dateDomain: domain, referenceDate: start, calendar: calendar, baseline: 72,
+                    typical: 68...76, tint: .neutral, unit: "kg", maxGapDays: maxGapDays)
+            }
+            return TrendsHeroChart(
+                days: days, dateDomain: domain, referenceDate: start, calendar: calendar, baseline: 72,
+                typical: 68...76, tint: .neutral, unit: "kg")
+        }
+        XCTAssertEqual(chart(maxGapDays: nil).singletonIndices.count, 10)
+        XCTAssertEqual(chart(maxGapDays: 21).singletonIndices, [])
+        // One missing week (a 14-day hole) is still bridged at a 21-day limit; three missing weeks are not.
+        XCTAssertEqual(TrendCurve.runs(dayIndices: [0, 7, 21, 28], maxGapDays: 21).count, 1)
+        XCTAssertEqual(TrendCurve.runs(dayIndices: [0, 7, 42, 49], maxGapDays: 21).count, 2)
+    }
+
+    func testTheDefaultPillToneFollowsTheSignOfTheMove() {
+        func tone(_ value: Double, _ direction: TrendPanelChart.Direction) -> StrandTone {
+            TrendsHeroChart.deltaTone(
+                value: value, baseline: 60, typical: 55...65, direction: direction, neutralInsideTypical: false)
+        }
+        XCTAssertEqual(tone(62, .higherIsBetter), .positive)
+        XCTAssertEqual(tone(58, .higherIsBetter), .critical)
+        XCTAssertEqual(tone(58, .lowerIsBetter), .positive)
+        XCTAssertEqual(tone(62, .lowerIsBetter), .critical)
+        XCTAssertEqual(tone(62, .contextual), .neutral)
+    }
+
+    /// Inside the typical band a move off the average is ordinary and reads neutral; outside it the colour follows the
+    /// side the value fell on and the metric's polarity (a low resting heart rate is good, a low HRV is not).
+    func testAPillInsideTheTypicalBandIsNeutralAndOutsideItFollowsPolarity() {
+        func tone(_ value: Double, _ direction: TrendPanelChart.Direction) -> StrandTone {
+            TrendsHeroChart.deltaTone(
+                value: value, baseline: 60, typical: 55...65, direction: direction, neutralInsideTypical: true)
+        }
+        for direction in [TrendPanelChart.Direction.higherIsBetter, .lowerIsBetter, .contextual] {
+            XCTAssertEqual(tone(55, direction), .neutral)
+            XCTAssertEqual(tone(58, direction), .neutral)
+            XCTAssertEqual(tone(65, direction), .neutral)
+        }
+        XCTAssertEqual(tone(70, .higherIsBetter), .positive)
+        XCTAssertEqual(tone(50, .higherIsBetter), .critical)
+        XCTAssertEqual(tone(70, .lowerIsBetter), .critical)
+        XCTAssertEqual(tone(50, .lowerIsBetter), .positive)
+        XCTAssertEqual(tone(70, .contextual), .neutral)
+        XCTAssertEqual(tone(50, .contextual), .neutral)
+    }
+
     func testWeekdayNamesFollowTheLocaleAndStartOnMonday() {
         var calendar = Calendar(identifier: .gregorian)
         calendar.locale = .current
