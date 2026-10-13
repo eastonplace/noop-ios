@@ -1751,7 +1751,7 @@ struct TodayView: View {
         let phoneSteps = Self.phoneSteps(on: dayKey, in: appleDays)
         let steps = TodaySteps(daily: day?.steps, apple: phoneSteps, estimate: stepsEstByDay[dayKey])
             .value.map { intString(Double($0)) } ?? "—"
-        let calories = caloriesText(card)
+        let calories = caloriesString(card)
         let dayStart = Calendar.current.startOfDay(for: selectedLogicalDay)
         let dayEnd = Calendar.current.date(byAdding: .day, value: 1, to: dayStart) ?? dayStart
         let workoutCount = workouts.filter {
@@ -2959,7 +2959,7 @@ struct TodayView: View {
             return TodaySteps(daily: d?.steps, apple: appleStepsForDay, estimate: stepsEstByDay[dayKey])
                 .value.map { intString(Double($0)) } ?? "—"
         case .calories:
-            return withUnit(calories.map(caloriesText) ?? self.caloriesText)
+            return withUnit(calories.map(caloriesString) ?? caloriesText)
         case .stress:
             #if DEBUG
             // DEBUG promo harness: pin the Stress card (0–3) to the active frame's value. No-op otherwise.
@@ -5035,10 +5035,10 @@ struct TodayView: View {
     }
 
     private var caloriesText: String {
-        caloriesText(caloriesCard)
+        caloriesString(caloriesCard)
     }
 
-    private func caloriesText(_ card: HealthDailyPick.CaloriesCard) -> String {
+    private func caloriesString(_ card: HealthDailyPick.CaloriesCard) -> String {
         card.value.map { intString($0) } ?? "—"
     }
 
