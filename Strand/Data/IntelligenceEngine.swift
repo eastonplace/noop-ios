@@ -247,6 +247,10 @@ final class IntelligenceEngine: ObservableObject {
     nonisolated static let computedRowSourceMetricKey = "computed_row_source"
     nonisolated static let strapRowSource = 1.0
     nonisolated static let wearableFoldRowSource = 2.0
+    /// Review round 4 (2): the second each computed row's calorie total was filled through: the next midnight
+    /// for a completed day, the pass's "now" for today. A production pass scores today only, so without it
+    /// yesterday kept the total its last pass filled up to that moment.
+    nonisolated static let calorieFillEndMetricKey = "calorie_fill_end"
     /// A legacy unmarked row is a strap night when a strap recorded at least this many heart-rate rows in its
     /// night window (an hour at the slowest 30 s cadence; a worn night records thousands).
     nonisolated static let legacyStrapNightMinHrRows = 120
@@ -787,6 +791,17 @@ final class IntelligenceEngine: ObservableObject {
            UserDefaults.standard.string(forKey: Self.analyzeWatermarkKey) == wmKey {
             performanceChangedRows = 0
             return false
+        }
+
+        // Review round 4 (2): the first pass after midnight (or any later one, until it succeeds) also rescores
+        // yesterday if its calorie total was filled only part of the way, so the day's off-wrist resting energy
+        // is counted through midnight. Once that pass stores yesterday filled to its end, passes cover today
+        // only again.
+        var maxDays = maxDays
+        if maxDays == 1, startOffset == 0, sourceContext == nil,
+           await yesterdayCalorieFillIsUnfinished(store: store, reference: referenceNow,
+                                                  calendar: analysisCalendar) {
+            maxDays = 2
         }
 
         let up = UserProfile(weightKg: profile.weightKg, heightCm: profile.heightCm,
@@ -2325,6 +2340,19 @@ final class IntelligenceEngine: ObservableObject {
                 from: oldestDay,
                 to: newestDay
             )
+            // Review round 4 (2): how far each row's calorie total was filled.
+            let fillEndPoints = Dictionary(reconciledDailies.compactMap { row -> (String, MetricPoint)? in
+                guard row.activeKcalEst != nil, let window = civilDayByKey[row.day] else { return nil }
+                return (row.day, MetricPoint(day: row.day, key: Self.calorieFillEndMetricKey,
+                                             value: Double(min(window.nextStart, now))))
+            }, uniquingKeysWith: { _, last in last })
+            persistedMutationCount += try await store.reconcileMetricSeries(
+                Array(fillEndPoints.values),
+                deviceId: computedId,
+                keys: [Self.calorieFillEndMetricKey],
+                from: oldestDay,
+                to: newestDay
+            )
         } catch {
             note = String(localized: "Recovery history could not be reconciled. NOOP will retry.")
             NSLog("IntelligenceEngine: computed daily reconciliation failed: \(error)")
@@ -2834,7 +2862,8 @@ final class IntelligenceEngine: ObservableObject {
     /// fails, so the gate never skips on an unreadable store.
     /// Review round 3 (D): today's calorie total fills resting energy up to now (D3b), so it must rise while the
     /// strap is off-wrist and no heart rate arrives. The hour term lets the first tick of each hour run; the
-    /// tick's pass is today only (`analyzeRecent(force:)` passes `maxDays: 1`), so past days stay as they are.
+    /// tick's pass is today only (`analyzeRecent(force:)` passes `maxDays: 1`), plus yesterday once if its
+    /// total was filled only part of the way (review round 4, 2).
     private func analyzeWatermark(store: WhoopStore, reference: Date, calendar: Calendar) async -> String {
         let days = Self.civilDayWindows(reference: reference, startOffset: 0,
                                         count: Self.backstopWindowDays, calendar: calendar)
@@ -2933,6 +2962,22 @@ final class IntelligenceEngine: ObservableObject {
             candidates.append(DayOwnerResolver.Candidate(deviceId: d.id, priority: priority, hasData: hasData))
         }
         return DayOwnerResolver.resolve(day: day, lockedOwner: nil, candidates: candidates) ?? fallbackDeviceId
+    }
+
+    /// Whether yesterday's stored computed row has a calorie total filled only part of the way through the day
+    /// (review round 4, 2). A row from before the fill marker counts as unfinished, so it is finished once.
+    private func yesterdayCalorieFillIsUnfinished(store: WhoopStore, reference: Date,
+                                                  calendar: Calendar) async -> Bool {
+        guard let yesterday = Self.civilDayWindows(
+            reference: reference, startOffset: 1, count: 1, calendar: calendar).first else { return false }
+        let computedId = deviceId + "-noop"
+        guard let row = try? await store.dailyMetrics(
+                deviceId: computedId, from: yesterday.day, to: yesterday.day).first,
+              row.activeKcalEst != nil,
+              let marker = try? await store.metricSeries(
+                deviceId: computedId, key: Self.calorieFillEndMetricKey, from: yesterday.day, to: yesterday.day)
+        else { return false }
+        return marker.first.map { $0.value < Double(yesterday.nextStart) } ?? true
     }
 
     /// The start of civil day `day` ("yyyy-MM-dd") in `calendar`'s time zone.

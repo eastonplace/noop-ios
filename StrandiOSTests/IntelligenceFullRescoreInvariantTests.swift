@@ -116,10 +116,10 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
                        reference: reference, dayKeys: (0..<days).map(dayKey))
     }
 
-    private func pass(_ harness: Harness, maxDays: Int, startOffset: Int = 0) async -> Bool {
+    private func pass(_ harness: Harness, maxDays: Int, startOffset: Int = 0, at reference: Date? = nil) async -> Bool {
         await harness.engine.analyzeRecent(
             maxDays: maxDays, startOffset: startOffset, force: true, refreshRepository: false,
-            analysisReference: harness.reference, analysisCalendar: utcCalendar)
+            analysisReference: reference ?? harness.reference, analysisCalendar: utcCalendar)
     }
 
     /// The v3 migration's shape: newest-first 30-day chunks over the whole history.
@@ -457,6 +457,41 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
             for k in 30..<days {
                 XCTAssertEqual(markerByDay[dayKey(k)], IntelligenceEngine.strapRowSource, "strap day \(k)")
             }
+        }
+    }
+
+    // MARK: - Yesterday's calorie fill (review round 4, finding 2)
+
+    /// A production pass scores today only. The first one after midnight also finishes yesterday's calorie
+    /// total when the last pass of yesterday filled it only up to that pass's moment, and stores it as filled
+    /// through midnight, so later passes leave it alone. Yesterday's total used to stay at 15:30's value.
+    func testYesterdaysCalorieTotalIsFinishedOnTheFirstPassOfTheNextDay() async throws {
+        try await withRecalibrationEpochsRestored {
+            let harness = try await makeHarness(days: 4)
+            let yesterday = harness.dayKeys[2]
+            let yesterdayStart = firstDayStart + 2 * 86_400
+            let afternoon = Date(timeIntervalSince1970: TimeInterval(yesterdayStart + 15 * 3_600 + 1_800))
+            let partialPass = await pass(harness, maxDays: 1, at: afternoon)
+            XCTAssertTrue(partialPass)
+            let afterAfternoon = try await stored(harness)
+            let partial = try XCTUnwrap(afterAfternoon[yesterday]?.activeKcalEst)
+
+            let afterMidnight = Date(timeIntervalSince1970: TimeInterval(yesterdayStart + 86_400 + 600))
+            let firstOfDay = await pass(harness, maxDays: 1, at: afterMidnight)
+            XCTAssertTrue(firstOfDay)
+            let afterFirstOfDay = try await stored(harness)
+            let finished = try XCTUnwrap(afterFirstOfDay[yesterday]?.activeKcalEst)
+            XCTAssertGreaterThan(finished, partial)
+            let fillEnd = try await harness.store.metricSeries(
+                deviceId: harness.computedId, key: IntelligenceEngine.calorieFillEndMetricKey,
+                from: yesterday, to: yesterday)
+            XCTAssertEqual(fillEnd.first?.value, Double(yesterdayStart + 86_400), "filled through midnight")
+
+            let twoDays = await pass(harness, maxDays: 2, at: afterMidnight)
+            XCTAssertTrue(twoDays)
+            let afterTwoDays = try await stored(harness)
+            XCTAssertEqual(finished, try XCTUnwrap(afterTwoDays[yesterday]?.activeKcalEst),
+                           accuracy: 0.5, "the same total a two-day pass gives")
         }
     }
 
