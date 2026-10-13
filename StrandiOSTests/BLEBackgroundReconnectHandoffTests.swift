@@ -205,6 +205,31 @@ final class BLEBackgroundReconnectHandoffTests: XCTestCase {
         manager.disconnect()
     }
 
+    /// Review R3c 4: Bluetooth power-on with a strap restored by CoreBluetooth called connect directly,
+    /// past the background-cap pause. A disconnected restored strap now waits for the pause to lift; a
+    /// connected one still resumes discovery.
+    func testBluetoothPowerOnRespectsTheBackgroundCapPauseForARestoredStrap() {
+        let manager = BLEManager(state: LiveState(), collector: nil)
+        var reconnects = 0
+        var discoveries = 0
+        manager.pauseAutoReconnectForBackgroundCapForTesting()
+
+        manager.handlePowerOnWithRestoredPeripheral(UUID(), isConnected: false,
+                                                    reconnect: { reconnects += 1 },
+                                                    resumeDiscovery: { discoveries += 1 })
+        XCTAssertEqual(reconnects, 0, "paused: no reconnect")
+        manager.handlePowerOnWithRestoredPeripheral(UUID(), isConnected: true,
+                                                    reconnect: { reconnects += 1 },
+                                                    resumeDiscovery: { discoveries += 1 })
+        XCTAssertEqual(discoveries, 1, "a live restored link is still attached")
+
+        manager.resumeAutoReconnectInForeground()
+        manager.handlePowerOnWithRestoredPeripheral(UUID(), isConnected: false,
+                                                    reconnect: { reconnects += 1 },
+                                                    resumeDiscovery: { discoveries += 1 })
+        XCTAssertEqual(reconnects, 1, "once the pause lifts, the restored strap reconnects")
+    }
+
     /// End to end through the real target lookup: with no powered-on central (the simulator) there is no
     /// strap to hand off to, so the timer stays armed for when the app comes back.
     func testWithNoReachableStrapTheBackgroundTransitionKeepsTheTimer() {

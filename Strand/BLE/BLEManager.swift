@@ -1171,18 +1171,25 @@ public final class BLEManager: NSObject, ObservableObject {
     /// path schedules nothing afterwards, so the hammer loop cannot restart. A genuine bond still fully
     /// resets via the didWriteValueFor path, so a strap freed since the give-up self-heals.
     func connectFromSystem(model: WhoopModel = .persisted) {
-        guard Self.shouldAllowWhoop5SystemReconnect(
-            secureRecoveryPaused: autoReconnectPausedForWhoop5SecureFailure) else {
-            log("WHOOP 5/MG secure recovery is paused; tap Connect to start a fresh bounded series")
-            return
-        }
-        // F1: the background-cap pause holds for every automatic path (Bluetooth power-on included) until
-        // the app is opened, the user taps Connect, or a link proves healthy.
-        guard !autoReconnectPausedForBackgroundCap else {
-            log("Auto-reconnect is paused after repeated background reconnects; it resumes when the app is opened")
+        if let reason = systemReconnectPauseReason {
+            log(reason)
             return
         }
         connectCore(model: model)
+    }
+
+    /// The pauses every system-initiated reconnect respects (connectFromSystem, and Bluetooth power-on
+    /// with a restored strap), or nil when it may go ahead. The background-cap pause (F1) holds until the
+    /// app is opened, the user taps Connect, or a link proves healthy. The bond-loop pause is deliberately
+    /// not here: a system event gets one bounded attempt with that give-up latched (#78 hole-2).
+    private var systemReconnectPauseReason: String? {
+        if !Self.shouldAllowWhoop5SystemReconnect(secureRecoveryPaused: autoReconnectPausedForWhoop5SecureFailure) {
+            return "WHOOP 5/MG secure recovery is paused; tap Connect to start a fresh bounded series"
+        }
+        if autoReconnectPausedForBackgroundCap {
+            return "Auto-reconnect is paused after repeated background reconnects; it resumes when the app is opened"
+        }
+        return nil
     }
 
     private func connectCore(model: WhoopModel) {
@@ -4868,16 +4875,16 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
         // Bootstrap the async store once on first poweredOn (idempotent if already set).
         Task { @MainActor in await bootstrapStore() }
         if let p = restoredPeripheral {
-            log("poweredOn with restored peripheral — reconnecting \(p.identifier)")
-            if p.state != .connected {
-                central.connect(p, options: nil)
-            } else {
-                if selectedModel.deviceFamily == .whoop5 {
-                    startWhoop5DiscoveryIfNeeded(on: p)
-                } else {
-                    discoverPrimaryServices(on: p)
-                }
-            }
+            handlePowerOnWithRestoredPeripheral(
+                p.identifier, isConnected: p.state == .connected,
+                reconnect: { [central] in central.connect(p, options: nil) },
+                resumeDiscovery: {
+                    if selectedModel.deviceFamily == .whoop5 {
+                        startWhoop5DiscoveryIfNeeded(on: p)
+                    } else {
+                        discoverPrimaryServices(on: p)
+                    }
+                })
         } else {
             // #78 hole-2: poweredOn is SYSTEM-initiated (every Bluetooth toggle / bluetoothd restart
             // lands here), so it must not reset a latched bond-loop give-up - it gets ONE bounded
@@ -5372,6 +5379,24 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
     private func applyWhoop5HandshakeHold(_ hold: Date?) {
         whoop5SecureHandshakeNotBefore = ReconnectPolicy.laterHandshakeHold(
             existing: whoop5SecureHandshakeNotBefore, new: hold, now: Date())
+    }
+
+    /// Bluetooth came on with a strap restored by CoreBluetooth. A connected one resumes discovery; a
+    /// disconnected one is reconnected unless a system reconnect is paused (F1: the background-cap pause
+    /// was bypassed here because this path called CoreBluetooth directly).
+    func handlePowerOnWithRestoredPeripheral(_ identifier: UUID, isConnected: Bool,
+                                             reconnect: () -> Void, resumeDiscovery: () -> Void) {
+        guard !isConnected else {
+            log("poweredOn with restored peripheral — reconnecting \(identifier)")
+            resumeDiscovery()
+            return
+        }
+        if let reason = systemReconnectPauseReason {
+            log("poweredOn with restored peripheral \(identifier) — not reconnecting: \(reason)")
+            return
+        }
+        log("poweredOn with restored peripheral — reconnecting \(identifier)")
+        reconnect()
     }
 
     /// F1: carry out a `ReconnectPolicy` decision.
