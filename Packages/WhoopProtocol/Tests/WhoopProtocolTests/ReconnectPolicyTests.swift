@@ -13,16 +13,16 @@ final class ReconnectPolicyTests: XCTestCase {
         XCTAssertEqual(delays, [3, 6, 12, 24, 48, 60, 60, 60])
     }
 
-    /// Timer-driven retries (failed connects, drops with no known strap) climb the ladder while links
-    /// keep ending quickly.
+    /// The old disconnect path retried a flat 3 s forever. A link that connects and drops quickly now
+    /// climbs the same ladder as a failed connect.
     func testQuickDropsKeepClimbing() {
         var policy = ReconnectPolicy()
-        var delays: [TimeInterval] = []
+        var actions: [ReconnectPolicy.Action] = []
         for _ in 0..<4 {
             policy.linkEnded(upSeconds: 2, acknowledgedHistory: false)
-            delays.append(policy.nextDelay())
+            actions.append(policy.action(after: .drop, appActive: true, knownTarget: true, forcedDelay: nil))
         }
-        XCTAssertEqual(delays, [3, 6, 12, 24])
+        XCTAssertEqual(actions, [.retry(after: 3), .retry(after: 6), .retry(after: 12), .retry(after: 24)])
     }
 
     func testOnlyAHealthyLinkResetsTheLadder() {

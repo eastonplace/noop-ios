@@ -736,6 +736,22 @@ public final class BLEManager: NSObject, ObservableObject {
     /// CC-7: the single pending automatic reconnect. Cancelled on didConnect and on a manual connect, and
     /// replaced on every schedule, so a stale timer can never re-enter connectCore on a live link.
     private var reconnectWork: DispatchWorkItem?
+    /// F1: when the armed reconnect timer is due, and whether it carries a WHOOP 5/MG secure-recovery
+    /// delay, so the background handoff can move that delay onto the secure handshake.
+    private var reconnectWorkDueAt: Date?
+    private var reconnectWorkIsSecureRecovery = false
+    /// F1: auto-reconnect paused after `ReconnectPolicy.backgroundRetryCap` background pending connects
+    /// with no healthy link. Cleared when the app comes to the foreground (the ladder paces retries there)
+    /// and by a user Connect, disconnect or forget.
+    private var autoReconnectPausedForBackgroundCap = false
+    /// F1: a WHOOP 5/MG secure-recovery delay moved to the handshake after a background reconnect. The
+    /// attempt's CLIENT_HELLO is held until this time instead of waiting on a timer before reconnecting.
+    private var whoop5SecureHandshakeNotBefore: Date?
+    /// The secure attempt whose CLIENT_HELLO is being held, and the timer that releases it.
+    private var whoop5HeldClientHello: Whoop5SecureSessionID?
+    private var whoop5HeldClientHelloWork: DispatchWorkItem?
+    /// NotificationCenter token for the background reconnect handoff (installBackgroundReconnectHandoff).
+    private var backgroundReconnectHandoffObserver: NSObjectProtocol?
     /// When the current link came up, and whether it carried a confirmed history ACK — the two health
     /// signals that reset `reconnectPolicy` when the link ends.
     private var linkUpAt: Date?
@@ -854,6 +870,8 @@ public final class BLEManager: NSObject, ObservableObject {
         installPowerStateScheduling()
         // #78 hole-4: a paused-for-bond-loop strap gets one bounded salvage attempt per app-foreground.
         installForegroundSalvageProbe()
+        // F1: an armed reconnect timer becomes a pending connect when the app leaves the foreground.
+        installBackgroundReconnectHandoff()
     }
 
     /// Build the WhoopStore + Collector + Backfiller asynchronously. Safe to call multiple
@@ -1030,6 +1048,8 @@ public final class BLEManager: NSObject, ObservableObject {
         installPowerStateScheduling()
         // #78 hole-4: a paused-for-bond-loop strap gets one bounded salvage attempt per app-foreground.
         installForegroundSalvageProbe()
+        // F1: an armed reconnect timer becomes a pending connect when the app leaves the foreground.
+        installBackgroundReconnectHandoff()
     }
 
     func setHistoricalSyncBackgroundStateDidChange(_ handler: (() -> Void)?) {
@@ -1119,12 +1139,16 @@ public final class BLEManager: NSObject, ObservableObject {
         }
         whoop5SecureRecovery.explicitRetry(peripheralID: peripheral?.identifier)
         autoReconnectPausedForWhoop5SecureFailure = false
+        autoReconnectPausedForBackgroundCap = false
         whoop5FallbackMode = .none
         whoop5PausedNotifyOffPending.removeAll()
         state.standardHRMode = nil
         // CC-7/BLE-9: an explicit Connect supersedes any pending automatic retry and restarts the ladder.
         cancelPendingReconnect()
         reconnectPolicy.reset()
+        // F1: an explicit Connect starts a fresh secure series, so a held CLIENT_HELLO goes out now.
+        whoop5SecureHandshakeNotBefore = nil
+        releaseHeldWhoop5ClientHelloIfDue()
         if model.deviceFamily == .whoop5,
            peripheral?.state == .connected,
            whoop5SecureSession.state == .failed {
@@ -1276,6 +1300,8 @@ public final class BLEManager: NSObject, ObservableObject {
         whoop5SecureRecovery.reset()
         pendingWhoop5ReconnectDelaySeconds = nil
         autoReconnectPausedForWhoop5SecureFailure = false
+        autoReconnectPausedForBackgroundCap = false
+        clearHeldWhoop5ClientHello()
         whoop5FallbackMode = .none
         whoop5PausedNotifyOffPending.removeAll()
         bondLoopPausedAt = nil
@@ -1335,6 +1361,8 @@ public final class BLEManager: NSObject, ObservableObject {
         whoop5SecureRecovery.reset()
         pendingWhoop5ReconnectDelaySeconds = nil
         autoReconnectPausedForWhoop5SecureFailure = false
+        autoReconnectPausedForBackgroundCap = false
+        clearHeldWhoop5ClientHello()
         whoop5FallbackMode = .none
         whoop5PausedNotifyOffPending.removeAll()
         bondLoopPausedAt = nil
@@ -1441,10 +1469,79 @@ public final class BLEManager: NSObject, ObservableObject {
         foregroundSalvageObserver = NotificationCenter.default.addObserver(
             forName: name, object: nil, queue: .main
         ) { [weak self] _ in
-            Task { @MainActor in self?.salvageProbeIfBondLoopPaused() }
+            Task { @MainActor in
+                self?.resumeAutoReconnectInForeground()
+                self?.salvageProbeIfBondLoopPaused()
+            }
         }
         #endif
     }
+
+    /// F1: the app is in the foreground, where the ladder paces retries again. The background attempt
+    /// count starts over, and a background-cap pause lifts with one system reconnect.
+    func resumeAutoReconnectInForeground() {
+        reconnectPolicy.enteredForeground()
+        guard autoReconnectPausedForBackgroundCap else { return }
+        autoReconnectPausedForBackgroundCap = false
+        guard !intentionalDisconnect, !state.connected else { return }
+        log("App is in the foreground: resuming auto-reconnect after the background pause")
+        connectFromSystem()
+    }
+
+    /// F1 (finding #1): observe the app leaving the foreground. iOS only: a macOS app is not suspended.
+    private func installBackgroundReconnectHandoff() {
+        #if os(iOS)
+        backgroundReconnectHandoffObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.handOffArmedReconnectForBackground() }
+        }
+        #endif
+    }
+
+    /// F1 (finding #1): a reconnect timer armed in the foreground (a failed connect or a drop on the
+    /// ladder, or a WHOOP 5/MG secure-recovery delay) never fires once the app is suspended, and nothing
+    /// would be pending to wake it. Hand it to an OS-managed pending connect now; a secure-recovery delay
+    /// moves onto the secure handshake.
+    func handOffArmedReconnectForBackground() {
+        let target = pendingReconnectTarget(dropped: peripheral)
+        handOffArmedReconnect(targetState: target.map { Self.reconnectLinkState($0) }) { [weak self] holdUntil in
+            guard let self, let target else { return }
+            self.log("App left the foreground with a reconnect timer armed; reconnect pending (OS-managed connect)")
+            self.issuePendingReconnect(to: target, holdHandshakeUntil: holdUntil)
+        }
+    }
+
+    /// The decision half of the handoff, separate from CoreBluetooth so tests can drive it. Returns
+    /// whether the armed timer was handed off; `issue` receives the secure-handshake hold, if any.
+    @discardableResult
+    func handOffArmedReconnect(targetState: ReconnectPolicy.LinkState?, issue: (Date?) -> Void) -> Bool {
+        guard ReconnectPolicy.shouldHandOffArmedRetryOnBackground(
+            timerArmed: reconnectWork != nil,
+            intentionalDisconnect: intentionalDisconnect,
+            autoReconnectPaused: autoReconnectPaused,
+            target: targetState) else { return false }
+        let holdUntil = reconnectWorkIsSecureRecovery ? reconnectWorkDueAt : nil
+        cancelPendingReconnect()
+        issue(holdUntil)
+        return true
+    }
+
+    /// Any automatic-reconnect pause is in force.
+    private var autoReconnectPaused: Bool {
+        autoReconnectPausedForBondLoop
+            || autoReconnectPausedForWhoop5SecureFailure
+            || autoReconnectPausedForBackgroundCap
+    }
+
+    /// Test seams for the handoff: arm the timer as a real drop or failed connect would, and observe it.
+    func armReconnectForTesting(after delay: TimeInterval, secureRecovery: Bool) {
+        scheduleReconnect(after: delay, secureRecovery: secureRecovery)
+    }
+
+    var reconnectArmedForTesting: Bool { reconnectWork != nil }
+
+    var reconnectDueAtForTesting: Date? { reconnectWorkDueAt }
 
     // MARK: Multi-WHOOP (additive — inert on the single-WHOOP path)
 
@@ -4895,6 +4992,7 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
         }
         let secureRetryDelay = pendingWhoop5ReconnectDelaySeconds
         pendingWhoop5ReconnectDelaySeconds = nil
+        clearHeldWhoop5ClientHello()   // the held attempt died with the link; the reconnect sets a new hold
         let retiredGeneration = connectGeneration
         confirmedCommandWrites.removeAll {
             $0.peripheralID == peripheral.identifier && $0.connectGeneration == retiredGeneration
@@ -5098,18 +5196,29 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
                 state.append(log: "connect down (uptime ends)", domain: .connection)
                 state.append(log: "reconnect paused=whoop5Secure", domain: .connection)
             }
+        } else if autoReconnectPausedForBackgroundCap {
+            log("Disconnected\(error.map { ": \($0.localizedDescription)" } ?? ""); auto-reconnect paused after repeated background reconnects; it resumes when the app is opened")
+            if TestCentre.active(.connection) {
+                state.append(log: "connect down (uptime ends)", domain: .connection)
+                state.append(log: "reconnect paused=backgroundCap", domain: .connection)
+            }
         } else if !intentionalDisconnect {
-            // F1: a known strap gets an OS-managed pending connect at once. A 12–60 s timer would never
-            // fire in the background (the app is suspended ~10 s after this event) and would leave nothing
-            // pending to wake it when the strap returns.
+            // F1: the ladder paces retries in the foreground; in the background a known strap gets an
+            // OS-managed pending connect (a timer would never fire), capped by ReconnectPolicy.
             let target = pendingReconnectTarget(dropped: peripheral)
-            let action = reconnectPolicy.actionAfterDrop(knownTarget: target != nil,
-                                                         forcedDelay: secureRetryDelay.map { TimeInterval($0) })
+            let forcedDelay = secureRetryDelay.map { TimeInterval($0) }
+            let action = reconnectPolicy.action(after: .drop, appActive: isAppActive,
+                                                knownTarget: target != nil, forcedDelay: forcedDelay)
+            let reason = error.map { " — \($0.localizedDescription)" } ?? ""
             switch action {
-            case .connectNow:
-                log("Disconnected\(error.map { " — \($0.localizedDescription)" } ?? ""); reconnect pending (OS-managed connect)")
             case .retry(let retryDelay):
-                log("Disconnected\(error.map { " — \($0.localizedDescription)" } ?? ""); rescanning in \(Int(retryDelay))s")
+                log("Disconnected\(reason); rescanning in \(Int(retryDelay))s")
+            case .connectNow:
+                log("Disconnected\(reason); reconnect pending (OS-managed connect)")
+            case .connectNowHoldingHandshake(let hold):
+                log("Disconnected\(reason); reconnect pending (OS-managed connect), secure handshake held \(Int(hold))s")
+            case .pause:
+                log("Disconnected\(reason)")
             }
             // Connection test mode: count + describe the involuntary reconnect churn, and mark the link
             // down for the uptime readout. Gated zero-cost (the .connection bool is read before any string
@@ -5122,11 +5231,7 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
                 state.append(log: "connect down (uptime ends)", domain: .connection)
                 state.append(log: "reconnect n=\(connReconnectCount) reason=\(reason)", domain: .connection)
             }
-            if case .retry(let retryDelay) = action {
-                scheduleReconnect(after: retryDelay)
-            } else if let target {
-                issuePendingReconnect(to: target)
-            }
+            performReconnect(action, target: target, secureRecovery: forcedDelay != nil)
         } else {
             log("Disconnected (intentional)")
             // A user-initiated teardown ends the churn count for the run and marks the link down so the
@@ -5173,29 +5278,48 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
         // did, so the loop died here until a manual reconnect. Reschedule with a capped exponential
         // backoff (3, 6, 12, 24, 48, 60s…) so a strap that's genuinely out of range doesn't hammer BLE.
         // #747: don't reschedule while the bond-loop pause is active; the user must free the strap first.
-        guard !intentionalDisconnect,
-              !autoReconnectPausedForBondLoop,
-              !autoReconnectPausedForWhoop5SecureFailure else { return }
-        // F1: in the background a timer would not fire, so a known strap gets a pending connect at once.
+        guard !intentionalDisconnect, !autoReconnectPaused else { return }
+        // F1: the same decision as a drop. In the background a timer would not fire, so a known strap gets
+        // a pending connect at once, capped by ReconnectPolicy.
         let target = pendingReconnectTarget(dropped: peripheral)
-        switch reconnectPolicy.actionAfterFailedConnect(knownTarget: target != nil, appActive: isAppActive) {
-        case .connectNow:
-            if let target {
-                log("Reconnect pending (OS-managed connect; the app is not active, so a timer would not fire)")
-                issuePendingReconnect(to: target)
-            }
+        let action = reconnectPolicy.action(after: .failedConnect, appActive: isAppActive,
+                                            knownTarget: target != nil, forcedDelay: nil)
+        switch action {
         case .retry(let delay):
             log("Reconnecting in \(Int(delay))s (attempt \(reconnectPolicy.attempts))")
-            scheduleReconnect(after: delay)
+        case .connectNow, .connectNowHoldingHandshake:
+            log("Reconnect pending (OS-managed connect; the app is not active, so a timer would not fire)")
+        case .pause:
+            break
+        }
+        performReconnect(action, target: target, secureRecovery: false)
+    }
+
+    /// F1: carry out a `ReconnectPolicy` decision.
+    private func performReconnect(_ action: ReconnectPolicy.Action, target: CBPeripheral?, secureRecovery: Bool) {
+        switch action {
+        case .retry(let delay):
+            scheduleReconnect(after: delay, secureRecovery: secureRecovery)
+        case .connectNow:
+            if let target { issuePendingReconnect(to: target, holdHandshakeUntil: nil) }
+        case .connectNowHoldingHandshake(let hold):
+            if let target { issuePendingReconnect(to: target, holdHandshakeUntil: Date().addingTimeInterval(hold)) }
+        case .pause:
+            cancelPendingReconnect()
+            autoReconnectPausedForBackgroundCap = true
+            log("Auto-reconnect paused: \(ReconnectPolicy.backgroundRetryCap) background reconnects in a row without a healthy link. It resumes when the app is opened, or tap Connect")
+            if TestCentre.active(.connection) {
+                state.append(log: "reconnect paused=backgroundCap", domain: .connection)
+            }
         }
     }
 
     /// F1: the strap an automatic reconnect targets: the strap that just dropped (or failed) when it is
     /// the selected one, otherwise the pinned strap retrieved by identifier. nil when Bluetooth is off or
     /// the pinned strap cannot be retrieved; the caller then falls back to the timer and connect path.
-    private func pendingReconnectTarget(dropped: CBPeripheral) -> CBPeripheral? {
+    private func pendingReconnectTarget(dropped: CBPeripheral?) -> CBPeripheral? {
         guard central.state == .poweredOn else { return nil }
-        if isPreferredPeripheral(dropped) { return dropped }
+        if let dropped, isPreferredPeripheral(dropped) { return dropped }
         guard let preferred = preferredPeripheralUUID else { return nil }
         return central.retrievePeripherals(withIdentifiers: [preferred]).first
     }
@@ -5203,8 +5327,10 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
     /// F1: re-issue an OS-managed pending connect right away. It uses no radio while the strap is absent,
     /// never times out, and survives app suspension, so CoreBluetooth wakes (or relaunches, via state
     /// restoration) the app when the strap comes back. Mirrors connectCore's targeted-connect branch.
-    private func issuePendingReconnect(to p: CBPeripheral) {
+    /// `holdHandshakeUntil` is a WHOOP 5/MG secure-recovery delay enforced after the reconnect instead.
+    private func issuePendingReconnect(to p: CBPeripheral, holdHandshakeUntil: Date?) {
         cancelPendingReconnect()
+        whoop5SecureHandshakeNotBefore = holdHandshakeUntil
         connectAttemptStartedAt = Date()
         preparePeripheral(p)
         central.connect(p, options: nil)
@@ -5222,7 +5348,7 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
     /// CC-7: arm the single automatic reconnect. It is bound to the connection generation it was armed
     /// under and bails out if a newer connection happened or the link is already up or coming up, so a
     /// stale timer can never re-enter connectCore (and reset framing state) on a live link.
-    private func scheduleReconnect(after delay: TimeInterval) {
+    private func scheduleReconnect(after delay: TimeInterval, secureRecovery: Bool) {
         reconnectWork?.cancel()
         let scheduledGeneration = connectGeneration
         let work = DispatchWorkItem { [weak self] in
@@ -5230,9 +5356,9 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
             // (and, via connectFromSystem, can never reset the pause the way the old connect() did).
             guard let self else { return }
             self.reconnectWork = nil
-            guard !self.intentionalDisconnect,
-                  !self.autoReconnectPausedForBondLoop,
-                  !self.autoReconnectPausedForWhoop5SecureFailure else { return }
+            self.reconnectWorkDueAt = nil
+            self.reconnectWorkIsSecureRecovery = false
+            guard !self.intentionalDisconnect, !self.autoReconnectPaused else { return }
             guard ReconnectPolicy.shouldFire(scheduledGeneration: scheduledGeneration,
                                              currentGeneration: self.connectGeneration,
                                              state: Self.reconnectLinkState(self.peripheral)) else {
@@ -5242,12 +5368,16 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
             self.connectFromSystem()
         }
         reconnectWork = work
+        reconnectWorkDueAt = Date().addingTimeInterval(delay)
+        reconnectWorkIsSecureRecovery = secureRecovery
         DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
     }
 
     private func cancelPendingReconnect() {
         reconnectWork?.cancel()
         reconnectWork = nil
+        reconnectWorkDueAt = nil
+        reconnectWorkIsSecureRecovery = false
     }
 
     private static func reconnectLinkState(_ peripheral: CBPeripheral?) -> ReconnectPolicy.LinkState {
@@ -5511,42 +5641,88 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
         // first, then let the current attempt coalesce the one allowed CLIENT_HELLO write.
         if service.uuid == BLEManager.whoop5Service,
            let sessionID = currentWhoop5SecureSessionID {
-            let required = Set(Self.whoop5NotifyChars.map { $0.uuidString.lowercased() })
-            let discovered = Set(whoop5NotifyCharacteristics.map { $0.uuid.uuidString.lowercased() })
-            let commandCharacteristic = cmdCharacteristic
-            guard Whoop5DiscoveryContract.hasRequiredCharacteristics(
-                commandFound: commandCharacteristic?.uuid == Self.whoop5CmdWriteChar,
-                discoveredNotificationIDs: discovered,
-                requiredNotificationIDs: required),
-                let commandCharacteristic else {
-                failWhoop5SecureSession(sessionID, reason: "fd4b characteristic contract was incomplete")
-                return
-            }
-            let shouldSendHello = whoop5SecureSession.collectProtectedCharacteristics(
-                commandCharacteristicFound: true,
-                requiredNotificationIDs: required,
-                discoveryComplete: true,
-                sessionID: sessionID)
-            if shouldSendHello, let hello = selectedModel.deviceFamily.clientHello {
-                finishWhoop5DiscoveryDeadline()
-                whoop5FrozenCommandCharacteristic = commandCharacteristic
-                whoop5FrozenNotifyCharacteristics = Dictionary(
-                    uniqueKeysWithValues: whoop5NotifyCharacteristics.map {
-                        ($0.uuid.uuidString.lowercased(), $0)
-                    })
-                armWhoop5SecureStageDeadline(for: sessionID)
-                log("WHOOP 5/MG: fd4b set collected; writing one CLIENT_HELLO with response")
-                state.pairingHint = nil
-                writeValue(
-                    Data(hello),
-                    to: commandCharacteristic,
-                    on: peripheral,
-                    type: .withResponse,
-                    confirmedPurpose: .clientHello,
-                    command: 0,
-                    requestSequence: 0)
-            }
+            proceedToWhoop5ClientHello(on: peripheral, sessionID: sessionID)
         }
+    }
+
+    /// Check the collected fd4b set and write this attempt's one CLIENT_HELLO, unless a secure-recovery
+    /// delay moved onto the handshake (F1) has not run out yet, in which case the hello is held.
+    private func proceedToWhoop5ClientHello(on peripheral: CBPeripheral, sessionID: Whoop5SecureSessionID) {
+        let required = Set(Self.whoop5NotifyChars.map { $0.uuidString.lowercased() })
+        let discovered = Set(whoop5NotifyCharacteristics.map { $0.uuid.uuidString.lowercased() })
+        let commandCharacteristic = cmdCharacteristic
+        guard Whoop5DiscoveryContract.hasRequiredCharacteristics(
+            commandFound: commandCharacteristic?.uuid == Self.whoop5CmdWriteChar,
+            discoveredNotificationIDs: discovered,
+            requiredNotificationIDs: required),
+            let commandCharacteristic else {
+            failWhoop5SecureSession(sessionID, reason: "fd4b characteristic contract was incomplete")
+            return
+        }
+        if let notBefore = whoop5SecureHandshakeNotBefore, notBefore > Date() {
+            holdWhoop5ClientHello(sessionID, until: notBefore)
+            return
+        }
+        whoop5SecureHandshakeNotBefore = nil
+        let shouldSendHello = whoop5SecureSession.collectProtectedCharacteristics(
+            commandCharacteristicFound: true,
+            requiredNotificationIDs: required,
+            discoveryComplete: true,
+            sessionID: sessionID)
+        if shouldSendHello, let hello = selectedModel.deviceFamily.clientHello {
+            finishWhoop5DiscoveryDeadline()
+            whoop5FrozenCommandCharacteristic = commandCharacteristic
+            whoop5FrozenNotifyCharacteristics = Dictionary(
+                uniqueKeysWithValues: whoop5NotifyCharacteristics.map {
+                    ($0.uuid.uuidString.lowercased(), $0)
+                })
+            armWhoop5SecureStageDeadline(for: sessionID)
+            log("WHOOP 5/MG: fd4b set collected; writing one CLIENT_HELLO with response")
+            state.pairingHint = nil
+            writeValue(
+                Data(hello),
+                to: commandCharacteristic,
+                on: peripheral,
+                type: .withResponse,
+                confirmedPurpose: .clientHello,
+                command: 0,
+                requestSequence: 0)
+        }
+    }
+
+    /// F1: hold the CLIENT_HELLO until the secure-recovery delay ends. The release does not depend on a
+    /// timer waking a suspended app: standard HR keeps notifying on this link while the hello is held,
+    /// and every inbound notification checks the deadline (`releaseHeldWhoop5ClientHelloIfDue`). The
+    /// timer covers a link with no notifications while the app is running.
+    private func holdWhoop5ClientHello(_ sessionID: Whoop5SecureSessionID, until notBefore: Date) {
+        // Discovery is complete; its 20 s deadline must not fail the attempt during a longer hold.
+        finishWhoop5DiscoveryDeadline()
+        whoop5HeldClientHello = sessionID
+        whoop5HeldClientHelloWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.releaseHeldWhoop5ClientHelloIfDue(force: true) }
+        whoop5HeldClientHelloWork = work
+        let remaining = max(0, notBefore.timeIntervalSinceNow)
+        DispatchQueue.main.asyncAfter(deadline: .now() + remaining, execute: work)
+        log("WHOOP 5/MG: secure recovery delay - holding CLIENT_HELLO for \(Int(remaining.rounded(.up)))s after the reconnect")
+    }
+
+    /// Release a held CLIENT_HELLO once its delay has run out (or at once when `force` is set, or the
+    /// hold was cleared). The attempt must still be the current one on a connected link.
+    private func releaseHeldWhoop5ClientHelloIfDue(now: Date = Date(), force: Bool = false) {
+        guard let sessionID = whoop5HeldClientHello else { return }
+        if !force, let notBefore = whoop5SecureHandshakeNotBefore, now < notBefore { return }
+        clearHeldWhoop5ClientHello()
+        guard currentWhoop5SecureSessionID == sessionID,
+              let peripheral, peripheral.state == .connected else { return }
+        log("WHOOP 5/MG: secure recovery delay over; continuing the secure handshake")
+        proceedToWhoop5ClientHello(on: peripheral, sessionID: sessionID)
+    }
+
+    private func clearHeldWhoop5ClientHello() {
+        whoop5HeldClientHello = nil
+        whoop5HeldClientHelloWork?.cancel()
+        whoop5HeldClientHelloWork = nil
+        whoop5SecureHandshakeNotBefore = nil
     }
 
     /// Route each confirmed-write completion through its registered owner.
@@ -6188,6 +6364,8 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
             log("Notify update failed for \(characteristic.uuid): \(error.localizedDescription)")
             return
         }
+        // F1: a held CLIENT_HELLO is released by the strap's own traffic, not only by a timer.
+        releaseHeldWhoop5ClientHelloIfDue()
         guard let data = characteristic.value else { return }
         let bytes = [UInt8](data)
         linkEpitaphState.received(
