@@ -411,6 +411,30 @@ final class HealthDailyPickTests: XCTestCase {
         XCTAssertNil(HealthDailyPick.dayKey("2026-10", minusDays: 3))
     }
 
+    // MARK: the All metrics Calories row is resolved off the main actor (Perf 7)
+
+    /// `exploreSeries(energy_kcal)` hands its inputs to a detached task and resolves them there. The row it returns
+    /// is the one the pure resolver gives for the same inputs.
+    @MainActor
+    func testTheAllMetricsCaloriesRowFromTheRepositoryEqualsTheResolverOnTheSameInputs() async throws {
+        let store = try await WhoopStore.inMemory()
+        let repository = Repository(deviceId: Repository.whoopSource)
+        repository.setStoreForTesting(store)
+        let phone = [phoneDay("2026-09-28", active: 300, basal: 1_700), phoneDay("2026-09-29", active: 410, basal: nil),
+                     phoneDay("2026-10-02", active: 380, basal: 1_650)]
+        _ = try await store.upsertAppleDaily(phone, deviceId: Repository.appleHealthSource)
+        repository.days = [strapDay("2026-09-27", total: 2_050), strapDay("2026-09-29", total: 2_300),
+                           strapDay("2026-10-01", total: 2_200)]
+        let now = Date(timeIntervalSince1970: 1_792_497_600)
+        let rows = await repository.exploreSeries(key: "energy_kcal", source: "my-whoop", now: now)
+        let expected = Repository.exploreCaloriesSeries(
+            layeredStrapKcal: [:], dailyRows: repository.days, apple: phone,
+            context: HealthDailyPick.calorieContext(repo: repository), from: "0000-01-01", to: "9999-12-31")
+        XCTAssertFalse(expected.isEmpty)
+        XCTAssertEqual(rows.map(\.day), expected.map(\.day))
+        XCTAssertEqual(rows.map(\.value), expected.map(\.value))
+    }
+
     // MARK: Steps
 
     func testStepsTakeTheStrapThenThePhoneThenTheEstimate() {

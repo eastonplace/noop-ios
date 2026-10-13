@@ -4330,9 +4330,17 @@ final class Repository: ObservableObject {
         // active-only row.
         if key == "energy_kcal" {
             let apple = await appleDailyRows()
-            return Self.exploreCaloriesSeries(
-                layeredStrapKcal: byDay, dailyRows: self.days, apple: apple,
-                context: HealthDailyPick.calorieContext(repo: self), from: from, to: to)
+            // The resolver is pure and walks every day Apple Health covers (up to 4,000), and this runs on the
+            // main actor once per metric the Explore probe, a correlation scan or Compare asks about: take the
+            // inputs here, resolve elsewhere.
+            let layered = byDay
+            let dailyRows = self.days
+            let context = HealthDailyPick.calorieContext(repo: self)
+            return await Task.detached(priority: .userInitiated) {
+                Self.exploreCaloriesSeries(
+                    layeredStrapKcal: layered, dailyRows: dailyRows, apple: apple,
+                    context: context, from: from, to: to)
+            }.value
         }
         return byDay.sorted { $0.key < $1.key }.map { (day: $0.key, value: $0.value) }
     }
