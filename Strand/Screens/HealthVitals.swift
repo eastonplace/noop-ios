@@ -769,8 +769,8 @@ struct HealthMetricTrendView: View {
     }
 
     var body: some View {
-        let page = currentPage
-        let observations = page.observations
+        let trendPage = currentPage
+        let observations = trendPage.observations
         let latest = observations.last
         let tint = metric.domainTint(latest: latest?.value)
         ScreenScaffold(
@@ -784,7 +784,7 @@ struct HealthMetricTrendView: View {
                     title: String(localized: "\(metric.healthEyebrowTitle) trend"), metric: metric,
                     observations: observations, referenceDate: Repository.logicalDay(Date()),
                     latest: latest?.value, display: display)
-                if metric == .calories, page.showsStrapEstimate {
+                if metric == .calories, trendPage.showsStrapEstimate {
                     DrillInSeparator()
                     Text("An estimate from your heart rate, not a measured burn.")
                         .font(StrandFont.footnote)
