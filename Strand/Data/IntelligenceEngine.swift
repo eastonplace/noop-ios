@@ -2716,12 +2716,16 @@ final class IntelligenceEngine: ObservableObject {
     /// `analyzeRecent` scored against. A non-forced tick whose current fingerprint equals this skips the
     /// 21-day rescore; cleared implicitly by any HR insert/delete (the fingerprint moves), so it self-heals.
     private static let analyzeWatermarkKey = "noop.analyzeWatermark"
-    /// The window the 15-minute backstop scores (`analyzeRecent(force: false)` with the default `maxDays`).
+    /// The window the 15-minute backstop's watermark covers. The tick itself scores today only: the serialized
+    /// `analyzeRecent(force:)` shorthand passes `maxDays: 1`.
     static let backstopWindowDays = 21
 
     /// The backstop window's raw-HR change witness (DL-02): row count and newest timestamp per candidate
-    /// owner over the read window the tick scores, plus the scan version. Empty when a read fails, so the
-    /// gate never skips on an unreadable store.
+    /// owner over the read window the tick scores, plus the scan version and the hour. Empty when a read
+    /// fails, so the gate never skips on an unreadable store.
+    /// Review round 3 (D): today's calorie total fills resting energy up to now (D3b), so it must rise while the
+    /// strap is off-wrist and no heart rate arrives. The hour term lets the first tick of each hour run; the
+    /// tick's pass is today only (`analyzeRecent(force:)` passes `maxDays: 1`), so past days stay as they are.
     private func analyzeWatermark(store: WhoopStore, reference: Date, calendar: Calendar) async -> String {
         let days = Self.civilDayWindows(reference: reference, startOffset: 0,
                                         count: Self.backstopWindowDays, calendar: calendar)
@@ -2740,7 +2744,11 @@ final class IntelligenceEngine: ObservableObject {
             parts.append("\(owner)=\(fingerprint.count):\(fingerprint.maxTs)")
         }
         return parts.joined(separator: "|") + "|\(Self.analyzeScanVersion)"
+            + "|h\(Int(reference.timeIntervalSince1970) / Self.todayFillTickSeconds)"
     }
+
+    /// How often an idle backstop tick re-scores today's calorie fill (review round 3, D).
+    static let todayFillTickSeconds = 3_600
 
     /// CAPTURE-B (#814/#799): build the universal `dayOwner …` self-diagnostic line VERBATIM (the Test
     /// Centre export parser depends on this exact shape). `readId` is the owner this day was read+scored

@@ -250,18 +250,36 @@ final class IntelligenceAnalyzeRecentCacheTests: XCTestCase {
         XCTAssertTrue(moved, "the re-paired strap's new row moves the watermark")
     }
 
-    /// D3b: today's calorie total fills resting energy up to now, so a later pass re-scores today even with
-    /// no new heart rate. Past days still reuse their scans.
+    /// D3b: today's calorie total fills resting energy up to now, so the 15-minute backstop (a non-forced
+    /// pass) re-scores today once the clock moves to a new hour even with no new heart rate, while ticks
+    /// within the hour still skip. Past days still reuse their scans (review round 3, findings 6 and 13).
     func testTodayRescoresWhenTheClockMovesWithoutNewHeartRate() async throws {
+        let defaults = UserDefaults.standard
+        let watermarkKey = "noop.analyzeWatermark"
+        let oldWatermark = defaults.object(forKey: watermarkKey)
+        defer {
+            if let oldWatermark { defaults.set(oldWatermark, forKey: watermarkKey) }
+            else { defaults.removeObject(forKey: watermarkKey) }
+        }
+        defaults.removeObject(forKey: watermarkKey)
         let harness = try await makeHarness()
-        let coldCompleted = await run(harness, maxDays: 3)
+        func tick(at date: Date) async -> Bool {
+            await harness.engine.analyzeRecent(
+                maxDays: 3, force: false, refreshRepository: false,
+                analysisReference: date, analysisCalendar: utcCalendar)
+        }
+
+        let coldCompleted = await tick(at: reference)
         XCTAssertTrue(coldCompleted)
         let windows = await harness.probe.bundleWindows()
         XCTAssertEqual(windows.count, 3)
 
         await harness.probe.resetBundleCalls()
-        let laterCompleted = await run(harness, maxDays: 3, at: reference.addingTimeInterval(600))
-        XCTAssertTrue(laterCompleted)
+        let sameHour = await tick(at: reference.addingTimeInterval(60))
+        XCTAssertFalse(sameHour, "nothing new within the hour: the tick skips")
+
+        let laterCompleted = await tick(at: reference.addingTimeInterval(2 * 3_600))
+        XCTAssertTrue(laterCompleted, "a new hour re-scores today")
         let laterWindows = await harness.probe.bundleWindows()
         XCTAssertEqual(laterWindows, [try XCTUnwrap(windows.last)], "only today is read again")
     }
