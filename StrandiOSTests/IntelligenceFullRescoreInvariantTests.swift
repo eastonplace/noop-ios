@@ -662,6 +662,121 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
         }
     }
 
+    // MARK: - Strap-swap days (upgrade 231)
+
+    /// A strap swap on day 19: the earlier strap recorded the night ending on day 19 and was then replaced by the
+    /// seeded strap, worn from 14:00. Scored before the swap, the day holds the earlier strap's night. After the
+    /// swap the new active strap owns the day from its afternoon alone, and its bundle has no night. Every pass
+    /// since, an ordinary one and then v3 and the settle pass, keeps the stored night (sleep, HRV, resting HR,
+    /// Charge, skin and its Charge breakdown) beside the new strap's daytime. A day the new strap covered, night
+    /// included, is its own and the rescore leaves it as it was.
+    func testASwapDayKeepsTheNightTheEarlierStrapRecorded() async throws {
+        try await withRecalibrationEpochsRestored {
+            let days = 30
+            let swapDay = 19
+            let harness = try await makeHarness(days: days, earlierStrapUntil: 20)
+            try await insertAfternoon(harness, day: swapDay, deviceId: Repository.whoopSource)
+            let beforeSwap = await pass(harness, maxDays: days)
+            XCTAssertTrue(beforeSwap)
+            let scoredBeforeSwap = try await stored(harness)
+            let earlierStrapRow = try XCTUnwrap(scoredBeforeSwap[dayKey(swapDay)])
+            XCTAssertNotNil(earlierStrapRow.totalSleepMin, "the earlier strap scored the swap day's night")
+            XCTAssertNotNil(earlierStrapRow.recovery)
+            let storedSkin = try await swapDayPoints(harness, key: IntelligenceEngine.nightlySkinMetricKey, day: swapDay)
+            XCTAssertEqual(storedSkin.count, 1)
+
+            let registry = DeviceRegistryStore(dbQueue: harness.store.registryWriter)
+            try registry.setActive(Repository.whoopSource)
+            let owner = try await resolvedOwner(harness, day: swapDay, completed: true)
+            XCTAssertEqual(owner, Repository.whoopSource, "the new active strap owns the swap day")
+            let afterSwap = await pass(harness, maxDays: days)
+            XCTAssertTrue(afterSwap)
+            let hybrid = try await stored(harness)
+
+            let v3 = await chunkedRescore(harness, days: days, keepUnproducedHistory: true)
+            XCTAssertTrue(v3)
+            let settle = await chunkedRescore(harness, days: days, keepUnproducedHistory: true)
+            XCTAssertTrue(settle)
+            let after = try await stored(harness)
+            let swapRow = try XCTUnwrap(after[dayKey(swapDay)])
+            XCTAssertEqual(swapRow.totalSleepMin, earlierStrapRow.totalSleepMin)
+            XCTAssertEqual(swapRow.efficiency, earlierStrapRow.efficiency)
+            XCTAssertEqual(swapRow.deepMin, earlierStrapRow.deepMin)
+            XCTAssertEqual(swapRow.remMin, earlierStrapRow.remMin)
+            XCTAssertEqual(swapRow.lightMin, earlierStrapRow.lightMin)
+            XCTAssertEqual(swapRow.restingHr, earlierStrapRow.restingHr)
+            XCTAssertEqual(swapRow.avgHrv, earlierStrapRow.avgHrv)
+            XCTAssertEqual(swapRow.recovery, earlierStrapRow.recovery)
+            XCTAssertEqual(swapRow.skinTempDevC, earlierStrapRow.skinTempDevC)
+            XCTAssertEqual(swapRow.respRateBpm, earlierStrapRow.respRateBpm)
+            let newStrapStrain = try XCTUnwrap(swapRow.strain, "the new strap's daytime is scored")
+            XCTAssertEqual(newStrapStrain, hybrid[dayKey(swapDay)]?.strain)
+            XCTAssertLessThan(newStrapStrain, try XCTUnwrap(earlierStrapRow.strain),
+                              "the daytime is the new strap's afternoon, not the earlier strap's day")
+            let keptSkin = try await swapDayPoints(harness, key: IntelligenceEngine.nightlySkinMetricKey, day: swapDay)
+            XCTAssertEqual(keptSkin, storedSkin, "the night's skin mean stays with it")
+            let breakdown = try await swapDayPoints(
+                harness, key: IntelligenceEngine.chargeBreakdownScoreKey, day: swapDay)
+            XCTAssertEqual(breakdown.map(\.value), [try XCTUnwrap(earlierStrapRow.recovery)],
+                           "the kept Charge keeps its breakdown")
+
+            XCTAssertEqual(after[dayKey(25)], hybrid[dayKey(25)], "a day the new strap covered is its own")
+            XCTAssertNotNil(after[dayKey(25)]?.totalSleepMin)
+        }
+    }
+
+    /// The same swap-day row, with no other strap having recorded the night: the produced row has no night and
+    /// the rescore stores none. Only a night another strap recorded is kept.
+    func testASwapDayWithoutAnotherStrapsNightHasNoNight() async throws {
+        try await withRecalibrationEpochsRestored {
+            let days = 30
+            let day = 19
+            let harness = try await makeHarness(days: days, strapDays: 0..<day)
+            try await insertAfternoon(harness, day: day, deviceId: Repository.whoopSource)
+            let registry = DeviceRegistryStore(dbQueue: harness.store.registryWriter)
+            try registry.add(PairedDevice(
+                id: "chest-strap", brand: "Polar", model: "H10", sourceKind: .liveBLE,
+                capabilities: [.hr], status: .paired, addedAt: 0, lastSeenAt: 0))
+            var session = Streams()
+            let sessionStart = firstDayStart + 10 * 86_400 + 17 * 3_600
+            session.hr = (0..<3_600).map { HRSample(ts: sessionStart + $0, bpm: 120 + $0 % 25) }
+            _ = try await harness.store.insert(session, deviceId: "chest-strap")
+            let night = DailyMetric(
+                day: dayKey(day), totalSleepMin: 440, efficiency: 0.91, deepMin: 85, remMin: 95, lightMin: 260,
+                disturbances: 3, restingHr: 52, avgHrv: 70, recovery: 66, strain: 12, exerciseCount: 1)
+            _ = try await harness.store.upsertDailyMetrics([night], deviceId: harness.computedId)
+
+            let v3 = await chunkedRescore(harness, days: days, keepUnproducedHistory: true)
+            XCTAssertTrue(v3)
+            let settle = await chunkedRescore(harness, days: days, keepUnproducedHistory: true)
+            XCTAssertTrue(settle)
+            let after = try await stored(harness)
+            let row = try XCTUnwrap(after[dayKey(day)], "the afternoon is scored")
+            XCTAssertNotNil(row.strain)
+            XCTAssertNil(row.totalSleepMin)
+            XCTAssertNil(row.avgHrv)
+            XCTAssertNil(row.restingHr)
+            XCTAssertNil(row.recovery)
+        }
+    }
+
+    /// An afternoon's wear on fixture day `k` from 14:00 to 23:00, with half an hour of exercise at 17:00.
+    private func insertAfternoon(_ harness: Harness, day k: Int, deviceId: String) async throws {
+        let start = firstDayStart + k * 86_400
+        var streams = Streams()
+        for ts in stride(from: start + 14 * 3_600, to: start + 23 * 3_600, by: 30) {
+            let exercising = ts >= start + 17 * 3_600 && ts < start + 17 * 3_600 + 1_800
+            streams.hr.append(HRSample(ts: ts, bpm: exercising ? 125 + ts % 9 : 80 + ts % 7))
+            let wobble = Double(ts % 11) * 0.2
+            streams.gravity.append(GravitySample(ts: ts, x: wobble, y: 0.3 - wobble, z: 0.8))
+        }
+        _ = try await harness.store.insert(streams, deviceId: deviceId)
+    }
+
+    private func swapDayPoints(_ harness: Harness, key: String, day k: Int) async throws -> [MetricPoint] {
+        try await harness.store.metricSeries(deviceId: harness.computedId, key: key, from: dayKey(k), to: dayKey(k))
+    }
+
     // MARK: - The settle pass after v3 (review round 7, 4)
 
     /// The settle pass starts only after v3's final chunk has completed. Each launch runs one batch: a fresh engine

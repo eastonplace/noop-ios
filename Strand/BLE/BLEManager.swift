@@ -994,9 +994,9 @@ public final class BLEManager: NSObject, ObservableObject {
         // without a version bump); idempotent if it re-runs (rows dedupe by ts) and the archive is
         // small, so the once-per-change cost is negligible. (#152)
         // Note: the archive carries no deviceId, so replayed rows attribute to the current strap.
-        let replayKey = "rejectArchiveReplayedDecoderSchema"
-        let replayStamp = "decoder-\(WhoopDecoderSchema.version)"
-        if UserDefaults.standard.string(forKey: replayKey) != replayStamp {
+        let replayKey = Self.rejectArchiveReplayKey
+        let replayStamp = Self.rejectArchiveReplayStamp()
+        if Self.rejectArchiveReplayIsDue() {
             do {
                 let rows = try await rejectedHistoryArchive.replay(
                     subLagInterp: PuffinExperiment.ppgHrSubLagInterpEnabled
@@ -1030,6 +1030,34 @@ public final class BLEManager: NSObject, ObservableObject {
             }
             state.seedBatterySamples(seed)
         }
+    }
+
+    nonisolated static let rejectArchiveReplayKey = "rejectArchiveReplayedDecoderSchema"
+    /// The gate before CORE-09 stamped the app version that replayed. 9.0.1 (build 229) is the last version
+    /// stamped there, and its decoder is decoder schema 1.
+    nonisolated static let legacyRejectArchiveReplayKey = "rejectArchiveReplayedAppVersion"
+    nonisolated static let legacyRejectArchiveReplayAppVersion = "9.0.1"
+    nonisolated static let legacyRejectArchiveReplayDecoderSchema = 1
+
+    nonisolated static func rejectArchiveReplayStamp(decoderSchema: Int = WhoopDecoderSchema.version) -> String {
+        "decoder-\(decoderSchema)"
+    }
+
+    /// Whether the reject archive replays for this decoder schema. Upgrade 231: renaming the gate made a 229
+    /// install replay once more and file the archived records under the current strap's id, which can be newer
+    /// than the strap that recorded them. A 229 stamp under the old key means the archive already replayed
+    /// through this decoder, so while the schema is still the one 9.0.1 shipped, the new stamp is written
+    /// without replaying. A fresh install and a decoder bump still replay.
+    nonisolated static func rejectArchiveReplayIsDue(defaults: UserDefaults = .standard,
+                                                     decoderSchema: Int = WhoopDecoderSchema.version) -> Bool {
+        let stamp = rejectArchiveReplayStamp(decoderSchema: decoderSchema)
+        guard defaults.string(forKey: rejectArchiveReplayKey) != stamp else { return false }
+        if decoderSchema == legacyRejectArchiveReplayDecoderSchema,
+           defaults.string(forKey: legacyRejectArchiveReplayKey) == legacyRejectArchiveReplayAppVersion {
+            defaults.set(stamp, forKey: rejectArchiveReplayKey)
+            return false
+        }
+        return true
     }
 
     /// Designated initializer for testing and preview use: accepts a pre-built Collector.

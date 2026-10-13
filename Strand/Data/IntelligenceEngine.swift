@@ -2479,6 +2479,49 @@ final class IntelligenceEngine: ObservableObject {
                 return false
             }
         }
+
+        // Upgrade 231: on a strap-swap or re-pair day the new active strap owns the day from its daytime readings
+        // alone, so the day is produced with no night. The stored row still holds the night the previous strap
+        // recorded. When another completed-day strap, live or archived, has the raw loop's 200 plausible rows in
+        // that day's night window, the produced row keeps the stored overnight fields, the same merge the
+        // still-open day gets, and the day's overnight metric rows (skin, Charge breakdown, shadow) stay with
+        // them. Canonical namespace only: a source-rooted namespace holds one strap's days.
+        var swapNightKeepDays: Set<String> = []
+        let nightlessCompleted = reconciledDailies.indices.filter { index in
+            let row = reconciledDailies[index]
+            return !Self.hasOvernightFields(row)
+                && civilDays.contains { $0.day == row.day && $0.nextStart <= now }
+        }
+        if deviceId == Repository.whoopSource, !nightlessCompleted.isEmpty {
+            do {
+                let storedByDay = Dictionary(
+                    try await store.dailyMetrics(deviceId: computedId, from: oldestDay, to: newestDay)
+                        .map { ($0.day, $0) },
+                    uniquingKeysWith: { a, _ in a })
+                let straps = regDevices.filter { !$0.isImportSource && $0.sourceKind != .activityFile }
+                for index in nightlessCompleted {
+                    let row = reconciledDailies[index]
+                    guard let prior = storedByDay[row.day], Self.hasOvernightFields(prior),
+                          let window = civilDays.first(where: { $0.day == row.day }) else { continue }
+                    let owner = readOwnerByDay[row.day]?.owner
+                    var nightCovered = false
+                    for strap in straps where strap.id != owner {
+                        let rows = try await store.plausibleHRCount(
+                            deviceId: strap.id, from: window.start - 30 * 3_600, to: window.nextStart,
+                            bpmRange: HRValidity.bpmRange, cap: Self.rawLoopMinHrRows)
+                        if rows >= Self.rawLoopMinHrRows { nightCovered = true; break }
+                    }
+                    guard nightCovered else { continue }
+                    reconciledDailies[index] = Self.preservingPriorOvernightFields(in: row, from: prior)
+                    swapNightKeepDays.insert(row.day)
+                    protectedDailyDays.insert(row.day)
+                }
+            } catch {
+                note = String(localized: "Recovery history could not be reconciled. NOOP will retry.")
+                NSLog("IntelligenceEngine: swap-day night read failed: \(error)")
+                return false
+            }
+        }
         dailies = reconciledDailies
 
         // Review round 7 (1): a full-history migration chunk (`keepUnproducedHistory`) never deletes a completed
@@ -2579,7 +2622,8 @@ final class IntelligenceEngine: ObservableObject {
                 windowBreakdowns[computed.day] = StoredChargeBreakdown(
                     day: computed.day, score: recovery, confidence: computed.confidence, drivers: computed.drivers)
             }
-            // A protected current day that kept its earlier Charge keeps that Charge's breakdown too.
+            // A protected current day, or a swap day (upgrade 231), that kept its earlier Charge keeps that
+            // Charge's breakdown too.
             for day in protectedDailyDays where windowBreakdowns[day] == nil {
                 var points: [MetricPoint] = []
                 for key in Self.chargeBreakdownKeys {
@@ -2642,7 +2686,7 @@ final class IntelligenceEngine: ObservableObject {
                 keys: reconciledShadowKeys,
                 from: oldestDay,
                 to: newestDay,
-                protectedDays: historyKeepDays
+                protectedDays: historyKeepDays.union(swapNightKeepDays)
             )
         } catch {
             NSLog("IntelligenceEngine: shadow metric reconciliation failed: \(error)")
@@ -2677,7 +2721,7 @@ final class IntelligenceEngine: ObservableObject {
                 },
                 from: oldestDay,
                 to: newestDay,
-                protectedDays: historyKeepDays
+                protectedDays: historyKeepDays.union(swapNightKeepDays)
             )
         } catch {
             NSLog("IntelligenceEngine: nightly skin mean persistence failed: \(error)")
@@ -4176,7 +4220,8 @@ extension DailyMetric {
 extension IntelligenceEngine {
     /// A pass over today's incomplete source can refresh daytime fields without replaying the
     /// already-finished sleep window. Keep fresh values whenever present and fill only missing overnight
-    /// columns from the persisted same-day row. The caller limits this helper to current-day work.
+    /// columns from the persisted same-day row. The caller limits this helper to current-day work and to
+    /// strap-swap days whose night another strap recorded (upgrade 231).
     nonisolated static func preservingPriorOvernightFields(
         in fresh: DailyMetric,
         from prior: DailyMetric
@@ -4197,6 +4242,14 @@ extension IntelligenceEngine {
             spo2Red: .some(fresh.spo2Red ?? prior.spo2Red),
             spo2Ir: .some(fresh.spo2Ir ?? prior.spo2Ir)
         )
+    }
+
+    /// Whether a row carries any of the overnight fields `preservingPriorOvernightFields` merges (upgrade 231).
+    nonisolated static func hasOvernightFields(_ row: DailyMetric) -> Bool {
+        row.totalSleepMin != nil || row.efficiency != nil || row.deepMin != nil || row.remMin != nil
+            || row.lightMin != nil || row.disturbances != nil || row.restingHr != nil || row.avgHrv != nil
+            || row.recovery != nil || row.skinTempDevC != nil || row.respRateBpm != nil
+            || row.spo2Red != nil || row.spo2Ir != nil
     }
 
     /// Reconstruct the still-open day's missing overnight fields from durable computed sleep sessions.
