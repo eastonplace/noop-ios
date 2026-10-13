@@ -21,15 +21,18 @@ final class VerifiedSinkBootstrapTests: XCTestCase {
         defaults.removePersistentDomain(forName: suite)
     }
 
+    /// `context` is the day's snapshot context; `projection` the verified projection's, when there is one.
     private func bootstrap(
         loaded: Bool = true,
         context: String? = "context-A",
+        projection: String? = nil,
         pending: Bool = false,
         sinksActivate: Bool = true
     ) -> AppModel.VerifiedSinkBootstrapOutcome {
         AppModel.bootstrapVerifiedSink(
             repositoryLoaded: loaded,
-            expectedContextId: context,
+            projectionContextId: projection,
+            snapshotContextId: context,
             hasPendingTransition: pending,
             defaults: defaults,
             activateSinks: { contextId, epoch in
@@ -132,6 +135,47 @@ final class VerifiedSinkBootstrapTests: XCTestCase {
         XCTAssertEqual(bootstrap(context: nil), .closedSourceLeftAlone)
         XCTAssertEqual(ActiveVerifiedSinkEpochStore.activeToken(defaults: defaults), token)
         XCTAssertTrue(activations.isEmpty)
+    }
+
+    // MARK: Projection first
+
+    /// The widgets publish, and the Live Activity admits health, only under a token naming the verified projection's
+    /// context. A working token for the projection is kept although the day's snapshot moved on, so an upgrade never
+    /// rotates it away and blanks the widgets.
+    func testATokenMatchingTheProjectionIsKeptWhileTheSnapshotMovedOn() throws {
+        let token = try install(contextId: "context-P")
+        let snapshot = WidgetSnapshot(recovery: 71, bpm: nil, batteryPct: nil, bonded: false, updated: Date(),
+                                      verifiedContextId: "context-P", verifiedProjectionGeneration: 3)
+        XCTAssertEqual(VerifiedWidgetEnvelopeStore.commit(
+            token: token, generation: 3, snapshot: snapshot, defaults: defaults), .published)
+        let envelope = defaults.data(forKey: VerifiedWidgetEnvelopeStore.storageKey)
+        let record = activeRecord
+
+        XCTAssertEqual(bootstrap(context: "context-S", projection: "context-P"), .kept)
+        XCTAssertEqual(activeRecord, record, "the token and its epoch did not move")
+        XCTAssertEqual(defaults.data(forKey: VerifiedWidgetEnvelopeStore.storageKey), envelope,
+                       "the widget envelope is untouched")
+        XCTAssertEqual(VerifiedWidgetEnvelopeStore.loadForDisplay(defaults: defaults)?.verifiedContextId, "context-P")
+        XCTAssertTrue(activations.isEmpty)
+    }
+
+    /// After the repair, a drive carrying the projection's surface is under the token: it keeps its health values.
+    func testAfterTheBootstrapADriveForTheProjectionSeesAMatchingToken() throws {
+        XCTAssertEqual(bootstrap(context: "context-S", projection: "context-P"), .activated)
+        let token = try XCTUnwrap(ActiveVerifiedSinkEpochStore.activeToken(defaults: defaults))
+        XCTAssertEqual(token.contextId, "context-P", "the projection's context, not the snapshot's")
+
+        let admission = LiveActivityDriveAdmission.decide(
+            recovery: 64, effort: 9.2, verifiedContextId: "context-P", verifiedProjectionGeneration: 1,
+            activeToken: ActiveVerifiedSinkEpochStore.activeToken(defaults: defaults))
+        XCTAssertEqual(admission.tokenState, .match)
+        XCTAssertFalse(admission.strippedHealth)
+        XCTAssertEqual(admission.recovery, 64)
+    }
+
+    func testWithoutAProjectionTheSnapshotsContextIsActivated() throws {
+        XCTAssertEqual(bootstrap(context: "context-S", projection: nil), .activated)
+        XCTAssertEqual(ActiveVerifiedSinkEpochStore.activeToken(defaults: defaults)?.contextId, "context-S")
     }
 
     /// A sink that refuses the activation is reported (and logged), never taken as success.

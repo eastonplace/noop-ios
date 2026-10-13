@@ -968,11 +968,13 @@ final class AppModel: ObservableObject {
     /// Static, with the App Group and the sink activation passed in, so it is testable without a running app.
     static func bootstrapVerifiedSink(
         repositoryLoaded: Bool,
-        expectedContextId: String?,
+        projectionContextId: String?,
+        snapshotContextId: String?,
         hasPendingTransition: Bool,
         defaults: UserDefaults,
         activateSinks: (_ contextId: String, _ epoch: UInt64) -> Bool
     ) -> VerifiedSinkBootstrapOutcome {
+        let expectedContextId = verifiedSinkContextId(projection: projectionContextId, snapshot: snapshotContextId)
         if hasPendingTransition { return .waitingForSourceTransition }
         guard repositoryLoaded else { return .repositoryNotLoaded }
         switch VerifiedSinkBootstrapPolicy.decide(
@@ -1003,6 +1005,15 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// The context the repair names. Widget and Live Activity writes are admitted only under a token naming the verified
+    /// projection's context (`WidgetSnapshot.publish`, `LiveActivityDriveAdmission`), so the projection's comes first: a
+    /// token that matches it is kept even while the day's snapshot has moved on, and the widgets it feeds keep working.
+    /// The snapshot's context stands in only while there is no projection yet; when one arrives naming another context,
+    /// the projection observer repairs again (`repairVerifiedSinkIfContextMoved`).
+    static func verifiedSinkContextId(projection: String?, snapshot: String?) -> String? {
+        projection ?? snapshot
+    }
+
     /// Run the repair for this model. Call only while `sourceTransitionFence` owns source mutation.
     private func bootstrapVerifiedSinkIfNeededUnfenced() async {
         guard let store = await repo.storeHandle(), let defaults = try? sinkDefaults() else { return }
@@ -1012,12 +1023,16 @@ final class AppModel: ObservableObject {
         } catch {
             return   // the journal could not be read: never act on a guess
         }
-        let expectedContextId = repo.currentVerifiedSinkContextIdForActivation
+        // `currentVerifiedSinkContextIdForActivation` is the snapshot's context, or the projection's when there is none.
+        let projectionContextId = repo.verifiedHealthProjection?.contextId
+        let snapshotContextId = repo.currentVerifiedSinkContextIdForActivation
+        let expectedContextId = Self.verifiedSinkContextId(projection: projectionContextId, snapshot: snapshotContextId)
         let token = ActiveVerifiedSinkEpochStore.activeToken(defaults: defaults)
         let tokenState = token == nil ? "missing" : (token?.contextId == expectedContextId ? "match" : "mismatch")
         let outcome = Self.bootstrapVerifiedSink(
             repositoryLoaded: repo.loaded && !repo.verifiedExternalSurfaceFenced,
-            expectedContextId: expectedContextId,
+            projectionContextId: projectionContextId,
+            snapshotContextId: snapshotContextId,
             hasPendingTransition: hasPendingTransition,
             defaults: defaults,
             activateSinks: { [verifiedSinkLifecycle] contextId, epoch in
