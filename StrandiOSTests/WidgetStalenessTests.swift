@@ -1,6 +1,7 @@
 import Foundation
 import XCTest
 import NoopPhase34Core
+import StrandDesign
 import WhoopStore
 @testable import NOOP
 
@@ -455,5 +456,88 @@ final class WidgetStalenessTests: XCTestCase {
         ]), 53)
         XCTAssertEqual(carriedRHR([row("apple-health", "2026-08-07", rhr: 58, priority: 0)]), 58)
         XCTAssertNil(carriedRHR([row("somebody-else", "2026-08-07", rhr: 60)]), "outside the namespace")
+    }
+
+    // MARK: - Strain: the figure Today shows reaches the widget between strap passes
+
+    private func overlay(_ token: VerifiedSinkToken, generation: Int64, storedStrain: Double?) -> WidgetLiveOverlay {
+        WidgetLiveOverlay(epoch: token.epoch, contextId: token.contextId, generation: generation,
+                          bpm: 61, batteryPct: 80, bonded: true, hrSparkline: nil,
+                          storedStrain: storedStrain, updated: Date(timeIntervalSince1970: 1_800_000_100))
+    }
+
+    func testLiveStrainIsTakenOnlyForTheGenerationsOwnDay() throws {
+        let day = try CivilDay(key: "2026-08-08")
+        func resolved(_ day: String?, _ stored: Double) -> ResolvedStrain {
+            ResolvedStrain(day: day, storedValue: stored, version: 2, origin: .liveDayV2, sourceId: "strap")
+        }
+        XCTAssertEqual(WidgetSnapshot.liveStoredStrain(resolved("2026-08-08", 40), day: day), 40)
+        XCTAssertNil(WidgetSnapshot.liveStoredStrain(resolved("2026-08-07", 40), day: day), "another day's Strain")
+        XCTAssertNil(WidgetSnapshot.liveStoredStrain(resolved(nil, 40), day: day))
+        XCTAssertNil(WidgetSnapshot.liveStoredStrain(resolved("2026-08-08", .nan), day: day))
+        XCTAssertNil(WidgetSnapshot.liveStoredStrain(nil, day: day))
+    }
+
+    func testTheWidgetShowsTheLiveStrainOfItsOwnGenerationOnly() throws {
+        let token = try install(contextId: "ctx")
+        let coreStrain = StrainScale.displayValue(fromStored: 30)
+        var snapshot = core("ctx", generation: 5)
+        snapshot.strain = coreStrain
+        XCTAssertEqual(VerifiedWidgetEnvelopeStore.commit(
+            token: token, generation: 5, snapshot: snapshot, defaults: defaults), .published)
+        XCTAssertEqual(VerifiedWidgetEnvelopeStore.loadForDisplay(defaults: defaults)?.strain, coreStrain)
+
+        // Today moved to 40 (stored scale) after the last strap pass: the widget shows it.
+        XCTAssertTrue(ActiveVerifiedSinkEpochStore.commitLiveOverlayIfCurrent(
+            token: token, generation: 5, defaults: defaults, overlay: overlay(token, generation: 5, storedStrain: 40)))
+        XCTAssertEqual(VerifiedWidgetEnvelopeStore.loadForDisplay(defaults: defaults)?.strain,
+                       StrainScale.displayValue(fromStored: 40))
+        XCTAssertEqual(try XCTUnwrap(VerifiedWidgetEnvelopeStore.rawActiveEnvelope(defaults: defaults)).snapshot.strain,
+                       coreStrain, "the verified core itself is never rewritten")
+
+        // An overlay with no Strain leaves the core's.
+        XCTAssertTrue(ActiveVerifiedSinkEpochStore.commitLiveOverlayIfCurrent(
+            token: token, generation: 5, defaults: defaults, overlay: overlay(token, generation: 5, storedStrain: nil)))
+        XCTAssertEqual(VerifiedWidgetEnvelopeStore.loadForDisplay(defaults: defaults)?.strain, coreStrain)
+
+        // A new generation lands: the old overlay (and its Strain) no longer applies.
+        XCTAssertTrue(ActiveVerifiedSinkEpochStore.commitLiveOverlayIfCurrent(
+            token: token, generation: 5, defaults: defaults, overlay: overlay(token, generation: 5, storedStrain: 40)))
+        var next = core("ctx", generation: 6)
+        next.strain = StrainScale.displayValue(fromStored: 45)
+        XCTAssertEqual(VerifiedWidgetEnvelopeStore.commit(
+            token: token, generation: 6, snapshot: next, defaults: defaults), .published)
+        XCTAssertEqual(VerifiedWidgetEnvelopeStore.loadForDisplay(defaults: defaults)?.strain,
+                       StrainScale.displayValue(fromStored: 45))
+    }
+
+    /// The overlay gained one optional key. A payload written before it must decode, and so must the envelope
+    /// and token shapes, which this change does not touch.
+    func testPayloadsWrittenBeforeTheStrainFieldStillDecode() throws {
+        let oldOverlay = Data("""
+        {"epoch":3,"contextId":"ctx","generation":5,"bpm":61,"batteryPct":80,"bonded":true,\
+        "hrSparkline":[60,62],"updated":800000000.5}
+        """.utf8)
+        let decoded = try JSONDecoder().decode(WidgetLiveOverlay.self, from: oldOverlay)
+        XCTAssertNil(decoded.storedStrain)
+        XCTAssertEqual(decoded.generation, 5)
+        XCTAssertEqual(decoded.hrSparkline, [60, 62])
+
+        let oldEnvelope = Data("""
+        {"version":1,"epoch":3,"contextId":"ctx","generation":5,"snapshot":{"recovery":71,"bpm":58,\
+        "batteryPct":80,"bonded":true,"updated":800000000.5,"verifiedContextId":"ctx",\
+        "verifiedProjectionGeneration":5,"effort":8.4,"rest":77,"hrv":61,"restingHr":52,"recoveryDelta":3,\
+        "sleepMinutes":430,"steps":6000,"calories":2100,"hourlyStress":[0.5,null,1.5],\
+        "stressSummary":"Moderate","hrSparkline":[60],"hrvSparkline":[58,61]}}
+        """.utf8)
+        let envelope = try JSONDecoder().decode(VerifiedWidgetEnvelope.self, from: oldEnvelope)
+        XCTAssertEqual(envelope.epoch, 3)
+        XCTAssertEqual(envelope.snapshot.hrv, 61)
+        XCTAssertEqual(envelope.snapshot.hourlyStress?.count, 3)
+
+        let oldToken = Data(#"{"epoch":3,"contextId":"ctx"}"#.utf8)
+        XCTAssertEqual(try JSONDecoder().decode(ActiveVerifiedSinkEpochRecord.self, from: oldToken).epoch, 3)
+        XCTAssertEqual(VerifiedWidgetEnvelopeStore.storageKey, "noop.widget.verified-envelope.v1")
+        XCTAssertEqual(ActiveVerifiedSinkEpochStore.activeKey, "noop.external-sink.active-epoch.v1")
     }
 }

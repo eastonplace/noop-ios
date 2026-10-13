@@ -418,10 +418,15 @@ extension WidgetSnapshot {
         let now = Date()
         let previous = WidgetLivePublishGate.currentSnapshot(now: now)
         let sparkline = model.activeWorkout.map { Array($0.samples.suffix(48).map(\.bpm)) }
+        // The Strain Today shows. Without a value for this generation's day the core's own Strain stands.
+        let liveStrain = liveStoredStrain(
+            model.repo.canonicalStrain(for: verified.logicalDay.key), day: verified.logicalDay)
         var next = previous ?? base
         next.bpm = model.bpm ?? model.live.heartRate
         next.batteryPct = model.live.batteryPct.map { Int($0.rounded()) }
         next.bonded = WidgetCorePublication.widgetBonded(model.live)
+        next.strain = VerifiedWidgetEnvelopeStore.rawActiveEnvelope(defaults: defaults)?.snapshot.strain
+        next.applyLiveStrain(stored: liveStrain)
         next.updated = now
         next.hrSparkline = sparkline
         if model.activeWorkout == nil { next.hrSparkline = nil }
@@ -433,6 +438,7 @@ extension WidgetSnapshot {
             batteryPct: model.live.batteryPct.map { Int($0.rounded()) },
             bonded: WidgetCorePublication.widgetBonded(model.live),
             hrSparkline: sparkline,
+            storedStrain: liveStrain,
             updated: now)
         guard WidgetLivePublishGate.shouldPublish(previous: previous, next: next, now: now) else { return }
         guard ActiveVerifiedSinkEpochStore.commitLiveOverlayIfCurrent(
@@ -442,6 +448,13 @@ extension WidgetSnapshot {
             overlay: overlay) else { return }
         WidgetLivePublishGate.notePublished(next, at: now)
         WidgetTimelineReloads.afterLivePublish(previous: previous, next: next)
+    }
+
+    /// The live Strain to lay over the core: the one Today resolves for the generation's own day, in the stored
+    /// scale, or nil when there is none for that day.
+    static func liveStoredStrain(_ resolved: ResolvedStrain?, day: CivilDay) -> Double? {
+        guard let resolved, resolved.day == day.key, resolved.storedValue.isFinite else { return nil }
+        return resolved.storedValue
     }
 
     static func verifiedStressInput(

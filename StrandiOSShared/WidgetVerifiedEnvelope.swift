@@ -99,6 +99,7 @@ public enum VerifiedWidgetEnvelopeStore {
         snapshot.batteryPct = overlay.batteryPct
         snapshot.bonded = overlay.bonded
         snapshot.hrSparkline = overlay.hrSparkline
+        snapshot.applyLiveStrain(stored: overlay.storedStrain)
         snapshot.updated = overlay.updated
         return snapshot
     }

@@ -189,6 +189,7 @@ public struct WidgetSnapshot: Codable, Equatable, Sendable {
         merged.batteryPct = overlay.batteryPct
         merged.bonded = overlay.bonded
         merged.hrSparkline = overlay.hrSparkline
+        merged.applyLiveStrain(stored: overlay.storedStrain)
         merged.updated = overlay.updated
         return merged
     }
@@ -223,6 +224,10 @@ public struct WidgetLiveOverlay: Codable, Equatable, Sendable {
     public let batteryPct: Int?
     public let bonded: Bool
     public let hrSparkline: [Int]?
+    /// The stored-scale Strain Today showed for this generation's logical day while the app was running. The
+    /// verified core only moves when a strap pass commits, so between passes this is what lets the widget keep
+    /// the figure Today shows. Absent in overlays written before it existed, and then the core's Strain stands.
+    public let storedStrain: Double?
     public let updated: Date
 
     public init(
@@ -233,6 +238,7 @@ public struct WidgetLiveOverlay: Codable, Equatable, Sendable {
         batteryPct: Int?,
         bonded: Bool,
         hrSparkline: [Int]?,
+        storedStrain: Double? = nil,
         updated: Date
     ) {
         self.epoch = epoch
@@ -242,7 +248,16 @@ public struct WidgetLiveOverlay: Codable, Equatable, Sendable {
         self.batteryPct = batteryPct
         self.bonded = bonded
         self.hrSparkline = hrSparkline.map { Array($0.filter { (30...240).contains($0) }.suffix(48)) }
+        self.storedStrain = storedStrain
         self.updated = updated
+    }
+}
+
+extension WidgetSnapshot {
+    /// Lay the live overlay's Strain over the verified core's. A missing or non-finite value leaves the core's.
+    public mutating func applyLiveStrain(stored: Double?) {
+        guard let stored, stored.isFinite else { return }
+        strain = StrainScale.displayValue(fromStored: stored)
     }
 }
 
