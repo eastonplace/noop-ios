@@ -509,7 +509,7 @@ final class WidgetStalenessTests: XCTestCase {
     private func carriedRHR(stored: Int? = nil, _ rows: [StoredSourcedDailyMetric]) -> Int? {
         RepositoryPostAnalysisSnapshotBuilder.widgetRestingHR(
             stored: stored, displayDay: "2026-08-08", dailyRows: rows,
-            importedSourceIds: ["strap"], computedSourceIds: ["strap-noop"], appleSourceId: "apple-health")
+            importedSourceIds: ["strap"], computedSourceIds: ["strap-noop"])
     }
 
     /// Today's Resting HR is missing until tonight's sleep is scored. Recovery and Sleep show last night's in
@@ -548,7 +548,8 @@ final class WidgetStalenessTests: XCTestCase {
     }
 
     /// The carried night resolves per field the way the day's row does: the import first, the computed night
-    /// filling what the import lacks; Apple Health only when the read carried it.
+    /// filling what the import lacks. The exact read never includes Apple Health, so its nights are added at
+    /// delivery (`todayRestingHR`), not here.
     func testRestingHRCarryFollowsTheDailyMergePrecedence() {
         XCTAssertEqual(carriedRHR([
             row("strap", "2026-08-07", rhr: 50, priority: 2),
@@ -558,7 +559,8 @@ final class WidgetStalenessTests: XCTestCase {
             row("strap", "2026-08-07", rhr: nil, priority: 2),
             row("strap-noop", "2026-08-07", rhr: 53, priority: 1),
         ]), 53)
-        XCTAssertEqual(carriedRHR([row("apple-health", "2026-08-07", rhr: 58, priority: 0)]), 58)
+        XCTAssertNil(carriedRHR([row("apple-health", "2026-08-07", rhr: 58, priority: 0)]),
+                     "Apple Health is not part of the exact read")
         XCTAssertNil(carriedRHR([row("somebody-else", "2026-08-07", rhr: 60)]), "outside the namespace")
     }
 
@@ -1021,5 +1023,87 @@ final class WidgetStalenessTests: XCTestCase {
         try await store.upsertDailyMetrics([night("2026-08-08", hrv: 31)], deviceId: "apple-health")
         let own = await WidgetSnapshot.todayHRV(store: store, bundle: aug8)
         XCTAssertEqual(own, 66, "the night's own RMSSD, never Apple's SDNN")
+    }
+
+    // MARK: - Resting HR is the figure Today shows, Apple Health's nights included
+
+    private func nightRHR(_ day: String, rhr: Int?) -> DailyMetric {
+        DailyMetric(day: day, totalSleepMin: nil, efficiency: nil, deepMin: nil, remMin: nil,
+                    lightMin: nil, disturbances: nil, restingHr: rhr, avgHrv: nil,
+                    recovery: nil, strain: nil, exerciseCount: nil)
+    }
+
+    /// Today's row takes the strap's value and fills what it lacks from Apple Health, night by night, and a
+    /// carried night is the freshest one that has either.
+    func testRestingHRResolvesEachNightStrapThenAppleThenTheFreshestNight() throws {
+        let anchor = try CivilDay(key: "2026-08-08")
+        func rhr(strap: [String: Int] = [:], apple: [String: Int] = [:]) -> Int? {
+            WidgetSnapshot.resolvedRestingHR(strap: strap, apple: apple, anchorDay: anchor)
+        }
+        XCTAssertEqual(rhr(strap: ["2026-08-08": 50], apple: ["2026-08-08": 58]), 50, "the strap outranks Apple")
+        XCTAssertEqual(rhr(strap: ["2026-08-07": 52], apple: ["2026-08-08": 58]), 58,
+                       "Apple's same-day value is today's, not the strap's night before")
+        XCTAssertEqual(rhr(strap: ["2026-08-06": 54], apple: ["2026-08-07": 57]), 57,
+                       "a fresher Apple night outranks an older strap night")
+        XCTAssertEqual(rhr(strap: ["2026-08-07": 52], apple: ["2026-08-07": 57]), 52)
+        XCTAssertEqual(rhr(apple: ["2026-08-06": 57]), 57, "two nights back is inside the window")
+        XCTAssertNil(rhr(strap: ["2026-08-05": 54], apple: ["2026-08-05": 57]), "three nights back is stale")
+        XCTAssertNil(rhr(strap: ["2026-08-09": 55], apple: ["2026-08-09": 56]), "tomorrow is not a night to carry")
+        XCTAssertEqual(rhr(strap: ["2026-08-07": 301, "2026-08-06": 53], apple: ["2026-08-07": 57]), 53,
+                       "an implausible winner skips the night; the other source does not replace it")
+        XCTAssertNil(rhr())
+    }
+
+    /// The owner-visible case: the strap was charging last night and the Apple Watch was worn. Today shows
+    /// Apple's figure for today; the widget showed the strap's night before.
+    func testTheDeliveredRestingHRTakesAppleHealthWhereTheStrapHasNone() async throws {
+        let store = try await WhoopStore.inMemory()
+        let aug8 = try bundle(day: "2026-08-08", steps: nil)
+        try await store.upsertDailyMetrics([nightRHR("2026-08-07", rhr: 52)], deviceId: "my-whoop-noop")
+        let carried = await WidgetSnapshot.todayRestingHR(store: store, bundle: aug8)
+        XCTAssertEqual(carried, 52, "no Apple night: the strap's last night")
+
+        try await store.upsertDailyMetrics([nightRHR("2026-08-08", rhr: 58)], deviceId: "apple-health")
+        let apple = await WidgetSnapshot.todayRestingHR(store: store, bundle: aug8)
+        XCTAssertEqual(apple, 58)
+
+        // The strap scores its night: its own value outranks Apple's, and an import outranks the computed night.
+        try await store.upsertDailyMetrics([nightRHR("2026-08-08", rhr: 49)], deviceId: "my-whoop-noop")
+        let strap = await WidgetSnapshot.todayRestingHR(store: store, bundle: aug8)
+        XCTAssertEqual(strap, 49)
+        try await store.upsertDailyMetrics([nightRHR("2026-08-08", rhr: 47)], deviceId: "my-whoop")
+        let imported = await WidgetSnapshot.todayRestingHR(store: store, bundle: aug8)
+        XCTAssertEqual(imported, 47)
+
+        let noStore = await WidgetSnapshot.todayRestingHR(store: nil, bundle: aug8)
+        XCTAssertNil(noStore)
+    }
+
+    func testTheDeliveredRestingHRNeverCarriesPastTodaysWindow() async throws {
+        let store = try await WhoopStore.inMemory()
+        let aug8 = try bundle(day: "2026-08-08", steps: nil)
+        try await store.upsertDailyMetrics([nightRHR("2026-08-05", rhr: 54)], deviceId: "my-whoop-noop")
+        try await store.upsertDailyMetrics([nightRHR("2026-08-05", rhr: 57)], deviceId: "apple-health")
+        let stale = await WidgetSnapshot.todayRestingHR(store: store, bundle: aug8)
+        XCTAssertNil(stale)
+    }
+
+    /// The delivery's figure replaces the core's own (the strap's nights only); with none, the core's stands.
+    func testTheCoreCommitShowsTheDeliveredRestingHR() throws {
+        let ny = newYork()
+        let token = try install(contextId: "ctx")
+        let aug8 = try bundle(day: "2026-08-08", steps: nil, generation: 5)
+        let apple = WidgetCorePublication.commitCore(
+            bundle: aug8, token: token, defaults: defaults,
+            delivery: WidgetCorePublication.CoreDelivery(
+                bpm: 64, batteryPct: 81, bonded: true, steps: nil, restingHR: 58, olderGenerationDay: nil),
+            now: at(ny, 8, 15), calendar: ny)
+        XCTAssertEqual(apple.snapshot.restingHr, 58)
+        XCTAssertEqual(try XCTUnwrap(VerifiedWidgetEnvelopeStore.rawActiveEnvelope(defaults: defaults)).snapshot.restingHr, 58)
+
+        let own = WidgetCorePublication.commitCore(
+            bundle: aug8, token: token, defaults: defaults, delivery: delivery(),
+            now: at(ny, 8, 15), calendar: ny)
+        XCTAssertEqual(own.snapshot.restingHr, 52, "the bundle's own Resting HR when the delivery read found none")
     }
 }

@@ -140,7 +140,9 @@ extension WidgetSnapshot {
             model: model, defaults: defaults, token: token, olderThan: verifiedProjection.generation)
         let now = Date()
         let steps = await todaySteps(repository: model.repo, bundle: verifiedBundle, now: now)
-        let hrv = await todayHRV(store: await model.repo.storeHandle(), bundle: verifiedBundle)
+        let store = await model.repo.storeHandle()
+        let hrv = await todayHRV(store: store, bundle: verifiedBundle)
+        let restingHR = await todayRestingHR(store: store, bundle: verifiedBundle)
         // This is the durable acknowledgement path. It contains only the verified core and in-memory Today
         // fields. HRV history, raw stress scans, and other enrichment run after the caller receives success.
         // What an earlier enrichment already added is carried over, so this commit cannot take it away.
@@ -155,6 +157,7 @@ extension WidgetSnapshot {
                 steps: steps,
                 currentDayStrain: todayStrain(repository: model.repo, now: now),
                 hrv: hrv,
+                restingHR: restingHR,
                 olderGenerationDay: olderGenerationDay),
             now: now)
         let commitKey = WidgetEnrichmentKey(
@@ -226,6 +229,47 @@ extension WidgetSnapshot {
             anchorDay: anchorDay,
             dayCount: CarriedVitalWindow.maximumAgeDays + 1)) ?? []
         return widgetHRVProjection(from: series, anchorDay: anchorDay).current
+    }
+
+    /// The Resting HR Today shows for the bundle's night, with Apple Health in it. The exact read behind the core
+    /// is the strap's only, but Today's row takes Apple's Resting HR wherever the strap has none, and a HealthKit
+    /// sync never mints a generation, so Apple's nights are read here, at delivery, like Steps. The strap's
+    /// nights come from the bundle's own sources in their precedence order, Apple's from its own source; the
+    /// rule is `resolvedRestingHR`. nil when the read fails, and then the core's own value stands.
+    static func todayRestingHR(store: WhoopStore?, bundle: VerifiedExternalProjectionBundle) async -> Int? {
+        guard let store, let first = try? CarriedVitalWindow.earliestDay(anchorDay: bundle.widgetCore.logicalDay) else {
+            return nil
+        }
+        let anchorDay = bundle.widgetCore.logicalDay
+        var strap: [String: Int] = [:]
+        var apple: [String: Int] = [:]
+        do {
+            for sourceId in bundle.verifiedEnrichmentSourceIds where !nonStrapSourceIds.contains(sourceId) {
+                for row in try await store.dailyMetrics(deviceId: sourceId, from: first.key, to: anchorDay.key)
+                where strap[row.day] == nil {
+                    if let rhr = row.restingHr { strap[row.day] = rhr }
+                }
+            }
+            for row in try await store.dailyMetrics(
+                deviceId: Repository.appleHealthSource, from: first.key, to: anchorDay.key) {
+                if let rhr = row.restingHr { apple[row.day] = rhr }
+            }
+        } catch {
+            return nil
+        }
+        return resolvedRestingHR(strap: strap, apple: apple, anchorDay: anchorDay)
+    }
+
+    /// Today's Resting HR for `anchorDay`, by night: the strap's value, else Apple Health's, as the day's merged
+    /// row takes them; for the anchor day itself, else the freshest earlier night that has one inside
+    /// `CarriedVitalWindow`. A night whose winning value is implausible is skipped, never replaced by the other
+    /// source's, exactly as the exact read does.
+    static func resolvedRestingHR(strap: [String: Int], apple: [String: Int], anchorDay: CivilDay) -> Int? {
+        for day in Set(strap.keys).union(apple.keys).filter({ $0 <= anchorDay.key }).sorted(by: >) {
+            guard CarriedVitalWindow.permits(day: day, anchorDay: anchorDay.key) else { break }
+            if let rhr = strap[day] ?? apple[day], (20...300).contains(rhr) { return rhr }
+        }
+        return nil
     }
 
     /// The logical day of the generation the App Group envelope currently holds, when that generation is older

@@ -42,6 +42,9 @@ enum WidgetCorePublication {
         var currentDayStrain: Double? = nil
         /// Last night's HRV as Today shows it (`WidgetSnapshot.todayHRV`).
         var hrv: Int? = nil
+        /// The Resting HR Today shows, with Apple Health's nights in it (`WidgetSnapshot.todayRestingHR`); nil
+        /// keeps the core's own, which is the strap's nights only.
+        var restingHR: Int? = nil
         /// The day of the generation the envelope being replaced holds, when that is an older generation.
         var olderGenerationDay: (generation: Int64, day: CivilDay)?
     }
@@ -68,7 +71,8 @@ enum WidgetCorePublication {
                 calendar: calendar,
                 steps: delivery.steps,
                 currentDayStrain: delivery.currentDayStrain,
-                hrv: delivery.hrv),
+                hrv: delivery.hrv,
+                restingHR: delivery.restingHR),
             from: VerifiedWidgetEnvelopeStore.rawActiveEnvelope(defaults: defaults),
             token: token,
             generation: generation,
@@ -195,7 +199,8 @@ enum WidgetCorePublication {
         calendar: Calendar = .current,
         steps: Int? = nil,
         currentDayStrain: Double? = nil,
-        hrv: Int? = nil
+        hrv: Int? = nil,
+        restingHR: Int? = nil
     ) -> WidgetSnapshot {
         let projection = bundle.projection
         let core = bundle.widgetCore
@@ -208,7 +213,7 @@ enum WidgetCorePublication {
             batteryPct: batteryPct,
             bonded: bonded,
             hrv: hrv.map(Double.init),
-            restingHr: core.restingHR,
+            restingHr: restingHR ?? core.restingHR,
             recoveryDelta: core.recoveryDelta,
             sleepMinutes: core.sleepMinutes,
             steps: dayIsCurrent ? (steps ?? core.steps) : steps,

@@ -21,6 +21,22 @@ enum CarriedVitalWindow {
         return calendar.dateComponents([.day], from: from, to: to).day
     }
 
+    /// The earliest day a night can be carried from to `anchorDay`, for a read that has to cover the window.
+    static func earliestDay(anchorDay: CivilDay) throws -> CivilDay {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.locale = Locale(identifier: "en_US_POSIX")
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let anchor = try anchorDay.date(in: calendar)
+        guard let first = calendar.date(byAdding: .day, value: -maximumAgeDays, to: anchor) else {
+            throw CivilDayError.unrepresentableDate
+        }
+        let parts = calendar.dateComponents([.year, .month, .day], from: first)
+        guard let year = parts.year, let month = parts.month, let day = parts.day else {
+            throw CivilDayError.unrepresentableDate
+        }
+        return try CivilDay(year: year, month: month, day: day)
+    }
+
     /// True for the anchor day itself and for an earlier day no more than `maximumAgeDays` before it.
     static func permits(day: String, anchorDay: String) -> Bool {
         guard let age = ageDays(of: day, relativeTo: anchorDay) else { return false }

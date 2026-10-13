@@ -472,24 +472,24 @@ enum RepositoryPostAnalysisSnapshotBuilder {
     /// The Resting HR the Widget core carries for `displayDay`. Today's own value is missing until tonight's sleep
     /// is scored, while Recovery and Sleep already carry the last scored night, so the core carries Resting HR
     /// the same way: `stored` (the display day's own merged value) when there is one, else the freshest earlier
-    /// night with a value, resolved per field in the same imported, computed, Apple order as the day's row.
+    /// night with a value, resolved per field in the same imported, computed order as the day's row.
     /// The search stays inside the exact read that built this generation and inside `CarriedVitalWindow`, the
     /// window Today carries a prior night for, so the figure is never a stale value from another day.
+    /// The strap's nights only: the exact read never includes Apple Health, whose Resting HR the delivery adds
+    /// from its own read (`WidgetSnapshot.todayRestingHR`).
     static func widgetRestingHR(
         stored: Int?,
         displayDay: String,
         dailyRows: [StoredSourcedDailyMetric],
         importedSourceIds: Set<String>,
-        computedSourceIds: Set<String>,
-        appleSourceId: String
+        computedSourceIds: Set<String>
     ) -> Int? {
         if let stored { return stored }
         let imported = bestDailyRows(dailyRows.filter { importedSourceIds.contains($0.sourceId) })
         let computed = bestDailyRows(dailyRows.filter { computedSourceIds.contains($0.sourceId) })
-        let apple = bestDailyRows(dailyRows.filter { $0.sourceId == appleSourceId })
         for day in Set(dailyRows.map { $0.metric.day }).filter({ $0 < displayDay }).sorted(by: >) {
             guard CarriedVitalWindow.permits(day: day, anchorDay: displayDay) else { break }
-            if let rhr = winningDailyRow(day: day, imported: imported, computed: computed, apple: apple,
+            if let rhr = winningDailyRow(day: day, imported: imported, computed: computed, apple: [:],
                                          field: { $0.restingHr.map(Double.init) })?.metric.restingHr,
                (20...300).contains(rhr) {
                 return rhr
