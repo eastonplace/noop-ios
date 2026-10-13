@@ -218,6 +218,16 @@ try:
         "_ = HealthKitScoringCoordinator.shared",
         "let model = AppModel()",
     )
+    # The publish phase must actually call the helper that holds the refresh guard. Without this order, a stubbed
+    # `publish: { _ in true }` would leave the helper behind as dead code that still satisfies the guard marker.
+    require_order(
+        app,
+        "await scoring.runAndWait(",
+        "publish: { _ in",
+        "await publishCommittedHealthScoring(",
+        "private static func publishCommittedHealthScoring(",
+        "guard await model.repo.refresh(days: 1) else { return false }",
+    )
     forbid(
         app,
         "HealthKitScoringCoordinator.runAnalysisThenPublish(",
