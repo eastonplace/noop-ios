@@ -925,7 +925,7 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
         UserDefaults.standard.double(forKey: "profile.stepsCalibrationCoefficient")
     }
 
-    func testTheStepsEstimateRunsOnlyOnNormalPasses() {
+    func testTheCalibrationFitRunsOnlyOnNormalPasses() {
         XCTAssertTrue(IntelligenceEngine.runsStepsCalibration(
             startOffset: 0, keepUnproducedHistory: false, hasSourceContext: false))
         XCTAssertFalse(IntelligenceEngine.runsStepsCalibration(
@@ -936,29 +936,74 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
             startOffset: 0, keepUnproducedHistory: false, hasSourceContext: true))
     }
 
-    /// The estimate reads the latest 60 days whatever window a pass scores, so a rescore chunk of older days gets
-    /// the answer a normal pass already stored. The chunk skips the 60-day gravity gather and neither writes
-    /// `steps_est` nor touches the calibration mirrored to the profile; a normal pass still does both.
-    func testRescoreChunksSkipTheStepsEstimateAndNormalPassesStillWriteIt() async throws {
+    /// A pass that does not start at today still estimates the days it scored, with the coefficient already on the
+    /// profile, but it neither fits a calibration nor mirrors one (that stays with the normal pass), and it reads
+    /// the gravity of its own days only, not the 60-day window. The cache proves the last point: the next normal
+    /// pass answers exactly the chunk's two days from it.
+    func testRescoreChunksEstimateTheirOwnDaysButSkipTheFitAndTheWindowRead() async throws {
         try await withManualStepsCoefficient(0.05) {
             let harness = try await makeHarness(days: 45, strapDays: 0..<2)
             // The two strap days are 43 and 44 days before the reference: inside the estimate's 60-day window.
             _ = await pass(harness, maxDays: 30, startOffset: 30, keepUnproducedHistory: true)
-            var estimates = try await stepsEstimates(harness)
-            XCTAssertTrue(estimates.isEmpty, "a v3/settle chunk does not run the estimate")
-            XCTAssertEqual(calibratedCoefficient, 0)
+            let fromChunk = try await stepsEstimates(harness)
+            XCTAssertEqual(Set(fromChunk.keys), [dayKey(0), dayKey(1)], "a v3/settle chunk estimates the days it scored")
+            XCTAssertTrue(fromChunk.values.allSatisfy { $0 > 0 })
+            XCTAssertEqual(calibratedCoefficient, 0, "a chunk does not fit or mirror a calibration")
             XCTAssertEqual(harness.engine.stepMotionCacheHits, 0)
+            let ownDays = try await stored(harness).count
+            XCTAssertTrue((1..<10).contains(ownDays), "the chunk scored a handful of days, not the 60-day window")
 
             _ = await pass(harness, maxDays: 30, startOffset: 30)
-            estimates = try await stepsEstimates(harness)
-            XCTAssertTrue(estimates.isEmpty, "nor does any pass whose window starts before today")
+            let fromRepair = try await stepsEstimates(harness)
+            XCTAssertEqual(fromRepair, fromChunk, "nor does any other pass whose window starts before today")
             XCTAssertEqual(calibratedCoefficient, 0)
+            XCTAssertEqual(harness.engine.stepMotionCacheHits, ownDays, "the repeat answered its days from the cache")
 
             _ = await pass(harness, maxDays: 60)
-            estimates = try await stepsEstimates(harness)
-            XCTAssertEqual(Set(estimates.keys), [dayKey(0), dayKey(1)], "a normal pass estimates both strap days")
+            let fromNormal = try await stepsEstimates(harness)
+            XCTAssertEqual(fromNormal, fromChunk, "the normal pass stores the same estimates the chunk did")
             XCTAssertEqual(calibratedCoefficient, 0.05, accuracy: 1e-12)
-            XCTAssertTrue(estimates.values.allSatisfy { $0 > 0 })
+            XCTAssertEqual(harness.engine.stepMotionCacheHits, 2 * ownDays,
+                           "the chunk read its own days only: they are the normal pass's only cache hits")
+        }
+    }
+
+    /// The exact-day pipeline is the only thing that scores a completed day while the app is in the background, and
+    /// nothing else rewrites `steps_est`. An exact pass (a source context, window starting at yesterday) for a
+    /// completed day with no phone steps stores the estimate a normal pass over the same moment stores.
+    func testAnExactDayPassStillEstimatesItsCompletedDayWithNoPhoneSteps() async throws {
+        try await withRecalibrationEpochsRestored {
+            try await withManualStepsCoefficient(0.05) {
+                let exactHarness = try await makeHarness(days: 4)
+                let referenceHarness = try await makeHarness(days: 4)
+                let yesterday = exactHarness.dayKeys[2]
+                let justAfterMidnight = Date(timeIntervalSince1970: TimeInterval(firstDayStart + 3 * 86_400 + 600))
+                let exactYesterday = try exactSource(Repository.whoopSource, day: yesterday, createdAt: justAfterMidnight)
+
+                let exact = await pass(exactHarness, maxDays: 1, startOffset: 1, at: justAfterMidnight,
+                                       sourceContext: exactYesterday)
+                XCTAssertTrue(exact)
+                let normal = await pass(referenceHarness, maxDays: 60, at: justAfterMidnight)
+                XCTAssertTrue(normal)
+
+                let fromExact = try await stepsEstimates(exactHarness)
+                let reference = try await stepsEstimates(referenceHarness)
+                XCTAssertGreaterThan(reference[yesterday] ?? 0, 0, "the fixture's day has movement")
+                XCTAssertEqual(fromExact[yesterday], reference[yesterday],
+                               "the exact pass stores the estimate the ungated code stored")
+                XCTAssertEqual(Set(fromExact.keys), [yesterday], "and only for the day it scored")
+            }
+        }
+    }
+
+    /// With no calibration yet (no manual coefficient, none fitted), a gated pass writes nothing: the estimate is
+    /// inert until there is one, as it always was.
+    func testAGatedPassWritesNoEstimateBeforeThereIsACalibration() async throws {
+        try await withManualStepsCoefficient(0) {
+            let harness = try await makeHarness(days: 45, strapDays: 0..<2)
+            _ = await pass(harness, maxDays: 30, startOffset: 30, keepUnproducedHistory: true)
+            let estimates = try await stepsEstimates(harness)
+            XCTAssertTrue(estimates.isEmpty)
         }
     }
 

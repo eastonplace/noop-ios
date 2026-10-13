@@ -307,6 +307,47 @@ final class IntelligenceEngine: ObservableObject {
         startOffset == 0 && !keepUnproducedHistory && !hasSourceContext
     }
 
+    /// The calibration a pass that does not fit one applies: the manual override when the owner set one, else the
+    /// coefficient the last normal pass fitted and mirrored to the profile. nil until there is one (the estimate is
+    /// inert before then, as it always was).
+    nonisolated static func persistedStepsCalibration(
+        manualOverride: Double?, coefficient: Double, sampleDays: Int, confidence: Double, manual: Bool
+    ) -> StepsEstimateEngine.Calibration? {
+        if let k = manualOverride, k > 0 {
+            return StepsEstimateEngine.Calibration(coefficient: k, sampleDays: sampleDays, confidence: 1.0, manual: true)
+        }
+        guard coefficient > 0 else { return nil }
+        return StepsEstimateEngine.Calibration(
+            coefficient: coefficient, sampleDays: sampleDays, confidence: confidence, manual: manual)
+    }
+
+    /// One civil day's motion volume for the steps estimate, answered from `cached` when the day's owner, read
+    /// window and gravity fingerprint are unchanged, else read from the owner's gravity stream. The fingerprint is
+    /// read BEFORE the rows, so a row that lands in between only makes the next pass's fingerprint differ (a re-read),
+    /// never a stale hit. A failed gravity read is not cached: it counts as an empty day, as it always did.
+    nonisolated static func stepMotion(
+        for civilDay: CivilDayWindow, now: Int, cached: StepMotionCacheEntry?, store: WhoopStore,
+        devices: [PairedDevice], activeId: String, registry: DeviceRegistryStore, fallbackDeviceId: String
+    ) async throws -> (motion: Double, entry: StepMotionCacheEntry?, hit: Bool) {
+        let dayEnd = civilDay.nextStart - 1
+        let owner = await resolveDayOwner(
+            day: civilDay.day, from: civilDay.start, to: dayEnd, store: store,
+            devices: devices, activeId: activeId, registry: registry, fallbackDeviceId: fallbackDeviceId,
+            completedDay: civilDay.nextStart <= now ? civilDay : nil)
+        let fingerprint = try? await store.gravityFingerprint(deviceId: owner, from: civilDay.start, to: dayEnd)
+        if let fingerprint, let hit = cached,
+           hit.matches(owner: owner, from: civilDay.start, to: dayEnd, fingerprint: fingerprint) {
+            return (hit.motion, hit, true)
+        }
+        let grav = try? await store.gravitySamples(deviceId: owner, from: civilDay.start, to: dayEnd, limit: 200_000)
+        try CooperativeAnalysisCancellation.checkpoint()
+        let motion = StepsEstimateEngine.dayMotionIntensity(grav ?? [])
+        guard let fingerprint, grav != nil else { return (motion, nil, false) }
+        return (motion, StepMotionCacheEntry(
+            owner: owner, from: civilDay.start, to: dayEnd,
+            rowCount: fingerprint.count, maxTs: fingerprint.maxTs, motion: motion), false)
+    }
+
     private var dayScanCache: [String: CachedDayScan] = [:]
     private var dayScanCacheConfigSignature = ""
     private var analyzeRecentCacheTestingSeams: AnalyzeRecentCacheTestingSeams?
@@ -2913,35 +2954,13 @@ final class IntelligenceEngine: ObservableObject {
                 var cacheHits = 0
                 for civilDay in stepCivilDays {
                     try CooperativeAnalysisCancellation.checkpoint()
-                    let dayEnd = civilDay.nextStart - 1
-                    let owner = await Self.resolveDayOwner(
-                        day: civilDay.day, from: civilDay.start, to: dayEnd, store: store,
-                                                           devices: regDevices, activeId: regActiveId,
-                                                           registry: registry, fallbackDeviceId: stepsFallbackId,
-                                                           completedDay: civilDay.nextStart <= now ? civilDay : nil)
-                    // The fingerprint is read BEFORE the rows, so a row that lands in between only makes the next
-                    // pass's fingerprint differ (a re-read), never a stale hit.
-                    let fingerprint = try? await store.gravityFingerprint(
-                        deviceId: owner, from: civilDay.start, to: dayEnd)
-                    let m: Double
-                    if let fingerprint, let hit = motionCacheIn[civilDay.day],
-                       hit.matches(owner: owner, from: civilDay.start, to: dayEnd, fingerprint: fingerprint) {
-                        m = hit.motion
-                        motionCache[civilDay.day] = hit
-                        cacheHits += 1
-                    } else {
-                        let grav = try? await store.gravitySamples(deviceId: owner, from: civilDay.start, to: dayEnd,
-                                                                   limit: 200_000)
-                        try CooperativeAnalysisCancellation.checkpoint()
-                        m = StepsEstimateEngine.dayMotionIntensity(grav ?? [])
-                        // A failed read is not cached: it counted as an empty day above, as it always did.
-                        if let fingerprint, grav != nil {
-                            motionCache[civilDay.day] = StepMotionCacheEntry(
-                                owner: owner, from: civilDay.start, to: dayEnd,
-                                rowCount: fingerprint.count, maxTs: fingerprint.maxTs, motion: m)
-                        }
-                    }
-                    if m > 0 { motion[civilDay.day] = m }
+                    let day = try await Self.stepMotion(
+                        for: civilDay, now: now, cached: motionCacheIn[civilDay.day], store: store,
+                        devices: regDevices, activeId: regActiveId, registry: registry,
+                        fallbackDeviceId: stepsFallbackId)
+                    if let entry = day.entry { motionCache[civilDay.day] = entry }
+                    if day.hit { cacheHits += 1 }
+                    if day.motion > 0 { motion[civilDay.day] = day.motion }
                 }
                 return StepsCalibrationGather(refSteps: refSteps, motion: motion,
                                               motionCache: motionCache, cacheHits: cacheHits)
@@ -3014,6 +3033,72 @@ final class IntelligenceEngine: ObservableObject {
                         diagnosticSink?("stepsEst day=\(dm.day) steps=\(est) "
                             + "motion=\((motion * 100).rounded() / 100) (motion-volume estimate)", .steps)
                     }
+                }
+            }
+        } else if let calibration = Self.persistedStepsCalibration(
+            manualOverride: profile.stepsManualOverride, coefficient: profile.stepsCalibrationCoefficient,
+            sampleDays: profile.stepsCalibrationSampleDays, confidence: profile.stepsCalibrationConfidence,
+            manual: profile.stepsCalibrationManual) {
+            // A pass that skips the 60-day fit (an exact-day receipt pass, a repair, a rescore chunk) still estimates
+            // the days IT scored: the exact-day pipeline is the only thing that scores a completed day while the app
+            // is in the background, and nothing else rewrites `steps_est`. The estimate needs only each own day's
+            // motion volume (read through the same per-day cache, so a day a normal pass already read costs one
+            // index probe) and the last fitted or manual coefficient. The fit and the profile mirror stay with the
+            // normal pass. Days older than the 60-day window were never estimated, so none are now.
+            let stepCivilDays = Self.civilDayWindows(
+                reference: referenceNow, startOffset: 0, count: 60, calendar: analysisCalendar)
+            let ownDays = Set(dailies.map(\.day))
+            let ownWindows = stepCivilDays.filter { ownDays.contains($0.day) }
+            if let ownNewest = ownWindows.first?.day, let ownOldest = ownWindows.last?.day {
+                let stepsFallbackId = deviceId
+                let motionCacheIn = stepMotionCache
+                let gather: @Sendable () async throws -> StepsCalibrationGather = {
+                    try CooperativeAnalysisCancellation.checkpoint()
+                    let appleRows = (try? await store.appleDaily(deviceId: Repository.appleHealthSource,
+                                                                 from: ownOldest, to: ownNewest)) ?? []
+                    var refSteps: [String: Double] = [:]
+                    for r in appleRows { if let s = r.steps, s > 0 { refSteps[r.day] = Double(s) } }
+                    var motion: [String: Double] = [:]
+                    var motionCache: [String: StepMotionCacheEntry] = [:]
+                    var cacheHits = 0
+                    for civilDay in ownWindows where refSteps[civilDay.day] == nil {
+                        try CooperativeAnalysisCancellation.checkpoint()
+                        let day = try await Self.stepMotion(
+                            for: civilDay, now: now, cached: motionCacheIn[civilDay.day], store: store,
+                            devices: regDevices, activeId: regActiveId, registry: registry,
+                            fallbackDeviceId: stepsFallbackId)
+                        if let entry = day.entry { motionCache[civilDay.day] = entry }
+                        if day.hit { cacheHits += 1 }
+                        if day.motion > 0 { motion[civilDay.day] = day.motion }
+                    }
+                    return StepsCalibrationGather(refSteps: refSteps, motion: motion,
+                                                  motionCache: motionCache, cacheHits: cacheHits)
+                }
+                let gathered: StepsCalibrationGather
+                do {
+                    gathered = try await CooperativeAnalysisCancellation.runDetached(operation: gather)
+                } catch is CancellationError {
+                    performanceChangedRows = persistedMutationCount
+                    return false
+                } catch {
+                    gathered = StepsCalibrationGather(refSteps: [:], motion: [:], motionCache: [:], cacheHits: 0)
+                }
+                stepMotionCache.merge(gathered.motionCache) { _, new in new }
+                stepMotionCacheHits &+= gathered.cacheHits
+                var estPts: [MetricPoint] = []
+                for dm in dailies where gathered.refSteps[dm.day] == nil {
+                    guard let motion = gathered.motion[dm.day],
+                          let est = StepsEstimateEngine.estimate(motion: motion, calibration: calibration) else { continue }
+                    estPts.append(MetricPoint(day: dm.day, key: "steps_est", value: Double(est)))
+                    if stepsTraceActive {
+                        diagnosticSink?("stepsEst day=\(dm.day) steps=\(est) "
+                            + "motion=\((motion * 100).rounded() / 100) (motion-volume estimate)", .steps)
+                    }
+                }
+                if !estPts.isEmpty {
+                    guard !Task.isCancelled else { performanceChangedRows = persistedMutationCount; return false }
+                    persistedMutationCount += (try? await store.upsertMetricSeries(
+                        estPts, deviceId: computedId)) ?? 0
                 }
             }
         }
