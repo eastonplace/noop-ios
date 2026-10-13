@@ -385,6 +385,51 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
         }
     }
 
+    /// Review round 6: a completed day belongs to the live strap with the most heart rate in that day, among the
+    /// straps that reach the raw loop's 200-row gate, and the active strap wins only a tie. The second strap's
+    /// first evening (23:00 on day 19) no longer takes day 19 from the first strap, whose own night and day it
+    /// was; today still goes to the active strap by priority, and a single-strap install is unchanged.
+    func testACompletedDayBelongsToTheStrapThatCoveredIt() async throws {
+        try await withRecalibrationEpochsRestored {
+            let harness = try await makeHarness(days: 30, whoop4SwapDay: 20)
+            let lastFirstStrapDay = try await resolvedOwner(harness, day: 19, completed: true)
+            XCTAssertEqual(lastFirstStrapDay, Repository.whoopSource, "day 19 is the first strap's")
+            let firstSecondStrapDay = try await resolvedOwner(harness, day: 20, completed: true)
+            XCTAssertEqual(firstSecondStrapDay, secondWhoop4Id)
+            let firstStrapOnly = try await resolvedOwner(harness, day: 10, completed: true)
+            XCTAssertEqual(firstStrapOnly, Repository.whoopSource, "a day only one strap covered is unchanged")
+            let dayNineteenAsToday = try await resolvedOwner(harness, day: 19, completed: false)
+            XCTAssertEqual(dayNineteenAsToday, secondWhoop4Id, "today keeps the active strap's priority")
+
+            // A tie goes to the active strap.
+            let start = firstDayStart + 25 * 86_400
+            let secondStrapRows = try await harness.store.hrFingerprint(
+                deviceId: secondWhoop4Id, from: start, to: start + 86_399).count
+            var streams = Streams()
+            streams.hr = (0..<secondStrapRows).map { HRSample(ts: start + $0, bpm: 60) }
+            _ = try await harness.store.insert(streams, deviceId: Repository.whoopSource)
+            let tie = try await resolvedOwner(harness, day: 25, completed: true)
+            XCTAssertEqual(tie, secondWhoop4Id)
+
+            let single = try await makeHarness(days: 3, whoop4: true)
+            let singleOwner = try await resolvedOwner(single, day: 1, completed: true)
+            XCTAssertEqual(singleOwner, Repository.whoopSource, "a single-strap install is unchanged")
+        }
+    }
+
+    /// The owner `resolveDayOwner` gives fixture day `k`, with the scan loop's read window.
+    private func resolvedOwner(_ harness: Harness, day k: Int, completed: Bool) async throws -> String {
+        let registry = DeviceRegistryStore(dbQueue: harness.store.registryWriter)
+        let start = firstDayStart + k * 86_400
+        let window = IntelligenceEngine.CivilDayWindow(day: dayKey(k), start: start, nextStart: start + 86_400)
+        let devices = try registry.all()
+        let activeId = try registry.activeDeviceId() ?? Repository.whoopSource
+        return await IntelligenceEngine.resolveDayOwner(
+            day: dayKey(k), from: start - 30 * 3_600, to: start + 86_400, store: harness.store,
+            devices: devices, activeId: activeId, registry: registry, fallbackDeviceId: Repository.whoopSource,
+            completedDay: completed ? window : nil)
+    }
+
     // MARK: - Stored Charge breakdown (review round 3 findings 8 and 15, round 4 finding 3)
 
     /// Each fold stores the breakdown of the Charge it wrote: the drivers it built against exactly that Charge.
@@ -577,8 +622,9 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
     }
 
     /// The legacy provenance fixture: unmarked fold copies on days 10, 14 and 18, with 150 owner rows, 250 owner
-    /// rows, and 150 owner rows plus 300 from a second live device. One pass (an exact pass when
-    /// `exactSourceDeviceId` is set) classifies them.
+    /// rows, and 150 owner rows plus 300 a second live device recorded the evening before (inside the loop's
+    /// read window, outside the day, so the day stays the owner's under the round 6 resolver). One pass (an
+    /// exact pass when `exactSourceDeviceId` is set) classifies them.
     private func checkLegacyProvenance(exactSourceDeviceId: String?) async throws {
         let days = 21
         let harness = try await makeHarness(days: days, strapDays: 20..<days)
@@ -590,14 +636,15 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
             id: "chest-strap", brand: "Polar", model: "H10", sourceKind: .liveBLE,
             capabilities: [.hr], status: .active, addedAt: 0, lastSeenAt: 0))
         try registry.setActive(Repository.whoopSource)
-        // Each case is four days from the next, outside the others' read windows.
-        let heartRate: [(day: Int, rows: Int, deviceId: String)] = [
-            (10, 150, Repository.whoopSource), (14, 250, Repository.whoopSource),
-            (18, 150, Repository.whoopSource), (18, 300, "chest-strap"),
+        // Each case is four days from the next, outside the others' read windows. The second device's rows run
+        // from 18:30 to 23:30 the evening before day 18.
+        let heartRate: [(day: Int, rows: Int, deviceId: String, offset: Int)] = [
+            (10, 150, Repository.whoopSource, 3_600), (14, 250, Repository.whoopSource, 3_600),
+            (18, 150, Repository.whoopSource, 3_600), (18, 300, "chest-strap", -19_800),
         ]
         for night in heartRate {
             var streams = Streams()
-            let start = firstDayStart + night.day * 86_400 + 3_600
+            let start = firstDayStart + night.day * 86_400 + night.offset
             streams.hr = (0..<night.rows).map { HRSample(ts: start + $0 * 60, bpm: 55) }
             _ = try await harness.store.insert(streams, deviceId: night.deviceId)
         }

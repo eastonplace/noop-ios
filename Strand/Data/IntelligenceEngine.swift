@@ -264,6 +264,9 @@ final class IntelligenceEngine: ObservableObject {
     /// the device the loop reads (review round 5, 5). Such a day was scored by the strap, and the fold never
     /// writes one, so a fold copy can't be read as a strap night.
     nonisolated static let legacyStrapNightMinHrRows = 200
+    /// The raw loop's scoring gate (`hr.count >= 200`): a completed day's owner must reach it in the day's own
+    /// window (review round 6).
+    nonisolated static let rawLoopMinHrRows = 200
 
     private var dayScanCache: [String: CachedDayScan] = [:]
     private var dayScanCacheConfigSignature = ""
@@ -1113,7 +1116,8 @@ final class IntelligenceEngine: ObservableObject {
                 } else {
                     owner = await Self.resolveDayOwner(day: day, from: from, to: to, store: store,
                                                        devices: regDevices, activeId: regActiveId,
-                                                       registry: registry, fallbackDeviceId: ownerFallbackId)
+                                                       registry: registry, fallbackDeviceId: ownerFallbackId,
+                                                       completedDay: civilDay.nextStart <= now ? civilDay : nil)
                 }
                 let dayInterval = civilDay.start..<civilDay.nextStart
                 let dayOffset = clockOffsetByDay[day] ?? tzOffset
@@ -1672,9 +1676,12 @@ final class IntelligenceEngine: ObservableObject {
                 let to = min(Int(nextStart.timeIntervalSince1970), now)
                 // Review round 6 (1): the owner a production pass resolves, in an exact pass too. The
                 // classification covers the whole history and is stored for good; sourceContext is this pass's.
+                let window = CivilDayWindow(day: row.day, start: dayStart,
+                                            nextStart: Int(nextStart.timeIntervalSince1970))
                 let owner = await Self.resolveDayOwner(day: row.day, from: from, to: to, store: store,
                                                        devices: regDevices, activeId: regActiveId,
-                                                       registry: registry, fallbackDeviceId: ownerFallbackId)
+                                                       registry: registry, fallbackDeviceId: ownerFallbackId,
+                                                       completedDay: window.nextStart <= now ? window : nil)
                 let rows = try await store.hrSamples(
                     deviceId: owner, from: from, to: to, limit: Self.legacyStrapNightMinHrRows)
                 let source = rows.count >= Self.legacyStrapNightMinHrRows
@@ -2675,7 +2682,8 @@ final class IntelligenceEngine: ObservableObject {
                 let owner = await Self.resolveDayOwner(
                     day: civilDay.day, from: civilDay.start, to: dayEnd, store: store,
                                                        devices: regDevices, activeId: regActiveId,
-                                                       registry: registry, fallbackDeviceId: stepsFallbackId)
+                                                       registry: registry, fallbackDeviceId: stepsFallbackId,
+                                                       completedDay: civilDay.nextStart <= now ? civilDay : nil)
                 let grav = (try? await store.gravitySamples(deviceId: owner, from: civilDay.start, to: dayEnd,
                                                             limit: 200_000)) ?? []
                 try CooperativeAnalysisCancellation.checkpoint()
@@ -3054,10 +3062,18 @@ final class IntelligenceEngine: ObservableObject {
     /// passed-in `store` actor, the nonisolated `registry` struct, the value params, and `fallbackDeviceId`
     /// (the former `self.deviceId`). Making it `nonisolated` lets the off-main scan loop call it WITHOUT
     /// hopping back to the main actor each iteration, which is the whole point of FIX 1. Logic identical.
+    ///
+    /// Review round 6: `completedDay` is the day's own civil window when the day is over (callers pass nil for
+    /// today). A completed day belongs to the live strap with the most heart-rate rows in that window, among the
+    /// straps that reach the raw loop's 200-row scoring gate there; the active strap wins only a tie. Without
+    /// this, a new strap's first readings late on the day before a swap made it the owner by priority, and the
+    /// day, scored from that sliver, fell below the gate and lost its row. Each count is one indexed aggregate
+    /// bounded by the one-day window. When no strap reaches the gate, the priority rule below decides as before.
     nonisolated static func resolveDayOwner(day: String, from: Int, to: Int, store: WhoopStore,
                                             devices: [PairedDevice], activeId: String,
                                             registry: DeviceRegistryStore,
-                                            fallbackDeviceId: String) async -> String {
+                                            fallbackDeviceId: String,
+                                            completedDay: CivilDayWindow? = nil) async -> String {
         // A locked override wins outright and skips the presence checks entirely.
         if let locked = (try? registry.dayOwner(day))?.deviceId {
             return locked
@@ -3075,6 +3091,20 @@ final class IntelligenceEngine: ObservableObject {
         // byte-identical (no-data -> fallback, not its own id), so it must still take the probe path.
         if liveDevices.count == 1, liveDevices[0].id == fallbackDeviceId {
             return fallbackDeviceId
+        }
+
+        if let completedDay {
+            var best: (deviceId: String, rows: Int)?
+            for d in liveDevices where !d.isImportSource && d.sourceKind != .activityFile {
+                let rows = (try? await store.hrFingerprint(
+                    deviceId: d.id, from: completedDay.start, to: completedDay.nextStart - 1))?.count ?? 0
+                guard rows >= rawLoopMinHrRows else { continue }
+                if let current = best, rows < current.rows || (rows == current.rows && d.id != activeId) {
+                    continue
+                }
+                best = (d.id, rows)
+            }
+            if let best { return best.deviceId }
         }
 
         var candidates: [DayOwnerResolver.Candidate] = []
