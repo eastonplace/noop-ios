@@ -272,6 +272,17 @@ public struct WidgetDayGate: Sendable {
     func isToday(_ date: Date) -> Bool {
         WidgetLogicalDay.isSameDay(date, now, calendar: calendar)
     }
+
+    /// How many days back a night may stand in for today: `CarriedVitalWindow.maximumAgeDays`, which the
+    /// extension cannot reach. A test pins the two together.
+    public static let carriedNightDays = 2
+
+    /// True when a core committed at `date` is too old for any night in it to still be carried. Its nights are
+    /// dated by the logical day it was committed on, or the day after it (the carve-out for a night that ends
+    /// before 04:00), so once the draw is more than `carriedNightDays + 1` days later, none is inside the window.
+    func isBeyondCarriedNights(_ date: Date) -> Bool {
+        WidgetLogicalDay.daysBetween(date, now, calendar: calendar) > Self.carriedNightDays + 1
+    }
 }
 
 extension WidgetSnapshot {
@@ -284,14 +295,29 @@ extension WidgetSnapshot {
         stressSummary = nil
     }
 
+    /// The figures that describe a night, not a day: Recovery, Sleep, HRV and its strip, Resting HR, the Recovery
+    /// delta and the sleep duration.
+    public mutating func dropPerNightFields() {
+        recovery = nil
+        rest = nil
+        hrv = nil
+        restingHr = nil
+        recoveryDelta = nil
+        sleepMinutes = nil
+        hrvSparkline = nil
+    }
+
     /// The core as a widget draws it: the live overlay laid over it, and, under a `dayGate`, without the
     /// day-scoped figures of an earlier logical day. The app writes those figures into a core committed on their
     /// own logical day (or leaves them out), so the day of the core's last commit, `updated`, is the day they
     /// describe; the overlay's `updated` is the day of the Strain it carries. Neither can be told apart from
-    /// today's by the figure itself, and nothing re-commits at 04:00 in the background.
+    /// today's by the figure itself, and nothing re-commits at 04:00 in the background. The nights in a core that
+    /// has not been committed for longer than a night is carried (`isBeyondCarriedNights`) go as well: a widget
+    /// cannot label them the way Today does, and Friday's Recovery is not Monday's.
     public func displayed(overlay: WidgetLiveOverlay?, dayGate: WidgetDayGate?) -> WidgetSnapshot {
         var snapshot = self
         if let dayGate, !dayGate.isToday(updated) { snapshot.dropDayScopedFields() }
+        if let dayGate, dayGate.isBeyondCarriedNights(updated) { snapshot.dropPerNightFields() }
         guard let overlay else { return snapshot }
         snapshot.bpm = overlay.bpm
         snapshot.batteryPct = overlay.batteryPct

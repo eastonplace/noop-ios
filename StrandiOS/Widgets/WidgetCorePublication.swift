@@ -217,6 +217,11 @@ enum WidgetCorePublication {
     /// Strain and Steps are replaced by `currentDayStrain` and `steps`, which are Today's for the current logical
     /// day, or by nothing, and Calories (a running day total) are left out. Resting HR is then the delivery's
     /// alone: the core's own value is a night counted from the core's day, not from today.
+    ///
+    /// Recovery, Sleep, the Recovery delta and the sleep duration are a night's. A widget cannot label a carried
+    /// night the way Today does, so each is shown only when the night its projection metric is dated by is inside
+    /// `CarriedVitalWindow` of `WidgetCoreDay.nightlyAnchor`: Friday's scores are not Monday's. A figure no
+    /// metric dates is the core's own and stays.
     static func makeCoreSnapshot(
         bundle: VerifiedExternalProjectionBundle,
         bpm: Int?,
@@ -232,17 +237,23 @@ enum WidgetCorePublication {
         let projection = bundle.projection
         let core = bundle.widgetCore
         let dayIsCurrent = WidgetCoreDay.isCurrent(core.logicalDay, now: now, calendar: calendar)
+        let anchor = WidgetCoreDay.nightlyAnchor(bundle: bundle, now: now, calendar: calendar)
+        func nightIsCarriable(_ kinds: HealthMetricKind...) -> Bool {
+            guard let night = kinds.lazy.compactMap({ projection.visibleMetric($0)?.metricDay }).first else { return true }
+            return CarriedVitalWindow.permits(day: night.key, anchorDay: anchor.key)
+        }
+        let recoveryCarriable = nightIsCarriable(.recovery)
         return WidgetSnapshot.publishing(
-            recovery: projection.visibleMetric(.recovery)?.value,
+            recovery: recoveryCarriable ? projection.visibleMetric(.recovery)?.value : nil,
             storedStrain: dayIsCurrent ? projection.visibleMetric(.strain)?.value : currentDayStrain,
-            sleepScore: projection.visibleMetric(.sleepScore)?.value,
+            sleepScore: nightIsCarriable(.sleepScore) ? projection.visibleMetric(.sleepScore)?.value : nil,
             bpm: bpm,
             batteryPct: batteryPct,
             bonded: bonded,
             hrv: hrv.map(Double.init),
             restingHr: dayIsCurrent ? (restingHR ?? core.restingHR) : restingHR,
-            recoveryDelta: core.recoveryDelta,
-            sleepMinutes: core.sleepMinutes,
+            recoveryDelta: recoveryCarriable ? core.recoveryDelta : nil,
+            sleepMinutes: nightIsCarriable(.sleepDurationMinutes, .sleepScore) ? core.sleepMinutes : nil,
             steps: dayIsCurrent ? (steps ?? core.steps) : steps,
             calories: dayIsCurrent ? core.calories : nil,
             hourlyStress: nil,

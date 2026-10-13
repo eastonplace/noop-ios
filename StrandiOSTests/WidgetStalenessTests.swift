@@ -1186,7 +1186,7 @@ final class WidgetStalenessTests: XCTestCase {
             XCTAssertEqual(shown.hourlyStress?.count, 24)
             XCTAssertEqual(shown.stressSummary, "Moderate")
         }
-        for now in [at(ny, 9, 4, 0), at(ny, 9, 7, 30), at(ny, 12, 9)] {
+        for now in [at(ny, 9, 4, 0), at(ny, 9, 7, 30), at(ny, 11, 12)] {
             let shown = try XCTUnwrap(VerifiedWidgetEnvelopeStore.loadForDisplay(
                 defaults: defaults, now: now, calendar: ny))
             XCTAssertNil(shown.strain, "yesterday's Strain at \(now)")
@@ -1571,5 +1571,167 @@ final class WidgetStalenessTests: XCTestCase {
         XCTAssertNil(delivered.restingHR, "no night read: the core's own stands")
         XCTAssertNil(delivered.olderGenerationDay)
         XCTAssertFalse(delivered.bonded)
+    }
+
+    // MARK: - Per-night figures are bounded by CarriedVitalWindow, at the commit and in the extension
+
+    /// A projection whose Recovery is dated `recoveryDay` and whose Sleep score and duration are dated `sleepDay`,
+    /// with a Recovery delta and a sleep duration in its core.
+    private func nightsBundle(
+        day: String, recoveryDay: String, sleepDay: String, generation: Int64 = 4
+    ) throws -> VerifiedExternalProjectionBundle {
+        let civil = try CivilDay(key: day)
+        func metric(_ kind: HealthMetricKind, _ value: Double, _ metricDay: String) throws -> VerifiedHealthMetric {
+            try VerifiedHealthMetric(
+                kind: kind, value: value, metricDay: CivilDay(key: metricDay), sourceId: "my-whoop-noop",
+                algorithmVersion: "v1", generation: generation, freshness: .fresh)
+        }
+        let projection = try VerifiedHealthProjection(
+            contextId: "ctx", deviceId: "my-whoop", generation: generation, logicalDay: civil,
+            metrics: [
+                .recovery: try metric(.recovery, 71, recoveryDay),
+                .sleepScore: try metric(.sleepScore, 77, sleepDay),
+                .sleepDurationMinutes: try metric(.sleepDurationMinutes, 420, sleepDay),
+            ])
+        let core = try VerifiedWidgetCorePayload(
+            contextId: "ctx", projectionGeneration: generation, logicalDay: civil, restingHR: 52,
+            sleepMinutes: 420, steps: nil, calories: nil, recoveryDelta: 5,
+            recordedTimeZoneIdentifier: "America/New_York", enrichmentSourceIds: ["my-whoop", "my-whoop-noop"])
+        return try VerifiedExternalProjectionBundle(projection: projection, widgetCore: core)
+    }
+
+    private func committedNights(_ bundle: VerifiedExternalProjectionBundle, now: Date, calendar: Calendar) throws
+        -> (recovery: Int?, rest: Int?, delta: Int?, sleepMinutes: Int?) {
+        let token = try install(contextId: "ctx")
+        let committed = WidgetCorePublication.commitCore(
+            bundle: bundle, token: token, defaults: defaults, delivery: delivery(), now: now, calendar: calendar)
+        let stored = try XCTUnwrap(VerifiedWidgetEnvelopeStore.rawActiveEnvelope(defaults: defaults)).snapshot
+        XCTAssertEqual(stored.recovery, committed.snapshot.recovery)
+        return (stored.recovery, stored.rest, stored.recoveryDelta, stored.sleepMinutes)
+    }
+
+    /// Friday's Recovery and Sleep were shown on Monday: the core carried a scored night for as long as no
+    /// newer generation arrived, with no limit. Today carries one for two days and then calls it "Latest sleep".
+    func testANightOlderThanTodaysWindowIsNotCommitted() throws {
+        let ny = newYork()
+        let aug5 = try nightsBundle(day: "2026-08-05", recoveryDay: "2026-08-05", sleepDay: "2026-08-05")
+        // Two nights back is the edge of the window: still the last night Today shows.
+        let edge = try committedNights(aug5, now: at(ny, 7, 12), calendar: ny)
+        XCTAssertEqual(edge.recovery, 71)
+        XCTAssertEqual(edge.rest, 77)
+        XCTAssertEqual(edge.delta, 5)
+        XCTAssertEqual(edge.sleepMinutes, 420)
+        // Three nights back is outside it.
+        defaults.removePersistentDomain(forName: suite)
+        let past = try committedNights(aug5, now: at(ny, 8, 12), calendar: ny)
+        XCTAssertNil(past.recovery)
+        XCTAssertNil(past.rest)
+        XCTAssertNil(past.delta, "the delta describes the Recovery that is gone")
+        XCTAssertNil(past.sleepMinutes)
+    }
+
+    /// Each figure is dated by its own metric: a fresh Recovery stays beside a Sleep that is too old.
+    func testEachNightFigureIsBoundedByTheMetricThatDatesIt() throws {
+        let ny = newYork()
+        let mixed = try nightsBundle(day: "2026-08-08", recoveryDay: "2026-08-08", sleepDay: "2026-08-04")
+        let shown = try committedNights(mixed, now: at(ny, 8, 12), calendar: ny)
+        XCTAssertEqual(shown.recovery, 71)
+        XCTAssertEqual(shown.delta, 5)
+        XCTAssertNil(shown.rest)
+        XCTAssertNil(shown.sleepMinutes)
+    }
+
+    /// The carve-out dates the night the next day; the anchor is that day, so nothing is dropped from it.
+    func testTheCarveOutNightIsInsideTheWindowOfTheDayItIsDatedFor() throws {
+        let ny = newYork()
+        let banked = try nightsBundle(day: "2026-08-08", recoveryDay: "2026-08-09", sleepDay: "2026-08-09")
+        let shown = try committedNights(banked, now: at(ny, 9, 2, 50), calendar: ny)
+        XCTAssertEqual(shown.recovery, 71)
+        XCTAssertEqual(shown.rest, 77)
+        XCTAssertEqual(shown.delta, 5)
+        XCTAssertEqual(shown.sleepMinutes, 420)
+    }
+
+    /// A figure no metric dates is the core's own, as before.
+    func testAFigureNoMetricDatesStays() throws {
+        let ny = newYork()
+        let token = try install(contextId: "ctx")
+        let core = try VerifiedWidgetCorePayload(
+            contextId: "ctx", projectionGeneration: 4, logicalDay: CivilDay(key: "2026-08-01"), restingHR: nil,
+            sleepMinutes: 400, steps: nil, calories: nil, recoveryDelta: -7)
+        let bare = try VerifiedExternalProjectionBundle(
+            projection: projection(day: "2026-08-01", generation: 4), widgetCore: core)
+        let committed = WidgetCorePublication.commitCore(
+            bundle: bare, token: token, defaults: defaults, delivery: delivery(), now: at(ny, 9, 12), calendar: ny)
+        XCTAssertEqual(committed.snapshot.recoveryDelta, -7)
+        XCTAssertEqual(committed.snapshot.sleepMinutes, 400)
+    }
+
+    /// The extension's copy of the window is the app's.
+    func testTheExtensionsCarriedNightWindowIsTheAppsAndItsDayCountIsWholeLogicalDays() {
+        XCTAssertEqual(WidgetDayGate.carriedNightDays, CarriedVitalWindow.maximumAgeDays)
+        let ny = newYork()
+        XCTAssertEqual(WidgetLogicalDay.daysBetween(at(ny, 8, 23, 30), at(ny, 9, 3, 59), calendar: ny), 0)
+        XCTAssertEqual(WidgetLogicalDay.daysBetween(at(ny, 8, 23, 30), at(ny, 9, 4, 0), calendar: ny), 1)
+        XCTAssertEqual(WidgetLogicalDay.daysBetween(at(ny, 5, 10), at(ny, 9, 10), calendar: ny), 4)
+        XCTAssertEqual(WidgetLogicalDay.daysBetween(at(ny, 9, 10), at(ny, 5, 10), calendar: ny), -4)
+        func date(_ month: Int, _ day: Int, _ hour: Int) -> Date {
+            ny.date(from: DateComponents(year: 2026, month: month, day: day, hour: hour))!
+        }
+        XCTAssertEqual(WidgetLogicalDay.daysBetween(date(3, 7, 12), date(3, 9, 12), calendar: ny), 2, "spring forward")
+        XCTAssertEqual(WidgetLogicalDay.daysBetween(date(10, 31, 23), date(11, 2, 12), calendar: ny), 2, "fall back")
+    }
+
+    /// The app has not committed since Tuesday morning. The window the commit applies cannot run again, so the
+    /// extension drops the nights itself once the draw is more than a night's window and a day beyond the commit
+    /// (a night dated the day after it, the carve-out), and keeps them until then.
+    func testAWidgetDrawnLongAfterTheLastCommitHasNoNights() throws {
+        let ny = newYork()
+        let token = try install(contextId: "ctx")
+        var last = dayScopedCore(5, updated: at(ny, 5, 10))
+        last.recoveryDelta = 4
+        last.sleepMinutes = 420
+        XCTAssertEqual(VerifiedWidgetEnvelopeStore.commit(
+            token: token, generation: 5, snapshot: last, defaults: defaults), .published)
+
+        // Up to the third logical day after the commit, a night dated the commit's day (or the next) can stand.
+        for now in [at(ny, 5, 23), at(ny, 7, 12), at(ny, 8, 12), at(ny, 9, 3, 59)] {
+            let shown = try XCTUnwrap(VerifiedWidgetEnvelopeStore.loadForDisplay(
+                defaults: defaults, now: now, calendar: ny))
+            XCTAssertEqual(shown.recovery, 71, "at \(now)")
+            XCTAssertEqual(shown.rest, 77)
+            XCTAssertEqual(shown.restingHr, 52)
+            XCTAssertEqual(shown.hrv, 61)
+            XCTAssertEqual(shown.hrvSparkline, [58, 60, 61])
+            XCTAssertEqual(shown.recoveryDelta, 4)
+            XCTAssertEqual(shown.sleepMinutes, 420)
+        }
+        // The fourth is beyond it.
+        for now in [at(ny, 9, 4, 0), at(ny, 9, 12), at(ny, 12, 9)] {
+            let shown = try XCTUnwrap(VerifiedWidgetEnvelopeStore.loadForDisplay(
+                defaults: defaults, now: now, calendar: ny))
+            XCTAssertNil(shown.recovery, "at \(now)")
+            XCTAssertNil(shown.rest)
+            XCTAssertNil(shown.restingHr)
+            XCTAssertNil(shown.hrv)
+            XCTAssertNil(shown.hrvSparkline)
+            XCTAssertNil(shown.recoveryDelta)
+            XCTAssertNil(shown.sleepMinutes)
+            XCTAssertNil(shown.steps)
+            XCTAssertEqual(shown.batteryPct, 80, "what is not a day's or a night's is untouched")
+        }
+        // The same snapshot drawn without a day gate is what it was.
+        let ungated = try XCTUnwrap(VerifiedWidgetEnvelopeStore.loadForDisplay(defaults: defaults))
+        XCTAssertEqual(ungated.recovery, 71)
+
+        // A live overlay does not bring the nights back, and keeps what it carries.
+        XCTAssertTrue(ActiveVerifiedSinkEpochStore.commitLiveOverlayIfCurrent(
+            token: token, generation: 5, defaults: defaults,
+            overlay: liveOverlay(token, generation: 5, storedStrain: 12, updated: at(ny, 12, 8))))
+        let live = try XCTUnwrap(VerifiedWidgetEnvelopeStore.loadForDisplay(
+            defaults: defaults, now: at(ny, 12, 9), calendar: ny))
+        XCTAssertNil(live.recovery)
+        XCTAssertEqual(live.strain, StrainScale.displayValue(fromStored: 12))
+        XCTAssertEqual(live.bpm, 61)
     }
 }

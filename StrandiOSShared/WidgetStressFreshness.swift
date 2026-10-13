@@ -26,6 +26,17 @@ extension WidgetLogicalDay {
         key(of: lhs, calendar: calendar) == key(of: rhs, calendar: calendar)
     }
 
+    /// Whole logical days from `earlier` to `later`: 0 within one logical day, 1 across a 04:00 rollover.
+    public static func daysBetween(_ earlier: Date, _ later: Date, calendar: Calendar = .current) -> Int {
+        func logicalStart(_ date: Date) -> Date {
+            let start = calendar.startOfDay(for: date)
+            return calendar.component(.hour, from: date) < rolloverHour
+                ? calendar.date(byAdding: .day, value: -1, to: start) ?? start
+                : start
+        }
+        return calendar.dateComponents([.day], from: logicalStart(earlier), to: logicalStart(later)).day ?? 0
+    }
+
     /// The next 04:00 wall-clock instant strictly after `date`, when the logical day rolls.
     public static func nextRollover(after date: Date, calendar: Calendar = .current) -> Date? {
         calendar.nextDate(
