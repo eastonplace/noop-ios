@@ -259,7 +259,10 @@ final class EffortRescoreGrantTests: XCTestCase {
         XCTAssertEqual(assertion.ended, [1], "finishing after the cancel does not end it again")
     }
 
-    func testExpirationCancelsTheGrantAndEndsTheAssertionOnce() async {
+    /// iOS gives a scene-edge assertion about 30 s. Cancelling the grant then threw away a partial scan the paced work
+    /// needs several wakes to finish; before the assertion existed the Task froze with the process and resumed on the
+    /// next wake. Expiry ends the assertion and leaves the grant running; a foreground return still cancels it.
+    func testExpirationEndsTheAssertionOnceAndLeavesTheGrantRunning() async {
         let assertion = FakeAssertion()
         let grant = EffortRescoreGrant(assertion: assertion.provider)
         let probe = Probe()
@@ -270,10 +273,30 @@ final class EffortRescoreGrantTests: XCTestCase {
         await waitUntil { assertion.begun == 1 && probe.runs == 1 }
         assertion.expire()
         XCTAssertEqual(assertion.ended, [1], "ended before the handler returns")
-        XCTAssertFalse(grant.isActive, "the grant is cancelled")
+        XCTAssertTrue(grant.isActive, "the grant is still the live one")
+        await settle()
+        XCTAssertFalse(probe.sawCancellation, "and its chunk was not told to stop")
+
+        grant.cancel()
+        XCTAssertEqual(assertion.ended, [1], "the foreground return does not end the spent assertion again")
         await waitUntil { probe.sawCancellation && !grant.isUnwinding }
-        XCTAssertTrue(probe.sawCancellation)
+        XCTAssertTrue(probe.sawCancellation, "a foreground return still cancels the grant")
+    }
+
+    func testAGrantThatOutlivesItsAssertionFinishesNormally() async {
+        let assertion = FakeAssertion()
+        let grant = EffortRescoreGrant(assertion: assertion.provider)
+        let probe = Probe()
+        probe.background = true
+        start(grant, probe) { probe, _ in
+            await withCheckedContinuation { probe.resume = $0 }
+        }
+        await waitUntil { probe.resume != nil }
+        assertion.expire()
+        probe.resume?.resume()           // the next wake: the chunk carries on and finishes
+        await waitUntil { !grant.isActive }
         XCTAssertEqual(assertion.ended, [1])
+        XCTAssertFalse(probe.sawCancellation)
     }
 
     func testAnExpirationAfterTheGrantFinishedDoesNotEndTheAssertionAgain() async {

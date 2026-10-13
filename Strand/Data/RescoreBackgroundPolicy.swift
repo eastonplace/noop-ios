@@ -90,7 +90,7 @@ enum RescoreBackgroundPolicy {
 /// uninterrupted background stays may never finish. In production this is `UIApplication.beginBackgroundTask`.
 struct BackgroundExecutionAssertion {
     /// Begins the assertion. `onExpiry` runs on the main actor when iOS is about to end the background time: the
-    /// holder must stop its work and call `end` before it returns. nil: iOS granted none.
+    /// holder must call `end` before it returns. nil: iOS granted none.
     let begin: @MainActor (_ onExpiry: @escaping @MainActor () -> Void) -> Int?
     /// Ends an assertion `begin` returned.
     let end: @MainActor (_ id: Int) -> Void
@@ -118,9 +118,15 @@ struct BackgroundExecutionAssertion {
 /// A cancelled chunk never advances the durable cursor (`analyzeRecent` reports non-completion and the
 /// migration throws), so the next grant replays it from the same offset.
 ///
-/// A running grant holds a background-execution assertion, so the process stays alive for the chunk instead of
-/// being frozen mid-way (see `BackgroundExecutionAssertion`). The assertion is ended exactly once, by whichever
-/// comes first: the grant finishing, a cancel, or iOS calling the expiration handler.
+/// A running grant holds a background-execution assertion, so the process stays alive for the start of the chunk
+/// (see `BackgroundExecutionAssertion`). The assertion is ended exactly once, by whichever comes first: the grant
+/// finishing, a cancel, or iOS calling the expiration handler.
+///
+/// Expiry ends the assertion and nothing else. The grant keeps running: its Task freezes with the process when iOS
+/// suspends it and resumes on the next wake (a Bluetooth wake, for an owner wearing the strap), so a long stay still
+/// finishes the chunk, as it did before the assertion existed. Cancelling at the ~30 s expiry would throw away a
+/// partial scan the paced work needs several wakes to finish. Only a foreground return cancels the grant. The
+/// processing-task entry cancels it when its own task expires, through `waitUntilIdle`.
 ///
 /// A cancelled grant may still be inside the engine, waiting for its next checkpoint. A grant started in that
 /// window waits for it first, so the engine's single-run guard never drops the new grant silently.
@@ -190,7 +196,7 @@ final class EffortRescoreGrant {
             if !Task.isCancelled, isBackground(), mayRun() {
                 hold.begin { [weak self] in
                     guard let self else { hold.end(); return }
-                    self.expire(token, hold: hold)
+                    self.expire(hold: hold)
                 }
                 await run { !isBackground() || !mayRun() }
             }
@@ -222,9 +228,9 @@ final class EffortRescoreGrant {
         }
     }
 
-    /// iOS is about to end the background time: stop the grant and end the assertion before returning.
-    private func expire(_ token: UUID, hold: Hold) {
-        if self.token == token { cancel() } else { hold.end() }
+    /// iOS is about to end the background time: end the assertion before returning. The grant is not cancelled.
+    private func expire(hold: Hold) {
+        hold.end()
     }
 
     private func finish(_ finished: UUID) {

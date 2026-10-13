@@ -318,8 +318,7 @@ final class AppModel: ObservableObject {
     private var applicationIsActive = true
     /// The one in-flight v3/settle rescore grant a background edge may start; cancelled on foreground return.
     private let effortRescoreGrant = EffortRescoreGrant()
-    /// The body-clock estimate's 14-day hourly HR profile, rebuilt at most hourly (see `CircadianInputsCache`).
-    /// The body-clock profile cache. Anything that changes the heart rate it covers without moving the newest
+    /// The body-clock estimate's 14-day hourly HR profile cache (see `CircadianInputsCache`). Anything that changes the heart rate it covers without moving the newest
     /// timestamp invalidates it: a source delete, archive or select, a restore, a backfill burst, an import.
     private let bodyClockProfile = BodyClockProfileProvider()
 
@@ -2802,9 +2801,9 @@ final class AppModel: ObservableObject {
             // and returning to the foreground cancels the grant (see below).
             startEffortRescoreGrant(requiresFirstPaint: true)
             #if os(iOS)
-            // The grant holds a background-execution assertion, but iOS ends that after a short stay. While the
-            // history rescore is unfinished, keep the processing task armed so the remaining chunks get a stay of
-            // their own instead of replaying the same chunk on borrowed time.
+            // iOS ends the grant's background-execution assertion after a short stay, but the grant keeps running:
+            // it freezes with the process and resumes on the next Bluetooth wake. While the history rescore is
+            // unfinished, also keep the processing task armed, so the remaining chunks get a stay of their own.
             Task { [weak self] in
                 guard let self, await self.intelligence.effortRescoreIsPending() else { return }
                 HistoricalScoringBackgroundTaskRegistrar.schedule()
