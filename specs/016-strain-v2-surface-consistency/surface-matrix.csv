@@ -1,0 +1,18 @@
+surface_or_path,current_source,classification,known_issue,required_target,severity,status
+Today Home pillar,liveTodayStrain else merged DailyMetric.strain,user-facing surface,Private snapshot can remain stale and provenance can be lost,shared canonical ResolvedStrain,P0,implemented
+Strain full-screen detail,independent detail path,user-facing surface,Can differ from Home,same resolved day value as Home,P0,implemented
+DailyMetric filling merge,imported plus computed,producer,Copy omits version,version travels with winning strain,P0,implemented
+DailyMetric sleep merge,reconstructed DailyMetric,producer,Copy omits version,preserve existing version,P0,implemented
+Activity-file steps merge,reconstructed DailyMetric,producer,Copy omits version,preserve existing version,P0,implemented
+Widget,widget anchor daily strain,user-facing surface,No version or live freshness check,canonical resolved Strain,P0,implemented
+Live Activity,widget anchor daily strain,user-facing surface,BPM can move while strain is stale,canonical resolved Strain,P0,implemented
+Live workout,accumulator nil coerced to zero,user-facing surface,Unscorable state appears as real zero,Building or scored state,P1,implemented
+Workout finish,unawaited store save,producer,UI can succeed before durable persistence,awaited read-back transaction,P0,implemented
+Workout detail,immutable row value,user-facing surface,Can retain stale pre-save value,re-resolve by natural key,P1,implemented
+Workout edit and relabel,memberwise copies,producer,V2 version may be omitted,preservation-first replacement API,P1,implemented
+Workout aggregates,all nonnil row strain,user-facing surface,Mixes imported legacy and V2,V2-only NOOP aggregate,P1,implemented
+Trends and summaries,merged daily strain,user-facing surface,Accepts unversioned imported and legacy,canonical series,P1,implemented
+Coupled View,repo today strain,user-facing surface,Bypasses resolver,canonical resolved Strain,P1,implemented
+Metric explorer compare reports,merged rows or strain series,user-facing surface,Source and version ambiguous,canonical V2 plus explicit imported series,P1,implemented
+Watch and complication,surface audit pending,user-facing surface,Surface-specific proof absent,canonical resolved Strain,P1,implemented
+Terminology and EffortScale,ignored scale and stale naming,legacy migration,Obscures canonical display contract,Strain-only UI and internal allowlist,P1,implemented

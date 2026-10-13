@@ -1,0 +1,27 @@
+# Tasks
+
+- [x] T001 Capture repository/build/device performance baseline.
+- [x] T002 Add privacy-safe performance intervals.
+- [x] T003 Record launch, foreground, backfill, Today, workout, and unchanged-analysis flows.
+- [x] T010 Remove redundant pre-analysis refresh.
+- [x] T011 Route foreground HealthKit through seven-day catch-up.
+- [x] T012 Bound diagnostic-only historical analysis.
+- [x] T013 Add deterministic HealthKit writeback fingerprints and repair reset.
+- [x] T014 Validate redundant-work phase.
+- [x] T020 Split direct-HR and R-R event handling.
+- [x] T021 Add `StrainScorerV2.ActivityAccumulator` with parity tests.
+- [x] T022 Make active-workout average/preview constant-time and persistence bounded.
+- [x] T023 Flush active-workout persistence at lifecycle boundaries.
+- [x] T024 Validate live-processing phase.
+- [x] T030 Add sorted-valid V2 fast path and linear cycle slicing.
+- [x] T031 Add one-snapshot `AnalysisDayBundle` with parity tests.
+- [x] T032 Make repeated upserts report zero for identical effective rows.
+- [x] T033 Batch sleep auxiliary writes and stale deletion.
+- [x] T034 Reconcile detected workouts instead of delete/reinsert.
+- [x] T035 Refresh repository only after real mutations.
+- [x] T036 Validate analytics/store phase.
+- [x] T040 Build Today load results in local value snapshots.
+- [x] T041 Isolate large Today sections into value-fed leaf views.
+- [x] T042 Avoid identical snapshot publication.
+- [x] T043 Validate Today performance intervals and screenshot parity.
+- [x] T050 Run full package/app/Release/device gates and finish QA ledger.
