@@ -525,7 +525,17 @@ enum HealthDailyPick {
     static func calories(
         day: String, strapKcal: Double?, phoneActiveKcal: Double?, phoneBasalKcal: Double?, context: CalorieContext
     ) -> (value: Double, isStrapEstimate: Bool)? {
-        let timing = DailyCalories.dayTiming(day: day, timeZone: context.timeZone, now: context.now)
+        calories(day: day, strapKcal: strapKcal, phoneActiveKcal: phoneActiveKcal, phoneBasalKcal: phoneBasalKcal,
+                 context: context, calendar: DailyCalories.gregorianCalendar(in: context.timeZone))
+    }
+
+    /// The same, measuring the day with a calendar the caller built once for the whole series. A multi-year
+    /// history otherwise built two `Calendar`s per day, which was most of the cost of resolving it.
+    private static func calories(
+        day: String, strapKcal: Double?, phoneActiveKcal: Double?, phoneBasalKcal: Double?, context: CalorieContext,
+        calendar: Calendar
+    ) -> (value: Double, isStrapEstimate: Bool)? {
+        let timing = DailyCalories.dayTiming(day: day, calendar: calendar, now: context.now)
         return DailyCalories.resolve(
             strapKcal: strapKcal, strapWornSeconds: context.strapWornSecondsByDay[day],
             appleActiveKcal: phoneActiveKcal, appleBasalKcal: phoneBasalKcal,
@@ -557,11 +567,12 @@ enum HealthDailyPick {
         strapKcalByDay: [String: Double], phone: [AppleDaily], context: CalorieContext = CalorieContext()
     ) -> [CaloriesDay] {
         let phoneByDay = Dictionary(phone.map { ($0.day, $0) }, uniquingKeysWith: { _, last in last })
+        let calendar = DailyCalories.gregorianCalendar(in: context.timeZone)
         return Set(strapKcalByDay.keys).union(phoneByDay.keys).sorted().compactMap { day in
             calories(
                 day: day, strapKcal: strapKcalByDay[day],
                 phoneActiveKcal: phoneByDay[day]?.activeKcal, phoneBasalKcal: phoneByDay[day]?.basalKcal,
-                context: context
+                context: context, calendar: calendar
             ).map { CaloriesDay(day: day, value: $0.value, isStrapEstimate: $0.isStrapEstimate) }
         }
     }
@@ -585,15 +596,182 @@ enum HealthDailyPick {
         let sparkline: [Double]
     }
 
+    /// How far back from the shown day the card looks for its sparkline's days: the card needs that day plus the
+    /// last `window` days with a number, and 45 calendar days holds those unless the history is sparse.
+    static let caloriesCardLookBackDays = 45
+
     static func caloriesCard(
         dayKey: String, strap: [DailyMetric], phone: [AppleDaily], context: CalorieContext = CalorieContext(),
         window: Int = 14
     ) -> CaloriesCard {
-        let upToDay = caloriesByDay(strap: strap, phone: phone, context: context).filter { $0.day <= dayKey }
+        // Resolve only the days the card shows. Resolving the whole Apple Health history (up to 4,000 days) per
+        // card, up to three times per Today snapshot, was a visible hitch on every remount. The windowed answer
+        // is the full answer whenever it holds `window` numbered days, because the card is the newest `window`
+        // numbered days up to `dayKey`; a sparse history (fewer found, with older rows left out) resolves it all.
+        if let first = Self.dayKey(dayKey, minusDays: caloriesCardLookBackDays - 1) {
+            let upToDay = caloriesByDay(
+                strap: strap.filter { $0.day >= first && $0.day <= dayKey },
+                phone: phone.filter { $0.day >= first && $0.day <= dayKey }, context: context)
+            let leftOutOlderRows = strap.contains { $0.day < first } || phone.contains { $0.day < first }
+            if upToDay.count >= window || !leftOutOlderRows {
+                return card(upToDay: upToDay, dayKey: dayKey, window: window)
+            }
+        }
+        return card(upToDay: caloriesByDay(strap: strap, phone: phone, context: context).filter { $0.day <= dayKey },
+                    dayKey: dayKey, window: window)
+    }
+
+    private static func card(upToDay: [CaloriesDay], dayKey: String, window: Int) -> CaloriesCard {
         let shown = upToDay.last(where: { $0.day == dayKey })
         return CaloriesCard(
             value: shown?.value, isStrapEstimate: shown?.isStrapEstimate ?? false,
             sparkline: upToDay.suffix(window).map(\.value))
+    }
+
+    /// `yyyy-MM-dd` `n` days before `dayKey`, by civil-date arithmetic (UTC, so no daylight-saving gap can
+    /// land on the wrong day). nil for a key that is not a date.
+    static func dayKey(_ dayKey: String, minusDays n: Int) -> String? {
+        let parts = dayKey.split(separator: "-").compactMap { Int($0) }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0) ?? .gmt
+        guard parts.count == 3,
+              let date = calendar.date(from: DateComponents(year: parts[0], month: parts[1], day: parts[2])),
+              let earlier = calendar.date(byAdding: .day, value: -n, to: date) else { return nil }
+        let c = calendar.dateComponents([.year, .month, .day], from: earlier)
+        guard let year = c.year, let month = c.month, let day = c.day else { return nil }
+        return String(format: "%04d-%02d-%02d", year, month, day)
+    }
+}
+
+/// What a trend page draws, built from plain values so it can be built off the main actor: the daily values (oldest
+/// first, in the units shown), already range-checked and dated, and whether any day the Calories page covers is the
+/// strap's heart-rate estimate. The sources and their order are the Today cards' (`HealthDailyPick`).
+struct HealthTrendPage: Equatable, Sendable {
+    let observations: [CalendarMetricDay]
+    let showsStrapEstimate: Bool
+    /// The °C/°F unit the values were built in, for the metric that has a temperature in it (nil for the others). The
+    /// page draws its numbers under the live unit's label, so a page built in the other unit must not be drawn.
+    let temperatureUnit: TemperatureUnit?
+
+    struct Inputs: Sendable {
+        let metric: ProductionTrendMetric
+        let vitalRows: [SourcedDailyMetric]
+        let days: [DailyMetric]
+        let appleByDay: [String: AppleDaily]
+        let stepsEstByDay: [String: Double]
+        let calorieContext: HealthDailyPick.CalorieContext
+        let temperatureUnit: TemperatureUnit
+    }
+
+    static func build(_ inputs: Inputs) -> HealthTrendPage {
+        let metric = inputs.metric
+        // The calories per day (total energy), from the strap's rows and the phone's, by `DailyCalories`'s one rule.
+        let caloriesDays = metric == .calories
+            ? HealthDailyPick.caloriesByDay(
+                strap: inputs.days, phone: Array(inputs.appleByDay.values), context: inputs.calorieContext)
+            : []
+        let series: [(day: String, value: Double)]
+        switch metric {
+        case .hrv, .restingHR, .respiratory, .spo2, .skinTemp:
+            series = BodyVitalSigns.trendPoints(
+                key: vitalKey(metric), sourceRows: inputs.vitalRows, temperatureUnit: inputs.temperatureUnit)
+        case .steps:
+            // The order of Today's Steps card: the strap's count, else the phone's, else the on-device estimate.
+            series = merged(inputs.days, inputs.appleByDay, inputs.stepsEstByDay) { strap, phone, estimate in
+                HealthDailyPick.steps(strap: strap?.steps, phone: phone?.steps, estimate: estimate)
+            }
+        case .calories:
+            // Total energy for the whole day, as Today's Calories card shows it.
+            series = caloriesDays.map { ($0.day, $0.value) }
+        default:
+            series = []
+        }
+        // Skin temperature is already range-checked by the vital resolution (absolute °C and ±deviation both pass).
+        let points = metric == .skinTemp ? series : series.filter { metric.acceptsForDisplay($0.value) }
+        let observations: [CalendarMetricDay] = points.compactMap { point in
+            BodyVitalSigns.localDate(fromDayKey: point.day).map { CalendarMetricDay(date: $0, value: point.value) }
+        }
+        // Whether any day this page shows or averages (its chart reaches back 6 months) is the strap's heart-rate
+        // estimate rather than the phone's measured energy.
+        let showsStrapEstimate = metric == .calories
+            && HealthDailyPick.usesStrapEstimate(
+                in: caloriesDays, window: 180, dayDate: BodyVitalSigns.localDate(fromDayKey:))
+        return HealthTrendPage(
+            observations: observations, showsStrapEstimate: showsStrapEstimate,
+            temperatureUnit: metric == .skinTemp ? inputs.temperatureUnit : nil)
+    }
+
+    /// The page to draw: the stored one while its values are in the unit the label shows, else `fallback()`. After a
+    /// °C/°F change the stored page is the other unit's until the rebuild lands, and drawing it would put °C numbers
+    /// under a °F label for a frame or two.
+    static func resolve(stored: HealthTrendPage?, temperature: TemperatureUnit,
+                        fallback: () -> HealthTrendPage) -> HealthTrendPage {
+        if let stored, stored.temperatureUnit == nil || stored.temperatureUnit == temperature { return stored }
+        return fallback()
+    }
+
+    /// One value per day, oldest first, picked from the strap's row, the phone's row and an estimate in the order the
+    /// caller's Today card uses, so the page opens on the number the card showed.
+    private static func merged(
+        _ days: [DailyMetric], _ apple: [String: AppleDaily], _ estimate: [String: Double],
+        pick: (DailyMetric?, AppleDaily?, Double?) -> Double?
+    ) -> [(day: String, value: Double)] {
+        let strapByDay = Dictionary(days.map { ($0.day, $0) }, uniquingKeysWith: { _, last in last })
+        return Set(strapByDay.keys).union(apple.keys).union(estimate.keys).sorted().compactMap { day in
+            pick(strapByDay[day], apple[day], estimate[day]).map { (day, $0) }
+        }
+    }
+
+    private static func vitalKey(_ metric: ProductionTrendMetric) -> String {
+        switch metric {
+        case .hrv: "hrv"
+        case .restingHR: "rhr"
+        case .respiratory: "resp"
+        case .spo2: "spo2"
+        default: "skin"
+        }
+    }
+}
+
+/// What re-builds a trend page. The page is built from the repository's rows once per task, so the key has to move
+/// whenever an input the old per-pass body re-read has moved. For Calories that is more than a repository refresh:
+/// today's figure is a share of the elapsed day (the strap-coverage test and the resting-energy fallback), so the
+/// clock, the strap's worn time and the profile's resting energy all change it with no refresh in between. The clock
+/// enters in `clockBucketMinutes` steps: the coverage cutoff and the resting-energy accrual (about `bmr / 288` kcal
+/// per step) reach the page on the first body pass in the next bucket, at most one step late, and the build re-runs at
+/// most once per step however many times the repository publishes in between.
+struct HealthTrendPageKey: Hashable {
+    let refreshSeq: Int
+    let temperature: TemperatureUnit
+    /// The canonical read model's presentation revision, which Today and Sleep key their loads on as well.
+    let canonicalRevision: Int64
+    /// Calories only: the profile's resting energy, the strap's worn seconds and the local day and clock bucket.
+    let bmrKcalPerDay: Double?
+    let wornSecondsTotal: Int
+    let wornDays: Int
+    let clockBucket: String
+
+    /// How coarsely the clock enters the key, in minutes (a divisor of 60, so a bucket never straddles an hour).
+    static let clockBucketMinutes = 5
+
+    init(metric: ProductionTrendMetric, refreshSeq: Int, temperature: TemperatureUnit, canonicalRevision: Int64,
+         bmrKcalPerDay: Double?, strapWornSecondsByDay: [String: Double], now: Date, calendar: Calendar = .current) {
+        self.refreshSeq = refreshSeq
+        self.temperature = temperature
+        self.canonicalRevision = canonicalRevision
+        if metric == .calories {
+            self.bmrKcalPerDay = bmrKcalPerDay
+            wornSecondsTotal = Int(strapWornSecondsByDay.values.reduce(0, +))
+            wornDays = strapWornSecondsByDay.count
+            let c = calendar.dateComponents([.year, .month, .day, .hour, .minute], from: now)
+            clockBucket = "\(c.year ?? 0)-\(c.month ?? 0)-\(c.day ?? 0)T\(c.hour ?? 0):"
+                + "\((c.minute ?? 0) / Self.clockBucketMinutes)"
+        } else {
+            self.bmrKcalPerDay = nil
+            wornSecondsTotal = 0
+            wornDays = 0
+            clockBucket = ""
+        }
     }
 }
 
@@ -612,62 +790,11 @@ struct HealthMetricTrendView: View {
     /// the on-device steps estimate a WHOOP 4.0 has instead of a measured count.
     @State private var appleByDay: [String: AppleDaily] = [:]
     @State private var stepsEstByDay: [String: Double] = [:]
+    /// The series, observations and estimate note this page draws, built by the `.task` below.
+    @State private var page: HealthTrendPage?
 
     private var temperatureUnit: TemperatureUnit {
         UnitPrefs.resolveTemperature(system: UnitSystem(rawValue: unitSystemRaw) ?? .metric, override: temperatureRaw)
-    }
-
-    /// The daily values, oldest first, in the units shown.
-    private var series: [(day: String, value: Double)] {
-        switch metric {
-        case .hrv, .restingHR, .respiratory, .spo2, .skinTemp:
-            return BodyVitalSigns.trendPoints(
-                key: Self.vitalKey(metric), sourceRows: repo.vitalMetricRows, temperatureUnit: temperatureUnit)
-        case .steps:
-            // The order of Today's Steps card: the strap's count, else the phone's, else the on-device estimate.
-            return Self.merged(repo.days, appleByDay, stepsEstByDay) { strap, phone, estimate in
-                HealthDailyPick.steps(strap: strap?.steps, phone: phone?.steps, estimate: estimate)
-            }
-        case .calories:
-            // Total energy for the whole day, as Today's Calories card shows it.
-            return caloriesDays.map { ($0.day, $0.value) }
-        default:
-            return []
-        }
-    }
-
-    /// One value per day, oldest first, picked from the strap's row, the phone's row and an estimate in the order the
-    /// caller's Today card uses, so the page opens on the number the card showed.
-    private static func merged(
-        _ days: [DailyMetric], _ apple: [String: AppleDaily], _ estimate: [String: Double],
-        pick: (DailyMetric?, AppleDaily?, Double?) -> Double?
-    ) -> [(day: String, value: Double)] {
-        let strapByDay = Dictionary(days.map { ($0.day, $0) }, uniquingKeysWith: { _, last in last })
-        return Set(strapByDay.keys).union(apple.keys).union(estimate.keys).sorted().compactMap { day in
-            pick(strapByDay[day], apple[day], estimate[day]).map { (day, $0) }
-        }
-    }
-
-    /// The calories per day (total energy), from the strap's rows and the phone's, by `DailyCalories`'s one rule.
-    private var caloriesDays: [HealthDailyPick.CaloriesDay] {
-        HealthDailyPick.caloriesByDay(
-            strap: repo.days, phone: Array(appleByDay.values), context: HealthDailyPick.calorieContext(repo: repo))
-    }
-
-    /// Whether any day this page shows or averages (its chart reaches back 6 months) is the strap's heart-rate
-    /// estimate rather than the phone's measured energy.
-    private var showsStrapEstimate: Bool {
-        HealthDailyPick.usesStrapEstimate(in: caloriesDays, window: 180, dayDate: BodyVitalSigns.localDate(fromDayKey:))
-    }
-
-    private static func vitalKey(_ metric: ProductionTrendMetric) -> String {
-        switch metric {
-        case .hrv: "hrv"
-        case .restingHR: "rhr"
-        case .respiratory: "resp"
-        case .spo2: "spo2"
-        default: "skin"
-        }
     }
 
     /// Skin temperature follows the °C/°F preference; every other metric is shown as Trends shows it.
@@ -677,12 +804,33 @@ struct HealthMetricTrendView: View {
                 { $0.formatted(.number.precision(.fractionLength(1))) })
     }
 
-    var body: some View {
-        // Skin temperature is already range-checked by the vital resolution (absolute °C and ±deviation both pass).
-        let points = metric == .skinTemp ? series : series.filter { metric.acceptsForDisplay($0.value) }
-        let observations: [CalendarMetricDay] = points.compactMap { point in
-            BodyVitalSigns.localDate(fromDayKey: point.day).map { CalendarMetricDay(date: $0, value: point.value) }
+    /// The page the body draws. Building it walks the whole Apple Health history for Calories and Steps, so it is
+    /// built once per refresh in the `.task` below, off the main actor, and the body only reads it. Until that first
+    /// build lands the body builds it from what is already loaded (the strap's own rows, which is cheap).
+    private var currentPage: HealthTrendPage {
+        HealthTrendPage.resolve(stored: page, temperature: temperatureUnit) {
+            HealthTrendPage.build(pageInputs(appleByDay: appleByDay, stepsEstByDay: stepsEstByDay))
         }
+    }
+
+    private func pageInputs(appleByDay: [String: AppleDaily], stepsEstByDay: [String: Double]) -> HealthTrendPage.Inputs {
+        HealthTrendPage.Inputs(
+            metric: metric, vitalRows: repo.vitalMetricRows, days: repo.days, appleByDay: appleByDay,
+            stepsEstByDay: stepsEstByDay, calorieContext: HealthDailyPick.calorieContext(repo: repo),
+            temperatureUnit: temperatureUnit)
+    }
+
+    private var pageKey: HealthTrendPageKey {
+        HealthTrendPageKey(
+            metric: metric, refreshSeq: repo.refreshSeq, temperature: temperatureUnit,
+            canonicalRevision: repo.canonicalHealth.presentationRevision,
+            bmrKcalPerDay: metric == .calories ? ProfileStore.storedBmrKcalPerDay() : nil,
+            strapWornSecondsByDay: metric == .calories ? repo.strapWornSecondsByDay : [:], now: Date())
+    }
+
+    var body: some View {
+        let trendPage = currentPage
+        let observations = trendPage.observations
         let latest = observations.last
         let tint = metric.domainTint(latest: latest?.value)
         ScreenScaffold(
@@ -696,7 +844,7 @@ struct HealthMetricTrendView: View {
                     title: String(localized: "\(metric.healthEyebrowTitle) trend"), metric: metric,
                     observations: observations, referenceDate: Repository.logicalDay(Date()),
                     latest: latest?.value, display: display)
-                if metric == .calories, showsStrapEstimate {
+                if metric == .calories, trendPage.showsStrapEstimate {
                     DrillInSeparator()
                     Text("An estimate from your heart rate, not a measured burn.")
                         .font(StrandFont.footnote)
@@ -705,14 +853,25 @@ struct HealthMetricTrendView: View {
                 }
             }
         }
-        .task(id: repo.refreshSeq) {
-            guard metric == .steps || metric == .calories else { return }
-            let rows = await repo.appleDailyRows()
-            appleByDay = Dictionary(rows.map { ($0.day, $0) }, uniquingKeysWith: { _, last in last })
-            if metric == .steps {
-                let estimate = await repo.exploreSeries(key: "steps_est", source: "my-whoop")
-                stepsEstByDay = Dictionary(estimate.map { ($0.day, $0.value.rounded()) }, uniquingKeysWith: { _, last in last })
+        .task(id: pageKey) {
+            var apple = appleByDay
+            var estimates = stepsEstByDay
+            if metric == .steps || metric == .calories {
+                let rows = await repo.appleDailyRows()
+                apple = Dictionary(rows.map { ($0.day, $0) }, uniquingKeysWith: { _, last in last })
+                if metric == .steps {
+                    let estimate = await repo.exploreSeries(key: "steps_est", source: "my-whoop")
+                    estimates = Dictionary(estimate.map { ($0.day, $0.value.rounded()) }, uniquingKeysWith: { _, last in last })
+                }
             }
+            // The resolvers are pure: the series, the display filter, the day parsing and the estimate note are
+            // all computed off the main actor and handed back as one value.
+            let inputs = pageInputs(appleByDay: apple, stepsEstByDay: estimates)
+            let built = await Task.detached(priority: .userInitiated) { HealthTrendPage.build(inputs) }.value
+            guard !Task.isCancelled else { return }
+            appleByDay = apple
+            stepsEstByDay = estimates
+            page = built
         }
     }
 

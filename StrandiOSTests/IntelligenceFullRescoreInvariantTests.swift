@@ -897,6 +897,393 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
         XCTAssertEqual(kept, [unproducible], "v3 and settle chunks keep a day they can't produce")
     }
 
+    // MARK: - The WHOOP 4.0 steps estimate (Perf 2)
+
+    private func withManualStepsCoefficient(_ k: Double, _ body: () async throws -> Void) async rethrows {
+        let defaults = UserDefaults.standard
+        let keys = ["profile.stepsManualCoefficient", "profile.stepsCalibrationCoefficient",
+                    "profile.stepsCalibrationSampleDays", "profile.stepsCalibrationConfidence",
+                    "profile.stepsCalibrationManual"]
+        let saved = keys.map { defaults.object(forKey: $0) }
+        for key in keys { defaults.removeObject(forKey: key) }
+        defaults.set(k, forKey: "profile.stepsManualCoefficient")
+        defer {
+            for (key, value) in zip(keys, saved) {
+                if let value { defaults.set(value, forKey: key) } else { defaults.removeObject(forKey: key) }
+            }
+        }
+        try await body()
+    }
+
+    private func stepsEstimates(_ harness: Harness) async throws -> [String: Double] {
+        let points = try await harness.store.metricSeries(
+            deviceId: harness.computedId, key: "steps_est", from: "0000-01-01", to: "9999-12-31")
+        return Dictionary(points.map { ($0.day, $0.value) }, uniquingKeysWith: { a, _ in a })
+    }
+
+    private var calibratedCoefficient: Double {
+        UserDefaults.standard.double(forKey: "profile.stepsCalibrationCoefficient")
+    }
+
+    func testTheCalibrationFitRunsOnlyOnNormalPasses() {
+        XCTAssertTrue(IntelligenceEngine.runsStepsCalibration(
+            startOffset: 0, keepUnproducedHistory: false, hasSourceContext: false))
+        XCTAssertFalse(IntelligenceEngine.runsStepsCalibration(
+            startOffset: 30, keepUnproducedHistory: false, hasSourceContext: false))
+        XCTAssertFalse(IntelligenceEngine.runsStepsCalibration(
+            startOffset: 0, keepUnproducedHistory: true, hasSourceContext: false))
+        XCTAssertFalse(IntelligenceEngine.runsStepsCalibration(
+            startOffset: 0, keepUnproducedHistory: false, hasSourceContext: true))
+    }
+
+    /// A pass that does not start at today still estimates the days it scored, with the coefficient already on the
+    /// profile, but it neither fits a calibration nor mirrors one (that stays with the normal pass), and it reads
+    /// the gravity of its own days only, not the 60-day window. The cache proves the last point: the next normal
+    /// pass answers exactly the chunk's two days from it.
+    func testRescoreChunksEstimateTheirOwnDaysButSkipTheFitAndTheWindowRead() async throws {
+        try await withManualStepsCoefficient(0.05) {
+            let harness = try await makeHarness(days: 45, strapDays: 0..<2)
+            // The two strap days are 43 and 44 days before the reference: inside the estimate's 60-day window.
+            _ = await pass(harness, maxDays: 30, startOffset: 30, keepUnproducedHistory: true)
+            let fromChunk = try await stepsEstimates(harness)
+            XCTAssertEqual(Set(fromChunk.keys), [dayKey(0), dayKey(1)], "a v3/settle chunk estimates the days it scored")
+            XCTAssertTrue(fromChunk.values.allSatisfy { $0 > 0 })
+            XCTAssertEqual(calibratedCoefficient, 0, "a chunk does not fit or mirror a calibration")
+            XCTAssertEqual(harness.engine.stepMotionCacheHits, 0)
+            let ownDays = try await stored(harness).count
+            XCTAssertTrue((1..<10).contains(ownDays), "the chunk scored a handful of days, not the 60-day window")
+
+            _ = await pass(harness, maxDays: 30, startOffset: 30)
+            let fromRepair = try await stepsEstimates(harness)
+            XCTAssertEqual(fromRepair, fromChunk, "nor does any other pass whose window starts before today")
+            XCTAssertEqual(calibratedCoefficient, 0)
+            XCTAssertEqual(harness.engine.stepMotionCacheHits, ownDays, "the repeat answered its days from the cache")
+
+            _ = await pass(harness, maxDays: 60)
+            let fromNormal = try await stepsEstimates(harness)
+            XCTAssertEqual(fromNormal, fromChunk, "the normal pass stores the same estimates the chunk did")
+            XCTAssertEqual(calibratedCoefficient, 0.05, accuracy: 1e-12)
+            XCTAssertEqual(harness.engine.stepMotionCacheHits, 2 * ownDays,
+                           "the chunk read its own days only: they are the normal pass's only cache hits")
+        }
+    }
+
+    /// The exact-day pipeline is the only thing that scores a completed day while the app is in the background, and
+    /// nothing else rewrites `steps_est`. An exact pass (a source context, window starting at yesterday) for a
+    /// completed day with no phone steps stores the estimate a normal pass over the same moment stores.
+    func testAnExactDayPassStillEstimatesItsCompletedDayWithNoPhoneSteps() async throws {
+        try await withRecalibrationEpochsRestored {
+            try await withManualStepsCoefficient(0.05) {
+                let exactHarness = try await makeHarness(days: 4)
+                let referenceHarness = try await makeHarness(days: 4)
+                let yesterday = exactHarness.dayKeys[2]
+                let justAfterMidnight = Date(timeIntervalSince1970: TimeInterval(firstDayStart + 3 * 86_400 + 600))
+                let exactYesterday = try exactSource(Repository.whoopSource, day: yesterday, createdAt: justAfterMidnight)
+
+                let exact = await pass(exactHarness, maxDays: 1, startOffset: 1, at: justAfterMidnight,
+                                       sourceContext: exactYesterday)
+                XCTAssertTrue(exact)
+                let normal = await pass(referenceHarness, maxDays: 60, at: justAfterMidnight)
+                XCTAssertTrue(normal)
+
+                let fromExact = try await stepsEstimates(exactHarness)
+                let reference = try await stepsEstimates(referenceHarness)
+                XCTAssertGreaterThan(reference[yesterday] ?? 0, 0, "the fixture's day has movement")
+                XCTAssertEqual(fromExact[yesterday], reference[yesterday],
+                               "the exact pass stores the estimate the ungated code stored")
+                XCTAssertEqual(Set(fromExact.keys), [yesterday], "and only for the day it scored")
+            }
+        }
+    }
+
+    /// With no calibration yet (no manual coefficient, none fitted), a gated pass writes nothing: the estimate is
+    /// inert until there is one, as it always was.
+    func testAGatedPassWritesNoEstimateBeforeThereIsACalibration() async throws {
+        try await withManualStepsCoefficient(0) {
+            let harness = try await makeHarness(days: 45, strapDays: 0..<2)
+            _ = await pass(harness, maxDays: 30, startOffset: 30, keepUnproducedHistory: true)
+            let estimates = try await stepsEstimates(harness)
+            XCTAssertTrue(estimates.isEmpty)
+        }
+    }
+
+    /// The owner turns the manual override OFF. The profile mirror still holds the manual coefficient (only the next
+    /// normal pass refits or clears it), and a gated pass used to keep writing that old manual value into the days it
+    /// scored. It reads the same live override state the normal pass does, so with the override off the stale manual
+    /// mirror is not a calibration and the gated pass writes nothing.
+    func testAGatedPassIgnoresAStaleManualMirrorOnceTheOverrideIsOff() async throws {
+        try await withManualStepsCoefficient(0.05) {
+            // A normal pass with the override on mirrors the manual coefficient to the profile.
+            let mirror = try await makeHarness(days: 45, strapDays: 0..<2)
+            _ = await pass(mirror, maxDays: 60)
+            XCTAssertEqual(calibratedCoefficient, 0.05, accuracy: 1e-12)
+            XCTAssertTrue(UserDefaults.standard.bool(forKey: "profile.stepsCalibrationManual"))
+            let on = try await makeHarness(days: 45, strapDays: 0..<2)
+            _ = await pass(on, maxDays: 30, startOffset: 30, keepUnproducedHistory: true)
+            let whileOn = try await stepsEstimates(on)
+            XCTAssertEqual(Set(whileOn.keys), [dayKey(0), dayKey(1)], "override on: a gated pass applies it")
+
+            // The override goes off; the manual mirror stays on the profile.
+            UserDefaults.standard.set(0.0, forKey: "profile.stepsManualCoefficient")
+            XCTAssertEqual(calibratedCoefficient, 0.05, accuracy: 1e-12, "the stale mirror is still there")
+            let off = try await makeHarness(days: 45, strapDays: 0..<2)
+            _ = await pass(off, maxDays: 30, startOffset: 30, keepUnproducedHistory: true)
+            let whileOff = try await stepsEstimates(off)
+            XCTAssertTrue(whileOff.isEmpty, "override off: a gated pass does not write the old manual k")
+        }
+    }
+
+    /// The persisted-coefficient path with an AUTO fit (no override anywhere), pinned. A normal pass fits k from the
+    /// days the phone also counted and mirrors it; a rescore chunk over a store with no phone steps at all has nothing
+    /// to fit in-pass (the old in-pass fit wrote no estimate there), yet it estimates its own days with the mirrored
+    /// k, and lands on exactly the numbers the normal pass wrote for the same days. It neither refits nor touches the
+    /// mirror.
+    func testAGatedPassAppliesTheCoefficientTheLastNormalPassFitted() async throws {
+        try await withManualStepsCoefficient(0) {
+            let phoneDays = [10, 11, 12, 13]
+            let phoneRows = phoneDays.map {
+                AppleDaily(day: dayKey($0), steps: 6_000 + 500 * $0, activeKcal: nil, basalKcal: nil, vo2max: nil,
+                           avgHr: nil, maxHr: nil, walkingHr: nil, weightKg: nil)
+            }
+            let fitting = try await makeHarness(days: 20)
+            _ = try await fitting.store.upsertAppleDaily(phoneRows, deviceId: Repository.appleHealthSource)
+            _ = await pass(fitting, maxDays: 60)
+            let fitted = calibratedCoefficient
+            XCTAssertGreaterThan(fitted, 0, "the normal pass fitted a coefficient from the phone-counted days")
+            XCTAssertFalse(UserDefaults.standard.bool(forKey: "profile.stepsCalibrationManual"))
+            let fromFit = try await stepsEstimates(fitting)
+            XCTAssertFalse(fromFit.isEmpty)
+            XCTAssertTrue(phoneDays.allSatisfy { fromFit[dayKey($0)] == nil }, "days the phone counted keep the real value")
+
+            // A store the phone never counted in: the chunk has no points to fit, only the mirrored k to apply.
+            let chunked = try await makeHarness(days: 20)
+            _ = await pass(chunked, maxDays: 10, startOffset: 5, keepUnproducedHistory: true)
+            let fromChunk = try await stepsEstimates(chunked)
+            XCTAssertFalse(fromChunk.isEmpty, "the chunk estimates its days from the mirrored coefficient")
+            let shared = fromChunk.filter { fromFit[$0.key] != nil }
+            XCTAssertFalse(shared.isEmpty)
+            for (day, value) in shared {
+                XCTAssertEqual(value, fromFit[day], "\(day): the chunk lands on the normal pass's estimate")
+            }
+            XCTAssertEqual(calibratedCoefficient, fitted, accuracy: 1e-12, "a gated pass does not refit or remirror")
+        }
+    }
+
+    /// The pure rule behind it: the override wins when set; a mirror flagged manual is only the override's echo, so
+    /// without the override it is no calibration; a fitted mirror is one.
+    func testPersistedStepsCalibrationNeverTreatsAManualMirrorAsAFit() {
+        let overridden = IntelligenceEngine.persistedStepsCalibration(
+            manualOverride: 0.05, coefficient: 0.03, sampleDays: 12, confidence: 0.8, manual: false)
+        XCTAssertEqual(overridden?.coefficient, 0.05)
+        XCTAssertEqual(overridden?.manual, true)
+
+        XCTAssertNil(IntelligenceEngine.persistedStepsCalibration(
+            manualOverride: nil, coefficient: 0.05, sampleDays: 0, confidence: 1.0, manual: true),
+                     "override off, mirror still manual: nothing to apply")
+
+        let fitted = IntelligenceEngine.persistedStepsCalibration(
+            manualOverride: nil, coefficient: 0.03, sampleDays: 12, confidence: 0.8, manual: false)
+        XCTAssertEqual(fitted?.coefficient, 0.03)
+        XCTAssertEqual(fitted?.manual, false)
+
+        XCTAssertNil(IntelligenceEngine.persistedStepsCalibration(
+            manualOverride: nil, coefficient: 0, sampleDays: 3, confidence: 0, manual: false))
+    }
+
+    /// A cached day answers without reading its gravity, and the answer is the one a cold read gives: the next pass
+    /// stores the same estimates from the cache, new gravity on a cached day re-reads that day, and a fresh engine
+    /// with no cache stores what the cached engine stored.
+    func testTheStepsMotionCacheMatchesAColdReadAndRereadsAChangedDay() async throws {
+        try await withManualStepsCoefficient(0.05) {
+            let harness = try await makeHarness(days: 45, strapDays: 0..<2)
+            _ = await pass(harness, maxDays: 60)
+            let cold = try await stepsEstimates(harness)
+            XCTAssertEqual(cold.count, 2)
+            XCTAssertEqual(harness.engine.stepMotionCacheHits, 0, "the first pass reads every day")
+
+            _ = await pass(harness, maxDays: 60)
+            XCTAssertEqual(harness.engine.stepMotionCacheHits, 60, "an unchanged window is answered from the cache")
+            let warm = try await stepsEstimates(harness)
+            XCTAssertEqual(warm, cold, "cached motion stores the same estimates as a cold read")
+
+            // New gravity on one cached day: its fingerprint moves, so exactly that day is read again.
+            var extra = Streams()
+            let busyHour = firstDayStart + 1 * 86_400 + 12 * 3_600
+            for i in 0..<120 {
+                extra.gravity.append(GravitySample(ts: busyHour + 2 * i + 1, x: i % 2 == 0 ? 1.4 : -1.4, y: 0, z: 0.2))
+            }
+            _ = try await harness.store.insert(extra, deviceId: Repository.whoopSource)
+            _ = await pass(harness, maxDays: 60)
+            XCTAssertEqual(harness.engine.stepMotionCacheHits, 60 + 59)
+            let changed = try await stepsEstimates(harness)
+            XCTAssertNotEqual(changed[dayKey(1)], cold[dayKey(1)], "the new movement reaches the estimate")
+            XCTAssertEqual(changed[dayKey(0)], cold[dayKey(0)], "an untouched day keeps its estimate")
+
+            let repository = Repository(deviceId: Repository.whoopSource)
+            repository.setStoreForTesting(harness.store)
+            let freshEngine = IntelligenceEngine(repo: repository, profile: ProfileStore(), deviceId: Repository.whoopSource)
+            let fresh = Harness(store: harness.store, engine: freshEngine, computedId: harness.computedId,
+                                reference: harness.reference, dayKeys: harness.dayKeys)
+            _ = await pass(fresh, maxDays: 60)
+            XCTAssertEqual(freshEngine.stepMotionCacheHits, 0)
+            let coldAgain = try await stepsEstimates(fresh)
+            XCTAssertEqual(coldAgain, changed, "a cold read lands on the cached engine's estimates")
+        }
+    }
+
+    /// A grant that is cancelled mid-chunk (the app came back to the foreground) stops at the next checkpoint, reports
+    /// the chunk as not done and leaves the durable cursor where it was. Replaying the migration afterwards lands on
+    /// exactly the rows an uninterrupted run stores.
+    func testACancelledMigrationChunkLeavesTheCursorAndTheReplayMatchesAnUninterruptedRun() async throws {
+        let defaults = UserDefaults.standard
+        let keys = [IntelligenceEngine.effortRescoreFlagKey, IntelligenceEngine.effortRescoreOffsetKey]
+        let saved = keys.map { defaults.object(forKey: $0) }
+        for key in keys { defaults.removeObject(forKey: key) }
+        defer {
+            for (key, value) in zip(keys, saved) {
+                if let value { defaults.set(value, forKey: key) } else { defaults.removeObject(forKey: key) }
+            }
+        }
+        let calendar = utcCalendar
+        let interrupted = try await makeHarness(days: 45, strapDays: 0..<2)
+        let uninterrupted = try await makeHarness(days: 45, strapDays: 0..<2)
+        let v3Key = IntelligenceEngine.effortRescoreDurableProgressKey
+
+        func runBatch(_ harness: Harness) async {
+            await harness.engine.runEffortRescoreIfNeeded(
+                historyDays: 60, reference: harness.reference, calendar: calendar)
+        }
+
+        // Cancel from inside the first chunk's analysis: the first diagnostic line is replayed on the main actor
+        // after the day scan and before any row is written.
+        final class TaskBox { var task: Task<Void, Never>? }
+        let box = TaskBox()
+        interrupted.engine.diagnosticSink = { _, _ in box.task?.cancel() }
+        box.task = Task { @MainActor in
+            await interrupted.engine.runEffortRescoreIfNeeded(
+                historyDays: 60, reference: interrupted.reference, calendar: calendar)
+        }
+        await box.task?.value
+        interrupted.engine.diagnosticSink = nil
+        XCTAssertTrue(box.task?.isCancelled ?? false)
+
+        let afterCancel = try await interrupted.store.durableMigrationProgress(key: v3Key)
+        XCTAssertEqual(afterCancel?.state, .pending)
+        XCTAssertEqual(afterCancel?.nextOffset, 0, "a cancelled chunk does not advance the cursor")
+        XCTAssertEqual(defaults.integer(forKey: IntelligenceEngine.effortRescoreOffsetKey), 0)
+        XCTAssertFalse(defaults.bool(forKey: IntelligenceEngine.effortRescoreFlagKey))
+        let writtenByTheCancelledChunk = try await stored(interrupted)
+        XCTAssertTrue(writtenByTheCancelledChunk.isEmpty, "the chunk stopped before it wrote a row")
+
+        // Replay: v3 (two chunks) then settle (two chunks), one batch per grant, as the app runs them.
+        for _ in 0..<4 { await runBatch(interrupted) }
+        for _ in 0..<4 { await runBatch(uninterrupted) }
+        let replayed = try await interrupted.store.durableMigrationProgress(
+            key: IntelligenceEngine.effortRescoreSettleDurableProgressKey)
+        XCTAssertEqual(replayed?.state, .complete)
+        let replayedRows = try await stored(interrupted)
+        let referenceRows = try await stored(uninterrupted)
+        XCTAssertFalse(referenceRows.isEmpty)
+        XCTAssertEqual(replayedRows, referenceRows)
+    }
+
+    /// The scene edge and the rescore processing task arm another wake only while the v3 rescore or its settle pass
+    /// has chunks left. 45 days is two 30-day chunks per phase, one chunk per batch.
+    func testTheRescoreIsPendingUntilV3AndItsSettlePassHaveBothFinished() async throws {
+        let defaults = UserDefaults.standard
+        let keys = [IntelligenceEngine.effortRescoreFlagKey, IntelligenceEngine.effortRescoreOffsetKey]
+        let saved = keys.map { defaults.object(forKey: $0) }
+        for key in keys { defaults.removeObject(forKey: key) }
+        defer {
+            for (key, value) in zip(keys, saved) {
+                if let value { defaults.set(value, forKey: key) } else { defaults.removeObject(forKey: key) }
+            }
+        }
+        let harness = try await makeHarness(days: 45, strapDays: 0..<2)
+        let calendar = utcCalendar
+        var pending = await harness.engine.effortRescoreIsPending()
+        XCTAssertTrue(pending, "nothing has run yet")
+        var batches = 0
+        while pending, batches < 8 {
+            await harness.engine.runEffortRescoreIfNeeded(
+                historyDays: 60, reference: harness.reference, calendar: calendar)
+            batches += 1
+            pending = await harness.engine.effortRescoreIsPending()
+            if batches == 1 { XCTAssertTrue(pending, "one chunk of four is done") }
+        }
+        XCTAssertTrue((2...4).contains(batches), "at most two v3 chunks, then two settle chunks: \(batches)")
+        XCTAssertFalse(pending)
+        let settle = try await harness.store.durableMigrationProgress(
+            key: IntelligenceEngine.effortRescoreSettleDurableProgressKey)
+        XCTAssertEqual(settle?.state, .complete)
+    }
+
+    private struct ChunkWrites: Equatable {
+        let daily: [String: DailyMetric]
+        let rest: [MetricPoint]
+        let sleepV2: [MetricPoint]
+        let sessions: [CachedSleepSession]
+        let workouts: [WorkoutRow]
+    }
+
+    /// Everything a pass persists after the daily reconcile, read back for `days` fixture days.
+    private func chunkWrites(_ harness: Harness, days: Int) async throws -> ChunkWrites {
+        let first = dayKey(0), last = dayKey(days - 1)
+        let from = firstDayStart - 86_400, to = firstDayStart + (days + 1) * 86_400
+        return ChunkWrites(
+            daily: try await stored(harness),
+            rest: try await harness.store.metricSeries(
+                deviceId: harness.computedId, key: "sleep_performance", from: first, to: last),
+            sleepV2: try await harness.store.metricSeries(
+                deviceId: harness.computedId, key: Repository.sleepNeedV2Key, from: first, to: last),
+            sessions: try await harness.store.sleepSessions(
+                deviceId: harness.computedId, from: from, to: to, limit: 4_000),
+            workouts: try await harness.store.workouts(
+                deviceId: harness.computedId, from: from, to: to, limit: 4_000))
+    }
+
+    /// A migration chunk that is cancelled after its daily rows committed finishes the rest of its writes (Rest,
+    /// Sleep V2, sleep sessions, detected workouts) and lands exactly on the rows an uninterrupted chunk stores. The
+    /// writes are separate transactions, so stopping between them left new daily rows beside old Rest scores and
+    /// sleep sessions, and no later pass rewrites an older chunk's days until the same chunk replays. An ordinary
+    /// pass cancelled at the same point still stops.
+    func testACancelledMigrationChunkFinishesItsWritesOnceTheyHaveBegun() async throws {
+        try await withRecalibrationEpochsRestored {
+            let days = 12
+            let uninterrupted = try await makeHarness(days: days)
+            let finished = await pass(uninterrupted, maxDays: days, keepUnproducedHistory: true)
+            XCTAssertTrue(finished)
+            let expected = try await chunkWrites(uninterrupted, days: days)
+            XCTAssertFalse(expected.rest.isEmpty, "the fixture scores Rest")
+            XCTAssertFalse(expected.sleepV2.isEmpty, "the fixture scores Sleep V2")
+            XCTAssertFalse(expected.sessions.isEmpty, "the fixture stores sleep sessions")
+
+            final class TaskBox { var task: Task<Bool, Never>? }
+            let cancelledChunk = try await makeHarness(days: days)
+            let chunkBox = TaskBox()
+            cancelledChunk.engine.afterDailyReconcileForTesting = { chunkBox.task?.cancel() }
+            chunkBox.task = Task { @MainActor in
+                await self.pass(cancelledChunk, maxDays: days, keepUnproducedHistory: true)
+            }
+            let chunkCompleted = await chunkBox.task?.value
+            XCTAssertTrue(chunkBox.task?.isCancelled ?? false, "the cancel landed after the daily reconcile")
+            XCTAssertEqual(chunkCompleted, true, "a chunk past its first write runs to completion")
+            let afterCancelledChunk = try await chunkWrites(cancelledChunk, days: days)
+            XCTAssertEqual(afterCancelledChunk, expected)
+
+            // An ordinary pass keeps stopping at its checkpoints: its Rest series is never written.
+            let cancelledPass = try await makeHarness(days: days)
+            let passBox = TaskBox()
+            cancelledPass.engine.afterDailyReconcileForTesting = { passBox.task?.cancel() }
+            passBox.task = Task { @MainActor in await self.pass(cancelledPass, maxDays: days) }
+            let passCompleted = await passBox.task?.value
+            XCTAssertEqual(passCompleted, false)
+            let afterCancelledPass = try await chunkWrites(cancelledPass, days: days)
+            XCTAssertTrue(afterCancelledPass.rest.isEmpty)
+            XCTAssertTrue(afterCancelledPass.sessions.isEmpty)
+        }
+    }
+
     /// Older rows stored with a different resting HR and HRV (an earlier build's values) skew the Charge of the v3
     /// chunks newer than them, since v3 runs newest first. After the settle pass every Charge equals a
     /// from-scratch oldest-first run over the same chunks.

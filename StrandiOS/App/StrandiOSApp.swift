@@ -337,6 +337,12 @@ struct StrandiOSApp: App {
             },
             cancelWork: {
                 await model.cancelHistoricalScoringBackgroundTask()
+            },
+            runEffortRescore: {
+                await model.runEffortRescoreForBackgroundTask()
+            },
+            effortRescorePending: {
+                await model.effortRescoreIsPending()
             }
         )
     }

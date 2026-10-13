@@ -9,6 +9,20 @@ struct DashboardCatalogItem: Identifiable {
     var id: String { card.id }
 }
 
+/// The Show All destination. It builds its items in its own body, so the screen that pushes it resolves every card
+/// (two Calories resolutions, the skin-temperature series, the steps lookup) only while the catalog is open. Pushed
+/// from `navigationDestination(isPresented:)`, whose content closure runs on every pass of the presenting body, it
+/// would otherwise do that work on every Today refresh, including in the background, for a screen that is usually closed.
+struct DashboardCatalogDestination: View {
+    let items: () -> [DashboardCatalogItem]
+    @Binding var selectionRaw: String
+    let hydrationEnabled: Bool
+
+    var body: DashboardCatalogView {
+        DashboardCatalogView(items: items(), selectionRaw: $selectionRaw, hydrationEnabled: hydrationEnabled)
+    }
+}
+
 /// The former Your Cards library, promoted to the complete metric catalog behind Health Monitor's
 /// Show All action. Selection only controls the nine Today tiles; this list remains complete.
 struct DashboardCatalogView: View {

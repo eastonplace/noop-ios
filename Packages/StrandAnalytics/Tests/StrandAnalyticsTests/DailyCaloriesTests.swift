@@ -122,4 +122,29 @@ final class DailyCaloriesTests: XCTestCase {
         XCTAssertEqual(springForward.daySeconds, 23 * 3_600)
         XCTAssertNil(springForward.elapsedSeconds)
     }
+
+    /// Perf 4: the calendar-reusing overload is the same arithmetic, so a series of days built from one calendar
+    /// measures every day exactly as `dayTiming(day:timeZone:now:)` does, across daylight-saving changes and for
+    /// days the clock is inside, before and after.
+    func testDayTimingFromOneSharedCalendarMatchesThePerDayCalendar() throws {
+        let now = Date(timeIntervalSince1970: 1_773_000_000)
+        for identifier in ["America/New_York", "Europe/London", "Australia/Lord_Howe", "UTC", "Asia/Kolkata"] {
+            let zone = try XCTUnwrap(TimeZone(identifier: identifier))
+            let calendar = DailyCalories.gregorianCalendar(in: zone)
+            XCTAssertEqual(calendar.timeZone, zone)
+            for offset in 0..<800 {
+                let date = Date(timeIntervalSince1970: 1_700_000_000 + Double(offset) * 86_400)
+                let parts = calendar.dateComponents([.year, .month, .day], from: date)
+                let day = String(format: "%04d-%02d-%02d", try XCTUnwrap(parts.year), try XCTUnwrap(parts.month),
+                                 try XCTUnwrap(parts.day))
+                let perDay = DailyCalories.dayTiming(day: day, timeZone: zone, now: now)
+                let shared = DailyCalories.dayTiming(day: day, calendar: calendar, now: now)
+                XCTAssertEqual(perDay?.daySeconds, shared?.daySeconds, "\(identifier) \(day)")
+                XCTAssertEqual(perDay?.elapsedSeconds, shared?.elapsedSeconds, "\(identifier) \(day)")
+            }
+        }
+        let calendar = DailyCalories.gregorianCalendar(in: .gmt)
+        XCTAssertNil(DailyCalories.dayTiming(day: "not-a-day", calendar: calendar, now: now))
+        XCTAssertNil(DailyCalories.dayTiming(day: "2026-03", calendar: calendar, now: now))
+    }
 }
