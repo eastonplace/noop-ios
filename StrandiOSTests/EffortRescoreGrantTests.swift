@@ -18,8 +18,20 @@ final class EffortRescoreGrantTests: XCTestCase {
         var resume: CheckedContinuation<Void, Never>?
     }
 
+    /// Waits for an effect of the grant's `.background`-priority task. `Task.yield` alone is not enough: with only a
+    /// background-priority job pending, the runtime hands the main actor straight back to the (higher-priority) test
+    /// without running it, so the test has to suspend for real. Polls, so a slow machine only makes it wait longer.
+    private func waitUntil(_ condition: () -> Bool) async {
+        let deadline = ContinuousClock.now + .seconds(20)
+        while !condition(), ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(5))
+        }
+    }
+
+    /// For "nothing happened" checks: lets any job the grant already queued run first.
     private func settle() async {
-        for _ in 0..<20 { await Task.yield() }
+        await Task(priority: .background) { @MainActor in }.value
+        try? await Task.sleep(for: .milliseconds(100))
     }
 
     private func start(_ grant: EffortRescoreGrant, _ probe: Probe,
@@ -60,7 +72,7 @@ final class EffortRescoreGrantTests: XCTestCase {
         let probe = Probe()
         probe.background = true
         start(grant, probe) { _, _ in }
-        await settle()
+        await waitUntil { probe.runs == 1 && !grant.isActive }
         XCTAssertEqual(probe.runs, 1)
         XCTAssertEqual(probe.pausedWhenStarted, false)
         XCTAssertFalse(grant.isActive, "a finished grant frees the next edge to start one")
@@ -75,11 +87,11 @@ final class EffortRescoreGrantTests: XCTestCase {
             await withCheckedContinuation { probe.resume = $0 }
             probe.pausedAfterBackgroundEnded = shouldPause()
         }
-        await settle()
+        await waitUntil { probe.resume != nil }
         XCTAssertEqual(probe.runs, 1)
         probe.background = false
         probe.resume?.resume()
-        await settle()
+        await waitUntil { probe.pausedAfterBackgroundEnded != nil }
         XCTAssertEqual(probe.pausedAfterBackgroundEnded, true, "the driver sees pause before it starts a chunk")
     }
 
@@ -90,12 +102,12 @@ final class EffortRescoreGrantTests: XCTestCase {
         start(grant, probe) { probe, _ in
             do { try await Task.sleep(for: .seconds(60)) } catch { probe.sawCancellation = true }
         }
-        await settle()
+        await waitUntil { probe.runs == 1 }
         XCTAssertEqual(probe.runs, 1)
         XCTAssertTrue(grant.isActive)
         grant.cancel()
         XCTAssertFalse(grant.isActive)
-        await settle()
+        await waitUntil { probe.sawCancellation }
         XCTAssertTrue(probe.sawCancellation, "the in-flight chunk is told to stop")
     }
 
@@ -106,12 +118,12 @@ final class EffortRescoreGrantTests: XCTestCase {
         start(grant, probe) { probe, _ in
             await withCheckedContinuation { probe.resume = $0 }
         }
-        await settle()
+        await waitUntil { probe.resume != nil }
         start(grant, probe) { _, _ in }
         await settle()
         XCTAssertEqual(probe.runs, 1)
         probe.resume?.resume()
-        await settle()
+        await waitUntil { !grant.isActive }
         XCTAssertFalse(grant.isActive)
     }
 
@@ -122,11 +134,10 @@ final class EffortRescoreGrantTests: XCTestCase {
         start(grant, probe) { probe, _ in
             do { try await Task.sleep(for: .seconds(60)) } catch { probe.sawCancellation = true }
         }
-        await settle()
+        await waitUntil { probe.runs == 1 }
         grant.cancel()
-        await settle()
         start(grant, probe) { _, _ in }
-        await settle()
+        await waitUntil { probe.runs == 2 }
         XCTAssertEqual(probe.runs, 2, "a cancelled grant replays from the durable cursor on the next background edge")
     }
 }
