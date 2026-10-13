@@ -99,6 +99,23 @@ final class LiveActivityRestartPolicyTests: XCTestCase {
         XCTAssertEqual(policy.verdict(now: later, isForeground: true), .allowed)
     }
 
+    /// With no activity of its own, the process adopts the first one still showing and ends every ended one an earlier
+    /// process left frozen on the Lock Screen; none of that counts toward the restart budget.
+    func testLeftoversFromAnEarlierProcessAreEndedAndTheFirstShowingOneIsAdopted() {
+        let plan = LiveActivityRestartPolicy.leftovers([.ended, nil, .dismissed, .ended, nil])
+        XCTAssertEqual(plan.adopt, 1)
+        XCTAssertEqual(plan.end, [0, 3])
+
+        let onlyFrozen = LiveActivityRestartPolicy.leftovers([.ended])
+        XCTAssertNil(onlyFrozen.adopt, "nothing to adopt: a new one is requested")
+        XCTAssertEqual(onlyFrozen.end, [0])
+
+        let none = LiveActivityRestartPolicy.leftovers([])
+        XCTAssertNil(none.adopt)
+        XCTAssertTrue(none.end.isEmpty)
+        XCTAssertEqual(LiveActivityRestartPolicy().setbacks, 0)
+    }
+
     func testAPersonsDismissalDuringAWorkoutHoldsUntilTheNextWorkout() {
         var policy = LiveActivityRestartPolicy()
         policy.noteDrive(workoutIsActive: true)

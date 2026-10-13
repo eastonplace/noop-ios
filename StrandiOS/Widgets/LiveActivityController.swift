@@ -218,16 +218,24 @@ final class LiveActivityController {
             return .notApplicable
         }
 
-        if activity == nil,
-           let existing = Activity<NOOPActivityAttributes>.activities.first(where: {
-               Self.disappearance($0.activityState) == nil
-           }) {
-            activity = existing
-            lastModeWasWorkout = existing.content.state.isWorkout
-            lastContentState = existing.content.state
-            lastPush = .distantPast
-            observeState(of: existing)
-            noteActivityShowing(since: Date())
+        if activity == nil {
+            let listed = Activity<NOOPActivityAttributes>.activities
+            let leftovers = LiveActivityRestartPolicy.leftovers(listed.map { Self.disappearance($0.activityState) })
+            // An earlier process's activity that ended stays on the Lock Screen, frozen: end it, so the one this process
+            // shows does not appear beside it. It predates this process, so the restart policy does not count it.
+            for index in leftovers.end {
+                trace(input, "cleared", "state=ended id=\(Self.shortId(listed[index]))")
+                await listed[index].end(nil, dismissalPolicy: .immediate)
+            }
+            if let index = leftovers.adopt {
+                let existing = listed[index]
+                activity = existing
+                lastModeWasWorkout = existing.content.state.isWorkout
+                lastContentState = existing.content.state
+                lastPush = .distantPast
+                observeState(of: existing)
+                noteActivityShowing(since: Date())
+            }
         }
 
         // An activity the app did not end is gone (the system could not render it, it went stale or ran out of time, or a

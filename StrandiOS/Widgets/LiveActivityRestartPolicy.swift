@@ -80,5 +80,12 @@ struct LiveActivityRestartPolicy: Equatable {
         if let nextRequestAt, now < nextRequestAt { return .backoff }
         return .allowed
     }
+
+    /// The activities the system still lists when this process holds none: the first one still showing is adopted, and
+    /// every `ended` one (left frozen on the Lock Screen by an earlier process) is ended, so the one this process shows
+    /// does not appear beside it. `dismissed` ones are already gone.
+    static func leftovers(_ states: [Disappearance?]) -> (adopt: Int?, end: [Int]) {
+        (states.firstIndex { $0 == nil }, states.indices.filter { states[$0] == .ended })
+    }
 }
 #endif
