@@ -660,6 +660,13 @@ struct TodayView: View {
         return days.last(where: { $0.day == selectedDayKey })
     }
 
+    /// The phone-imported steps for exactly `dayKey`: the last row with that day, nil when there is none. The key is a
+    /// parameter so a caller reads `selectedDayKey` once; evaluated inside the `last(where:)` closure it was rebuilt
+    /// for every one of up to 4,000 rows, on the main thread, on every body pass.
+    nonisolated static func phoneSteps(on dayKey: String, in appleDays: [AppleDaily]) -> Int? {
+        appleDays.last(where: { $0.day == dayKey })?.steps
+    }
+
     /// A replaced `.task(id:)` may finish its actor-bound reads after SwiftUI has cancelled it. Keep every
     /// day-scoped state mutation behind one identity check, so a result for an old refresh or day cannot
     /// repaint the current screen while its replacement is still loading.
@@ -1739,8 +1746,10 @@ struct TodayView: View {
 
     private func paperGlanceText(calories card: HealthDailyPick.CaloriesCard) -> String {
         let day = displayDay
-        let phoneSteps = appleDays.last(where: { $0.day == selectedDayKey })?.steps
-        let steps = TodaySteps(daily: day?.steps, apple: phoneSteps, estimate: stepsEstByDay[selectedDayKey])
+        // `selectedDayKey` builds Dates, Calendars and a String(format:) per read: take it once, never per element.
+        let dayKey = selectedDayKey
+        let phoneSteps = Self.phoneSteps(on: dayKey, in: appleDays)
+        let steps = TodaySteps(daily: day?.steps, apple: phoneSteps, estimate: stepsEstByDay[dayKey])
             .value.map { intString(Double($0)) } ?? "—"
         let calories = caloriesText(card)
         let dayStart = Calendar.current.startOfDay(for: selectedLogicalDay)
@@ -2945,8 +2954,9 @@ struct TodayView: View {
         case .steps:
             // #843/#813, same-day real count only (strap @57 or same-day phone import); never the latest
             // imported row or the sparkline tail (both went stale). Else fall through to the estimate.
-            let appleStepsForDay = appleDays.last(where: { $0.day == selectedDayKey })?.steps
-            return TodaySteps(daily: d?.steps, apple: appleStepsForDay, estimate: stepsEstByDay[selectedDayKey])
+            let dayKey = selectedDayKey
+            let appleStepsForDay = Self.phoneSteps(on: dayKey, in: appleDays)
+            return TodaySteps(daily: d?.steps, apple: appleStepsForDay, estimate: stepsEstByDay[dayKey])
                 .value.map { intString(Double($0)) } ?? "—"
         case .calories:
             return withUnit(calories.map(caloriesText) ?? self.caloriesText)
@@ -4043,9 +4053,10 @@ struct TodayView: View {
             // Never the latest imported Apple-Health row (it can be days stale) or the sparkline tail (that
             // is the most-recent value, not this day's): both froze the tile on an old import. Otherwise
             // fall through to the on-device estimate ("est."). Mirrors Android stepsForDay (#276/#150).
-            let appleStepsForDay = appleDays.last(where: { $0.day == selectedDayKey })?.steps
+            let dayKey = selectedDayKey
+            let appleStepsForDay = Self.phoneSteps(on: dayKey, in: appleDays)
             let todaySteps = TodaySteps(daily: d?.steps, apple: appleStepsForDay,
-                                        estimate: stepsEstByDay[selectedDayKey])
+                                        estimate: stepsEstByDay[dayKey])
             let realSteps: String? = todaySteps.recorded.map { intString(Double($0)) }
             let estSteps = todaySteps.estimate
             // H6, only an ESTIMATED day (no real strap/phone count, so the on-device estimate filled in)
