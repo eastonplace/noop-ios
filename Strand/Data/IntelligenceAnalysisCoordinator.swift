@@ -133,7 +133,10 @@ extension IntelligenceAnalysisRequest {
 ///
 /// A chunk that fails is not retried on every live analysis. Its entries back off (2 min, then 4 min) and
 /// are parked after `maximumFailures`, so newer edited days drain past a range that keeps failing. Parked
-/// entries stay persisted and come back when the same timestamp is enqueued again. A drain that stops on a
+/// entries stay persisted and come back when the same timestamp is enqueued again, when a later chunk that
+/// covers their day completes (they are dropped, already rescored), or at load once the app build changed or
+/// the park is older than `parkExpiry`, so a transient failure or a since-fixed bug can't lose an edit for
+/// good. A drain that stops on a
 /// backoff arms one timer for the end of it, and a drain that parks a range reschedules at once for the
 /// newer days, so neither waits for an unrelated analysis. A backoff further out than `retryMaximumDelay`
 /// (a wall clock moved backwards) counts as expired.
@@ -155,12 +158,20 @@ final class EditedDayRescoreQueue {
     static let maximumFailures = 3
     static let retryBaseDelay: TimeInterval = 120
     static let retryMaximumDelay: TimeInterval = 1_800
+    static let parkExpiry: TimeInterval = 86_400
+
+    static var currentBuild: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? ""
+    }
 
     private struct Entry: Equatable {
         /// Version of the latest enqueue of this timestamp.
         var version: UInt64
         var failures = 0
         var parked = false
+        /// The app build and the time the entry parked; a new build or an old park un-parks it at load.
+        var parkedBuild: String?
+        var parkedAt: Date?
     }
 
     private var entries: [Int: Entry]
@@ -179,6 +190,7 @@ final class EditedDayRescoreQueue {
     private let calendar: @MainActor () -> Calendar
     private let isBackgrounded: @MainActor () -> Bool
     private let sleep: @MainActor (Duration) async -> Void
+    private let build: String
     private weak var analyzer: AnyObject?
     private var analyze: Analyze?
     private var publish: Publish?
@@ -225,7 +237,8 @@ final class EditedDayRescoreQueue {
          calendar: @escaping @MainActor () -> Calendar = { .current },
          isBackgrounded: @escaping @MainActor () -> Bool = { EditedDayRescoreQueue.appIsInBackground },
          activationCenter: NotificationCenter? = nil,
-         sleep: @escaping @MainActor (Duration) async -> Void = { try? await Task.sleep(for: $0) }) {
+         sleep: @escaping @MainActor (Duration) async -> Void = { try? await Task.sleep(for: $0) },
+         build: String = EditedDayRescoreQueue.currentBuild) {
         self.defaults = defaults
         self.storageKey = storageKey
         self.debounce = debounce
@@ -238,7 +251,9 @@ final class EditedDayRescoreQueue {
         self.calendar = calendar
         self.isBackgrounded = isBackgrounded
         self.sleep = sleep
+        self.build = build
         clampStaleBackoff()
+        unparkExpired()
         #if os(iOS)
         // A drain paused by the background resumes when the app is active again.
         activationObserver = activationCenter?.addObserver(
@@ -341,6 +356,8 @@ final class EditedDayRescoreQueue {
             var version: UInt64
             var failures: Int?
             var parked: Bool?
+            var parkedBuild: String?
+            var parkedAt: TimeInterval?
         }
         var lastVersion: UInt64
         var entries: [Entry]
@@ -356,7 +373,9 @@ final class EditedDayRescoreQueue {
             var entries: [Int: Entry] = [:]
             for entry in stored.entries where entry.timestamp > 0 && entry.version > (entries[entry.timestamp]?.version ?? 0) {
                 entries[entry.timestamp] = Entry(
-                    version: entry.version, failures: entry.failures ?? 0, parked: entry.parked ?? false)
+                    version: entry.version, failures: entry.failures ?? 0, parked: entry.parked ?? false,
+                    parkedBuild: entry.parkedBuild,
+                    parkedAt: entry.parkedAt.map { Date(timeIntervalSince1970: $0) })
             }
             return (entries, max(stored.lastVersion, entries.values.map(\.version).max() ?? 0),
                     stored.retryNotBefore.map { Date(timeIntervalSince1970: $0) },
@@ -376,7 +395,9 @@ final class EditedDayRescoreQueue {
             lastVersion: lastVersion,
             entries: entries.sorted { $0.key < $1.key }.map {
                 Stored.Entry(timestamp: $0.key, version: $0.value.version,
-                             failures: $0.value.failures, parked: $0.value.parked)
+                             failures: $0.value.failures, parked: $0.value.parked,
+                             parkedBuild: $0.value.parkedBuild,
+                             parkedAt: $0.value.parkedAt?.timeIntervalSince1970)
             },
             retryNotBefore: retryNotBefore?.timeIntervalSince1970,
             unpublishedFrom: unpublishedFrom?.timeIntervalSince1970)
@@ -398,6 +419,26 @@ final class EditedDayRescoreQueue {
         persist()
     }
 
+    /// A park ends when the app build changed (the failure may be fixed) or after `parkExpiry`.
+    private func unparkExpired() {
+        var changed = false
+        for (timestamp, entry) in entries where entry.parked {
+            let expired = entry.parkedAt.map { now().timeIntervalSince($0) > Self.parkExpiry } ?? true
+            guard entry.parkedBuild != build || expired else { continue }
+            entries[timestamp] = Entry(version: entry.version)
+            changed = true
+        }
+        if changed { persist() }
+    }
+
+    /// A completed chunk rescored every day in [from, through): parked entries there are done.
+    private func dropParked(from start: Date, before end: Int?) {
+        let from = Int(start.timeIntervalSince1970)
+        for (timestamp, entry) in entries where entry.parked && timestamp >= from && end.map({ timestamp < $0 }) ?? true {
+            entries.removeValue(forKey: timestamp)
+        }
+    }
+
     /// A chunk didn't complete: its entries (those before `chunkEnd`, or all of them when the chunk reached
     /// today) back off, and park after `maximumFailures`. Entries enqueued again since are left alone.
     private func recordFailure(of taken: [Int: Entry], before chunkEnd: Int?) {
@@ -406,6 +447,10 @@ final class EditedDayRescoreQueue {
             guard var current = entries[timestamp], current.version == entry.version else { continue }
             current.failures += 1
             current.parked = current.failures >= Self.maximumFailures
+            if current.parked {
+                current.parkedBuild = build
+                current.parkedAt = now()
+            }
             entries[timestamp] = current
             if !current.parked { backoffFailures = max(backoffFailures, current.failures) }
         }
@@ -447,13 +492,12 @@ final class EditedDayRescoreQueue {
             let request = IntelligenceAnalysisRequest(
                 maxDays: chunk.request.maxDays, startOffset: chunk.request.startOffset, force: true,
                 refreshRepository: publish == nil)
+            let chunkEnd = chunk.remainderTimestamp.map {
+                Int(calendar.startOfDay(for: Date(timeIntervalSince1970: TimeInterval($0))).timeIntervalSince1970)
+            }
             guard await analyze(request) else {
                 // A cancelled chunk (BG expiry) isn't a failure of the range.
                 if !Task.isCancelled {
-                    let chunkEnd = chunk.remainderTimestamp.map {
-                        Int(calendar.startOfDay(for: Date(timeIntervalSince1970: TimeInterval($0)))
-                            .timeIntervalSince1970)
-                    }
                     recordFailure(of: taken, before: chunkEnd)
                     end = retryNotBefore == nil ? .parked : .backedOff
                 }
@@ -469,6 +513,7 @@ final class EditedDayRescoreQueue {
             if let oldest = calendar.date(byAdding: .day, value: -(request.endOffsetExclusive - 1),
                                           to: calendar.startOfDay(for: now())) {
                 unpublishedFrom = min(unpublishedFrom ?? oldest, oldest)
+                dropParked(from: oldest, before: chunkEnd)
             }
             persist()
         }

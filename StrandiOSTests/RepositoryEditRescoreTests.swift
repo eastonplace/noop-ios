@@ -87,11 +87,13 @@ final class RepositoryEditRescoreTests: XCTestCase {
 
     private func virtualClockQueue(_ clock: EditedDayAnalyzeRecorder, calendar: Calendar,
                                    defaults: UserDefaults? = nil, storageKey: String = "queue",
-                                   backgrounded: @escaping @MainActor () -> Bool = { false })
+                                   backgrounded: @escaping @MainActor () -> Bool = { false },
+                                   build: String = EditedDayRescoreQueue.currentBuild)
         -> EditedDayRescoreQueue {
         EditedDayRescoreQueue(defaults: defaults, storageKey: storageKey, debounce: .zero, now: { clock.now },
                               calendar: { calendar }, isBackgrounded: backgrounded,
-                              sleep: { clock.now = clock.now.addingTimeInterval(Self.seconds($0)) })
+                              sleep: { clock.now = clock.now.addingTimeInterval(Self.seconds($0)) },
+                              build: build)
     }
 
     private static func seconds(_ duration: Duration) -> TimeInterval {
@@ -323,6 +325,64 @@ final class RepositoryEditRescoreTests: XCTestCase {
         queue.enqueue([old]) // a new edit of that night un-parks it
         XCTAssertTrue(queue.parkedTimestamps.isEmpty)
         queue.cancel()
+    }
+
+    /// Review finding (parking had no way back): a transient failure parked an edit for good. A park now ends
+    /// at load when the app build changed or after a day.
+    func testAParkedRangeComesBackAfterAnAppUpdateOrADay() async throws {
+        let calendar = try newYorkCalendar()
+        let start = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 10, day: 12, hour: 15)))
+        let defaults = try isolatedDefaults()
+        let clock = EditedDayAnalyzeRecorder()
+        clock.now = start
+        let failing = virtualClockQueue(clock, calendar: calendar, defaults: defaults, build: "100")
+        failing.register(clock) { _ in false }
+        let night = Int(try XCTUnwrap(calendar.date(byAdding: .day, value: -45, to: start)).timeIntervalSince1970)
+        failing.enqueue([night])
+        await settle(failing)
+        XCTAssertEqual(failing.parkedTimestamps, [night])
+        let parkedAt = clock.now
+
+        func relaunch(build: String, after interval: TimeInterval) -> EditedDayRescoreQueue {
+            let later = EditedDayAnalyzeRecorder()
+            later.now = parkedAt.addingTimeInterval(interval)
+            return virtualClockQueue(later, calendar: calendar, defaults: defaults, build: build)
+        }
+        XCTAssertEqual(relaunch(build: "100", after: 3_600).parkedTimestamps, [night], "same build, an hour later")
+        let updated = relaunch(build: "101", after: 60)
+        XCTAssertTrue(updated.parkedTimestamps.isEmpty, "an app update retries the parked range")
+        XCTAssertEqual(updated.timestamps, [night])
+        // The update's load persisted the un-park; park it again under build 100 to check the age rule.
+        failing.cancel()
+        let refail = virtualClockQueue(clock, calendar: calendar, defaults: defaults, build: "100")
+        refail.register(clock) { _ in false }
+        await settle(refail)
+        XCTAssertEqual(refail.parkedTimestamps, [night])
+        let dayLater = relaunch(build: "100", after: clock.now.timeIntervalSince(parkedAt) + 25 * 3_600)
+        XCTAssertTrue(dayLater.parkedTimestamps.isEmpty, "a park older than a day is retried")
+    }
+
+    func testAParkedEntryInsideALaterCompletedChunkIsDropped() async throws {
+        let calendar = try newYorkCalendar()
+        let start = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 10, day: 12, hour: 15)))
+        let recorder = EditedDayAnalyzeRecorder()
+        recorder.now = start
+        let queue = virtualClockQueue(recorder, calendar: calendar)
+        queue.register(recorder) { request in
+            recorder.requests.append(request)
+            return request.maxDays != 21 // the range from 20 days back fails
+        }
+        let parked = Int(try XCTUnwrap(calendar.date(byAdding: .day, value: -20, to: start)).timeIntervalSince1970)
+        queue.enqueue([parked])
+        await settle(queue)
+        XCTAssertEqual(queue.parkedTimestamps, [parked])
+
+        let older = Int(try XCTUnwrap(calendar.date(byAdding: .day, value: -25, to: start)).timeIntervalSince1970)
+        queue.enqueue([older]) // an older edit's range covers the parked day and completes
+        await settle(queue)
+
+        XCTAssertEqual(recorder.requests.last?.maxDays, 26)
+        XCTAssertTrue(queue.timestamps.isEmpty, "the parked day was rescored by the later chunk but kept queued")
     }
 
     /// Review findings (no wake-up after a backoff): an edit made while an older range backed off waited for an
