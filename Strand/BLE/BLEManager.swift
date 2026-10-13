@@ -5838,9 +5838,13 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
             if deadlinePassed { clearWhoop5SecureHold() } else { cancelHeldWhoop5ClientHello() }
             return
         }
-        clearWhoop5SecureHold()
+        // Clear the hold and write the hello BEFORE ending the background task, so the app cannot be
+        // suspended between the two with a quiet strap that will not wake it again.
+        whoop5HeldClientHello = nil
+        whoop5SecureHandshakeNotBefore = nil
         log("WHOOP 5/MG: secure recovery delay over; continuing the secure handshake")
         proceedToWhoop5ClientHello(on: peripheral, sessionID: sessionID)
+        stopWhoop5HoldKeepAlive()
     }
 
     /// The held attempt is over (released, or its link dropped). Its deadline stands.
