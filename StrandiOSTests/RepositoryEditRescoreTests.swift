@@ -8,13 +8,6 @@ import WhoopStore
 /// background drain rescores them from that day through today.
 @MainActor
 final class RepositoryEditRescoreTests: XCTestCase {
-    override func setUp() async throws {
-        _ = EditedDayRescoreQueue.shared.take()
-    }
-
-    override func tearDown() async throws {
-        _ = EditedDayRescoreQueue.shared.take()
-    }
 
     private func newYorkCalendar() throws -> Calendar {
         var calendar = Calendar(identifier: .gregorian)
@@ -66,7 +59,9 @@ final class RepositoryEditRescoreTests: XCTestCase {
 
         _ = await repository.deleteSleepSession(detectedStartTs: wake - 8 * 3_600, endTs: wake)
 
-        XCTAssertEqual(EditedDayRescoreQueue.shared.timestamps, [wake])
+        XCTAssertEqual(repository.editedDayRescoreQueue.timestamps, [wake])
+        XCTAssertFalse(repository.editedDayRescoreQueue === EditedDayRescoreQueue.shared,
+                       "a test edit reached the host app's shared queue")
     }
 
     func testAddingANapQueuesItsDay() async throws {
@@ -77,7 +72,7 @@ final class RepositoryEditRescoreTests: XCTestCase {
 
         await repository.addManualNap(startTs: end - 2_700, endTs: end)
 
-        XCTAssertEqual(EditedDayRescoreQueue.shared.timestamps, [end])
+        XCTAssertEqual(repository.editedDayRescoreQueue.timestamps, [end])
     }
 
     // MARK: - Background drain
@@ -202,8 +197,9 @@ final class RepositoryEditRescoreTests: XCTestCase {
     }
 
     /// Review finding (rescored older days never reach the 30-day caches): the engine's closing refresh is
-    /// current-day and the DL-01 splice keeps older cached days, so a rescored night five days back kept its old
-    /// Recovery in Home until some unrelated 30-day refresh.
+    /// current-day and the DL-01 splice keeps older cached days, so a rescored day five days back kept its old
+    /// Recovery in Home until some unrelated 30-day refresh. A workout delete runs no refresh of its own, so
+    /// only the drain's publish can deliver the rescored row.
     func testARescoredOlderDayReachesTheThirtyDayDashboard() async throws {
         let store = try await WhoopStore.inMemory()
         let computedId = Repository.whoopSource + "-noop"
@@ -226,14 +222,17 @@ final class RepositoryEditRescoreTests: XCTestCase {
             _ = try? await store.upsertDailyMetrics([row(keys[5], recovery: 41)], deviceId: computedId)
             return true
         }
-        let napEnd = Int(Repository.dateByAddingCalendarDays(-5, to: now).timeIntervalSince1970)
+        let start = Int(Repository.dateByAddingCalendarDays(-5, to: now).timeIntervalSince1970)
+        let workout = WorkoutRow(startTs: start, endTs: start + 1_800, sport: "Running", source: "manual",
+                                 durationS: 1_800, energyKcal: nil, avgHr: 140, maxHr: nil, strain: nil,
+                                 distanceM: nil, zonesJSON: nil, notes: nil, strainVersion: nil)
+        _ = try await store.upsertWorkouts([workout], deviceId: Repository.whoopSource)
 
-        await repository.addManualNap(startTs: napEnd - 2_700, endTs: napEnd)
-        queue.scheduleDrain()
+        await repository.deleteWorkout(workout)
         await queue.waitForDrain()
 
         XCTAssertEqual(repository.days.first { $0.day == keys[5] }?.recovery, 41,
-                       "the rescored day five nights back stayed stale in the 30-day cache")
+                       "the rescored day five days back stayed stale in the 30-day cache")
         XCTAssertEqual(repository.days.count, 30)
     }
 
@@ -425,14 +424,17 @@ final class RepositoryEditRescoreTests: XCTestCase {
     /// Review finding (queue lost on kill, workout paths never drained): the workout delete, dismiss, relabel
     /// and bulk-delete flows and the auto-detect save never call analyzeRecent(), and the queue lived in memory.
     func testAnEnqueueAloneDrainsWithoutAnyAnalyzeRecentCall() async throws {
-        let queue = EditedDayRescoreQueue(defaults: nil, debounce: .milliseconds(1), isBackgrounded: { false })
+        let calendar = try newYorkCalendar()
+        let now = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 10, day: 12, hour: 15)))
+        let queue = EditedDayRescoreQueue(defaults: nil, debounce: .milliseconds(1), now: { now },
+                                          calendar: { calendar }, isBackgrounded: { false })
         let recorder = EditedDayAnalyzeRecorder()
         queue.register(recorder) { request in
             recorder.requests.append(request)
             return true
         }
 
-        queue.enqueue([Int(Date().timeIntervalSince1970) - 3 * 86_400])
+        queue.enqueue([Int(try XCTUnwrap(calendar.date(byAdding: .day, value: -3, to: now)).timeIntervalSince1970)])
         await queue.waitForDrain()
 
         XCTAssertEqual(recorder.requests.map(\.maxDays), [4])
@@ -441,13 +443,15 @@ final class RepositoryEditRescoreTests: XCTestCase {
 
     func testQueuedDaysSurviveARelaunchAndDrainOnceTheEngineRegisters() async throws {
         let defaults = try isolatedDefaults()
-        let edited = Int(Date().timeIntervalSince1970) - 2 * 86_400
+        let calendar = try newYorkCalendar()
+        let now = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 10, day: 12, hour: 15)))
+        let edited = Int(try XCTUnwrap(calendar.date(byAdding: .day, value: -2, to: now)).timeIntervalSince1970)
         let beforeKill = EditedDayRescoreQueue(defaults: defaults, storageKey: "queue", debounce: .zero,
-                                               isBackgrounded: { false })
+                                               now: { now }, calendar: { calendar }, isBackgrounded: { false })
         beforeKill.enqueue([edited]) // no engine registered yet, so nothing drains
 
         let afterRelaunch = EditedDayRescoreQueue(defaults: defaults, storageKey: "queue", debounce: .zero,
-                                                  isBackgrounded: { false })
+                                                  now: { now }, calendar: { calendar }, isBackgrounded: { false })
         XCTAssertEqual(afterRelaunch.timestamps, [edited])
         let recorder = EditedDayAnalyzeRecorder()
         afterRelaunch.register(recorder) { request in
