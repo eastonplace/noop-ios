@@ -132,9 +132,14 @@ public struct SectionEyebrow: View {
         }
     }
 
-    /// The pill keeps its natural size (it is one short word) and wins the width over the title.
+    /// The pill keeps its natural size (it is one short word) and wins the width over the title. At accessibility
+    /// sizes it sits under the title and may be a long translated phrase ("Creazione in corso", "Calibration en
+    /// cours") at a type size that makes it wider than the row, so only its height is fixed there: the label wraps
+    /// and scales as `StatePill` does at those sizes instead of running past the gutter.
     private func pill(_ title: LocalizedStringKey, tone: StrandTone) -> some View {
-        StatePill(title, tone: tone, showsDot: false).fixedSize().layoutPriority(2)
+        StatePill(title, tone: tone, showsDot: false)
+            .fixedSize(horizontal: !typeSize.isAccessibilitySize, vertical: true)
+            .layoutPriority(2)
     }
 
     /// One line at ordinary sizes, wins the width over the title; wraps at accessibility sizes.
