@@ -156,9 +156,9 @@ public struct LiveZoneRow: View {
 
     /// "Rest <95" on one line, the name in the zone's colour: one text, so a narrow column scales both together.
     private func nameLine(_ zone: Int) -> some View {
-        (Text(verbatim: Self.word(zone)).font(.system(size: nameSize, weight: .semibold)).foregroundStyle(nameColor(zone))
+        (Text(verbatim: Self.word(zone)).font(.system(size: nameSize, weight: .semibold)).foregroundStyleCompat(nameColor(zone))
             + Text(verbatim: " " + Self.range(zone, thresholds: thresholds))
-                .font(.system(size: rangeSize, weight: .medium)).monospacedDigit().foregroundStyle(LivePalette.secondaryText))
+                .font(.system(size: rangeSize, weight: .medium)).monospacedDigit().foregroundStyleCompat(LivePalette.secondaryText))
             .lineLimit(1)
             .minimumScaleFactor(0.5)
     }
