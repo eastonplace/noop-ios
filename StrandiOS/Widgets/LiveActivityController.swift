@@ -5,6 +5,7 @@ import NoopPhase34Core
 // SDK even though this controller serializes every mutation on MainActor. Keep that framework boundary
 // pre-concurrency-scoped; NOOP-owned state remains under complete strict concurrency checking.
 @preconcurrency import ActivityKit
+import UIKit
 
 struct WorkoutLiveActivityState {
     let sport: String
@@ -362,7 +363,7 @@ final class LiveActivityController {
             pauseEdges.delivered(builtAt: edgesCarried)
             return .published
         } else {
-            switch restartPolicy.verdict(now: now) {
+            switch restartPolicy.verdict(now: now, isForeground: UIApplication.shared.applicationState == .active) {
             case .allowed:
                 break
             case .dismissedByPerson:
@@ -374,8 +375,12 @@ final class LiveActivityController {
                 trace(input, "not-shown", "reason=restart-backoff")
                 return .notApplicable
             case .exhausted:
-                logExit("not shown, the system ended it too often during this workout")
+                logExit("not shown, the system ended or refused it too often during this workout")
                 trace(input, "not-shown", "reason=restarts-exhausted")
+                return .notApplicable
+            case .waitingForForeground:
+                logExit("not shown, waiting for the app to be in front to ask again")
+                trace(input, "not-shown", "reason=waiting-for-foreground")
                 return .notApplicable
             }
             do {
@@ -407,11 +412,12 @@ final class LiveActivityController {
                 pauseEdges.delivered(builtAt: edgesCarried)
                 return .published
             } catch {
-                // ActivityKit refuses a request made from the background, among other reasons: say which.
-                NSLog("NOOP LiveActivity: request failed (%@): %@",
-                      desiredModeIsWorkout ? "workout" : "heart rate", String(describing: error))
+                // ActivityKit refuses a request made from the background, among other reasons: say which, once per
+                // reason, and wait before asking again (the restart policy's backoff, counted toward its cap).
+                logExit("request failed (\(desiredModeIsWorkout ? "workout" : "heart rate")): \(String(describing: error))")
                 trace(input, "request-failed", "error=\(String(describing: error).prefix(120))")
                 resetCachedState()
+                restartPolicy.noteRequestFailed(now: Date())
                 throw LiveActivityPublicationError.requestFailed
             }
         }
