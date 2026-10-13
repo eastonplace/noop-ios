@@ -72,4 +72,20 @@ final class WatchRecoveryHistoryTests: XCTestCase {
         let scored = WatchRecovery.scoreHistory(days)
         XCTAssertEqual(scored.count, days.count)
     }
+    /// Review round 4 (3): each scored day carries the drivers of the inputs its Charge used (SDNN against the
+    /// SDNN baseline, resting HR when the day has one), and a calibrating day carries none.
+    func testScoredDaysCarryTheDriversOfTheirOwnScore() {
+        let scored = WatchRecovery.scoreHistory(history(40))
+        XCTAssertGreaterThan(scored.filter { $0.result.recovery != nil }.count, 20)
+        for (index, item) in scored.enumerated() {
+            guard item.result.recovery != nil else {
+                XCTAssertTrue(item.result.drivers.isEmpty, item.day)
+                continue
+            }
+            let day = history(40)[index]
+            XCTAssertEqual(item.result.drivers.first { $0.term == .hrv }?.value, day.sdnn, item.day)
+            XCTAssertEqual(item.result.drivers.contains { $0.term == .restingHR }, day.rhr != nil, item.day)
+            XCTAssertEqual(item.result.drivers.count, day.rhr != nil ? 2 : 1, item.day)
+        }
+    }
 }

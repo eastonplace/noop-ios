@@ -176,4 +176,22 @@ final class ChargeDriversTests: XCTestCase {
         XCTAssertEqual(rel.deviationC, 0.7, accuracy: 1e-9)
         XCTAssertEqual(rel.tier, .warmer)
     }
+    // MARK: - Persisted rows (review round 4, 3)
+
+    /// Every driver carries the term, value and baseline it was formatted from, and rebuilds identically from
+    /// them, so the engine can persist a day's drivers and the sheet shows the same rows.
+    func testEveryDriverRebuildsFromItsTermValueAndBaseline() throws {
+        let drivers = RecoveryScorer.chargeDrivers(
+            hrv: 63.4, rhr: 51.6, resp: 14.2,
+            hrvBaseline: baseline(mean: 55, sigma: 6), rhrBaseline: baseline(mean: 54, sigma: 3),
+            respBaseline: baseline(mean: 15.1, sigma: 1), sleepPerf: 0.81, skinTempDev: -0.42)
+        XCTAssertEqual(drivers.count, 5)
+        XCTAssertEqual(Set(drivers.compactMap(\.term)), Set(ChargeDriverTerm.allCases))
+        for d in drivers {
+            let rebuilt = RecoveryScorer.chargeDriver(term: try XCTUnwrap(d.term), deltaPoints: d.deltaPoints,
+                                                      value: try XCTUnwrap(d.value), baseline: d.baseline)
+            XCTAssertEqual(rebuilt, d)
+        }
+        XCTAssertEqual(RecoveryScorer.orderedByImpact(drivers.reversed()), drivers)
+    }
 }

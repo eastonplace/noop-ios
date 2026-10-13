@@ -9,10 +9,13 @@ public enum WatchRecovery {
     public struct Result: Equatable, Sendable {
         public let recovery: Double?
         public let confidence: ScoreConfidence
+        /// The Charge drivers from the same inputs the score used (review round 4, 3); empty with no score.
+        public let drivers: [ChargeDriver]
 
-        public init(recovery: Double?, confidence: ScoreConfidence) {
+        public init(recovery: Double?, confidence: ScoreConfidence, drivers: [ChargeDriver] = []) {
             self.recovery = recovery
             self.confidence = confidence
+            self.drivers = drivers
         }
     }
 
@@ -101,18 +104,23 @@ public enum WatchRecovery {
             return Result(recovery: nil, confidence: .calibrating)
         }
 
+        let rhr = todayRHR.map(Double.init) ?? rhrBase.baseline
+        let rhrBaseline = todayRHR != nil ? rhrBase : nil
         let recovery = RecoveryScorer.recovery(
             hrv: sdnn,
-            rhr: todayRHR.map(Double.init) ?? rhrBase.baseline,
+            rhr: rhr,
             resp: nil,
             hrvBaseline: hrvBase,
-            rhrBaseline: todayRHR != nil ? rhrBase : nil,
+            rhrBaseline: rhrBaseline,
             respBaseline: nil,
             sleepPerf: nil
         )
         guard let recovery else {
             return Result(recovery: nil, confidence: .calibrating)
         }
-        return Result(recovery: recovery, confidence: confidence)
+        return Result(recovery: recovery, confidence: confidence,
+                      drivers: RecoveryScorer.chargeDrivers(hrv: sdnn, rhr: rhr, resp: nil, hrvBaseline: hrvBase,
+                                                            rhrBaseline: rhrBaseline, respBaseline: nil,
+                                                            sleepPerf: nil))
     }
 }

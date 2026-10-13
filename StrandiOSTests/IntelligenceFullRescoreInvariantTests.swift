@@ -322,12 +322,14 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
         }
     }
 
-    // MARK: - Charge breakdown baselines (review round 3, findings 8 and 15)
+    // MARK: - Stored Charge breakdown (review round 3 findings 8 and 15, round 4 finding 3)
 
-    /// The Charge breakdown sheet reads the engine's own folds. For a strap user with Oura-era history it sees
-    /// the strap-only baseline the ring was scored against, not the Oura nights the wearable fold wrote under
-    /// the computed id: a calibrating night has no usable baseline, and a scored night has one.
-    func testChargeBreakdownBaselinesAreTheOnesTheEngineScoredWith() async throws {
+    /// Each fold stores the breakdown of the Charge it wrote: the drivers it built against exactly that Charge.
+    /// Strap days with Oura-era history, the wearable fold's Oura days and an Apple-only user's days all read
+    /// back a breakdown whose score is the stored Charge, with the HRV the fold scored. The drivers are each
+    /// a marginal against a neutral term (the ChargeDrivers contract), so they don't add up arithmetically;
+    /// the score they were built against is the stored one.
+    func testStoredChargeBreakdownIsTheOneEachFoldScoredWith() async throws {
         try await withRecalibrationEpochsRestored {
             let days = 36
             let harness = try await makeHarness(days: days, strapDays: 30..<days)
@@ -337,19 +339,52 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
                             recovery: nil, strain: nil, exerciseCount: nil)
             }
             _ = try await harness.store.upsertDailyMetrics(ouraRows, deviceId: "oura-import")
-            _ = try await harness.store.upsertDailyMetrics(
-                ouraRows.map { $0.with(recovery: 60, skinTempDevC: nil) }, deviceId: harness.computedId)
-
-            let completed = await pass(harness, maxDays: 6)
+            let completed = await pass(harness, maxDays: days)
             XCTAssertTrue(completed)
-            let history = try XCTUnwrap(harness.engine.chargeBaselineHistory)
             let after = try await stored(harness)
-            XCTAssertEqual(history.baselines(asOf: dayKey(31)).hrv?.nValid, 1, "one strap night, no Oura nights")
-            for k in 30..<days {
-                XCTAssertEqual(history.baselines(asOf: dayKey(k)).hrv?.usable == true, after[dayKey(k)]?.recovery != nil,
-                               "day \(k): the sheet's baseline is the ring's")
+            var foldDays = 0
+            var strapDays = 0
+            for k in 0..<days {
+                guard let row = after[dayKey(k)], let recovery = row.recovery else { continue }
+                let loaded = await harness.engine.storedChargeBreakdown(day: dayKey(k))
+                let breakdown = try XCTUnwrap(loaded, "day \(k) has a breakdown")
+                XCTAssertEqual(breakdown.score, recovery, "day \(k): the breakdown explains the stored Charge")
+                XCTAssertEqual(breakdown.drivers.first { $0.term == .hrv }?.value, row.avgHrv, "day \(k)")
+                if k < 30 { foldDays += 1 } else { strapDays += 1 }
             }
-            XCTAssertNotNil(after[dayKey(days - 1)]?.recovery, "the strap scores Charge after four nights")
+            XCTAssertGreaterThan(foldDays, 15, "the fold scores the Oura days")
+            XCTAssertGreaterThan(strapDays, 0, "the strap scores Charge after four nights")
+            let calibrating = await harness.engine.storedChargeBreakdown(day: dayKey(30))
+            XCTAssertNil(calibrating, "a calibrating strap night has no breakdown")
+
+            // Apple-only: a one-day pass stores the breakdown of every Apple Watch Charge, the older days too.
+            let store = try await WhoopStore.inMemory()
+            let repository = Repository(deviceId: Repository.whoopSource)
+            repository.setStoreForTesting(store)
+            let engine = IntelligenceEngine(repo: repository, profile: ProfileStore(),
+                                            deviceId: Repository.whoopSource)
+            let appleRows = (0..<20).map { k in
+                DailyMetric(day: dayKey(k), totalSleepMin: 420, efficiency: 0.9, deepMin: 80, remMin: 90,
+                            lightMin: 250, disturbances: nil, restingHr: 55 + k % 3, avgHrv: 48 + Double(k % 5),
+                            recovery: nil, strain: nil, exerciseCount: nil)
+            }
+            _ = try await store.upsertDailyMetrics(appleRows, deviceId: Repository.appleHealthSource)
+            let reference = Date(timeIntervalSince1970: TimeInterval(firstDayStart + 19 * 86_400 + 12 * 3_600))
+            let appleCompleted = await engine.analyzeRecent(
+                maxDays: 1, startOffset: 0, force: true, refreshRepository: false,
+                analysisReference: reference, analysisCalendar: utcCalendar)
+            XCTAssertTrue(appleCompleted)
+            var appleDays = 0
+            for row in try await store.dailyMetrics(
+                deviceId: Repository.appleHealthSource, from: "0000-01-01", to: "9999-12-31") {
+                guard let recovery = row.recovery else { continue }
+                let loaded = await engine.storedChargeBreakdown(day: row.day)
+                let breakdown = try XCTUnwrap(loaded, "\(row.day) has a breakdown")
+                XCTAssertEqual(breakdown.score, recovery, row.day)
+                XCTAssertEqual(breakdown.drivers.first { $0.term == .hrv }?.value, row.avgHrv, row.day)
+                appleDays += 1
+            }
+            XCTAssertGreaterThanOrEqual(appleDays, 10)
         }
     }
 

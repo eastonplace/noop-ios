@@ -29,24 +29,14 @@ final class IntelligenceEngine: ObservableObject {
     @Published var note: String?
 
     private var analysisCompletionSerial = 0
-    /// The HRV, resting-HR and respiration folds the last completed pass scored Charge against (review round 3,
-    /// E). The Charge breakdown sheet reads its baselines here, so its drivers fold exactly the engine's
-    /// history and add up to the ring. Nil until a pass completes.
-    private(set) var chargeBaselineHistory: ChargeBaselineHistory?
-
-    /// One pass's Charge baseline folds: the full history (imported WHOOP rows, then the strap's computed nights
-    /// without the wearable fold's rows) plus the pass's own nights, each with its recalibration epoch.
-    struct ChargeBaselineHistory: Sendable {
-        let hrv: Baselines.Timeline
-        let restingHR: Baselines.Timeline
-        let resp: Baselines.Timeline
-
-        /// `day`'s Charge baselines: the nights before it. Respiration only once usable (honest cold start).
-        func baselines(asOf day: String) -> AnalyticsEngine.ProfileBaselines {
-            let respState = resp.asOf(day)
-            return AnalyticsEngine.ProfileBaselines(hrv: hrv.asOf(day), restingHR: restingHR.asOf(day),
-                                                    resp: respState.usable ? respState : nil)
-        }
+    /// Review round 4 (3): one day's persisted Charge breakdown: the Charge the drivers were built against, its
+    /// confidence, and the drivers, biggest mover first. The engine writes it beside the Charge each fold (strap,
+    /// Apple Watch, wearable import) stores; the breakdown sheet displays it and recomputes nothing.
+    struct StoredChargeBreakdown: Equatable, Sendable {
+        let day: String
+        let score: Double
+        let confidence: ScoreConfidence
+        let drivers: [ChargeDriver]
     }
     /// #899 heal bound: true while the last heal already re-armed a rescore, so a heal firing again on
     /// the very next pass cannot re-arm a second time (the Android twin is hard-bounded to exactly one
@@ -247,6 +237,18 @@ final class IntelligenceEngine: ObservableObject {
     nonisolated static let computedRowSourceMetricKey = "computed_row_source"
     nonisolated static let strapRowSource = 1.0
     nonisolated static let wearableFoldRowSource = 2.0
+    /// Review round 4 (3): the persisted Charge breakdown keys under the computed id: the Charge the drivers were
+    /// built against, its confidence, and each driver's points, measured value and baseline.
+    nonisolated static let chargeBreakdownScoreKey = "charge_breakdown_score"
+    nonisolated static let chargeBreakdownConfidenceKey = "charge_breakdown_confidence"
+    nonisolated static func chargeBreakdownKey(_ term: ChargeDriverTerm, _ field: String) -> String {
+        "charge_breakdown.\(term.rawValue).\(field)"
+    }
+    nonisolated static let chargeBreakdownKeys: [String] = [chargeBreakdownScoreKey, chargeBreakdownConfidenceKey]
+        + ChargeDriverTerm.allCases.flatMap { term in
+            ["points", "value", "baseline"].map { chargeBreakdownKey(term, $0) }
+        }
+    private nonisolated static let chargeBreakdownConfidences: [ScoreConfidence] = [.calibrating, .building, .solid]
     /// Review round 4 (2): the second each computed row's calorie total was filled through: the next midnight
     /// for a completed day, the pass's "now" for today. A production pass scores today only, so without it
     /// yesterday kept the total its last pass filled up to that moment.
@@ -1740,14 +1742,13 @@ final class IntelligenceEngine: ObservableObject {
                                                      baselineEpoch: recoveryEpoch)
         let skinTimeline = Baselines.foldHistoryAsOf(skinSeq, dayKeys: skinDayKeys, cfg: skinCfg,
                                                      baselineEpoch: recoveryEpoch)
-        let chargeHistory = ChargeBaselineHistory(hrv: hrvTimeline, restingHR: rhrTimeline, resp: respTimeline)
         func baselines(asOf day: String) -> AnalyticsEngine.ProfileBaselines {
-            let charge = chargeHistory.baselines(asOf: day)
+            let resp = respTimeline.asOf(day)
             let skin = skinTimeline.asOf(day)
             return AnalyticsEngine.ProfileBaselines(
-                hrv: charge.hrv,
-                restingHR: charge.restingHR,
-                resp: charge.resp,
+                hrv: hrvTimeline.asOf(day),
+                restingHR: rhrTimeline.asOf(day),
+                resp: resp.usable ? resp : nil,
                 skinTemp: skin.usable ? skin : nil)
         }
 
@@ -2132,7 +2133,7 @@ final class IntelligenceEngine: ObservableObject {
             out.append(Computed(day: w.day, recovery: recovery, strain: row.strain,
                                 sleepMin: row.totalSleepMin, hrv: row.avgHrv, rhr: row.restingHr,
                                 source: .appleHealth, recoveryPersistenceOwner: .appleHealth,
-                                confidence: w.confidence))
+                                confidence: w.confidence, drivers: w.drivers))
         }
         if !appleRecoveryRows.isEmpty {
             do {
@@ -2197,7 +2198,7 @@ final class IntelligenceEngine: ObservableObject {
                 }
                 out.append(Computed(day: w.day, recovery: recovery, strain: scored.strain,
                                     sleepMin: scored.totalSleepMin, hrv: scored.avgHrv, rhr: scored.restingHr,
-                                    source: .computed, confidence: w.confidence))
+                                    source: .computed, confidence: w.confidence, drivers: w.drivers))
             }
         }
 
@@ -2356,6 +2357,74 @@ final class IntelligenceEngine: ObservableObject {
         } catch {
             note = String(localized: "Recovery history could not be reconciled. NOOP will retry.")
             NSLog("IntelligenceEngine: computed daily reconciliation failed: \(error)")
+            return false
+        }
+        // Review round 4 (3): each day's Charge breakdown, persisted beside the Charge it explains for every fold.
+        // In the window: the strap and wearable-fold days whose reconciled row carries exactly the Charge the
+        // drivers were built against, and the Apple Watch days no computed Charge overrides. The Apple fold
+        // rescores the whole history, so its days outside the window are rewritten only where their Charge
+        // changed.
+        do {
+            guard !Task.isCancelled else { performanceChangedRows = persistedMutationCount; return false }
+            let reconciledRecoveryByDay = Dictionary(reconciledDailies.map { ($0.day, $0.recovery) },
+                                                     uniquingKeysWith: { _, last in last })
+            var windowBreakdowns: [String: StoredChargeBreakdown] = [:]
+            for computed in out where computed.day >= oldestDay && computed.day <= newestDay {
+                guard let recovery = computed.recovery, !computed.drivers.isEmpty else { continue }
+                let storedRecovery = reconciledRecoveryByDay[computed.day] ?? nil
+                if computed.recoveryPersistenceOwner == .appleHealth {
+                    guard storedRecovery == nil else { continue }
+                } else {
+                    guard storedRecovery == recovery else { continue }
+                }
+                windowBreakdowns[computed.day] = StoredChargeBreakdown(
+                    day: computed.day, score: recovery, confidence: computed.confidence, drivers: computed.drivers)
+            }
+            // A protected current day that kept its earlier Charge keeps that Charge's breakdown too.
+            for day in protectedDailyDays where windowBreakdowns[day] == nil {
+                var points: [MetricPoint] = []
+                for key in Self.chargeBreakdownKeys {
+                    points += try await store.metricSeries(deviceId: computedId, key: key, from: day, to: day)
+                }
+                if let kept = Self.chargeBreakdown(day: day, points: points),
+                   kept.score == reconciledRecoveryByDay[day] ?? nil {
+                    windowBreakdowns[day] = kept
+                }
+            }
+            persistedMutationCount += try await store.reconcileMetricSeries(
+                windowBreakdowns.values.flatMap { Self.chargeBreakdownPoints($0) },
+                deviceId: computedId,
+                keys: Self.chargeBreakdownKeys,
+                from: oldestDay,
+                to: newestDay
+            )
+            let storedScores = Dictionary(
+                try await store.metricSeries(deviceId: computedId, key: Self.chargeBreakdownScoreKey,
+                                             from: "0000-01-01", to: "9999-12-31").map { ($0.day, $0.value) },
+                uniquingKeysWith: { a, _ in a })
+            var staleDays: [String] = []
+            var freshPoints: [MetricPoint] = []
+            for w in watchScored where w.day < oldestDay || w.day > newestDay {
+                guard storedComputedByDay[w.day]?.recovery == nil, !importedWhoopDays.contains(w.day) else { continue }
+                let storedScore = storedScores[w.day]
+                if let recovery = w.recovery, !w.drivers.isEmpty {
+                    guard storedScore != recovery else { continue }
+                    if storedScore != nil { staleDays.append(w.day) }
+                    freshPoints += Self.chargeBreakdownPoints(StoredChargeBreakdown(
+                        day: w.day, score: recovery, confidence: w.confidence, drivers: w.drivers))
+                } else if storedScore != nil {
+                    staleDays.append(w.day)
+                }
+            }
+            if !staleDays.isEmpty {
+                persistedMutationCount += try await store.deleteMetricSeriesGlobally(
+                    keys: Self.chargeBreakdownKeys, onDays: staleDays)
+            }
+            if !freshPoints.isEmpty {
+                persistedMutationCount += try await store.upsertMetricSeries(freshPoints, deviceId: computedId)
+            }
+        } catch {
+            NSLog("IntelligenceEngine: Charge breakdown persistence failed: \(error)")
             return false
         }
         do {
@@ -2844,7 +2913,6 @@ final class IntelligenceEngine: ObservableObject {
         diagnosticSink?("analyzeRecent dayCache reused=\(scanPass.reused)/\(scanPass.eligible) "
             + "size=\(sourceContext == nil ? dayScanCache.count : 0)", nil)
         if !wmKey.isEmpty { UserDefaults.standard.set(wmKey, forKey: Self.analyzeWatermarkKey) }
-        chargeBaselineHistory = chargeHistory
         analysisCompletionSerial += 1
         return true
     }
@@ -2978,6 +3046,58 @@ final class IntelligenceEngine: ObservableObject {
                 deviceId: computedId, key: Self.calorieFillEndMetricKey, from: yesterday.day, to: yesterday.day)
         else { return false }
         return marker.first.map { $0.value < Double(yesterday.nextStart) } ?? true
+    }
+
+    /// One day's breakdown as metric points (review round 4, 3).
+    nonisolated static func chargeBreakdownPoints(_ breakdown: StoredChargeBreakdown) -> [MetricPoint] {
+        let day = breakdown.day
+        var points = [MetricPoint(day: day, key: chargeBreakdownScoreKey, value: breakdown.score)]
+        if let index = chargeBreakdownConfidences.firstIndex(of: breakdown.confidence) {
+            points.append(MetricPoint(day: day, key: chargeBreakdownConfidenceKey, value: Double(index)))
+        }
+        for driver in breakdown.drivers {
+            guard let term = driver.term, let value = driver.value else { continue }
+            points.append(MetricPoint(day: day, key: chargeBreakdownKey(term, "points"),
+                                      value: Double(driver.deltaPoints)))
+            points.append(MetricPoint(day: day, key: chargeBreakdownKey(term, "value"), value: value))
+            if let baseline = driver.baseline {
+                points.append(MetricPoint(day: day, key: chargeBreakdownKey(term, "baseline"), value: baseline))
+            }
+        }
+        return points
+    }
+
+    /// The breakdown `points` (one day's) encode, or nil without a stored score.
+    nonisolated static func chargeBreakdown(day: String, points: [MetricPoint]) -> StoredChargeBreakdown? {
+        let byKey = Dictionary(points.filter { $0.day == day }.map { ($0.key, $0.value) },
+                               uniquingKeysWith: { a, _ in a })
+        guard let score = byKey[chargeBreakdownScoreKey] else { return nil }
+        let confidence = byKey[chargeBreakdownConfidenceKey].flatMap { value -> ScoreConfidence? in
+            let index = Int(value)
+            return chargeBreakdownConfidences.indices.contains(index) ? chargeBreakdownConfidences[index] : nil
+        } ?? .calibrating
+        let drivers = ChargeDriverTerm.allCases.compactMap { term -> ChargeDriver? in
+            guard let points = byKey[chargeBreakdownKey(term, "points")],
+                  let value = byKey[chargeBreakdownKey(term, "value")] else { return nil }
+            return RecoveryScorer.chargeDriver(term: term, deltaPoints: Int(points), value: value,
+                                               baseline: byKey[chargeBreakdownKey(term, "baseline")])
+        }
+        return StoredChargeBreakdown(day: day, score: score, confidence: confidence,
+                                     drivers: RecoveryScorer.orderedByImpact(drivers))
+    }
+
+    /// Review round 4 (3): the stored breakdown of `day`'s Charge, or nil when that day has none.
+    func storedChargeBreakdown(day: String) async -> StoredChargeBreakdown? {
+        guard let store = await repo.storeHandle() else { return nil }
+        let computedId = deviceId + "-noop"
+        var points: [MetricPoint] = []
+        for key in Self.chargeBreakdownKeys {
+            guard let rows = try? await store.metricSeries(deviceId: computedId, key: key, from: day, to: day)
+            else { return nil }
+            if key == Self.chargeBreakdownScoreKey, rows.isEmpty { return nil }
+            points += rows
+        }
+        return Self.chargeBreakdown(day: day, points: points)
     }
 
     /// The start of civil day `day` ("yyyy-MM-dd") in `calendar`'s time zone.
@@ -3141,6 +3261,7 @@ final class IntelligenceEngine: ObservableObject {
         let day: String
         let recovery: Double?
         let confidence: ScoreConfidence
+        var drivers: [ChargeDriver] = []
     }
 
     /// Compute Apple-Watch recovery (Charge) for the apple-health days that lack a strap recovery.
@@ -3166,7 +3287,8 @@ final class IntelligenceEngine: ObservableObject {
             appleRows.map { WatchRecovery.Day(day: $0.day, sdnn: $0.avgHrv, rhr: $0.restingHr) },
             hrvEpoch: hrvEpoch, recoveryEpoch: recoveryEpoch)
             .filter { !strapRecoveryDays.contains($0.day) }
-            .map { WatchScoredDay(day: $0.day, recovery: $0.result.recovery, confidence: $0.result.confidence) }
+            .map { WatchScoredDay(day: $0.day, recovery: $0.result.recovery, confidence: $0.result.confidence,
+                                  drivers: $0.result.drivers) }
     }
 
     /// Override a day's detected sleep aggregates with the user's hand-corrected window when one of the
