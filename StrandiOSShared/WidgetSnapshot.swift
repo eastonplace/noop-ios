@@ -163,8 +163,21 @@ public struct WidgetSnapshot: Codable, Equatable, Sendable {
     /// but is inactive/corrupt, fail closed instead of falling back to an older legacy snapshot. Legacy data
     /// is accepted only when its own verified identity matches the active token.
     public static func loadForDisplay() -> WidgetSnapshot? {
+        loadForDisplay(dayGate: nil)
+    }
+
+    /// What a widget draws at `now`: the same snapshot, without the figures of an earlier logical day.
+    public static func loadForDisplay(now: Date, calendar: Calendar = .current) -> WidgetSnapshot? {
+        loadForDisplay(dayGate: WidgetDayGate(now: now, calendar: calendar))
+    }
+
+    private static func loadForDisplay(dayGate: WidgetDayGate?) -> WidgetSnapshot? {
         guard let defaults = UserDefaults(suiteName: suiteName) else { return nil }
         if defaults.data(forKey: VerifiedWidgetEnvelopeStore.storageKey) != nil {
+            if let dayGate {
+                return VerifiedWidgetEnvelopeStore.loadForDisplay(
+                    defaults: defaults, now: dayGate.now, calendar: dayGate.calendar)
+            }
             return VerifiedWidgetEnvelopeStore.loadForDisplay(defaults: defaults)
         }
         guard let data = defaults.data(forKey: storageKey),
@@ -182,16 +195,9 @@ public struct WidgetSnapshot: Codable, Equatable, Sendable {
               overlay.epoch == active.epoch,
               overlay.contextId == contextId,
               overlay.generation == generation else {
-            return verified
+            return verified.displayed(overlay: nil, dayGate: dayGate)
         }
-        var merged = verified
-        merged.bpm = overlay.bpm
-        merged.batteryPct = overlay.batteryPct
-        merged.bonded = overlay.bonded
-        merged.hrSparkline = overlay.hrSparkline
-        merged.applyLiveStrain(stored: overlay.storedStrain)
-        merged.updated = overlay.updated
-        return merged
+        return verified.displayed(overlay: overlay, dayGate: dayGate)
     }
 
     @discardableResult
@@ -253,7 +259,49 @@ public struct WidgetLiveOverlay: Codable, Equatable, Sendable {
     }
 }
 
+/// The instant a widget draws at, for the day gate.
+public struct WidgetDayGate: Sendable {
+    public let now: Date
+    public let calendar: Calendar
+
+    public init(now: Date, calendar: Calendar = .current) {
+        self.now = now
+        self.calendar = calendar
+    }
+
+    func isToday(_ date: Date) -> Bool {
+        WidgetLogicalDay.isSameDay(date, now, calendar: calendar)
+    }
+}
+
 extension WidgetSnapshot {
+    /// The figures that describe one logical day, not a night: Strain, Steps, Calories and the stress strip.
+    public mutating func dropDayScopedFields() {
+        strain = nil
+        steps = nil
+        calories = nil
+        hourlyStress = nil
+        stressSummary = nil
+    }
+
+    /// The core as a widget draws it: the live overlay laid over it, and, under a `dayGate`, without the
+    /// day-scoped figures of an earlier logical day. The app writes those figures into a core committed on their
+    /// own logical day (or leaves them out), so the day of the core's last commit, `updated`, is the day they
+    /// describe; the overlay's `updated` is the day of the Strain it carries. Neither can be told apart from
+    /// today's by the figure itself, and nothing re-commits at 04:00 in the background.
+    public func displayed(overlay: WidgetLiveOverlay?, dayGate: WidgetDayGate?) -> WidgetSnapshot {
+        var snapshot = self
+        if let dayGate, !dayGate.isToday(updated) { snapshot.dropDayScopedFields() }
+        guard let overlay else { return snapshot }
+        snapshot.bpm = overlay.bpm
+        snapshot.batteryPct = overlay.batteryPct
+        snapshot.bonded = overlay.bonded
+        snapshot.hrSparkline = overlay.hrSparkline
+        if dayGate?.isToday(overlay.updated) ?? true { snapshot.applyLiveStrain(stored: overlay.storedStrain) }
+        snapshot.updated = overlay.updated
+        return snapshot
+    }
+
     /// Lay the live overlay's Strain over the verified core's. A missing or non-finite value leaves the core's.
     public mutating func applyLiveStrain(stored: Double?) {
         guard let stored, stored.isFinite else { return }

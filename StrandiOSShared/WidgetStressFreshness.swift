@@ -20,6 +20,28 @@ public enum WidgetLogicalDay {
     }
 }
 
+extension WidgetLogicalDay {
+    /// True when both instants fall in the same logical day.
+    public static func isSameDay(_ lhs: Date, _ rhs: Date, calendar: Calendar = .current) -> Bool {
+        key(of: lhs, calendar: calendar) == key(of: rhs, calendar: calendar)
+    }
+
+    /// The next 04:00 wall-clock instant strictly after `date`, when the logical day rolls.
+    public static func nextRollover(after date: Date, calendar: Calendar = .current) -> Date? {
+        calendar.nextDate(
+            after: date,
+            matching: DateComponents(hour: rolloverHour, minute: 0, second: 0),
+            matchingPolicy: .nextTime)
+    }
+
+    /// The instants a widget timeline needs an entry for: now, and the next rollover. A day-gated view decides
+    /// at its entry's date, and WidgetKit does not reload at 04:00 on its own, so without the second entry the
+    /// last day's figures stay on screen until some later reload.
+    public static func timelineDates(from now: Date, calendar: Calendar = .current) -> [Date] {
+        [now] + (nextRollover(after: now, calendar: calendar).map { [$0] } ?? [])
+    }
+}
+
 /// When the Stress widget may draw the hourly stress strip a snapshot carries.
 ///
 /// The strip is one logical day's hours, so the only way it can be wrong is by being a different day's. The app

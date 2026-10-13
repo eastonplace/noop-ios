@@ -89,9 +89,10 @@ enum WidgetCorePublication {
 
     /// The live lane's two outputs for one tick: the in-memory snapshot the publish gate compares, and the
     /// overlay that is persisted over the verified core. `coreStrain` is the verified core's own Strain
-    /// (display scale). `todayStrain` is asked for the Strain Today resolves for a day: the current logical day,
-    /// which is the generation's own day unless the core is behind, and then the core's older Strain is not the
-    /// figure to show. With no Strain for that day the overlay carries none.
+    /// (display scale), shown only while the core is the current logical day's. `todayStrain` is asked for the
+    /// Strain Today resolves for a day: the current logical day, which is the generation's own day unless the
+    /// core is behind, and then the core's older Strain is not the figure to show. With no Strain for that day
+    /// the overlay carries none, and a core that is behind shows none.
     static func assembleLive(
         previous: WidgetSnapshot?,
         base: WidgetSnapshot,
@@ -114,7 +115,7 @@ enum WidgetCorePublication {
         next.bpm = bpm
         next.batteryPct = batteryPct.map { Int($0.rounded()) }
         next.bonded = bonded
-        next.strain = coreStrain
+        next.strain = WidgetCoreDay.isCurrent(verified.logicalDay, now: now, calendar: calendar) ? coreStrain : nil
         next.applyLiveStrain(stored: liveStrain)
         next.updated = now
         next.hrSparkline = workoutSparkline

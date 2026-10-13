@@ -962,6 +962,7 @@ final class WidgetStalenessTests: XCTestCase {
             todayStrain: { _ in self.resolved("2026-08-08", stored: 40) },
             now: at(ny, 9, 10), calendar: ny)
         XCTAssertNil(tomorrowOnly.overlay.storedStrain, "yesterday's Strain is not the figure for today")
+        XCTAssertNil(tomorrowOnly.next.strain, "nor does a core that is behind keep showing its own")
     }
 
     // MARK: - HRV is the new generation's own night, computed in the core path
@@ -1145,6 +1146,148 @@ final class WidgetStalenessTests: XCTestCase {
         for anchor in ["2026-08-08", "2026-03-01", "2026-01-01"] {
             let earliest = try CarriedVitalWindow.earliestDay(anchorDay: CivilDay(key: anchor))
             XCTAssertTrue(CarriedVitalWindow.permits(day: earliest.key, anchorDay: anchor))
+        }
+    }
+
+    // MARK: - The widgets draw the day: nothing re-commits the core at 04:00 in the background
+
+    private func dayScopedCore(_ generation: Int64, updated: Date) -> WidgetSnapshot {
+        var snapshot = enriched(core("ctx", generation: generation))
+        snapshot.calories = 2_140
+        snapshot.updated = updated
+        return snapshot
+    }
+
+    private func liveOverlay(
+        _ token: VerifiedSinkToken, generation: Int64, storedStrain: Double?, updated: Date
+    ) -> WidgetLiveOverlay {
+        WidgetLiveOverlay(epoch: token.epoch, contextId: token.contextId, generation: generation, bpm: 61,
+                          batteryPct: 80, bonded: true, hrSparkline: nil, storedStrain: storedStrain,
+                          updated: updated)
+    }
+
+    /// The review's scenario: a core committed at 23:30 and no publish since. At 07:30 the large and medium
+    /// widgets and the Strain accessory drew yesterday's Strain, Steps, Calories and strip as today's.
+    func testAWidgetDrawnAfterTheRolloverHasNoFigureOfTheDayBefore() throws {
+        let ny = newYork()
+        let token = try install(contextId: "ctx")
+        XCTAssertEqual(VerifiedWidgetEnvelopeStore.commit(
+            token: token, generation: 5, snapshot: dayScopedCore(5, updated: at(ny, 8, 23, 30)),
+            defaults: defaults), .published)
+
+        for now in [at(ny, 8, 23, 45), at(ny, 9, 2, 30), at(ny, 9, 3, 59)] {
+            let shown = try XCTUnwrap(VerifiedWidgetEnvelopeStore.loadForDisplay(
+                defaults: defaults, now: now, calendar: ny))
+            XCTAssertEqual(shown.strain, 8.4, "still the evening's day at \(now)")
+            XCTAssertEqual(shown.steps, 6_000)
+            XCTAssertEqual(shown.calories, 2_140)
+            XCTAssertEqual(shown.hourlyStress?.count, 24)
+            XCTAssertEqual(shown.stressSummary, "Moderate")
+        }
+        for now in [at(ny, 9, 4, 0), at(ny, 9, 7, 30), at(ny, 12, 9)] {
+            let shown = try XCTUnwrap(VerifiedWidgetEnvelopeStore.loadForDisplay(
+                defaults: defaults, now: now, calendar: ny))
+            XCTAssertNil(shown.strain, "yesterday's Strain at \(now)")
+            XCTAssertNil(shown.steps)
+            XCTAssertNil(shown.calories)
+            XCTAssertNil(shown.hourlyStress)
+            XCTAssertNil(shown.stressSummary)
+            XCTAssertEqual(shown.recovery, 71, "the per-night figures stay")
+            XCTAssertEqual(shown.rest, 77)
+            XCTAssertEqual(shown.restingHr, 52)
+            XCTAssertEqual(shown.hrv, 61)
+            XCTAssertEqual(shown.hrvSparkline, [58, 60, 61])
+            XCTAssertNil(shown.bpm)
+        }
+        // Without a day gate the display path is what it was.
+        let ungated = try XCTUnwrap(VerifiedWidgetEnvelopeStore.loadForDisplay(defaults: defaults))
+        XCTAssertEqual(ungated.strain, 8.4)
+    }
+
+    /// A live overlay written at 23:30 holds Aug 8's Strain, and nothing clears it when a later core commit
+    /// leaves the Strain out, so the display path put it back over the core.
+    func testAStaleOverlaysStrainIsNotLaidOverAFreshCore() throws {
+        let ny = newYork()
+        let token = try install(contextId: "ctx")
+        var evening = dayScopedCore(5, updated: at(ny, 8, 23, 30))
+        evening.strain = StrainScale.displayValue(fromStored: 30)
+        XCTAssertEqual(VerifiedWidgetEnvelopeStore.commit(
+            token: token, generation: 5, snapshot: evening, defaults: defaults), .published)
+        XCTAssertTrue(ActiveVerifiedSinkEpochStore.commitLiveOverlayIfCurrent(
+            token: token, generation: 5, defaults: defaults,
+            overlay: liveOverlay(token, generation: 5, storedStrain: 40, updated: at(ny, 8, 23, 40))))
+        let evening2345 = try XCTUnwrap(VerifiedWidgetEnvelopeStore.loadForDisplay(
+            defaults: defaults, now: at(ny, 8, 23, 45), calendar: ny))
+        XCTAssertEqual(evening2345.strain, StrainScale.displayValue(fromStored: 40), "today's overlay Strain shows")
+
+        // 06:00: a background drain re-commits the same generation, now behind, with no Strain.
+        let aug8 = try bundle(day: "2026-08-08", steps: 3_000, generation: 5, strain: 30)
+        let morning = WidgetCorePublication.commitCore(
+            bundle: aug8, token: token, defaults: defaults,
+            delivery: delivery(), now: at(ny, 9, 6), calendar: ny)
+        XCTAssertNil(morning.snapshot.strain)
+        let at0700 = try XCTUnwrap(VerifiedWidgetEnvelopeStore.loadForDisplay(
+            defaults: defaults, now: at(ny, 9, 7), calendar: ny))
+        XCTAssertNil(at0700.strain, "the overlay's Aug 8 Strain does not come back")
+        XCTAssertEqual(at0700.bpm, 61, "its live fields are still the latest")
+
+        // A live tick after the rollover carries today's.
+        XCTAssertTrue(ActiveVerifiedSinkEpochStore.commitLiveOverlayIfCurrent(
+            token: token, generation: 5, defaults: defaults,
+            overlay: liveOverlay(token, generation: 5, storedStrain: 12, updated: at(ny, 9, 6, 30))))
+        let withToday = try XCTUnwrap(VerifiedWidgetEnvelopeStore.loadForDisplay(
+            defaults: defaults, now: at(ny, 9, 7), calendar: ny))
+        XCTAssertEqual(withToday.strain, StrainScale.displayValue(fromStored: 12))
+        XCTAssertNil(withToday.steps)
+    }
+
+    /// WidgetKit does not reload at 04:00, so the timeline carries an entry dated at the rollover, drawn
+    /// without the figures of the day that has ended.
+    func testTheTimelineHasAnEntryAtTheNextRolloverThatDropsTheDaysFigures() throws {
+        let ny = newYork()
+        let token = try install(contextId: "ctx")
+        XCTAssertEqual(VerifiedWidgetEnvelopeStore.commit(
+            token: token, generation: 5, snapshot: dayScopedCore(5, updated: at(ny, 8, 10)),
+            defaults: defaults), .published)
+
+        let now = at(ny, 8, 21)
+        let dates = WidgetLogicalDay.timelineDates(from: now, calendar: ny)
+        XCTAssertEqual(dates, [now, at(ny, 9, 4, 0)])
+        let drawn = try dates.map {
+            try XCTUnwrap(VerifiedWidgetEnvelopeStore.loadForDisplay(defaults: defaults, now: $0, calendar: ny))
+        }
+        XCTAssertEqual(drawn[0].steps, 6_000)
+        XCTAssertNil(drawn[1].steps)
+        XCTAssertNil(drawn[1].strain)
+        XCTAssertNil(drawn[1].hourlyStress)
+        XCTAssertEqual(drawn[1].recovery, 71)
+        // The Stress view decides at the entry's date from the same snapshot.
+        XCTAssertTrue(WidgetStressFreshness.isCurrent(updated: at(ny, 8, 10), now: dates[0], calendar: ny))
+        XCTAssertFalse(WidgetStressFreshness.isCurrent(updated: at(ny, 8, 10), now: dates[1], calendar: ny))
+    }
+
+    func testTheNextRolloverIsThe4amWallClockAcrossDaylightSaving() {
+        let ny = newYork()
+        func date(_ month: Int, _ day: Int, _ hour: Int, _ minute: Int = 0, _ second: Int = 0) -> Date {
+            ny.date(from: DateComponents(year: 2026, month: month, day: day, hour: hour, minute: minute,
+                                         second: second))!
+        }
+        let cases: [(from: Date, rollover: Date)] = [
+            (date(8, 8, 10), date(8, 9, 4)),
+            (date(8, 8, 3, 59, 59), date(8, 8, 4)),
+            (date(8, 8, 4), date(8, 9, 4)),
+            (date(3, 7, 23), date(3, 8, 4)),      // spring forward: 02:00 does not exist
+            (date(3, 8, 5), date(3, 9, 4)),
+            (date(10, 31, 23), date(11, 1, 4)),   // fall back: 01:00 happens twice
+            (date(11, 1, 3), date(11, 1, 4)),
+        ]
+        for (from, rollover) in cases {
+            XCTAssertEqual(WidgetLogicalDay.nextRollover(after: from, calendar: ny), rollover, "after \(from)")
+            XCTAssertEqual(WidgetLogicalDay.timelineDates(from: from, calendar: ny), [from, rollover])
+            XCTAssertEqual(WidgetLogicalDay.key(of: rollover.addingTimeInterval(-1), calendar: ny),
+                           WidgetLogicalDay.key(of: from, calendar: ny))
+            XCTAssertNotEqual(WidgetLogicalDay.key(of: rollover, calendar: ny),
+                              WidgetLogicalDay.key(of: from, calendar: ny))
         }
     }
 }
