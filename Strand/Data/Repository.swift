@@ -5057,7 +5057,12 @@ extension Repository {
             rawFrontierTs: analysis.rawFrontierTs,
             recordedTimeZoneIdentifier: work.recordedTimeZoneIdentifier,
             now: now,
-            bmrKcalPerDay: ProfileStore.storedBmrKcalPerDay()
+            bmrKcalPerDay: ProfileStore.storedBmrKcalPerDay(),
+            // Review round 5 (1): apple-health is not a verification source of the namespace, so its row for
+            // the display day is read on its own. It only fills the calorie total; a failed read leaves Apple's
+            // energy out rather than failing the verified commit.
+            displayDayAppleDaily: (try? await store.appleDaily(
+                deviceId: Self.appleHealthSource, from: template.displayDay, to: template.displayDay))?.last
         )
         let candidate = try snapshotBuilder.build(postAnalysisInput)
         let healthKitPayload = try RepositoryHistoricalHealthKitPayloadBuilder.build(
