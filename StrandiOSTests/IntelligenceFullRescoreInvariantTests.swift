@@ -897,6 +897,112 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
         XCTAssertEqual(kept, [unproducible], "v3 and settle chunks keep a day they can't produce")
     }
 
+    // MARK: - The WHOOP 4.0 steps estimate (Perf 2)
+
+    private func withManualStepsCoefficient(_ k: Double, _ body: () async throws -> Void) async rethrows {
+        let defaults = UserDefaults.standard
+        let keys = ["profile.stepsManualCoefficient", "profile.stepsCalibrationCoefficient",
+                    "profile.stepsCalibrationSampleDays", "profile.stepsCalibrationConfidence",
+                    "profile.stepsCalibrationManual"]
+        let saved = keys.map { defaults.object(forKey: $0) }
+        for key in keys { defaults.removeObject(forKey: key) }
+        defaults.set(k, forKey: "profile.stepsManualCoefficient")
+        defer {
+            for (key, value) in zip(keys, saved) {
+                if let value { defaults.set(value, forKey: key) } else { defaults.removeObject(forKey: key) }
+            }
+        }
+        try await body()
+    }
+
+    private func stepsEstimates(_ harness: Harness) async throws -> [String: Double] {
+        let points = try await harness.store.metricSeries(
+            deviceId: harness.computedId, key: "steps_est", from: "0000-01-01", to: "9999-12-31")
+        return Dictionary(points.map { ($0.day, $0.value) }, uniquingKeysWith: { a, _ in a })
+    }
+
+    private var calibratedCoefficient: Double {
+        UserDefaults.standard.double(forKey: "profile.stepsCalibrationCoefficient")
+    }
+
+    func testTheStepsEstimateRunsOnlyOnNormalPasses() {
+        XCTAssertTrue(IntelligenceEngine.runsStepsCalibration(
+            startOffset: 0, keepUnproducedHistory: false, hasSourceContext: false))
+        XCTAssertFalse(IntelligenceEngine.runsStepsCalibration(
+            startOffset: 30, keepUnproducedHistory: false, hasSourceContext: false))
+        XCTAssertFalse(IntelligenceEngine.runsStepsCalibration(
+            startOffset: 0, keepUnproducedHistory: true, hasSourceContext: false))
+        XCTAssertFalse(IntelligenceEngine.runsStepsCalibration(
+            startOffset: 0, keepUnproducedHistory: false, hasSourceContext: true))
+    }
+
+    /// The estimate reads the latest 60 days whatever window a pass scores, so a rescore chunk of older days gets
+    /// the answer a normal pass already stored. The chunk skips the 60-day gravity gather and neither writes
+    /// `steps_est` nor touches the calibration mirrored to the profile; a normal pass still does both.
+    func testRescoreChunksSkipTheStepsEstimateAndNormalPassesStillWriteIt() async throws {
+        try await withManualStepsCoefficient(0.05) {
+            let harness = try await makeHarness(days: 45, strapDays: 0..<2)
+            // The two strap days are 43 and 44 days before the reference: inside the estimate's 60-day window.
+            _ = await pass(harness, maxDays: 30, startOffset: 30, keepUnproducedHistory: true)
+            var estimates = try await stepsEstimates(harness)
+            XCTAssertTrue(estimates.isEmpty, "a v3/settle chunk does not run the estimate")
+            XCTAssertEqual(calibratedCoefficient, 0)
+            XCTAssertEqual(harness.engine.stepMotionCacheHits, 0)
+
+            _ = await pass(harness, maxDays: 30, startOffset: 30)
+            estimates = try await stepsEstimates(harness)
+            XCTAssertTrue(estimates.isEmpty, "nor does any pass whose window starts before today")
+            XCTAssertEqual(calibratedCoefficient, 0)
+
+            _ = await pass(harness, maxDays: 60)
+            estimates = try await stepsEstimates(harness)
+            XCTAssertEqual(Set(estimates.keys), [dayKey(0), dayKey(1)], "a normal pass estimates both strap days")
+            XCTAssertEqual(calibratedCoefficient, 0.05, accuracy: 1e-12)
+            XCTAssertTrue(estimates.values.allSatisfy { $0 > 0 })
+        }
+    }
+
+    /// A cached day answers without reading its gravity, and the answer is the one a cold read gives: the next pass
+    /// stores the same estimates from the cache, new gravity on a cached day re-reads that day, and a fresh engine
+    /// with no cache stores what the cached engine stored.
+    func testTheStepsMotionCacheMatchesAColdReadAndRereadsAChangedDay() async throws {
+        try await withManualStepsCoefficient(0.05) {
+            let harness = try await makeHarness(days: 45, strapDays: 0..<2)
+            _ = await pass(harness, maxDays: 60)
+            let cold = try await stepsEstimates(harness)
+            XCTAssertEqual(cold.count, 2)
+            XCTAssertEqual(harness.engine.stepMotionCacheHits, 0, "the first pass reads every day")
+
+            _ = await pass(harness, maxDays: 60)
+            XCTAssertEqual(harness.engine.stepMotionCacheHits, 60, "an unchanged window is answered from the cache")
+            let warm = try await stepsEstimates(harness)
+            XCTAssertEqual(warm, cold, "cached motion stores the same estimates as a cold read")
+
+            // New gravity on one cached day: its fingerprint moves, so exactly that day is read again.
+            var extra = Streams()
+            let busyHour = firstDayStart + 1 * 86_400 + 12 * 3_600
+            for i in 0..<120 {
+                extra.gravity.append(GravitySample(ts: busyHour + 2 * i + 1, x: i % 2 == 0 ? 1.4 : -1.4, y: 0, z: 0.2))
+            }
+            _ = try await harness.store.insert(extra, deviceId: Repository.whoopSource)
+            _ = await pass(harness, maxDays: 60)
+            XCTAssertEqual(harness.engine.stepMotionCacheHits, 60 + 59)
+            let changed = try await stepsEstimates(harness)
+            XCTAssertNotEqual(changed[dayKey(1)], cold[dayKey(1)], "the new movement reaches the estimate")
+            XCTAssertEqual(changed[dayKey(0)], cold[dayKey(0)], "an untouched day keeps its estimate")
+
+            let repository = Repository(deviceId: Repository.whoopSource)
+            repository.setStoreForTesting(harness.store)
+            let freshEngine = IntelligenceEngine(repo: repository, profile: ProfileStore(), deviceId: Repository.whoopSource)
+            let fresh = Harness(store: harness.store, engine: freshEngine, computedId: harness.computedId,
+                                reference: harness.reference, dayKeys: harness.dayKeys)
+            _ = await pass(fresh, maxDays: 60)
+            XCTAssertEqual(freshEngine.stepMotionCacheHits, 0)
+            let coldAgain = try await stepsEstimates(fresh)
+            XCTAssertEqual(coldAgain, changed, "a cold read lands on the cached engine's estimates")
+        }
+    }
+
     /// A grant that is cancelled mid-chunk (the app came back to the foreground) stops at the next checkpoint, reports
     /// the chunk as not done and leaves the durable cursor where it was. Replaying the migration afterwards lands on
     /// exactly the rows an uninterrupted run stores.

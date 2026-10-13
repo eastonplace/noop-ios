@@ -249,6 +249,22 @@ extension WhoopStore {
         }
     }
 
+    /// Change-detector for the gravity stream: `(count, maxTs)` over `[from, to]`, answered from the
+    /// `(deviceId, ts)` index alone, so no row is decoded. The WHOOP 4.0 steps estimate keys its per-day motion
+    /// cache on this: an insert, a delete or a timestamp heal anywhere in the window moves the count, and a fresh
+    /// append moves `maxTs`. COALESCE so an empty window is `(0, 0)`.
+    public func gravityFingerprint(deviceId: String, from: Int, to: Int) async throws -> (count: Int, maxTs: Int) {
+        try syncRead { db in
+            guard let row = try Row.fetchOne(db, sql: """
+                SELECT COUNT(*) AS c, COALESCE(MAX(ts), 0) AS m FROM gravitySample
+                WHERE deviceId = ? AND ts >= ? AND ts <= ?
+                """, arguments: [deviceId, from, to]) else { return (0, 0) }
+            let c: Int = row["c"]
+            let m: Int = row["m"]
+            return (c, m)
+        }
+    }
+
     /// Max HR sample timestamp for a device, or nil if there are none. The biometric "data frontier"
     /// used by the stuck-strap watchdog (advances iff the strap is actually logging + offloading).
     ///
