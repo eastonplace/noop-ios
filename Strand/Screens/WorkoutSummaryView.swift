@@ -225,6 +225,9 @@ struct WorkoutSummaryView: View {
                 WorkoutRouteMap(segments: route)
                     .frame(height: 240)
                     .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+                    // A picture of the route, not a map to move: a drag that starts on it scrolls the page, which a live map would
+                    // take for itself. The map you can pan and zoom is on Details.
+                    .allowsHitTesting(false)
                     .accessibilityLabel(Text(verbatim: routeAccessibilityLabel))
             }
             .padding(.top, Self.sectionGap)
