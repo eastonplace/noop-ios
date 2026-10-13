@@ -387,7 +387,8 @@ final class RepositoryEditRescoreTests: XCTestCase {
         queue.scheduleDrain() // the same process, a day later
         await settle(queue)
         XCTAssertTrue(queue.timestamps.isEmpty, "the expired park drained without a relaunch")
-        XCTAssertEqual(clock.requests.count, EditedDayRescoreQueue.maximumFailures + 1)
+        // Only the first 30-day chunk ran while failing; after expiry both chunks of the 47-day range drain.
+        XCTAssertEqual(clock.requests.count, EditedDayRescoreQueue.maximumFailures + 2)
     }
 
     func testAParkDatedInTheFutureCountsAsExpired() async throws {
