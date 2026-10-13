@@ -65,6 +65,15 @@ struct LiveActivityRestartPolicy: Equatable {
         }
     }
 
+    /// The app ended the heart-rate card itself (the strap disconnected, the toggle went off, a workout replaced it). The
+    /// next card is a new one, so its setbacks and backoff go: the cap limits a render that keeps failing, not how long
+    /// the heart-rate card may live across a day without a workout. A person's dismissal still holds until a workout.
+    mutating func notePassiveCardEndedByApp() {
+        systemEnds = 0
+        failedRequests = 0
+        nextRequestAt = nil
+    }
+
     /// ActivityKit refused the request. It counts toward the same cap as a system end, so it is not repeated on every
     /// drive. Refused with the app in front, it also waits the backoff. Refused while the app was not in front (the
     /// usual reason), only the foreground gate applies: the first drive with the app in front asks again at once.

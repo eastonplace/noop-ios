@@ -146,6 +146,28 @@ final class LiveActivityRestartPolicyTests: XCTestCase {
         XCTAssertEqual(LiveActivityRestartPolicy().setbacks, 0)
     }
 
+    /// When the app ends the heart-rate card itself (the strap disconnected), the next card starts with a fresh budget;
+    /// the cap bounds a render that keeps failing, not the card's life across a day without a workout.
+    func testTheAppEndingTheHeartRateCardResetsItsRestartBudget() {
+        var policy = LiveActivityRestartPolicy()
+        policy.noteDrive(workoutIsActive: false)
+        var now = start
+        for _ in 0...LiveActivityRestartPolicy.maxRestartsPerWorkout {
+            policy.noteGone(.system, now: now)
+            now = now.addingTimeInterval(10_000)
+        }
+        XCTAssertEqual(policy.verdict(now: now, isForeground: true), .exhausted)
+
+        policy.notePassiveCardEndedByApp()
+        XCTAssertEqual(policy.setbacks, 0)
+        XCTAssertNil(policy.nextRequestAt)
+        XCTAssertEqual(policy.verdict(now: now, isForeground: false), .allowed)
+
+        policy.noteGone(.person, now: now)
+        policy.notePassiveCardEndedByApp()
+        XCTAssertEqual(policy.verdict(now: now, isForeground: true), .dismissedByPerson, "a person's dismissal holds")
+    }
+
     func testAPersonsDismissalDuringAWorkoutHoldsUntilTheNextWorkout() {
         var policy = LiveActivityRestartPolicy()
         policy.noteDrive(workoutIsActive: true)

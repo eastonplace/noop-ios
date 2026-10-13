@@ -269,6 +269,8 @@ final class LiveActivityController {
                     ? "not shown, no workout and the strap is not connected"
                     : "not shown, the in-app Live Activity toggle is off")
             trace(input, "not-shown", enabled ? "reason=no-workout-strap-disconnected" : "reason=in-app-toggle-off")
+            // The app ends the heart-rate card itself here: the next one starts with a fresh restart budget.
+            if !input.workoutIsActive { restartPolicy.notePassiveCardEndedByApp() }
             await performEnd()
             return .notApplicable
         }
@@ -291,6 +293,7 @@ final class LiveActivityController {
         if activity != nil,
            let lastModeWasWorkout,
            lastModeWasWorkout != desiredModeIsWorkout {
+            if !lastModeWasWorkout { restartPolicy.notePassiveCardEndedByApp() }
             await performEnd()
             guard !Task.isCancelled else { return .alreadyCurrent }
             now = Date()
@@ -596,7 +599,8 @@ final class LiveActivityController {
         String(activity.id.prefix(8))
     }
 
-    /// Remembers whether the activity reported `ended` before it went, which tells a system end from a person's swipe.
+    /// Remembers whether the activity reported `ended` before it went, and when it was seen dismissed: together they tell a
+    /// system end from a person's swipe.
     private func observeState(of activity: Activity<NOOPActivityAttributes>) {
         stateObserver?.cancel()
         let id = activity.id
