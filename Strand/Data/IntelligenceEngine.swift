@@ -259,10 +259,10 @@ final class IntelligenceEngine: ObservableObject {
     /// Review round 4 (5): how long the strap recorded valid heart rate on each computed row's day, the
     /// coverage `DailyCalories.total` weighs the strap total by.
     nonisolated static let strapWornSecondsMetricKey = "strap_worn_seconds"
-    /// A legacy unmarked row is a strap night when a strap recorded at least this many heart-rate rows in its
-    /// night window: the raw-HR loop's own scoring gate (`hr.count >= 200`). The night window lies inside the
-    /// loop's read window, so a day this many rows mark would have been scored by the strap, and the fold never
-    /// writes such a day; a fold copy can't be read as a strap night.
+    /// A legacy unmarked row is a strap night when the day's resolved owner recorded at least this many
+    /// heart-rate rows over the raw-HR loop's read window: the loop's own scoring gate (`hr.count >= 200`) on
+    /// the device the loop reads (review round 5, 5). Such a day was scored by the strap, and the fold never
+    /// writes one, so a fold copy can't be read as a strap night.
     nonisolated static let legacyStrapNightMinHrRows = 200
 
     private var dayScanCache: [String: CachedDayScan] = [:]
@@ -1650,9 +1650,10 @@ final class IntelligenceEngine: ObservableObject {
             }
         }
         // Review round 4 (4): only the rows the fold wrote are left out, by the marker each pass persists beside
-        // its rows. A row from before the marker is classified once and the result persisted: it is a strap
-        // night if a strap recorded heart rate during that night, and otherwise, on a day a wearable import
-        // with vitals covers, the fold's copy. The fold never writes on a day the strap scored.
+        // its rows. A row from before the marker is classified once and the result persisted: on a day a
+        // wearable import with vitals covers, it is a strap night if the raw loop would have scored the day (its
+        // resolved owner has the loop's 200 heart-rate rows over the loop's window, review round 5, 5), and
+        // otherwise the fold's copy. The fold never writes on a day the strap scored.
         var rowSourceByDay: [String: Double]
         do {
             let marked = try await store.metricSeries(
@@ -1661,20 +1662,26 @@ final class IntelligenceEngine: ObservableObject {
             let importVitalsDays = Set(wearableRowsBySource.values.joined().compactMap { row in
                 row.avgHrv != nil || row.restingHr != nil || row.respRateBpm != nil ? row.day : nil
             })
-            let strapIds = Set([deviceId, regActiveId] + regDevices.compactMap { device in
-                device.status != .archived && !device.isImportSource && device.sourceKind != .activityFile
-                    ? device.id : nil
-            }).sorted()
             var legacyPoints: [MetricPoint] = []
             for row in computedHist where rowSourceByDay[row.day] == nil && importVitalsDays.contains(row.day) {
-                guard let dayStart = Self.civilDayStart(row.day, calendar: analysisCalendar) else { continue }
-                var strapNight = false
-                for id in strapIds where !strapNight {
-                    let rows = try await store.hrFingerprint(
-                        deviceId: id, from: dayStart - 6 * 3_600, to: dayStart + 12 * 3_600)
-                    strapNight = rows.count >= Self.legacyStrapNightMinHrRows
+                guard let dayStart = Self.civilDayStart(row.day, calendar: analysisCalendar),
+                      let nextStart = analysisCalendar.date(
+                        byAdding: .day, value: 1, to: Date(timeIntervalSince1970: TimeInterval(dayStart)))
+                else { continue }
+                let from = dayStart - 30 * 3_600
+                let to = min(Int(nextStart.timeIntervalSince1970), now)
+                let owner: String
+                if let sourceContext {
+                    owner = sourceContext.deviceId
+                } else {
+                    owner = await Self.resolveDayOwner(day: row.day, from: from, to: to, store: store,
+                                                       devices: regDevices, activeId: regActiveId,
+                                                       registry: registry, fallbackDeviceId: ownerFallbackId)
                 }
-                let source = strapNight ? Self.strapRowSource : Self.wearableFoldRowSource
+                let rows = try await store.hrSamples(
+                    deviceId: owner, from: from, to: to, limit: Self.legacyStrapNightMinHrRows)
+                let source = rows.count >= Self.legacyStrapNightMinHrRows
+                    ? Self.strapRowSource : Self.wearableFoldRowSource
                 rowSourceByDay[row.day] = source
                 legacyPoints.append(MetricPoint(day: row.day, key: Self.computedRowSourceMetricKey, value: source))
             }

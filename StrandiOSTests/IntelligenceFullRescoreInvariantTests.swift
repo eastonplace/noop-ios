@@ -545,6 +545,56 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
         }
     }
 
+    /// Review round 5 (5): a legacy unmarked row is classified by the raw loop's own test: the day's resolved
+    /// owner has the loop's 200 heart-rate rows over the loop's window. Heart rate from another live device,
+    /// which the loop did not read for that day, no longer makes a fold copy a strap night.
+    func testLegacyRowProvenanceUsesTheRawLoopsOwnerAndGate() async throws {
+        try await withRecalibrationEpochsRestored {
+            let days = 21
+            let harness = try await makeHarness(days: days, strapDays: 20..<days)
+            let registry = DeviceRegistryStore(dbQueue: harness.store.registryWriter)
+            try registry.add(PairedDevice(
+                id: Repository.whoopSource, brand: "WHOOP", model: "WHOOP 5.0", sourceKind: .liveBLE,
+                capabilities: [.hr, .hrv, .skinTemp, .sleep], status: .active, addedAt: 0, lastSeenAt: 0))
+            try registry.add(PairedDevice(
+                id: "chest-strap", brand: "Polar", model: "H10", sourceKind: .liveBLE,
+                capabilities: [.hr], status: .active, addedAt: 0, lastSeenAt: 0))
+            try registry.setActive(Repository.whoopSource)
+            // Each case is four days from the next, outside the others' read windows.
+            let heartRate: [(day: Int, rows: Int, deviceId: String)] = [
+                (10, 150, Repository.whoopSource), (14, 250, Repository.whoopSource),
+                (18, 150, Repository.whoopSource), (18, 300, "chest-strap"),
+            ]
+            for night in heartRate {
+                var streams = Streams()
+                let start = firstDayStart + night.day * 86_400 + 3_600
+                streams.hr = (0..<night.rows).map { HRSample(ts: start + $0 * 60, bpm: 55) }
+                _ = try await harness.store.insert(streams, deviceId: night.deviceId)
+            }
+            let ouraRows = [10, 14, 18].map { k in
+                DailyMetric(day: dayKey(k), totalSleepMin: 450, efficiency: 0.9, deepMin: 80, remMin: 100,
+                            lightMin: 270, disturbances: nil, restingHr: 50, avgHrv: 130,
+                            recovery: nil, strain: nil, exerciseCount: nil)
+            }
+            _ = try await harness.store.upsertDailyMetrics(ouraRows, deviceId: "oura-import")
+            // Copies an earlier build wrote under the computed id, with no marker.
+            _ = try await harness.store.upsertDailyMetrics(
+                ouraRows.map { $0.with(recovery: 60, skinTempDevC: nil) }, deviceId: harness.computedId)
+
+            let completed = await pass(harness, maxDays: 1)
+            XCTAssertTrue(completed)
+            let markers = try await harness.store.metricSeries(
+                deviceId: harness.computedId, key: IntelligenceEngine.computedRowSourceMetricKey,
+                from: dayKey(0), to: dayKey(19))
+            let markerByDay = Dictionary(markers.map { ($0.day, $0.value) }, uniquingKeysWith: { a, _ in a })
+            XCTAssertEqual(markerByDay[dayKey(10)], IntelligenceEngine.wearableFoldRowSource,
+                           "150 rows: the loop never scored the day")
+            XCTAssertEqual(markerByDay[dayKey(14)], IntelligenceEngine.strapRowSource, "the loop's 200 rows")
+            XCTAssertEqual(markerByDay[dayKey(18)], IntelligenceEngine.wearableFoldRowSource,
+                           "another device's heart rate is not the owner's")
+        }
+    }
+
     // MARK: - Yesterday's calorie fill (review round 4, finding 2)
 
     /// A production pass scores today only. The first one after midnight also finishes yesterday's calorie
