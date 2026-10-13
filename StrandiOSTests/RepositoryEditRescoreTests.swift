@@ -135,6 +135,33 @@ final class RepositoryEditRescoreTests: XCTestCase {
         XCTAssertFalse(queue.isDraining)
     }
 
+    /// Review finding (cancelled drain never publishes): chunk 1 finished, BG expiry cancelled chunk 2, the
+    /// publish was skipped, and the next drain published only its own 10 days.
+    func testADrainCancelledBeforeItsPublishHandsItsRescoredDaysToTheNextDrain() async throws {
+        let calendar = try newYorkCalendar()
+        let now = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 10, day: 12, hour: 15)))
+        let edited = try XCTUnwrap(calendar.date(byAdding: .day, value: -39, to: now))
+        let queue = drainQueue(now: now, calendar: calendar)
+        let recorder = EditedDayAnalyzeRecorder()
+        queue.register(recorder) { [unowned queue] request in
+            recorder.requests.append(request)
+            guard recorder.requests.count == 2 else { return true }
+            queue.cancel() // BG expiry while chunk 2 runs; the chunk stops incomplete
+            return false
+        }
+
+        queue.enqueue([Int(edited.timeIntervalSince1970)]) { days in recorder.published.append(days) }
+        await queue.waitForDrain()
+        XCTAssertEqual(recorder.requests.map(\.maxDays), [30, 10])
+        XCTAssertTrue(recorder.published.isEmpty, "a cancelled drain doesn't publish")
+
+        queue.scheduleDrain()
+        await queue.waitForDrain()
+
+        XCTAssertEqual(recorder.requests.map(\.maxDays), [30, 10, 10])
+        XCTAssertEqual(recorder.published, [40], "the first drain's 30 rescored days were never published")
+    }
+
     func testTheDrainWaitsWhileTheAppIsInTheBackground() async throws {
         let calendar = try newYorkCalendar()
         let now = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 10, day: 12, hour: 15)))

@@ -138,6 +138,8 @@ extension IntelligenceAnalysisRequest {
 /// The chunks don't publish one by one: the engine's closing refresh is current-day only, and the DL-01 splice
 /// keeps older cached days, so a rescored older night never reached Home. When the drain stops after at least
 /// one chunk it publishes one refresh covering the rescored range through the closure Repository enqueued with.
+/// A drain cancelled before it could publish (BG expiry) persists the oldest rescored day, and the next drain's
+/// publish covers it too.
 @MainActor
 final class EditedDayRescoreQueue {
     static let shared = EditedDayRescoreQueue(activationCenter: .default)
@@ -162,6 +164,8 @@ final class EditedDayRescoreQueue {
     private var lastVersion: UInt64
     /// No drain step runs before this, after a failed chunk.
     private var retryNotBefore: Date?
+    /// Start of the oldest day rescored but not yet published (a drain cancelled before its publish).
+    private var unpublishedFrom: Date?
     var timestamps: Set<Int> { Set(entries.keys) }
     var parkedTimestamps: Set<Int> { Set(entries.filter { $0.value.parked }.keys) }
     private var drainable: [Int: Entry] { entries.filter { !$0.value.parked } }
@@ -220,6 +224,7 @@ final class EditedDayRescoreQueue {
         self.entries = stored.entries
         self.lastVersion = stored.lastVersion
         self.retryNotBefore = stored.retryNotBefore
+        self.unpublishedFrom = stored.unpublishedFrom
         self.now = now
         self.calendar = calendar
         self.isBackgrounded = isBackgrounded
@@ -281,7 +286,7 @@ final class EditedDayRescoreQueue {
             rerunRequested = true
             return
         }
-        guard !drainable.isEmpty, analyze != nil else { return }
+        guard !drainable.isEmpty || (unpublishedFrom != nil && publish != nil), analyze != nil else { return }
         drainGeneration &+= 1
         rerunRequested = false
         let generation = drainGeneration
@@ -318,11 +323,12 @@ final class EditedDayRescoreQueue {
         var lastVersion: UInt64
         var entries: [Entry]
         var retryNotBefore: TimeInterval?
+        var unpublishedFrom: TimeInterval?
     }
 
     private static func load(from defaults: UserDefaults?, key: String)
-        -> (entries: [Int: Entry], lastVersion: UInt64, retryNotBefore: Date?) {
-        guard let defaults else { return ([:], 0, nil) }
+        -> (entries: [Int: Entry], lastVersion: UInt64, retryNotBefore: Date?, unpublishedFrom: Date?) {
+        guard let defaults else { return ([:], 0, nil, nil) }
         if let data = defaults.data(forKey: key),
            let stored = try? JSONDecoder().decode(Stored.self, from: data) {
             var entries: [Int: Entry] = [:]
@@ -331,14 +337,15 @@ final class EditedDayRescoreQueue {
                     version: entry.version, failures: entry.failures ?? 0, parked: entry.parked ?? false)
             }
             return (entries, max(stored.lastVersion, entries.values.map(\.version).max() ?? 0),
-                    stored.retryNotBefore.map { Date(timeIntervalSince1970: $0) })
+                    stored.retryNotBefore.map { Date(timeIntervalSince1970: $0) },
+                    stored.unpublishedFrom.map { Date(timeIntervalSince1970: $0) })
         }
         let legacy = (defaults.array(forKey: key) as? [Int] ?? []).filter { $0 > 0 }
         var entries: [Int: Entry] = [:]
         for (index, timestamp) in Set(legacy).sorted().enumerated() {
             entries[timestamp] = Entry(version: UInt64(index + 1))
         }
-        return (entries, UInt64(entries.count), nil)
+        return (entries, UInt64(entries.count), nil, nil)
     }
 
     private func persist() {
@@ -349,7 +356,8 @@ final class EditedDayRescoreQueue {
                 Stored.Entry(timestamp: $0.key, version: $0.value.version,
                              failures: $0.value.failures, parked: $0.value.parked)
             },
-            retryNotBefore: retryNotBefore?.timeIntervalSince1970)
+            retryNotBefore: retryNotBefore?.timeIntervalSince1970,
+            unpublishedFrom: unpublishedFrom?.timeIntervalSince1970)
         guard let data = try? JSONEncoder().encode(stored) else { return }
         defaults.set(data, forKey: storageKey)
     }
@@ -387,7 +395,6 @@ final class EditedDayRescoreQueue {
     }
 
     private func drain(generation: UInt64) async -> DrainEnd {
-        var rescoredSpan = 0
         var end = DrainEnd.stopped
         while generation == drainGeneration, let analyze, analyzer != nil {
             let taken = drainable
@@ -424,13 +431,24 @@ final class EditedDayRescoreQueue {
                 lastVersion &+= 1
                 entries[next] = Entry(version: lastVersion)
             }
+            // Recorded before the publish, so a cancelled drain hands its rescored days to the next one.
+            if let oldest = calendar.date(byAdding: .day, value: -(request.endOffsetExclusive - 1),
+                                          to: calendar.startOfDay(for: now())) {
+                unpublishedFrom = min(unpublishedFrom ?? oldest, oldest)
+            }
             persist()
-            rescoredSpan = max(rescoredSpan, request.endOffsetExclusive)
         }
-        if rescoredSpan > 0, !Task.isCancelled, let publish {
+        if let from = unpublishedFrom, !Task.isCancelled, let publish {
+            let calendar = calendar()
+            let days = (calendar.dateComponents([.day], from: calendar.startOfDay(for: from),
+                                                to: calendar.startOfDay(for: now())).day ?? 0) + 1
             // An unstructured task inherits the disposition of whoever scheduled it; this publish is the drain's own.
             await RepositoryRefreshContext.$disposition.withValue(.allow) {
-                await publish(rescoredSpan)
+                await publish(max(1, days))
+            }
+            if unpublishedFrom == from {
+                unpublishedFrom = nil
+                persist()
             }
         }
         return end
