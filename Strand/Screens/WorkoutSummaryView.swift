@@ -153,7 +153,13 @@ struct WorkoutSummaryView: View {
             figureView(figures.focus, size: .focus, scale: 1)
             ForEach(Array(rows.enumerated()), id: \.offset) { index, pair in
                 HStack(alignment: .top, spacing: NoopMetrics.space4) {
-                    ForEach(pair) { figureView($0, size: .secondary, scale: scale).frame(maxWidth: .infinity) }
+                    ForEach(pair) { figure in
+                        VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+                            figureView(figure, size: .secondary, scale: scale)
+                            if let comparison = figure.comparison { comparisonCaption(comparison) }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .topLeading)
+                    }
                     // A row with one figure keeps its column: the figure is not stretched across the page.
                     if pair.count < columns { Color.clear.frame(maxWidth: .infinity).frame(height: 1) }
                 }
@@ -162,19 +168,18 @@ struct WorkoutSummaryView: View {
         }
     }
 
-    /// Under the figures: how the strain compares with the usual for this sport, or why there is none.
+    /// Under the strain figure, in the small print of the unit block: how it stands against the usual for the sport ("+0.9 vs usual").
+    private func comparisonCaption(_ comparison: WorkoutSummary.Comparison) -> some View {
+        Text(verbatim: comparison.text)
+            .monospacedDigit()
+            .foregroundStyle(LivePalette.secondaryText)
+            .liveText(13, weight: .medium, maxSize: 19, lines: 2)
+            .accessibilityLabel(Text(verbatim: comparison.spoken))
+    }
+
+    /// Under the figures: why a workout that nobody scored has no strain.
     @ViewBuilder private var strainNote: some View {
         switch heroStrain {
-        case .noop(_, let delta?):
-            HStack(alignment: .firstTextBaseline, spacing: NoopMetrics.space2) {
-                Text("Compared to your usual").foregroundStyle(LivePalette.secondaryText)
-                Spacer(minLength: NoopMetrics.space2)
-                Text(verbatim: delta.formatted(.number.precision(.fractionLength(1)).sign(strategy: .always())))
-                    .monospacedDigit().foregroundStyle(StrandPalette.textPrimary)
-            }
-            .liveText(14, weight: .medium, maxSize: 20, lines: 2)
-            .padding(.top, Self.sectionGap - 6)
-            .accessibilityElement(children: .combine)
         case .unscored:
             VStack(alignment: .leading, spacing: 2) {
                 Text("Not scored").foregroundStyle(StrandPalette.textPrimary)

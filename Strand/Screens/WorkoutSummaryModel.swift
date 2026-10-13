@@ -17,6 +17,16 @@ enum WorkoutSummary {
         let value: LiveWorkoutGlance.Value
         /// The zone of the reading, for the heart-rate figures: their colour.
         let zone: Int?
+        /// For the strain figure of a workout NOOP scored with others of its sport to compare: the caption under the figure.
+        var comparison: Comparison? = nil
+    }
+
+    /// How a workout's strain stands against the usual for its sport, in words that name what the number is a difference from.
+    struct Comparison: Equatable {
+        /// What is drawn under the figure: "+0.9 vs usual".
+        let text: String
+        /// What VoiceOver reads after the figure: "0.9 higher than your usual for Strength training".
+        let spoken: String
     }
 
     struct Figures: Equatable {
@@ -83,8 +93,11 @@ enum WorkoutSummary {
         let base = LiveWorkoutGlance.value(.strain, input: input, elapsed: elapsed,
                                            strain: .scored(storedValue: shown.storedValue), locale: locale)
         let note: String?
+        var comparison: Comparison?
         switch strain {
-        case .noop: note = strain.bandTitle
+        case .noop(_, let delta):
+            note = strain.bandTitle
+            comparison = delta.map { Self.comparison(delta: $0, sport: row.sport, locale: locale) }
         case .whoop: note = String(localized: "WHOOP")
         case .unscored: note = nil
         }
@@ -93,7 +106,23 @@ enum WorkoutSummary {
             value: LiveWorkoutGlance.Value(
                 metric: .strain, name: base.name, text: base.text, unit: base.unit, micro: note,
                 spoken: note.map { "\(base.text), \($0)" } ?? base.text),
-            zone: nil)
+            zone: nil, comparison: comparison)
+    }
+
+    /// The strain against the usual for the sport (`delta` is in strain units, this workout minus the average of the others):
+    /// "+0.9 vs usual", or "Same as usual" when it rounds to no difference at the one decimal the strain is shown in.
+    static func comparison(delta: Double, sport: String, locale: Locale = .current) -> Comparison {
+        let rounded = (delta * 10).rounded() / 10
+        let name = WorkoutSportTitle.name(for: sport)
+        guard rounded != 0 else {
+            return Comparison(text: String(localized: "Same as usual"), spoken: String(localized: "Same as your usual for \(name)"))
+        }
+        let signed = rounded.formatted(.number.precision(.fractionLength(1)).sign(strategy: .always()).locale(locale))
+        let size = abs(rounded).formatted(.number.precision(.fractionLength(1)).locale(locale))
+        return Comparison(
+            text: String(localized: "\(signed) vs usual"),
+            spoken: rounded > 0 ? String(localized: "\(size) higher than your usual for \(name)")
+                : String(localized: "\(size) lower than your usual for \(name)"))
     }
 
     /// The zone the workout spent the most time in (the first, on a tie), or nil with no time in any: the bar the zone row lights.

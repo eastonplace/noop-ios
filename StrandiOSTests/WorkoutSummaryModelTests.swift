@@ -35,6 +35,17 @@ final class WorkoutSummaryModelTests: XCTestCase {
         XCTAssertEqual(run.rest[1].value.text, LiveWorkoutGlance.paceDisplay("6:13"))
     }
 
+    func testThePaceIsDrawnAsTheLiveScreenDrawsIt() {
+        let pace = figures(row()).rest[1].value
+        XCTAssertEqual(pace.text, "6\u{2032}13\u{2033}", "6:13 reads 6′13″, as on the live screen")
+        XCTAssertEqual(pace.unit, [LiveWorkoutGlance.Units.average, LiveWorkoutGlance.Units.pace(imperial: false)])
+        let live = LiveWorkoutGlance.value(.pace, input: LiveWorkoutTiles.Input(
+            sport: "Running", tracksRoute: true, distanceMeters: 5_000, paceSecPerKm: 1_865 / 5, bpm: nil, calories: nil,
+            averageHR: 0, peakHR: 0, imperial: false), elapsed: 1_865, strain: .building(readings: 0, coverageSeconds: 0), locale: en)
+        XCTAssertEqual(pace.text, live.text)
+        XCTAssertEqual(pace.unit, live.unit)
+    }
+
     func testARideIsReadAsSpeedNotPace() {
         let ride = figures(row("Cycling", seconds: 3_600, distance: 25_000))
         XCTAssertEqual(ids(ride).prefix(2), ["time", "speed"])
@@ -99,6 +110,36 @@ final class WorkoutSummaryModelTests: XCTestCase {
         XCTAssertEqual(run.focus.value.spoken, String(localized: "\("5.00") kilometers"))
         let peak = run.rest.first { $0.id == "maxHeartRate" }
         XCTAssertEqual(peak?.value.spoken, String(localized: "\(178) beats per minute"))
+    }
+
+    // MARK: Strain against the usual
+
+    private func strainFigure(_ row: WorkoutRow, usual: Double?) -> WorkoutSummary.Figure? {
+        let hero = WorkoutHeroStrain.make(for: row, usualStored: usual)
+        return WorkoutSummary.figures(for: row, strain: hero, imperial: false, thresholds: thresholds, locale: en)
+            .rest.first { $0.id == "strain" }
+    }
+
+    func testTheStrainCaptionNamesWhatTheNumberIsComparedWith() {
+        let above = WorkoutSummary.comparison(delta: 0.94, sport: "Running", locale: en)
+        XCTAssertEqual(above.text, "+0.9 vs usual")
+        XCTAssertEqual(above.spoken, "0.9 higher than your usual for \(WorkoutSportTitle.name(for: "Running"))")
+        let below = WorkoutSummary.comparison(delta: -1.26, sport: "Running", locale: en)
+        XCTAssertTrue(below.text.hasSuffix("1.3 vs usual") && !below.text.hasPrefix("+"), below.text)
+        XCTAssertEqual(below.spoken, "1.3 lower than your usual for \(WorkoutSportTitle.name(for: "Running"))")
+        let level = WorkoutSummary.comparison(delta: 0.04, sport: "Running", locale: en)
+        XCTAssertEqual(level.text, "Same as usual")
+        XCTAssertEqual(level.spoken, "Same as your usual for \(WorkoutSportTitle.name(for: "Running"))")
+    }
+
+    func testOnlyANoopScoredWorkoutWithOthersOfItsSportCarriesTheCaption() {
+        let compared = strainFigure(row(strain: 52), usual: 40)
+        XCTAssertNotNil(compared?.comparison)
+        XCTAssertEqual(compared?.value.micro, WorkoutHeroStrain.make(for: row(strain: 52), usualStored: 40).bandTitle,
+                       "the band word stays in the unit block")
+        XCTAssertNil(strainFigure(row(strain: 52), usual: nil)?.comparison, "nothing to compare with yet")
+        XCTAssertNil(strainFigure(row(strain: 52, version: nil, source: "whoop"), usual: 40)?.comparison, "WHOOP's number has no NOOP usual")
+        XCTAssertNil(strainFigure(row(strain: 52, version: nil, source: "manual"), usual: 40), "nobody scored it")
     }
 
     // MARK: The zone row
