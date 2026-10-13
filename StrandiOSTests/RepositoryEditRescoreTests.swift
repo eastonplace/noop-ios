@@ -1,4 +1,5 @@
 import XCTest
+import UIKit
 import WhoopStore
 @testable import NOOP
 
@@ -280,6 +281,63 @@ final class RepositoryEditRescoreTests: XCTestCase {
         XCTAssertTrue(queue.timestamps.isEmpty)
     }
 
+    /// Review finding (lost wake-up): an edit enqueued while a finished drain was still publishing found the
+    /// drain in flight, scheduled nothing, and waited for the next unrelated analysis.
+    func testAnEditDuringTheClosingPublishStartsAnotherDrain() async throws {
+        let calendar = try newYorkCalendar()
+        let now = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 10, day: 12, hour: 15)))
+        let queue = drainQueue(now: now, calendar: calendar)
+        let recorder = EditedDayAnalyzeRecorder()
+        queue.register(recorder) { request in
+            recorder.requests.append(request)
+            return true
+        }
+        let workoutDay = Int(try XCTUnwrap(calendar.date(byAdding: .day, value: -12, to: now)).timeIntervalSince1970)
+
+        queue.enqueue([Int(now.timeIntervalSince1970) - 3_600]) { [unowned queue] days in
+            if recorder.published.isEmpty { queue.enqueue([workoutDay]) } // a workout delete during the publish
+            recorder.published.append(days)
+        }
+        await queue.waitForDrain()
+        await queue.waitForDrain() // the rerun the publish-window edit asked for
+
+        XCTAssertEqual(recorder.requests.map(\.maxDays), [1, 13], "the edit during the publish was stranded")
+        XCTAssertEqual(recorder.published, [1, 13])
+        XCTAssertTrue(queue.timestamps.isEmpty)
+    }
+
+    func testOnlyTheBackgroundPausesTheDrain() {
+        XCTAssertFalse(EditedDayRescoreQueue.pausesDrain(in: .inactive), "Control Center or the app switcher")
+        XCTAssertFalse(EditedDayRescoreQueue.pausesDrain(in: .active))
+        XCTAssertTrue(EditedDayRescoreQueue.pausesDrain(in: .background))
+    }
+
+    func testADrainPausedInTheBackgroundResumesWhenTheAppBecomesActive() async throws {
+        let calendar = try newYorkCalendar()
+        let now = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 10, day: 12, hour: 15)))
+        let center = NotificationCenter()
+        let recorder = EditedDayAnalyzeRecorder()
+        recorder.backgrounded = true
+        let queue = EditedDayRescoreQueue(defaults: nil, debounce: .zero, now: { now }, calendar: { calendar },
+                                          isBackgrounded: { recorder.backgrounded }, activationCenter: center)
+        queue.register(recorder) { request in
+            recorder.requests.append(request)
+            return true
+        }
+
+        queue.enqueue([Int(now.timeIntervalSince1970) - 3_600])
+        await queue.waitForDrain()
+        XCTAssertTrue(recorder.requests.isEmpty)
+
+        recorder.backgrounded = false
+        center.post(name: UIApplication.didBecomeActiveNotification, object: nil)
+        for _ in 0..<500 where recorder.requests.isEmpty { try await Task.sleep(nanoseconds: 2_000_000) }
+        await queue.waitForDrain()
+
+        XCTAssertEqual(recorder.requests.map(\.maxDays), [1])
+        XCTAssertTrue(queue.timestamps.isEmpty)
+    }
+
     // MARK: - Every enqueue drains, and the queue persists
 
     private func isolatedDefaults() throws -> UserDefaults {
@@ -392,4 +450,5 @@ private final class EditedDayAnalyzeRecorder {
     var requests: [IntelligenceAnalysisRequest] = []
     var published: [Int] = []
     var completes = true
+    var backgrounded = false
 }

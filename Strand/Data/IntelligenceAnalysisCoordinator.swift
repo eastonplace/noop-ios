@@ -1,4 +1,7 @@
 import Foundation
+#if os(iOS)
+import UIKit
+#endif
 
 /// One bounded request for `IntelligenceEngine.analyzeRecent`.
 ///
@@ -119,8 +122,10 @@ extension IntelligenceAnalysisRequest {
 ///
 /// The drain rescores the oldest chunk first, at most `chunkDays` per pass, so each pass reads the carry the
 /// previous one wrote and a long range never runs as one uncancellable forced batch. It stops between chunks
-/// when cancelled (BG expiry) or once the app is in the background. A chunk that doesn't complete leaves the
-/// whole taken range queued, and edits that arrive mid-chunk stay queued for the next step.
+/// when cancelled (BG expiry) or once the app is in the background, and resumes when the app becomes active
+/// again. A chunk that doesn't complete leaves the whole taken range queued, and edits that arrive mid-chunk
+/// stay queued for the next step. An edit that arrives while a finished drain is still publishing starts
+/// another drain instead of waiting for the next unrelated analysis.
 ///
 /// Every enqueue stamps its timestamps with a new version. A finished chunk removes only the entries whose
 /// version it took, so the same timestamp enqueued again while its chunk runs (an undo, a re-edit of the same
@@ -131,7 +136,7 @@ extension IntelligenceAnalysisRequest {
 /// one chunk it publishes one refresh covering the rescored range through the closure Repository enqueued with.
 @MainActor
 final class EditedDayRescoreQueue {
-    static let shared = EditedDayRescoreQueue()
+    static let shared = EditedDayRescoreQueue(activationCenter: .default)
     static let chunkDays = 30
 
     typealias Analyze = @MainActor (IntelligenceAnalysisRequest) async -> Bool
@@ -155,6 +160,32 @@ final class EditedDayRescoreQueue {
     private var drainTask: Task<Void, Never>?
     private var lastDrain: Task<Void, Never>?
     private var drainGeneration: UInt64 = 0
+    /// Set when a drain was asked for while one was already in flight.
+    private var rerunRequested = false
+    private var activationObserver: NSObjectProtocol?
+
+    private enum DrainEnd {
+        /// The queue was empty at a chunk boundary.
+        case drained
+        /// Cancelled, backgrounded, a chunk failed, or no engine.
+        case stopped
+    }
+
+    /// Only `.background` pauses the drain. `.inactive` (Control Center, the notification shade, the app
+    /// switcher, a system alert) is a transient overlay on an app that is still in the foreground.
+    #if os(iOS)
+    static func pausesDrain(in state: UIApplication.State) -> Bool {
+        state == .background
+    }
+    #endif
+
+    static var appIsInBackground: Bool {
+        #if os(iOS)
+        pausesDrain(in: UIApplication.shared.applicationState)
+        #else
+        false
+        #endif
+    }
 
     /// `defaults: nil` keeps the queue in memory (tests).
     init(defaults: UserDefaults? = .standard,
@@ -162,7 +193,8 @@ final class EditedDayRescoreQueue {
          debounce: Duration = .seconds(5),
          now: @escaping @MainActor () -> Date = { Date() },
          calendar: @escaping @MainActor () -> Calendar = { .current },
-         isBackgrounded: @escaping @MainActor () -> Bool = { RescoreBackgroundPolicy.isBackgrounded }) {
+         isBackgrounded: @escaping @MainActor () -> Bool = { EditedDayRescoreQueue.appIsInBackground },
+         activationCenter: NotificationCenter? = nil) {
         self.defaults = defaults
         self.storageKey = storageKey
         self.debounce = debounce
@@ -172,6 +204,14 @@ final class EditedDayRescoreQueue {
         self.now = now
         self.calendar = calendar
         self.isBackgrounded = isBackgrounded
+        #if os(iOS)
+        // A drain paused by the background resumes when the app is active again.
+        activationObserver = activationCenter?.addObserver(
+            forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.scheduleDrain(after: self?.debounce ?? .zero) }
+        }
+        #endif
     }
 
     var isDraining: Bool { drainTask != nil }
@@ -217,14 +257,25 @@ final class EditedDayRescoreQueue {
 
     /// Starts a drain after `delay` unless one is already pending or running.
     func scheduleDrain(after delay: Duration = .zero) {
-        guard drainTask == nil, !timestamps.isEmpty, analyze != nil else { return }
+        guard drainTask == nil else {
+            rerunRequested = true
+            return
+        }
+        guard !timestamps.isEmpty, analyze != nil else { return }
         drainGeneration &+= 1
+        rerunRequested = false
         let generation = drainGeneration
         drainTask = Task { @MainActor [weak self] in
             if delay > .zero { try? await Task.sleep(for: delay) }
             guard let self else { return }
-            await self.drain(generation: generation)
-            if self.drainGeneration == generation { self.drainTask = nil }
+            let end = await self.drain(generation: generation)
+            guard self.drainGeneration == generation else { return }
+            self.drainTask = nil
+            // An edit that landed during the closing publish found this drain still in flight. Never rerun a
+            // drain that stopped (cancelled, backgrounded or failed): that would retry a failing chunk in a loop.
+            if self.rerunRequested, end == .drained, !Task.isCancelled, !self.timestamps.isEmpty {
+                self.scheduleDrain(after: self.debounce)
+            }
         }
         lastDrain = drainTask
     }
@@ -284,9 +335,14 @@ final class EditedDayRescoreQueue {
         await lastDrain?.value
     }
 
-    private func drain(generation: UInt64) async {
+    private func drain(generation: UInt64) async -> DrainEnd {
         var rescoredSpan = 0
-        while generation == drainGeneration, !timestamps.isEmpty, let analyze, analyzer != nil {
+        var end = DrainEnd.stopped
+        while generation == drainGeneration, let analyze, analyzer != nil {
+            if timestamps.isEmpty {
+                end = .drained
+                break
+            }
             if Task.isCancelled || isBackgrounded() { break }
             let taken = entries
             guard let chunk = IntelligenceAnalysisRequest.editedDayChunk(
@@ -313,6 +369,7 @@ final class EditedDayRescoreQueue {
                 await publish(rescoredSpan)
             }
         }
+        return end
     }
 }
 
