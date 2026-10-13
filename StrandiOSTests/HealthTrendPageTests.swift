@@ -98,4 +98,51 @@ final class HealthTrendPageTests: XCTestCase {
             XCTAssertFalse(here.observations.isEmpty)
         }
     }
+
+    // MARK: - The unit the page was built in
+
+    /// The user switches °C to °F while a Skin Temp page is on screen. The next body pass reads the live unit for the
+    /// label; the stored page still holds the °C numbers until the rebuild lands. Drawing it showed `36.4 °F`.
+    func testASkinTempPageBuiltInTheOtherUnitIsNotDrawn() {
+        let rows = [
+            SourcedDailyMetric(metric: strapDay("2026-10-10", skin: 0.4), source: .localCache),
+            SourcedDailyMetric(metric: strapDay("2026-10-12", skin: 0.1), source: .localCache),
+        ]
+        let celsius = HealthTrendPage.build(inputs(.skinTemp, vitals: rows, unit: .celsius))
+        let fahrenheit = HealthTrendPage.build(inputs(.skinTemp, vitals: rows, unit: .fahrenheit))
+        XCTAssertEqual(celsius.temperatureUnit, .celsius)
+        XCTAssertEqual(fahrenheit.temperatureUnit, .fahrenheit)
+
+        var fallbackBuilds = 0
+        let drawn = HealthTrendPage.resolve(stored: celsius, temperature: .fahrenheit) {
+            fallbackBuilds += 1
+            return fahrenheit
+        }
+        XCTAssertEqual(drawn, fahrenheit, "the unit changed: the synchronous build is drawn, not the stale page")
+        XCTAssertEqual(fallbackBuilds, 1)
+
+        let current = HealthTrendPage.resolve(stored: fahrenheit, temperature: .fahrenheit) {
+            fallbackBuilds += 1
+            return celsius
+        }
+        XCTAssertEqual(current, fahrenheit)
+        XCTAssertEqual(fallbackBuilds, 1, "a page in the live unit is drawn without a rebuild")
+
+        let none = HealthTrendPage.resolve(stored: nil, temperature: .celsius) { celsius }
+        XCTAssertEqual(none, celsius)
+    }
+
+    /// Only the temperature series depends on the unit: a Steps or Calories page stays drawn across a unit change.
+    func testAPageWithNoTemperatureInItSurvivesAUnitChange() {
+        let strap = [strapDay("2026-10-12", steps: 5_000)]
+        let steps = HealthTrendPage.build(inputs(.steps, days: strap, unit: .celsius))
+        XCTAssertNil(steps.temperatureUnit)
+        var rebuilt = false
+        let drawn = HealthTrendPage.resolve(stored: steps, temperature: .fahrenheit) {
+            rebuilt = true
+            return steps
+        }
+        XCTAssertEqual(drawn, steps)
+        XCTAssertFalse(rebuilt)
+    }
 }

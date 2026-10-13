@@ -649,6 +649,9 @@ enum HealthDailyPick {
 struct HealthTrendPage: Equatable, Sendable {
     let observations: [CalendarMetricDay]
     let showsStrapEstimate: Bool
+    /// The °C/°F unit the values were built in, for the metric that has a temperature in it (nil for the others). The
+    /// page draws its numbers under the live unit's label, so a page built in the other unit must not be drawn.
+    let temperatureUnit: TemperatureUnit?
 
     struct Inputs: Sendable {
         let metric: ProductionTrendMetric
@@ -693,7 +696,18 @@ struct HealthTrendPage: Equatable, Sendable {
         let showsStrapEstimate = metric == .calories
             && HealthDailyPick.usesStrapEstimate(
                 in: caloriesDays, window: 180, dayDate: BodyVitalSigns.localDate(fromDayKey:))
-        return HealthTrendPage(observations: observations, showsStrapEstimate: showsStrapEstimate)
+        return HealthTrendPage(
+            observations: observations, showsStrapEstimate: showsStrapEstimate,
+            temperatureUnit: metric == .skinTemp ? inputs.temperatureUnit : nil)
+    }
+
+    /// The page to draw: the stored one while its values are in the unit the label shows, else `fallback()`. After a
+    /// °C/°F change the stored page is the other unit's until the rebuild lands, and drawing it would put °C numbers
+    /// under a °F label for a frame or two.
+    static func resolve(stored: HealthTrendPage?, temperature: TemperatureUnit,
+                        fallback: () -> HealthTrendPage) -> HealthTrendPage {
+        if let stored, stored.temperatureUnit == nil || stored.temperatureUnit == temperature { return stored }
+        return fallback()
     }
 
     /// One value per day, oldest first, picked from the strap's row, the phone's row and an estimate in the order the
@@ -752,7 +766,9 @@ struct HealthMetricTrendView: View {
     /// built once per refresh in the `.task` below, off the main actor, and the body only reads it. Until that first
     /// build lands the body builds it from what is already loaded (the strap's own rows, which is cheap).
     private var currentPage: HealthTrendPage {
-        page ?? HealthTrendPage.build(pageInputs(appleByDay: appleByDay, stepsEstByDay: stepsEstByDay))
+        HealthTrendPage.resolve(stored: page, temperature: temperatureUnit) {
+            HealthTrendPage.build(pageInputs(appleByDay: appleByDay, stepsEstByDay: stepsEstByDay))
+        }
     }
 
     private func pageInputs(appleByDay: [String: AppleDaily], stepsEstByDay: [String: Double]) -> HealthTrendPage.Inputs {
