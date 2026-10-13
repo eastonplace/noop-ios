@@ -1378,4 +1378,80 @@ final class WidgetStalenessTests: XCTestCase {
         let noHRV = await WidgetSnapshot.todayHRV(store: stale, bundle: aug5, anchorDay: staleAnchor)
         XCTAssertNil(noHRV)
     }
+
+    // MARK: - An enrichment that straddles 04:00 cannot write yesterday's strip
+
+    private var aStrip: (hours: [Double?]?, summary: String?) {
+        ((0..<24).map { $0 < 12 ? Double($0 % 3) : nil }, "Moderate")
+    }
+
+    /// The scan started at 03:59:55 for Aug 8, a re-commit of the same generation at 04:00:00 restamped the core
+    /// after the rollover, and the scan finishes at 04:00:06: the strip must not land on that core.
+    func testAnEnrichmentFinishingAfterTheRolloverWritesNoStrip() throws {
+        let ny = newYork()
+        let token = try install(contextId: "ctx")
+        var restamped = core("ctx", generation: 5)
+        restamped.updated = at(ny, 9, 4, 0)
+        XCTAssertEqual(VerifiedWidgetEnvelopeStore.commit(
+            token: token, generation: 5, snapshot: restamped, defaults: defaults), .published)
+
+        let committed = try XCTUnwrap(WidgetSnapshot.commitEnrichment(
+            defaults: defaults, token: token, bundle: try bundle(day: "2026-08-08", steps: nil, generation: 5),
+            hrv: (current: 64, sparkline: [60, 64]), hrvRead: true, stress: aStrip,
+            now: at(ny, 9, 4, 0).addingTimeInterval(6), calendar: ny))
+        XCTAssertEqual(committed.result, .published)
+        XCTAssertNil(committed.snapshot.hourlyStress)
+        XCTAssertNil(committed.snapshot.stressSummary)
+        XCTAssertEqual(committed.snapshot.hrv, 64, "the rest of the enrichment still lands")
+        XCTAssertEqual(committed.snapshot.hrvSparkline, [60, 64])
+        let shown = try XCTUnwrap(VerifiedWidgetEnvelopeStore.rawActiveEnvelope(defaults: defaults)).snapshot
+        XCTAssertNil(shown.hourlyStress)
+    }
+
+    func testAnEnrichmentThatFinishesBeforeTheRolloverKeepsItsStrip() throws {
+        let ny = newYork()
+        let token = try install(contextId: "ctx")
+        var evening = core("ctx", generation: 5)
+        evening.updated = at(ny, 8, 23, 30)
+        XCTAssertEqual(VerifiedWidgetEnvelopeStore.commit(
+            token: token, generation: 5, snapshot: evening, defaults: defaults), .published)
+
+        let committed = try XCTUnwrap(WidgetSnapshot.commitEnrichment(
+            defaults: defaults, token: token, bundle: try bundle(day: "2026-08-08", steps: nil, generation: 5),
+            hrv: (current: nil, sparkline: []), hrvRead: false, stress: aStrip,
+            now: at(ny, 9, 3, 59), calendar: ny))
+        XCTAssertEqual(committed.snapshot.hourlyStress?.count, 24)
+        XCTAssertEqual(committed.snapshot.stressSummary, "Moderate")
+    }
+
+    /// A read that failed outright must not blank the HRV the core already carries; one that found nothing may.
+    func testAFailedHRVReadDoesNotBlankTheCoresHRV() throws {
+        let ny = newYork()
+        let token = try install(contextId: "ctx")
+        var base = core("ctx", generation: 5)
+        base.hrv = 61
+        base.updated = at(ny, 8, 10)
+        XCTAssertEqual(VerifiedWidgetEnvelopeStore.commit(
+            token: token, generation: 5, snapshot: base, defaults: defaults), .published)
+        let aug8 = try bundle(day: "2026-08-08", steps: nil, generation: 5)
+
+        let failed = try XCTUnwrap(WidgetSnapshot.commitEnrichment(
+            defaults: defaults, token: token, bundle: aug8, hrv: (current: nil, sparkline: []), hrvRead: false,
+            stress: (nil, nil), now: at(ny, 8, 11), calendar: ny))
+        XCTAssertEqual(failed.snapshot.hrv, 61)
+        let empty = try XCTUnwrap(WidgetSnapshot.commitEnrichment(
+            defaults: defaults, token: token, bundle: aug8, hrv: (current: nil, sparkline: []), hrvRead: true,
+            stress: (nil, nil), now: at(ny, 8, 11), calendar: ny))
+        XCTAssertNil(empty.snapshot.hrv)
+    }
+
+    func testNoEnrichmentIsWrittenOnceTheGenerationIsNoLongerTheEnvelopes() throws {
+        let ny = newYork()
+        let token = try install(contextId: "ctx")
+        XCTAssertEqual(VerifiedWidgetEnvelopeStore.commit(
+            token: token, generation: 6, snapshot: core("ctx", generation: 6), defaults: defaults), .published)
+        XCTAssertNil(WidgetSnapshot.commitEnrichment(
+            defaults: defaults, token: token, bundle: try bundle(day: "2026-08-08", steps: nil, generation: 5),
+            hrv: (current: 64, sparkline: [64]), hrvRead: true, stress: aStrip, now: at(ny, 8, 15), calendar: ny))
+    }
 }

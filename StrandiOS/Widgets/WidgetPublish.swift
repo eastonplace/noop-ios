@@ -381,29 +381,62 @@ extension WidgetSnapshot {
         let stress = await enrichmentStress(
             store: await model.repo.storeHandle(), bundle: bundle, now: Date())
         guard let defaults = UserDefaults(suiteName: WidgetSnapshot.suiteName),
-              var enriched = verifiedEnrichmentBase(
+              let committed = commitEnrichment(
                 defaults: defaults,
                 token: token,
-                contextId: projection.contextId,
-                generation: projection.generation) else { return }
-        // Start from the immutable verified payload, never the display view. The display view may contain
-        // a transient live overlay; baking it back into the envelope would turn non-durable HR/battery
-        // fields into verified state and could resurrect them after a transition or relaunch.
-        // The core already carries the scalar. A read that failed outright must not blank it.
-        if hrvSeries != nil { enriched.hrv = hrvProjection.current }
-        enriched.hrvSparkline = hrvProjection.sparkline
+                bundle: bundle,
+                hrv: hrvProjection,
+                hrvRead: hrvSeries != nil,
+                stress: stress,
+                now: Date()),
+              committed.result == .published || committed.result == .alreadyCurrent else { return }
+        WidgetLivePublishGate.notePublished(committed.snapshot, at: Date())
+        WidgetTimelineReloads.afterVerifiedCommit(committed.result, key: WidgetEnrichmentKey(
+            epoch: token.epoch, contextId: projection.contextId, generation: projection.generation))
+    }
+
+    /// Write the enrichment onto the committed core of its generation. Start from the immutable verified payload,
+    /// never the display view. The display view may contain a transient live overlay; baking it back into the
+    /// envelope would turn non-durable HR/battery fields into verified state and could resurrect them after a
+    /// transition or relaunch. The core already carries the HRV scalar, so a read that failed outright
+    /// (`hrvRead` false) must not blank it. nil when the envelope is no longer this generation's.
+    ///
+    /// The strip was computed for a day that was current when the enrichment started, but the scan can straddle
+    /// 04:00, and a re-commit of the same generation then restamps the core after the rollover. The day is
+    /// checked again here, so a strip is only ever written into a core of its own logical day.
+    @MainActor
+    static func commitEnrichment(
+        defaults: UserDefaults,
+        token: VerifiedSinkToken,
+        bundle: VerifiedExternalProjectionBundle,
+        hrv: (current: Int?, sparkline: [Int]),
+        hrvRead: Bool,
+        stress: (hours: [Double?]?, summary: String?),
+        now: Date,
+        calendar: Calendar = .current
+    ) -> (snapshot: WidgetSnapshot, result: VerifiedProjectionGenerationWriteResult)? {
+        let projection = bundle.projection
+        guard var enriched = verifiedEnrichmentBase(
+            defaults: defaults,
+            token: token,
+            contextId: projection.contextId,
+            generation: projection.generation) else { return nil }
+        if hrvRead { enriched.hrv = hrv.current }
+        enriched.hrvSparkline = hrv.sparkline
         enriched.hourlyStress = stress.hours
         enriched.stressSummary = stress.summary
+        if !WidgetCoreDay.isCurrent(bundle.widgetCore.logicalDay, now: now, calendar: calendar)
+            || !WidgetStressFreshness.isCurrent(updated: enriched.updated, now: now, calendar: calendar) {
+            enriched.hourlyStress = nil
+            enriched.stressSummary = nil
+        }
         let result = VerifiedWidgetEnvelopeStore.commit(
             token: token,
             generation: projection.generation,
             snapshot: enriched,
             defaults: defaults
         )
-        guard result == .published || result == .alreadyCurrent else { return }
-        WidgetLivePublishGate.notePublished(enriched, at: Date())
-        WidgetTimelineReloads.afterVerifiedCommit(result, key: WidgetEnrichmentKey(
-            epoch: token.epoch, contextId: projection.contextId, generation: projection.generation))
+        return (enriched, result)
     }
 
     /// Sources whose daily rows are not the strap's: Apple Health (HRV there is SDNN), Health Connect and the
