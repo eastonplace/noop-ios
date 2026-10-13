@@ -99,6 +99,33 @@ final class BLEBackgroundReconnectHandoffTests: XCTestCase {
                       "a drop after the hello went out is still a secure failure")
     }
 
+    /// Review R3b #3: the background-cap pause means "too many background attempts with no healthy link",
+    /// so a healthy link lifts it; an unhealthy one does not.
+    func testAHealthyLinkLiftsTheBackgroundCapPause() {
+        let manager = BLEManager(state: LiveState(), collector: nil)
+        manager.pauseAutoReconnectForBackgroundCapForTesting()
+        manager.recordLinkEnded(upSeconds: 20, acknowledgedHistory: false)
+        XCTAssertTrue(manager.autoReconnectPausedForBackgroundCapForTesting, "a 20 s link without an ACK is not healthy")
+        manager.recordLinkEnded(upSeconds: 61, acknowledgedHistory: false)
+        XCTAssertFalse(manager.autoReconnectPausedForBackgroundCapForTesting)
+
+        manager.pauseAutoReconnectForBackgroundCapForTesting()
+        manager.recordLinkEnded(upSeconds: 5, acknowledgedHistory: true)
+        XCTAssertFalse(manager.autoReconnectPausedForBackgroundCapForTesting, "a history ACK proves the link healthy")
+    }
+
+    /// Review R3b #3: every automatic path respects the pause, Bluetooth power-on included
+    /// (connectFromSystem), until the app comes to the foreground.
+    func testSystemReconnectsRespectTheBackgroundCapPauseUntilForeground() {
+        let manager = BLEManager(state: LiveState(), collector: nil)
+        let wasWhoop5 = manager.isWhoop5
+        manager.pauseAutoReconnectForBackgroundCapForTesting()
+        manager.connectFromSystem(model: wasWhoop5 ? .whoop4 : .whoop5mg)
+        XCTAssertEqual(manager.isWhoop5, wasWhoop5, "a paused system reconnect never reaches the connect path")
+        manager.resumeAutoReconnectInForeground()
+        XCTAssertFalse(manager.autoReconnectPausedForBackgroundCapForTesting)
+    }
+
     /// End to end through the real target lookup: with no powered-on central (the simulator) there is no
     /// strap to hand off to, so the timer stays armed for when the app comes back.
     func testWithNoReachableStrapTheBackgroundTransitionKeepsTheTimer() {

@@ -1172,6 +1172,12 @@ public final class BLEManager: NSObject, ObservableObject {
             log("WHOOP 5/MG secure recovery is paused; tap Connect to start a fresh bounded series")
             return
         }
+        // F1: the background-cap pause holds for every automatic path (Bluetooth power-on included) until
+        // the app is opened, the user taps Connect, or a link proves healthy.
+        guard !autoReconnectPausedForBackgroundCap else {
+            log("Auto-reconnect is paused after repeated background reconnects; it resumes when the app is opened")
+            return
+        }
         connectCore(model: model)
     }
 
@@ -1527,6 +1533,16 @@ public final class BLEManager: NSObject, ObservableObject {
         return true
     }
 
+    /// BLE-9 + F1: a link ended. A healthy one resets the ladder and the background count, and so also
+    /// lifts a background-cap pause: the loop the cap stopped is over.
+    func recordLinkEnded(upSeconds: TimeInterval?, acknowledgedHistory: Bool) {
+        if reconnectPolicy.linkEnded(upSeconds: upSeconds, acknowledgedHistory: acknowledgedHistory),
+           autoReconnectPausedForBackgroundCap {
+            autoReconnectPausedForBackgroundCap = false
+            log("A healthy link ended the background reconnect pause")
+        }
+    }
+
     /// Any automatic-reconnect pause is in force.
     private var autoReconnectPaused: Bool {
         autoReconnectPausedForBondLoop
@@ -1544,6 +1560,10 @@ public final class BLEManager: NSObject, ObservableObject {
     var reconnectDueAtForTesting: Date? { reconnectWorkDueAt }
 
     func applyWhoop5HandshakeHoldForTesting(_ hold: Date?) { applyWhoop5HandshakeHold(hold) }
+
+    func pauseAutoReconnectForBackgroundCapForTesting() { autoReconnectPausedForBackgroundCap = true }
+
+    var autoReconnectPausedForBackgroundCapForTesting: Bool { autoReconnectPausedForBackgroundCap }
 
     var whoop5HandshakeHoldForTesting: Date? { whoop5SecureHandshakeNotBefore }
 
@@ -5079,8 +5099,8 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
             }
         }
         bondedAt = nil   // cleared after the bond-loop detector above read it (#617)
-        reconnectPolicy.linkEnded(upSeconds: linkUpAt.map { Date().timeIntervalSince($0) },
-                                  acknowledgedHistory: linkAcknowledgedHistory)
+        recordLinkEnded(upSeconds: linkUpAt.map { Date().timeIntervalSince($0) },
+                        acknowledgedHistory: linkAcknowledgedHistory)
         linkUpAt = nil
         linkAcknowledgedHistory = false
         reassemblers.reset()   // BLE-1: a dead link's half-received frames must not survive the disconnect

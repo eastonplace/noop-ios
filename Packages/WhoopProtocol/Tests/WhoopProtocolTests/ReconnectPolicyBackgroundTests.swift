@@ -158,6 +158,16 @@ final class ReconnectPolicyBackgroundTests: XCTestCase {
         XCTAssertEqual(policy.backgroundRetries, 0, "a link that stayed up 60 s resets the count")
     }
 
+    /// Review R3b #3: the manager lifts a background-cap pause when a link proves healthy, so linkEnded
+    /// reports it.
+    func testLinkEndedReportsWhetherTheLinkProvedHealthy() {
+        var policy = ReconnectPolicy()
+        XCTAssertFalse(policy.linkEnded(upSeconds: 59, acknowledgedHistory: false))
+        XCTAssertFalse(policy.linkEnded(upSeconds: nil, acknowledgedHistory: false))
+        XCTAssertTrue(policy.linkEnded(upSeconds: 60, acknowledgedHistory: false))
+        XCTAssertTrue(policy.linkEnded(upSeconds: 3, acknowledgedHistory: true))
+    }
+
     func testForegroundAndUserConnectResetTheBackgroundCount() {
         var policy = ReconnectPolicy()
         for _ in 0...ReconnectPolicy.backgroundRetryCap {

@@ -40,12 +40,16 @@ public struct ReconnectPolicy: Equatable, Sendable {
 
     /// A link ended. Reset the ladder and the background count when it proved healthy: it stayed up for
     /// `healthyLinkSeconds`, or the strap acknowledged a history chunk on it. A link that only connected
-    /// (or bonded) and then dropped keeps climbing.
-    public mutating func linkEnded(upSeconds: TimeInterval?, acknowledgedHistory: Bool) {
-        if acknowledgedHistory || (upSeconds.map { $0 >= Self.healthyLinkSeconds } ?? false) {
-            attempts = 0
-            backgroundRetries = 0
+    /// (or bonded) and then dropped keeps climbing. Returns whether the link proved healthy, which also
+    /// ends a background-cap pause.
+    @discardableResult
+    public mutating func linkEnded(upSeconds: TimeInterval?, acknowledgedHistory: Bool) -> Bool {
+        guard acknowledgedHistory || (upSeconds.map { $0 >= Self.healthyLinkSeconds } ?? false) else {
+            return false
         }
+        attempts = 0
+        backgroundRetries = 0
+        return true
     }
 
     /// The user explicitly asked to connect: the next automatic retry starts from the bottom again.
