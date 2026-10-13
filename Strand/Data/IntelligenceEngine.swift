@@ -575,22 +575,15 @@ final class IntelligenceEngine: ObservableObject {
         } catch {
             return
         }
-        guard persistedProgress.state != .complete else { return }
+        // Review round 7 (4): v3 complete, the settle pass takes this grant.
+        guard persistedProgress.state != .complete else {
+            await runEffortRescoreSettleIfNeeded(store: store, historyDays: historyDays, shouldPause: shouldPause)
+            return
+        }
 
-        // Bound the one-shot migration to source-backed history. The prior fixed 4,000-day loop ran 134
-        // analysis batches even on a fresh 30-day install, delaying launch by seconds and making History
-        // appear frozen. Include every registered strap plus active/canonical ids because old paired devices
-        // can still own historical raw days. A read failure leaves the marker unset for a safe retry.
-        let registry = DeviceRegistryStore(dbQueue: store.registryWriter)
-        let registeredIds = (try? registry.all().map(\.id)) ?? []
-        let sourceIds = Set(registeredIds + repo.importedReadIds + [deviceId])
-        var earliestTimestamp: Int?
+        let earliestTimestamp: Int?
         do {
-            for id in sourceIds {
-                if let bounds = try await store.hrTimestampBounds(deviceId: id) {
-                    earliestTimestamp = min(earliestTimestamp ?? bounds.earliest, bounds.earliest)
-                }
-            }
+            earliestTimestamp = try await earliestSourceHeartRateTimestamp(store: store)
         } catch {
             return
         }
@@ -609,10 +602,112 @@ final class IntelligenceEngine: ObservableObject {
             calendar: .current,
             cap: max(0, historyDays))
 
-        var durableOffset = persistedProgress.nextOffset
+        let (outcome, durableOffset) = await runFullHistoryRescoreBatch(
+            store: store,
+            progressKey: Self.effortRescoreDurableProgressKey,
+            historyDays: effectiveHistoryDays,
+            startOffset: persistedProgress.nextOffset,
+            shouldPause: shouldPause,
+            didCommitOffset: { UserDefaults.standard.set($0, forKey: Self.effortRescoreOffsetKey) }
+        )
+        do {
+            if outcome == .completed {
+                _ = try await store.markDurableMigrationComplete(
+                    key: Self.effortRescoreDurableProgressKey,
+                    nextOffset: durableOffset
+                )
+                UserDefaults.standard.set(durableOffset, forKey: Self.effortRescoreOffsetKey)
+                UserDefaults.standard.set(true, forKey: Self.effortRescoreFlagKey)
+            }
+        } catch {
+            // Replaying one source-derived batch is idempotent. Leave the durable cursor unchanged.
+        }
+    }
+
+    /// Review round 7 (4): the settle pass. v3 rescores newest first, so each chunk's Charge baselines read the
+    /// older days' resting HR and HRV as stored before those days' own rescore. One more pass over the same
+    /// chunks, with the same cursor, chunking and safety net, scores every Charge against the rescored history,
+    /// the result a from-scratch oldest-first run gives. It starts only once v3's durable progress is complete,
+    /// so it never runs while v3 is incomplete, after an app kill mid-v3 included.
+    static let effortRescoreSettleDurableProgressKey = "effort-rescore-v3-settle"
+
+    private func runEffortRescoreSettleIfNeeded(store: WhoopStore, historyDays: Int,
+                                                shouldPause: () -> Bool) async {
+        let progress: DurableMigrationProgress
+        do {
+            guard try await store.durableMigrationProgress(key: Self.effortRescoreDurableProgressKey)?.state
+                    == .complete else { return }
+            if let existing = try await store.durableMigrationProgress(
+                key: Self.effortRescoreSettleDurableProgressKey) {
+                progress = existing
+            } else {
+                progress = try await store.saveDurableMigrationProgress(
+                    key: Self.effortRescoreSettleDurableProgressKey, nextOffset: 0)
+            }
+        } catch {
+            return
+        }
+        guard progress.state != .complete else { return }
+        let earliestTimestamp: Int?
+        do {
+            earliestTimestamp = try await earliestSourceHeartRateTimestamp(store: store)
+        } catch {
+            return
+        }
+        guard let earliestTimestamp else {
+            _ = try? await store.markDurableMigrationComplete(
+                key: Self.effortRescoreSettleDurableProgressKey, nextOffset: progress.nextOffset)
+            return
+        }
+        let (outcome, durableOffset) = await runFullHistoryRescoreBatch(
+            store: store,
+            progressKey: Self.effortRescoreSettleDurableProgressKey,
+            historyDays: Self.boundedHistoryDays(
+                earliestTimestamp: earliestTimestamp, reference: Date(), calendar: .current,
+                cap: max(0, historyDays)),
+            startOffset: progress.nextOffset,
+            shouldPause: shouldPause,
+            didCommitOffset: { _ in }
+        )
+        if outcome == .completed {
+            // A failed write leaves the cursor; replaying one source-derived batch is idempotent.
+            _ = try? await store.markDurableMigrationComplete(
+                key: Self.effortRescoreSettleDurableProgressKey, nextOffset: durableOffset)
+        }
+    }
+
+    /// Bound the full-history passes to source-backed history. The prior fixed 4,000-day loop ran 134
+    /// analysis batches even on a fresh 30-day install, delaying launch by seconds and making History
+    /// appear frozen. Include every registered strap plus active/canonical ids because old paired devices
+    /// can still own historical raw days. A read failure throws, so the caller leaves its marker for a retry.
+    private func earliestSourceHeartRateTimestamp(store: WhoopStore) async throws -> Int? {
+        let registry = DeviceRegistryStore(dbQueue: store.registryWriter)
+        let registeredIds = (try? registry.all().map(\.id)) ?? []
+        let sourceIds = Set(registeredIds + repo.importedReadIds + [deviceId])
+        var earliestTimestamp: Int?
+        for id in sourceIds {
+            if let bounds = try await store.hrTimestampBounds(deviceId: id) {
+                earliestTimestamp = min(earliestTimestamp ?? bounds.earliest, bounds.earliest)
+            }
+        }
+        return earliestTimestamp
+    }
+
+    /// One background maintenance grant's batch of a full-history rescore whose durable cursor is `progressKey`
+    /// (v3, then its settle pass). Each chunk keeps the days it can't produce (review round 7, 1). Returns the
+    /// driver's outcome and the cursor reached.
+    private func runFullHistoryRescoreBatch(
+        store: WhoopStore,
+        progressKey: String,
+        historyDays: Int,
+        startOffset: Int,
+        shouldPause: () -> Bool,
+        didCommitOffset: @escaping (Int) -> Void
+    ) async -> (outcome: HistoricalMigrationDriver.Outcome, offset: Int) {
+        var durableOffset = startOffset
         var completed = false
         let outcome = await HistoricalMigrationDriver.run(
-            historyDays: effectiveHistoryDays,
+            historyDays: historyDays,
             chunkDays: Self.effortRescoreChunkDays,
             isCompleted: { completed },
             loadOffset: { durableOffset },
@@ -635,32 +730,25 @@ final class IntelligenceEngine: ObservableObject {
                 // Re-analysis is idempotent, but a completed batch must not depend on later process memory.
                 let nextOffset = offset + chunk
                 _ = try await store.saveDurableMigrationProgress(
-                    key: Self.effortRescoreDurableProgressKey,
+                    key: progressKey,
                     nextOffset: nextOffset
                 )
                 durableOffset = nextOffset
-                UserDefaults.standard.set(nextOffset, forKey: Self.effortRescoreOffsetKey)
+                didCommitOffset(nextOffset)
             },
             finalRefresh: { [weak self] in
                 guard let self else { return false }
-                return await self.repo.refresh(.fullHistoryMigration)
+                // Review round 7 (4): the full-history lane only refreshes the history extent and reports
+                // `.deferred` by design (`Repository.executeRefresh`), so it never returned true and v3 was never
+                // marked complete. The rescored recent days are published once, and completion waits for that.
+                _ = await self.repo.refresh(.fullHistoryMigration)
+                return await self.repo.refresh(.recentDashboard(days: 30))
             },
             // One background maintenance grant owns one bounded batch. A scene change or suspension
             // resumes from the durable cursor instead of monopolizing a foreground session.
             maximumChunksPerRun: 1
         )
-        do {
-            if outcome == .completed {
-                _ = try await store.markDurableMigrationComplete(
-                    key: Self.effortRescoreDurableProgressKey,
-                    nextOffset: durableOffset
-                )
-                UserDefaults.standard.set(durableOffset, forKey: Self.effortRescoreOffsetKey)
-                UserDefaults.standard.set(true, forKey: Self.effortRescoreFlagKey)
-            }
-        } catch {
-            // Replaying one source-derived batch is idempotent. Leave the durable cursor unchanged.
-        }
+        return (outcome, durableOffset)
     }
 
     /// UserDefaults flag guarding the one-shot #547 implausible-timestamp DB heal (below). Set once the

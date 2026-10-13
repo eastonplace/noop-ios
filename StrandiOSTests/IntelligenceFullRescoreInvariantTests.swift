@@ -637,6 +637,120 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
         }
     }
 
+    // MARK: - The settle pass after v3 (review round 7, 4)
+
+    /// The settle pass starts only after v3's final chunk has completed. Each launch runs one batch: a fresh engine
+    /// on the same store stands in for the app killed mid-v3, and it resumes v3, not the settle pass. A stored
+    /// completed day with no readings left survives both passes unchanged.
+    func testTheSettlePassStartsOnlyAfterV3Completes() async throws {
+        let defaults = UserDefaults.standard
+        let keys = [IntelligenceEngine.effortRescoreFlagKey, IntelligenceEngine.effortRescoreOffsetKey]
+        let saved = keys.map { defaults.object(forKey: $0) }
+        for key in keys { defaults.removeObject(forKey: key) }
+        defer {
+            for (key, value) in zip(keys, saved) {
+                if let value { defaults.set(value, forKey: key) } else { defaults.removeObject(forKey: key) }
+            }
+        }
+        let store = try await WhoopStore.inMemory()
+        let now = Date()
+        let earliest = Int(now.timeIntervalSince1970) - 50 * 86_400
+        var streams = Streams()
+        streams.hr = (0..<300).map { HRSample(ts: earliest + $0 * 30, bpm: 60) }
+        _ = try await store.insert(streams, deviceId: Repository.whoopSource)
+        let computedId = Repository.whoopSource + "-noop"
+        let unproducible = DailyMetric(
+            day: Repository.localDayKey(now.addingTimeInterval(-40 * 86_400)), totalSleepMin: 430, efficiency: 0.9,
+            deepMin: 80, remMin: 95, lightMin: 255, disturbances: 2, restingHr: 52, avgHrv: 66, recovery: 71,
+            strain: 9.5, exerciseCount: 0)
+        _ = try await store.upsertDailyMetrics([unproducible], deviceId: computedId)
+        let total = IntelligenceEngine.boundedHistoryDays(
+            earliestTimestamp: earliest, reference: now, calendar: .current, cap: 60)
+        XCTAssertGreaterThan(total, IntelligenceEngine.effortRescoreChunkDays, "two chunks per pass")
+
+        func launchAndRunOneBatch() async {
+            let repository = Repository(deviceId: Repository.whoopSource)
+            repository.setStoreForTesting(store)
+            let engine = IntelligenceEngine(repo: repository, profile: ProfileStore(),
+                                            deviceId: Repository.whoopSource)
+            await engine.runEffortRescoreIfNeeded(historyDays: 60)
+        }
+        func progress(_ key: String) async throws -> DurableMigrationProgress? {
+            try await store.durableMigrationProgress(key: key)
+        }
+        let v3Key = IntelligenceEngine.effortRescoreDurableProgressKey
+        let settleKey = IntelligenceEngine.effortRescoreSettleDurableProgressKey
+
+        await launchAndRunOneBatch()
+        let midV3 = try await progress(v3Key)
+        XCTAssertEqual(midV3?.state, .pending)
+        XCTAssertEqual(midV3?.nextOffset, IntelligenceEngine.effortRescoreChunkDays)
+        let settleMidV3 = try await progress(settleKey)
+        XCTAssertNil(settleMidV3, "no settle while v3 is incomplete")
+
+        // Killed mid-v3: the next launch resumes v3 and finishes it, and still doesn't start the settle pass.
+        await launchAndRunOneBatch()
+        let finishedV3 = try await progress(v3Key)
+        XCTAssertEqual(finishedV3?.state, .complete)
+        XCTAssertEqual(finishedV3?.nextOffset, total)
+        let settleAfterV3 = try await progress(settleKey)
+        XCTAssertNil(settleAfterV3, "the settle pass starts on the grant after v3's final chunk")
+
+        await launchAndRunOneBatch()
+        let midSettle = try await progress(settleKey)
+        XCTAssertEqual(midSettle?.state, .pending)
+        XCTAssertEqual(midSettle?.nextOffset, IntelligenceEngine.effortRescoreChunkDays)
+
+        await launchAndRunOneBatch()
+        let finishedSettle = try await progress(settleKey)
+        XCTAssertEqual(finishedSettle?.state, .complete)
+        XCTAssertEqual(finishedSettle?.nextOffset, total)
+
+        let kept = try await store.dailyMetrics(deviceId: computedId, from: unproducible.day, to: unproducible.day)
+        XCTAssertEqual(kept, [unproducible], "v3 and settle chunks keep a day they can't produce")
+    }
+
+    /// Older rows stored with a different resting HR and HRV (an earlier build's values) skew the Charge of the v3
+    /// chunks newer than them, since v3 runs newest first. After the settle pass every Charge equals a
+    /// from-scratch oldest-first run over the same chunks.
+    func testTheSettlePassEndsWithTheChargeOfAFromScratchOldestFirstRun() async throws {
+        try await withRecalibrationEpochsRestored {
+            let days = 75
+            let chunk = IntelligenceEngine.effortRescoreChunkDays
+            let upgraded = try await makeHarness(days: days)
+            let seeded = await pass(upgraded, maxDays: days)
+            XCTAssertTrue(seeded)
+            let earlierBuild = try await stored(upgraded).values.map { row in
+                row.replacing(restingHr: row.restingHr.map { $0 + 6 }, avgHrv: row.avgHrv.map { $0 * 0.7 })
+            }
+            _ = try await upgraded.store.upsertDailyMetrics(earlierBuild, deviceId: upgraded.computedId)
+
+            let v3 = await chunkedRescore(upgraded, days: days, keepUnproducedHistory: true)
+            XCTAssertTrue(v3)
+            let afterV3 = try await stored(upgraded)
+            let settle = await chunkedRescore(upgraded, days: days, keepUnproducedHistory: true)
+            XCTAssertTrue(settle)
+            let afterSettle = try await stored(upgraded)
+
+            let scratch = try await makeHarness(days: days)
+            for offset in stride(from: 0, to: days, by: chunk).reversed() {
+                let completed = await pass(scratch, maxDays: chunk, startOffset: offset, keepUnproducedHistory: true)
+                XCTAssertTrue(completed)
+            }
+            let oldestFirst = try await stored(scratch)
+
+            let completedDays = scratch.dayKeys.dropLast()
+            XCTAssertGreaterThan(oldestFirst.values.compactMap(\.recovery).count, 60, "the fixture scores Charge")
+            XCTAssertTrue(completedDays.contains { afterV3[$0]?.recovery != oldestFirst[$0]?.recovery },
+                          "v3 alone leaves Charge skewed by the earlier build's rows")
+            for day in completedDays {
+                XCTAssertEqual(afterSettle[day]?.recovery, oldestFirst[day]?.recovery, "\(day) Charge")
+                XCTAssertEqual(afterSettle[day]?.restingHr, oldestFirst[day]?.restingHr, "\(day) resting HR")
+                XCTAssertEqual(afterSettle[day]?.avgHrv, oldestFirst[day]?.avgHrv, "\(day) HRV")
+            }
+        }
+    }
+
     // MARK: - Stored Charge breakdown (review round 3 findings 8 and 15, round 4 finding 3)
 
     /// Each fold stores the breakdown of the Charge it wrote: the drivers it built against exactly that Charge.
