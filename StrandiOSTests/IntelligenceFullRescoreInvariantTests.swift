@@ -1033,6 +1033,42 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
         }
     }
 
+    /// The persisted-coefficient path with an AUTO fit (no override anywhere), pinned. A normal pass fits k from the
+    /// days the phone also counted and mirrors it; a rescore chunk over a store with no phone steps at all has nothing
+    /// to fit in-pass (the old in-pass fit wrote no estimate there), yet it estimates its own days with the mirrored
+    /// k, and lands on exactly the numbers the normal pass wrote for the same days. It neither refits nor touches the
+    /// mirror.
+    func testAGatedPassAppliesTheCoefficientTheLastNormalPassFitted() async throws {
+        try await withManualStepsCoefficient(0) {
+            let phoneDays = [10, 11, 12, 13]
+            let phoneRows = phoneDays.map {
+                AppleDaily(day: dayKey($0), steps: 6_000 + 500 * $0, activeKcal: nil, basalKcal: nil, vo2max: nil,
+                           avgHr: nil, maxHr: nil, walkingHr: nil, weightKg: nil)
+            }
+            let fitting = try await makeHarness(days: 20)
+            _ = try await fitting.store.upsertAppleDaily(phoneRows, deviceId: Repository.appleHealthSource)
+            _ = await pass(fitting, maxDays: 60)
+            let fitted = calibratedCoefficient
+            XCTAssertGreaterThan(fitted, 0, "the normal pass fitted a coefficient from the phone-counted days")
+            XCTAssertFalse(UserDefaults.standard.bool(forKey: "profile.stepsCalibrationManual"))
+            let fromFit = try await stepsEstimates(fitting)
+            XCTAssertFalse(fromFit.isEmpty)
+            XCTAssertTrue(phoneDays.allSatisfy { fromFit[dayKey($0)] == nil }, "days the phone counted keep the real value")
+
+            // A store the phone never counted in: the chunk has no points to fit, only the mirrored k to apply.
+            let chunked = try await makeHarness(days: 20)
+            _ = await pass(chunked, maxDays: 10, startOffset: 5, keepUnproducedHistory: true)
+            let fromChunk = try await stepsEstimates(chunked)
+            XCTAssertFalse(fromChunk.isEmpty, "the chunk estimates its days from the mirrored coefficient")
+            let shared = fromChunk.filter { fromFit[$0.key] != nil }
+            XCTAssertFalse(shared.isEmpty)
+            for (day, value) in shared {
+                XCTAssertEqual(value, fromFit[day], "\(day): the chunk lands on the normal pass's estimate")
+            }
+            XCTAssertEqual(calibratedCoefficient, fitted, accuracy: 1e-12, "a gated pass does not refit or remirror")
+        }
+    }
+
     /// The pure rule behind it: the override wins when set; a mirror flagged manual is only the override's echo, so
     /// without the override it is no calibration; a fitted mirror is one.
     func testPersistedStepsCalibrationNeverTreatsAManualMirrorAsAFit() {

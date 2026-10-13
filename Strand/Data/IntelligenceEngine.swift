@@ -314,6 +314,14 @@ final class IntelligenceEngine: ObservableObject {
     /// A mirror still flagged `manual` while the override is off is the owner's old manual value, left there until the
     /// next normal pass refits (or clears) it. It is not a fit, so a gated pass ignores it, exactly as the normal pass
     /// (which reads the override live) no longer applies it.
+    ///
+    /// A gated pass deliberately never fits in-pass: it applies the LAST normal pass's persisted coefficient, so a day
+    /// it scores can get a slightly different estimate than an in-pass fit over its own span would have given (a
+    /// rescore chunk's span is days 31 to 59 back, which fits locally or not at all). The fit needs the 60-day
+    /// window's gravity and phone steps, which is the cost the gate exists to avoid. The normal pass's coefficient is
+    /// the one every figure on screen uses, so a gated day agrees with them; the coefficient is at most one normal
+    /// pass behind, and the normal pass's own 60-day window rewrites those days with the fresh fit the next time the
+    /// app is opened.
     nonisolated static func persistedStepsCalibration(
         manualOverride: Double?, coefficient: Double, sampleDays: Int, confidence: Double, manual: Bool
     ) -> StepsEstimateEngine.Calibration? {
