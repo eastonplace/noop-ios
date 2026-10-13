@@ -196,6 +196,40 @@ final class VerifiedSinkBootstrapTests: XCTestCase {
         XCTAssertTrue(activations.isEmpty)
     }
 
+    /// A database restored in place: the projection in memory is the old database's until the pipeline publishes for the
+    /// new one. Its token is not kept: the restored database's context is activated, the old envelope goes, and a drive
+    /// still carrying the old projection publishes without its Recovery.
+    func testAProjectionFromAnotherDatabaseGivesWayToTheSnapshot() throws {
+        let oldContext = "db-1|profile|lineage|v1"
+        let newContext = "db-2|profile|lineage|v1"
+        let old = try install(contextId: oldContext)
+        let snapshot = WidgetSnapshot(recovery: 71, bpm: nil, batteryPct: nil, bonded: false, updated: Date(),
+                                      verifiedContextId: oldContext, verifiedProjectionGeneration: 3)
+        XCTAssertEqual(VerifiedWidgetEnvelopeStore.commit(
+            token: old, generation: 3, snapshot: snapshot, defaults: defaults), .published)
+
+        XCTAssertEqual(bootstrap(context: newContext, projection: oldContext), .activated)
+        let token = try XCTUnwrap(ActiveVerifiedSinkEpochStore.activeToken(defaults: defaults))
+        XCTAssertEqual(token.contextId, newContext)
+        XCTAssertNil(VerifiedWidgetEnvelopeStore.load(defaults: defaults), "the old database's envelope is gone")
+
+        let staleDrive = LiveActivityDriveAdmission.decide(
+            recovery: 71, effort: nil, verifiedContextId: oldContext, verifiedProjectionGeneration: 3,
+            activeToken: token)
+        XCTAssertTrue(staleDrive.strippedHealth)
+        XCTAssertNil(staleDrive.recovery, "the old database's Recovery never reaches the Lock Screen")
+    }
+
+    /// Within one database the projection still comes first, whatever else in the snapshot's context moved.
+    func testAProjectionFromTheSameDatabaseStillComesFirst() throws {
+        let token = try install(contextId: "db-1|profile|lineage-A|v1")
+        XCTAssertEqual(bootstrap(context: "db-1|profile|lineage-B|v1", projection: "db-1|profile|lineage-A|v1"), .kept)
+        XCTAssertEqual(ActiveVerifiedSinkEpochStore.activeToken(defaults: defaults), token)
+        XCTAssertFalse(AppModel.isFromAnotherDatabase("db-1|a|b|c", snapshot: "db-1|x|y|z"))
+        XCTAssertTrue(AppModel.isFromAnotherDatabase("db-1|a|b|c", snapshot: "db-2|a|b|c"))
+        XCTAssertFalse(AppModel.isFromAnotherDatabase(nil, snapshot: "db-2|a|b|c"))
+    }
+
     /// The snapshot's context is used for a missing token: an install from before the token gets one at once.
     func testWithoutAProjectionTheSnapshotsContextIsActivated() throws {
         XCTAssertEqual(bootstrap(context: "context-S", projection: nil), .activated)

@@ -1021,8 +1021,20 @@ final class AppModel: ObservableObject {
     /// The snapshot's context stands in only while there is no projection yet, and only for a missing token (an existing
     /// one waits for the projection); when one arrives naming another context, the projection observer repairs again
     /// (`repairVerifiedSinkIfContextMoved`).
+    ///
+    /// A projection from another database is not the current one: a database restored in place keeps the old projection in
+    /// memory until the pipeline publishes for the new one, and keeping its token would leave the old database's values on
+    /// the widgets and admit its Recovery onto the Lock Screen. The snapshot's context is named then.
     static func verifiedSinkContextId(projection: String?, snapshot: String?) -> String? {
-        projection ?? snapshot
+        if isFromAnotherDatabase(projection, snapshot: snapshot) { return snapshot }
+        return projection ?? snapshot
+    }
+
+    /// Whether the projection's context names another database than the snapshot's. The database instance is the first
+    /// field of `TodayHealthSnapshotContext.identifier`, which the projection's context is built from.
+    static func isFromAnotherDatabase(_ projection: String?, snapshot: String?) -> Bool {
+        guard let projection, let snapshot else { return false }
+        return projection.prefix { $0 != "|" } != snapshot.prefix { $0 != "|" }
     }
 
     /// Run the repair for this model. Call only while `sourceTransitionFence` owns source mutation.
