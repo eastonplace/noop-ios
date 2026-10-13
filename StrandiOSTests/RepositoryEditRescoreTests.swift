@@ -215,14 +215,18 @@ final class RepositoryEditRescoreTests: XCTestCase {
     func testAFailedChunkKeepsTheEditedDaysQueuedForTheNextDrain() async throws {
         let calendar = try newYorkCalendar()
         let now = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 10, day: 12, hour: 15)))
-        let queue = drainQueue(now: now, calendar: calendar)
         let recorder = EditedDayAnalyzeRecorder()
+        recorder.now = now
+        let queue = EditedDayRescoreQueue(defaults: nil, debounce: .zero, now: { recorder.now },
+                                          calendar: { calendar }, isBackgrounded: { false })
         recorder.completes = false
         queue.register(recorder) { request in
             recorder.requests.append(request)
             return recorder.completes
         }
-        let edited = [Int(now.timeIntervalSince1970) - 6 * 86_400, Int(now.timeIntervalSince1970) - 86_400]
+        let edited = try [-6, -1].map {
+            Int(try XCTUnwrap(calendar.date(byAdding: .day, value: $0, to: now)).timeIntervalSince1970)
+        }
 
         queue.enqueue(edited) { days in recorder.published.append(days) }
         await queue.waitForDrain()
@@ -232,12 +236,56 @@ final class RepositoryEditRescoreTests: XCTestCase {
         XCTAssertTrue(recorder.published.isEmpty, "nothing was rescored, so nothing publishes")
 
         recorder.completes = true
+        recorder.now = now.addingTimeInterval(EditedDayRescoreQueue.retryBaseDelay + 1) // past the backoff
         queue.scheduleDrain()
         await queue.waitForDrain()
 
         XCTAssertEqual(recorder.requests.map(\.maxDays), [7, 7])
         XCTAssertTrue(queue.timestamps.isEmpty)
         XCTAssertEqual(recorder.published, [7])
+    }
+
+    /// Review finding (failing chunk retried forever): a chunk that kept failing re-ran on every live analysis
+    /// with no backoff and held back every newer edited day behind it.
+    func testAFailingRangeBacksOffThenParksSoNewerDaysStillDrain() async throws {
+        let calendar = try newYorkCalendar()
+        let start = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 10, day: 12, hour: 15)))
+        let defaults = try isolatedDefaults()
+        let recorder = EditedDayAnalyzeRecorder()
+        recorder.now = start
+        let queue = EditedDayRescoreQueue(defaults: defaults, storageKey: "queue", debounce: .zero,
+                                          now: { recorder.now }, calendar: { calendar }, isBackgrounded: { false })
+        queue.register(recorder) { request in
+            recorder.requests.append(request)
+            return request.startOffset == 0 // the old range keeps failing; recent days are fine
+        }
+        let old = Int(try XCTUnwrap(calendar.date(byAdding: .day, value: -39, to: start)).timeIntervalSince1970)
+        let recent = Int(try XCTUnwrap(calendar.date(byAdding: .day, value: -2, to: start)).timeIntervalSince1970)
+
+        queue.enqueue([old, recent])
+        await queue.waitForDrain()
+        queue.scheduleDrain() // a live analysis inside the 2-minute backoff
+        await queue.waitForDrain()
+        XCTAssertEqual(recorder.requests.count, 1, "retried inside the backoff")
+
+        recorder.now = start.addingTimeInterval(121)
+        queue.scheduleDrain()
+        await queue.waitForDrain()
+        recorder.now = start.addingTimeInterval(121 + 241)
+        queue.scheduleDrain()
+        await queue.waitForDrain()
+        XCTAssertEqual(recorder.requests.map(\.startOffset), [10, 10, 10], "three tries of the old chunk")
+        XCTAssertEqual(queue.parkedTimestamps, [old])
+
+        queue.scheduleDrain()
+        await queue.waitForDrain()
+        XCTAssertEqual(recorder.requests.last?.maxDays, 3, "the newer day drains past the parked range")
+        XCTAssertEqual(queue.timestamps, [old])
+        let relaunched = EditedDayRescoreQueue(defaults: defaults, storageKey: "queue", isBackgrounded: { false })
+        XCTAssertEqual(relaunched.parkedTimestamps, [old], "the parked state persists")
+
+        queue.enqueue([old]) // a new edit of that night un-parks it
+        XCTAssertTrue(queue.parkedTimestamps.isEmpty)
     }
 
     /// Review finding (re-enqueue erased): the same timestamp enqueued again while its chunk ran (an undo, a
@@ -451,4 +499,5 @@ private final class EditedDayAnalyzeRecorder {
     var published: [Int] = []
     var completes = true
     var backgrounded = false
+    var now = Date()
 }

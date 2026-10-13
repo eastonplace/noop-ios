@@ -131,6 +131,10 @@ extension IntelligenceAnalysisRequest {
 /// version it took, so the same timestamp enqueued again while its chunk runs (an undo, a re-edit of the same
 /// night, a re-saved workout) stays queued: the running pass read its inputs before that edit.
 ///
+/// A chunk that fails is not retried on every live analysis. Its entries back off (2 min, then 4 min) and
+/// are parked after `maximumFailures`, so newer edited days drain past a range that keeps failing. Parked
+/// entries stay persisted and come back when the same timestamp is enqueued again.
+///
 /// The chunks don't publish one by one: the engine's closing refresh is current-day only, and the DL-01 splice
 /// keeps older cached days, so a rescored older night never reached Home. When the drain stops after at least
 /// one chunk it publishes one refresh covering the rescored range through the closure Repository enqueued with.
@@ -143,10 +147,24 @@ final class EditedDayRescoreQueue {
     /// Republishes the dashboard caches over the last `days` days (oldest rescored day through today).
     typealias Publish = @MainActor (_ days: Int) async -> Void
 
-    /// Timestamp → version of its latest enqueue.
-    private var entries: [Int: UInt64]
+    static let maximumFailures = 3
+    static let retryBaseDelay: TimeInterval = 120
+    static let retryMaximumDelay: TimeInterval = 1_800
+
+    private struct Entry: Equatable {
+        /// Version of the latest enqueue of this timestamp.
+        var version: UInt64
+        var failures = 0
+        var parked = false
+    }
+
+    private var entries: [Int: Entry]
     private var lastVersion: UInt64
+    /// No drain step runs before this, after a failed chunk.
+    private var retryNotBefore: Date?
     var timestamps: Set<Int> { Set(entries.keys) }
+    var parkedTimestamps: Set<Int> { Set(entries.filter { $0.value.parked }.keys) }
+    private var drainable: [Int: Entry] { entries.filter { !$0.value.parked } }
     private let defaults: UserDefaults?
     private let storageKey: String
     private let debounce: Duration
@@ -201,6 +219,7 @@ final class EditedDayRescoreQueue {
         let stored = Self.load(from: defaults, key: storageKey)
         self.entries = stored.entries
         self.lastVersion = stored.lastVersion
+        self.retryNotBefore = stored.retryNotBefore
         self.now = now
         self.calendar = calendar
         self.isBackgrounded = isBackgrounded
@@ -221,7 +240,7 @@ final class EditedDayRescoreQueue {
         guard !valid.isEmpty else { return }
         for timestamp in valid {
             lastVersion &+= 1
-            entries[timestamp] = lastVersion
+            entries[timestamp] = Entry(version: lastVersion) // a new edit also un-parks the timestamp
         }
         if let publish { self.publish = publish }
         persist()
@@ -233,6 +252,7 @@ final class EditedDayRescoreQueue {
         cancel()
         let taken = timestamps
         entries.removeAll()
+        retryNotBefore = nil
         persist()
         return taken
     }
@@ -261,7 +281,7 @@ final class EditedDayRescoreQueue {
             rerunRequested = true
             return
         }
-        guard !timestamps.isEmpty, analyze != nil else { return }
+        guard !drainable.isEmpty, analyze != nil else { return }
         drainGeneration &+= 1
         rerunRequested = false
         let generation = drainGeneration
@@ -273,7 +293,7 @@ final class EditedDayRescoreQueue {
             self.drainTask = nil
             // An edit that landed during the closing publish found this drain still in flight. Never rerun a
             // drain that stopped (cancelled, backgrounded or failed): that would retry a failing chunk in a loop.
-            if self.rerunRequested, end == .drained, !Task.isCancelled, !self.timestamps.isEmpty {
+            if self.rerunRequested, end == .drained, !Task.isCancelled, !self.drainable.isEmpty {
                 self.scheduleDrain(after: self.debounce)
             }
         }
@@ -292,42 +312,73 @@ final class EditedDayRescoreQueue {
         struct Entry: Codable {
             var timestamp: Int
             var version: UInt64
+            var failures: Int?
+            var parked: Bool?
         }
         var lastVersion: UInt64
         var entries: [Entry]
+        var retryNotBefore: TimeInterval?
     }
 
     private static func load(from defaults: UserDefaults?, key: String)
-        -> (entries: [Int: UInt64], lastVersion: UInt64) {
-        guard let defaults else { return ([:], 0) }
+        -> (entries: [Int: Entry], lastVersion: UInt64, retryNotBefore: Date?) {
+        guard let defaults else { return ([:], 0, nil) }
         if let data = defaults.data(forKey: key),
            let stored = try? JSONDecoder().decode(Stored.self, from: data) {
-            var entries: [Int: UInt64] = [:]
-            for entry in stored.entries where entry.timestamp > 0 {
-                entries[entry.timestamp] = max(entries[entry.timestamp] ?? 0, entry.version)
+            var entries: [Int: Entry] = [:]
+            for entry in stored.entries where entry.timestamp > 0 && entry.version > (entries[entry.timestamp]?.version ?? 0) {
+                entries[entry.timestamp] = Entry(
+                    version: entry.version, failures: entry.failures ?? 0, parked: entry.parked ?? false)
             }
-            return (entries, max(stored.lastVersion, entries.values.max() ?? 0))
+            return (entries, max(stored.lastVersion, entries.values.map(\.version).max() ?? 0),
+                    stored.retryNotBefore.map { Date(timeIntervalSince1970: $0) })
         }
         let legacy = (defaults.array(forKey: key) as? [Int] ?? []).filter { $0 > 0 }
-        var entries: [Int: UInt64] = [:]
-        for (index, timestamp) in Set(legacy).sorted().enumerated() { entries[timestamp] = UInt64(index + 1) }
-        return (entries, UInt64(entries.count))
+        var entries: [Int: Entry] = [:]
+        for (index, timestamp) in Set(legacy).sorted().enumerated() {
+            entries[timestamp] = Entry(version: UInt64(index + 1))
+        }
+        return (entries, UInt64(entries.count), nil)
     }
 
     private func persist() {
         guard let defaults else { return }
         let stored = Stored(
             lastVersion: lastVersion,
-            entries: entries.sorted { $0.key < $1.key }.map { Stored.Entry(timestamp: $0.key, version: $0.value) })
+            entries: entries.sorted { $0.key < $1.key }.map {
+                Stored.Entry(timestamp: $0.key, version: $0.value.version,
+                             failures: $0.value.failures, parked: $0.value.parked)
+            },
+            retryNotBefore: retryNotBefore?.timeIntervalSince1970)
         guard let data = try? JSONEncoder().encode(stored) else { return }
         defaults.set(data, forKey: storageKey)
     }
 
     /// Drops the entries a finished step took, unless they were enqueued again since.
-    private func remove(taken: [Int: UInt64]) {
-        for (timestamp, version) in taken where (entries[timestamp] ?? .max) <= version {
+    private func remove(taken: [Int: Entry]) {
+        for (timestamp, entry) in taken where (entries[timestamp]?.version ?? .max) <= entry.version {
             entries.removeValue(forKey: timestamp)
         }
+    }
+
+    /// A chunk didn't complete: its entries (those before `chunkEnd`, or all of them when the chunk reached
+    /// today) back off, and park after `maximumFailures`. Entries enqueued again since are left alone.
+    private func recordFailure(of taken: [Int: Entry], before chunkEnd: Int?) {
+        var backoffFailures = 0
+        for (timestamp, entry) in taken where chunkEnd.map({ timestamp < $0 }) ?? true {
+            guard var current = entries[timestamp], current.version == entry.version else { continue }
+            current.failures += 1
+            current.parked = current.failures >= Self.maximumFailures
+            entries[timestamp] = current
+            if !current.parked { backoffFailures = max(backoffFailures, current.failures) }
+        }
+        if backoffFailures > 0 {
+            let delay = min(Self.retryMaximumDelay, Self.retryBaseDelay * pow(2, Double(backoffFailures - 1)))
+            retryNotBefore = now().addingTimeInterval(delay)
+        } else {
+            retryNotBefore = nil // the failing range parked; newer days may drain at once
+        }
+        persist()
     }
 
     /// Test/diagnostic: waits for the most recent drain to stop, including one that was just cancelled.
@@ -339,14 +390,16 @@ final class EditedDayRescoreQueue {
         var rescoredSpan = 0
         var end = DrainEnd.stopped
         while generation == drainGeneration, let analyze, analyzer != nil {
-            if timestamps.isEmpty {
+            let taken = drainable
+            if taken.isEmpty {
                 end = .drained
                 break
             }
             if Task.isCancelled || isBackgrounded() { break }
-            let taken = entries
+            if let retryNotBefore, now() < retryNotBefore { break }
+            let calendar = calendar()
             guard let chunk = IntelligenceAnalysisRequest.editedDayChunk(
-                containingTimestamps: taken.keys, chunkDays: Self.chunkDays, now: now(), calendar: calendar()) else {
+                containingTimestamps: taken.keys, chunkDays: Self.chunkDays, now: now(), calendar: calendar) else {
                 remove(taken: taken)
                 persist()
                 continue
@@ -354,11 +407,22 @@ final class EditedDayRescoreQueue {
             let request = IntelligenceAnalysisRequest(
                 maxDays: chunk.request.maxDays, startOffset: chunk.request.startOffset, force: true,
                 refreshRepository: publish == nil)
-            guard await analyze(request) else { break }
+            guard await analyze(request) else {
+                // A cancelled chunk (BG expiry) isn't a failure of the range.
+                if !Task.isCancelled {
+                    let chunkEnd = chunk.remainderTimestamp.map {
+                        Int(calendar.startOfDay(for: Date(timeIntervalSince1970: TimeInterval($0)))
+                            .timeIntervalSince1970)
+                    }
+                    recordFailure(of: taken, before: chunkEnd)
+                }
+                break
+            }
             remove(taken: taken)
+            retryNotBefore = nil
             if let next = chunk.remainderTimestamp {
                 lastVersion &+= 1
-                entries[next] = lastVersion
+                entries[next] = Entry(version: lastVersion)
             }
             persist()
             rescoredSpan = max(rescoredSpan, request.endOffsetExclusive)
