@@ -237,6 +237,50 @@ final class HealthDailyPickTests: XCTestCase {
         XCTAssertEqual(allMetrics, health)
     }
 
+    // MARK: All metrics (Explore) Calories row
+
+    /// The All metrics "Calories" row is the Health row's number for every day Health has one: a day the strap covered,
+    /// a day only Apple Health has, a day the strap barely wore, and a day Apple has active energy only. Imported
+    /// export history that has no daily row is kept on top. "Active Energy" stays its own active-only Apple row.
+    func testTheAllMetricsCaloriesRowEqualsTheHealthRowDayForDay() throws {
+        let covered = "2026-10-09", appleOnly = "2026-10-10", partialStrap = "2026-10-11", activeOnly = "2026-10-12"
+        let importOnly = "2026-10-05"
+        let dailyRows = [strapDay(covered, total: 2_400), strapDay(partialStrap, total: 1_780)]
+        let phone = [phoneDay(covered, active: 900, basal: 1_750), phoneDay(appleOnly, active: 500, basal: 1_700),
+                     phoneDay(partialStrap, active: 900, basal: 1_750), phoneDay(activeOnly, active: 450, basal: nil)]
+        let ctx = context(worn: [covered: coveredStrapDay, partialStrap: 120], bmr: 1_700)
+
+        let health = HealthDailyPick.caloriesByDay(strap: dailyRows, phone: phone, context: ctx)
+        let allMetrics = Repository.exploreCaloriesSeries(
+            layeredStrapKcal: [covered: 2_400, partialStrap: 1_780, importOnly: 2_300], dailyRows: dailyRows, apple: phone,
+            context: ctx, from: "0000-01-01", to: "9999-12-31")
+
+        // The three cases the owner named, plus a day with Apple's active energy only: the total, never active alone.
+        func value(_ day: String, in rows: [(day: String, value: Double)]) -> Double? { rows.first { $0.day == day }?.value }
+        XCTAssertEqual(value(covered, in: allMetrics), 2_400)        // the strap covered the day: its total
+        XCTAssertEqual(value(appleOnly, in: allMetrics), 2_200)      // Apple only: active + resting
+        XCTAssertEqual(value(partialStrap, in: allMetrics), 2_650)   // 2 min of strap: Apple's total wins
+        XCTAssertEqual(value(activeOnly, in: allMetrics), 2_150)     // 450 active + the profile's 1,700 resting
+        for day in health {
+            XCTAssertEqual(value(day.day, in: allMetrics), day.value, day.day)
+        }
+        // Imported WHOOP export history with no daily row stays in the series.
+        XCTAssertEqual(value(importOnly, in: allMetrics), 2_300)
+        XCTAssertEqual(allMetrics.map(\.day), allMetrics.map(\.day).sorted())
+
+        let ids = Set(MetricCatalog.all.map(\.id))
+        XCTAssertTrue(ids.contains("my-whoop:energy_kcal"), "the Calories row")
+        XCTAssertTrue(ids.contains("apple-health:active_kcal"), "Active Energy is its own row")
+    }
+
+    /// A window narrower than the history leaves out the days before it, as every other Explore series does.
+    func testTheAllMetricsCaloriesRowHonoursTheWindow() {
+        let rows = Repository.exploreCaloriesSeries(
+            layeredStrapKcal: [:], dailyRows: [strapDay("2026-10-01", total: 2_000), strapDay("2026-10-09", total: 2_100)],
+            apple: [], context: context(), from: "2026-10-05", to: "2026-10-10")
+        XCTAssertEqual(rows.map(\.day), ["2026-10-09"])
+    }
+
     // MARK: Steps
 
     func testStepsTakeTheStrapThenThePhoneThenTheEstimate() {

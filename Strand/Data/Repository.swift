@@ -4318,7 +4318,32 @@ final class Repository: ObservableObject {
             for p in (try? await store.metricSeries(deviceId: id, key: key, from: from, to: to)) ?? [] { byDay[p.day] = p.value }
         }
 
+        // The Calories row is the day's TOTAL energy by the one calorie rule, the same number the Health Calories
+        // row and Today's card show, not the strap's per-source total. "Active Energy" (apple-health) stays its own
+        // active-only row.
+        if key == "energy_kcal" {
+            let apple = await appleDailyRows()
+            return Self.exploreCaloriesSeries(
+                layeredStrapKcal: byDay, dailyRows: self.days, apple: apple,
+                context: HealthDailyPick.calorieContext(repo: self), from: from, to: to)
+        }
         return byDay.sorted { $0.key < $1.key }.map { (day: $0.key, value: $0.value) }
+    }
+
+    /// The Explore "Calories" series (`energy_kcal`, strap source): each day's TOTAL energy by `DailyCalories`'s one
+    /// rule, through the same function the Health Calories row and Today's card read (`HealthDailyPick`). The strap's
+    /// whole-day total is the daily row's (what those screens read), and only for a day the daily row has none does
+    /// the layered series value (an imported WHOOP export's calories, a computed series point) stand in, so imported
+    /// history is kept. Days Apple Health covers without a strap total appear too, as they do on Health.
+    nonisolated static func exploreCaloriesSeries(
+        layeredStrapKcal: [String: Double], dailyRows: [DailyMetric], apple: [AppleDaily],
+        context: HealthDailyPick.CalorieContext, from: String, to: String
+    ) -> [(day: String, value: Double)] {
+        var strapKcalByDay = layeredStrapKcal
+        for row in dailyRows { if let kcal = row.activeKcalEst { strapKcalByDay[row.day] = kcal } }
+        return HealthDailyPick.caloriesByDay(strapKcalByDay: strapKcalByDay, phone: apple, context: context)
+            .filter { $0.day >= from && $0.day <= to }
+            .map { (day: $0.day, value: $0.value) }
     }
 
     /// The merged DailyMetric column backing an Explore metric key, for the days the imported/computed

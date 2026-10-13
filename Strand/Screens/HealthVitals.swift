@@ -545,11 +545,21 @@ enum HealthDailyPick {
     static func caloriesByDay(
         strap: [DailyMetric], phone: [AppleDaily], context: CalorieContext = CalorieContext()
     ) -> [CaloriesDay] {
-        let strapByDay = Dictionary(strap.map { ($0.day, $0) }, uniquingKeysWith: { _, last in last })
+        caloriesByDay(
+            strapKcalByDay: Dictionary(strap.map { ($0.day, $0.activeKcalEst) }, uniquingKeysWith: { _, last in last })
+                .compactMapValues { $0 },
+            phone: phone, context: context)
+    }
+
+    /// The same, from the strap's whole-day totals by day (a day with no strap total is simply absent). All metrics
+    /// reads this too, so its Calories row is this series.
+    static func caloriesByDay(
+        strapKcalByDay: [String: Double], phone: [AppleDaily], context: CalorieContext = CalorieContext()
+    ) -> [CaloriesDay] {
         let phoneByDay = Dictionary(phone.map { ($0.day, $0) }, uniquingKeysWith: { _, last in last })
-        return Set(strapByDay.keys).union(phoneByDay.keys).sorted().compactMap { day in
+        return Set(strapKcalByDay.keys).union(phoneByDay.keys).sorted().compactMap { day in
             calories(
-                day: day, strapKcal: strapByDay[day]?.activeKcalEst,
+                day: day, strapKcal: strapKcalByDay[day],
                 phoneActiveKcal: phoneByDay[day]?.activeKcal, phoneBasalKcal: phoneByDay[day]?.basalKcal,
                 context: context
             ).map { CaloriesDay(day: day, value: $0.value, isStrapEstimate: $0.isStrapEstimate) }
