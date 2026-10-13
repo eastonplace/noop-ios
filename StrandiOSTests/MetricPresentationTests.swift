@@ -219,6 +219,36 @@ final class MetricPresentationTests: XCTestCase {
         XCTAssertEqual(vo2.unit, "")
     }
 
+    /// A scale's denominator is part of the number, not a word after it: "10.5/21" with no space, where "62 bpm" keeps its space;
+    /// a span names the denominator once.
+    func testADenominatorUnitSitsRightAfterItsNumberAndASpanDropsIt() throws {
+        let strain = try metric("strain", source: "my-whoop")
+        let text = strain.format(50, system: .metric, temperature: .celsius, effortScale: .whoop)
+        XCTAssertTrue(text.hasSuffix("/21"), text)
+        XCTAssertFalse(text.contains(" "), text)
+        let hundred = strain.format(50, system: .metric, temperature: .celsius, effortScale: .hundred)
+        XCTAssertTrue(hundred.hasSuffix("/100"), hundred)
+        XCTAssertFalse(hundred.contains(" "), hundred)
+        XCTAssertFalse(strain.formatDelta(10, system: .metric, temperature: .celsius, effortScale: .whoop).contains(" "))
+        // The same for every other scale's denominator.
+        XCTAssertEqual(try metric("mood", source: "noop-mood").format(4, system: .metric, temperature: .celsius, effortScale: .hundred), "4/5")
+        XCTAssertEqual(try metric("stress", source: "my-whoop").format(1.5, system: .metric, temperature: .celsius, effortScale: .hundred), "1.5/3")
+        // A word-like unit still has its space.
+        XCTAssertEqual(try metric("rhr").format(61.4, system: .metric, temperature: .celsius, effortScale: .hundred), "61 bpm")
+        XCTAssertEqual(try metric("recovery").format(88, system: .metric, temperature: .celsius, effortScale: .hundred), "88 %")
+        // The number and unit still split cleanly.
+        let parts = strain.displayParts(50, system: .metric, temperature: .celsius, effortScale: .whoop)
+        XCTAssertEqual(parts.unit, "/21")
+        XCTAssertFalse(parts.number.contains("/"))
+        XCTAssertFalse(parts.number.contains(" "))
+
+        let span = strain.rangeText(20, 90, system: .metric, temperature: .celsius, effortScale: .whoop)
+        XCTAssertFalse(span.contains("/"), span)
+        XCTAssertEqual(span.components(separatedBy: " \u{2013} ").count, 2, span)
+        XCTAssertEqual(
+            try metric("recovery").rangeText(8, 75, system: .metric, temperature: .celsius, effortScale: .hundred), "8 % \u{2013} 75 %")
+    }
+
     // MARK: Day keys
 
     func testADayKeyIsAGregorianLocalDayWhateverCalendarTheDeviceShows() throws {

@@ -106,6 +106,17 @@ extension MetricDescriptor {
         }
     }
 
+    /// A span as "low \u{2013} high", each end with its unit ("8 % \u{2013} 75 %"). A scale's denominator is named once, on the value the
+    /// span sits under, so "/21" is left off both ends ("4.1 \u{2013} 20.7").
+    func rangeText(_ low: Double, _ high: Double, system: UnitSystem, temperature: TemperatureUnit,
+                   effortScale: EffortScale) -> String {
+        let lo = displayParts(low, system: system, temperature: temperature, effortScale: effortScale)
+        let hi = displayParts(high, system: system, temperature: temperature, effortScale: effortScale)
+        if lo.unit.hasPrefix("/") { return "\(lo.number) \u{2013} \(hi.number)" }
+        return "\(format(low, system: system, temperature: temperature, effortScale: effortScale)) \u{2013} "
+            + format(high, system: system, temperature: temperature, effortScale: effortScale)
+    }
+
     /// A stored value as the person reads it, split so the unit can be set apart and muted: "62" and "bpm", "74.2" and
     /// "kg" (or "lb" in pounds), "5.4" and "/21". A metric with no unit returns an empty one.
     func displayParts(_ value: Double, system: UnitSystem, temperature: TemperatureUnit,

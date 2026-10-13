@@ -75,6 +75,10 @@ struct CompareView: View {
         metric.format(value, system: unitSystem, temperature: temperatureUnit, effortScale: effortScale)
     }
 
+    private func formatRange(_ metric: MetricDescriptor, _ low: Double, _ high: Double) -> String {
+        metric.rangeText(low, high, system: unitSystem, temperature: temperatureUnit, effortScale: effortScale)
+    }
+
     /// Trends-compatible categorical series colours. Recovery and Sleep keep their canonical blue and slate; further
     /// series take the next colour no other line has.
     private static let seriesPalette: [Color] = [
@@ -421,7 +425,7 @@ struct CompareView: View {
             trailing: .text(String(localized: "\(shown.count) series"))
         ) {
             VStack(alignment: .leading, spacing: NoopMetrics.space3) {
-                CompareOverlayBlock(shown: shown, key: overlayKey(shown), format: format)
+                CompareOverlayBlock(shown: shown, key: overlayKey(shown), format: format, formatRange: formatRange)
                 ExploreRangeControl(selection: $range)
                 Text(caption.text)
                     .font(StrandFont.micro)
@@ -645,6 +649,8 @@ private struct CompareOverlayBlock: View {
     /// rebuilt only when it changes.
     let key: String
     let format: (MetricDescriptor, Double) -> String
+    /// A metric's span as "low \u{2013} high" (a /21 scale names its denominator once, on the value above).
+    let formatRange: (MetricDescriptor, Double, Double) -> String
 
     @State private var scrubDay: Date?
     @State private var cache = ModelCache()
@@ -671,7 +677,7 @@ private struct CompareOverlayBlock: View {
                         style: CompareLineStyle.forSlot(entry.slot),
                         title: entry.metric.title,
                         value: readoutValue(entry),
-                        range: "\(format(entry.metric, entry.realMin)) \u{2013} \(format(entry.metric, entry.realMax))")
+                        range: formatRange(entry.metric, entry.realMin, entry.realMax))
                 }
             }
             CompareOverlayChart(
