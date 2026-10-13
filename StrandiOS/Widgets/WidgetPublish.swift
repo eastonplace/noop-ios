@@ -138,8 +138,8 @@ extension WidgetSnapshot {
         }
         let olderGenerationDay = await publishedLogicalDay(
             model: model, defaults: defaults, token: token, olderThan: verifiedProjection.generation)
-        let steps = await todaySteps(repository: model.repo, bundle: verifiedBundle)
         let now = Date()
+        let steps = await todaySteps(repository: model.repo, bundle: verifiedBundle, now: now)
         // This is the durable acknowledgement path. It contains only the verified core and in-memory Today
         // fields. HRV history, raw stress scans, and other enrichment run after the caller receives success.
         // What an earlier enrichment already added is carried over, so this commit cannot take it away.
@@ -152,6 +152,7 @@ extension WidgetSnapshot {
                 batteryPct: model.live.batteryPct,
                 bonded: WidgetCorePublication.widgetBonded(model.live),
                 steps: steps,
+                currentDayStrain: todayStrain(repository: model.repo, now: now),
                 olderGenerationDay: olderGenerationDay),
             now: now)
         let commitKey = WidgetEnrichmentKey(
@@ -178,23 +179,37 @@ extension WidgetSnapshot {
         }
     }
 
-    /// The Steps figure Today shows for the bundle's day. The core carries only the strap's count, and a
-    /// HealthKit step sync never mints a generation, so Today's other two sources are read here, at delivery,
-    /// through the same Repository reads Today loads them with and resolved by the same rule (`TodaySteps`):
-    /// the strap's count, else Apple Health's count for the day, else the `steps_est` estimate.
-    /// The reads cover the last few days only, enough for the bundle's own day; a failed read leaves the core's
-    /// count, never a number from another day.
+    /// The Steps figure Today shows right now. The core carries only the strap's count, and a HealthKit step sync
+    /// never mints a generation, so Today's other two sources are read here, at delivery, through the same
+    /// Repository reads Today loads them with and resolved by the same rule (`TodaySteps`): the strap's count,
+    /// else Apple Health's count for the day, else the `steps_est` estimate.
+    ///
+    /// The day is the current logical day, which is the one Today shows. The strap's count is used only when the
+    /// core is that day's (`WidgetCoreDay`); a core from an earlier day has yesterday's count, and Apple Health's
+    /// count for yesterday is no better, so neither is read for any day but today's. The reads cover the last few
+    /// days only; a failed read leaves nothing to show, never a number from another day.
     @MainActor
     static func todaySteps(
         repository: Repository,
         bundle: VerifiedExternalProjectionBundle,
-        now: Date = Date()
+        now: Date = Date(),
+        calendar: Calendar = .current
     ) async -> Int? {
-        let day = bundle.widgetCore.logicalDay.key
+        let day = WidgetCoreDay.currentKey(now: now, calendar: calendar)
+        let strap = WidgetCoreDay.isCurrent(bundle.widgetCore.logicalDay, now: now, calendar: calendar)
+            ? bundle.widgetCore.steps : nil
         let phone = await repository.appleDailyRows(days: 3, now: now).last(where: { $0.day == day })?.steps
         let estimate = await repository.exploreSeries(key: "steps_est", source: "my-whoop", days: 3, now: now)
             .last(where: { $0.day == day }).map { Int($0.value.rounded()) }
-        return TodaySteps(daily: bundle.widgetCore.steps, apple: phone, estimate: estimate).value
+        return TodaySteps(daily: strap, apple: phone, estimate: estimate).value
+    }
+
+    /// The stored-scale Strain Today shows for the current logical day, or nil when there is none.
+    @MainActor
+    static func todayStrain(repository: Repository, now: Date, calendar: Calendar = .current) -> Double? {
+        let key = WidgetCoreDay.currentKey(now: now, calendar: calendar)
+        guard let day = try? CivilDay(key: key) else { return nil }
+        return liveStoredStrain(repository.canonicalStrain(for: key), day: day)
     }
 
     /// The logical day of the generation the App Group envelope currently holds, when that generation is older
@@ -297,20 +312,8 @@ extension WidgetSnapshot {
             hrvSeries = []
         }
         let hrvProjection = widgetHRVProjection(from: hrvSeries, anchorDay: anchorDay)
-        let stress: (hours: [Double?]?, summary: String?)
-        if let store = await model.repo.storeHandle(),
-           let recordedTimeZoneIdentifier = bundle.widgetCore.recordedTimeZoneIdentifier {
-            stress = (try? await verifiedDashboardStress(
-                store: store,
-                sourceIds: bundle.verifiedEnrichmentSourceIds,
-                anchorDay: anchorDay,
-                timeZoneIdentifier: recordedTimeZoneIdentifier
-            )) ?? (nil, nil)
-        } else {
-            // Legacy core rows did not persist the day-defining time zone. Omit optional stress instead
-            // of mixing their verified headline with a wall-clock day or mutable active-source union.
-            stress = (nil, nil)
-        }
+        let stress = await enrichmentStress(
+            store: await model.repo.storeHandle(), bundle: bundle, now: Date())
         guard let defaults = UserDefaults(suiteName: WidgetSnapshot.suiteName),
               var enriched = verifiedEnrichmentBase(
                 defaults: defaults,
@@ -334,6 +337,28 @@ extension WidgetSnapshot {
         WidgetLivePublishGate.notePublished(enriched, at: Date())
         WidgetTimelineReloads.afterVerifiedCommit(result, key: WidgetEnrichmentKey(
             epoch: token.epoch, contextId: projection.contextId, generation: projection.generation))
+    }
+
+    /// The stress strip and summary the enrichment writes for the bundle's day. A day that is behind the current
+    /// logical day gets none: its strip is yesterday's, and computing it again would only restamp it as today's.
+    /// Legacy core rows did not persist the day-defining time zone either; optional stress is then omitted
+    /// instead of mixing their verified headline with a wall-clock day or mutable active-source union.
+    @MainActor
+    static func enrichmentStress(
+        store: WhoopStore?,
+        bundle: VerifiedExternalProjectionBundle,
+        now: Date,
+        calendar: Calendar = .current
+    ) async -> (hours: [Double?]?, summary: String?) {
+        guard WidgetCoreDay.isCurrent(bundle.widgetCore.logicalDay, now: now, calendar: calendar),
+              let store,
+              let recordedTimeZoneIdentifier = bundle.widgetCore.recordedTimeZoneIdentifier else { return (nil, nil) }
+        return (try? await verifiedDashboardStress(
+            store: store,
+            sourceIds: bundle.verifiedEnrichmentSourceIds,
+            anchorDay: bundle.widgetCore.logicalDay,
+            timeZoneIdentifier: recordedTimeZoneIdentifier
+        )) ?? (nil, nil)
     }
 
     /// Read exact immutable namespaces. Repository's canonical `my-whoop`
@@ -425,8 +450,9 @@ extension WidgetSnapshot {
             batteryPct: model.live.batteryPct,
             bonded: WidgetCorePublication.widgetBonded(model.live),
             workoutSparkline: model.activeWorkout.map { Array($0.samples.suffix(48).map(\.bpm)) },
-            // The Strain Today shows. Without a value for this generation's day the core's own Strain stands.
-            todayStrain: model.repo.canonicalStrain(for: verified.logicalDay.key),
+            // The Strain Today shows for the current logical day. With none, the core's own Strain stands only
+            // while the core is that day's.
+            todayStrain: { model.repo.canonicalStrain(for: $0) },
             now: now)
         guard WidgetLivePublishGate.shouldPublish(previous: previous, next: next, now: now) else { return }
         guard ActiveVerifiedSinkEpochStore.commitLiveOverlayIfCurrent(

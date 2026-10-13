@@ -3,6 +3,27 @@ import Foundation
 import NoopPhase34Core
 import WhoopStore
 
+/// Whether a verified core describes the day Today is showing.
+///
+/// A generation is only replaced when a strap pass mints a newer one, so after the 04:00 rollover the newest core
+/// can still be yesterday's, and it is re-committed (activation, the day-boundary handler, a HealthKit drain)
+/// with a fresh timestamp. Its day-scoped figures (Strain, Steps, the Stress strip) are then yesterday's, and
+/// the widget must not present them as today's: each is either resolved for the current logical day, exactly as
+/// Today resolves it, or left out. The per-night figures (Recovery, Sleep, Resting HR, HRV) are not day-scoped;
+/// they carry the last scored night inside `CarriedVitalWindow`, as Today does.
+@MainActor
+enum WidgetCoreDay {
+    /// `yyyy-MM-dd` of the logical day Today is on at `now`.
+    static func currentKey(now: Date, calendar: Calendar = .current) -> String {
+        Repository.logicalDayKey(now, calendar: calendar)
+    }
+
+    /// True when the core's own day is the logical day at `now`.
+    static func isCurrent(_ coreDay: CivilDay, now: Date, calendar: Calendar = .current) -> Bool {
+        coreDay.key == currentKey(now: now, calendar: calendar)
+    }
+}
+
 /// O(1) durable Widget payload. History-series and stress enrichment are intentionally absent from this
 /// helper and run only after the outbox caller has received its core acknowledgement.
 @MainActor
@@ -14,8 +35,11 @@ enum WidgetCorePublication {
         var bpm: Int?
         var batteryPct: Double?
         var bonded: Bool
-        /// The Steps figure Today shows for the day (`WidgetSnapshot.todaySteps`); nil keeps the core's own count.
+        /// The Steps figure Today shows for the current logical day (`WidgetSnapshot.todaySteps`).
         var steps: Int?
+        /// The stored-scale Strain Today shows for the current logical day. It stands in for the core's own
+        /// Strain only when the core is from an earlier day.
+        var currentDayStrain: Double? = nil
         /// The day of the generation the envelope being replaced holds, when that is an older generation.
         var olderGenerationDay: (generation: Int64, day: CivilDay)?
     }
@@ -28,7 +52,8 @@ enum WidgetCorePublication {
         token: VerifiedSinkToken,
         defaults: UserDefaults,
         delivery: CoreDelivery,
-        now: Date
+        now: Date,
+        calendar: Calendar = .current
     ) -> (snapshot: WidgetSnapshot, result: VerifiedProjectionGenerationWriteResult) {
         let generation = bundle.projection.generation
         let snapshot = carryingEnrichment(
@@ -38,12 +63,15 @@ enum WidgetCorePublication {
                 batteryPct: delivery.batteryPct,
                 bonded: delivery.bonded,
                 now: now,
-                steps: delivery.steps),
+                calendar: calendar,
+                steps: delivery.steps,
+                currentDayStrain: delivery.currentDayStrain),
             from: VerifiedWidgetEnvelopeStore.rawActiveEnvelope(defaults: defaults),
             token: token,
             generation: generation,
             logicalDay: bundle.widgetCore.logicalDay,
-            olderGenerationDay: delivery.olderGenerationDay)
+            olderGenerationDay: delivery.olderGenerationDay,
+            dayIsCurrent: WidgetCoreDay.isCurrent(bundle.widgetCore.logicalDay, now: now, calendar: calendar))
         let result = VerifiedWidgetEnvelopeStore.commit(
             token: token,
             generation: generation,
@@ -54,7 +82,9 @@ enum WidgetCorePublication {
 
     /// The live lane's two outputs for one tick: the in-memory snapshot the publish gate compares, and the
     /// overlay that is persisted over the verified core. `coreStrain` is the verified core's own Strain
-    /// (display scale), `todayStrain` what Today resolves for the generation's day.
+    /// (display scale). `todayStrain` is asked for the Strain Today resolves for a day: the current logical day,
+    /// which is the generation's own day unless the core is behind, and then the core's older Strain is not the
+    /// figure to show. With no Strain for that day the overlay carries none.
     static func assembleLive(
         previous: WidgetSnapshot?,
         base: WidgetSnapshot,
@@ -65,10 +95,14 @@ enum WidgetCorePublication {
         batteryPct: Double?,
         bonded: Bool,
         workoutSparkline: [Int]?,
-        todayStrain: ResolvedStrain?,
-        now: Date
+        todayStrain: (String) -> ResolvedStrain?,
+        now: Date,
+        calendar: Calendar = .current
     ) -> (next: WidgetSnapshot, overlay: WidgetLiveOverlay) {
-        let liveStrain = WidgetSnapshot.liveStoredStrain(todayStrain, day: verified.logicalDay)
+        let currentKey = WidgetCoreDay.currentKey(now: now, calendar: calendar)
+        let liveStrain = (try? CivilDay(key: currentKey)).flatMap {
+            WidgetSnapshot.liveStoredStrain(todayStrain(currentKey), day: $0)
+        }
         var next = previous ?? base
         next.bpm = bpm
         next.batteryPct = batteryPct.map { Int($0.rounded()) }
@@ -105,6 +139,8 @@ enum WidgetCorePublication {
     /// - a newer generation carries only for the same logical day, because enrichment is that day's HRV and
     ///   hourly stress. `olderGenerationDay` is the day the replaced generation described, read from its
     ///   immutable bundle; without it nothing crosses a generation;
+    /// - the hourly stress and its summary are the core's day's, so they carry only while that day is the current
+    ///   logical day (`dayIsCurrent`); a core that is behind has no strip, not yesterday's;
     /// - an envelope of another epoch or context carries nothing.
     /// Enrichment for the new generation still runs and replaces what was carried with fresh values.
     static func carryingEnrichment(
@@ -113,7 +149,8 @@ enum WidgetCorePublication {
         token: VerifiedSinkToken,
         generation: Int64,
         logicalDay: CivilDay,
-        olderGenerationDay: (generation: Int64, day: CivilDay)?
+        olderGenerationDay: (generation: Int64, day: CivilDay)?,
+        dayIsCurrent: Bool = true
     ) -> WidgetSnapshot {
         guard let existing,
               existing.epoch == token.epoch,
@@ -127,29 +164,37 @@ enum WidgetCorePublication {
         var carried = core
         if carried.hrv == nil { carried.hrv = existing.snapshot.hrv }
         if carried.hrvSparkline == nil { carried.hrvSparkline = existing.snapshot.hrvSparkline }
-        if carried.hourlyStress == nil { carried.hourlyStress = existing.snapshot.hourlyStress }
-        if carried.stressSummary == nil { carried.stressSummary = existing.snapshot.stressSummary }
+        if dayIsCurrent {
+            if carried.hourlyStress == nil { carried.hourlyStress = existing.snapshot.hourlyStress }
+            if carried.stressSummary == nil { carried.stressSummary = existing.snapshot.stressSummary }
+        }
         return carried
     }
 
     /// Pure regression seam for the immutable core-to-Widget mapping.
     ///
-    /// `steps` is the figure Today shows for the day (`TodaySteps`). The core carries only the strap's count,
-    /// so a day Today fills from Apple Health or the estimate would otherwise read as a dash on the widget;
-    /// nil keeps the core's own count.
+    /// `steps` is the figure Today shows for the current logical day (`TodaySteps`). The core carries only the
+    /// strap's count, so a day Today fills from Apple Health or the estimate would otherwise read as a dash on
+    /// the widget. While the core is the current day's, nil keeps its own count.
+    ///
+    /// When the core is from an earlier day (`WidgetCoreDay`), its Strain and Steps are not today's: they are
+    /// replaced by `currentDayStrain` and `steps`, which are Today's for the current logical day, or by nothing.
     static func makeCoreSnapshot(
         bundle: VerifiedExternalProjectionBundle,
         bpm: Int?,
         batteryPct: Double?,
         bonded: Bool,
         now: Date = Date(),
-        steps: Int? = nil
+        calendar: Calendar = .current,
+        steps: Int? = nil,
+        currentDayStrain: Double? = nil
     ) -> WidgetSnapshot {
         let projection = bundle.projection
         let core = bundle.widgetCore
+        let dayIsCurrent = WidgetCoreDay.isCurrent(core.logicalDay, now: now, calendar: calendar)
         return WidgetSnapshot.publishing(
             recovery: projection.visibleMetric(.recovery)?.value,
-            storedStrain: projection.visibleMetric(.strain)?.value,
+            storedStrain: dayIsCurrent ? projection.visibleMetric(.strain)?.value : currentDayStrain,
             sleepScore: projection.visibleMetric(.sleepScore)?.value,
             bpm: bpm,
             batteryPct: batteryPct,
@@ -158,7 +203,7 @@ enum WidgetCorePublication {
             restingHr: core.restingHR,
             recoveryDelta: core.recoveryDelta,
             sleepMinutes: core.sleepMinutes,
-            steps: steps ?? core.steps,
+            steps: dayIsCurrent ? (steps ?? core.steps) : steps,
             calories: core.calories,
             hourlyStress: nil,
             stressSummary: nil,

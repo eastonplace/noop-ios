@@ -2,6 +2,7 @@ import Foundation
 import XCTest
 import NoopPhase34Core
 import StrandDesign
+import WhoopProtocol
 import WhoopStore
 @testable import NOOP
 
@@ -271,10 +272,19 @@ final class WidgetStalenessTests: XCTestCase {
 
     // MARK: - M5: the widget shows the Steps figure Today shows
 
-    private func bundle(day: String, steps: Int?, generation: Int64 = 4) throws -> VerifiedExternalProjectionBundle {
+    private func bundle(
+        day: String, steps: Int?, generation: Int64 = 4, strain: Double? = nil, recovery: Double? = nil
+    ) throws -> VerifiedExternalProjectionBundle {
         let civil = try CivilDay(key: day)
+        var metrics: [HealthMetricKind: VerifiedHealthMetric] = [:]
+        for (kind, value) in [(HealthMetricKind.strain, strain), (.recovery, recovery)] {
+            guard let value else { continue }
+            metrics[kind] = try VerifiedHealthMetric(
+                kind: kind, value: value, metricDay: civil, sourceId: "my-whoop-noop",
+                algorithmVersion: "v1", generation: generation, freshness: .fresh)
+        }
         let projection = try VerifiedHealthProjection(
-            contextId: "ctx", deviceId: "my-whoop", generation: generation, logicalDay: civil, metrics: [:])
+            contextId: "ctx", deviceId: "my-whoop", generation: generation, logicalDay: civil, metrics: metrics)
         let core = try VerifiedWidgetCorePayload(
             contextId: "ctx", projectionGeneration: generation, logicalDay: civil, restingHR: 52,
             sleepMinutes: 420, steps: steps, calories: nil, recoveryDelta: nil,
@@ -308,16 +318,18 @@ final class WidgetStalenessTests: XCTestCase {
     }
 
     func testTheCoreKeepsItsOwnStepsUnlessTodayResolvesAnother() throws {
-        let day = Repository.localDayKey(Date(timeIntervalSince1970: 1_800_000_000))
-        let strapOnly = try bundle(day: day, steps: 3_000)
+        let ny = newYork()
+        let now = at(ny, 8, 15)
+        let strapOnly = try bundle(day: "2026-08-08", steps: 3_000)
         XCTAssertEqual(WidgetCorePublication.makeCoreSnapshot(
-            bundle: strapOnly, bpm: nil, batteryPct: nil, bonded: false).steps, 3_000)
+            bundle: strapOnly, bpm: nil, batteryPct: nil, bonded: false, now: now, calendar: ny).steps, 3_000)
         XCTAssertEqual(WidgetCorePublication.makeCoreSnapshot(
-            bundle: strapOnly, bpm: nil, batteryPct: nil, bonded: false, steps: 8_421).steps, 8_421)
+            bundle: strapOnly, bpm: nil, batteryPct: nil, bonded: false, now: now, calendar: ny,
+            steps: 8_421).steps, 8_421)
 
-        let noStrapSteps = try bundle(day: day, steps: nil)
+        let noStrapSteps = try bundle(day: "2026-08-08", steps: nil)
         XCTAssertNil(WidgetCorePublication.makeCoreSnapshot(
-            bundle: noStrapSteps, bpm: nil, batteryPct: nil, bonded: false).steps)
+            bundle: noStrapSteps, bpm: nil, batteryPct: nil, bonded: false, now: now, calendar: ny).steps)
     }
 
     /// A phone-only or WHOOP 4.0 day has no strap total. Today fills it from Apple Health (or the estimate);
@@ -326,25 +338,26 @@ final class WidgetStalenessTests: XCTestCase {
         let store = try await WhoopStore.inMemory()
         let repository = Repository(deviceId: Repository.whoopSource)
         repository.setStoreForTesting(store)
-        let now = Date(timeIntervalSince1970: 1_800_000_000)
-        let today = Repository.localDayKey(now)
-        let yesterday = Repository.localDayKey(Repository.dateByAddingCalendarDays(-1, to: now))
+        let ny = newYork()
+        let now = at(ny, 8, 15)
+        let today = "2026-08-08"
+        let yesterday = "2026-08-07"
 
         // Nothing but an Apple row for another day: no number, never yesterday's.
         try await store.upsertAppleDaily([appleDay(yesterday, steps: 9_999)], deviceId: Repository.appleHealthSource)
         let noCount = await WidgetSnapshot.todaySteps(
-            repository: repository, bundle: try bundle(day: today, steps: nil), now: now)
+            repository: repository, bundle: try bundle(day: today, steps: nil), now: now, calendar: ny)
         XCTAssertNil(noCount)
 
         // The day's phone count fills the missing strap total.
         try await store.upsertAppleDaily([appleDay(today, steps: 8_421)], deviceId: Repository.appleHealthSource)
         let phone = await WidgetSnapshot.todaySteps(
-            repository: repository, bundle: try bundle(day: today, steps: nil), now: now)
+            repository: repository, bundle: try bundle(day: today, steps: nil), now: now, calendar: ny)
         XCTAssertEqual(phone, 8_421)
 
         // A strap total outranks the phone, exactly as the Today tile.
         let strap = await WidgetSnapshot.todaySteps(
-            repository: repository, bundle: try bundle(day: today, steps: 3_000), now: now)
+            repository: repository, bundle: try bundle(day: today, steps: 3_000), now: now, calendar: ny)
         XCTAssertEqual(strap, 3_000)
     }
 
@@ -352,19 +365,20 @@ final class WidgetStalenessTests: XCTestCase {
         let store = try await WhoopStore.inMemory()
         let repository = Repository(deviceId: Repository.whoopSource)
         repository.setStoreForTesting(store)
-        let now = Date(timeIntervalSince1970: 1_800_000_000)
-        let today = Repository.localDayKey(now)
+        let ny = newYork()
+        let now = at(ny, 8, 15)
+        let today = "2026-08-08"
         try await store.upsertMetricSeries(
             [MetricPoint(day: today, key: "steps_est", value: 6_499.6)],
             deviceId: Repository.whoopSource + "-noop")
 
         let estimated = await WidgetSnapshot.todaySteps(
-            repository: repository, bundle: try bundle(day: today, steps: nil), now: now)
+            repository: repository, bundle: try bundle(day: today, steps: nil), now: now, calendar: ny)
         XCTAssertEqual(estimated, 6_500, "rounded the way Today rounds the estimate")
 
         try await store.upsertAppleDaily([appleDay(today, steps: 8_421)], deviceId: Repository.appleHealthSource)
         let measured = await WidgetSnapshot.todaySteps(
-            repository: repository, bundle: try bundle(day: today, steps: nil), now: now)
+            repository: repository, bundle: try bundle(day: today, steps: nil), now: now, calendar: ny)
         XCTAssertEqual(measured, 8_421, "a measured phone count beats the estimate")
     }
 
@@ -391,12 +405,69 @@ final class WidgetStalenessTests: XCTestCase {
                       "the evening of the same day")
     }
 
-    /// The strip is one day's hours; yesterday's must never read as today's.
-    func testTheStripIsHiddenOnceTheSnapshotIsFromAnotherDay() {
+    /// The strip is one logical day's hours; yesterday's must never read as today's.
+    func testTheStripIsHiddenOnceTheLogicalDayHasRolled() {
         let calendar = newYork()
         let updated = at(calendar, 8, 23, 30)
-        XCTAssertFalse(WidgetStressFreshness.isCurrent(updated: updated, now: at(calendar, 9, 0, 15), calendar: calendar))
+        XCTAssertFalse(WidgetStressFreshness.isCurrent(updated: updated, now: at(calendar, 9, 4, 0), calendar: calendar))
         XCTAssertFalse(WidgetStressFreshness.isCurrent(updated: updated, now: at(calendar, 9, 8, 0), calendar: calendar))
+    }
+
+    /// Between midnight and 04:00 Today is still the evening's day, so its strip stays: the gate compared
+    /// calendar days and hid it from 00:00.
+    func testTheStripStaysVisibleBetweenMidnightAndTheRollover() {
+        let calendar = newYork()
+        let updated = at(calendar, 8, 23, 30)
+        XCTAssertTrue(WidgetStressFreshness.isCurrent(updated: updated, now: at(calendar, 9, 0, 15), calendar: calendar))
+        XCTAssertTrue(WidgetStressFreshness.isCurrent(updated: updated, now: at(calendar, 9, 3, 59), calendar: calendar))
+    }
+
+    /// A pass at 02:30 describes the day before: at 10:00 its strip is yesterday's, though `updated` is on
+    /// today's calendar date.
+    func testAStripCommittedAfterMidnightBelongsToTheDayBefore() {
+        let calendar = newYork()
+        let updated = at(calendar, 9, 2, 30)
+        XCTAssertTrue(WidgetStressFreshness.isCurrent(updated: updated, now: at(calendar, 9, 3, 0), calendar: calendar))
+        XCTAssertFalse(WidgetStressFreshness.isCurrent(updated: updated, now: at(calendar, 9, 10, 0), calendar: calendar))
+    }
+
+    /// The rollover is the 04:00 wall clock on both sides of a DST change, not 04:00 of elapsed time.
+    func testTheStripGateFollowsTheWallClockAcrossDaylightSaving() {
+        let calendar = newYork()
+        func date(_ month: Int, _ day: Int, _ hour: Int, _ minute: Int = 0) -> Date {
+            calendar.date(from: DateComponents(year: 2026, month: month, day: day, hour: hour, minute: minute))!
+        }
+        // Spring forward, Mar 8: 02:00 does not exist, so 23:30 to 03:30 is only three elapsed hours.
+        let springUpdated = date(3, 7, 23, 30)
+        XCTAssertTrue(WidgetStressFreshness.isCurrent(updated: springUpdated, now: date(3, 8, 3, 59), calendar: calendar))
+        XCTAssertFalse(WidgetStressFreshness.isCurrent(updated: springUpdated, now: date(3, 8, 4, 0), calendar: calendar))
+        // Fall back, Nov 1: 01:00 to 02:00 happens twice, so 04:00 is five elapsed hours after 23:30.
+        let fallUpdated = date(10, 31, 23, 30)
+        XCTAssertTrue(WidgetStressFreshness.isCurrent(updated: fallUpdated, now: date(11, 1, 3, 59), calendar: calendar))
+        XCTAssertFalse(WidgetStressFreshness.isCurrent(updated: fallUpdated, now: date(11, 1, 4, 0), calendar: calendar))
+    }
+
+    /// The extension cannot reach `Repository`, so it has its own copy of the day. Pin it to the app's across
+    /// zones and across the DST changes of the zones that have them.
+    func testTheSharedLogicalDayIsTheRepositorysEverywhere() {
+        XCTAssertEqual(WidgetLogicalDay.rolloverHour, Repository.logicalDayRolloverHour)
+        let starts: [(zone: String, start: TimeInterval)] = [
+            ("America/New_York", 1_772_841_600),   // 2026-03-07 00:00Z, spring forward on the 8th
+            ("America/New_York", 1_793_491_200),   // 2026-11-01 00:00Z, fall back that day
+            ("Pacific/Auckland", 1_790_380_800),   // 2026-09-26 00:00Z, spring forward on the 27th
+            ("Asia/Kolkata", 1_790_380_800),
+            ("UTC", 1_790_380_800),
+        ]
+        for (zone, start) in starts {
+            var calendar = Calendar(identifier: .gregorian)
+            calendar.timeZone = TimeZone(identifier: zone)!
+            for step in 0..<(3 * 72) {
+                let instant = Date(timeIntervalSince1970: start + TimeInterval(step) * 1_200)
+                XCTAssertEqual(WidgetLogicalDay.key(of: instant, calendar: calendar),
+                               Repository.logicalDayKey(instant, calendar: calendar),
+                               "\(zone) at \(instant)")
+            }
+        }
     }
 
     // MARK: - M8: Resting HR carries the last valid night like Recovery and Sleep
@@ -550,8 +621,6 @@ final class WidgetStalenessTests: XCTestCase {
 
     // MARK: - Wiring: what publish and publishLive hand to the pipeline
 
-    private let fixedNow = Date(timeIntervalSince1970: 1_800_000_000)
-
     private func projection(day: String, generation: Int64) throws -> VerifiedHealthProjection {
         try VerifiedHealthProjection(
             contextId: "ctx", deviceId: "my-whoop", generation: generation,
@@ -576,7 +645,7 @@ final class WidgetStalenessTests: XCTestCase {
 
         let committed = WidgetCorePublication.commitCore(
             bundle: try bundle(day: "2026-08-08", steps: 3_000, generation: 5),
-            token: token, defaults: defaults, delivery: delivery(steps: 8_421), now: fixedNow)
+            token: token, defaults: defaults, delivery: delivery(steps: 8_421), now: at(newYork(), 8, 15), calendar: newYork())
         XCTAssertEqual(committed.result, .published)
 
         let shown = try XCTUnwrap(VerifiedWidgetEnvelopeStore.rawActiveEnvelope(defaults: defaults)).snapshot
@@ -600,7 +669,7 @@ final class WidgetStalenessTests: XCTestCase {
         let committed = WidgetCorePublication.commitCore(
             bundle: try bundle(day: "2026-08-08", steps: nil, generation: 6),
             token: token, defaults: defaults,
-            delivery: delivery(older: (generation: 5, day: day)), now: fixedNow)
+            delivery: delivery(older: (generation: 5, day: day)), now: at(newYork(), 8, 15), calendar: newYork())
         XCTAssertEqual(committed.result, .published)
         XCTAssertEqual(committed.snapshot.verifiedProjectionGeneration, 6)
         XCTAssertEqual(committed.snapshot.hourlyStress?.count, 24)
@@ -609,7 +678,7 @@ final class WidgetStalenessTests: XCTestCase {
         // Without the replaced generation's day, nothing crosses.
         let bare = WidgetCorePublication.commitCore(
             bundle: try bundle(day: "2026-08-08", steps: nil, generation: 7),
-            token: token, defaults: defaults, delivery: delivery(), now: fixedNow)
+            token: token, defaults: defaults, delivery: delivery(), now: at(newYork(), 8, 15), calendar: newYork())
         XCTAssertNil(bare.snapshot.hourlyStress)
         XCTAssertNil(bare.snapshot.hrvSparkline)
     }
@@ -621,7 +690,7 @@ final class WidgetStalenessTests: XCTestCase {
                        .published)
         let committed = WidgetCorePublication.commitCore(
             bundle: try bundle(day: "2026-08-08", steps: 3_000, generation: 8),
-            token: token, defaults: defaults, delivery: delivery(steps: 8_421), now: fixedNow)
+            token: token, defaults: defaults, delivery: delivery(steps: 8_421), now: at(newYork(), 8, 15), calendar: newYork())
         XCTAssertEqual(committed.result, .superseded)
         XCTAssertEqual(try XCTUnwrap(VerifiedWidgetEnvelopeStore.rawActiveEnvelope(defaults: defaults)).generation, 9)
     }
@@ -645,7 +714,8 @@ final class WidgetStalenessTests: XCTestCase {
             previous: stale, base: base, coreStrain: base.strain, token: token,
             verified: try projection(day: "2026-08-08", generation: 5),
             bpm: 61, batteryPct: 80.4, bonded: true, workoutSparkline: nil,
-            todayStrain: resolved("2026-08-08", stored: 40), now: fixedNow)
+            todayStrain: { _ in self.resolved("2026-08-08", stored: 40) },
+            now: at(newYork(), 8, 15), calendar: newYork())
 
         XCTAssertEqual(assembled.overlay.storedStrain, 40)
         XCTAssertEqual(assembled.overlay.epoch, token.epoch)
@@ -675,10 +745,188 @@ final class WidgetStalenessTests: XCTestCase {
                 previous: stale, base: base, coreStrain: base.strain, token: token,
                 verified: try projection(day: "2026-08-08", generation: 5),
                 bpm: 61, batteryPct: 80, bonded: true, workoutSparkline: [70, 72],
-                todayStrain: today, now: fixedNow)
+                todayStrain: { _ in today }, now: at(newYork(), 8, 15), calendar: newYork())
             XCTAssertNil(assembled.overlay.storedStrain)
             XCTAssertEqual(assembled.next.strain, base.strain)
             XCTAssertEqual(assembled.overlay.hrSparkline, [70, 72])
         }
+    }
+
+    // MARK: - The day-behind rule: yesterday's day-scoped figures are never presented as today's
+
+    func testACoreIsCurrentOnlyOnTheLogicalDayTodayIsOn() throws {
+        let ny = newYork()
+        let day = try CivilDay(key: "2026-08-08")
+        XCTAssertTrue(WidgetCoreDay.isCurrent(day, now: at(ny, 8, 15), calendar: ny))
+        XCTAssertTrue(WidgetCoreDay.isCurrent(day, now: at(ny, 9, 2, 30), calendar: ny),
+                      "02:30 is still the day before: the rollover is 04:00")
+        XCTAssertFalse(WidgetCoreDay.isCurrent(day, now: at(ny, 9, 4, 0), calendar: ny))
+        XCTAssertFalse(WidgetCoreDay.isCurrent(day, now: at(ny, 9, 10), calendar: ny))
+        XCTAssertFalse(WidgetCoreDay.isCurrent(day, now: at(ny, 7, 15), calendar: ny), "a core from the future")
+
+        // Across a DST change: the day still rolls at 04:00 on the wall clock.
+        let march = try CivilDay(key: "2026-03-07")
+        func date(_ month: Int, _ d: Int, _ hour: Int, _ minute: Int = 0) -> Date {
+            ny.date(from: DateComponents(year: 2026, month: month, day: d, hour: hour, minute: minute))!
+        }
+        XCTAssertTrue(WidgetCoreDay.isCurrent(march, now: date(3, 8, 3, 30), calendar: ny))
+        XCTAssertFalse(WidgetCoreDay.isCurrent(march, now: date(3, 8, 4, 0), calendar: ny))
+        let october = try CivilDay(key: "2026-10-31")
+        XCTAssertTrue(WidgetCoreDay.isCurrent(october, now: date(11, 1, 3, 59), calendar: ny))
+        XCTAssertFalse(WidgetCoreDay.isCurrent(october, now: date(11, 1, 4, 0), calendar: ny))
+    }
+
+    /// The scenario of the review: generation 5 is Aug 8's and no strap pass has run since. Every re-commit of it
+    /// after the rollover (activation, the 04:00 handler, a HealthKit drain) used to restamp Aug 8's strip,
+    /// Steps and Strain as today's.
+    func testAReCommitOnTheNextDayPresentsNoneOfYesterdaysDayFigures() throws {
+        let ny = newYork()
+        let token = try install(contextId: "ctx")
+        var evening = enriched(core("ctx", generation: 5))
+        evening.strain = StrainScale.displayValue(fromStored: 30)
+        XCTAssertEqual(VerifiedWidgetEnvelopeStore.commit(
+            token: token, generation: 5, snapshot: evening, defaults: defaults), .published)
+        let aug8 = try bundle(day: "2026-08-08", steps: 3_000, generation: 5, strain: 30, recovery: 71)
+
+        // 02:30 on the 9th is still Aug 8: the figures stand and the strip is carried.
+        let night = WidgetCorePublication.commitCore(
+            bundle: aug8, token: token, defaults: defaults, delivery: delivery(),
+            now: at(ny, 9, 2, 30), calendar: ny)
+        XCTAssertEqual(night.snapshot.steps, 3_000)
+        XCTAssertEqual(night.snapshot.strain, StrainScale.displayValue(fromStored: 30))
+        XCTAssertEqual(night.snapshot.hourlyStress?.count, 24)
+        XCTAssertTrue(WidgetStressFreshness.isCurrent(updated: night.snapshot.updated, now: at(ny, 9, 3, 0), calendar: ny))
+        XCTAssertFalse(WidgetStressFreshness.isCurrent(updated: night.snapshot.updated, now: at(ny, 9, 10), calendar: ny),
+                       "and by 10:00 the extension does not draw a strip stamped 02:30")
+
+        // 10:00 on the 9th: the same generation is behind. Nothing of Aug 8's is today's.
+        let morning = WidgetCorePublication.commitCore(
+            bundle: aug8, token: token, defaults: defaults, delivery: delivery(),
+            now: at(ny, 9, 10), calendar: ny)
+        XCTAssertEqual(morning.result, .published)
+        XCTAssertNil(morning.snapshot.hourlyStress, "the strip is not carried onto a core that is behind")
+        XCTAssertNil(morning.snapshot.stressSummary)
+        XCTAssertNil(morning.snapshot.steps, "not the strap's count for yesterday")
+        XCTAssertNil(morning.snapshot.strain, "not yesterday's Strain")
+        XCTAssertEqual(morning.snapshot.recovery, 71, "the per-night figures still carry")
+        XCTAssertEqual(morning.snapshot.restingHr, 52)
+        XCTAssertEqual(morning.snapshot.hrvSparkline, [58, 60, 61])
+        let shown = try XCTUnwrap(VerifiedWidgetEnvelopeStore.rawActiveEnvelope(defaults: defaults)).snapshot
+        XCTAssertNil(shown.hourlyStress)
+
+        // With Today's figures for the 9th resolved, those are what the core shows.
+        let resolved = WidgetCorePublication.commitCore(
+            bundle: aug8, token: token, defaults: defaults,
+            delivery: WidgetCorePublication.CoreDelivery(
+                bpm: 64, batteryPct: 81, bonded: true, steps: 640, currentDayStrain: 12, olderGenerationDay: nil),
+            now: at(ny, 9, 10), calendar: ny)
+        XCTAssertEqual(resolved.snapshot.steps, 640)
+        XCTAssertEqual(resolved.snapshot.strain, StrainScale.displayValue(fromStored: 12))
+        XCTAssertNil(resolved.snapshot.hourlyStress)
+    }
+
+    /// A newer generation of the day before is behind as well; the same-day carry rule cannot bring a strip over.
+    func testANewerGenerationThatIsBehindCarriesNoStrip() throws {
+        let ny = newYork()
+        let token = try install(contextId: "ctx")
+        let day = try CivilDay(key: "2026-08-08")
+        XCTAssertEqual(VerifiedWidgetEnvelopeStore.commit(
+            token: token, generation: 5, snapshot: enriched(core("ctx", generation: 5)), defaults: defaults),
+                       .published)
+        let committed = WidgetCorePublication.commitCore(
+            bundle: try bundle(day: "2026-08-08", steps: nil, generation: 6),
+            token: token, defaults: defaults, delivery: delivery(older: (generation: 5, day: day)),
+            now: at(ny, 9, 10), calendar: ny)
+        XCTAssertNil(committed.snapshot.hourlyStress)
+        XCTAssertNil(committed.snapshot.stressSummary)
+    }
+
+    func testStressIsComputedOnlyForTheCurrentLogicalDay() async throws {
+        let ny = newYork()
+        let store = try await WhoopStore.inMemory()
+        let start = Int(ny.startOfDay(for: at(ny, 8, 12)).timeIntervalSince1970)
+        _ = try await store.insert(Streams(
+            hr: (0..<400).map { HRSample(ts: start + 10 * 3_600 + $0, bpm: 70 + $0 % 5) }, rr: []),
+                                   deviceId: "my-whoop")
+        let aug8 = try bundle(day: "2026-08-08", steps: nil)
+
+        let current = await WidgetSnapshot.enrichmentStress(
+            store: store, bundle: aug8, now: at(ny, 8, 15), calendar: ny)
+        XCTAssertEqual(current.hours?.count, 24, "today's own strip")
+        let afterMidnight = await WidgetSnapshot.enrichmentStress(
+            store: store, bundle: aug8, now: at(ny, 9, 2, 30), calendar: ny)
+        XCTAssertEqual(afterMidnight.hours?.count, 24, "02:30 is still Aug 8")
+        let behind = await WidgetSnapshot.enrichmentStress(
+            store: store, bundle: aug8, now: at(ny, 9, 10), calendar: ny)
+        XCTAssertNil(behind.hours, "yesterday's strip is not recomputed as today's")
+        XCTAssertNil(behind.summary)
+    }
+
+    /// Today's Steps are the current logical day's. A core from yesterday adds neither its strap count nor
+    /// Apple Health's total for yesterday.
+    func testWidgetStepsAreAlwaysTheCurrentLogicalDaysCount() async throws {
+        let ny = newYork()
+        let store = try await WhoopStore.inMemory()
+        let repository = Repository(deviceId: Repository.whoopSource)
+        repository.setStoreForTesting(store)
+        try await store.upsertAppleDaily(
+            [appleDay("2026-08-08", steps: 11_204)], deviceId: Repository.appleHealthSource)
+        let aug8 = try bundle(day: "2026-08-08", steps: 3_000)
+
+        // Behind, with nothing counted yet today: no number at all.
+        let none = await WidgetSnapshot.todaySteps(
+            repository: repository, bundle: aug8, now: at(ny, 9, 10), calendar: ny)
+        XCTAssertNil(none)
+
+        // Today's count from Apple Health, then the strap-less estimate.
+        try await store.upsertAppleDaily(
+            [appleDay("2026-08-09", steps: 640)], deviceId: Repository.appleHealthSource)
+        let phone = await WidgetSnapshot.todaySteps(
+            repository: repository, bundle: aug8, now: at(ny, 9, 10), calendar: ny)
+        XCTAssertEqual(phone, 640)
+
+        // At 02:30 the core is still the current logical day's, so its strap count stands.
+        let night = await WidgetSnapshot.todaySteps(
+            repository: repository, bundle: aug8, now: at(ny, 9, 2, 30), calendar: ny)
+        XCTAssertEqual(night, 3_000)
+
+        let estimateOnly = try await WhoopStore.inMemory()
+        let estimating = Repository(deviceId: Repository.whoopSource)
+        estimating.setStoreForTesting(estimateOnly)
+        try await estimateOnly.upsertMetricSeries(
+            [MetricPoint(day: "2026-08-08", key: "steps_est", value: 9_000),
+             MetricPoint(day: "2026-08-09", key: "steps_est", value: 499.6)],
+            deviceId: Repository.whoopSource + "-noop")
+        let estimated = await WidgetSnapshot.todaySteps(
+            repository: estimating, bundle: aug8, now: at(ny, 9, 10), calendar: ny)
+        XCTAssertEqual(estimated, 500)
+    }
+
+    /// The overlay asks Today for the current logical day's Strain. A core that is behind has none of its own to
+    /// show, so with no Strain for the new day the overlay carries none.
+    func testTheLiveOverlayUsesTheCurrentLogicalDaysStrain() throws {
+        let ny = newYork()
+        let token = try install(contextId: "ctx")
+        var base = core("ctx", generation: 5)
+        base.strain = StrainScale.displayValue(fromStored: 30)
+        var asked: [String] = []
+
+        let today = WidgetCorePublication.assembleLive(
+            previous: nil, base: base, coreStrain: base.strain, token: token,
+            verified: try projection(day: "2026-08-08", generation: 5),
+            bpm: 61, batteryPct: 80, bonded: true, workoutSparkline: nil,
+            todayStrain: { asked.append($0); return self.resolved($0, stored: 22) },
+            now: at(ny, 9, 10), calendar: ny)
+        XCTAssertEqual(asked, ["2026-08-09"], "the generation is Aug 8's but Today is on the 9th")
+        XCTAssertEqual(today.overlay.storedStrain, 22)
+        XCTAssertEqual(today.next.strain, StrainScale.displayValue(fromStored: 22))
+
+        let tomorrowOnly = WidgetCorePublication.assembleLive(
+            previous: nil, base: base, coreStrain: base.strain, token: token,
+            verified: try projection(day: "2026-08-08", generation: 5),
+            bpm: 61, batteryPct: 80, bonded: true, workoutSparkline: nil,
+            todayStrain: { _ in self.resolved("2026-08-08", stored: 40) },
+            now: at(ny, 9, 10), calendar: ny)
+        XCTAssertNil(tomorrowOnly.overlay.storedStrain, "yesterday's Strain is not the figure for today")
     }
 }
