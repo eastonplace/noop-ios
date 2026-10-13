@@ -356,10 +356,10 @@ struct CoupledView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    /// Active calories for the day from the stored whole-day estimate. Never fabricated, a day with no
-    /// estimate reads a dash.
+    /// The day's calorie total by the shared resolver (review round 4, 5): the strap estimate when the strap
+    /// covered the day, else Apple Health's energy. Never fabricated, a day with neither reads a dash.
     private var caloriesText: String {
-        guard let k = day?.activeKcalEst else { return "—" }
+        guard let day, let k = repo.dailyCaloriesTotal(day) else { return "—" }
         return "\(Int(k.rounded())) kcal"
     }
 

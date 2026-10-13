@@ -154,9 +154,11 @@ final class DayCaloriesTests: XCTestCase {
     func testAnalyzeDayDayHrCoversFullCalendarDay() throws {
         // Simulate the past-day clip: the night-window HR only reaches midday; the full
         // calendar-day HR also has the afternoon. activeKcalEst must use dayHr when supplied,
-        // so the full-day total exceeds the clipped night-window total (the undercount fix).
+        // so the full-day total exceeds the clipped night-window total (the undercount fix). The afternoon
+        // is exercise-level HR: since D3b, an uncovered second already gets resting BMR, so only energy
+        // above resting can tell the two totals apart.
         let nightWindow = (0..<600).map { hr($0, 120) }
-        let fullDay = nightWindow + (0..<600).map { hr(3 * 3_600 + $0, 120) }
+        let fullDay = nightWindow + (0..<600).map { hr(3 * 3_600 + $0, 150) }
         let clipped = try XCTUnwrap(AnalyticsEngine.analyzeDay(
             day: dayUtc, hr: nightWindow, profile: UserProfile()).daily.activeKcalEst)
         let full = try XCTUnwrap(AnalyticsEngine.analyzeDay(

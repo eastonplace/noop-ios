@@ -3,7 +3,7 @@ import Foundation
 import WhoopStore
 import WhoopProtocol
 import StrandAnalytics
-@testable import Strand
+@testable import NOOP
 
 /// #803: the Deep Timeline `.hrv` series used to plot RAW R-R milliseconds mislabelled "HRV". It now
 /// plots a TRAILING-WINDOW rMSSD (HRVAnalyzer.rollingRmssd) that MOVES across the session, with the pill

@@ -184,17 +184,4 @@ final class MotionCorroboratedWakeTests: XCTestCase {
         XCTAssertFalse(SleepStager.runIsDeeplyQuiescent(p, grav: []),
                        "no gravity → stillness unprovable → not deeply quiescent")
     }
-
-    // MARK: - adaptive overnight HR baseline (directive b)
-
-    func testAdaptiveOvernightHRBaseline() throws {
-        // Self-calibrates to recent overnight medians (a supplement era's ~58 vs a fixed day-median).
-        XCTAssertEqual(try XCTUnwrap(SleepStager.adaptiveOvernightHRBaseline(recentOvernightMedians: [56, 58, 60, 57, 59])),
-                       58.0, accuracy: 1e-9)
-        // Floor holds so a wakeful era can't collapse the band.
-        XCTAssertEqual(try XCTUnwrap(SleepStager.adaptiveOvernightHRBaseline(recentOvernightMedians: [30, 32, 31])),
-                       SleepStager.adaptiveBaselineFloor, accuracy: 1e-9)
-        // No history → nil (caller keeps the day-median).
-        XCTAssertNil(SleepStager.adaptiveOvernightHRBaseline(recentOvernightMedians: []))
-    }
 }

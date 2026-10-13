@@ -540,10 +540,14 @@ struct TodayView: View {
     @State private var showStepsCalibration = false
 
     // A1 (#514/#706): the Charge breakdown sheet, opened by tapping the Today hero Charge ring. Its body
-    // builds LAZILY on tap (#819 lag) and reads the drivers/confidence DERIVED from the same `displayDay`
-    // the ring shows (never a second store read) plus the folded Readiness, so the sheet can never disagree
-    // with the ring. A calibrating night (empty drivers) taps through to the EXISTING calibration countdown.
+    // builds LAZILY on tap (#819 lag) and shows the drivers the engine stored with the ring's Charge (review
+    // round 4, 3) plus the folded Readiness. A calibrating night (empty drivers) taps through to the EXISTING
+    // calibration countdown.
     @State private var showChargeBreakdown = false
+    /// The engine's stored breakdown for the breakdown row's day, loaded when the sheet opens, and the row key
+    /// it was loaded for.
+    @State private var chargeBreakdown: IntelligenceEngine.StoredChargeBreakdown?
+    @State private var chargeBreakdownLoadedKey: String?
 
     // S4: the Synthesis card collapses to a single one-liner that expands on tap. Default collapsed so the
     // home screen stays tight; the live content (#506) is unchanged, only the chrome folds. @State (not
@@ -1035,38 +1039,28 @@ struct TodayView: View {
     /// scored day (#543) so the sheet matches the carried ring instead of being empty at the rollover.
     private var chargeBreakdownRow: DailyMetric? { lastScoredRecoveryDay ?? displayDay }
 
-    /// The ordered "What shaped it" Charge drivers for the displayed Charge ring. PURE derivation from the
-    /// SAME `displayDay` (post-#814 union-read row) the ring already shows, plus the HRV/RHR/resp baselines
-    /// folded from `repo.days` (exactly the inputs `AnalyticsEngine` scored with), so a row can NEVER
-    /// describe a term the ring's number didn't use. This is NOT a second store read: it reads only data
-    /// already resolved into `repo.days`/`displayDay`. Empty for a calibrating / cold-start night (no usable
-    /// HRV baseline or no value), so the sheet gates through to the calibration countdown instead.
-    private var chargeDrivers: [ChargeDriver] {
-        guard let row = chargeBreakdownRow,
-              let hrv = row.avgHrv, let rhr = row.restingHr else { return [] }
-        let hrvBase = Baselines.foldHistory(repo.days.map(\.avgHrv), cfg: Baselines.hrvCfg)
-        guard hrvBase.usable else { return [] }
-        let rhrBase = Baselines.foldHistory(repo.days.map { $0.restingHr.map(Double.init) },
-                                            cfg: Baselines.restingHRCfg)
-        let respBase = Baselines.foldHistory(repo.days.map(\.respRateBpm), cfg: Baselines.respCfg)
-        // Sleep-quality term = the Sleep composite ÷100, matching AnalyticsEngine's `sleepPerf`. `restScore`
-        // is the same merged sleep_performance value the Sleep ring reads, so the term stays consistent.
-        let sleepPerf = displayedRestScore.map { $0 / 100.0 }
-        return RecoveryScorer.chargeDrivers(
-            hrv: hrv, rhr: Double(rhr), resp: row.respRateBpm,
-            hrvBaseline: hrvBase,
-            rhrBaseline: rhrBase.usable ? rhrBase : nil,
-            respBaseline: respBase.usable ? respBase : nil,
-            sleepPerf: sleepPerf, skinTempDev: row.skinTempDevC)
+    /// Identity of the breakdown row's Charge: the stored breakdown is loaded again when it changes.
+    private var chargeBreakdownKey: String? {
+        chargeBreakdownRow.map { "\($0.day)|\($0.recovery.map { String($0) } ?? "-")" }
     }
 
-    /// The Charge confidence tier for the displayed row, SURFACED (never recomputed) from the existing
-    /// `ScoreConfidence.charge` against the same folded HRV baseline the drivers scored with, so the dot +
-    /// tier tag in the sheet header agree with the breakdown.
-    private var chargeBreakdownConfidence: ScoreConfidence {
-        let hrvBase = Baselines.foldHistory(repo.days.map(\.avgHrv), cfg: Baselines.hrvCfg)
-        return ScoreConfidence.charge(recovery: chargeBreakdownRow?.recovery, hrvBaseline: hrvBase)
+    /// The engine's stored breakdown when it explains exactly the Charge the ring shows (review round 4, 3): the
+    /// drivers the fold that scored the day (strap, Apple Watch or wearable import) built against that same
+    /// number. Nothing here is recomputed, so the sheet can't describe a term or baseline the ring didn't use.
+    private var matchedChargeBreakdown: IntelligenceEngine.StoredChargeBreakdown? {
+        guard let row = chargeBreakdownRow, let recovery = row.recovery,
+              let stored = chargeBreakdown, stored.day == row.day,
+              abs(stored.score - recovery) < 0.001 else { return nil }
+        return stored
     }
+
+    /// The ordered "What shaped it" Charge drivers for the displayed Charge ring, biggest mover first. Empty for
+    /// a calibrating night, and for a scored day the engine stored no breakdown for.
+    private var chargeDrivers: [ChargeDriver] { matchedChargeBreakdown?.drivers ?? [] }
+
+    /// The Charge confidence tier the engine stored with the displayed Charge, so the dot + tier tag in the
+    /// sheet header agree with the breakdown.
+    private var chargeBreakdownConfidence: ScoreConfidence { matchedChargeBreakdown?.confidence ?? .calibrating }
 
     /// The night's relative skin-temp marker for the displayed row (A5), or nil. Surfaced verbatim from
     /// `RecoveryScorer.skinTempRelative` (no recompute) so it reads identically to the Intelligence screen.
@@ -2522,7 +2516,14 @@ struct TodayView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: NoopMetrics.sectionGap) {
                     let drivers = chargeDrivers
-                    if drivers.isEmpty {
+                    if chargeBreakdownLoadedKey != chargeBreakdownKey {
+                        ProgressView()
+                            .frame(maxWidth: .infinity)
+                    } else if drivers.isEmpty, chargeBreakdownRow?.recovery != nil {
+                        // A scored day the engine stored no breakdown for (a WHOOP import's own Charge, or one
+                        // scored before breakdowns were stored): say so plainly rather than recompute one.
+                        chargeBreakdownUnavailableNote
+                    } else if drivers.isEmpty {
                         // A calibrating / cold-start night has no contributions to attribute: tap through to
                         // the honest countdown rather than an empty breakdown.
                         if let banked = recoveryCalibration {
@@ -2575,6 +2576,19 @@ struct TodayView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .background(StrandPalette.surfaceBase.ignoresSafeArea())
+            .task(id: chargeBreakdownKey) {
+                let key = chargeBreakdownKey
+                let day = chargeBreakdownRow?.day
+                let loaded: IntelligenceEngine.StoredChargeBreakdown?
+                if let day {
+                    loaded = await appModel?.intelligence.storedChargeBreakdown(day: day)
+                } else {
+                    loaded = nil
+                }
+                guard !Task.isCancelled else { return }
+                chargeBreakdown = loaded
+                chargeBreakdownLoadedKey = key
+            }
             .navigationTitle("What shaped your Recovery")
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
@@ -2592,6 +2606,17 @@ struct TodayView: View {
                 }
                 #endif
             }
+        }
+    }
+
+    /// A scored Charge with no stored breakdown (review round 4, 3): the plain statement, without the strap
+    /// caption, since the day has a Charge.
+    private var chargeBreakdownUnavailableNote: some View {
+        NoopCard(padding: 18, tint: StrandPalette.recoveryData) {
+            Text("No Recovery breakdown yet")
+                .font(StrandFont.headline)
+                .foregroundStyle(StrandPalette.textPrimary)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 

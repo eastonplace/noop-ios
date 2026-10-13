@@ -58,6 +58,48 @@ final class ReadinessEngineTests: XCTestCase {
         XCTAssertGreaterThan(r.acwr!, 1.5)
     }
 
+    // MARK: - AN-09: calendar-indexed load windows
+
+    /// This morning's partial strain (sleep seed + a little load) must not drag the acute mean down.
+    func testPartialTodayIsExcludedFromLoadWindows() throws {
+        let r = ReadinessEngine.evaluate(days: baseline(todayHrv: 60, todayRhr: 52, todayStrain: 2))
+        XCTAssertEqual(try XCTUnwrap(r.acwr), 1.0, accuracy: 1e-9)
+        XCTAssertEqual(r.signals.first { $0.key == "acwr" }?.evidence, "7d 10.0 / 28d 10.0")
+    }
+
+    /// Rows after an explicit `today` never enter the windows.
+    func testRowsAfterTheTargetDayAreExcluded() throws {
+        var days = baseline(todayHrv: 60, todayRhr: 52, todayStrain: 10)
+        days.append(d(30, hrv: 60, rhr: 52, strain: 40))
+        days.append(d(31, hrv: 60, rhr: 52, strain: 40))
+        let r = ReadinessEngine.evaluate(days: days, today: "2024-03-29")
+        XCTAssertEqual(try XCTUnwrap(r.acwr), 1.0, accuracy: 1e-9)
+    }
+
+    /// Unworn days are gaps in the calendar, not a reason to reach further back: the acute week averages
+    /// only its own worn days.
+    func testUnwornDaysAreGapsNotCompacted() throws {
+        var days: [DailyMetric] = []
+        for i in 1...21 { days.append(d(i, hrv: 60, rhr: 52, strain: 5)) }
+        for i in 22...28 { days.append(d(i, hrv: 60, rhr: 52, strain: [23, 25, 27].contains(i) ? nil : 15)) }
+        days.append(d(29, hrv: 60, rhr: 52, strain: 3))
+        let r = ReadinessEngine.evaluate(days: days)
+        // Acute = 4 worn days at 15; chronic = (21 × 5 + 4 × 15) / 25.
+        XCTAssertEqual(try XCTUnwrap(r.acwr), 15.0 / (165.0 / 25.0), accuracy: 1e-9)
+    }
+
+    /// Too few worn days in the acute week (or the chronic month) gives no ratio rather than a stale one.
+    func testMinimumCoverageInsteadOfCompaction() {
+        var days: [DailyMetric] = []
+        for i in 1...21 { days.append(d(i, hrv: 60, rhr: 52, strain: 10)) }
+        for i in 22...28 { days.append(d(i, hrv: 60, rhr: 52, strain: i >= 26 ? 10 : nil)) }   // 3 worn days
+        days.append(d(29, hrv: 60, rhr: 52, strain: 10))
+        let r = ReadinessEngine.evaluate(days: days)
+        XCTAssertNil(r.acwr)
+        XCTAssertNil(r.monotony)
+        XCTAssertNil(r.signals.first { $0.key == "acwr" })
+    }
+
     func testRespRateRiseFlags() {
         // Today resp rate well above baseline (~14) → illness-ish watch/bad signal present.
         let r = ReadinessEngine.evaluate(days: baseline(todayHrv: 60, todayRhr: 52, todayStrain: 10, todayResp: 18))

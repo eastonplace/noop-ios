@@ -729,7 +729,8 @@ final class AICoachEngine: ObservableObject {
                      + ", respiration: \(avgOne(last30.compactMap { $0.respRateBpm }))/min"
                      + ", skin-temp deviation: \(avgOne(last30.compactMap { $0.skinTempDevC }))°C"
                      + ", steps: \(avgInt(last30.compactMap { $0.steps.map(Double.init) }))/day"
-                     + ", active energy: \(avgInt(last30.compactMap { $0.activeKcalEst }))kcal/day")
+                     // `activeKcalEst` is the day's TOTAL energy estimate (resting + active), not active-only (AN-14).
+                     + ", total energy (resting + active): \(avgInt(last30.compactMap { $0.activeKcalEst }))kcal/day")
 
         return lines.joined(separator: "\n")
     }

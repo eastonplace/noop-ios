@@ -80,18 +80,22 @@ extension StepsEstimateEngine {
     /// SAME value the daily `steps_est` carries (byte-identical math), so the trace can never diverge.
     ///
     /// - Parameters mirror the analyzeDay step block exactly: the day's step samples (any order), the local
-    ///   day key, the tz offset, and the user's ticks-per-step. `daySteps` is the calendar-day stream the
-    ///   production total prefers. The Kotlin twin is `StepsEstimateEngineTrace.rawCounterTrace`.
+    ///   day key, the tz offset, the civil day interval (when the caller has one, AN-02) and the user's
+    ///   ticks-per-step. `daySteps` is the calendar-day stream the production total prefers. The Kotlin twin
+    ///   is `StepsEstimateEngineTrace.rawCounterTrace`.
     public static func rawCounterTrace(daySteps: [StepSample],
                                        dayKey: String,
                                        tzOffsetSeconds: Int,
+                                       dayInterval: Range<Int>? = nil,
                                        ticksPerStep: Double) -> [String] {
         // The SAME maxStepDelta gate AnalyticsEngine.analyzeDay uses for the daily steps total.
         let maxStepDelta = 512
 
         // The SAME filter + sort: keep only this LOCAL day's samples, time-ordered.
+        let dayBounds = dayInterval
+            ?? AnalyticsEngine.fixedOffsetDayInterval(dayKey, offsetSec: tzOffsetSeconds)
         let sorted = daySteps
-            .filter { AnalyticsEngine.dayString($0.ts, offsetSec: tzOffsetSeconds) == dayKey }
+            .filter { dayBounds.contains($0.ts) }
             .sorted { $0.ts < $1.ts }
 
         var lines: [String] = []

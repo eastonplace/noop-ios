@@ -50,9 +50,10 @@ final class SleepStageTotalsTests: XCTestCase {
             (alignedPartial, nil),
             (stagedSleep, #"{"awake":0,"light":45,"deep":0,"rem":0}"#),
         ]
+        let spans = SleepStageTotals.seamNightBlocks(blocks, onsetByStart: [:], endByStart: nil)
         XCTAssertEqual(
-            SleepStageTotals.mainNightIndexByStages(blocks, onsetByStart: [:], offsetSec: 0), 1,
-            "a stage-less partial retains its fallback role but cannot steal a day from staged sleep")
+            SleepStageTotals.mainNightGroupIndices(spans, offsetSec: 0), [1],
+            "a stage-less partial cannot steal a day from staged sleep")
     }
 
     func testExtremeSegmentTimestampsAreIgnoredWhileLegitimateStagesRemain() throws {
@@ -801,19 +802,24 @@ final class SleepStageTotalsTests: XCTestCase {
     func testEditedOnsetCrossingBoundaryIsScoredOnTheEffectiveOnset() throws {
         let detectedStart = ts525("2026-06-15T09:30")   // detected as a daytime onset (bonus 0)
         let effectiveStart = ts525("2026-06-14T22:30")  // user moved bedtime back → overnight (bonus ~75)
-        let napStart = ts525("2026-06-15T15:00")         // far from the band center (bonus 0)
+        // Far from the band center (bonus 0), and > 60 min after the detected main ends so the two can't bridge.
+        let napStart = ts525("2026-06-15T16:00")
         let mainStages = #"{"awake":0,"light":150,"deep":80,"rem":70}"#   // 300 asleep
         let napStages  = #"{"awake":0,"light":170,"deep":90,"rem":80}"#   // 340 asleep (longer)
         let blocksByStages = [(startTs: detectedStart, stagesJSON: mainStages),
                               (startTs: napStart,      stagesJSON: napStages)]
         // Effective-onset map (correct, finding-C fix): main scored at 22:30 → bonus lifts it over the nap.
         let onEffective: [Int: Int] = [detectedStart: effectiveStart, napStart: napStart]
-        let idxEff = SleepStageTotals.mainNightIndexByStages(blocksByStages, onsetByStart: onEffective, offsetSec: 0)
-        XCTAssertEqual(idxEff, 0, "effective (edited) overnight onset earns the bonus, so the main block wins")
+        let idxEff = SleepStageTotals.mainNightGroupIndices(
+            SleepStageTotals.seamNightBlocks(blocksByStages, onsetByStart: onEffective, endByStart: nil),
+            offsetSec: 0)
+        XCTAssertEqual(idxEff, [0], "effective (edited) overnight onset earns the bonus, so the main block wins")
         // Wrong (detected-onset) map: main is daytime → 0 bonus → the longer nap (340) wins instead.
         let onDetected: [Int: Int] = [detectedStart: detectedStart, napStart: napStart]
-        let idxDet = SleepStageTotals.mainNightIndexByStages(blocksByStages, onsetByStart: onDetected, offsetSec: 0)
-        XCTAssertEqual(idxDet, 1, "detected onset misses the bonus → the longer nap mis-wins (the finding-C bug)")
+        let idxDet = SleepStageTotals.mainNightGroupIndices(
+            SleepStageTotals.seamNightBlocks(blocksByStages, onsetByStart: onDetected, endByStart: nil),
+            offsetSec: 0)
+        XCTAssertEqual(idxDet, [1], "detected onset misses the bonus → the longer nap mis-wins (the finding-C bug)")
         // End-to-end through the seam: with the effective onset the day total is the MAIN block's 300.
         let rEff = try XCTUnwrap(SleepStageTotals.dailyAggregateHonoringEdits(
             detected: [(startTs: detectedStart, stagesJSON: mainStages),
@@ -1057,68 +1063,6 @@ final class SleepStageTotalsTests: XCTestCase {
         XCTAssertEqual(sel.index, 1, "equal duration → the habitual-aligned afternoon block wins on bonus")
         XCTAssertEqual(sel.reason, .alignedToUsual,
                        "duration-only (earlier onset) would have picked the night; alignment flipped it")
-    }
-
-    // MARK: - Selection reason via the STAGES seam (decoded asleep minutes drive {DUR}) (spec 2026-06-20)
-
-    /// The stages-path selection: index matches `mainNightIndexByStages`, the reason is decided on DECODED
-    /// asleep minutes, and `asleepSeconds` is the chosen block's decoded asleep span (not clock span).
-    func testSelectionByStagesReasonAndDecodedDuration() throws {
-        let nightStart = ts525("2026-06-14T23:00")
-        let napStart   = ts525("2026-06-15T14:00")
-        let nightStages = #"{"awake":24,"light":214,"deep":82,"rem":96}"#   // 392 min asleep (longest)
-        let napStages   = #"{"awake":2,"light":30,"deep":10,"rem":8}"#      // 48 min asleep
-        let blocks = [(startTs: napStart,   stagesJSON: napStages),
-                      (startTs: nightStart, stagesJSON: nightStages)]
-        let onset = [napStart: napStart, nightStart: nightStart]
-        let idx = SleepStageTotals.mainNightIndexByStages(blocks, onsetByStart: onset, offsetSec: 0)
-        let sel = try XCTUnwrap(SleepStageTotals.mainNightSelectionByStages(
-            blocks, onsetByStart: onset, offsetSec: 0))                     // nil habitual → cold-start
-        XCTAssertEqual(sel.index, idx, "stages selection index matches mainNightIndexByStages")
-        XCTAssertEqual(sel.index, 1, "the 392-min overnight block is the main night")
-        XCTAssertEqual(sel.reason, .longest, "cold-start → plain longest")
-        XCTAssertEqual(sel.asleepSeconds, 392 * 60, "{DUR} is the DECODED asleep span, not clock span")
-        XCTAssertEqual(sel.asleepMinutes, 392, accuracy: 0.001)
-    }
-
-    /// Stages seam, ALIGNED-TO-USUAL: a learned afternoon habitual flips the pick to the shorter, on-timing
-    /// afternoon block, and the reason reflects that the bonus (not duration) decided it.
-    func testSelectionByStagesReasonAlignedToUsual() throws {
-        let habitual = sod("14:00")
-        let nightStart = ts525("2026-06-14T23:00")  // 4h overnight, mid 01:00 → 240 asleep
-        let dayStart   = ts525("2026-06-15T13:00")  // afternoon, mid 15:00 (1h from habitual) → 240 asleep, +bonus
-        let nightStages = #"{"awake":0,"light":300,"deep":80,"rem":40}"#   // 420 asleep (LONGEST)
-        let dayStages   = #"{"awake":0,"light":120,"deep":60,"rem":60}"#   // 240 asleep, but aligned → +90
-        let blocks = [(startTs: nightStart, stagesJSON: nightStages),
-                      (startTs: dayStart,   stagesJSON: dayStages)]
-        let onset = [nightStart: nightStart, dayStart: dayStart]
-        // night: 420 + bonus(mid 01:00 vs 14:00 → 0) = 420; day: 240 + bonus(~14:30 vs 14:00 → 90) = 330.
-        // Here the LONGER night still wins (420 > 330) → reason longest. Verify, then shorten the night so
-        // alignment flips it.
-        let selA = try XCTUnwrap(SleepStageTotals.mainNightSelectionByStages(
-            blocks, onsetByStart: onset, offsetSec: 0, habitualMidsleepSec: habitual))
-        XCTAssertEqual(selA.index, 0)
-        XCTAssertEqual(selA.reason, .longest, "longest night wins on duration; habitual far from it → no bonus")
-
-        // Now make the night SHORTER than the aligned afternoon's score so alignment flips the pick.
-        let shortNight = #"{"awake":0,"light":120,"deep":60,"rem":60}"#    // 240 asleep, mid 01:00, bonus 0
-        let blocks2 = [(startTs: nightStart, stagesJSON: shortNight),       // 240
-                       (startTs: dayStart,   stagesJSON: dayStages)]        // 240 + 90 = 330 wins
-        let sel2 = try XCTUnwrap(SleepStageTotals.mainNightSelectionByStages(
-            blocks2, onsetByStart: onset, offsetSec: 0, habitualMidsleepSec: habitual))
-        XCTAssertEqual(sel2.index, 1, "equal asleep → the aligned afternoon block wins on bonus")
-        XCTAssertEqual(sel2.reason, .alignedToUsual, "alignment, not duration, decided the flipped pick")
-        XCTAssertEqual(sel2.asleepSeconds, 240 * 60, "decoded asleep of the chosen afternoon block")
-    }
-
-    /// Stages seam, ONLY-BLOCK: a single decoded block → onlyBlock with its decoded asleep span.
-    func testSelectionByStagesReasonOnlyBlock() throws {
-        let nap = ts525("2026-06-15T13:00")
-        let sel = try XCTUnwrap(SleepStageTotals.mainNightSelectionByStages(
-            [(startTs: nap, stagesJSON: #"{"awake":2,"light":24,"deep":8,"rem":6}"#)],
-            onsetByStart: [nap: nap], offsetSec: 0))
-        XCTAssertEqual(sel.reason, .onlyBlock)
-        XCTAssertEqual(sel.asleepSeconds, 38 * 60, "decoded asleep = 24+8+6 = 38 min")
     }
 
     // MARK: - #561 biphasic gap-bridge (mainNightGroupIndices)

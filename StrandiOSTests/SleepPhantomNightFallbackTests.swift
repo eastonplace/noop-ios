@@ -1,7 +1,7 @@
 import XCTest
 import WhoopStore
 import StrandAnalytics
-@testable import Strand
+@testable import NOOP
 
 /// #940: an impossible hand-edit (bed rolled across midnight onto the COMING evening) produced a
 /// future-dated, all-awake "phantom" night. It owned the tab's newest day, `mergeDay` returned nil
@@ -11,6 +11,7 @@ import StrandAnalytics
 /// (`SleepView.stubDaySession`): as long as a day has ANY stored block, the tab has a renderable
 /// header + a real edit target, so `buildModel` can never blank a non-empty history. Pure (no store,
 /// no view mounting). Android twin: SleepPhantomNightFallbackTest.kt.
+@MainActor
 final class SleepPhantomNightFallbackTests: XCTestCase {
 
     /// THE #940 PHANTOM: a userEdited row whose corrected window is future-dated and staged as a

@@ -537,4 +537,36 @@ public enum Calories {
         }
         return totalKcal
     }
+
+    /// D3b: TOTAL energy (kcal) for a whole civil day, or for today up to now, counted the way WHOOP and
+    /// Apple Health count it. Every second of `fillWindow` gets exactly one of two rates, never both:
+    /// - a second with a valid HR sample gets that sample's `estimateDayCalories` energy;
+    /// - any other second (off-wrist, no data, or a 0-bpm row `HRValidity` dropped) gets the resting
+    ///   BMR rate, with the same profile fallbacks as `estimateDayCalories`.
+    /// A second carried by more than one sample counts once, at its highest BPM. Samples past the end of
+    /// the fill window (today, after `now`) still count their own energy.
+    public static func estimateFullDayCalories(_ hrSamples: [HRSample],
+                                               fillWindow: Range<Int>,
+                                               profile: UserProfile,
+                                               hrmax: Double?,
+                                               restingHR: Double?) -> Double {
+        // One sample per second in timestamp order, so the sum is the same to the last bit whatever order the
+        // samples arrive in and an unchanged day is never rewritten by a rescan (review round 3, G).
+        var perSecond: [HRSample] = []
+        perSecond.reserveCapacity(hrSamples.count)
+        for sample in hrSamples.sorted(by: { $0.ts < $1.ts }) {
+            if let last = perSecond.last, last.ts == sample.ts {
+                if sample.bpm > last.bpm { perSecond[perSecond.count - 1] = sample }
+            } else {
+                perSecond.append(sample)
+            }
+        }
+        let sampleKcal = estimateDayCalories(perSecond, profile: profile, hrmax: hrmax, restingHR: restingHR)
+        let covered = perSecond.reduce(0) { $0 + (fillWindow.contains($1.ts) ? 1 : 0) }
+        let restingRate = restingKcalPerS(resolveCoeffs(profile.sex),
+                                          weightKg: profile.weightKg > 0 ? profile.weightKg : 70.0,
+                                          heightCm: profile.heightCm > 0 ? profile.heightCm : 170.0,
+                                          age: profile.age > 0 ? profile.age : 30.0)
+        return sampleKcal + Double(max(0, fillWindow.count - covered)) * restingRate
+    }
 }

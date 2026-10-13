@@ -13,12 +13,14 @@ import Foundation
 ///   TSB[t] = CTL[t] - ATL[t]
 ///
 /// Standard time constants are 42 days (chronic/fitness) and 7 days (acute/fatigue) — the classic
-/// Banister-style fitness-fatigue horizons. The first `primeDays` contiguous observations are averaged
-/// to seed both states, avoiding the artificial low bias of zero-seeding a new wearer.
+/// Banister-style fitness-fatigue horizons. The first `primeDays` observations are averaged to seed both
+/// states, avoiding the artificial low bias of zero-seeding a new wearer.
 ///
-/// Missing calendar days are NEVER silently filled with zero. A real rest day must be a row whose load
-/// is 0; a missing row or a nil load breaks the contiguous suffix the model runs over. This is the same
-/// "don't invent zero, don't compress calendar time" discipline the rest of StrandAnalytics uses.
+/// Short gaps (AN-13): up to `maxGapDays` consecutive missing rows or nil loads are stepped with zero
+/// load, so the averages decay through a day or two off-wrist instead of the whole model resetting for
+/// weeks. A longer gap ends the run; older history before it is ignored. Calendar time is never
+/// compressed, gap days are never reported as measured rest days (no point is emitted for them), and
+/// `coverage` says how much of the modeled span was observed. A real rest day is a row whose load is 0.
 public enum TrainingLoadEngine {
     public struct Configuration: Sendable, Equatable {
         public let chronicTimeConstantDays: Double
@@ -26,17 +28,21 @@ public enum TrainingLoadEngine {
         public let primeDays: Int
         public let minimumDays: Int
         public let establishedDays: Int
+        /// Longest run of consecutive missing or nil days stepped with zero load; one more ends the run.
+        public let maxGapDays: Int
 
         public init(chronicTimeConstantDays: Double = 42,
                     acuteTimeConstantDays: Double = 7,
                     primeDays: Int = 7,
                     minimumDays: Int = 14,
-                    establishedDays: Int = 42) {
+                    establishedDays: Int = 42,
+                    maxGapDays: Int = 2) {
             self.chronicTimeConstantDays = chronicTimeConstantDays
             self.acuteTimeConstantDays = acuteTimeConstantDays
             self.primeDays = primeDays
             self.minimumDays = minimumDays
             self.establishedDays = establishedDays
+            self.maxGapDays = maxGapDays
         }
 
         public static let standard = Configuration()
@@ -47,6 +53,7 @@ public enum TrainingLoadEngine {
                 && primeDays > 0
                 && minimumDays >= primeDays
                 && establishedDays >= minimumDays
+                && maxGapDays >= 0
         }
     }
 
@@ -98,10 +105,20 @@ public enum TrainingLoadEngine {
     public struct Result: Sendable, Equatable {
         public let state: State
         public let unavailableReason: UnavailableReason?
+        /// Observed days in the modeled run ending on the target. Gaps of up to `maxGapDays` don't end the
+        /// run but don't count here; the minimum and established thresholds read this count.
         public let contiguousDays: Int
+        /// Calendar days from `startDay` through `endDay`, tolerated gap days included.
+        public let spanDays: Int
         public let startDay: String?
         public let endDay: String?
+        /// One point per observed day; gap days only decay the state.
         public let points: [Point]
+
+        /// Share of the modeled span with an observed load (1 = no gaps); nil when nothing was modeled.
+        public var coverage: Double? {
+            spanDays > 0 ? Double(contiguousDays) / Double(spanDays) : nil
+        }
 
         /// Latest modeled chronic load (CTL), in the same units as input load.
         public var chronicLoad: Double? { points.last?.chronicLoad }
@@ -118,8 +135,8 @@ public enum TrainingLoadEngine {
 
     /// Evaluate the latest day in the input, or an explicit target day. Inputs may be in any order.
     ///
-    /// Only the longest fully observed CONTIGUOUS suffix ending on the target is modeled. Older history
-    /// before a gap is intentionally ignored rather than compressing calendar time or inventing zero load.
+    /// The run ending on the (observed) target is modeled. Gaps of up to `maxGapDays` inside it decay the
+    /// state with zero load; history before a longer gap is ignored rather than compressing calendar time.
     public static func evaluate(days: [DailyLoad],
                                 through targetDay: String? = nil,
                                 configuration: Configuration = .standard) -> Result {
@@ -159,55 +176,73 @@ public enum TrainingLoadEngine {
             return unavailable(.missingTargetDay, contiguousDays: 0)
         }
 
-        // Walk backwards from the target until the first calendar gap OR unobserved load. A stored zero
-        // stays valid. Future rows and older history before the break do not affect this target's model.
-        var suffixReversed: [(day: String, ordinal: Int, load: Double)] = []
-        var expectedOrdinal = targetOrdinal
-        var index = targetIndex
-        while index >= 0 {
-            let item = parsed[index]
-            guard item.ordinal == expectedOrdinal, let load = item.load else { break }
-            suffixReversed.append((item.day, item.ordinal, load))
-            expectedOrdinal -= 1
-            if index == 0 { break }
-            index -= 1
+        // Walk back from the target one calendar day at a time. An unobserved target models nothing; a
+        // stored zero stays a measured day; up to `maxGapDays` consecutive missing/nil days are kept as
+        // zero-load steps and one more ends the run. Future rows never affect this target's model.
+        var loadByOrdinal: [Int: Double?] = [:]
+        for item in parsed[...targetIndex] { loadByOrdinal[item.ordinal] = item.load }
+        let earliestOrdinal = parsed[0].ordinal
+        var runReversed: [(ordinal: Int, load: Double?)] = []
+        var gap = 0
+        var ordinal = targetOrdinal
+        while ordinal >= earliestOrdinal {
+            if let load = loadByOrdinal[ordinal] ?? nil {
+                runReversed.append((ordinal, load))
+                gap = 0
+            } else {
+                if runReversed.isEmpty { break }
+                gap += 1
+                if gap > configuration.maxGapDays { break }
+                runReversed.append((ordinal, nil))
+            }
+            ordinal -= 1
         }
-        let ordered = Array(suffixReversed.reversed())
-        let contiguousDays = ordered.count
+        while runReversed.last.map({ $0.load == nil }) == true { runReversed.removeLast() }
+        let ordered = Array(runReversed.reversed())
+        let observed = ordered.compactMap { item in item.load.map { (ordinal: item.ordinal, load: $0) } }
+        let contiguousDays = observed.count
+        let startDay = ordered.first.map { dayString(ordinal: $0.ordinal) }
+        let endDay = ordered.last.map { dayString(ordinal: $0.ordinal) }
         guard contiguousDays >= configuration.minimumDays else {
             return unavailable(.notEnoughContiguousDays,
                                contiguousDays: contiguousDays,
-                               startDay: ordered.first?.day,
-                               endDay: ordered.last?.day)
+                               spanDays: ordered.count,
+                               startDay: startDay,
+                               endDay: endDay)
         }
 
-        let seedWindow = ordered.prefix(configuration.primeDays)
-        let seed = seedWindow.reduce(0.0) { $0 + $1.load } / Double(configuration.primeDays)
+        // Seed from the first `primeDays` observations (gap days inside the priming window are skipped,
+        // not averaged in as zero), then step every later calendar day, gap days with zero load.
+        let seedDay = observed[configuration.primeDays - 1]
+        let seed = observed.prefix(configuration.primeDays).reduce(0.0) { $0 + $1.load }
+            / Double(configuration.primeDays)
         let alphaChronic = 1 - exp(-1 / configuration.chronicTimeConstantDays)
         let alphaAcute = 1 - exp(-1 / configuration.acuteTimeConstantDays)
 
         var chronic = seed
         var acute = seed
         var points: [Point] = []
-        points.reserveCapacity(ordered.count - configuration.primeDays + 1)
-
-        let seedDay = ordered[configuration.primeDays - 1]
-        points.append(Point(day: seedDay.day, load: seedDay.load,
+        points.reserveCapacity(contiguousDays - configuration.primeDays + 1)
+        points.append(Point(day: dayString(ordinal: seedDay.ordinal), load: seedDay.load,
                             chronicLoad: chronic, acuteLoad: acute, balance: chronic - acute))
 
-        for item in ordered.dropFirst(configuration.primeDays) {
-            chronic += alphaChronic * (item.load - chronic)
-            acute += alphaAcute * (item.load - acute)
-            points.append(Point(day: item.day, load: item.load,
-                                chronicLoad: chronic, acuteLoad: acute, balance: chronic - acute))
+        for item in ordered where item.ordinal > seedDay.ordinal {
+            let load = item.load ?? 0
+            chronic += alphaChronic * (load - chronic)
+            acute += alphaAcute * (load - acute)
+            if let observedLoad = item.load {
+                points.append(Point(day: dayString(ordinal: item.ordinal), load: observedLoad,
+                                    chronicLoad: chronic, acuteLoad: acute, balance: chronic - acute))
+            }
         }
 
         return Result(
             state: contiguousDays >= configuration.establishedDays ? .established : .building,
             unavailableReason: nil,
             contiguousDays: contiguousDays,
-            startDay: ordered.first?.day,
-            endDay: ordered.last?.day,
+            spanDays: ordered.count,
+            startDay: startDay,
+            endDay: endDay,
             points: points
         )
     }
@@ -225,10 +260,11 @@ public enum TrainingLoadEngine {
 
     private static func unavailable(_ reason: UnavailableReason,
                                     contiguousDays: Int,
+                                    spanDays: Int = 0,
                                     startDay: String? = nil,
                                     endDay: String? = nil) -> Result {
-        Result(state: .unavailable, unavailableReason: reason,
-               contiguousDays: contiguousDays, startDay: startDay, endDay: endDay, points: [])
+        Result(state: .unavailable, unavailableReason: reason, contiguousDays: contiguousDays,
+               spanDays: spanDays, startDay: startDay, endDay: endDay, points: [])
     }
 
     // MARK: - Strict, timezone-free Gregorian calendar helpers

@@ -60,7 +60,9 @@ public enum SleepStagerV2 {
         // (we drop only rows `features()` could never touch) and it also tightens the fingerprint to the rows
         // that matter. PAD_LO/PAD_HI are the SAME values the Android twin (R1) clips with.
         let gravW = clipToWindow(grav, lo: bounds.lo, hi: bounds.hi, ts: { $0.ts })
+        // AN-03: implausible HR (0 bpm off-wrist, decode glitches) never reaches staging.
         let hrW = clipToWindow(hr, lo: bounds.lo, hi: bounds.hi, ts: { $0.ts })
+            .filter { HRValidity.isPlausible($0.bpm) }
         let rrW = clipToWindow(rr, lo: bounds.lo, hi: bounds.hi, ts: { $0.ts })
         let key = V2Key(
             start: start, end: end,

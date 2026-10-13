@@ -183,6 +183,22 @@ final class ProfileStore: ObservableObject {
         defaults.object(forKey: K.hrMax) as? Int ?? 0
     }
 
+    /// The profile's resting energy per day as last saved (review round 4, 5), for readers with no
+    /// `ProfileStore`: the rate the strap's calorie estimate fills off-wrist time with.
+    nonisolated static func storedBmrKcalPerDay(_ defaults: UserDefaults = .standard) -> Double {
+        let age: Int
+        if let dob = defaults.object(forKey: K.dateOfBirth) as? Date {
+            age = years(from: dob, to: Date())
+        } else {
+            age = defaults.object(forKey: K.legacyAge) as? Int ?? 30
+        }
+        return DailyCalories.bmrKcalPerDay(profile: UserProfile(
+            weightKg: defaults.object(forKey: K.weight) as? Double ?? 75,
+            heightCm: defaults.object(forKey: K.height) as? Double ?? 178,
+            age: Double(age),
+            sex: defaults.string(forKey: K.sex) ?? "male"))
+    }
+
     /// The maximum the nightly batch scores Strain with: the override, else the unrounded Tanaka estimate.
     var hrMaxForBatchScoring: Double { Self.hrMaxForBatchScoring(override: hrMaxOverride, age: age) }
 

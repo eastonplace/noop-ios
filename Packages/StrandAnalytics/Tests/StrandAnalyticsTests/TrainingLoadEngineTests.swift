@@ -60,29 +60,90 @@ final class TrainingLoadEngineTests: XCTestCase {
         XCTAssertLessThan(result.atl!, 50)
     }
 
-    func testMissingLoadBreaksContiguousSuffixInsteadOfInventingZero() {
+    // MARK: - AN-13: short gaps decay with zero load instead of resetting the model
+
+    /// One day off-wrist (a nil load) no longer wipes CTL/ATL/TSB: the day steps with zero load, emits no
+    /// point (it is not a measured rest day) and lowers coverage.
+    func testOneMissingLoadDecaysWithZeroInsteadOfResetting() throws {
         var days: [TrainingLoadEngine.DailyLoad] = []
         for day in 1...20 {
             days.append(.init(day: String(format: "2026-07-%02d", day), load: day == 12 ? nil : 50))
         }
         let result = TrainingLoadEngine.evaluate(days: days)
-        XCTAssertEqual(result.state, .unavailable)
-        XCTAssertEqual(result.unavailableReason, .notEnoughContiguousDays)
-        XCTAssertEqual(result.contiguousDays, 8)
-        XCTAssertEqual(result.startDay, "2026-07-13")
+        XCTAssertEqual(result.state, .building)
+        XCTAssertNil(result.unavailableReason)
+        XCTAssertEqual(result.contiguousDays, 19)
+        XCTAssertEqual(result.spanDays, 20)
+        XCTAssertEqual(try XCTUnwrap(result.coverage), 0.95, accuracy: 1e-12)
+        XCTAssertEqual(result.startDay, "2026-07-01")
         XCTAssertEqual(result.endDay, "2026-07-20")
+        XCTAssertFalse(result.points.contains { $0.day == "2026-07-12" })
+
+        // The state equals a model that saw a zero on that day.
+        var dense = Array(repeating: 50.0, count: 20)
+        dense[11] = 0
+        let zeroDay = TrainingLoadEngine.evaluateDense(dense)
+        XCTAssertEqual(try XCTUnwrap(result.ctl), try XCTUnwrap(zeroDay.ctl), accuracy: 1e-12)
+        XCTAssertEqual(try XCTUnwrap(result.atl), try XCTUnwrap(zeroDay.atl), accuracy: 1e-12)
+        XCTAssertLessThan(try XCTUnwrap(result.atl), 50)
     }
 
-    func testMissingCalendarDayBreaksSuffixRatherThanCompressingTime() {
+    /// A missing row is the same as a nil load: calendar time is not compressed.
+    func testMissingCalendarDayDecaysRatherThanCompressingTime() throws {
         var days: [TrainingLoadEngine.DailyLoad] = []
         for day in 1...20 where day != 15 {
             days.append(.init(day: String(format: "2026-06-%02d", day), load: 50))
         }
         let result = TrainingLoadEngine.evaluate(days: days)
-        XCTAssertEqual(result.state, .unavailable)
-        XCTAssertEqual(result.unavailableReason, .notEnoughContiguousDays)
-        XCTAssertEqual(result.contiguousDays, 5)
-        XCTAssertEqual(result.startDay, "2026-06-16")
+        XCTAssertEqual(result.state, .building)
+        XCTAssertEqual(result.contiguousDays, 19)
+        XCTAssertEqual(result.spanDays, 20)
+        XCTAssertEqual(result.startDay, "2026-06-01")
+        var dense = Array(repeating: 50.0, count: 20)
+        dense[14] = 0
+        XCTAssertEqual(try XCTUnwrap(result.atl),
+                       try XCTUnwrap(TrainingLoadEngine.evaluateDense(dense).atl), accuracy: 1e-12)
+    }
+
+    /// Two consecutive missing days are tolerated; a third ends the run and only the days after it count.
+    func testTwoMissingDaysAreToleratedAndThreeReset() {
+        func run(missing: Set<Int>) -> TrainingLoadEngine.Result {
+            TrainingLoadEngine.evaluate(days: (1...30).filter { !missing.contains($0) }.map {
+                .init(day: String(format: "2026-08-%02d", $0), load: 40)
+            })
+        }
+        let two = run(missing: [14, 15])
+        XCTAssertEqual(two.state, .building)
+        XCTAssertEqual(two.contiguousDays, 28)
+        XCTAssertEqual(two.spanDays, 30)
+        XCTAssertEqual(two.startDay, "2026-08-01")
+
+        let three = run(missing: [13, 14, 15])
+        XCTAssertEqual(three.state, .building)
+        XCTAssertEqual(three.contiguousDays, 15)
+        XCTAssertEqual(three.spanDays, 15)
+        XCTAssertEqual(three.startDay, "2026-08-16")
+        XCTAssertEqual(three.coverage, 1)
+    }
+
+    /// Gaps inside the priming window are skipped, not averaged in as zero, and an unobserved target still
+    /// models nothing.
+    func testPrimingIgnoresGapsAndAnUnobservedTargetIsUnavailable() throws {
+        var days: [TrainingLoadEngine.DailyLoad] = []
+        for day in 1...16 where day != 3 {
+            days.append(.init(day: String(format: "2026-09-%02d", day), load: 30))
+        }
+        let primed = TrainingLoadEngine.evaluate(days: days, through: "2026-09-08")
+        XCTAssertEqual(primed.state, .unavailable, "7 observed days are below the 14-day minimum")
+        let result = TrainingLoadEngine.evaluate(days: days)
+        XCTAssertEqual(result.points.first?.day, "2026-09-08", "the 7th observation seeds the model")
+        XCTAssertEqual(try XCTUnwrap(result.points.first?.chronicLoad), 30, accuracy: 1e-12)
+
+        days.append(.init(day: "2026-09-17", load: nil))
+        let nilTarget = TrainingLoadEngine.evaluate(days: days)
+        XCTAssertEqual(nilTarget.state, .unavailable)
+        XCTAssertEqual(nilTarget.unavailableReason, .notEnoughContiguousDays)
+        XCTAssertEqual(nilTarget.contiguousDays, 0)
     }
 
     func testExplicitTargetUsesOnlyHistoryThroughThatDay() {

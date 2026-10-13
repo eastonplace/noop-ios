@@ -125,7 +125,10 @@ public enum ResonanceEngine {
 
         // Clean R-R (range + Malik) for both the RMSSD and the swing, so ectopic beats can't fabricate
         // an RSA swing. Cleaning operates on the rrMs values; we keep ts alongside for cycle bucketing.
-        let cleanMs = HRVAnalyzer.cleanRR(steady.map { Double($0.rrMs) })
+        // Gap-aware cleaning (AN-10): `nn` equals `cleanRR`, and `contiguous` lets the RMSSD below skip a
+        // difference across a dropped beat, exactly like nightly HRV.
+        let cleaned = HRVAnalyzer.cleanRRGapAware(steady.map { Double($0.rrMs) })
+        let cleanMs = cleaned.nn
         guard cleanMs.count >= minBeatsPerPace else {
             return PaceScore(bpm: sample.bpm, rsaAmplitude: nil, rmssd: nil,
                              cleanBeats: cleanMs.count, scoredCycles: 0)
@@ -134,7 +137,7 @@ public enum ResonanceEngine {
         // Re-pair the cleaned values back to timestamps by matching them in order against `steady`
         // (cleaning preserves order and only drops beats), so each surviving beat keeps its ts.
         let cleanBeats = repairTimestamps(steady: steady, cleanMs: cleanMs)
-        let rmssd = HRVAnalyzer.rmssdRaw(cleanMs)
+        let rmssd = HRVAnalyzer.rmssdGapAware(cleaned.nn, cleaned.contiguous)
 
         // Bucket clean beats into paced breath cycles relative to windowStart; per cycle, take the
         // peak-to-trough swing of instantaneous HR (60000/RR).

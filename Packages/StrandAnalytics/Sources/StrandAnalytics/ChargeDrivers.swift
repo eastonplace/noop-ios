@@ -24,6 +24,11 @@ import Foundation
 // Pure and side-effect-free: no clock, no I/O. The Kotlin twin is RecoveryScorer.chargeDrivers.
 // No em-dashes.
 
+/// The Charge term a driver row describes, in the stable tie order of the driver list.
+public enum ChargeDriverTerm: String, CaseIterable, Equatable, Sendable {
+    case hrv, restingHR, sleep, resp, skinTemp
+}
+
 /// One row of the Charge driver breakdown (SHARED CONTRACT shape).
 public struct ChargeDriver: Equatable, Sendable {
     /// Human label for the term, e.g. "Resting heart rate".
@@ -39,14 +44,24 @@ public struct ChargeDriver: Equatable, Sendable {
     public let baselineText: String
     /// Short plain-English read of the direction, e.g. "below baseline, supporting recovery".
     public let verdict: String
+    /// The term, measured value and baseline the texts were formatted from (review round 4, 3), so the engine
+    /// can persist a day's drivers and rebuild the same rows with `RecoveryScorer.chargeDriver`. Nil on rows
+    /// built directly from texts (previews).
+    public let term: ChargeDriverTerm?
+    public let value: Double?
+    public let baseline: Double?
 
     public init(label: String, deltaPoints: Int, valueText: String,
-                baselineText: String, verdict: String) {
+                baselineText: String, verdict: String,
+                term: ChargeDriverTerm? = nil, value: Double? = nil, baseline: Double? = nil) {
         self.label = label
         self.deltaPoints = deltaPoints
         self.valueText = valueText
         self.baselineText = baselineText
         self.verdict = verdict
+        self.term = term
+        self.value = value
+        self.baseline = baseline
     }
 }
 
@@ -156,76 +171,116 @@ extension RecoveryScorer {
 
         // ── HRV (dominant driver; always present once the score exists) ──────────
         // Higher HRV vs baseline supports recovery. Neutral = HRV at the baseline mean.
-        drivers.append(ChargeDriver(
-            label: "Heart rate variability",
+        drivers.append(chargeDriver(
+            term: .hrv,
             deltaPoints: points(recovery(hrv: hrvBaseline.baseline, rhr: rhr, resp: resp,
                                          hrvBaseline: hrvBaseline, rhrBaseline: rhrBaseline,
                                          respBaseline: respBaseline, sleepPerf: sleepPerf,
                                          skinTempDev: skinTempDev)),
-            valueText: "\(Int(hrv.rounded())) ms",
-            baselineText: "\(Int(hrvBaseline.baseline.rounded())) ms baseline",
-            verdict: hrvVerdict(value: hrv, baseline: hrvBaseline.baseline)))
+            value: hrv, baseline: hrvBaseline.baseline))
 
         // ── Resting HR (lower vs baseline supports recovery) ─────────────────────
         // Neutral = resting HR at the baseline mean.
         if let b = rhrBaseline {
-            drivers.append(ChargeDriver(
-                label: "Resting heart rate",
+            drivers.append(chargeDriver(
+                term: .restingHR,
                 deltaPoints: points(recovery(hrv: hrv, rhr: b.baseline, resp: resp,
                                              hrvBaseline: hrvBaseline, rhrBaseline: rhrBaseline,
                                              respBaseline: respBaseline, sleepPerf: sleepPerf,
                                              skinTempDev: skinTempDev)),
-                valueText: "\(Int(rhr.rounded())) bpm",
-                baselineText: "\(Int(b.baseline.rounded())) bpm baseline",
-                verdict: rhrVerdict(value: rhr, baseline: b.baseline)))
+                value: rhr, baseline: b.baseline))
         }
 
         // ── Rest quality (the Rest composite; neutral at sleepPerfCenter) ────────
         if let sp = sleepPerf {
-            drivers.append(ChargeDriver(
-                label: "Sleep quality",
+            drivers.append(chargeDriver(
+                term: .sleep,
                 deltaPoints: points(recovery(hrv: hrv, rhr: rhr, resp: resp,
                                              hrvBaseline: hrvBaseline, rhrBaseline: rhrBaseline,
                                              respBaseline: respBaseline, sleepPerf: sleepPerfCenter,
                                              skinTempDev: skinTempDev)),
-                valueText: "\(Int((sp * 100).rounded()))%",
-                baselineText: "",   // centred on a fixed "good night", not a learned baseline
-                verdict: sleepVerdict(sleepPerf: sp)))
+                value: sp, baseline: nil))
         }
 
         // ── Respiration (lower vs baseline supports recovery) ────────────────────
         // Neutral = respiration at the baseline mean.
         if let r = resp, let b = respBaseline {
-            drivers.append(ChargeDriver(
-                label: "Respiratory rate",
+            drivers.append(chargeDriver(
+                term: .resp,
                 deltaPoints: points(recovery(hrv: hrv, rhr: rhr, resp: b.baseline,
                                              hrvBaseline: hrvBaseline, rhrBaseline: rhrBaseline,
                                              respBaseline: respBaseline, sleepPerf: sleepPerf,
                                              skinTempDev: skinTempDev)),
-                valueText: String(format: "%.1f br/min", r),
-                baselineText: String(format: "%.1f br/min baseline", b.baseline),
-                verdict: respVerdict(value: r, baseline: b.baseline)))
+                value: r, baseline: b.baseline))
         }
 
         // ── Skin-temp deviation (symmetric penalty: any drift lowers Charge) ─────
         // Neutral = zero drift, so the delta is always <= 0 (a penalty removed).
         if let dev = skinTempDev {
-            drivers.append(ChargeDriver(
-                label: "Skin temperature",
+            drivers.append(chargeDriver(
+                term: .skinTemp,
                 deltaPoints: points(recovery(hrv: hrv, rhr: rhr, resp: resp,
                                              hrvBaseline: hrvBaseline, rhrBaseline: rhrBaseline,
                                              respBaseline: respBaseline, sleepPerf: sleepPerf,
                                              skinTempDev: 0)),
-                valueText: skinTempDevText(dev),
-                baselineText: "",   // a deviation already; the reference is the personal baseline (0)
-                verdict: skinTempVerdict(dev)))
+                value: dev, baseline: nil))
         }
 
-        // Biggest mover first; stable on ties (preserves the append order above).
+        return orderedByImpact(drivers)
+    }
+
+    /// One driver row for `term`, with the label, value, baseline and verdict texts `chargeDrivers` writes
+    /// (review round 4, 3). `value` is the term's measured input (Rest quality as 0-1, skin temperature as a
+    /// deviation in °C); `baseline` is the learned baseline mean for HRV, resting HR and respiration, nil for
+    /// the fixed-centre terms.
+    public static func chargeDriver(term: ChargeDriverTerm, deltaPoints: Int, value: Double,
+                                    baseline: Double?) -> ChargeDriver {
+        let b = baseline ?? value
+        switch term {
+        case .hrv:
+            return ChargeDriver(label: "Heart rate variability", deltaPoints: deltaPoints,
+                                valueText: "\(Int(value.rounded())) ms",
+                                baselineText: "\(Int(b.rounded())) ms baseline",
+                                verdict: hrvVerdict(value: value, baseline: b),
+                                term: term, value: value, baseline: baseline)
+        case .restingHR:
+            return ChargeDriver(label: "Resting heart rate", deltaPoints: deltaPoints,
+                                valueText: "\(Int(value.rounded())) bpm",
+                                baselineText: "\(Int(b.rounded())) bpm baseline",
+                                verdict: rhrVerdict(value: value, baseline: b),
+                                term: term, value: value, baseline: baseline)
+        case .sleep:
+            return ChargeDriver(label: "Sleep quality", deltaPoints: deltaPoints,
+                                valueText: "\(Int((value * 100).rounded()))%",
+                                baselineText: "",   // centred on a fixed "good night", not a learned baseline
+                                verdict: sleepVerdict(sleepPerf: value),
+                                term: term, value: value, baseline: nil)
+        case .resp:
+            return ChargeDriver(label: "Respiratory rate", deltaPoints: deltaPoints,
+                                valueText: String(format: "%.1f br/min", value),
+                                baselineText: String(format: "%.1f br/min baseline", b),
+                                verdict: respVerdict(value: value, baseline: b),
+                                term: term, value: value, baseline: baseline)
+        case .skinTemp:
+            return ChargeDriver(label: "Skin temperature", deltaPoints: deltaPoints,
+                                valueText: skinTempDevText(value),
+                                baselineText: "",   // a deviation already; the reference is the baseline (0)
+                                verdict: skinTempVerdict(value),
+                                term: term, value: value, baseline: nil)
+        }
+    }
+
+    /// Biggest mover first; ties keep the term order (hrv, rhr, sleep, resp, skin).
+    public static func orderedByImpact(_ drivers: [ChargeDriver]) -> [ChargeDriver] {
+        func rank(_ d: ChargeDriver) -> Int {
+            d.term.flatMap { ChargeDriverTerm.allCases.firstIndex(of: $0) } ?? ChargeDriverTerm.allCases.count
+        }
         return drivers.enumerated()
             .sorted { a, b in
                 let am = abs(a.element.deltaPoints), bm = abs(b.element.deltaPoints)
-                return am != bm ? am > bm : a.offset < b.offset
+                if am != bm { return am > bm }
+                let ar = rank(a.element), br = rank(b.element)
+                return ar != br ? ar < br : a.offset < b.offset
             }
             .map { $0.element }
     }

@@ -7,7 +7,7 @@ final class PrimarySessionRestingHRTests: XCTestCase {
         let nap = PrimarySessionRestingHR.Session(durationSec: 2_000, bpm: Array(repeating: 45, count: 40))
         let night = PrimarySessionRestingHR.Session(
             durationSec: 28_800,
-            bpm: Array(repeating: 61, count: 30) + [0, 221]
+            bpm: Array(repeating: 61, count: 30) + [0, 241]   // outside HRValidity.bpmRange (AN-03)
         )
         let result = PrimarySessionRestingHR.measure(sessions: [nap, night])
         XCTAssertEqual(result?.meanHR, 61)

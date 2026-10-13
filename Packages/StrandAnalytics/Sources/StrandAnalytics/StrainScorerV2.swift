@@ -143,7 +143,7 @@ public enum StrainScorerV2 {
         }
 
         public mutating func append(_ sample: HRSample) {
-            guard sample.ts > 0, (30...240).contains(sample.bpm),
+            guard sample.ts > 0, HRValidity.isPlausible(sample.bpm),
                   effectiveMaxHR.isFinite, restingHR.isFinite,
                   effectiveMaxHR > restingHR else { return }
 
@@ -189,7 +189,7 @@ public enum StrainScorerV2 {
         /// its running average/peak/strain preview equivalent to the eventually persisted sample array.
         @discardableResult
         public mutating func replaceCurrentSecond(with sample: HRSample) -> Bool {
-            guard sample.ts > 0, (30...240).contains(sample.bpm),
+            guard sample.ts > 0, HRValidity.isPlausible(sample.bpm),
                   sample.ts == currentSecond,
                   effectiveMaxHR.isFinite, restingHR.isFinite,
                   effectiveMaxHR > restingHR else { return false }
@@ -261,7 +261,7 @@ public enum StrainScorerV2 {
         public mutating func update(context: DayContext) { self.context = context }
 
         public mutating func append(_ sample: HRSample) {
-            guard sample.ts > 0, (30...240).contains(sample.bpm),
+            guard sample.ts > 0, HRValidity.isPlausible(sample.bpm),
                   effectiveMaxHR.isFinite, restingHR.isFinite,
                   effectiveMaxHR > restingHR else { return }
 
@@ -305,11 +305,11 @@ public enum StrainScorerV2 {
         return strainSorted(sortedValidSamples(hr), maxHR: effectiveMax, restingHR: restingHR, mode: mode)
     }
 
-    /// The scorer's input filter: drops readings outside 30...240 bpm and orders by timestamp, then
+    /// The scorer's input filter: drops readings outside `HRValidity.bpmRange` and orders by timestamp, then
     /// bpm, so the last reading of an equal-second run carries that second's maximum.
     static func sortedValidSamples(_ hr: [HRSample]) -> [HRSample] {
         hr
-            .filter { (30...240).contains($0.bpm) }
+            .filter { HRValidity.isPlausible($0.bpm) }
             .sorted { lhs, rhs in lhs.ts == rhs.ts ? lhs.bpm < rhs.bpm : lhs.ts < rhs.ts }
     }
 

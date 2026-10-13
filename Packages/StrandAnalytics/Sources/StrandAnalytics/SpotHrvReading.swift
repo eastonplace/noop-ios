@@ -10,10 +10,11 @@ import Foundation
 /// Why delegate to `HRVAnalyzer` (and NOT roll our own RMSSD):
 ///  - RMSSD is the textbook root-mean-square of successive R-R differences:
 ///        RMSSD = sqrt( mean( (RR[i+1] - RR[i])^2 ) )   in ms.
-///  - NOOP's nightly HRV (`avgHrv`, fed into Vitality / Fitness Age) uses `HRVAnalyzer.rmssdRaw`, which
-///    takes the Task Force (1996) SAMPLE denominator (n-1) over the cleaned NN series. To keep a spot
-///    reading COMPARABLE to the overnight number a user sees elsewhere, this path computes RMSSD the
-///    SAME way (same cleaning pipeline, same (n-1) denominator). Using a population (n) denominator
+///  - NOOP's nightly HRV (`avgHrv`, fed into Vitality / Fitness Age) uses `HRVAnalyzer.rmssdGapAware`
+///    over the gap-aware cleaned NN series: the Task Force (1996) mean over the successive differences,
+///    skipping any difference across a dropped beat (n-1 differences when nothing was dropped). To keep a
+///    spot reading COMPARABLE to the overnight number a user sees elsewhere, this path computes RMSSD the
+///    SAME way (it calls `HRVAnalyzer.analyze`, the same pipeline). Using a population (n) denominator
 ///    would make the same beats read a few percent lower than the nightly figure, which is misleading.
 ///    Consistency with the existing scorer is the whole point.
 ///

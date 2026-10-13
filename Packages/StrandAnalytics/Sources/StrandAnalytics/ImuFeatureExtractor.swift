@@ -7,8 +7,7 @@ import WhoopProtocol
 // (°/s). At 100 Hz the accelerometer resolves gait cadence, impact/jerk, and rotational energy that the
 // 1 Hz gravity vector physically cannot (a 1.8 Hz step rate is above the 1 Hz stream's Nyquist limit).
 // This turns a window of raw samples into a compact activity-feature vector for coarse sport / HAR
-// classification — the real-IMU upgrade path the coarse `WorkoutTypeClassifier` (1 Hz proxy) was built
-// to accept behind `WorkoutTypeClassifying`.
+// classification.
 //
 // Per the repo's derived-signal rule: cadence here is a `autocorrelation` peak on the accel-magnitude AC
 // over a genuinely high-rate stream (not a fixed-N-per-record buffer), reported with its own strength so

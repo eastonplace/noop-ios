@@ -405,6 +405,100 @@ final class TodayHealthSnapshotHydrationTests: XCTestCase {
         ))
     }
 
+    /// Review round 5 (1): the verified pipeline reads only the namespace's verification sources, which leave
+    /// out apple-health. The widget calories must still take Apple's energy for a day the strap barely covered,
+    /// so the widget agrees with Trends.
+    func testVerifiedWidgetCaloriesTakeAppleEnergyLikeTrends() async throws {
+        let store = try await WhoopStore.inMemory()
+        let fixedNow = fixedNewYorkDate(hour: 3, minute: 59)
+        let day = Repository.logicalDayKey(fixedNow)
+        let localDay = Repository.localDayKey(fixedNow)
+        let snapshotContext = try await context(for: store)
+
+        let repository = Repository(deviceId: Repository.whoopSource)
+        repository.setStoreForTesting(store)
+        repository.setTodayHealthSnapshotTestNow(fixedNow)
+        await repository.refreshHistoryExtent()
+
+        let template = snapshot(
+            context: snapshotContext, day: day, localDay: localDay,
+            generatedAt: Int(fixedNow.timeIntervalSince1970),
+            rawFrontierTs: Int(fixedNow.timeIntervalSince1970) - 60
+        )
+        let savedTemplate = try await store.saveTodayHealthSnapshot(template)
+        XCTAssertTrue(savedTemplate)
+        let computed = daily(day, recovery: 91, strain: 64, sleep: 442)
+        try await store.upsertDailyMetrics([
+            DailyMetric(day: day, totalSleepMin: computed.totalSleepMin, efficiency: computed.efficiency,
+                        deepMin: computed.deepMin, remMin: computed.remMin, lightMin: computed.lightMin,
+                        disturbances: computed.disturbances, restingHr: computed.restingHr,
+                        avgHrv: computed.avgHrv, recovery: computed.recovery, strain: computed.strain,
+                        exerciseCount: computed.exerciseCount, activeKcalEst: 1_780,
+                        strainVersion: computed.strainVersion),
+        ], deviceId: Repository.whoopSource + "-noop")
+        // Two minutes of strap wear: the strap's total does not cover the day.
+        try await store.upsertMetricSeries(
+            [MetricPoint(day: day, key: IntelligenceEngine.strapWornSecondsMetricKey, value: 120)],
+            deviceId: Repository.whoopSource + "-noop")
+        try await store.upsertAppleDaily(
+            [AppleDaily(day: day, steps: nil, activeKcal: 900, basalKcal: 1_750, vo2max: nil,
+                        avgHr: nil, maxHr: nil, walkingHr: nil, weightKg: nil)],
+            deviceId: Repository.appleHealthSource)
+
+        let civilDay = try CivilDay(key: day)
+        let work = try HistoricalAnalysisWork(
+            scope: HistoricalAnalysisScope(
+                databaseInstanceId: snapshotContext.databaseInstanceId,
+                sourceId: Repository.whoopSource,
+                deviceId: Repository.whoopSource,
+                deviceLineageId: "test-lineage",
+                cursorEpoch: 1,
+                trimScope: "historical"
+            ),
+            firstReceiptGeneration: 1,
+            lastReceiptGeneration: 1,
+            affectedDays: [civilDay],
+            recordedTimeZoneIdentifier: "America/New_York",
+            createdAt: fixedNow
+        )
+        let analysis = try AnalysisMutationReceipt(
+            throughReceiptGeneration: 1,
+            analysisGeneration: 1,
+            analyzedDays: [civilDay],
+            rawFrontierTs: Int(fixedNow.timeIntervalSince1970),
+            algorithmBundleVersion: snapshotContext.algorithmBundleVersion
+        )
+        let receipt = try await repository.buildAndCommitVerifiedHistoricalSnapshot(
+            work: work,
+            analysis: analysis,
+            store: store,
+            now: fixedNow,
+            snapshotBuilder: RepositoryPostAnalysisSnapshotBuilder.self,
+            publicationBarrier: RepositoryPublicationBarrier()
+        )
+        let artifacts = try await store.verifiedExternalProjectionArtifacts(
+            contextId: receipt.projection.contextId, generation: receipt.snapshotGeneration)
+        let widgetCalories = try XCTUnwrap(artifacts.widgetCore?.calories)
+        XCTAssertEqual(widgetCalories, 2_650, "Apple's active + basal energy, not the barely-worn strap total")
+
+        let trendsData = await repository.loadCanonicalTrendsData(
+            anchorDay: localDay, timeZoneIdentifier: "America/New_York", rangeDays: 7, weekOffset: 0)
+        let data = try XCTUnwrap(trendsData)
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "America/New_York")!
+        let trends = try XCTUnwrap(TrendsScreenSnapshot.build(
+            key: TrendsScreenSnapshotKey(revision: data.revision, anchorDay: data.anchorDay,
+                                         timeZoneIdentifier: data.timeZoneIdentifier, metric: "Calories",
+                                         range: "W", weekOffset: 0),
+            data: data, metric: .calories, range: .week, weekOffset: 0, referenceDate: fixedNow,
+            calendar: calendar, effortDisplayFactor: 1))
+        let parts = day.split(separator: "-").compactMap { Int($0) }
+        let dayStart = try XCTUnwrap(calendar.date(from: DateComponents(
+            year: parts[0], month: parts[1], day: parts[2])))
+        let trendsCalories = try XCTUnwrap(trends.selectedPoints.first { $0.date == dayStart }?.value)
+        XCTAssertEqual(Double(widgetCalories), trendsCalories.rounded())
+    }
+
     func testRefreshFailsWhenSnapshotDatabaseIdentityCannotBeEstablished() async throws {
         let store = try await WhoopStore.inMemory()
         let repository = Repository(deviceId: Repository.whoopSource)

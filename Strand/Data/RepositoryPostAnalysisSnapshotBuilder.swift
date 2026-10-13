@@ -22,6 +22,12 @@ struct PostAnalysisTodaySnapshotInput: Sendable {
     let rawFrontierTs: Int?
     let recordedTimeZoneIdentifier: String
     let now: Date
+    /// The profile's resting energy per day, for the calorie resolver (review round 4, 5).
+    var bmrKcalPerDay: Double? = nil
+    /// Apple Health's daily row for the display day, for the calorie resolver (review round 5, 1). The exact
+    /// read covers only the namespace's verification sources, which never include apple-health, so the caller
+    /// reads this row on its own; it feeds the calorie total and nothing the pipeline validates.
+    var displayDayAppleDaily: AppleDaily? = nil
 }
 
 enum PostAnalysisTodaySnapshotBuilderError: Error {
@@ -225,11 +231,41 @@ enum RepositoryPostAnalysisSnapshotBuilder {
             ),
         ]
 
+        // Review round 4 (5): the day's calorie total by the one resolver, so the payloads built from this
+        // snapshot show the number Trends and the Coupled view show. Apple's energy comes from the caller's
+        // display-day row (review round 5, 1), else from the read when it happens to cover apple-health.
+        let appleRow = input.read.appleDailyRows
+            .filter { $0.day == displayDay.key && $0.sourceId == input.appleSourceId }
+            .max { $0.sourcePriority < $1.sourcePriority }
+        let displayDayApple = input.displayDayAppleDaily.flatMap { $0.day == displayDay.key ? $0 : nil }
+        let appleEnergy: (activeKcal: Double?, basalKcal: Double?)? =
+            displayDayApple.map { ($0.activeKcal, $0.basalKcal) }
+            ?? appleRow.map { ($0.activeKcal, $0.basalKcal) }
+        let strapWornSeconds = input.read.metricRows
+            .filter {
+                $0.day == displayDay.key && computedIds.contains($0.sourceId)
+                    && $0.key == IntelligenceEngine.strapWornSecondsMetricKey
+            }
+            .max { $0.sourcePriority < $1.sourcePriority }?.value
+        let dayTiming = DailyCalories.dayTiming(
+            day: displayDay.key,
+            timeZone: TimeZone(identifier: input.recordedTimeZoneIdentifier) ?? .current,
+            now: input.now)
+        let calories = DailyCalories.total(
+            strapKcal: base.activeKcalEst,
+            strapWornSeconds: strapWornSeconds,
+            appleActiveKcal: appleEnergy?.activeKcal,
+            appleBasalKcal: appleEnergy?.basalKcal,
+            bmrKcalPerDay: input.bmrKcalPerDay,
+            daySeconds: dayTiming?.daySeconds,
+            elapsedSeconds: dayTiming?.elapsedSeconds)
+
         // Keep this row truthful for its own day. Carried prior-night values stay only in metricStates.
         let daily = base.replacing(
             totalSleepMin: .some(sleepDuration?.value),
             recovery: .some(recovery?.value),
             strain: .some(strain?.value),
+            activeKcalEst: .some(calories),
             strainVersion: .some(strain == nil ? nil : 2)
         )
         return TodayHealthSnapshot(

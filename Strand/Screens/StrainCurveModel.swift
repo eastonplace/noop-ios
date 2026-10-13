@@ -168,10 +168,21 @@ struct StrainCycleWindow: Equatable {
 /// What the nightly batch scored a past day from. The parts and the curve beside a stored score are worked out from the
 /// same inputs, or a steps-led day would never agree with its own hero.
 enum StrainBatchCycle {
-    /// The cycle starts at the earliest detected onset among the sleeps that ended on the day (a nap counts), else at
-    /// the day's start. It runs to the day's end.
-    static func start(sleeps: [StrainCycleWindow.Sleep], dayStart: Int, dayEnd: Int) -> Int {
-        sleeps.filter { $0.end >= dayStart && $0.end < dayEnd }.map(\.start).min() ?? dayStart
+    /// The cycle starts at the detected onset of the day's main night, picked by the batch's own selector among the
+    /// sleeps that ended on the day, else at the day's start (AN-05).
+    static func start(sleeps: [StrainCycleWindow.Sleep], dayStart: Int, dayEnd: Int, offsetSec: Int,
+                      habitualMidsleepSec: Int?) -> Int {
+        let blocks = sleeps.filter { $0.end >= dayStart && $0.end < dayEnd }
+            .map { SleepStageTotals.NightBlock(start: $0.start, end: $0.end) }
+        return AnalyticsEngine.cycleStart(blocks, offsetSec: offsetSec, habitualMidsleepSec: habitualMidsleepSec)
+            ?? dayStart
+    }
+
+    /// The cycle runs to the next day's cycle start, so a stored day and the next one meet and never overlap.
+    static func end(sleeps: [StrainCycleWindow.Sleep], dayEnd: Int, nextDayEnd: Int, nextOffsetSec: Int,
+                    habitualMidsleepSec: Int?) -> Int {
+        start(sleeps: sleeps, dayStart: dayEnd, dayEnd: nextDayEnd, offsetSec: nextOffsetSec,
+              habitualMidsleepSec: habitualMidsleepSec)
     }
 
     /// The cycle's step total, scaled by the wearer's counter ticks per step as the batch scales it; nil without any.

@@ -136,10 +136,25 @@ final class StrainBatchParityTests: XCTestCase {
          .init(start: dayStart - 6 * 3_600, end: dayStart - 600, effectiveStart: dayStart - 6 * 3_600)]  // last night's
     }
 
-    func testTheCycleStartsAtTheEarliestSleepThatEndedOnTheDayNotAtTheCorrectedOnset() {
-        let start = StrainBatchCycle.start(sleeps: sleeps(), dayStart: dayStart, dayEnd: dayStart + 86_400)
+    func testTheCycleStartsAtTheMainNightThatEndedOnTheDayNotAtTheCorrectedOnset() {
+        let start = StrainBatchCycle.start(sleeps: sleeps(), dayStart: dayStart, dayEnd: dayStart + 86_400,
+                                           offsetSec: 0, habitualMidsleepSec: nil)
         XCTAssertEqual(start, dayStart + 3_600)
-        XCTAssertEqual(StrainBatchCycle.start(sleeps: [], dayStart: dayStart, dayEnd: dayStart + 86_400), dayStart)
+        XCTAssertEqual(StrainBatchCycle.start(sleeps: [], dayStart: dayStart, dayEnd: dayStart + 86_400,
+                                              offsetSec: 0, habitualMidsleepSec: nil), dayStart)
+    }
+
+    /// AN-05: the batch's cycle runs to the next day's main-night onset (here 23:00, before midnight), or to the next
+    /// day's start when it has no main night, so consecutive days meet without overlapping.
+    func testTheCycleEndsAtTheNextDaysCycleStart() {
+        let nextDay = dayStart + 86_400
+        let tonight = StrainCycleWindow.Sleep(start: nextDay - 3_600, end: nextDay + 7 * 3_600,
+                                              effectiveStart: nextDay - 3_600)
+        XCTAssertEqual(StrainBatchCycle.end(sleeps: sleeps() + [tonight], dayEnd: nextDay,
+                                            nextDayEnd: nextDay + 86_400, nextOffsetSec: 0,
+                                            habitualMidsleepSec: nil), nextDay - 3_600)
+        XCTAssertEqual(StrainBatchCycle.end(sleeps: sleeps(), dayEnd: nextDay, nextDayEnd: nextDay + 86_400,
+                                            nextOffsetSec: 0, habitualMidsleepSec: nil), nextDay)
     }
 
     func testTheCycleStepTotalScalesByTicksPerStepAndIsNilWithoutReadings() {
