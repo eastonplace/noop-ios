@@ -143,30 +143,30 @@ final class VerifiedSinkBootstrapTests: XCTestCase {
     /// context. A working token for the projection is kept although the day's snapshot moved on, so an upgrade never
     /// rotates it away and blanks the widgets.
     func testATokenMatchingTheProjectionIsKeptWhileTheSnapshotMovedOn() throws {
-        let token = try install(contextId: "context-P")
+        let token = try install(contextId: "db-1|p|lineage-P|v1")
         let snapshot = WidgetSnapshot(recovery: 71, bpm: nil, batteryPct: nil, bonded: false, updated: Date(),
-                                      verifiedContextId: "context-P", verifiedProjectionGeneration: 3)
+                                      verifiedContextId: "db-1|p|lineage-P|v1", verifiedProjectionGeneration: 3)
         XCTAssertEqual(VerifiedWidgetEnvelopeStore.commit(
             token: token, generation: 3, snapshot: snapshot, defaults: defaults), .published)
         let envelope = defaults.data(forKey: VerifiedWidgetEnvelopeStore.storageKey)
         let record = activeRecord
 
-        XCTAssertEqual(bootstrap(context: "context-S", projection: "context-P"), .kept)
+        XCTAssertEqual(bootstrap(context: "db-1|p|lineage-S|v1", projection: "db-1|p|lineage-P|v1"), .kept)
         XCTAssertEqual(activeRecord, record, "the token and its epoch did not move")
         XCTAssertEqual(defaults.data(forKey: VerifiedWidgetEnvelopeStore.storageKey), envelope,
                        "the widget envelope is untouched")
-        XCTAssertEqual(VerifiedWidgetEnvelopeStore.loadForDisplay(defaults: defaults)?.verifiedContextId, "context-P")
+        XCTAssertEqual(VerifiedWidgetEnvelopeStore.loadForDisplay(defaults: defaults)?.verifiedContextId, "db-1|p|lineage-P|v1")
         XCTAssertTrue(activations.isEmpty)
     }
 
     /// After the repair, a drive carrying the projection's surface is under the token: it keeps its health values.
     func testAfterTheBootstrapADriveForTheProjectionSeesAMatchingToken() throws {
-        XCTAssertEqual(bootstrap(context: "context-S", projection: "context-P"), .activated)
+        XCTAssertEqual(bootstrap(context: "db-1|p|lineage-S|v1", projection: "db-1|p|lineage-P|v1"), .activated)
         let token = try XCTUnwrap(ActiveVerifiedSinkEpochStore.activeToken(defaults: defaults))
-        XCTAssertEqual(token.contextId, "context-P", "the projection's context, not the snapshot's")
+        XCTAssertEqual(token.contextId, "db-1|p|lineage-P|v1", "the projection's context, not the snapshot's")
 
         let admission = LiveActivityDriveAdmission.decide(
-            recovery: 64, effort: 9.2, verifiedContextId: "context-P", verifiedProjectionGeneration: 1,
+            recovery: 64, effort: 9.2, verifiedContextId: "db-1|p|lineage-P|v1", verifiedProjectionGeneration: 1,
             activeToken: ActiveVerifiedSinkEpochStore.activeToken(defaults: defaults))
         XCTAssertEqual(admission.tokenState, .match)
         XCTAssertFalse(admission.strippedHealth)
@@ -177,20 +177,20 @@ final class VerifiedSinkBootstrapTests: XCTestCase {
     /// another context, and the projection has not loaded yet. Nothing is rotated or cleared; once the projection loads
     /// and matches, the token is kept.
     func testAtColdLaunchAnExistingTokenIsNeverRotatedFromTheSnapshot() throws {
-        let token = try install(contextId: "context-P")
+        let token = try install(contextId: "db-1|p|lineage-P|v1")
         let snapshot = WidgetSnapshot(recovery: 71, bpm: nil, batteryPct: nil, bonded: false, updated: Date(),
-                                      verifiedContextId: "context-P", verifiedProjectionGeneration: 3)
+                                      verifiedContextId: "db-1|p|lineage-P|v1", verifiedProjectionGeneration: 3)
         XCTAssertEqual(VerifiedWidgetEnvelopeStore.commit(
             token: token, generation: 3, snapshot: snapshot, defaults: defaults), .published)
         let envelope = defaults.data(forKey: VerifiedWidgetEnvelopeStore.storageKey)
         let record = activeRecord
 
-        XCTAssertEqual(bootstrap(context: "context-S", projection: nil), .waitingForProjection)
+        XCTAssertEqual(bootstrap(context: "db-1|p|lineage-S|v1", projection: nil), .waitingForProjection)
         XCTAssertEqual(activeRecord, record, "the token was not rotated")
         XCTAssertEqual(defaults.data(forKey: VerifiedWidgetEnvelopeStore.storageKey), envelope,
                        "the widget envelope survives")
 
-        XCTAssertEqual(bootstrap(context: "context-S", projection: "context-P"), .kept, "the projection loaded")
+        XCTAssertEqual(bootstrap(context: "db-1|p|lineage-S|v1", projection: "db-1|p|lineage-P|v1"), .kept, "the projection loaded")
         XCTAssertEqual(activeRecord, record)
         XCTAssertEqual(defaults.data(forKey: VerifiedWidgetEnvelopeStore.storageKey), envelope)
         XCTAssertTrue(activations.isEmpty)
@@ -228,12 +228,15 @@ final class VerifiedSinkBootstrapTests: XCTestCase {
         XCTAssertFalse(AppModel.isFromAnotherDatabase("db-1|a|b|c", snapshot: "db-1|x|y|z"))
         XCTAssertTrue(AppModel.isFromAnotherDatabase("db-1|a|b|c", snapshot: "db-2|a|b|c"))
         XCTAssertFalse(AppModel.isFromAnotherDatabase(nil, snapshot: "db-2|a|b|c"))
+        XCTAssertFalse(AppModel.isFromAnotherDatabase("context-P", snapshot: "context-S"),
+                       "no database field, no evidence of another database")
+        XCTAssertFalse(AppModel.isFromAnotherDatabase("context-P", snapshot: "db-2|a|b|c"))
     }
 
     /// The snapshot's context is used for a missing token: an install from before the token gets one at once.
     func testWithoutAProjectionTheSnapshotsContextIsActivated() throws {
-        XCTAssertEqual(bootstrap(context: "context-S", projection: nil), .activated)
-        XCTAssertEqual(ActiveVerifiedSinkEpochStore.activeToken(defaults: defaults)?.contextId, "context-S")
+        XCTAssertEqual(bootstrap(context: "db-1|p|lineage-S|v1", projection: nil), .activated)
+        XCTAssertEqual(ActiveVerifiedSinkEpochStore.activeToken(defaults: defaults)?.contextId, "db-1|p|lineage-S|v1")
     }
 
     /// A sink that refuses the activation is reported (and logged), never taken as success.

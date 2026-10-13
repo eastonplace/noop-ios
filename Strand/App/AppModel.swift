@@ -1031,9 +1031,10 @@ final class AppModel: ObservableObject {
     }
 
     /// Whether the projection's context names another database than the snapshot's. The database instance is the first
-    /// field of `TodayHealthSnapshotContext.identifier`, which the projection's context is built from.
+    /// field of `TodayHealthSnapshotContext.identifier`, which the projection's context is built from. An id without that
+    /// field carries no evidence of another database, so it never counts as one.
     static func isFromAnotherDatabase(_ projection: String?, snapshot: String?) -> Bool {
-        guard let projection, let snapshot else { return false }
+        guard let projection, let snapshot, projection.contains("|"), snapshot.contains("|") else { return false }
         return projection.prefix { $0 != "|" } != snapshot.prefix { $0 != "|" }
     }
 
