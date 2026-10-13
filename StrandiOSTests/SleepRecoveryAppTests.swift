@@ -78,9 +78,18 @@ final class SleepRecoveryAppTests: XCTestCase {
     }
 
     func testEditingRecoveredSessionReprocessesAndRekeysProtectedOverride() async throws {
+        try await assertEditingRecoveredSession(activeSourceId: "my-whoop")
+    }
+
+    func testEditingCanonicalRecoveredSessionAfterRepairRekeysCanonicalOverride() async throws {
+        try await assertEditingRecoveredSession(activeSourceId: "whoop-readded")
+    }
+
+    private func assertEditingRecoveredSession(activeSourceId: String) async throws {
         let store = try await WhoopStore.inMemory()
         let repo = Repository(deviceId: "my-whoop")
         repo.setStoreForTesting(store)
+        repo.adoptActiveDeviceId(activeSourceId)
         let computedId = "my-whoop-noop"
         let now = Int(Date().timeIntervalSince1970)
         let oldStart = now - 5 * 3_600
@@ -162,7 +171,7 @@ final class SleepRecoveryAppTests: XCTestCase {
                 hr: seconds.map { HRSample(ts: $0, bpm: 50) },
                 rr: seconds.map { RRInterval(ts: $0, rrMs: 900 + ($0.isMultiple(of: 2) ? 20 : 0)) },
                 gravity: seconds.map { GravitySample(ts: $0, x: 0, y: 0, z: 1) }),
-            deviceId: "my-whoop")
+            deviceId: activeSourceId)
 
         await repo.editSleepTimes(
             detectedStartTs: oldStart,
@@ -191,5 +200,138 @@ final class SleepRecoveryAppTests: XCTestCase {
             to: oldEnd + 1,
             limit: 10)
         XCTAssertEqual(sessions.map(\.startTs), [newStart])
+    }
+}
+
+extension SleepRecoveryAppTests {
+    func testRecoveryPreservesMultipleBeatsInOneSecondAndRefreshesSavedVitals() async throws {
+        try await assertSavedVitalsRefresh(activeSourceId: "my-whoop")
+    }
+
+    func testCanonicalRecoveryRefreshesFromReaddedStrapWithoutLeakingOwnedRows() async throws {
+        try await assertSavedVitalsRefresh(activeSourceId: "whoop-readded")
+    }
+
+    private func assertSavedVitalsRefresh(activeSourceId: String) async throws {
+        let store = try await WhoopStore.inMemory()
+        let repo = Repository(deviceId: "my-whoop")
+        repo.setStoreForTesting(store)
+        let start = Int(Date().timeIntervalSince1970) - 7200
+        let end = start + 3600
+        let hr = (0..<3600).map { HRSample(ts: start + $0, bpm: 60) }
+        _ = try await store.insert(Streams(hr: hr), deviceId: "my-whoop")
+        let initial = await repo.recoverMissedSleep(startTs: start, endTs: end)
+        XCTAssertTrue(initial.savedSession)
+        repo.adoptActiveDeviceId(activeSourceId)
+        let rr = (0..<3600).flatMap { offset in
+            [RRInterval(ts: start + offset, rrMs: 700, sourceOrdinal: 0),
+             RRInterval(ts: start + offset, rrMs: 750, sourceOrdinal: 1)]
+        }
+        _ = try await store.insert(Streams(rr: rr), deviceId: activeSourceId)
+        let edited = await repo.selfHealEditedStages(sourceId: activeSourceId, from: start - 1, to: end + 1)
+        if activeSourceId != "my-whoop" {
+            XCTAssertTrue(edited.isEmpty, "Canonical recovery must not become an edit owned by the active strap")
+        }
+        let saved = try await store.sleepRecoveryDailyOverride(deviceId: "my-whoop-noop", sessionStartTs: start)
+        XCTAssertEqual(saved?.avgHrv ?? -1, 50, accuracy: 0.001,
+                       "New raw beats must refresh the override, retaining every beat within each second")
+        let rerecovered = await repo.recoverMissedSleep(startTs: start, endTs: end, replacingStartTs: start)
+        XCTAssertTrue(rerecovered.savedSession)
+        let reread = try await store.sleepRecoveryDailyOverride(deviceId: "my-whoop-noop", sessionStartTs: start)
+        XCTAssertEqual(reread?.avgHrv ?? -1, 50, accuracy: 0.001)
+        let raw = try await store.rrIntervals(deviceId: activeSourceId, from: start, to: end, limit: 10_000)
+        XCTAssertEqual(raw.count, 7200)
+    }
+
+    private func seedLegacyRecovery(store: WhoopStore, start: Int, end: Int) async throws {
+        let day = Repository.localDayKey(Date(timeIntervalSince1970: TimeInterval(end)))
+        let session = CachedSleepSession(
+            startTs: start, endTs: end, efficiency: 0.88, restingHr: 52, avgHrv: 61,
+            stagesJSON: "[{\"start\":\(start),\"end\":\(end),\"stage\":\"light\"}]",
+            userEdited: true, startTsAdjusted: nil)
+        let overlay = SleepRecoveryDailyOverride(
+            day: day, sessionStartTs: start, totalSleepMin: 60, efficiency: 0.88,
+            deepMin: 10, remMin: 10, lightMin: 40, disturbances: 1,
+            restingHr: 52, avgHrv: 61, recovery: 99, restScore: 80,
+            chargeWeightedSumWithoutSleep: 1, chargeWeightWithoutSleep: 2,
+            chargeBaselineUsable: true, updatedAt: end)
+        let audit = SleepRecoveryAuditRecord(
+            id: "legacy-\(start)", source: "manual_window", requestedStartTs: start,
+            requestedEndTs: end, outcome: "complete", confidence: 0.9,
+            reason: "bounded_reanalysis", resultStartTs: start, resultEndTs: end,
+            stagesAvailable: true, restingHr: 52, avgHrv: 61,
+            algorithmVersion: "sleep-window-recovery-v1", createdAt: end, updatedAt: end)
+        _ = try await store.replaceWithManualSleepRecovery(
+            session, deviceId: "my-whoop-noop", audit: audit,
+            dailyOverride: overlay, daily: dailyMetric(day: day))
+    }
+
+    func testRejectedUnchangedRecoveryClearsProtectedMetricsAndPreservesBounds() async throws {
+        let store = try await WhoopStore.inMemory()
+        let repo = Repository(deviceId: "my-whoop")
+        repo.setStoreForTesting(store)
+        let start = Int(Date().timeIntervalSince1970) - 7200
+        let end = start + 3600
+        let day = Repository.localDayKey(Date(timeIntervalSince1970: TimeInterval(end)))
+        try await seedLegacyRecovery(store: store, start: start, end: end)
+        let edited = await repo.selfHealEditedStages(sourceId: "my-whoop", from: start - 1, to: end + 1)
+
+        let row = try XCTUnwrap(edited.first)
+        XCTAssertEqual(row.startTs, start)
+        XCTAssertEqual(row.endTs, end)
+        XCTAssertTrue(row.userEdited)
+        XCTAssertNil(row.stagesJSON)
+        XCTAssertNil(row.restingHr)
+        XCTAssertNil(row.avgHrv)
+        let overlay = try await store.sleepRecoveryDailyOverride(deviceId: "my-whoop-noop", sessionStartTs: start)
+        XCTAssertNotNil(overlay, "Keep provenance so later raw data can refresh this same window")
+        XCTAssertNil(overlay?.recovery)
+        XCTAssertNil(overlay?.restScore)
+        XCTAssertNil(overlay?.chargeWeightedSumWithoutSleep)
+        XCTAssertNil(overlay?.chargeWeightWithoutSleep)
+        XCTAssertEqual(overlay?.chargeBaselineUsable, false)
+
+        try await store.upsertDailyMetrics([dailyMetric(day: day)], deviceId: "my-whoop-noop")
+        let daily = try await store.dailyMetrics(deviceId: "my-whoop-noop", from: day, to: day)
+        XCTAssertNil(daily.first?.recovery, "A later ordinary score cannot revive the rejected override")
+        XCTAssertNil(daily.first?.avgHrv)
+        XCTAssertEqual(daily.first?.strain, 12)
+        XCTAssertEqual(daily.first?.steps, 5_000)
+        let rest = try await store.metricSeries(deviceId: "my-whoop-noop", key: "sleep_performance", from: day, to: day)
+        XCTAssertTrue(rest.isEmpty)
+    }
+
+    func testRejectedChangedWindowPreservesExistingRecovery() async throws {
+        let store = try await WhoopStore.inMemory()
+        let repo = Repository(deviceId: "my-whoop")
+        repo.setStoreForTesting(store)
+        let start = Int(Date().timeIntervalSince1970) - 7200
+        let end = start + 3600
+        try await seedLegacyRecovery(store: store, start: start, end: end)
+
+        let result = await repo.recoverMissedSleep(
+            startTs: start + 60, endTs: end - 60, replacingStartTs: start, publishAfterSave: false)
+        XCTAssertFalse(result.savedSession)
+        let overlay = try await store.sleepRecoveryDailyOverride(deviceId: "my-whoop-noop", sessionStartTs: start)
+        XCTAssertEqual(overlay?.recovery, 99)
+        let rows = try await store.sleepSessions(deviceId: "my-whoop-noop", from: start - 1, to: end + 1, limit: 10)
+        XCTAssertEqual(rows.first?.startTs, start)
+        XCTAssertEqual(rows.first?.endTs, end)
+        XCTAssertNotNil(rows.first?.stagesJSON)
+    }
+
+    func testExactSourceHealingLeavesCanonicalRecoveryUntouched() async throws {
+        let store = try await WhoopStore.inMemory()
+        // Exact maintenance creates a source-local repository without adopting a live descriptor.
+        let repo = Repository(deviceId: "whoop-readded")
+        repo.setStoreForTesting(store)
+        let start = Int(Date().timeIntervalSince1970) - 7200
+        let end = start + 3600
+        try await seedLegacyRecovery(store: store, start: start, end: end)
+
+        let edited = await repo.selfHealEditedStages(sourceId: "whoop-readded", from: start - 1, to: end + 1)
+        XCTAssertTrue(edited.isEmpty)
+        let overlay = try await store.sleepRecoveryDailyOverride(deviceId: "my-whoop-noop", sessionStartTs: start)
+        XCTAssertEqual(overlay?.recovery, 99)
     }
 }

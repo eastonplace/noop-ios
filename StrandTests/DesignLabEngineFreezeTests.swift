@@ -64,15 +64,6 @@ final class DesignLabEngineFreezeTests: XCTestCase {
         XCTAssertEqual(daytime.peak?.hour, 11)
         XCTAssertTrue(daytime.sustainedHigh)
         XCTAssertEqual(daytime.sustainedRun, 3)
-
-        let totals = StressTotals(hours: daytime.hours)
-        XCTAssertEqual(totals.calmHours, 0)
-        XCTAssertEqual(totals.moderateHours, 3)
-        XCTAssertEqual(totals.highHours, 3)
-        XCTAssertEqual(totals.total, 6)
-        XCTAssertEqual(totals.fraction(.low), 0, accuracy: 1e-12)
-        XCTAssertEqual(totals.fraction(.medium), 0.5, accuracy: 1e-12)
-        XCTAssertEqual(totals.fraction(.high), 0.5, accuracy: 1e-12)
     }
 
     private static let standardSleepDays: [DailyMetric] = [

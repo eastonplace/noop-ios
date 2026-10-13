@@ -13,7 +13,8 @@ import WhoopStore
 /// - **Resting-HR drift** — elevated resting HR vs baseline is a classic overtraining / illness
 ///   signal (Lamberts et al. 2004).
 /// - **Respiratory-rate drift** — a rise in sleeping respiratory rate is an early illness signal.
-/// - **Training Stress Balance (ACWR)** — acute (7-day) vs chronic (28-day) strain. The 0.8–1.3
+/// - **Training Stress Balance (ACWR)** — acute (7-day) vs chronic (28-day) strain, over the calendar days
+///   before today (today's partial strain is excluded; unworn days are gaps, not compacted). The 0.8–1.3
 ///   band is the "sweet spot"; >1.5 is associated with higher injury risk (Gabbett 2016).
 /// - **Training monotony** — mean/SD of daily strain over a week; high monotony (low variety) is
 ///   associated with higher strain and illness (Foster 1998).
@@ -70,7 +71,8 @@ public enum ReadinessEngine {
     private static let minBaseline    = 7    // need at least this many baseline nights
     private static let acuteWindow    = 7
     private static let chronicWindow  = 28
-    private static let minChronic     = 14   // need at least this much strain history for ACWR
+    private static let minChronic     = 14   // strain days needed in the 28-day chronic window for ACWR
+    private static let minAcute       = 4    // strain days needed in the 7-day acute window (and monotony)
 
     // MARK: Entry point
 
@@ -182,20 +184,23 @@ public enum ReadinessEngine {
         }
 
         // Training Stress Balance (ACWR) + monotony --------------------------
-        let strainSeries = sorted.compactMap { $0.strain }
+        // AN-09: calendar windows that end the day before the target day, so today's partial strain and
+        // any later row stay out, and an unworn day is a gap rather than pulling older days into "7 days".
+        let strainBefore = strainByDaysBefore(history, target: latest.day)
+        let acuteDays = (1...acuteWindow).compactMap { strainBefore[$0] }
+        let chronicDays = (1...chronicWindow).compactMap { strainBefore[$0] }
         var acwr: Double? = nil
         var monotony: Double? = nil
-        if strainSeries.count >= minChronic {
-            let acute = mean(Array(strainSeries.suffix(acuteWindow)))!
-            let chronic = mean(Array(strainSeries.suffix(chronicWindow)))!
+        if chronicDays.count >= minChronic, acuteDays.count >= minAcute,
+           let acute = mean(acuteDays), let chronic = mean(chronicDays) {
             if chronic > 0 {
                 let ratio = acute / chronic
                 acwr = ratio
                 signals.append(acwrSignal(ratio, acute: acute, chronic: chronic))
             }
-            // Foster monotony over the last week of strain.
-            let week = Array(strainSeries.suffix(acuteWindow))
-            if week.count >= 4, let sd = sampleSD(week), sd > 0, let m = mean(week) {
+            // Foster monotony over the strain days of the last calendar week.
+            let week = acuteDays
+            if week.count >= minAcute, let sd = sampleSD(week), sd > 0, let m = mean(week) {
                 let mono = m / sd
                 monotony = mono
                 if mono >= 2.0 {
@@ -210,6 +215,27 @@ public enum ReadinessEngine {
                                                     hasHistory: !history.isEmpty || acwr != nil)
         return Readiness(level: level, headline: headline, summary: summary,
                          signals: signals, acwr: acwr, monotony: monotony)
+    }
+
+    /// Daily strain for the `chronicWindow` calendar days before `target`, keyed by days before it
+    /// (1 = the day before). Rows on or after `target` never enter; a day without a strain row is absent.
+    static func strainByDaysBefore(_ history: [DailyMetric], target: String) -> [Int: Double] {
+        guard let targetDay = epochDay(target) else { return [:] }
+        var out: [Int: Double] = [:]
+        // One row per day, so the last 2 × 28 rows cover the window even with duplicate keys.
+        for row in history.suffix(2 * chronicWindow) {
+            guard let strain = row.strain, strain.isFinite, let day = epochDay(row.day) else { continue }
+            let back = targetDay - day
+            if (1...chronicWindow).contains(back) { out[back] = strain }
+        }
+        return out
+    }
+
+    private static let utc = TimeZone(secondsFromGMT: 0) ?? .current
+
+    /// Whole days since 1970-01-01 for a yyyy-MM-dd key; nil when malformed.
+    private static func epochDay(_ day: String) -> Int? {
+        AnalyticsEngine.civilDayInterval(day: day, timeZone: utc).map { $0.lowerBound / 86_400 }
     }
 
     // MARK: Signal builders

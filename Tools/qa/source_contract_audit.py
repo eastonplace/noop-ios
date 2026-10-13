@@ -142,6 +142,202 @@ def require_device_command_center_snapshot(errors: list[str]) -> None:
             errors.append(f"{relative(devices)} is missing command-centre leaf {contract!r}.")
 
 
+def strip_swift_comments(source: str) -> str:
+    """Blank out // and /* */ comments, keeping line breaks and string literals, so prose that names a view is not
+    read as code."""
+    out: list[str] = []
+    index, size = 0, len(source)
+    while index < size:
+        if source.startswith('"""', index):
+            end = source.find('"""', index + 3)
+            end = size if end < 0 else end + 3
+            out.append(source[index:end])
+            index = end
+        elif source[index] == '"':
+            end = index + 1
+            while end < size and source[end] not in '"\n':
+                if source[end] == "\\":
+                    end += 1
+                    if source.startswith("(", end):  # an interpolation: skip to its closing parenthesis
+                        depth = 0
+                        while end < size:
+                            depth += source[end] == "("
+                            depth -= source[end] == ")"
+                            end += 1
+                            if depth == 0:
+                                break
+                        continue
+                end += 1
+            end = min(end + 1, size)
+            out.append(source[index:end])
+            index = end
+        elif source.startswith("//", index):
+            end = source.find("\n", index)
+            end = size if end < 0 else end
+            out.append(" " * (end - index))
+            index = end
+        elif source.startswith("/*", index):
+            end = source.find("*/", index + 2)
+            end = size if end < 0 else end + 2
+            out.append(re.sub(r"[^\n]", " ", source[index:end]))
+            index = end
+        else:
+            out.append(source[index])
+            index += 1
+    return "".join(out)
+
+
+def closing_index(source: str, open_index: int) -> int:
+    """Index just past the bracket that closes the one at `open_index`, or -1."""
+    pairs = {"(": ")", "{": "}"}
+    opener = source[open_index]
+    closer = pairs[opener]
+    depth = 0
+    for index in range(open_index, len(source)):
+        if source[index] == opener:
+            depth += 1
+        elif source[index] == closer:
+            depth -= 1
+            if depth == 0:
+                return index + 1
+    return -1
+
+
+def active_on_ios(source: str, offset: int) -> bool:
+    """False when `offset` sits in a branch of a conditional compile that iOS never builds (macOS-only code)."""
+    stack: list[tuple[str, bool]] = []
+    for line in source[:offset].splitlines():
+        directive = line.strip()
+        if directive.startswith("#if "):
+            stack.append((directive[4:].replace(" ", ""), False))
+        elif directive.startswith("#elseif ") and stack:
+            stack[-1] = (directive[8:].replace(" ", ""), False)
+        elif directive == "#else" and stack:
+            stack[-1] = (stack[-1][0], True)
+        elif directive.startswith("#endif") and stack:
+            stack.pop()
+    for condition, in_else in stack:
+        negated = "!os(" in condition
+        if "os(macOS)" in condition:
+            if (not in_else) != negated:
+                return False
+        elif "os(iOS)" in condition:
+            if in_else != negated:
+                return False
+    return True
+
+
+def named_view_bodies(text: str, site: str) -> str:
+    """The bodies of the `var name: some View { ... }` properties of the same file that `site` names, so a sheet that
+    presents `{ settingsSheet }` is read as what `settingsSheet` builds."""
+    bodies: list[str] = []
+    for name in set(re.findall(r"\b[a-z]\w*\b", site)):
+        for declaration in re.finditer(rf"\bvar\s+{re.escape(name)}\s*:\s*some\s+View\s*\{{", text):
+            end = closing_index(text, declaration.end() - 1)
+            if end > 0:
+                bodies.append(text[declaration.end():end])
+    return "\n".join(bodies)
+
+
+def without_child_presentations(text: str) -> str:
+    """`text` with every .sheet / .fullScreenCover / .popover call (arguments and trailing closure) removed, so what is
+    left is what the screen itself does and not what it hands to a screen it presents."""
+    call = re.compile(r"\.(?:sheet|fullScreenCover|popover)\(")
+    out: list[str] = []
+    cursor = 0
+    for match in call.finditer(text):
+        if match.start() < cursor:
+            continue
+        end = closing_index(text, match.end() - 1)
+        if end < 0:
+            continue
+        trailing = re.match(r"[ \t]*\{", text[end:])
+        if trailing:
+            body_end = closing_index(text, end + trailing.end() - 1)
+            end = body_end if body_end > 0 else end
+        out.append(text[cursor:match.start()])
+        cursor = end
+    out.append(text[cursor:])
+    return "".join(out)
+
+
+def host_resets_its_own_root(host_text: str) -> bool:
+    """True when the screen itself applies sheetScreenScaffoldEnvironment (in its body or in a view it builds). A reset
+    that appears only inside a sheet the screen presents (WorkoutsView resets its WorkoutDetailView sheet, say) does
+    not clear the header context the screen itself inherits."""
+    return "sheetScreenScaffoldEnvironment" in without_child_presentations(host_text)
+
+
+def presentation_findings(sources: dict[str, str]) -> list[str]:
+    """Sheets and full-screen covers that do not give what they present its own header context.
+
+    A sheet inherits its presenter's environment. Opened from a pushed screen, a screen that draws a ScreenScaffold
+    header would wear the pushed row (a back chip, no subtitle), and one opened from Settings would draw no header at
+    all, so the sheet loses what its subtitle says. Either the site must call
+    sheetScreenScaffoldEnvironment on what it presents, or the presented screen must apply it in its own body (a reset
+    that appears only on a sheet that screen presents does not count), or the site sets screenScaffoldNavigationRole
+    on purpose, as a pillar's full-screen cover does.
+
+    Settings shown in a sheet needs the same care the other way round: Settings is the sheet `SettingsSheetHost`, which
+    sets `.settingsDetail` on its navigation stack so every page it pushes that is not converted to the widget language
+    yet keeps the native grouped-list look. A sheet that presents `SettingsSheetHost` is fine for as long as the host
+    still sets it; a sheet that shows a bare SettingsView must set it itself (settingsSheetScreenScaffoldEnvironment), or
+    its pages fall back to the dashboard scaffold.
+    `sources` maps a repository-relative path to its text."""
+    stripped = {path: strip_swift_comments(text) for path, text in sources.items()}
+    declaration = re.compile(r"\b(?:struct|class)\s+(\w+)\b[^{;]*\{")
+    hosts: dict[str, str] = {}
+    for text in stripped.values():
+        for match in declaration.finditer(text):
+            end = closing_index(text, match.end() - 1)
+            if end > 0 and "ScreenScaffold(" in text[match.end():end]:
+                hosts[match.group(1)] = text[match.end():end]
+    settings_host = next((text for text in stripped.values() if re.search(r"\bstruct\s+SettingsSheetHost\b", text)), "")
+    call = re.compile(r"\.(sheet|fullScreenCover)\(")
+    findings: list[str] = []
+    for path, text in sorted(stripped.items()):
+        for match in call.finditer(text):
+            end = closing_index(text, match.end() - 1)
+            if end < 0:
+                continue
+            trailing = re.match(r"[ \t]*\{", text[end:])
+            if trailing:
+                body_end = closing_index(text, end + trailing.end() - 1)
+                end = body_end if body_end > 0 else end
+            site = text[match.start():end]
+            if not active_on_ios(text, match.start()):
+                continue
+            line = text.count("\n", 0, match.start()) + 1
+            if "sheetScreenScaffoldEnvironment" not in site and "screenScaffoldNavigationRole" not in site:
+                for name in sorted(set(re.findall(r"\b[A-Z]\w*\b", site)) & hosts.keys()):
+                    if host_resets_its_own_root(hosts[name]):
+                        continue
+                    findings.append(f"{path}:{line}: .{match.group(1)} presents {name}, a ScreenScaffold screen, without "
+                                    "sheetScreenScaffoldEnvironment; a sheet inherits its presenter's header context.")
+            presented = site + "\n" + named_view_bodies(text, site)
+            if re.search(r"\bSettingsSheetHost\(", presented) and "screenScaffoldPresentation" not in settings_host:
+                findings.append(f"{path}:{line}: .{match.group(1)} presents SettingsSheetHost, which does not set "
+                                "screenScaffoldPresentation on its navigation stack; the pages Settings pushes would lose "
+                                "the native settings-detail look.")
+            if re.search(r"\bSettingsView\(", presented) and not (
+                    "settingsSheetScreenScaffoldEnvironment" in presented or "screenScaffoldPresentation" in presented):
+                findings.append(f"{path}:{line}: .{match.group(1)} presents SettingsView without "
+                                "settingsSheetScreenScaffoldEnvironment; the pages Settings pushes would lose the native "
+                                "settings-detail look.")
+    return findings
+
+
+def require_presented_screens_own_header_context(errors: list[str]) -> None:
+    sources: dict[str, str] = {}
+    for root in ("Strand", "StrandiOS"):
+        for path in (ROOT / root).rglob("*.swift"):
+            parts = path.relative_to(ROOT).parts
+            if "Tests" in parts or "Debug" in parts or ".build" in parts:
+                continue
+            sources[relative(path)] = path.read_text(encoding="utf-8")
+    errors.extend(presentation_findings(sources))
+
+
 def main() -> int:
     errors: list[str] = []
     warnings: list[str] = []
@@ -363,8 +559,10 @@ def main() -> int:
     ios_root = ROOT / "StrandiOS/App/RootTabView.swift"
     ios_root_text = ios_root.read_text(encoding="utf-8")
     for contract in (
-        "withAnimation(Self.sheetEase) { quickAction = .activeWorkout }",
-        "case .activeWorkout:\n            quickScreen(LiveWorkoutView",
+        # The running workout is the journey's: one full-screen cover owned by the shell, opened through the router.
+        ".fullScreenCover(item: $journey",
+        "WorkoutJourneyView(entry: entry",
+        "case .activeWorkout:\n                // The deep-link key for the running workout: the journey opens at the live screen.\n                router.openActiveWorkout()",
     ):
         if contract not in ios_root_text:
             errors.append(f"{relative(ios_root)} is missing direct active-workout route {contract!r}.")
@@ -399,6 +597,8 @@ def main() -> int:
                 "StrandiOS/App/AppModel+iOS.swift must drain queued iPhone intents through the "
                 "existing AppModel lifecycle."
             )
+
+    require_presented_screens_own_header_context(errors)
 
     print("NOOP iPhone source contract audit")
     print(f"Scanned {len(sources)} Swift files")

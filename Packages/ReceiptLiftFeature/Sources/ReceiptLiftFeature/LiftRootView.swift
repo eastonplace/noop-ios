@@ -1,89 +1,98 @@
 import SwiftUI
 import StrandDesign
 
-enum LiftTab: String, CaseIterable, Identifiable {
-  case today
-  case history
-  case progress
-  case schedule
-
-  var id: String { rawValue }
-
-  var title: String {
-    switch self {
-    case .today: "Today"
-    case .history: "History"
-    case .progress: "Progress"
-    case .schedule: "Schedule"
-    }
-  }
-
-  var systemImage: String {
-    switch self {
-    case .today: "house.fill"
-    case .history: "list.bullet.rectangle"
-    case .progress: "chart.xyaxis.line"
-    case .schedule: "calendar"
-    }
-  }
-}
-
 public enum LiftDestination: String, Identifiable {
   case start, history, progress, routines
   public var id: String { rawValue }
+}
+
+/// The pages the start screen pushes: its chips lead to Lift's other pages without leaving the sheet.
+enum LiftRoute: Hashable {
+  case history, progress, routines, newRoutine
+}
+
+/// Which page sits at the root of Lift's stack and what is pushed over it. Showing the completed history swaps the root,
+/// so whatever the start screen's chips had pushed has to go with it; otherwise "Workout history" on a receipt closes
+/// onto the Schedule page that was open when the workout began.
+struct LiftRootNavigation: Equatable {
+  var path: [LiftRoute] = []
+  var showsCompletedHistory = false
+
+  mutating func showCompletedHistory() {
+    path = []
+    showsCompletedHistory = true
+  }
+}
+
+/// Whether the Lift start screen should open an active session's workout by itself. Reopening Lift after a
+/// relaunch used to land on a picker whose "Resume active lift" button needed a second tap. It is one-shot per
+/// presentation, so a deliberate dismissal of the workout is never undone.
+enum LiftAutoResumePolicy {
+  static func shouldResume(
+    destination: LiftDestination,
+    hasActiveSession: Bool,
+    alreadyAutoResumed: Bool
+  ) -> Bool {
+    destination == .start && hasActiveSession && !alreadyAutoResumed
+  }
 }
 
 struct LiftRootView: View {
   let destination: LiftDestination
   init(destination: LiftDestination = .start) { self.destination = destination }
   @EnvironmentObject private var store: LiftStore
-  @State private var showsCompletedHistory = false
+  @State private var navigation = LiftRootNavigation()
   @State private var showsSettings = false
   @State private var previewRoutine: LiftRoutine?
   @State private var isWorkoutPresented = false
+  @State private var hasAutoResumed = false
   @State private var printedSession: LiftSession?
   @State private var selectedHistorySegment = LiftHistorySegment.receipts
 
   var body: some View {
-    NavigationStack {
-      Group {
-        if showsCompletedHistory {
-          HistoryView(selectedSegment: $selectedHistorySegment)
-        } else {
-          switch destination {
-          case .start:
-            workoutPicker
-          case .history:
-            HistoryView(selectedSegment: $selectedHistorySegment)
-          case .progress:
-            HistoryView(selectedSegment: .constant(.progress), progressOnly: true)
-          case .routines:
-            ScheduleView(onStartRoutine: presentPreview)
+    NavigationStack(path: $navigation.path) {
+      rootPage
+        .environment(\.liftScreenRole, .root)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.hidden, for: .navigationBar)
+        .background(StrandPalette.appCanvas.ignoresSafeArea())
+        .navigationDestination(for: LiftRoute.self) { route in
+          switch route {
+          case .history: HistoryView(selectedSegment: $selectedHistorySegment)
+          case .progress: HistoryView(selectedSegment: .constant(.progress), progressOnly: true)
+          case .routines: ScheduleView(onStartRoutine: presentPreview)
+          case .newRoutine: ScheduleView(onStartRoutine: presentPreview, createsRoutine: true)
           }
         }
-      }
-      .navigationBarTitleDisplayMode(.inline)
-      .toolbar(.hidden, for: .navigationBar)
-      .liftScreenBackground()
-      .navigationDestination(isPresented: previewPresentation) {
-        if let routine = previewRoutine {
-          RoutinePreviewView(
-            routine: routine,
-            onBegin: { beginPreviewedRoutine(routine) },
-            onCancel: { previewRoutine = nil }
-          )
-          .environmentObject(store)
+        .navigationDestination(isPresented: previewPresentation) {
+          if let routine = previewRoutine {
+            RoutinePreviewView(
+              routine: routine,
+              onBegin: { beginPreviewedRoutine(routine) },
+              onCancel: { previewRoutine = nil }
+            )
+            .environmentObject(store)
+          }
         }
-      }
     }
+    // Everything the root pushes is a pushed page; the root page opts back in above.
+    .environment(\.liftScreenRole, .pushed)
     .sheet(isPresented: $showsSettings) { SettingsView().environmentObject(store) }
-    .tint(LiftTheme.accent)
+    .tint(StrandPalette.accent)
+    .task { await autoResumeActiveSessionIfNeeded() }
+    .liftQAScene("routine-preview") {
+      previewRoutine = store.routines.first { $0.name == "Upper A" } ?? store.routines.first
+    }
+    .liftQAScene("settings") { showsSettings = true }
+    .liftQAScene("receipt", "receipt-export-white", "receipt-export-cream") {
+      printedSession = store.sessions.filter { $0.endedAt != nil }.max { $0.startedAt < $1.startedAt }
+    }
     .fullScreenCover(isPresented: workoutPresentation) {
       LiveWorkoutView(
         onDismiss: { isWorkoutPresented = false },
         onSessionSaved: { session in
           isWorkoutPresented = false
-          showsCompletedHistory = true
+          navigation.showCompletedHistory()
           printedSession = session
         }
       )
@@ -96,54 +105,51 @@ struct LiftRootView: View {
         onClose: { printedSession = nil },
         onViewReceipts: {
           printedSession = nil
-          showsCompletedHistory = true
+          navigation.showCompletedHistory()
         }
       )
       .environmentObject(store)
     }
   }
 
-  private var workoutPicker: some View {
-    ScrollView {
-      VStack(alignment: .leading, spacing: 20) {
-        HStack {
-          Text("Start a lift").font(.largeTitle.bold())
-          Spacer()
-          Button { showsSettings = true } label: {
-            Image(systemName: "gearshape").frame(width: 44, height: 44)
-          }.accessibilityLabel("Lift settings")
-        }
-        Text("Choose a routine or build your workout as you go.")
-          .font(.subheadline).foregroundStyle(.secondary)
-        if store.activeSession != nil {
-          Button { isWorkoutPresented = true } label: {
-            Label("Resume active lift", systemImage: "play.fill")
-              .frame(maxWidth: .infinity, alignment: .leading).padding(18)
-          }.buttonStyle(.borderedProminent).foregroundStyle(StrandPalette.onInk)
-        } else {
-          Button(action: startOpenLift) {
-            Label("Open workout", systemImage: "plus")
-              .frame(maxWidth: .infinity, alignment: .leading).padding(18)
-          }.buttonStyle(.borderedProminent).foregroundStyle(StrandPalette.onInk)
-          Text("YOUR ROUTINES").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-          ForEach(store.routines) { routine in
-            Button { presentPreview(routine) } label: {
-              HStack(spacing: 12) {
-                Image(systemName: "dumbbell").foregroundStyle(LiftTheme.accent)
-                VStack(alignment: .leading, spacing: 6) {
-                  Text(routine.name).font(.headline)
-                  Text("\(routine.exerciseIDs.count) exercises · \(store.estimatedMinutes(for: routine)) min")
-                    .font(.subheadline).foregroundStyle(.secondary)
-                }
-                Spacer()
-                Image(systemName: "chevron.right").foregroundStyle(.secondary)
-              }.padding(18).frame(maxWidth: .infinity, alignment: .leading)
-                .background(StrandPalette.card, in: RoundedRectangle(cornerRadius: 16))
-            }.buttonStyle(.plain)
-          }
-        }
-      }.padding(20)
-    }.background(LiftTheme.paper)
+  @ViewBuilder private var rootPage: some View {
+    if navigation.showsCompletedHistory {
+      HistoryView(selectedSegment: $selectedHistorySegment)
+    } else {
+      switch destination {
+      case .start:
+        LiftStartView(
+          onOpenSettings: { showsSettings = true },
+          onResume: { isWorkoutPresented = true },
+          onStartOpen: startOpenLift,
+          onPreview: presentPreview,
+          onOpen: { navigation.path.append($0) }
+        )
+      case .history:
+        HistoryView(selectedSegment: $selectedHistorySegment)
+      case .progress:
+        HistoryView(selectedSegment: .constant(.progress), progressOnly: true)
+      case .routines:
+        ScheduleView(onStartRoutine: presentPreview)
+      }
+    }
+  }
+
+  private func autoResumeActiveSessionIfNeeded() async {
+    func shouldResume() -> Bool {
+      LiftAutoResumePolicy.shouldResume(
+        destination: destination,
+        hasActiveSession: store.activeSession != nil,
+        alreadyAutoResumed: hasAutoResumed
+      )
+    }
+    guard shouldResume() else { return }
+    // This view usually appears inside a sheet that is still sliding in; a cover presented during that
+    // transition can be dropped by UIKit, so let the sheet settle first.
+    try? await Task.sleep(for: .milliseconds(400))
+    guard !Task.isCancelled, shouldResume() else { return }
+    hasAutoResumed = true
+    isWorkoutPresented = true
   }
 
   private func presentPreview(_ routine: LiftRoutine) {

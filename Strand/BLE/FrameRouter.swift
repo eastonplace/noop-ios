@@ -188,8 +188,11 @@ public final class FrameRouter {
                 if !ev.hasPrefix("BLE_REALTIME_HR") {
                     state.lastEvent = ev
                 }
-                // Strap-pushed event = "I may have new data" → kick a (rate-limited) sync.
-                onSyncTrigger?()
+                // Strap-pushed event = "I may have new data" → kick a (rate-limited) sync. BLE-4: not for
+                // the BLE_REALTIME_HR_* echo of our own toggle, which says nothing about banked history.
+                if StrapEventSyncPolicy.shouldTriggerSync(eventName: ev) {
+                    onSyncTrigger?()
+                }
                 // Belt-and-suspenders: a BLE_BONDED event confirms the link is bonded.
                 // (BLEManager also sets bonded=true when the confirmed write succeeds.)
                 if ev.hasPrefix("BLE_BONDED") {

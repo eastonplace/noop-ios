@@ -110,6 +110,43 @@ enum LiveActivityPushPolicy {
     }
 }
 
+/// Remembers that the workout's pause state changed, so the next ActivityKit write skips the push throttle, and forgets
+/// it only once a write that was BUILT AFTER the change has gone out.
+///
+/// A write can be in flight (suspended at `await activity.update`) when the person taps Pause. That write carries the
+/// old state. When it returns it must not clear what the tap just raised: the write that follows would then be throttled
+/// away (it comes less than a push interval later) and the activity would keep a running clock and a Pause button under
+/// a paused workout, for as long as nothing else drove an update. Counting edges instead of holding a flag settles it:
+/// a write records the count it was built at, and only edges up to that count are carried.
+struct PauseEdgeLatch: Equatable {
+    private(set) var generation = 0
+    private var deliveredGeneration = 0
+
+    /// An edge has happened that no write has carried yet.
+    var isPending: Bool { generation != deliveredGeneration }
+
+    /// The workout was paused or resumed (or a surface asked for a state the workout was already in).
+    mutating func noteEdge() { generation &+= 1 }
+
+    /// A write built when the count stood at `built` has gone out: edges up to it are carried, later ones are not.
+    mutating func delivered(builtAt built: Int) { deliveredGeneration = built }
+
+    /// Forget everything (the activity ended); nothing is owed to a surface that no longer exists.
+    mutating func reset() { deliveredGeneration = generation }
+}
+
+/// What heart rate the Live Activity carries.
+///
+/// A workout's heart rate is the last reading it took, whether or not the strap is connected right now, exactly what the
+/// workout screen shows. Dropping it to "—" the moment the link goes (or while paused with no strap) made the Lock Screen
+/// say less than the app did; the activity dims a reading it cannot vouch for instead (`bonded`, paused, stale).
+enum LiveActivityHeartRate {
+    static func value(workoutIsActive: Bool, workoutBPM: Int?, connected: Bool, passiveBPM: Int?) -> Int? {
+        if workoutIsActive { return workoutBPM }
+        return connected ? passiveBPM : nil
+    }
+}
+
 enum LiveActivityWorkoutProjectionDecision: Equatable {
     /// Workout mode is not active. Drop any cached workout projection without evaluating the supplier.
     case clear
@@ -174,4 +211,57 @@ enum LiveActivityWorkoutProjectionPolicy {
         )
     }
 }
+
+/// The workout state the controller keeps between rebuilds. The projection is expensive (calories, zones, the heart-rate
+/// trace), so it is reused for up to `LiveActivityWorkoutProjectionPolicy.rebuildInterval`; anything cheap that can change
+/// inside that window must not be frozen into it. The quiet-strap verdict is the one such field: it flips the moment a
+/// reading arrives or the fifteenth silent second passes, and a cached copy would keep the heart dimmed (or undimmed) on the
+/// Lock Screen until the next rebuild. It is asked again for every write, from the clock of that write, never when an update
+/// was queued.
+struct LiveActivityWorkoutStateCache {
+    enum Write {
+        /// Workout mode is not active: the cache was dropped, and the write carries no workout.
+        case noWorkout
+        /// The state to write, with the verdict of this write.
+        case state(WorkoutLiveActivityState)
+        /// Workout mode is active but there is no workout to project: the write is not applicable.
+        case unavailable
+    }
+
+    private(set) var state: WorkoutLiveActivityState?
+    private(set) var builtAt: Date = .distantPast
+
+    /// A pause edge, a mode change or a reset: the next write rebuilds.
+    mutating func clear() {
+        state = nil
+        builtAt = .distantPast
+    }
+
+    mutating func stateForWrite(workoutIsActive: Bool, now: Date, build: () -> WorkoutLiveActivityState?,
+                                heartRateIsStale: () -> Bool) -> Write {
+        guard workoutIsActive else {
+            clear()
+            return .noWorkout
+        }
+        var current: WorkoutLiveActivityState
+        if LiveActivityWorkoutProjectionPolicy.shouldRebuild(
+            workoutIsActive: true, hasCachedWorkout: state != nil, lastBuiltAt: builtAt, now: now) {
+            guard let built = build() else {
+                clear()
+                return .unavailable
+            }
+            current = built
+            builtAt = now
+        } else if let cached = state {
+            current = cached
+        } else {
+            clear()
+            return .unavailable
+        }
+        current.heartRateIsStale = heartRateIsStale()
+        state = current
+        return .state(current)
+    }
+}
+
 #endif

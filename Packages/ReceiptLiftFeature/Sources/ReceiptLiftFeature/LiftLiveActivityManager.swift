@@ -14,15 +14,17 @@ final class LiftLiveActivityManager {
     session: LiftSession,
     progress: LiftRoutineProgress?,
     currentMove: String,
-    restTimerEndDate: Date?
+    restTimerEndDate: Date?,
+    weightUnit: LiftWeightUnit
   ) {
     guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
 
-    let state = contentState(
+    let state = Self.contentState(
       session: session,
       progress: progress,
       currentMove: currentMove,
-      restTimerEndDate: restTimerEndDate
+      restTimerEndDate: restTimerEndDate,
+      weightUnit: weightUnit
     )
     let content = ActivityContent(state: state, staleDate: state.restStaleDate)
 
@@ -57,13 +59,15 @@ final class LiftLiveActivityManager {
     session: LiftSession,
     progress: LiftRoutineProgress?,
     currentMove: String,
-    restTimerEndDate: Date?
+    restTimerEndDate: Date?,
+    weightUnit: LiftWeightUnit
   ) {
-    let finalState = contentState(
+    let finalState = Self.contentState(
       session: session,
       progress: progress,
       currentMove: currentMove,
-      restTimerEndDate: restTimerEndDate
+      restTimerEndDate: restTimerEndDate,
+      weightUnit: weightUnit
     )
     guard let activity = matchingActivity(for: session.id) else { return }
     liveActivity = nil
@@ -107,19 +111,25 @@ final class LiftLiveActivityManager {
     }
   }
 
-  private func contentState(
+  /// The Lock Screen and Dynamic Island show the volume in the person's unit like everywhere else in Lift (loads are
+  /// stored in pounds), so it is converted here rather than left as the stored pound total, and the unit rides with it
+  /// ("lb" or "kg") so the figure is never a bare number.
+  nonisolated static func contentState(
     session: LiftSession,
     progress: LiftRoutineProgress?,
     currentMove: String,
-    restTimerEndDate: Date?
+    restTimerEndDate: Date?,
+    weightUnit: LiftWeightUnit,
+    now: Date = Date()
   ) -> LiftLiveActivityAttributes.ContentState {
     LiftLiveActivityAttributes.ContentState(
       currentMove: currentMove,
       completedSets: progress?.completedSets ?? session.workingSets.count,
       targetSets: progress?.targetSets ?? 0,
-      volume: session.totalVolume,
+      volume: weightUnit.fromPounds(session.totalVolume),
       restTimerEndDate: restTimerEndDate,
-      updatedAt: Date()
+      updatedAt: now,
+      volumeUnit: weightUnit == .pounds ? "lb" : "kg"
     )
   }
 }

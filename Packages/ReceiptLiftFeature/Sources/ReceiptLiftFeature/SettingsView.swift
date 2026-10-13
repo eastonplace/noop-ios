@@ -1,72 +1,108 @@
+import StrandDesign
 import SwiftUI
 
+/// Lift's own settings: the default rest, haptics, how a shared receipt is printed, and the starter routines.
 struct SettingsView: View {
   @EnvironmentObject private var store: LiftStore
   @Environment(\.dismiss) private var dismiss
+  @Environment(\.liftFormat) private var format
 
   private let starterNames = ["Upper A", "Lower A", "Pull + Posture", "Push + Delts", "Lower B"]
 
   var body: some View {
-    NavigationStack {
-      ScrollView {
-        ReceiptSheet {
-          HStack(alignment: .top) {
-            ReceiptHeader(title: "Lift settings", subtitle: "Rest, feedback and workout exports")
-            Spacer()
-            Button("DONE") { dismiss() }
-              .font(.receipt(10, weight: .black))
-          }
-          ReceiptDashedRule()
+    LiftSheetPage(title: "Lift settings", onClose: { dismiss() }) {
+      workoutSection
+      FlatSectionSeparator()
+      unitSection
+      FlatSectionSeparator()
+      receiptsSection
+      FlatSectionSeparator()
+      aboutSection
+    }
+    .presentationDetents([.large])
+    .presentationDragIndicator(.visible)
+  }
 
-          Stepper(value: restBinding, in: 15...600, step: 15) {
-            settingLabel("Default Rest", value: "\(Int(store.settings.defaultRestSeconds)) sec")
-          }
-          ReceiptRule()
-          Toggle(isOn: hapticsBinding) { settingLabel("Haptics", value: store.settings.hapticsEnabled ? "On" : "Off") }
-            .tint(LiftTheme.ink)
-          ReceiptRule()
-          Picker("Export Paper", selection: exportBinding) {
-            Text("WHITE").tag(ExportPaperStyle.white)
-            Text("CREAM").tag(ExportPaperStyle.cream)
-          }
-          .pickerStyle(.segmented)
+  // MARK: Workout
 
-          ReceiptDashedRule()
-          Menu {
-            ForEach(starterNames, id: \.self) { name in
-              Button(name) { store.restoreStarterRoutine(named: name) }
-            }
-          } label: {
-            ReceiptLine(
-              title: "Restore Starter Routine",
-              detail: "Five starter templates",
-              value: "OPEN →"
-            )
+  private var workoutSection: some View {
+    LiftFlatSection("Workout", systemImage: "timer", contentSpacing: NoopMetrics.space3) {
+      VStack(alignment: .leading, spacing: NoopMetrics.space4) {
+        LiftBigStepper(
+          title: "Default rest",
+          value: LiftFormat.duration(store.settings.defaultRestSeconds),
+          spokenValue: format.spokenDuration(store.settings.defaultRestSeconds),
+          decrement: { store.setDefaultRestSeconds(max(15, store.settings.defaultRestSeconds - 15)) },
+          increment: { store.setDefaultRestSeconds(min(600, store.settings.defaultRestSeconds + 15)) }
+        )
+        Toggle(isOn: hapticsBinding) {
+          VStack(alignment: .leading, spacing: 2) {
+            Text("Haptics")
+              .font(StrandFont.body)
+              .foregroundStyle(StrandPalette.textPrimary)
+            Text("Feel each logged set and finished rest")
+              .font(StrandFont.caption)
+              .foregroundStyle(StrandPalette.textSecondary)
+              .fixedSize(horizontal: false, vertical: true)
           }
-          .buttonStyle(.plain)
-
-          ReceiptDashedRule()
-          ReceiptSectionLabel(title: "About")
-          ReceiptLine(title: "Version", value: appVersion)
-          Text("EXERCISE MEDIA: GYM VISUAL · SEE NOTICE")
-            .font(.receipt(9, weight: .bold))
-            .foregroundStyle(LiftTheme.inkSecondary)
         }
+        .noopToggle()
+        .frame(minHeight: 44)
       }
-      .scrollIndicators(.hidden)
-      .toolbar(.hidden, for: .navigationBar)
     }
   }
 
-  private func settingLabel(_ title: String, value: String) -> some View {
-    VStack(alignment: .leading, spacing: 2) {
-      Text(title.uppercased()).font(.receipt(11, weight: .black))
-      Text(value.uppercased()).font(.receipt(9, weight: .bold)).foregroundStyle(LiftTheme.inkSecondary)
+  // MARK: Units
+
+  private var unitSection: some View {
+    LiftFlatSection("Units", systemImage: "scalemass", contentSpacing: 0) {
+      LiftKeyValueRow(
+        label: "Weights",
+        value: format.unit == .pounds ? String(localized: "Pounds") : String(localized: "Kilograms"))
+      LiftNote(text: "Lift follows the unit you chose in NOOP's settings.")
     }
   }
 
-  private var restBinding: Binding<Double> {
-    Binding(get: { store.settings.defaultRestSeconds }, set: { store.setDefaultRestSeconds($0) })
+  // MARK: Receipts
+
+  private var receiptsSection: some View {
+    LiftFlatSection("Receipts", systemImage: "ticket", contentSpacing: NoopMetrics.space3) {
+      VStack(alignment: .leading, spacing: NoopMetrics.space4) {
+        VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+          Text("Export paper")
+            .font(StrandFont.body)
+            .foregroundStyle(StrandPalette.textPrimary)
+          Text("Used when you share a receipt image")
+            .font(StrandFont.caption)
+            .foregroundStyle(StrandPalette.textSecondary)
+            .fixedSize(horizontal: false, vertical: true)
+          SegmentedPillControl([ExportPaperStyle.white, ExportPaperStyle.cream], selection: exportBinding) {
+            $0 == .white ? String(localized: "White") : String(localized: "Cream")
+          }
+        }
+        Menu {
+          ForEach(starterNames, id: \.self) { name in
+            Button(name) { store.restoreStarterRoutine(named: name) }
+          }
+        } label: {
+          LiftListRow(
+            title: String(localized: "Restore starter routine"),
+            details: [String(localized: "Five starter templates")],
+            showsChevron: true
+          )
+        }
+        .buttonStyle(FlatRowPressStyle())
+      }
+    }
+  }
+
+  // MARK: About
+
+  private var aboutSection: some View {
+    LiftFlatSection("About", systemImage: "info.circle", contentSpacing: 0) {
+      LiftKeyValueRow(label: "Version", value: appVersion)
+      LiftNote(text: "Exercise media: Gym Visual · see notice")
+    }
   }
 
   private var hapticsBinding: Binding<Bool> {

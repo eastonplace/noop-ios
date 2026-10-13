@@ -28,6 +28,7 @@ struct MarkerEditorView: View {
 
     @EnvironmentObject var repo: Repository
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     // Marker selection.
     @State private var selection: MarkerDefinition?
@@ -50,17 +51,31 @@ struct MarkerEditorView: View {
     private enum Field: Hashable { case value, diastolic, note, reference, customName, customUnit }
     @FocusState private var focused: Field?
 
+    private let accent = DomainTint.custom(StrandPalette.metricCyan)
+
     var body: some View {
         ScreenScaffold(title: "Add a reading",
                        subtitle: "Type in a number from your own report. It stays on \(Platform.deviceNounPhrase).") {
-            VStack(alignment: .leading, spacing: NoopMetrics.sectionGap) {
+            VStack(alignment: .leading, spacing: 0) {
                 markerSection
                 if selection != nil || addingCustom {
+                    FlatSectionSeparator()
                     readingSection
                 }
+                FlatSectionSeparator()
                 disclaimerNote
-                footer
+                // At accessibility text sizes a pinned footer would take half the sheet, so it follows the form.
+                if typeSize.isAccessibilitySize { footer.padding(.top, NoopMetrics.space5) }
             }
+            // The form is as wide as the sheet, whatever one of its rows would like: a row that cannot shrink must not
+            // widen the whole page and push every other row off the edge of the screen.
+            #if os(iOS)
+            .containerRelativeFrame(.horizontal, alignment: .leading) { width, _ in max(0, width - 32) }
+            #endif
+        }
+        .scrollDismissesKeyboard(.interactively)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if !typeSize.isAccessibilitySize { footer.sheetFooterBar() }
         }
         #if os(iOS)
         .presentationDragIndicator(.visible)
@@ -72,29 +87,53 @@ struct MarkerEditorView: View {
         #endif
         .background(StrandPalette.surfaceBase)
         .keyboardDoneToolbar($focused)
+        #if DEBUG
+        .onAppear(perform: qaPreselectMarker)
+        #endif
     }
+
+    #if DEBUG
+    /// Screenshot harness only: `--noop-qa-marker <key>` opens the editor with that catalog marker already chosen (and no
+    /// keyboard up), so the reading form can be captured without UI automation; `--noop-qa-marker-custom` opens the custom
+    /// marker form with a name, a unit and a value filled in.
+    private func qaPreselectMarker() {
+        let arguments = ProcessInfo.processInfo.arguments
+        if arguments.contains("--noop-qa-marker-custom"), selection == nil, !addingCustom {
+            addingCustom = true
+            customName = "Magnesium"
+            customUnit = "mmol/L"
+            valueText = "0.82"
+            return
+        }
+        guard selection == nil, let index = arguments.firstIndex(of: "--noop-qa-marker"),
+              arguments.indices.contains(index + 1),
+              let def = MarkerCatalog.definition(for: arguments[index + 1]) else { return }
+        selection = def
+        unit = def.canonicalUnit
+        unitChoice = 0
+    }
+    #endif
 
     // MARK: - Marker picker
 
     private var markerSection: some View {
-        VStack(alignment: .leading, spacing: NoopMetrics.gap) {
-            SectionHeader("Marker", overline: "what are you logging?")
-            PaperCard {
-                VStack(alignment: .leading, spacing: 12) {
-                    if addingCustom {
-                        customMarkerFields
-                    } else if let selection {
-                        chosenMarkerRow(selection)
-                    } else {
-                        searchField
-                        catalogList
-                        Button {
-                            addingCustom = true
-                            focused = .customName
-                        } label: {
-                            Label("Add a custom marker", systemImage: "plus")
-                        }
-                        .buttonStyle(.noopGhost)
+        FlatSection("Marker", systemImage: "flask", tint: accent, contentSpacing: NoopMetrics.space3) {
+            VStack(alignment: .leading, spacing: NoopMetrics.space3) {
+                if addingCustom {
+                    customMarkerFields
+                } else if let selection {
+                    chosenMarkerRow(selection)
+                } else {
+                    searchField
+                    catalogList
+                    ChipRow {
+                        WidgetChipButton(
+                            title: "Add a custom marker", systemImage: "plus",
+                            accessibilityLabel: "Add a custom marker",
+                            action: {
+                                addingCustom = true
+                                focused = .customName
+                            })
                     }
                 }
             }
@@ -105,8 +144,9 @@ struct MarkerEditorView: View {
         PaperSearchField(
             "Search markers (e.g. LDL, ferritin)",
             text: $search,
-            height: 42,
-            cornerRadius: 10
+            height: 44,
+            cornerRadius: 10,
+            inputConfiguration: .searchQuery
         )
         .accessibilityLabel("Search markers")
     }
@@ -119,206 +159,205 @@ struct MarkerEditorView: View {
         }
     }
 
+    /// Every catalog marker as a flat row (the page scrolls, so all of them are reachable): its glyph, its name and
+    /// category, and the unit it is stored in.
     private var catalogList: some View {
-        // A ScrollView (capped at 280pt) so all ~30 markers are reachable — a bare VStack
-        // under .frame(maxHeight: 280) clipped everything past the first handful with no scroll.
-        ScrollView {
-            VStack(spacing: 0) {
-                ForEach(Array(filteredCatalog.enumerated()), id: \.element.key) { idx, def in
+        let matches = filteredCatalog
+        return VStack(spacing: 0) {
+            ForEach(Array(matches.enumerated()), id: \.element.key) { index, def in
+                if index > 0 { ExploreRowSeparator() }
                 Button {
                     choose(def)
                 } label: {
-                    HStack(spacing: 10) {
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(def.displayName)
-                                .font(StrandFont.subhead)
-                                .foregroundStyle(StrandPalette.textPrimary)
-                            Text(def.category.displayName)
-                                .font(StrandFont.footnote)
-                                .foregroundStyle(StrandPalette.textTertiary)
-                        }
-                        Spacer()
-                        Text(def.canonicalUnit)
+                    ExploreFlatRow(
+                        symbol: def.category.symbol, tint: accent,
+                        title: Text(verbatim: def.displayName),
+                        subtitle: Text(verbatim: def.category.displayName),
+                        showsChevron: false,
+                        spoken: "\(def.displayName), \(def.canonicalUnit)"
+                    ) {
+                        Text(verbatim: def.canonicalUnit)
                             .font(StrandFont.captionNumber)
-                            .foregroundStyle(StrandPalette.textSecondary)
-                    }
-                    .padding(.vertical, 9)
-                    .contentShape(Rectangle())
-                }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("\(def.displayName), \(def.canonicalUnit)")
-                    if idx < filteredCatalog.count - 1 {
-                        Divider().overlay(StrandPalette.hairline)
+                            .foregroundStyle(StrandPalette.textTertiary)
+                            .lineLimit(1)
                     }
                 }
-                if filteredCatalog.isEmpty {
-                    Text("No match. Add it as a custom marker below.")
-                        .font(StrandFont.footnote)
-                        .foregroundStyle(StrandPalette.textTertiary)
-                        .padding(.vertical, 8)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
+                .exploreRowPress()
+            }
+            if matches.isEmpty {
+                Text("No match. Add it as a custom marker below.")
+                    .font(StrandFont.footnote)
+                    .foregroundStyle(StrandPalette.textTertiary)
+                    .padding(.vertical, NoopMetrics.space2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .frame(maxHeight: 280)
     }
 
     private func chosenMarkerRow(_ def: MarkerDefinition) -> some View {
-        HStack(spacing: 10) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(def.displayName).font(StrandFont.headline).foregroundStyle(StrandPalette.textPrimary)
-                Text(def.category.displayName).font(StrandFont.footnote).foregroundStyle(StrandPalette.textTertiary)
+        VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+            ExploreFlatRow(
+                symbol: def.category.symbol, tint: accent,
+                title: Text(verbatim: def.displayName),
+                subtitle: Text(verbatim: def.category.displayName),
+                showsChevron: false)
+            ChipRow {
+                WidgetChipButton(
+                    title: "Change", systemImage: "arrow.left.arrow.right",
+                    accessibilityLabel: "Change marker", action: reset)
             }
-            Spacer()
-            Button("Change") { reset() }
-                .buttonStyle(.plain)
-                .font(StrandFont.caption)
-                .foregroundStyle(StrandPalette.accent)
-                .accessibilityLabel("Change marker")
         }
     }
 
     private var customMarkerFields: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: NoopMetrics.space4) {
             field(String(localized: "Name")) {
-                TextField("e.g. Magnesium", text: $customName)
-                    .textFieldStyle(.plain)
-                    .font(StrandFont.body)
-                    .foregroundStyle(StrandPalette.textPrimary)
-                    .focused($focused, equals: .customName)
-                    .padding(.horizontal, 12).padding(.vertical, 9)
-                    .background(StrandPalette.surfaceInset, in: inputShape)
-                    .overlay(inputShape.strokeBorder(StrandPalette.hairline, lineWidth: 1))
+                textBox("e.g. Magnesium", text: $customName, focus: .customName)
                     .accessibilityLabel("Custom marker name")
             }
             field(String(localized: "Unit")) {
-                TextField("e.g. mmol/L", text: $customUnit)
-                    .textFieldStyle(.plain)
-                    .font(StrandFont.body)
-                    .foregroundStyle(StrandPalette.textPrimary)
-                    .focused($focused, equals: .customUnit)
-                    .padding(.horizontal, 12).padding(.vertical, 9)
-                    .background(StrandPalette.surfaceInset, in: inputShape)
-                    .overlay(inputShape.strokeBorder(StrandPalette.hairline, lineWidth: 1))
+                textBox("e.g. mmol/L", text: $customUnit, focus: .customUnit)
                     .accessibilityLabel("Custom marker unit")
             }
-            Button("Back to the marker list") { addingCustom = false }
-                .buttonStyle(.plain)
-                .font(StrandFont.caption)
-                .foregroundStyle(StrandPalette.accent)
+            ChipRow {
+                WidgetChipButton(
+                    title: "Back to the marker list", systemImage: "chevron.left",
+                    accessibilityLabel: "Back to the marker list",
+                    action: { addingCustom = false })
+            }
         }
     }
 
     // MARK: - Reading inputs
 
     private var readingSection: some View {
-        VStack(alignment: .leading, spacing: NoopMetrics.gap) {
-            SectionHeader("Reading", overline: "your number, date and any note")
-            PaperCard {
-                VStack(alignment: .leading, spacing: 14) {
-                    if isBloodPressure {
-                        bloodPressureFields
-                    } else {
-                        valueField
-                    }
-                    field(String(localized: "Date taken")) {
-                        DatePicker("", selection: $takenAt, in: ...Date(),
-                                   displayedComponents: [.date, .hourAndMinute])
-                            .labelsHidden()
-                            .accessibilityLabel("Date and time taken")
-                    }
-                    field(String(localized: "Note (optional)")) {
-                        TextField("e.g. fasting, morning draw", text: $note)
-                            .textFieldStyle(.plain)
-                            .font(StrandFont.body)
-                            .foregroundStyle(StrandPalette.textPrimary)
-                            .focused($focused, equals: .note)
-                            .padding(.horizontal, 12).padding(.vertical, 9)
-                            .background(StrandPalette.surfaceInset, in: inputShape)
-                            .overlay(inputShape.strokeBorder(StrandPalette.hairline, lineWidth: 1))
-                            .accessibilityLabel("Optional note")
-                    }
-                    field(String(localized: "Reference range from my report (optional)")) {
-                        TextField("e.g. 2.0-5.0 (your report's own range)", text: $referenceText)
-                            .textFieldStyle(.plain)
-                            .font(StrandFont.body)
-                            .foregroundStyle(StrandPalette.textPrimary)
-                            .focused($focused, equals: .reference)
-                            .padding(.horizontal, 12).padding(.vertical, 9)
-                            .background(StrandPalette.surfaceInset, in: inputShape)
-                            .overlay(inputShape.strokeBorder(StrandPalette.hairline, lineWidth: 1))
-                            .accessibilityLabel("Reference range from your own report, optional")
-                    }
-                    Text("NOOP never fills this in. It only shows back exactly what you type from your own report.")
-                        .font(StrandFont.footnote)
-                        .foregroundStyle(StrandPalette.textTertiary)
-                        .fixedSize(horizontal: false, vertical: true)
+        FlatSection("Reading", systemImage: "pencil", tint: accent) {
+            VStack(alignment: .leading, spacing: NoopMetrics.space4) {
+                if isBloodPressure {
+                    bloodPressureFields
+                } else {
+                    valueField
                 }
+                field(String(localized: "Date taken")) {
+                    takenAtPicker
+                }
+                field(String(localized: "Note (optional)")) {
+                    textBox("e.g. fasting, morning draw", text: $note, focus: .note)
+                        .accessibilityLabel("Optional note")
+                }
+                field(String(localized: "Reference range from my report (optional)")) {
+                    textBox("e.g. 2.0–5.0 (your report's own range)", text: $referenceText, focus: .reference)
+                        .accessibilityLabel("Reference range from your own report, optional")
+                }
+                Text("NOOP never fills this in. It only shows back exactly what you type from your own report.")
+                    .font(StrandFont.footnote)
+                    .foregroundStyle(StrandPalette.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
 
     private var valueField: some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text("Value").strandOverline()
-                Spacer()
-                if unitOptions.count > 1 {
-                    // The transparent unit switcher (e.g. mmol/L ↔ mg/dL).
-                    SegmentedPillControl(Array(unitOptions.indices), selection: $unitChoice) { unitOptions[$0] }
-                        .accessibilityLabel("Unit")
+            if typeSize.isAccessibilitySize {
+                // At an accessibility size the unit switcher cannot sit beside its label: it stacks under it.
+                VStack(alignment: .leading, spacing: 6) {
+                    fieldLabel(String(localized: "Value"))
+                    if unitOptions.count > 1 { unitSwitcher }
+                }
+            } else {
+                HStack {
+                    fieldLabel(String(localized: "Value"))
+                    Spacer()
+                    if unitOptions.count > 1 { unitSwitcher }
                 }
             }
-            HStack(spacing: 8) {
-                TextField("e.g. 3.1", text: $valueText)
-                    .textFieldStyle(.plain)
-                    .font(StrandFont.bodyNumber)
-                    .foregroundStyle(StrandPalette.textPrimary)
-                    .numericKeyboard()
-                    .focused($focused, equals: .value)
-                Text(activeUnit).font(StrandFont.footnote).foregroundStyle(StrandPalette.textTertiary)
-            }
-            .padding(.horizontal, 12).padding(.vertical, 9)
-            .background(StrandPalette.surfaceInset, in: inputShape)
+            numberInput(placeholder: "e.g. 3.1", text: $valueText, unit: activeUnit, field: .value)
+                .background(StrandPalette.surfaceInset, in: inputShape)
             .overlay(inputShape.strokeBorder(StrandPalette.hairline, lineWidth: 1))
             if unitOptions.count > 1 {
                 Text("Stored as \(MarkerUnits.canonicalUnit(for: markerKey, fallback: unit)). \(conversionNote)")
                     .font(StrandFont.footnote)
                     .foregroundStyle(StrandPalette.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
+        }
+    }
+
+    /// The transparent unit switcher (e.g. mmol/L ↔ mg/dL).
+    private var unitSwitcher: some View {
+        SegmentedPillControl(Array(unitOptions.indices), selection: $unitChoice) { unitOptions[$0] }
+            .accessibilityLabel("Unit")
+    }
+
+    /// The date and the time of the reading. Side by side they are wider than the sheet at the accessibility sizes, so
+    /// there each gets its own line.
+    @ViewBuilder
+    private var takenAtPicker: some View {
+        if typeSize.isAccessibilitySize {
+            VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+                DatePicker("", selection: $takenAt, in: ...Date(), displayedComponents: .date)
+                    .labelsHidden()
+                    .accessibilityLabel("Date taken")
+                DatePicker("", selection: $takenAt, in: ...Date(), displayedComponents: .hourAndMinute)
+                    .labelsHidden()
+                    .accessibilityLabel("Time taken")
+            }
+        } else {
+            DatePicker("", selection: $takenAt, in: ...Date(), displayedComponents: [.date, .hourAndMinute])
+                .labelsHidden()
+                .accessibilityLabel("Date and time taken")
         }
     }
 
     private var bloodPressureFields: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 14) {
-                field(String(localized: "Systolic")) {
-                    numberBox(placeholder: String(localized: "e.g. 120"), text: $valueText, unit: "mmHg", field: .value)
-                        .accessibilityLabel("Systolic blood pressure in mmHg")
-                }
-                field(String(localized: "Diastolic")) {
-                    numberBox(placeholder: String(localized: "e.g. 80"), text: $diastolicText, unit: "mmHg", field: .diastolic)
-                        .accessibilityLabel("Diastolic blood pressure in mmHg")
-                }
+        VStack(alignment: .leading, spacing: NoopMetrics.space3) {
+            // Side by side, each box needs room for its number and unit; at accessibility sizes each is as wide as the sheet.
+            let systolic = field(String(localized: "Systolic")) {
+                numberBox(placeholder: String(localized: "e.g. 120"), text: $valueText, unit: "mmHg", field: .value)
+                    .accessibilityLabel("Systolic blood pressure in mmHg")
+            }
+            let diastolic = field(String(localized: "Diastolic")) {
+                numberBox(placeholder: String(localized: "e.g. 80"), text: $diastolicText, unit: "mmHg", field: .diastolic)
+                    .accessibilityLabel("Diastolic blood pressure in mmHg")
+            }
+            if typeSize.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: NoopMetrics.space4) { systolic; diastolic }
+            } else {
+                HStack(spacing: NoopMetrics.space4) { systolic; diastolic }
             }
             Text("Entered together; stored as two markers so each lines up cleanly against your signals.")
                 .font(StrandFont.footnote)
                 .foregroundStyle(StrandPalette.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
-    private func numberBox(placeholder: String, text: Binding<String>, unit: String, field: Field) -> some View {
-        HStack(spacing: 6) {
-            TextField(placeholder, text: text)
-                .textFieldStyle(.plain)
-                .font(StrandFont.bodyNumber)
-                .foregroundStyle(StrandPalette.textPrimary)
-                .numericKeyboard()
-                .focused($focused, equals: field)
-            Text(unit).font(StrandFont.footnote).foregroundStyle(StrandPalette.textTertiary)
+    /// A number field with its unit. At the accessibility sizes the unit drops under the number: side by side the field
+    /// and its unit are wider than the sheet, and the whole form would widen with them.
+    private func numberInput(placeholder: LocalizedStringKey, text: Binding<String>, unit: String, field: Field) -> some View {
+        let input = TextField(placeholder, text: text)
+            .textFieldStyle(.plain)
+            .font(StrandFont.bodyNumber)
+            .foregroundStyle(StrandPalette.textPrimary)
+            .numericKeyboard()
+            .focused($focused, equals: field)
+        let unitText = Text(verbatim: unit).font(StrandFont.footnote).foregroundStyle(StrandPalette.textTertiary)
+        return Group {
+            if typeSize.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: 2) { input; unitText }
+            } else {
+                HStack(spacing: 8) { input; unitText }
+            }
         }
         .padding(.horizontal, 12).padding(.vertical, 9)
-        .frame(maxWidth: .infinity)
+        .frame(minHeight: 44)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func numberBox(placeholder: String, text: Binding<String>, unit: String, field: Field) -> some View {
+        numberInput(placeholder: LocalizedStringKey(placeholder), text: text, unit: unit, field: field)
         .background(StrandPalette.surfaceInset, in: inputShape)
         .overlay(inputShape.strokeBorder(StrandPalette.hairline, lineWidth: 1))
     }
@@ -330,21 +369,41 @@ struct MarkerEditorView: View {
             .font(StrandFont.footnote)
             .foregroundStyle(StrandPalette.textTertiary)
             .fixedSize(horizontal: false, vertical: true)
+            .padding(.top, NoopMetrics.space4)
     }
 
     private var footer: some View {
-        HStack {
-            Button("Cancel") { dismiss() }
-                .buttonStyle(.plain)
-                .font(StrandFont.body)
-                .foregroundStyle(StrandPalette.textSecondary)
-            Spacer()
-            Button("Save") { save() }
-                .buttonStyle(.noopPrimary)
-                .frame(maxWidth: 160)
-                .disabled(drafts.isEmpty || saving)
-                .accessibilityLabel("Save reading")
+        Group {
+            if typeSize.isAccessibilitySize {
+                // Stacked, the primary action first and as wide as the sheet, so neither label wraps.
+                VStack(spacing: NoopMetrics.space2) {
+                    saveButton.frame(maxWidth: .infinity)
+                    cancelButton.frame(maxWidth: .infinity)
+                }
+            } else {
+                HStack(spacing: NoopMetrics.space3) {
+                    cancelButton
+                    Spacer()
+                    saveButton
+                }
+            }
         }
+    }
+
+    private var cancelButton: some View {
+        Button { dismiss() } label: {
+            Text("Cancel").frame(maxWidth: typeSize.isAccessibilitySize ? .infinity : nil)
+        }
+        .buttonStyle(SecondaryPillButtonStyle())
+    }
+
+    private var saveButton: some View {
+        Button { save() } label: {
+            Text("Save").frame(maxWidth: typeSize.isAccessibilitySize ? .infinity : nil)
+        }
+        .buttonStyle(PrimaryPillButtonStyle())
+        .disabled(drafts.isEmpty || saving)
+        .accessibilityLabel("Save reading")
     }
 
     // MARK: - Selection + units
@@ -405,18 +464,18 @@ struct MarkerEditorView: View {
         if addingCustom {
             guard !customName.trimmingCharacters(in: .whitespaces).isEmpty,
                   !customUnit.trimmingCharacters(in: .whitespaces).isEmpty,
-                  let v = parsed(valueText) else { return [] }
+                  let v = MarkerUnits.parse(valueText) else { return [] }
             return [row(key: markerKey, category: .other, value: v, unit: customUnit)]
         }
         guard selection != nil else { return [] }
         if isBloodPressure {
-            guard let sys = parsed(valueText), let dia = parsed(diastolicText) else { return [] }
+            guard let sys = MarkerUnits.parse(valueText), let dia = MarkerUnits.parse(diastolicText) else { return [] }
             return [
                 row(key: LabBookProjection.bpSystolicKey, category: .bloodPressure, value: sys, unit: "mmHg"),
                 row(key: LabBookProjection.bpDiastolicKey, category: .bloodPressure, value: dia, unit: "mmHg"),
             ]
         }
-        guard let raw = parsed(valueText) else { return [] }
+        guard let raw = MarkerUnits.parse(valueText) else { return [] }
         // Convert the entered value to the canonical stored unit if a switcher is in use.
         let canonical = MarkerUnits.canonicalUnit(for: markerKey, fallback: unit)
         let stored = MarkerUnits.toCanonical(markerKey: markerKey, value: raw, from: activeUnit)
@@ -443,10 +502,6 @@ struct MarkerEditorView: View {
         )
     }
 
-    private func parsed(_ s: String) -> Double? {
-        Double(s.trimmingCharacters(in: .whitespaces))
-    }
-
     private func save() {
         let rows = drafts
         guard !rows.isEmpty else { return }
@@ -461,9 +516,27 @@ struct MarkerEditorView: View {
 
     private var inputShape: RoundedRectangle { RoundedRectangle(cornerRadius: 10, style: .continuous) }
 
+    /// A one-line text input in the shared inset field look.
+    private func textBox(_ placeholder: LocalizedStringKey, text: Binding<String>, focus: Field) -> some View {
+        TextField(placeholder, text: text)
+            .textFieldStyle(.plain)
+            .font(StrandFont.body)
+            .foregroundStyle(StrandPalette.textPrimary)
+            .focused($focused, equals: focus)
+            .padding(.horizontal, 12).padding(.vertical, 9)
+            .frame(minHeight: 44)
+            .background(StrandPalette.surfaceInset, in: inputShape)
+            .overlay(inputShape.strokeBorder(StrandPalette.hairline, lineWidth: 1))
+    }
+
+    /// A field's caption: capitals with tracking, scaled to fit a long word rather than broken inside it.
+    private func fieldLabel(_ label: String) -> some View {
+        Text(verbatim: label).strandOverlineFitted().lineLimit(3).fixedSize(horizontal: false, vertical: true)
+    }
+
     private func field<Content: View>(_ label: String, @ViewBuilder _ content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(label).strandOverline()
+            fieldLabel(label)
             content()
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -514,6 +587,19 @@ enum MarkerUnits {
 
     /// A short label for the conversion factor (4 sig figs), e.g. "0.02586".
     static func factorLabel(_ f: Double) -> String { String(format: "%.5g", f) }
+
+    /// A number typed into a reading field. The decimal mark is the keyboard's own ("3,1" on a German keyboard, "3.1" on an
+    /// English one) and a full stop always works; the other mark is a grouping mark, which a reading never has, so it is
+    /// not guessed at ("1,000" is not read as 1 on an English keyboard) and the field simply stays unsaved. nil for
+    /// anything that is not one plain number.
+    static func parse(_ text: String, locale: Locale = .autoupdatingCurrent) -> Double? {
+        let trimmed = text.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return nil }
+        let separator = locale.decimalSeparator ?? "."
+        let marks = trimmed.filter { $0 == "." || $0 == "," }
+        guard marks.count <= 1, marks.allSatisfy({ $0 == "." || String($0) == separator }) else { return nil }
+        return Double(trimmed.replacingOccurrences(of: separator, with: "."))
+    }
 
     /// A lower-cased, underscored slug for a custom marker name → its stable key.
     static func slug(_ name: String) -> String {

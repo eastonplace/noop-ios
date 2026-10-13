@@ -1,6 +1,7 @@
 import Foundation
 import Combine
 import SwiftUI
+import StrandAnalytics
 
 /// User profile (age/sex/body metrics/HR-max) persisted in UserDefaults.
 /// Powers HR zones, calories and recovery baselines.
@@ -169,7 +170,41 @@ final class ProfileStore: ObservableObject {
     }
 
     /// Tanaka estimate unless overridden.
-    var hrMax: Int { hrMaxOverride > 0 ? hrMaxOverride : Int((208 - 0.7 * Double(age)).rounded()) }
+    var hrMax: Int { Self.hrMax(age: age, override: hrMaxOverride) }
+
+    /// The one max-heart-rate rule: a positive manual override wins, else the Tanaka estimate (208 − 0.7 × age).
+    /// Pure, so code with no `ProfileStore` in hand (the repository's zone reads) applies the same rule as the screens.
+    nonisolated static func hrMax(age: Int, override: Int) -> Int {
+        override > 0 ? override : Int((208 - 0.7 * Double(age)).rounded())
+    }
+
+    /// The max-heart-rate override as the profile last saved it (0 = none), for readers with no `ProfileStore`.
+    nonisolated static func storedHrMaxOverride(_ defaults: UserDefaults = .standard) -> Int {
+        defaults.object(forKey: K.hrMax) as? Int ?? 0
+    }
+
+    /// The profile's resting energy per day as last saved (review round 4, 5), for readers with no
+    /// `ProfileStore`: the rate the strap's calorie estimate fills off-wrist time with.
+    nonisolated static func storedBmrKcalPerDay(_ defaults: UserDefaults = .standard) -> Double {
+        let age: Int
+        if let dob = defaults.object(forKey: K.dateOfBirth) as? Date {
+            age = years(from: dob, to: Date())
+        } else {
+            age = defaults.object(forKey: K.legacyAge) as? Int ?? 30
+        }
+        return DailyCalories.bmrKcalPerDay(profile: UserProfile(
+            weightKg: defaults.object(forKey: K.weight) as? Double ?? 75,
+            heightCm: defaults.object(forKey: K.height) as? Double ?? 178,
+            age: Double(age),
+            sex: defaults.string(forKey: K.sex) ?? "male"))
+    }
+
+    /// The maximum the nightly batch scores Strain with: the override, else the unrounded Tanaka estimate.
+    var hrMaxForBatchScoring: Double { Self.hrMaxForBatchScoring(override: hrMaxOverride, age: age) }
+
+    nonisolated static func hrMaxForBatchScoring(override: Int, age: Int) -> Double {
+        override > 0 ? Double(override) : StrainScorer.tanakaHRmax(age: Double(age > 0 ? age : StrainScorer.defaultAge))
+    }
 
     /// Whether the cycle-awareness opt-in applies to this profile (#801). Cycle phase is read from the
     /// MENSTRUAL skin-temperature shift, so the opt-in (the Health card + the Automations toggle) is only

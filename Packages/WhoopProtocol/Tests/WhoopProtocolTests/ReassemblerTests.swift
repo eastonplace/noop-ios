@@ -78,8 +78,23 @@ final class ReassemblerTests: XCTestCase {
         let valid = frameFromPayload([0x09], type: 40)
         let r = Reassembler()
         // Spurious SOF with a 0xFFFF length (total 65539, far past the 8 KB ceiling), then a real
-        // frame. With the cap, the real frame emerges instead of the stream wedging.
-        let out = r.feed([0xAA, 0xFF, 0xFF, 0x00] + valid)
+        // frame. T5: the spurious header carries a VALID crc8 (as a stray 0xAA does ~1 in 256 times), so
+        // it passes the BLE-1 header check and only the maxFrameBytes cap can reject it.
+        let length: [UInt8] = [0xFF, 0xFF]
+        let spurious: [UInt8] = [0xAA] + length + [crc8(length)]
+        XCTAssertEqual(crc8(spurious, 1, 3), spurious[3], "fixture must pass the header check")
+        let out = r.feed(spurious + valid)
         XCTAssertEqual(out, [valid], "a garbage oversized SOF must not wedge the stream")
+    }
+
+    /// T5: the WHOOP 5/MG twin: a header with a valid CRC16 declaring 0xFFFF bytes must hit the cap.
+    func testWhoop5OversizedDeclaredLengthWithValidHeaderCRCResyncs() {
+        let valid = puffinCommandFrame(cmd: 0x03, seq: 7, payload: [0x01])
+        let r = Reassembler(family: .whoop5)
+        var spurious: [UInt8] = [0xAA, 0x01, 0xFF, 0xFF, 0x00, 0x01]
+        let headerCRC = crc16Modbus(spurious)
+        spurious += [UInt8(headerCRC & 0xFF), UInt8(headerCRC >> 8)]
+        let out = r.feed(spurious + valid)
+        XCTAssertEqual(out, [valid], "a valid-CRC oversized WHOOP 5 header must not wedge the stream")
     }
 }

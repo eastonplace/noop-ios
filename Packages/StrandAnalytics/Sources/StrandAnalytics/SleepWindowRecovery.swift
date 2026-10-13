@@ -136,7 +136,7 @@ enum SleepTimestampMath {
 /// Bounded fallback for a detector miss. The user provides only the search interval;
 /// NOOP still derives stages and vitals from recorded physiology inside that interval.
 public enum SleepWindowRecovery {
-    public static let algorithmVersion = "sleep-window-recovery-v1"
+    public static let algorithmVersion = "sleep-window-recovery-v2"
     public static let minWindowSeconds = 30 * 60
     public static let maxWindowSeconds = SleepStager.maxMainSleepSpanS
 
@@ -198,7 +198,15 @@ public enum SleepWindowRecovery {
         }
 
         let restingHR = SleepStager.sessionRestingHR(start: start, end: end, hr: hrWindow)
-        let avgHRV = SleepStager.sessionAvgHRV(start: start, end: end, rr: rrWindow)
+        // A few valid fragments cannot represent a user-selected whole night. Count only
+        // windows with the analyzer's minimum clean beat count, using the same 35%
+        // coverage floor as bounded staging. Raw observations remain stored.
+        let hrvWindows = SleepStager.sessionHrvWindows(start: start, end: end, rr: rrWindow, stages: [])
+        let usableHRV = hrvWindows.filter { $0.cleanBeats >= HRVAnalyzer.minBeats && $0.rmssd != nil }
+        let expectedWindows = max(1, (duration + 299) / 300)
+        let avgHRV: Double? = Double(usableHRV.count) / Double(expectedWindows) >= 0.35
+            ? usableHRV.compactMap(\.rmssd).reduce(0, +) / Double(usableHRV.count)
+            : nil
 
         // Match the existing edit/re-stage density floor while also requiring samples
         // to cover meaningfully different portions of the window. This prevents the

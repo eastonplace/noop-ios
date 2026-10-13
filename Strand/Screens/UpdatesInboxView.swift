@@ -19,16 +19,15 @@ struct UpdatesInboxView: View {
     private var read: [UpdateItem] { updateStore.sortedItems.filter { $0.read } }
 
     var body: some View {
-        VStack(spacing: 0) {
-            header
-                .background(StrandPalette.surfaceRaised)
-            Divider().overlay(StrandPalette.hairline)
+        ScreenScaffold(title: "Updates",
+                       subtitle: LocalizedStringKey(subtitle),
+                       trailing: { NoopIconButton("xmark", accessibilityLabel: "Close", action: onClose) }) {
             content
-            if !updateStore.items.isEmpty {
-                Divider().overlay(StrandPalette.hairline)
-                footer
-            }
         }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if !updateStore.items.isEmpty { footer.sheetFooterBar() }
+        }
+        .sheetScreenScaffoldEnvironment()
         #if os(macOS)
         // A fixed frame is mandatory — a macOS sheet hosting a ScrollView collapses to nothing without
         // one (same reason WhatsNewView pins 560×640).
@@ -37,33 +36,6 @@ struct UpdatesInboxView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .noopSheetPresentation(largeFirst: true)
         #endif
-        .background(StrandPalette.surfaceBase)
-    }
-
-    // MARK: Header
-
-    private var header: some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("INBOX").font(StrandFont.overline)
-                    .tracking(StrandFont.overlineTracking)
-                    .foregroundStyle(StrandPalette.textTertiary)
-                Text("Updates")
-                    .font(StrandFont.rounded(26, weight: .bold))
-                    .foregroundStyle(StrandPalette.textPrimary)
-                Text(subtitle).font(StrandFont.caption)
-                    .foregroundStyle(StrandPalette.textSecondary)
-            }
-            Spacer()
-            Button(action: onClose) {
-                Image(systemName: "xmark.circle.fill")
-                    .font(.system(size: 22))
-                    .foregroundStyle(StrandPalette.textTertiary)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Close")
-        }
-        .padding(20)
     }
 
     private var subtitle: String {
@@ -78,25 +50,20 @@ struct UpdatesInboxView: View {
         if updateStore.items.isEmpty {
             emptyState
         } else {
-            ScrollView {
-                VStack(alignment: .leading, spacing: NoopMetrics.sectionGap) {
-                    if !unread.isEmpty {
-                        section("NEW", items: unread)
-                    }
-                    if !read.isEmpty {
-                        section("EARLIER", items: read)
-                    }
+            VStack(alignment: .leading, spacing: NoopMetrics.sectionGap) {
+                if !unread.isEmpty {
+                    section("NEW", items: unread)
                 }
-                .padding(20)
+                if !read.isEmpty {
+                    section("EARLIER", items: read)
+                }
             }
         }
     }
 
     private func section(_ label: LocalizedStringKey, items: [UpdateItem]) -> some View {
         VStack(alignment: .leading, spacing: NoopMetrics.gap) {
-            Text(label).font(StrandFont.overline)
-                .tracking(StrandFont.overlineTracking)
-                .foregroundStyle(StrandPalette.textTertiary)
+            Text(label).strandOverline()
             ForEach(items) { item in
                 UpdateRow(item: item, onTap: { handleTap(item) }, onRestore: { restore(item) })
             }
@@ -105,7 +72,6 @@ struct UpdatesInboxView: View {
 
     private var emptyState: some View {
         VStack(spacing: 12) {
-            Spacer(minLength: 40)
             Image(systemName: "bell.slash")
                 .font(.system(size: 34, weight: .light))
                 .foregroundStyle(StrandPalette.textTertiary)
@@ -118,40 +84,34 @@ struct UpdatesInboxView: View {
                 .foregroundStyle(StrandPalette.textSecondary)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 40)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(.horizontal, 32)
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, NoopMetrics.space12)
+        .padding(.horizontal, NoopMetrics.space8)
     }
 
     // MARK: Footer
 
     private var footer: some View {
-        HStack {
+        HStack(spacing: NoopMetrics.space3) {
             Button {
                 StrandHaptic.selection.play()
                 withAnimation(StrandMotion.interactive) { updateStore.clearAll() }
             } label: {
                 Label("Clear all", systemImage: "trash")
-                    .font(StrandFont.subhead)
             }
-            .buttonStyle(.plain)
-            .foregroundStyle(StrandPalette.textSecondary)
+            .buttonStyle(NoopButtonStyle(.secondary, fullWidth: true))
             .disabled(updateStore.items.isEmpty)
-
-            Spacer()
 
             Button {
                 StrandHaptic.selection.play()
                 withAnimation(StrandMotion.interactive) { updateStore.markAllRead() }
             } label: {
-                Text("Mark all read").frame(minWidth: 120).padding(.vertical, 4)
+                Text("Mark all read")
             }
-            .buttonStyle(.borderedProminent)
-            .tint(StrandPalette.ink)
+            .buttonStyle(NoopButtonStyle(.primary, fullWidth: true))
             .disabled(updateStore.unreadCount == 0)
         }
-        .padding(16)
     }
 
     // MARK: Actions

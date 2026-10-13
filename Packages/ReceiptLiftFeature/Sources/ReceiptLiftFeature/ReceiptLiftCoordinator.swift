@@ -117,16 +117,31 @@ public final class ReceiptLiftCoordinator: ObservableObject {
     public var hasActiveSession: Bool { store.activeSession != nil }
     public var saveError: String? { store.databaseSaveError }
 
+    /// `weightUnit` is the person's unit setting. The store needs it before `load()`: loading a restored session redraws
+    /// its Live Activity, and that is a bare number in this unit, with no view around to say which.
     public init(load: @escaping @Sendable () async throws -> Data?,
                 save: @escaping @Sendable (Data, [ReceiptLiftWorkout]) async throws -> Void,
-                canStart: @escaping @MainActor () -> Bool = { true }) {
+                canStart: @escaping @MainActor () -> Bool = { true },
+                weightUnit: LiftWeightUnit = .pounds) {
         let database = ReceiptLiftDatabase(load: load, save: save)
         self.database = database
         store = LiftStore(database: database, canStart: canStart)
+        store.setWeightUnit(weightUnit)
         observation = store.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
     }
 
     public func load() async { await store.loadAndWait() }
+
+    /// Follows the person's unit setting. The host calls this whenever the setting changes, whether or not Lift is on
+    /// screen: a running session's Live Activity is redrawn at once, so it never lags a unit change made elsewhere.
+    public func setWeightUnit(_ unit: LiftWeightUnit) { store.setWeightUnit(unit) }
+
+    public func applyReviewedRoutineChange(
+        validate: @MainActor () throws -> Void = {},
+        transform: @MainActor (Data) throws -> Data?
+    ) async throws {
+        try await store.applyReviewedRoutineChange(validate: validate, transform: transform)
+    }
 
     public func applicationDidEnterBackground() {
         guard backgroundSaveTask == nil else { return }

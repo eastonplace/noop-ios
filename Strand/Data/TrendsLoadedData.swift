@@ -16,6 +16,10 @@ struct TrendsLoadedData: Equatable, Sendable {
     let stressByDay: [String: Double]
     let appleDays: [AppleDaily]
     let appleByDay: [String: AppleDaily]
+    /// Review round 4 (5): the strap's worn time per day and the profile's resting energy, for the calorie
+    /// resolver.
+    let strapWornSecondsByDay: [String: Double]
+    let bmrKcalPerDay: Double?
 
     static let empty = TrendsLoadedData(
         loadIdentity: nil,
@@ -36,7 +40,9 @@ struct TrendsLoadedData: Equatable, Sendable {
         canonicalDays: [DailyMetric],
         sleepPerfByDay: [String: Double],
         stressByDay: [String: Double],
-        appleDays: [AppleDaily]
+        appleDays: [AppleDaily],
+        strapWornSecondsByDay: [String: Double] = [:],
+        bmrKcalPerDay: Double? = nil
     ) {
         self.loadIdentity = loadIdentity
         self.revision = revision
@@ -54,5 +60,7 @@ struct TrendsLoadedData: Equatable, Sendable {
             appleDays.map { ($0.day, $0) },
             uniquingKeysWith: { _, latest in latest }
         )
+        self.strapWornSecondsByDay = strapWornSecondsByDay.filter { $0.value.isFinite }
+        self.bmrKcalPerDay = bmrKcalPerDay
     }
 }

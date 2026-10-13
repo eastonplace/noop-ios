@@ -404,6 +404,9 @@ public final class LiveState: ObservableObject {
 
     private var historicalBurstProgress = HistoricalBurstProgress()
 
+    /// BLE-10: strap-log lines waiting to be published into `log` (at most four times a second).
+    var pendingLogLines = PendingLogLines()
+
     lazy var logTailPersistence = DebouncedLogTailPersistence(
         debounceInterval: 3,
         tailLimit: Self.tailLimit,

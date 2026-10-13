@@ -267,43 +267,54 @@ struct SleepAlarmEditorSection: View {
         SleepAlarmEditorSupport.wakeModes(recoveryHistoryCount: recoveryHistoryCount)
     }
 
+    /// The alarm as one tidy section: the eyebrow carries the on/off switch, the time is a hero-scale number with its
+    /// period muted, the status line says when it next rings (or that it is off) and on which days, and the whole
+    /// row opens the full alarm editor.
     var body: some View {
-        PaperCard {
-            VStack(alignment: .leading, spacing: 10) {
-                Toggle("Wake alarm", isOn: $behavior.smartAlarmEnabled)
-                    .font(StrandFont.subhead)
-                NavigationLink {
-                    SmartAlarmView()
-                        .environment(\.screenScaffoldNavigationRole, .detail)
-                } label: {
-                    TimelineView(.periodic(from: .now, by: 60)) { context in
-                        let schedule = SleepAlarmEditorSupport.schedule(at: context.date, behavior: behavior)
-                        HStack {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(schedule?.wakeClock() ?? SleepAlarmTime.clock(behavior.smartAlarmMinutes))
-                                    .font(StrandFont.number(28))
-                                Text(behavior.smartAlarmEnabled ? (schedule?.dayLabel ?? "No enabled day") : "Alarm off")
-                                    .font(StrandFont.caption)
-                                Text(SmartAlarmView.alarmWeekdaySummary(behavior.smartAlarmWeekdays))
-                                    .font(StrandFont.footnote)
-                                    .foregroundStyle(StrandPalette.textSecondary)
-                            }
-                            Spacer()
-                            Image(systemName: "chevron.right")
+        VStack(alignment: .leading, spacing: WidgetMetrics.contentSpacing) {
+            SectionEyebrow("Wake alarm", systemImage: "alarm.fill", tint: .sleep,
+                           trailing: .custom(AnyView(
+                               Toggle("Wake alarm", isOn: $behavior.smartAlarmEnabled).labelsHidden())))
+            NavigationLink {
+                SmartAlarmView()
+                    .environment(\.screenScaffoldNavigationRole, .detail)
+            } label: {
+                TimelineView(.periodic(from: .now, by: 60)) { context in
+                    let schedule = SleepAlarmEditorSupport.schedule(at: context.date, behavior: behavior)
+                    let clock = ValueUnitSplit.parts(schedule?.wakeClock() ?? SleepAlarmTime.clock(behavior.smartAlarmMinutes))
+                    let status = behavior.smartAlarmEnabled
+                        ? (schedule?.dayLabel ?? String(localized: "No enabled day"))
+                        : String(localized: "Off")
+                    let weekdays = SmartAlarmView.alarmWeekdaySummary(behavior.smartAlarmWeekdays)
+                    HStack(alignment: .center, spacing: NoopMetrics.space2) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            HeroValue(value: clock.number, unit: clock.unit)
+                            Text("\(status) · \(weekdays)")
+                                .font(StrandFont.subhead)
+                                .foregroundStyle(StrandPalette.textSecondary)
                         }
-                        .foregroundStyle(StrandPalette.textPrimary)
-                        .contentShape(Rectangle())
+                        Spacer(minLength: NoopMetrics.space2)
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(StrandPalette.textTertiary)
+                            .accessibilityHidden(true)
                     }
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Edit wake alarm")
-                if behavior.smartAlarmEnabled {
-                    Text(alarmRuntime.deliveryStatus)
-                        .font(StrandFont.footnote)
-                        .foregroundStyle(StrandPalette.textSecondary)
+                    .frame(minHeight: 44)
+                    .contentShape(Rectangle())
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("Edit wake alarm")
+                    .accessibilityValue("\([clock.number, clock.unit].compactMap { $0 }.joined(separator: " ")), \(status), \(weekdays)")
                 }
             }
+            .buttonStyle(.plain)
+            if behavior.smartAlarmEnabled {
+                Text(alarmRuntime.deliveryStatus)
+                    .font(StrandFont.footnote)
+                    .foregroundStyle(StrandPalette.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .task(id: repo.refreshSeq) { alarmRuntime.refreshStatus() }
     }
 

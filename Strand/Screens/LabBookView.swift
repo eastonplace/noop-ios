@@ -19,8 +19,13 @@ import WhoopStore
 // the on-device WhoopStore, where the LabMarkerStore extension lives (v17 `labMarker`
 // table). Raw readings are stored under the strap device id (`repo.deviceId`); every
 // write also projects a daily series under the `lab-book` source so Compare/Explore/
-// Coach see markers unchanged. The "Compare with a signal" surface reuses the same
-// Pearson idiom + restrained copy as CompareView's pairCard.
+// Coach see markers unchanged. The "Compare with a signal" surface (MarkerDetailView)
+// reads its correlation word and colour from the same `CorrelationStrength` rule as
+// Compare and the Metric Explorer.
+//
+// It is built from the flat widget parts the rest of the app uses (an eyebrow per section, glyph rows with a muted
+// latest value, pill buttons) and renders the same whether it is pushed from Trends or opened as a sheet from
+// Health's Records.
 //
 // NON-CLINICAL (load-bearing, spec §"Non-clinical / legal framing"): no word here
 // asserts a clinical judgement — never "abnormal/high/low/normal" as NOOP's own
@@ -49,49 +54,52 @@ struct LabBookView: View {
     @State private var csvSummary: String?
     @State private var csvFailed = false
 
+    private let accent = DomainTint.custom(StrandPalette.metricCyan)
+
     var body: some View {
         ScreenScaffold(
             title: "Lab Book",
             subtitle: "Private health notebook",
             onRefresh: { await load() },
-            // PERF: the column ends in one `categorySection` per marker category (bloods / BP / body / …),
-            // each carrying its own sparkline-bearing cards. The LazyVStack path builds the off-screen
-            // categories on demand — byte-identical layout — so a logbook with many categories doesn't
-            // render every section + sparkline up-front.
+            // PERF: the column ends in a row per marker; the LazyVStack path builds the off-screen rows on demand so a
+            // logbook with many markers doesn't render every row up-front.
             lazy: true
         ) {
-            VStack(alignment: .leading, spacing: NoopMetrics.sectionGap) {
-                HStack {
-                    Spacer()
-                    ChipButton("Add reading", systemImage: "plus") { showingEditor = true }
+            VStack(alignment: .leading, spacing: 0) {
+                markersSection
+                FlatSectionSeparator()
+                importSection
+                if loaded, !markers.isEmpty {
+                    FlatSectionSeparator()
+                    recentSection
                 }
-                SectionHeader("Markers")
-                if !loaded {
-                    ComingSoon(what: "Reading your logbook…", symbol: "books.vertical")
-                } else if markers.isEmpty {
-                    emptyState
-                } else {
-                    markerList
-                }
-                importRow
-                SectionHeader("Recent Readings")
-                recentReadings
+                FlatSectionSeparator()
                 disclaimerNote
             }
         }
-        .task(id: repo.refreshSeq) { await load() }
+        .task(id: repo.refreshSeq) {
+            await load()
+            #if DEBUG
+            await applyQAFixture()
+            #endif
+        }
+        // Nested sheets carry their own Cancel / Done or close button; the sheetScreenScaffoldEnvironment only keeps
+        // the app chrome (and the presenting sheet's close button) from leaking into them.
         .sheet(isPresented: $showingEditor) {
             MarkerEditorView { drafts in
                 await save(drafts)
             }
+            .sheetScreenScaffoldEnvironment()
         }
         .sheet(item: detailBinding) { key in
             MarkerDetailView(markerKey: key.id,
                              readings: readings(for: key.id),
                              onDelete: { id in await delete(id) })
+                .sheetScreenScaffoldEnvironment(onClose: { detailKey = nil })
         }
         .sheet(isPresented: $showingDisclaimer) {
-            LabBookDisclaimerView()
+            LabBookDisclaimerView(onClose: { showingDisclaimer = false })
+                .sheetScreenScaffoldEnvironment(onClose: { showingDisclaimer = false })
         }
         // macOS picker for the markers CSV; iOS goes through DocumentPicker (see
         // presentCsvImporter) for the iCloud download-on-pick behaviour (#179).
@@ -107,57 +115,116 @@ struct LabBookView: View {
         }
     }
 
-    // MARK: - Header (count + scope + actions)
+    #if DEBUG
+    // Screenshot harness only. `--noop-qa-labbook-fixture` saves a small logbook (several readings of a few markers, a
+    // blood-pressure pair and a custom marker) through the real save path, so the list, a marker's page and its signal
+    // comparison have something to show. `--noop-qa-labbook-empty` draws the empty logbook whatever is stored.
+    // `--noop-qa-marker-detail <key>` opens that marker's page, `--noop-qa-marker-signal <metric key>` picks the signal
+    // its comparison uses, and `--noop-qa-labbook-disclaimer` opens the disclaimer.
+    private func applyQAFixture() async {
+        let arguments = ProcessInfo.processInfo.arguments
+        if arguments.contains("--noop-qa-labbook-fixture"), !markers.contains(where: { $0.id.hasPrefix("qa-") }) {
+            await save(Self.qaFixtureRows(deviceId: repo.deviceId))
+        }
+        if arguments.contains("--noop-qa-labbook-empty") { markers = [] }
+        if let index = arguments.firstIndex(of: "--noop-qa-marker-detail"), arguments.indices.contains(index + 1),
+           detailKey == nil {
+            detailKey = arguments[index + 1]
+        }
+        if arguments.contains("--noop-qa-labbook-disclaimer") { showingDisclaimer = true }
+    }
 
-    private var headerCard: some View {
-        NoopCard(tint: StrandPalette.metricCyan) {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(spacing: 10) {
-                    Image(systemName: "books.vertical.fill")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(StrandPalette.metricCyan)
-                        .frame(width: 30, height: 30)
-                        .background(StrandPalette.metricCyan.opacity(0.14), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
-                        .accessibilityHidden(true)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(countLine).font(StrandFont.headline).foregroundStyle(StrandPalette.textPrimary)
-                        Text("All stays on \(Platform.deviceNounPhrase). Nothing is sent anywhere.")
-                            .font(StrandFont.footnote).foregroundStyle(StrandPalette.textTertiary)
-                    }
-                    Spacer(minLength: 8)
-                    Button {
-                        showingDisclaimer = true
-                    } label: {
-                        Image(systemName: "info.circle")
-                            .font(.system(size: 16, weight: .regular))
-                            .foregroundStyle(StrandPalette.textTertiary)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("What Lab Book is (and isn't)")
+    private static func qaFixtureRows(deviceId: String) -> [LabMarkerRow] {
+        let now = Date()
+        let calendar = Calendar(identifier: .gregorian)
+        func row(_ key: String, _ category: LabMarkerCategory, daysAgo: Int, _ value: Double, _ unit: String,
+                 note: String? = nil, reference: String? = nil) -> LabMarkerRow {
+            let date = calendar.date(byAdding: .day, value: -daysAgo, to: now) ?? now
+            return LabMarkerRow(
+                id: "qa-\(key)-\(daysAgo)", deviceId: deviceId, markerKey: key, category: category.rawValue,
+                day: LabBookFormat.dayKey(date), takenAt: Int(date.timeIntervalSince1970), value: value, valueText: nil,
+                unit: unit, source: "manual", note: note, referenceText: reference)
+        }
+        var rows: [LabMarkerRow] = []
+        for (index, ago) in [3, 10, 17, 24, 31, 38].enumerated() {
+            rows.append(row("ferritin", .bloodPanel, daysAgo: ago, 92 - Double(index) * 5 + Double(index % 2) * 4, "ng/mL",
+                            note: ago == 3 ? "Morning draw, fasting" : nil, reference: "30\u{2013}300 ng/mL"))
+        }
+        for (index, ago) in [5, 40, 90].enumerated() {
+            rows.append(row("ldl", .bloodPanel, daysAgo: ago, 3.1 + Double(index) * 0.3, "mmol/L"))
+        }
+        for ago in [2, 16, 30] {
+            rows.append(row(LabBookProjection.bpSystolicKey, .bloodPressure, daysAgo: ago, 118 + Double(ago % 5), "mmHg"))
+            rows.append(row(LabBookProjection.bpDiastolicKey, .bloodPressure, daysAgo: ago, 76 + Double(ago % 3), "mmHg"))
+        }
+        rows.append(row("custom_magnesium", .other, daysAgo: 12, 0.82, "mmol/L"))
+        return rows
+    }
+    #endif
+
+    // MARK: - Markers
+
+    private var markersSection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if !loaded {
+                ExploreMessage(isLoading: true, title: Text("Reading your logbook…"))
+            } else if markers.isEmpty {
+                VStack(alignment: .leading, spacing: NoopMetrics.space4) {
+                    ExploreMessage(
+                        symbol: "flask", title: Text("No markers yet"),
+                        message: Text("Track what matters to you. Add a marker to get started."))
+                    addButton("Add marker")
                 }
-                Text("It's a notebook, not a lab. NOOP lines up the numbers you enter. It doesn't test, read, or judge them. Not medical advice.")
-                    .font(StrandFont.subhead).foregroundStyle(StrandPalette.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                Button {
-                    showingEditor = true
-                } label: {
-                    Label("Add a reading", systemImage: "plus")
+            } else {
+                FlatSection(
+                    "Markers", systemImage: "flask", tint: accent,
+                    trailing: .text(allMarkerKeys.count.formatted()),
+                    contentSpacing: 0
+                ) {
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(Array(allMarkerKeys.enumerated()), id: \.element) { index, key in
+                            if index > 0 { ExploreRowSeparator() }
+                            markerRow(key)
+                        }
+                        addButton("Add a reading").padding(.top, NoopMetrics.space3)
+                    }
                 }
-                .buttonStyle(.noopPrimary)
-                .accessibilityLabel("Add a marker reading")
             }
         }
     }
 
-    /// Whole-phrase variants per count so translators see complete phrases (never stitched plurals).
-    private var countLine: String {
-        let keys = Set(markers.map(\.markerKey)).count
-        switch (keys == 1, markers.count == 1) {
-        case (true, true):   return String(localized: "1 marker tracked · 1 reading")
-        case (true, false):  return String(localized: "1 marker tracked · \(markers.count) readings")
-        case (false, true):  return String(localized: "\(keys) markers tracked · 1 reading")
-        case (false, false): return String(localized: "\(keys) markers tracked · \(markers.count) readings")
+    private func addButton(_ title: LocalizedStringKey) -> some View {
+        Button { showingEditor = true } label: {
+            Label(title, systemImage: "plus")
         }
+        .buttonStyle(PrimaryPillButtonStyle())
+        .accessibilityLabel("Add a marker reading")
+    }
+
+    /// One marker: its glyph, its name, when it was last taken, and the latest value with the unit set apart and muted.
+    private func markerRow(_ key: String) -> some View {
+        let series = readings(for: key)
+        let latest = series.last
+        let parts = LabBookFormat.parts(latest, key: key)
+        let name = displayName(for: key)
+        return Button {
+            detailKey = key
+        } label: {
+            ExploreFlatRow(
+                symbol: LabMarkerCategory(rawValue: latest?.category ?? "")?.symbol ?? "flask",
+                tint: accent,
+                title: Text(verbatim: name),
+                subtitle: Text(verbatim: lastTakenCaption(latest)),
+                spoken: String(localized: "\(name), latest \(LabBookFormat.spoken(parts)), \(series.count) readings")
+            ) {
+                ExploreLatestValue(number: parts.number, unit: parts.unit)
+            }
+        }
+        .exploreRowPress()
+    }
+
+    private var allMarkerKeys: [String] {
+        Set(markers.map(\.markerKey)).sorted { displayName(for: $0) < displayName(for: $1) }
     }
 
     // MARK: - Import entry (the Phase-2 markers CSV importer, LabMarkerCsvImport)
@@ -168,36 +235,24 @@ struct LabBookView: View {
     // unreadable. The picker follows the Data Sources idiom (DocumentPicker on iOS,
     // .fileImporter on macOS).
 
-    private var importCard: some View {
-        NoopCard(padding: 18, tint: StrandPalette.metricAmber) {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 10) {
-                    Image(systemName: "tray.and.arrow.down.fill")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(StrandPalette.metricAmber)
-                        .frame(width: 30, height: 30)
-                        .background(StrandPalette.metricAmber.opacity(0.14), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
-                        .accessibilityHidden(true)
-                    Text("Import readings").font(StrandFont.headline).foregroundStyle(StrandPalette.textPrimary)
-                    Spacer(minLength: 8)
-                }
-                Text("Bring in a markers CSV (date, marker, value, unit). Names that match the catalog fold onto your existing markers; anything else comes in as a custom marker. Rows that can't be read are skipped and counted, never guessed. Everything you import stays on \(Platform.deviceNounPhrase).")
-                    .font(StrandFont.subhead)
-                    .foregroundStyle(StrandPalette.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                HStack(spacing: 10) {
-                    Button {
-                        presentCsvImporter()
-                    } label: {
-                        Label(csvImporting ? "Importing…" : "Choose CSV…", systemImage: "tray.and.arrow.down")
+    private var importSection: some View {
+        FlatSection("Import", systemImage: "square.and.arrow.down", tint: accent, contentSpacing: 0) {
+            VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+                Button { presentCsvImporter() } label: {
+                    ExploreFlatRow(
+                        symbol: "tray.and.arrow.down", tint: accent,
+                        title: Text("Import readings"),
+                        subtitle: Text("Bring in readings from a markers CSV")
+                    ) {
+                        if csvImporting { ProgressView().controlSize(.small) }
                     }
-                    .buttonStyle(.noopPrimary)
-                    .disabled(csvImporting)
-                    .accessibilityLabel("Choose a markers CSV file to import")
-                    if csvImporting { ProgressView().controlSize(.small) }
                 }
-                if let s = csvSummary {
-                    Text(s).font(StrandFont.subhead)
+                .exploreRowPress()
+                .disabled(csvImporting)
+                .accessibilityHint("Choose a markers CSV file to import")
+                if let summary = csvSummary {
+                    Text(summary)
+                        .font(StrandFont.subhead)
                         .foregroundStyle(csvFailed ? StrandPalette.statusWarning : StrandPalette.statusPositive)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -252,7 +307,7 @@ struct LabBookView: View {
                     return
                 }
                 let rows = result.rows.map { r -> LabMarkerRow in
-                    // Local noon of the row's literal day: deterministic, so re-importing
+                    // UTC noon of the row's literal day: deterministic, so re-importing
                     // the same file updates in place (natural key
                     // deviceId+markerKey+takenAt+source) instead of duplicating.
                     let epoch = LabBookFormat.noonEpoch(r.day)
@@ -301,191 +356,56 @@ struct LabBookView: View {
         live.append(log: "[\(AppModel.logTimeFormatter.string(from: Date()))] Import \(line)")
     }
 
-    // MARK: - Empty state (honest)
+    // MARK: - Recent readings
 
-    private var emptyState: some View {
-        VStack(spacing: 12) {
-                Image(systemName: "flask")
-                    .font(.system(size: 28, weight: .medium))
-                    .foregroundStyle(StrandPalette.link)
-                    .accessibilityHidden(true)
-                Text("No markers yet")
-                    .font(StrandFont.cardTitle)
-                    .foregroundStyle(StrandPalette.textPrimary)
-                Text("Track what matters to you. Add a marker to get started.")
-                    .font(StrandFont.caption)
-                    .foregroundStyle(StrandPalette.textSecondary)
-                    .multilineTextAlignment(.center)
-                ChipButton("Add marker") { showingEditor = true }
-        }
-        .frame(maxWidth: .infinity, minHeight: 220)
-        .padding(20)
-        .background(StrandPalette.card, in: RoundedRectangle(cornerRadius: NoopMetrics.cardRadius, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: NoopMetrics.cardRadius, style: .continuous)
-                .stroke(StrandPalette.cardBorder, style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
-        )
-    }
-
-    private var markerList: some View {
-        PaperCard(padding: 14) {
-            VStack(spacing: 0) {
-                ForEach(Array(allMarkerKeys.enumerated()), id: \.element) { index, key in
-                    if index > 0 { Divider().overlay(StrandPalette.hairline) }
-                    Button { detailKey = key } label: {
-                        SettingsRow(icon: "flask", title: LocalizedStringKey(displayName(for: key)),
-                                    subtitle: LocalizedStringKey(lastTakenCaption(readings(for: key).last)),
-                                    showsChevron: true) {
-                            Text(latestLabel(readings(for: key).last, key: key))
-                                .font(StrandFont.captionNumber)
+    private var recentSection: some View {
+        FlatSection("Recent Readings", systemImage: "clock", tint: accent, contentSpacing: 0) {
+            VStack(alignment: .leading, spacing: 0) {
+                let recent = Array(markers.sorted { $0.takenAt > $1.takenAt }.prefix(3))
+                ForEach(Array(recent.enumerated()), id: \.element.id) { index, row in
+                    if index > 0 { ExploreRowSeparator() }
+                    let parts = LabBookFormat.parts(row, key: row.markerKey)
+                    let name = displayName(for: row.markerKey)
+                    let date = LabBookFormat.dayFromKey(row.day)
+                    Button {
+                        detailKey = row.markerKey
+                    } label: {
+                        ExploreFlatRow(
+                            symbol: "clock", tint: accent,
+                            title: Text(verbatim: name),
+                            subtitle: Text(verbatim: date),
+                            spoken: "\(name), \(date), \(LabBookFormat.spoken(parts))"
+                        ) {
+                            ExploreLatestValue(number: parts.number, unit: parts.unit)
                         }
                     }
-                    .buttonStyle(.plain)
+                    .exploreRowPress()
                 }
             }
         }
-    }
-
-    private var allMarkerKeys: [String] {
-        Set(markers.map(\.markerKey)).sorted { displayName(for: $0) < displayName(for: $1) }
-    }
-
-    private var importRow: some View {
-        Button { presentCsvImporter() } label: {
-            PaperCard(padding: 14) {
-                SettingsRow(icon: "square.and.arrow.up", title: "Import readings",
-                            subtitle: "Bring in readings from a markers CSV")
-            }
-        }
-        .buttonStyle(.plain)
-        .disabled(csvImporting)
-    }
-
-    @ViewBuilder
-    private var recentReadings: some View {
-        if markers.isEmpty {
-            PaperCard {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("None yet")
-                        .font(StrandFont.body.weight(.semibold))
-                        .foregroundStyle(StrandPalette.textPrimary)
-                    Text("Your logged readings will appear here.")
-                        .font(StrandFont.caption)
-                        .foregroundStyle(StrandPalette.textSecondary)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-        } else {
-            PaperCard(padding: 14) {
-                VStack(spacing: 0) {
-                    ForEach(Array(markers.sorted { $0.takenAt > $1.takenAt }.prefix(3).enumerated()), id: \.element.id) { index, row in
-                        if index > 0 { Divider().overlay(StrandPalette.hairline) }
-                        Button { detailKey = row.markerKey } label: {
-                            SettingsRow(icon: "clock", title: LocalizedStringKey(displayName(for: row.markerKey)),
-                                        subtitle: LocalizedStringKey(LabBookFormat.day(row.takenAt)),
-                                        showsChevron: true) {
-                                Text(latestLabel(row, key: row.markerKey))
-                                    .font(StrandFont.captionNumber)
-                            }
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-            }
-        }
-    }
-
-    // MARK: - Category sections
-
-    /// Categories present in the data, in the spec's display order.
-    private var orderedCategories: [LabMarkerCategory] {
-        let present = Set(markers.compactMap { LabMarkerCategory(rawValue: $0.category) })
-        return LabBookView.categoryOrder.filter { present.contains($0) }
-    }
-
-    private static let categoryOrder: [LabMarkerCategory] = [
-        .bloodPanel, .bloodPressure, .bodyMeasurement, .imaging, .appointmentNote, .other,
-    ]
-
-    @ViewBuilder
-    private func categorySection(_ category: LabMarkerCategory) -> some View {
-        let keys = markerKeys(in: category)
-        VStack(alignment: .leading, spacing: NoopMetrics.gap) {
-            SectionHeader(LocalizedStringKey(category.displayName),
-                          overline: keys.count == 1 ? "1 marker" : "\(keys.count) markers")
-            ForEach(keys, id: \.self) { key in
-                markerRow(key)
-            }
-        }
-    }
-
-    /// Distinct marker keys in a category, alphabetised by display name.
-    private func markerKeys(in category: LabMarkerCategory) -> [String] {
-        let keys = Set(markers.filter { $0.category == category.rawValue }.map(\.markerKey))
-        return keys.sorted { displayName(for: $0) < displayName(for: $1) }
-    }
-
-    /// One marker as a tappable card: name, latest reading + unit, a tiny sparkline, last-taken date.
-    private func markerRow(_ key: String) -> some View {
-        let series = readings(for: key)
-        let numeric = series.compactMap { $0.value }
-        let latest = series.last
-        return Button {
-            detailKey = key
-        } label: {
-            NoopCard {
-                HStack(spacing: 12) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(displayName(for: key))
-                            .font(StrandFont.headline)
-                            .foregroundStyle(StrandPalette.textPrimary)
-                            .lineLimit(1)
-                        Text(lastTakenCaption(latest))
-                            .font(StrandFont.footnote)
-                            .foregroundStyle(StrandPalette.textTertiary)
-                    }
-                    Spacer(minLength: 8)
-                    if numeric.count > 1 {
-                        Sparkline(values: numeric, gradient: Gradient(colors: [StrandPalette.metricCyan.opacity(0.5), StrandPalette.metricCyan]),
-                                  showsHover: false)
-                            .frame(width: 64, height: 28)
-                            .accessibilityHidden(true)
-                    }
-                    Text(latestLabel(latest, key: key))
-                        .font(StrandFont.number(18))
-                        .foregroundStyle(StrandPalette.textPrimary)
-                        .lineLimit(1)
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(StrandPalette.textTertiary)
-                        .accessibilityHidden(true)
-                }
-            }
-        }
-        // Liquid press language: the settle-inward PaperPressStyle the Today / batch-1 rows use, so
-        // opening a marker's detail feels physical (replaces the flat .plain style).
-        .buttonStyle(PaperPressStyle())
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(displayName(for: key)), latest \(latestLabel(latest, key: key)), \(series.count) readings")
     }
 
     // MARK: - Disclaimer (always visible footnote + link)
 
     private var disclaimerNote: some View {
         Button { showingDisclaimer = true } label: {
-            NoteCard("NOOP is for personal tracking and insights only. It is not medical advice or a diagnostic tool.",
-                     title: "Important", style: .info)
+            ExploreFlatRow(
+                symbol: "info.circle", tint: .neutral,
+                title: Text("Important"),
+                subtitle: Text("NOOP is for personal tracking and insights only. It is not medical advice or a diagnostic tool."),
+                spoken: String(localized: "Important. NOOP is for personal tracking and insights only. Read the full note.")
+            )
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Important. NOOP is for personal tracking and insights only. Read the full note.")
+        .exploreRowPress()
     }
 
     // MARK: - Data helpers
 
     /// Marker definition lookup → display name (catalog, else the key humanised).
-    private func displayName(for key: String) -> String {
-        if let def = MarkerCatalog.definition(for: key) { return def.displayName }
-        return LabBookView.humanise(key)
+    private func displayName(for key: String) -> String { Self.displayName(for: key) }
+
+    static func displayName(for key: String) -> String {
+        MarkerCatalog.definition(for: key)?.displayName ?? humanise(key)
     }
 
     static func humanise(_ key: String) -> String {
@@ -497,15 +417,9 @@ struct LabBookView: View {
         markers.filter { $0.markerKey == key }
     }
 
-    private func latestLabel(_ row: LabMarkerRow?, key: String) -> String {
-        guard let row else { return "—" }
-        if let v = row.value { return "\(LabBookFormat.value(v, key: key)) \(row.unit)" }
-        return row.valueText ?? "—"
-    }
-
     private func lastTakenCaption(_ row: LabMarkerRow?) -> String {
         guard let row else { return String(localized: "no readings yet") }
-        return String(localized: "last taken \(LabBookFormat.day(row.takenAt))")
+        return String(localized: "last taken \(LabBookFormat.dayFromKey(row.day))")
     }
 
     private var detailBinding: Binding<MarkerKeyID?> {
@@ -556,7 +470,7 @@ struct LabBookView: View {
 
 private struct MarkerKeyID: Identifiable { let id: String }
 
-// MARK: - Category display names + ordering
+// MARK: - Category display names + glyphs
 
 extension LabMarkerCategory {
     /// Human label for the Lab Book grouping header. Organisational only — never a clinical panel name.
@@ -570,9 +484,21 @@ extension LabMarkerCategory {
         case .other:           return String(localized: "Custom")
         }
     }
+
+    /// The symbol on a marker's row: what kind of number it is, never a verdict on it.
+    var symbol: String {
+        switch self {
+        case .bloodPanel:      return "drop.fill"
+        case .bloodPressure:   return "waveform.path.ecg"
+        case .bodyMeasurement: return "figure.stand"
+        case .imaging:         return "photo"
+        case .appointmentNote: return "note.text"
+        case .other:           return "testtube.2"
+        }
+    }
 }
 
-// MARK: - Shared formatting (decimals from the catalog; UTC day labels)
+// MARK: - Shared formatting (decimals from the catalog; Gregorian day keys, the person's own date format)
 
 enum LabBookFormat {
     /// Format a numeric value with the marker's catalog decimals (default 1 for custom markers).
@@ -581,386 +507,43 @@ enum LabBookFormat {
         return decimals == 0 ? String(Int(v.rounded())) : String(format: "%.\(decimals)f", v)
     }
 
-    private static let dayFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.dateFormat = "d MMM yyyy"
-        return f
-    }()
-
-    /// "12 Jun 2026" for a takenAt epoch-seconds value.
-    static func day(_ epoch: Int) -> String {
-        dayFormatter.string(from: Date(timeIntervalSince1970: TimeInterval(epoch)))
+    /// A reading as a number and its unit, so a list can set the unit apart and mute it: "92.0" and "ng/mL". A text
+    /// entry has no unit; a missing reading is the dash.
+    static func parts(_ row: LabMarkerRow?, key: String) -> (number: String, unit: String) {
+        guard let row else { return (WidgetMetrics.missingValue, "") }
+        if let v = row.value { return (value(v, key: key), row.unit) }
+        return (row.valueText ?? WidgetMetrics.missingValue, "")
     }
 
-    /// "12 Jun 2026" rendered from a stored `yyyy-MM-dd` day string, LOCATION-INDEPENDENTLY: the day key
-    /// is parsed in UTC and reformatted in UTC, so the history date never shifts with the device zone the
-    /// way `day(takenAt)` (a local render of a stored instant) can near midnight. Falls back to the raw
-    /// string if it doesn't parse.
-    static func dayFromKey(_ day: String) -> String {
-        guard let date = utcKeyFormatter.date(from: day) else { return day }
-        return utcDayFormatter.string(from: date)
+    /// What VoiceOver says for a reading: the number, then the unit when there is one.
+    static func spoken(_ parts: (number: String, unit: String)) -> String {
+        parts.unit.isEmpty ? parts.number : "\(parts.number) \(parts.unit)"
     }
 
-    /// "d MMM yyyy" pinned to UTC, paired with `utcKeyFormatter` so `dayFromKey` round-trips a UTC day.
-    private static let utcDayFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.timeZone = TimeZone(identifier: "UTC")
-        f.dateFormat = "d MMM yyyy"
-        return f
-    }()
+    /// "12 Jun 2026" in the person's language and order, for the instant a reading was taken.
+    static func day(_ epoch: Int, locale: Locale = .autoupdatingCurrent) -> String {
+        Date(timeIntervalSince1970: TimeInterval(epoch)).formatted(.dateTime.day().month(.abbreviated).year().locale(locale))
+    }
 
-    /// The `yyyy-MM-dd` day key the projection uses (LOCAL day of the reading).
-    private static let keyFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.dateFormat = "yyyy-MM-dd"
-        return f
-    }()
-    static func dayKey(_ date: Date) -> String { keyFormatter.string(from: date) }
+    /// The same, for a stored `yyyy-MM-dd` day key. The key is read as a Gregorian day (whatever calendar the device
+    /// shows) and drawn on that day in the person's time zone, so the date never shifts near midnight or when the
+    /// device changes zone. Falls back to the raw key if it is not a real day.
+    static func dayFromKey(_ day: String, locale: Locale = .autoupdatingCurrent) -> String {
+        guard let date = ExploreDayKey.date(for: day) else { return day }
+        return date.formatted(.dateTime.day().month(.abbreviated).year().locale(locale))
+    }
 
-    /// A `yyyy-MM-dd` parser PINNED to UTC, so a day string always maps to the same instant regardless
-    /// of the device zone. The local-zone `keyFormatter` above returns nil for a day whose LOCAL midnight
-    /// is skipped by a DST transition (e.g. Chile/Cuba, 06 Sep) - which used to collapse `noonEpoch` to
-    /// epoch 0 and collide different days on the natural key. UTC never skips midnight.
-    private static let utcKeyFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.timeZone = TimeZone(identifier: "UTC")
-        f.dateFormat = "yyyy-MM-dd"
-        return f
-    }()
+    /// The `yyyy-MM-dd` day key the projection uses (the Gregorian LOCAL day of the reading).
+    static func dayKey(_ date: Date) -> String { ExploreDayKey.key(for: date) }
 
-    /// Epoch seconds of UTC noon on a `yyyy-MM-dd` day — the deterministic, LOCATION-INDEPENDENT `takenAt`
-    /// for CSV-imported readings, so re-importing the same file (even after travel to another zone) upserts
-    /// in place instead of minting a duplicate (natural key deviceId+markerKey+takenAt+source). Pinned to
-    /// UTC so a DST-skipped local midnight can never collapse the key to epoch 0. 0 only for a genuinely
-    /// unparseable day string. History dates render from the stored `day` string, not this takenAt.
+    /// Epoch seconds of UTC noon on a `yyyy-MM-dd` day, the deterministic, LOCATION-INDEPENDENT `takenAt` for
+    /// CSV-imported readings, so re-importing the same file (even after travel to another zone) upserts in place instead
+    /// of minting a duplicate (natural key deviceId+markerKey+takenAt+source). Plain day arithmetic, so no calendar,
+    /// locale or time zone (and no skipped local midnight) can move it. 0 only for a genuinely unreadable day string.
+    /// History dates render from the stored `day` string, not this takenAt.
     static func noonEpoch(_ day: String) -> Int {
-        guard let midnight = utcKeyFormatter.date(from: day) else { return 0 }
-        return Int(midnight.timeIntervalSince1970) + 12 * 3600
-    }
-}
-
-// MARK: - Marker detail (history + trend + "compare with a signal")
-
-private struct MarkerDetailView: View {
-    let markerKey: String
-    let readings: [LabMarkerRow]
-    let onDelete: (_ id: String) async -> Void
-
-    @EnvironmentObject var repo: Repository
-    @Environment(\.dismiss) private var dismiss
-
-    /// The wearable metric chosen to correlate against (nil until the user picks one).
-    @State private var signal: MetricDescriptor?
-    /// The trailing-window width for the windowed-aggregate pairing.
-    @State private var window: LabWindow = .fortnight
-    /// The computed correlation result, recomputed when signal/window change.
-    @State private var pairs: [WindowedPair] = []
-    @State private var correlation: Correlation?
-    @State private var computing = false
-
-    private var displayName: String {
-        MarkerCatalog.definition(for: markerKey)?.displayName ?? LabBookView.humanise(markerKey)
-    }
-    private var unit: String { readings.last?.unit ?? MarkerCatalog.definition(for: markerKey)?.canonicalUnit ?? "" }
-    private var numericReadings: [LabMarkerRow] { readings.filter { $0.value != nil } }
-
-    var body: some View {
-        ScreenScaffold(title: LocalizedStringKey(displayName),
-                       // Whole-phrase variants per count (never a stitched plural).
-                       subtitle: readings.count == 1 ? "1 reading · your own entries"
-                                                     : "\(readings.count) readings · your own entries",
-                       // PERF: chart + full-history column (a trend Sparkline, the compare card, then a
-                       // row-per-reading history list). The LazyVStack path builds the off-screen history
-                       // rows on demand — byte-identical layout — so a marker with many readings doesn't
-                       // materialise its whole list before the trend chart is on screen.
-                       lazy: true) {
-            VStack(alignment: .leading, spacing: NoopMetrics.sectionGap) {
-                trendSection
-                if !numericReadings.isEmpty { compareSection }
-                historySection
-                Text("These are your own numbers shown back to you. NOOP doesn't decide whether any value is normal, high or low.")
-                    .font(StrandFont.footnote)
-                    .foregroundStyle(StrandPalette.textTertiary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        #if os(iOS)
-        .presentationDragIndicator(.visible)
-        #else
-        // Fixed frame — a macOS sheet around a ScrollView needs a definite height or its rows
-        // collapse to the top and overlap (the "Add a reading" layout bug).
-        .frame(width: 520, height: 720)
-        #endif
-        .background(StrandPalette.surfaceBase)
-    }
-
-    // MARK: - Trend (descriptive arithmetic, never interpretation)
-
-    private var trendSection: some View {
-        VStack(alignment: .leading, spacing: NoopMetrics.gap) {
-            SectionHeader("Trend", overline: "your readings over time")
-            NoopCard(tint: StrandPalette.metricCyan) {
-                VStack(alignment: .leading, spacing: 10) {
-                    let nums = numericReadings.compactMap { $0.value }
-                    if nums.count > 1 {
-                        Sparkline(values: nums,
-                                  gradient: Gradient(colors: [StrandPalette.metricCyan.opacity(0.5), StrandPalette.metricCyan]),
-                                  valueFormat: { "\(LabBookFormat.value($0, key: markerKey)) \(unit)" })
-                            .frame(height: 64)
-                    }
-                    Text(trendSentence)
-                        .font(StrandFont.subhead)
-                        .foregroundStyle(StrandPalette.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    if let ref = latestReferenceText {
-                        HStack(spacing: 6) {
-                            SourceBadge("from your report", tint: StrandPalette.textTertiary)
-                            Text(ref)
-                                .font(StrandFont.footnote)
-                                .foregroundStyle(StrandPalette.textSecondary)
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    /// "Your last 3 LDL readings: 3.4 → 3.1 → 2.9 mmol/L, trending down." — descriptive only.
-    /// Whole-phrase variants per direction so translators never see a stitched trend fragment.
-    private var trendSentence: String {
-        let nums = numericReadings
-        guard let last = nums.last?.value else {
-            return readings.last?.valueText.map { String(localized: "Latest entry: \($0).") } ?? String(localized: "No numeric readings yet.")
-        }
-        guard nums.count >= 2 else {
-            return String(localized: "One reading so far: \(LabBookFormat.value(last, key: markerKey)) \(unit). Log a few more to see a trend.")
-        }
-        let shown = nums.suffix(3).compactMap { $0.value }
-        let arrowed = shown.map { LabBookFormat.value($0, key: markerKey) }.joined(separator: " → ")
-        let first = shown.first ?? last
-        if last > first {
-            return String(localized: "Your last \(shown.count) readings: \(arrowed) \(unit), trending up.")
-        }
-        if last < first {
-            return String(localized: "Your last \(shown.count) readings: \(arrowed) \(unit), trending down.")
-        }
-        return String(localized: "Your last \(shown.count) readings: \(arrowed) \(unit), holding steady.")
-    }
-
-    private var latestReferenceText: String? {
-        readings.last(where: { ($0.referenceText?.isEmpty == false) })?.referenceText
-    }
-
-    // MARK: - Compare with a signal (reuses the Pearson idiom + restrained copy)
-
-    private var compareSection: some View {
-        VStack(alignment: .leading, spacing: NoopMetrics.gap) {
-            SectionHeader("Compare with a signal", overline: "side by side · \(window.phrase) before each reading")
-            NoopCard {
-                VStack(alignment: .leading, spacing: 12) {
-                    // Signal picker + window control.
-                    ViewThatFits(in: .horizontal) {
-                        HStack {
-                            signalMenu
-                            Spacer()
-                            SegmentedPillControl(LabWindow.allCases, selection: $window) { $0.label }
-                                .accessibilityLabel("Trailing window")
-                        }
-                        VStack(alignment: .leading, spacing: NoopMetrics.gap) {
-                            signalMenu
-                            SegmentedPillControl(LabWindow.allCases, selection: $window) { $0.label }
-                                .accessibilityLabel("Trailing window")
-                        }
-                    }
-
-                    if signal == nil {
-                        Text("Pick a wearable signal (resting HR, HRV, sleep, Recovery, weight…) to line it up against this marker. NOOP averages the signal over the \(window.phrase) before each reading.")
-                            .font(StrandFont.subhead)
-                            .foregroundStyle(StrandPalette.textTertiary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    } else {
-                        resultBlock
-                    }
-                }
-            }
-        }
-        .task(id: "\(signal?.id ?? "")|\(window.rawValue)|\(repo.refreshSeq)") {
-            await recompute()
-        }
-    }
-
-    private var signalMenu: some View {
-        Menu {
-            ForEach(LabBookSignals.options) { metric in
-                Button {
-                    signal = metric
-                } label: {
-                    Label(metric.title, systemImage: signal?.id == metric.id ? "checkmark" : metric.icon)
-                }
-            }
-            if signal != nil {
-                Divider()
-                Button(role: .destructive) { signal = nil } label: { Label("Clear", systemImage: "xmark") }
-            }
-        } label: {
-            HStack(spacing: 6) {
-                Image(systemName: "plus.circle.fill")
-                Text(signal?.title ?? "Choose a signal")
-                    .font(StrandFont.subhead)
-            }
-            .foregroundStyle(StrandPalette.accent)
-        }
-        .menuStyle(.borderlessButton)
-        .fixedSize()
-        .accessibilityLabel("Choose a wearable signal to compare")
-    }
-
-    @ViewBuilder
-    private var resultBlock: some View {
-        let n = pairs.count
-        if computing {
-            Text("Lining them up…").font(StrandFont.subhead).foregroundStyle(StrandPalette.textTertiary)
-        } else if n < LabBookSignals.floor {
-            // Below the floor: show the points exist, withhold the conclusion sentence.
-            // Whole-phrase variants per count (never a stitched plural).
-            Text(n == 0
-                 ? "No overlap yet between this marker and \(signal?.title.lowercased() ?? String(localized: "that signal")). Log a few more readings (and keep wearing your strap)."
-                 : (n == 1
-                    ? "1 reading lines up so far, not enough to read a trend yet (NOOP waits for \(LabBookSignals.floor))."
-                    : "\(n) readings line up so far, not enough to read a trend yet (NOOP waits for \(LabBookSignals.floor))."))
-                .font(StrandFont.subhead)
-                .foregroundStyle(StrandPalette.textTertiary)
-                .fixedSize(horizontal: false, vertical: true)
-        } else if let c = correlation {
-            pairResult(c, n: n)
-        } else {
-            Text("\(n) readings line up, but there isn't enough variation to compute a relationship.")
-                .font(StrandFont.subhead)
-                .foregroundStyle(StrandPalette.textTertiary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-    }
-
-    /// One correlation read-out, in the shipped restrained idiom + the mandatory markers clause.
-    private func pairResult(_ c: Correlation, n: Int) -> some View {
-        let tint = LabBookSignals.correlationColor(c.r)
-        return VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 10) {
-                // A small liquid vessel posed at the association STRENGTH (|r|, a neutral 0–1 statistical
-                // magnitude — never a clinical value), tinted by the relationship's own colour. Matches
-                // Compare's pair card. Decorative — the r read-out + sentence carry the meaning.
-                PaperGauge(value: min(abs(c.r), 1), tint: tint, animated: false)
-                    .frame(width: 30, height: 30)
-                    .accessibilityHidden(true)
-                Text("\(displayName) ↔ \(signal?.title ?? "")")
-                    .font(StrandFont.headline)
-                    .foregroundStyle(StrandPalette.textPrimary)
-                    .lineLimit(2)
-                Spacer(minLength: 6)
-                TrendChip(text: LabBookSignals.signedR(c.r), color: tint)
-                Text("r = \(LabBookSignals.signedR(c.r))")
-                    .font(StrandFont.number(18))
-                    .foregroundStyle(StrandPalette.textPrimary)
-            }
-            Text(LabBookSignals.insightSentence(markerName: displayName,
-                                                 signalName: signal?.title ?? "the signal",
-                                                 r: c.r))
-                .font(StrandFont.subhead)
-                .foregroundStyle(StrandPalette.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-            // The association strength as a liquid tube (the horizontal magnitude idiom), reading |r|
-            // from no link (0) to a perfect one (1). Decorative and non-clinical.
-            PaperProgressBar(frac: min(abs(c.r), 1), tint: tint, height: 8, animated: false)
-                .accessibilityHidden(true)
-            // The mandatory clause for markers (spec §"On-device algorithm").
-            Text("\(n) readings used · \(LabBookSignals.strengthWord(c.r)) \(LabBookSignals.directionWord(c.r)) association. This is your own data sitting side by side. It's not a medical finding, and it shows association, not cause.")
-                .font(StrandFont.footnote)
-                .foregroundStyle(StrandPalette.textTertiary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .padding(.top, 2)
-        .accessibilityElement(children: .combine)
-    }
-
-    // MARK: - History table
-
-    private var historySection: some View {
-        VStack(alignment: .leading, spacing: NoopMetrics.gap) {
-            SectionHeader("History", overline: "every reading you've entered")
-            NoopCard {
-                VStack(spacing: 0) {
-                    ForEach(Array(readings.reversed().enumerated()), id: \.element.id) { idx, row in
-                        historyRow(row)
-                        if idx < readings.count - 1 {
-                            Divider().overlay(StrandPalette.hairline)
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    private func historyRow(_ row: LabMarkerRow) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(valueLabel(row))
-                    .font(StrandFont.number(16))
-                    .foregroundStyle(StrandPalette.textPrimary)
-                Text(LabBookFormat.dayFromKey(row.day))
-                    .font(StrandFont.footnote)
-                    .foregroundStyle(StrandPalette.textTertiary)
-                if let note = row.note, !note.isEmpty {
-                    Text(note)
-                        .font(StrandFont.footnote)
-                        .foregroundStyle(StrandPalette.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            Spacer(minLength: 8)
-            Button(role: .destructive) {
-                Task { await onDelete(row.id) }
-            } label: {
-                Image(systemName: "trash")
-                    .font(.system(size: 13))
-                    .foregroundStyle(StrandPalette.statusCritical)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Delete this reading")
-        }
-        .padding(.vertical, 9)
-        .accessibilityElement(children: .combine)
-    }
-
-    private func valueLabel(_ row: LabMarkerRow) -> String {
-        if let v = row.value { return "\(LabBookFormat.value(v, key: markerKey)) \(row.unit)" }
-        return row.valueText ?? "—"
-    }
-
-    // MARK: - Correlation compute (windowed-aggregate pairing → Pearson)
-
-    private func recompute() async {
-        guard let signal else { pairs = []; correlation = nil; return }
-        computing = true
-        defer { computing = false }
-        let loadSeq = repo.refreshSeq
-        // The marker series, read from the projected `lab-book` daily series (numeric only).
-        async let markerLoad = repo.series(key: markerKey, source: WhoopStore.labBookSourceId)
-        // The wearable series, freshest-wins through the Explore read path.
-        async let wearableLoad = repo.exploreSeries(key: signal.key, source: signal.source)
-        let markerSeries = await markerLoad
-        let wearable = await wearableLoad
-        guard !Task.isCancelled, loadSeq == repo.refreshSeq else { return }
-        let built = LabBookProjection.pairMarkerToWearable(marker: markerSeries,
-                                                           wearable: wearable,
-                                                           windowDays: window.days)
-        pairs = built
-        correlation = built.count >= LabBookSignals.floor
-            ? CorrelationEngine.pearson(LabBookProjection.correlationInput(built))
-            : nil
+        guard let number = ExploreDayKey.dayNumber(for: day) else { return 0 }
+        return number * 86_400 + 12 * 3600
     }
 }
 
@@ -994,9 +577,9 @@ enum LabWindow: String, CaseIterable, Identifiable {
 
 // MARK: - Wearable signals offered for correlation + the shared insight language
 //
-// The pickable wearable metrics + the restrained correlation copy, kept here so the
-// Lab Book detail's "Compare with a signal" reads in the exact CompareView idiom
-// (strength words, tends-to, association-not-cause) plus the mandatory markers clause.
+// The pickable wearable metrics + the restrained correlation copy. The strength word, its colour and the signed number
+// are `CorrelationStrength`'s, the one rule Compare and the Metric Explorer read too; only the markers' sentences live
+// here, plus the mandatory markers clause.
 
 enum LabBookSignals {
     /// The reading-count floor below which NO conclusion sentence renders (spec default 4).
@@ -1020,80 +603,27 @@ enum LabBookSignals {
         MetricCatalog.all.first { $0.key == key }
     }
 
-    static func signedR(_ r: Double) -> String {
-        (r >= 0 ? "+" : "−") + String(format: "%.2f", abs(r))
-    }
-
-    static func strengthWord(_ r: Double) -> String {
-        switch abs(r) {
-        case ..<0.1:  return String(localized: "negligible")
-        case ..<0.3:  return String(localized: "weak")
-        case ..<0.5:  return String(localized: "moderate")
-        case ..<0.7:  return String(localized: "strong")
-        default:      return String(localized: "very strong")
-        }
-    }
-
-    static func directionWord(_ r: Double) -> String {
-        if abs(r) < 0.1 { return "" }
-        return r >= 0 ? String(localized: "positive") : String(localized: "negative")
-    }
-
-    /// "When LDL is higher, HRV tends to be lower." — descriptive, no causal language.
-    /// Whole-phrase variants per direction so translators never see a stitched verb fragment.
+    /// "When LDL is higher, HRV tends to be lower." — descriptive, no causal language. A relationship is worth a sentence
+    /// from "moderate" up, by the shared rule (applied to r as printed). Whole-phrase variants per direction so
+    /// translators never see a stitched verb fragment; the names are shown as they are.
     static func insightSentence(markerName: String, signalName: String, r: Double) -> String {
-        guard abs(r) >= 0.3 else {
-            return String(localized: "Over your readings, \(markerName) and \(signalName.lowercased()) move largely independently. No clear relationship.")
+        guard CorrelationStrength(r: r).isNotable else {
+            return String(localized: "Over your readings, \(markerName) and \(signalName) move largely independently. No clear relationship.")
         }
         return r < 0
-            ? String(localized: "When \(markerName) is higher, \(signalName.lowercased()) tends to be lower.")
-            : String(localized: "When \(markerName) is higher, \(signalName.lowercased()) tends to be higher.")
+            ? String(localized: "When \(markerName) is higher, \(signalName) tends to be lower.")
+            : String(localized: "When \(markerName) is higher, \(signalName) tends to be higher.")
     }
 
-    static func correlationColor(_ r: Double) -> Color {
-        let base = r >= 0 ? StrandPalette.statusPositive : StrandPalette.statusCritical
-        return base.opacity(0.55 + 0.45 * min(abs(r), 1.0))
-    }
-}
-
-// MARK: - First-use / linked disclaimer
-
-private struct LabBookDisclaimerView: View {
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        ScreenScaffold(title: "About Lab Book", subtitle: "A private notebook, not a medical service.") {
-            VStack(alignment: .leading, spacing: NoopMetrics.gap) {
-                bullet(String(localized: "NOOP stores and lines up the numbers you enter yourself. It does not test you, read your results, give medical advice, or diagnose anything."))
-                bullet(String(localized: "Anything you see here (including any side-by-side trend) is your own information shown back to you. It's an association, never a cause, and never a medical finding."))
-                bullet(String(localized: "NOOP never decides whether a value is \"normal,\" \"high,\" or \"low.\" Any reference range shown is exactly what you typed from your own report."))
-                bullet(String(localized: "Your records never leave \(Platform.deviceNounPhrase). There's no account, no cloud, no NOOP server. Because NOOP is an independent app you run yourself (not a healthcare provider), it isn't \"HIPAA-covered,\" and that protection doesn't apply here; the safety comes from the data being local-only and yours."))
-                bullet(String(localized: "Always rely on your doctor, pharmacist, or a qualified professional to interpret results and make decisions. If a number worries you, talk to them, not to an app."))
-                Button("Got it") { dismiss() }
-                    .buttonStyle(.noopPrimary)
-                    .padding(.top, 4)
-            }
+    /// The mandatory markers clause under a relationship (spec §"On-device algorithm"): how many readings it rests on,
+    /// the strength, and that it is association, not a finding.
+    static func associationClause(n: Int, r: Double) -> String {
+        let strength = CorrelationStrength(r: r)
+        guard strength != .negligible else {
+            return String(localized: "\(n) readings used · \(strength.word) association. This is your own data sitting side by side. It's not a medical finding, and it shows association, not cause.")
         }
-        #if os(iOS)
-        .presentationDragIndicator(.visible)
-        #else
-        .frame(width: 480, height: 560)
-        #endif
-        .background(StrandPalette.surfaceBase)
-    }
-
-    private func bullet(_ text: String) -> some View {
-        HStack(alignment: .top, spacing: 10) {
-            Circle().fill(StrandPalette.metricCyan)
-                .frame(width: 6, height: 6)
-                .padding(.top, 7)
-                .accessibilityHidden(true)
-            Text(text)
-                .font(StrandFont.subhead)
-                .foregroundStyle(StrandPalette.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        let direction = r >= 0 ? String(localized: "positive") : String(localized: "negative")
+        return String(localized: "\(n) readings used · \(strength.word) \(direction) association. This is your own data sitting side by side. It's not a medical finding, and it shows association, not cause.")
     }
 }
 

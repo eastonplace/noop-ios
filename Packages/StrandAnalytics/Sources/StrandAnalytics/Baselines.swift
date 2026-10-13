@@ -53,14 +53,22 @@ public struct BaselineState: Equatable, Sendable {
     public let nightsSinceUpdate: Int
     /// Cold-start / staleness status.
     public let status: BaselineStatus
+    /// Consecutive hard-outlier rejections on the same side of the centre (AN-04); 0 when the last valid
+    /// night was folded.
+    public let rejectStreak: Int
+    /// The side of that streak: +1 above the centre, −1 below, 0 with no streak.
+    public let rejectSign: Int
 
     public init(baseline: Double, spread: Double, nValid: Int,
-                nightsSinceUpdate: Int, status: BaselineStatus) {
+                nightsSinceUpdate: Int, status: BaselineStatus,
+                rejectStreak: Int = 0, rejectSign: Int = 0) {
         self.baseline = baseline
         self.spread = spread
         self.nValid = nValid
         self.nightsSinceUpdate = nightsSinceUpdate
         self.status = status
+        self.rejectStreak = rejectStreak
+        self.rejectSign = rejectSign
     }
 
     /// True iff fully trusted (not calibrating or stale).
@@ -132,6 +140,19 @@ public enum Baselines {
     /// Multiplier on spread for the Winsor clamp while young, so an honest lower night isn't clamped
     /// flat against a floor-tight band before the spread has had a chance to widen.
     public static let earlySpreadInflate: Double = 2.5
+
+    // MARK: - Regime shift (AN-04)
+    //
+    // The hard-outlier gate used to have no exit: after a lasting shift (a medication or fitness
+    // change, a device or scale change such as imported WHOOP-cloud HRV followed by NOOP's own, or a
+    // #938 skin anchor re-map) every new night sat outside the band, was "seen but not folded", and
+    // the baseline stayed frozen while still labelled trusted. Now a run of same-side rejections is
+    // tracked: while it lasts the status reads provisional, and on the `regimeShiftNights`-th night the
+    // baseline re-enters the young phase (fast centre, wide clamp, gate suspended, nValid capped at
+    // `minNightsSeed`) and folds the new level. A one-off outlier still never moves it.
+
+    /// Consecutive same-side hard-outlier rejections treated as a lasting shift rather than outliers.
+    public static let regimeShiftNights: Int = 3
 
     /// UserDefaults key for the manual HRV-baseline recalibration epoch (epoch SECONDS).
     /// 0 / absent = no recalibration. Written by the Settings "Recalibrate HRV baseline" button.
@@ -210,12 +231,14 @@ public enum Baselines {
                                  nightsSinceUpdate: 1, status: .calibrating)
         }
 
-        // Missing night: skip-and-hold.
+        // Missing night: skip-and-hold (a gap neither extends nor ends a rejection streak).
         guard let value = value else {
             let m = state.nightsSinceUpdate + 1
             return BaselineState(baseline: state.baseline, spread: state.spread,
                                  nValid: state.nValid, nightsSinceUpdate: m,
-                                 status: computeStatus(nValid: state.nValid, nightsSinceUpdate: m))
+                                 status: streakStatus(computeStatus(nValid: state.nValid, nightsSinceUpdate: m),
+                                                      streak: state.rejectStreak),
+                                 rejectStreak: state.rejectStreak, rejectSign: state.rejectSign)
         }
 
         // Step 0: sanity gate — physiologically implausible → skip-and-hold.
@@ -223,30 +246,46 @@ public enum Baselines {
             let m = state.nightsSinceUpdate + 1
             return BaselineState(baseline: state.baseline, spread: state.spread,
                                  nValid: state.nValid, nightsSinceUpdate: m,
-                                 status: computeStatus(nValid: state.nValid, nightsSinceUpdate: m))
+                                 status: streakStatus(computeStatus(nValid: state.nValid, nightsSinceUpdate: m),
+                                                      streak: state.rejectStreak),
+                                 rejectStreak: state.rejectStreak, rejectSign: state.rejectSign)
         }
 
         // Is the baseline still "young"? While young we adapt faster and suspend the hard-outlier
         // gate so genuine lower nights are never discarded before the spread reflects them. Tied to
         // the valid-night count (NOT spread): a long flat history is settled even though its spread
         // never lifted off the floor, and must still reject a wild one-off outlier.
-        let isYoung = state.nValid < earlyAdaptNights
+        var current = state
+        var isYoung = current.nValid < earlyAdaptNights
 
         // Hard outlier rejection (only once seeded AND no longer young): seen, but not folded.
         // Suspending this during early life is the core anti-anchoring fix — a high seed with a
         // floor-tight spread would otherwise reject the user's real, lower readings as "outliers"
         // (a true 54ms vs an anchored ~90ms baseline is >5× the floor spread).
-        if state.nValid >= minNightsSeed && !isYoung {
-            let dev = abs(value - state.baseline)
-            if dev > hardOutlierK * state.spread {
-                return BaselineState(baseline: state.baseline, spread: state.spread,
-                                     nValid: state.nValid, nightsSinceUpdate: 0,
-                                     status: computeStatus(nValid: state.nValid, nightsSinceUpdate: 0))
+        if current.nValid >= minNightsSeed && !isYoung {
+            let dev = abs(value - current.baseline)
+            if dev > hardOutlierK * current.spread {
+                let sign = value > current.baseline ? 1 : -1
+                let streak = current.rejectSign == sign ? current.rejectStreak + 1 : 1
+                if streak < regimeShiftNights {
+                    return BaselineState(baseline: current.baseline, spread: current.spread,
+                                         nValid: current.nValid, nightsSinceUpdate: 0,
+                                         status: streakStatus(computeStatus(nValid: current.nValid,
+                                                                            nightsSinceUpdate: 0),
+                                                              streak: streak),
+                                         rejectStreak: streak, rejectSign: sign)
+                }
+                // A lasting shift: re-enter the young phase and fold this night below.
+                let restartN = min(current.nValid, minNightsSeed)
+                current = BaselineState(baseline: current.baseline, spread: current.spread, nValid: restartN,
+                                        nightsSinceUpdate: 0,
+                                        status: computeStatus(nValid: restartN, nightsSinceUpdate: 0))
+                isYoung = true
             }
         }
 
         // First real value after a None-placeholder seed: treat as clean first night.
-        if state.nValid == 0 {
+        if current.nValid == 0 {
             return BaselineState(baseline: value, spread: cfg.floorSpread, nValid: 1,
                                  nightsSinceUpdate: 0, status: .calibrating)
         }
@@ -255,21 +294,26 @@ public enum Baselines {
         // While young, widen the clamp band (inflate the effective spread) so an honest lower night
         // isn't clamped flat against a floor-tight band, and use the faster early center half-life so
         // the center tracks reality in days. Both relax to the normal values once settled.
-        let effSpread = isYoung ? state.spread * earlySpreadInflate : state.spread
+        let effSpread = isYoung ? current.spread * earlySpreadInflate : current.spread
         let effLb = isYoung ? lambda(halfLife: earlyHalfLifeB) : lb
-        let lo = state.baseline - winsorK * effSpread
-        let hi = state.baseline + winsorK * effSpread
+        let lo = current.baseline - winsorK * effSpread
+        let hi = current.baseline + winsorK * effSpread
         let clamped = max(lo, min(hi, value))
-        let newBaseline = effLb * clamped + (1.0 - effLb) * state.baseline
+        let newBaseline = effLb * clamped + (1.0 - effLb) * current.baseline
 
         // Spread uses the UNCLAMPED value so true deviations are tracked.
         let absDev = abs(value - newBaseline)
-        let newSpread = max(cfg.floorSpread, ls * absDev + (1.0 - ls) * state.spread)
-        let newN = state.nValid + 1
+        let newSpread = max(cfg.floorSpread, ls * absDev + (1.0 - ls) * current.spread)
+        let newN = current.nValid + 1
 
         return BaselineState(baseline: newBaseline, spread: newSpread, nValid: newN,
                              nightsSinceUpdate: 0,
                              status: computeStatus(nValid: newN, nightsSinceUpdate: 0))
+    }
+
+    /// A trusted baseline reads provisional while a rejection streak is open (AN-04).
+    static func streakStatus(_ status: BaselineStatus, streak: Int) -> BaselineStatus {
+        streak > 0 && status == .trusted ? .provisional : status
     }
 
     /// Replay an ordered sequence of nightly values (oldest first) to build state.
@@ -350,71 +394,79 @@ public enum Baselines {
                              nightsSinceUpdate: 0, status: .calibrating)
     }
 
-    // MARK: - Device-era boundary (#459)
+    // MARK: - As-of baselines (AN-01)
 
-    /// The recalibration epoch (seconds, UTC start-of-day) at the LATEST device-era boundary in a
-    /// source-tagged nightly history, for feeding `foldHistory`'s `baselineEpoch` so a baseline can't
-    /// mix two brands' incompatible HRV scales (#459: an Oura→WHOOP switch has Oura RMSSD ~120–155 ms
-    /// vs WHOOP ~72–112 ms with no overlap nights, so a straddling 30-night window reads the first
-    /// WHOOP nights as "suppressed" against an Oura-inflated mean — a device artifact, not physiology).
-    ///
-    /// CONTRACT: `sourceDays` is exactly ONE `(dayKey "yyyy-MM-dd", sourceId)` per night — the day's
-    /// WINNING source (the same per-day merge winner whose value the fold uses), NOT one row per source.
-    /// The "current era" is read off the NEWEST day's brand, so an overlap day carrying two brands would,
-    /// under the deterministic (day, sourceId) sort, let the lexically-later source (e.g. "oura-import" >
-    /// "my-whoop") masquerade as the current brand. Passing one-per-day-winner makes that impossible; the
-    /// same-day-tie handling below is only a determinism backstop, not a licence to pass raw multi-source
-    /// rows. Any order is fine (it is sorted here).
-    ///
-    /// The epoch is the start of the first day of the LATEST contiguous single-brand era: walk
-    /// newest→oldest while the brand matches the newest night's brand, and return that run's first day's
-    /// start (a lone off-brand day inside the current era truncates it — fail-safe: it drops MORE history,
-    /// never mixes scales). Returns 0.0 (no recalibration → `foldHistory` is byte-identical) when the
-    /// whole history is ONE brand — so a single-device user, and a WHOOP user whose imported + computed +
-    /// strap ids all bucket to "whoop", is completely unaffected.
-    ///
-    /// The brand bucket is intentionally coarse and NOT `DeviceFamily` (that only splits WHOOP 4 vs 5,
-    /// both the same HRV scale): every WHOOP-origin id (the canonical import, the active strap, the
-    /// "-noop" computed sibling, Health-Connect/Apple rows that ride the strap source) is ONE brand;
-    /// each wearable-export brand (oura/fitbit/garmin) is its own. Pure + unit-pinned; the caller
-    /// assembles `sourceDays` from the ORIGINAL per-source reads (brand is lost once a wearable day is
-    /// re-homed under the computed WHOOP id, so detection must precede the merge). Mirrors the Kotlin twin.
-    public static func deviceEraEpoch(_ sourceDays: [(day: String, sourceId: String)]) -> Double {
-        if sourceDays.isEmpty { return 0.0 }
-        // Total order by (day, sourceId) — a same-day mixed-brand row (an overlap night) must break the
-        // tie IDENTICALLY to the Kotlin twin, so a plain by-day sort (Swift's is not stable) can't
-        // diverge the computed epoch across platforms.
-        let sorted = sourceDays.sorted { $0.day != $1.day ? $0.day < $1.day : $0.sourceId < $1.sourceId }
-        let currentBrand = brandBucket(sorted.last!.sourceId)
-        // No brand change anywhere → no epoch (byte-identical fold for every single-brand user).
-        if !sorted.contains(where: { brandBucket($0.sourceId) != currentBrand }) { return 0.0 }
-        // Walk back over the contiguous current-brand suffix; its first day opens the current era.
-        var eraStartDay = sorted.last!.day
-        for entry in sorted.reversed() {
-            if brandBucket(entry.sourceId) != currentBrand { break }
-            eraStartDay = entry.day
+    /// Baseline states over time from one O(n) fold, so each day is scored against the nights strictly
+    /// before it: never its own night (which damped today's z-score) and never a later night (which made
+    /// every past Charge drift as new nights arrived).
+    public struct Timeline: Sendable {
+        /// Folded night keys, ascending, and the state after folding through each.
+        let days: [String]
+        let states: [BaselineState]
+        let empty: BaselineState
+        /// The first day key on or after the recalibration epoch, nil without one. The fold restarts there:
+        /// days from it on see only nights from it on, and days before it keep the fold of every earlier
+        /// night, the baseline they were scored against before the recalibration.
+        let epochDay: String?
+        /// Index in `days` of the first night on or after `epochDay`.
+        let firstPostEpoch: Int
+
+        /// The state built from the nights strictly before `day` ("yyyy-MM-dd"), on `day`'s side of the epoch.
+        public func asOf(_ day: String) -> BaselineState {
+            var lo = 0, hi = days.count
+            while lo < hi {
+                let mid = (lo + hi) / 2
+                if days[mid] < day { lo = mid + 1 } else { hi = mid }
+            }
+            if let epochDay, day >= epochDay {
+                return lo <= firstPostEpoch ? empty : states[lo - 1]
+            }
+            return lo == 0 ? empty : states[lo - 1]
         }
-        let fmt = DateFormatter()
-        fmt.calendar = Calendar(identifier: .gregorian)
-        fmt.timeZone = TimeZone(secondsFromGMT: 0)
-        fmt.dateFormat = "yyyy-MM-dd"
-        return fmt.date(from: eraStartDay)?.timeIntervalSince1970 ?? 0.0
+
+        /// The state after every folded night: what `foldHistory` returns for the same input.
+        public var latest: BaselineState {
+            guard epochDay != nil else { return states.last ?? empty }
+            return states.count > firstPostEpoch ? states[states.count - 1] : empty
+        }
     }
 
-    /// Coarse HRV-scale brand for a source id (#459). Every WHOOP-origin id shares ONE scale; each
-    /// wearable-export brand is its own. Unknown ids bucket to "whoop" (the strap source and its Apple/
-    /// Health-Connect riders), so only a positively-identified wearable export changes the era. Mirrors
-    /// the Kotlin twin.
-    static func brandBucket(_ sourceId: String) -> String {
-        // `hasPrefix` deliberately catches BOTH the export id ("oura-import") and the cloud id
-        // ("oura-api"), so an Oura-cloud era and an Oura-export era read as the same brand.
-        if sourceId.hasPrefix("oura") { return "oura" }
-        if sourceId.hasPrefix("fitbit") { return "fitbit" }
-        if sourceId.hasPrefix("garmin") { return "garmin" }
-        // "apple-health" / "health-connect" fall through to "whoop" ON PURPOSE: NOOP's Apple/HC daily
-        // rows ride the strap source's scale, and HC is a pass-through whose true origin is unknowable,
-        // so they must NOT open a false era boundary against WHOOP nights.
-        return "whoop"
+    /// `foldHistory(_:dayKeys:cfg:baselineEpoch:)` with every intermediate state kept, and nil reads the
+    /// persisted HRV epoch. Nights dated before `baselineEpoch` are dropped for days on or after it, exactly
+    /// as `foldHistory` drops them. A day before the epoch keeps the fold of every earlier night, so a
+    /// rescore can't wipe the Charge it already had (review F1).
+    public static func foldHistoryAsOf(_ values: [Double?], dayKeys: [String], cfg: MetricCfg,
+                                       baselineEpoch: Double? = nil) -> Timeline {
+        let epoch = baselineEpoch ?? hrvBaselineEpoch()
+        let fmt = DateFormatter()
+        fmt.calendar = Calendar(identifier: .gregorian)
+        fmt.locale = Locale(identifier: "en_US_POSIX")
+        fmt.timeZone = TimeZone(secondsFromGMT: 0)
+        fmt.dateFormat = "yyyy-MM-dd"
+        // The first key whose UTC day start is not before the epoch: the same test `foldHistory` applies.
+        let epochDay: String? = epoch > 0 ? {
+            let midnight = (epoch / 86_400).rounded(.down) * 86_400
+            return fmt.string(from: Date(timeIntervalSince1970: midnight < epoch ? midnight + 86_400 : midnight))
+        }() : nil
+        let nights = zip(dayKeys, values).sorted { $0.0 < $1.0 }
+        let firstPostEpoch = epochDay.map { epochDay in nights.firstIndex { $0.0 >= epochDay } ?? nights.count } ?? 0
+        var days: [String] = []
+        var states: [BaselineState] = []
+        days.reserveCapacity(nights.count)
+        states.reserveCapacity(nights.count)
+        var state: BaselineState? = nil
+        for (index, (day, value)) in nights.enumerated() {
+            if epochDay != nil, index == firstPostEpoch { state = nil }   // the recalibrated build-up starts
+            let next = update(state, value: value, cfg: cfg)
+            state = next
+            days.append(day)
+            states.append(next)
+        }
+        let seed = (cfg.minVal + cfg.maxVal) / 2.0
+        return Timeline(days: days, states: states,
+                        empty: BaselineState(baseline: seed, spread: cfg.floorSpread, nValid: 0,
+                                             nightsSinceUpdate: 0, status: .calibrating),
+                        epochDay: epochDay, firstPostEpoch: firstPostEpoch)
     }
 
     // MARK: - Deviation

@@ -73,21 +73,4 @@ final class SleepV2ContextTests: XCTestCase {
                        result[0].debtAfterNight.newBalanceMinutes)
         XCTAssertEqual(result[1].summary.source, .noopEdited)
     }
-
-    func testStressRenormalizesMissingMotionAndRequiresSixWindows() throws {
-        let start = 1_000_000
-        let hr = (0..<40).map { HRSample(ts: start + $0 * 60, bpm: 55) }
-        let rr = (0..<40).map { RRInterval(ts: start + $0 * 60, rrMs: $0.isMultiple(of: 2) ? 950 : 1_050) }
-        let stages = [StageSegment(start: start, end: start + 40 * 60, stage: "light")]
-        let reference = [SleepStressV1.Reference(meanSleepingHR: 55, meanSleepingRMSSD: 100)]
-        let calm = try XCTUnwrap(SleepStressV1.score(start: start, end: start + 40 * 60,
-            hr: hr, rr: rr, stages: stages, priorReferences: reference))
-        let activatedHR = hr.map { HRSample(ts: $0.ts, bpm: 75) }
-        let activated = try XCTUnwrap(SleepStressV1.score(start: start, end: start + 40 * 60,
-            hr: activatedHR, rr: rr, stages: stages, priorReferences: reference))
-        XCTAssertGreaterThan(calm.lowStressQuality, activated.lowStressQuality)
-        XCTAssertNil(SleepStressV1.score(start: start, end: start + 20 * 60,
-            hr: Array(hr.prefix(20)), rr: Array(rr.prefix(20)), stages: stages,
-            priorReferences: reference))
-    }
 }

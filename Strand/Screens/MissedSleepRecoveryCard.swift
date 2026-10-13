@@ -30,34 +30,38 @@ struct SleepRecoveryNotice: Identifiable, Equatable {
 /// Recovery-oriented empty state shown when NOOP has no sleep session to display.
 /// It gives automatic detection one more chance, then lets the user constrain the
 /// search window while making clear that NOOP still analyzes recorded physiology.
+/// A flat section in the Sleep language: an eyebrow with a state pill, a line of what to do, the two actions
+/// as chips, and the honesty note.
 struct MissedSleepRecoveryCard: View {
     let isRetrying: Bool
+    /// Guidance for a screen with no night at all; nil when only today's night is missing.
+    var emptyDetail: String? = nil
     let onRetry: () -> Void
     let onSetWindow: () -> Void
 
     var body: some View {
-        PaperCard {
-            VStack(alignment: .leading, spacing: 12) {
-                Label("No sleep recorded for today yet", systemImage: "moon.stars")
-                    .font(StrandFont.headline)
-                    .foregroundStyle(StrandPalette.textPrimary)
-                Text("If you've finished sleeping, sync your strap or review the sleep window.")
-                    .font(StrandFont.subhead)
-                    .foregroundStyle(StrandPalette.textSecondary)
-                VStack(alignment: .leading, spacing: 12) {
-                    Button(action: onRetry) {
-                        Label(isRetrying ? "Reviewing sleep…" : "Retry detection", systemImage: "arrow.clockwise")
-                    }
-                    .disabled(isRetrying)
-                    Button("Set sleep window", action: onSetWindow)
-                        .disabled(isRetrying)
-                }
-                .buttonStyle(.bordered)
+        FlatSection(emptyDetail == nil ? "Today's sleep" : "Your sleep", systemImage: "moon.zzz.fill", tint: .sleep,
+                     trailing: .pill(emptyDetail == nil ? "Not recorded yet" : "No nights yet", tone: .neutral)) {
+            Text(emptyDetail.map { LocalizedStringKey($0) }
+                 ?? "If you've finished sleeping, sync your strap or review the sleep window.")
                 .font(StrandFont.subhead)
-                Text("Missing sensor data stays unknown.")
-                    .font(StrandFont.footnote)
-                    .foregroundStyle(StrandPalette.textSecondary)
+                .foregroundStyle(StrandPalette.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+            ChipRow {
+                // The spoken name always contains the visible words, so Voice Control's "tap Retry detection" works.
+                WidgetChipButton(title: isRetrying ? "Reviewing sleep…" : "Retry detection",
+                                systemImage: "arrow.clockwise",
+                                accessibilityLabel: isRetrying ? "Reviewing sleep…" : "Retry detection",
+                                accessibilityHint: "Runs sleep detection again", action: onRetry)
+                    .disabled(isRetrying)
+                WidgetChipButton(title: "Set sleep window", systemImage: "moon.stars",
+                                accessibilityLabel: "Set sleep window", action: onSetWindow)
+                    .disabled(isRetrying)
             }
+            .opacity(isRetrying ? 0.55 : 1)
+            Text("Missing sensor data stays unknown.")
+                .font(StrandFont.micro)
+                .foregroundStyle(StrandPalette.textTertiary)
         }
     }
 }

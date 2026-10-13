@@ -11,26 +11,7 @@ struct ShortcutExportSettingsView: View {
 
     var body: some View {
         NativeSettingsList {
-            Section {
-                Toggle("Export for Shortcuts", isOn: $enabled)
-                    .font(.caption)
-                LabeledContent("File", value: "noop_sync.txt")
-                    .font(.caption)
-                LabeledContent("Location", value: "On My iPhone › NOOP")
-                    .font(.caption)
-            } header: {
-                Text("Apple Health export")
-            } footer: {
-                Text("When enabled, NOOP rewrites a plain-text file when you leave the app. A Siri Shortcut can read the file and add 15-minute heart rate, HRV, and steps to Apple Health without a HealthKit entitlement.")
-            }
-
-            Section {
-                Text("This is intended for sideloaded builds that cannot carry Apple's HealthKit entitlement. The file stays on this iPhone unless you move or share it.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            } header: {
-                Text("Privacy")
-            }
+            ShortcutExportSections()
         }
         .navigationTitle("Shortcuts Export")
         .navigationBarTitleDisplayMode(.inline)
@@ -59,6 +40,26 @@ struct ShortcutExportSettingsView: View {
                     .foregroundStyle(StrandPalette.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
             }
+        }
+    }
+}
+
+/// The Shortcuts export as sections of a Settings list: the opt-in toggle, where the file is, and what it is for.
+/// Backup & Export shows them after the manual backup; Shortcuts Export shows them alone.
+struct ShortcutExportSections: View {
+    @AppStorage(ShortcutHealthExport.enabledKey) private var enabled = false
+
+    var body: some View {
+        Section {
+            Toggle("Export for Shortcuts", isOn: $enabled)
+            LabeledContent("File", value: "noop_sync.txt")
+            LabeledContent("Location", value: "On My iPhone › NOOP")
+        } header: {
+            Text("Shortcuts export")
+        } footer: {
+            Text("When enabled, NOOP rewrites a plain-text file when you leave the app. A Siri Shortcut can read the file and add 15-minute heart rate, HRV, and steps to Apple Health without a HealthKit entitlement.")
+                + Text(" ")
+                + Text("This is intended for sideloaded builds that cannot carry Apple's HealthKit entitlement. The file stays on this iPhone unless you move or share it.")
         }
     }
 }

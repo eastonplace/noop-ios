@@ -24,23 +24,28 @@ private enum HRModuleTint {
     static let push = StrandPalette.destructive
     static let live = StrandPalette.liveRed
 
-    static func color(for bpm: Double) -> Color {
-        StrandPalette.sample(stops: stops, at: HRZoneStyle.unit(bpm))
+    static func color(for bpm: Double, zones: HRZoneStyle.Thresholds = .default) -> Color {
+        StrandPalette.sample(stops: stops(zones), at: HRZoneStyle.unit(bpm))
     }
 
-    private static let stops: [Gradient.Stop] = [
-        .init(color: rest, location: 0),
-        .init(color: rest, location: HRZoneStyle.unit(58)),
-        .init(color: steady, location: HRZoneStyle.unit(92)),
-        .init(color: steady, location: HRZoneStyle.unit(112)),
-        .init(color: push, location: HRZoneStyle.unit(142)),
-        .init(color: push, location: 1),
-    ]
+    /// The ramp's anchors sit at the same place in each zone whatever the wearer's boundaries are.
+    private static func stops(_ zones: HRZoneStyle.Thresholds) -> [Gradient.Stop] {
+        [
+            .init(color: rest, location: 0),
+            .init(color: rest, location: HRZoneStyle.unit(zones.anchor(58))),
+            .init(color: steady, location: HRZoneStyle.unit(zones.anchor(92))),
+            .init(color: steady, location: HRZoneStyle.unit(zones.anchor(112))),
+            .init(color: push, location: HRZoneStyle.unit(zones.anchor(142))),
+            .init(color: push, location: 1),
+        ]
+    }
 }
 
 // MARK: - HRLiveModuleCard
 
 public struct HRLiveModuleCard: View {
+    /// The wearer's rest / steady / push boundaries (the profile's, set at the app's root).
+    @Environment(\.hrZoneThresholds) private var zones
     /// Trailing ~2 hours of samples, oldest → newest; empty = waiting for signal.
     let samples: [HRTrackPoint]
     /// Resting HR baseline for the dashed rule; nil hides it.
@@ -50,6 +55,7 @@ public struct HRLiveModuleCard: View {
     var onOpen: () -> Void = {}
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var typeSize
     @State private var revealed = false
     @State private var scrubIndex: Int? = nil
     @State private var plotWidth: CGFloat = 1
@@ -88,7 +94,6 @@ public struct HRLiveModuleCard: View {
     }
 
     private var displayed: HRTrackPoint? { scrubSample ?? latest }
-    private var accent: Color { displayed.map { HRModuleTint.color(for: $0.bpm) } ?? StrandPalette.textTertiary }
 
     /// The dot breathes faster the harder the heart works (0.6 s at push, 2.4 s at rest).
     private var breathPeriod: Double {
@@ -119,22 +124,52 @@ public struct HRLiveModuleCard: View {
         }
     }
 
-    private var header: some View {
-        HStack(spacing: 6) {
-            HRLiveBreathingDot(color: samples.isEmpty ? StrandPalette.textTertiary : HRModuleTint.live,
-                               period: breathPeriod,
-                               active: !samples.isEmpty)
-            Text("Live Heart Rate")
-                .font(StrandFont.overline)
-                .tracking(StrandFont.overlineTracking)
-                .foregroundStyle(StrandPalette.textSecondary)
-            Spacer(minLength: 8)
-            if displayed != nil {
-                Text(zoneWord.uppercased())
-                    .font(StrandFont.captionNumber)
-                    .foregroundStyle(accent)
-                    .contentTransition(.opacity)
+    /// The widget eyebrow: a beating heart in the live red, the caps title, and the zone word as a tone pill.
+    /// The pill is the Coach "Stale" pill's exact size and its height is part of the row, so this header is
+    /// as tall as the Stress one and nothing overhangs it into the air above.
+    ///
+    /// At an accessibility size the title and the pill cannot share a row ("LIVE H…"), so the pill drops under the
+    /// title and the title wraps instead of truncating. Every smaller size is the one-row header exactly as it was.
+    @ViewBuilder private var header: some View {
+        if typeSize.isAccessibilitySize {
+            VStack(alignment: .leading, spacing: NoopMetrics.space1) {
+                HStack(spacing: NoopMetrics.space2) {
+                    liveHeart
+                    Text("Live Heart Rate")
+                        .strandOverlineFitted()
+                        .lineLimit(3)
+                }
+                zonePill
             }
+        } else {
+            HStack(spacing: NoopMetrics.space2) {
+                liveHeart
+                Text("Live Heart Rate")
+                    .strandOverline()
+                    .lineLimit(1)
+                Spacer(minLength: NoopMetrics.space2)
+                zonePill
+            }
+        }
+    }
+
+    /// The live heart: a heart in the live red whose ghost swells and fades at the wearer's cadence (the old dot's
+    /// breathing halo, in the shape of the symbol). It holds still under Reduce Motion.
+    private var liveHeart: some View {
+        EyebrowPulseIcon(systemName: "heart.fill",
+                         color: samples.isEmpty ? StrandPalette.textTertiary : HRModuleTint.live,
+                         period: breathPeriod,
+                         pulses: !samples.isEmpty)
+    }
+
+    @ViewBuilder private var zonePill: some View {
+        if displayed != nil {
+            HRZonePill(word: zoneWord)
+                .contentTransition(.opacity)
+        } else {
+            // Waiting for a first reading: keep the row as tall as it will be, so the pill arriving
+            // does not push the module down.
+            HRZonePill(word: String(localized: "Steady")).hidden()
         }
     }
 
@@ -146,14 +181,17 @@ public struct HRLiveModuleCard: View {
                 .monospacedDigit()
                 .foregroundStyle(displayed == nil ? StrandPalette.textTertiary : StrandPalette.textPrimary)
                 .contentTransition(.numericText())
-            Text("BPM")
-                .font(StrandFont.micro.weight(.bold))
-                .foregroundStyle(StrandPalette.textTertiary)
-            Text(heroContext)
-                .font(StrandFont.micro)
-                .monospacedDigit()
-                .foregroundStyle(StrandPalette.textTertiary)
-                .padding(.leading, 3)
+            HStack(spacing: 0) {
+                // The app's string table carries the translations ("ppm" in Spanish).
+                Text("bpm")
+                    .foregroundStyle(StrandPalette.textSecondary)
+                if !heroContext.isEmpty {
+                    Text(verbatim: " \(heroContext)")
+                        .monospacedDigit()
+                        .foregroundStyle(StrandPalette.textTertiary)
+                }
+            }
+            .font(StrandFont.micro)
             Spacer(minLength: 0)
         }
         .animation(StrandMotion.fade, value: scrubIndex)
@@ -161,10 +199,10 @@ public struct HRLiveModuleCard: View {
 
     private var zoneWord: String {
         guard let displayed else { return "" }
-        switch HRZoneStyle.zone(for: displayed.bpm) {
-        case 0: return "Resting"
-        case 1: return "Steady"
-        default: return "Pushing"
+        switch zones.zone(for: displayed.bpm) {
+        case 0: return String(localized: "Resting")
+        case 1: return String(localized: "Steady")
+        default: return String(localized: "Pushing")
         }
     }
 
@@ -221,38 +259,45 @@ public struct HRLiveModuleCard: View {
         let rendered = samples.enumerated().map { (xOf($0.offset), yOf($0.element.bpm)) }
 
         ZStack {
-            // Resting-HR rule, labelled at the leading edge.
+            // Resting-HR rule, labelled at the leading edge. It stops short of a rail label that sits on its
+            // line, so the dashes never run through the number.
             if let restingHR {
                 let y = yOf(restingHR)
+                let crossesRailLabel = [Self.railLabelY, size.height - Self.railLabelY].contains { abs($0 - y) < 9 }
                 Path { path in
                     path.move(to: CGPoint(x: 0, y: y))
-                    path.addLine(to: CGPoint(x: size.width, y: y))
+                    path.addLine(to: CGPoint(x: crossesRailLabel ? size.width - Self.railRuleClearance : size.width, y: y))
                 }
                 .stroke(
                     StrandPalette.hairlineStrong.opacity(0.9),
                     style: StrokeStyle(lineWidth: 0.7, dash: [3, 4])
                 )
-                Text("RHR \(Int(restingHR.rounded()))")
+                let rhrLabel = Text("RHR \(Int(restingHR.rounded()))")
                     .font(StrandFont.micro)
                     .monospacedDigit()
                     .foregroundStyle(StrandPalette.textTertiary)
-                    .position(x: 22, y: max(7, y - 8))
+                if typeSize.isAccessibilitySize {
+                    // The label is wider than the 44pt it is centred in at an accessibility size, which pushed its
+                    // first letters past the card's edge: it starts at the leading edge instead. It is also as tall as
+                    // the rule is thin, so centring it 8pt above the line drew the line through the text: it sits wholly
+                    // above the line (or wholly below, when the line is in the top half), clear of it by a few points.
+                    let gap: CGFloat = 3
+                    let above = y >= size.height / 2
+                    let room = above ? y - gap : size.height - y - gap
+                    rhrLabel
+                        .fixedSize()
+                        .frame(width: size.width, height: max(room, 0), alignment: above ? .bottomLeading : .topLeading)
+                        .position(x: size.width / 2, y: above ? max(room, 0) / 2 : y + gap + max(room, 0) / 2)
+                } else {
+                    rhrLabel.position(x: 22, y: max(7, y - 8))
+                }
             }
-
-            // Rails at the visible extremes.
-            Text("\(Int(yr.upperBound.rounded()))")
-                .font(StrandFont.micro).monospacedDigit()
-                .foregroundStyle(StrandPalette.textTertiary)
-                .position(x: size.width - 10, y: 7)
-            Text("\(Int(yr.lowerBound.rounded()))")
-                .font(StrandFont.micro).monospacedDigit()
-                .foregroundStyle(StrandPalette.textTertiary)
-                .position(x: size.width - 10, y: size.height - 7)
 
             areaPath(rendered, height: size.height)
                 .fill(
+                    // The Coach trend charts' wash: the domain ink at 14% fading to nothing.
                     LinearGradient(
-                        colors: [accent.opacity(0.14), accent.opacity(0.02)],
+                        colors: [DomainTint.heart.accent.opacity(0.14), .clear],
                         startPoint: .top,
                         endPoint: .bottom
                     )
@@ -262,9 +307,15 @@ public struct HRLiveModuleCard: View {
                 .trim(from: 0, to: revealed ? 1 : 0)
                 .stroke(zoneGradient, style: StrokeStyle(lineWidth: 2.2, lineCap: .round, lineJoin: .round))
 
+            // Rails at the visible extremes, inset so the live head (a bead and its pulse ring, ~11pt out)
+            // never touches them. Drawn over the trace with a canvas knock-out, so a line that passes under a
+            // label stays legible and reads as passing behind it.
+            railLabel(Int(yr.upperBound.rounded()), y: Self.railLabelY, width: size.width)
+            railLabel(Int(yr.lowerBound.rounded()), y: size.height - Self.railLabelY, width: size.width)
+
             // The newest sample, pulsing quietly — this is the LIVE edge.
             if revealed, scrubIndex == nil, let lastPoint = rendered.last, let latest {
-                HRLivePulseBead(color: HRModuleTint.color(for: latest.bpm))
+                HRLivePulseBead(color: HRModuleTint.color(for: latest.bpm, zones: zones))
                     .position(x: lastPoint.0, y: lastPoint.1)
             }
 
@@ -276,14 +327,14 @@ public struct HRLiveModuleCard: View {
                     .frame(width: 1, height: size.height)
                     .position(x: point.0, y: size.height / 2)
                 Circle()
-                    .fill(HRModuleTint.color(for: sample.bpm))
+                    .fill(HRModuleTint.color(for: sample.bpm, zones: zones))
                     .frame(width: 9, height: 9)
                     .overlay(Circle().stroke(StrandPalette.surfaceRaised, lineWidth: 1.5))
                     .position(x: point.0, y: point.1)
                 ChartTooltip(
                     value: "\(Int(sample.bpm.rounded())) bpm",
                     label: timeLabel(sample.t),
-                    accent: HRModuleTint.color(for: sample.bpm)
+                    accent: HRModuleTint.color(for: sample.bpm, zones: zones)
                 )
                 .position(
                     ChartTooltipPlacement.position(
@@ -296,12 +347,35 @@ public struct HRLiveModuleCard: View {
         }
     }
 
+    private static let railLabelY: CGFloat = 7
+    /// Right edge of a rail label, from the plot's trailing edge: the head bead (4pt radius) plus its pulse ring
+    /// (about 11pt at full spread) plus at least 4pt of air.
+    private static let railLabelInset: CGFloat = 16
+    private static let railLabelWidth: CGFloat = 28
+    /// Where a rule that would cross a rail label ends, measured from the trailing edge.
+    private static let railRuleClearance: CGFloat = 40
+
+    private func railLabel(_ value: Int, y: CGFloat, width: CGFloat) -> some View {
+        Text("\(value)")
+            .font(StrandFont.micro).monospacedDigit()
+            .foregroundStyle(StrandPalette.textTertiary)
+            // The knock-out grows outward from the digits (3pt across, 1pt up and down), so they don't move.
+            .background {
+                RoundedRectangle(cornerRadius: 3, style: .continuous)
+                    .fill(StrandPalette.appCanvas.opacity(0.88))
+                    .padding(.horizontal, -3)
+                    .padding(.vertical, -1)
+            }
+            .frame(width: Self.railLabelWidth, alignment: .trailing)
+            .position(x: width - Self.railLabelInset - Self.railLabelWidth / 2, y: y)
+    }
+
     /// Vertical zone ramp projected onto the visible range — colour tells effort truthfully.
     private var zoneGradient: LinearGradient {
         let lo = yRange.lowerBound
         let span = yRange.upperBound - lo
         let stops = stride(from: 0.0, through: 1.0, by: 0.2).map { position in
-            Gradient.Stop(color: HRModuleTint.color(for: lo + position * span), location: position)
+            Gradient.Stop(color: HRModuleTint.color(for: lo + position * span, zones: zones), location: position)
         }
         return LinearGradient(gradient: Gradient(stops: stops), startPoint: .bottom, endPoint: .top)
     }
@@ -360,17 +434,23 @@ public struct HRLiveModuleCard: View {
             let low = Int((values.min() ?? 0).rounded())
             let average = Int((values.reduce(0, +) / Double(values.count)).rounded())
             let peak = Int((values.max() ?? 0).rounded())
-            HStack(spacing: 10) {
-                footKey(label: "low", value: "\(low)")
-                footKey(label: "avg", value: "\(average)")
-                footKey(label: "peak", value: "\(peak)")
-                Spacer(minLength: 0)
-                Text("2H")
-                    .font(StrandFont.micro.weight(.semibold))
-                    .foregroundStyle(StrandPalette.textTertiary)
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(StrandPalette.textTertiary)
+            if typeSize.isAccessibilitySize {
+                // Three keys and the range chip do not fit one row at an accessibility size (each broke to a letter per
+                // line), so they stack. Every smaller size is the one row it was.
+                VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+                    footKey(label: "low", value: "\(low)")
+                    footKey(label: "avg", value: "\(average)")
+                    footKey(label: "peak", value: "\(peak)")
+                    rangeChip
+                }
+            } else {
+                HStack(spacing: NoopMetrics.space3) {
+                    footKey(label: "low", value: "\(low)")
+                    footKey(label: "avg", value: "\(average)")
+                    footKey(label: "peak", value: "\(peak)")
+                    Spacer(minLength: 0)
+                    rangeChip
+                }
             }
         } else {
             HStack {
@@ -383,6 +463,11 @@ public struct HRLiveModuleCard: View {
                     .foregroundStyle(StrandPalette.textTertiary)
             }
         }
+    }
+
+    /// "2H ›" as the shared compact chip.
+    private var rangeChip: some View {
+        WidgetChip("2H")
     }
 
     private func footKey(label: String, value: String) -> some View {
@@ -406,34 +491,15 @@ public struct HRLiveModuleCard: View {
     }
 }
 
-/// The live dot: breathing halo whose period follows the heart rate itself.
-private struct HRLiveBreathingDot: View {
-    let color: Color
-    let period: Double
-    let active: Bool
-
-    @State private var breathing = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+/// A zone word ("Resting", "Steady", "Pushing") on the shared state-pill chrome (the Coach "Stale" pill's
+/// exact metrics), washed and outlined in the live red with the pill's white type.
+private struct HRZonePill: View {
+    let word: String
 
     var body: some View {
-        Circle()
-            .fill(color)
-            .frame(width: 8, height: 8)
-            .overlay {
-                if active && !reduceMotion {
-                    Circle()
-                        .stroke(color.opacity(0.3), lineWidth: 4)
-                        .scaleEffect(breathing ? 1.7 : 0.9)
-                        .opacity(breathing ? 0 : 0.8)
-                }
-            }
-            .onAppear {
-                guard active, !reduceMotion else { return }
-                withAnimation(.easeOut(duration: max(period, 0.5)).repeatForever(autoreverses: false)) {
-                    breathing = true
-                }
-            }
-            .accessibilityHidden(true)
+        Text(verbatim: word)
+            .statePillLabel()
+            .statePillChrome(tint: HRModuleTint.live)
     }
 }
 

@@ -61,21 +61,38 @@ extension WhoopStore {
             // COUNT(*) and COALESCE(MAX(ts),0) are both NON-NULL, and the aggregate query always returns
             // exactly one row, so fetchOne is non-nil and the columns read straight into Int. The guard is
             // belt-and-suspenders.
-            guard let row = try Row.fetchOne(db, sql: """
-                SELECT COUNT(*) AS c, COALESCE(MAX(ts), 0) AS m FROM (
-                    SELECT ts FROM hrSample
-                    WHERE deviceId = ? AND ts >= ? AND ts <= ?
+            // DL-02: each aggregate runs inside its own arm. An aggregate over a UNION ALL subquery can't be
+            // flattened, so SQLite materialized every row; per-arm MAX is an index seek and per-arm COUNT walks
+            // only the index range. A PPG second that has a measured twin shares its timestamp, so the
+            // stream's MAX is the larger arm MAX and never needs the anti-join.
+            guard let row = try Row.fetchOne(db, sql: Self.hrFingerprintSQL,
+                                             arguments: ["d": deviceId, "f": from, "t": to]) else { return (0, 0) }
+            let c: Int = row["c"]
+            let m: Int = row["m"]
+            return (c, m)
+        }
+    }
+
+    /// Plausible heart-rate rows over `[from, to]`, counted up to `cap`: measured rows whose bpm is in `bpmRange`,
+    /// plus the PPG-derived rows for seconds with no measured row. An off-wrist strap's 0 bpm stream counts for
+    /// nothing. One indexed aggregate bounded by the window and the cap (review round 7, 2: who owns a day).
+    public func plausibleHRCount(deviceId: String, from: Int, to: Int,
+                                 bpmRange: ClosedRange<Int>, cap: Int) async throws -> Int {
+        try syncRead { db in
+            try Int.fetchOne(db, sql: """
+                SELECT COUNT(*) FROM (
+                    SELECT 1 FROM hrSample
+                    WHERE deviceId = ? AND ts >= ? AND ts <= ? AND bpm BETWEEN ? AND ?
                     UNION ALL
-                    SELECT p.ts FROM ppgHrSample p
+                    SELECT 1 FROM ppgHrSample p
                     WHERE p.deviceId = ? AND p.ts >= ? AND p.ts <= ?
                       AND NOT EXISTS (
                         SELECT 1 FROM hrSample h
                         WHERE h.deviceId = p.deviceId AND h.ts = p.ts)
+                    LIMIT ?
                 )
-                """, arguments: [deviceId, from, to, deviceId, from, to]) else { return (0, 0) }
-            let c: Int = row["c"]
-            let m: Int = row["m"]
-            return (c, m)
+                """, arguments: [deviceId, from, to, bpmRange.lowerBound, bpmRange.upperBound,
+                                 deviceId, from, to, cap]) ?? 0
         }
     }
 
@@ -83,17 +100,9 @@ extension WhoopStore {
     /// this to stop at the oldest real source day instead of scanning thousands of empty calendar days.
     public func hrTimestampBounds(deviceId: String) async throws -> (earliest: Int, latest: Int)? {
         try syncRead { db in
-            guard let row = try Row.fetchOne(db, sql: """
-                SELECT MIN(ts) AS earliest, MAX(ts) AS latest FROM (
-                    SELECT ts FROM hrSample WHERE deviceId = ?
-                    UNION ALL
-                    SELECT p.ts FROM ppgHrSample p
-                    WHERE p.deviceId = ?
-                      AND NOT EXISTS (
-                        SELECT 1 FROM hrSample h
-                        WHERE h.deviceId = p.deviceId AND h.ts = p.ts)
-                )
-                """, arguments: [deviceId, deviceId]),
+            // DL-02: one MIN or MAX per arm, so each is an index seek. A PPG second with a measured twin shares
+            // its timestamp, so the measured-first stream's bounds equal the bounds over both tables.
+            guard let row = try Row.fetchOne(db, sql: Self.hrTimestampBoundsSQL, arguments: ["d": deviceId]),
                   let earliest: Int = row["earliest"],
                   let latest: Int = row["latest"] else { return nil }
             return (earliest, latest)
@@ -248,15 +257,43 @@ extension WhoopStore {
     /// offload, so this only ever moves the watchdog forward when the strap really logged + offloaded.
     public func latestHRSampleTs(deviceId: String) async throws -> Int? {
         try syncRead { db in
-            try Int.fetchOne(db, sql: """
-                SELECT MAX(ts) FROM (
-                    SELECT ts FROM hrSample WHERE deviceId = ?
-                    UNION ALL
-                    SELECT ts FROM ppgHrSample WHERE deviceId = ?
-                )
-                """, arguments: [deviceId, deviceId])
+            // DL-02: MAX inside each arm is an index seek; the outer MAX sees two rows. This runs every 20 s.
+            try Int.fetchOne(db, sql: Self.latestHRSampleTsSQL, arguments: [deviceId, deviceId])
         }
     }
+
+    // DL-02: the HR frontier, fingerprint and bounds SQL. Kept as constants so the query-plan tests read the
+    // exact text the store runs.
+    static let hrFingerprintSQL = """
+        SELECT
+            (SELECT COUNT(*) FROM hrSample WHERE deviceId = :d AND ts >= :f AND ts <= :t)
+            + (SELECT COUNT(*) FROM ppgHrSample p
+               WHERE p.deviceId = :d AND p.ts >= :f AND p.ts <= :t
+                 AND NOT EXISTS (
+                   SELECT 1 FROM hrSample h WHERE h.deviceId = p.deviceId AND h.ts = p.ts)) AS c,
+            MAX(
+                COALESCE((SELECT MAX(ts) FROM hrSample WHERE deviceId = :d AND ts >= :f AND ts <= :t), 0),
+                COALESCE((SELECT MAX(ts) FROM ppgHrSample WHERE deviceId = :d AND ts >= :f AND ts <= :t), 0)
+            ) AS m
+        """
+
+    static let hrTimestampBoundsSQL = """
+        SELECT
+            (SELECT MIN(v) FROM (
+                SELECT MIN(ts) AS v FROM hrSample WHERE deviceId = :d
+                UNION ALL SELECT MIN(ts) FROM ppgHrSample WHERE deviceId = :d)) AS earliest,
+            (SELECT MAX(v) FROM (
+                SELECT MAX(ts) AS v FROM hrSample WHERE deviceId = :d
+                UNION ALL SELECT MAX(ts) FROM ppgHrSample WHERE deviceId = :d)) AS latest
+        """
+
+    static let latestHRSampleTsSQL = """
+        SELECT MAX(m) FROM (
+            SELECT MAX(ts) AS m FROM hrSample WHERE deviceId = ?
+            UNION ALL
+            SELECT MAX(ts) FROM ppgHrSample WHERE deviceId = ?
+        )
+        """
 
     /// Aggregate storage footprint: total decoded rows, raw batch count, total raw byteSize.
     public func storageStats() async throws -> (decodedRows: Int, rawBatches: Int, rawBytes: Int) {

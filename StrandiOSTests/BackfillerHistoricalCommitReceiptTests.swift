@@ -847,6 +847,65 @@ final class BackfillerHistoricalCommitReceiptTests: XCTestCase {
         }
     }
 
+    /// F2: the reject-archive write suspends. If the session is replaced meanwhile (a reconnect, or Sync
+    /// Now after a deadline exit) and the old write then fails, the failure belonged to the old session:
+    /// it must not fail, stall or tear down the new one.
+    @MainActor
+    func testRejectArchiveFailureAfterASessionSwapDoesNotFailTheNewSession() async {
+        var corrupt = whoop5V18Frame
+        corrupt[20] ^= 0x01   // payload CRC failure: archived as a reject before the chunk is judged
+        let store = SourceCaptureStore()
+        var ackCount = 0
+        var failures: [BackfillFailure] = []
+        var resumeArchive: CheckedContinuation<Bool, Never>?
+        let (archiveEntered, archiveEnteredSignal) = AsyncStream<Void>.makeStream()
+        let backfiller = Backfiller(
+            store: store,
+            deviceId: "strap-a",
+            ackTrim: { _, _, _ in ackCount += 1; return true },
+            rejectedSink: { _, _, _ in
+                archiveEnteredSignal.yield()
+                return await withCheckedContinuation { resumeArchive = $0 }
+            },
+            onFailure: { failures.append($0) },
+            ackTrimForWhoop5Admission: { _, _, _, _ in ackCount += 1; return true })
+        let scope = HistoricalCursorScope(deviceId: "strap-a", lineage: "test-lineage")
+        backfiller.begin(family: .whoop5, historicalCursorScope: scope, whoop5Admission: fixtureWhoop5Admission)
+
+        let oldSessionChunk = Task { @MainActor in
+            await backfiller.ingest(corrupt, admittedBy: fixtureWhoop5Admission)
+            await backfiller.ingest(whoop5HistoryEndFrame, admittedBy: fixtureWhoop5Admission)
+        }
+        let entered = await withTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                for await _ in archiveEntered { return true }
+                return false
+            }
+            group.addTask {
+                try? await Task.sleep(for: .seconds(10))
+                return false
+            }
+            let first = await group.next() ?? false
+            group.cancelAll()
+            return first
+        }
+        guard entered, let resumeArchive else {
+            oldSessionChunk.cancel()
+            return XCTFail("timed out waiting for the reject archive write to start")
+        }
+
+        // A new session is admitted while the old one's archive write is still in flight …
+        backfiller.begin(family: .whoop5, historicalCursorScope: scope, whoop5Admission: fixtureWhoop5Admission)
+        // … and then the old write fails.
+        resumeArchive.resume(returning: false)
+        await oldSessionChunk.value
+
+        XCTAssertEqual(failures, [], "the old session's archive failure must not fail the new session")
+        XCTAssertFalse(backfiller.persistStalled, "the new session must not be stalled")
+        XCTAssertTrue(backfiller.isBackfilling, "the new session must still be running")
+        XCTAssertEqual(ackCount, 0, "nothing is ACKed for the superseded chunk")
+    }
+
     @MainActor
     func testCorruptMetadataEnvelopeCannotBeWashedAwayByValidEnd() async {
         let store = SourceCaptureStore()

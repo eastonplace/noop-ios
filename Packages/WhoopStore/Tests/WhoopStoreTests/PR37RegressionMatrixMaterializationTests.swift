@@ -249,7 +249,7 @@ final class PR37RegressionMatrixMaterializationTests: XCTestCase {
         XCTAssertEqual(healthyRow.state, HistoricalMaterializationJobState.completed.rawValue)
     }
 
-    func testBootstrapWakeDrainsFivePendingJobsThroughRepeatedBoundedPasses() async throws {
+    func testBootstrapWakeDrainsFivePendingJobsInTwoBoundedPasses() async throws {
         let store = try await WhoopStore.inMemory()
         try await store.upsertDevice(id: deviceId, mac: nil, name: nil)
         let now = 1_781_600_700
@@ -267,10 +267,10 @@ final class PR37RegressionMatrixMaterializationTests: XCTestCase {
             summaries.append(try await store.materializePendingHistoricalRaw(limit: 4, now: now))
         } while summaries.last?.hasMoreDueWork == true
 
-        XCTAssertEqual(summaries.count, 5)
-        XCTAssertEqual(summaries.map(\.claimed), [1, 1, 1, 1, 1])
-        XCTAssertEqual(summaries.map(\.completed), [1, 1, 1, 1, 1])
-        XCTAssertEqual(summaries.map(\.hasMoreDueWork), [true, true, true, true, false])
+        XCTAssertEqual(summaries.count, 2)
+        XCTAssertEqual(summaries.map(\.claimed), [4, 1])
+        XCTAssertEqual(summaries.map(\.completed), [4, 1])
+        XCTAssertEqual(summaries.map(\.hasMoreDueWork), [true, false])
         XCTAssertTrue(summaries.allSatisfy { $0.nextAttemptAt == nil })
         for receipt in receipts {
             let row = try await jobRow(store: store, receiptId: receipt.receiptId)

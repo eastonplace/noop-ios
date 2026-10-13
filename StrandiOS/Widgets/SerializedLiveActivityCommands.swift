@@ -114,6 +114,9 @@ public final class SerializedLiveActivityCommands<Payload: Sendable> {
         pendingLive = nil
     }
 
+    /// Whether a source transition has closed the live lane (read for the decision trace only).
+    public var lifecycleSubmissionsAreSuspended: Bool { lifecycleSubmissionsSuspended }
+
     /// Only verified sink activation may reopen this gate.
     public func activateLifecycleSubmissions() {
         lifecycleSubmissionsSuspended = false

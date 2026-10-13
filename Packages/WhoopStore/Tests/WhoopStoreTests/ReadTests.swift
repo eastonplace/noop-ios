@@ -74,6 +74,31 @@ final class ReadTests: XCTestCase {
         XCTAssertNil(missingBounds)
     }
 
+    /// Review round 7 (2): only plausible beats count, PPG fills seconds with no measured row, and the cap bounds
+    /// the count.
+    func testPlausibleHrCountSkipsImplausibleBeatsAndStopsAtTheCap() async throws {
+        let store = try await seeded()
+        _ = try await store.insert(
+            Streams(hr: [HRSample(ts: 400, bpm: 0), HRSample(ts: 500, bpm: 250), HRSample(ts: 600, bpm: 30),
+                         HRSample(ts: 700, bpm: 240)],
+                    ppgHr: [PpgHrSample(ts: 100, bpm: 99, conf: 0.8), PpgHrSample(ts: 800, bpm: 63, conf: 0.8)]),
+            deviceId: "dev1")
+        // Measured 60/61/62/30/240 plus the PPG second 800; ts 400 (0 bpm) and 500 (250 bpm) are not heart rates,
+        // and the PPG row at 100 sits under a measured one.
+        let all = try await store.plausibleHRCount(
+            deviceId: "dev1", from: 0, to: 1_000, bpmRange: 30...240, cap: 100)
+        XCTAssertEqual(all, 6)
+        let capped = try await store.plausibleHRCount(
+            deviceId: "dev1", from: 0, to: 1_000, bpmRange: 30...240, cap: 4)
+        XCTAssertEqual(capped, 4)
+        let windowed = try await store.plausibleHRCount(
+            deviceId: "dev1", from: 150, to: 450, bpmRange: 30...240, cap: 100)
+        XCTAssertEqual(windowed, 2)
+        let other = try await store.plausibleHRCount(
+            deviceId: "other", from: 0, to: 1_000, bpmRange: 30...240, cap: 100)
+        XCTAssertEqual(other, 1)
+    }
+
     func testHrBucketsAveragePerBucketOrderedAndDeviceScoped() async throws {
         let store = try await seeded()
         // 200s buckets over dev1's ts 100/200/300 (bpm 60/61/62):

@@ -20,8 +20,12 @@ struct IntelligenceRecoveryPersistenceReceipt: Equatable, Sendable {
         reconciledDays: ClosedRange<String>,
         repository: Repository
     ) async -> Self {
+        // IntelligenceEngine retains a broad display cache in `results`, even when this admitted pass
+        // reconciled only a narrow HealthKit window. Persistence proof belongs to that committed window;
+        // older cached days were neither rewritten nor queried below and must not inflate the receipt.
+        let scopedResults = results.filter { reconciledDays.contains($0.day) }
         guard let store = await repository.storeHandle() else {
-            return failure(expected: results.count)
+            return failure(expected: scopedResults.count)
         }
 
         do {
@@ -60,7 +64,7 @@ struct IntelligenceRecoveryPersistenceReceipt: Equatable, Sendable {
             // Manual-Recovery rows are deliberately restored by SQLite after range deletion, even when
             // this automatic pass produced no result for that day. They are protected state, not stale rows.
             var expectedCanonicalDays = Set(overrideByDay.keys)
-            for result in results {
+            for result in scopedResults {
                 if result.recoveryPersistenceOwner == .canonicalComputed {
                     // The engine still persists a diagnostic/fallback shadow on WHOOP-import-owned days.
                     // Imported Recovery wins Home, but the canonical row is expected to survive range
@@ -91,13 +95,20 @@ struct IntelligenceRecoveryPersistenceReceipt: Equatable, Sendable {
             // The engine reconciles its complete requested window. An extra canonical row means a failed
             // stale-day deletion and can otherwise leave yesterday's numerical Recovery visible.
             let reconciled = Set(computedRows.map(\.day)).isSubset(of: expectedCanonicalDays)
+            #if DEBUG
+            if !reconciled || verified != scopedResults.count {
+                NSLog("Recovery receipt failed: verified=%d expected=%d extraCanonicalDays=%@",
+                      verified, scopedResults.count,
+                      Set(computedRows.map(\.day)).subtracting(expectedCanonicalDays).sorted().description)
+            }
+            #endif
             return Self(
-                expectedResults: results.count,
+                expectedResults: scopedResults.count,
                 verifiedResults: verified,
                 storeAvailable: true,
                 reconciledComputedRange: reconciled)
         } catch {
-            return failure(expected: results.count)
+            return failure(expected: scopedResults.count)
         }
     }
 

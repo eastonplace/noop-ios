@@ -130,27 +130,39 @@ struct LiftPRDetectionTests {
     ))
   }
 
-  @Test("A 500-session history stays below five milliseconds per lookup")
+  /// ORG-8: this used to assert an absolute 100 ms bound, which failed at random on a loaded, parallel
+  /// Debug simulator run. It now checks that a lookup scales roughly linearly with history size: a
+  /// 4x longer history may cost at most 8x (a quadratic regression costs 16x), fastest of five runs.
+  @Test("A PR lookup scales linearly with history size")
   func fiveHundredSessionCostBound() async throws {
-    let sessions = (0..<500).map { offset in
-      makeSession(
-        startedAt: Date(timeIntervalSince1970: 1_700_000_000 + Double(offset)),
-        sets: [makeSet(weight: 100 + Double(offset % 5) * 5, reps: 5 + offset % 5)]
-      )
-    }
-    let fixture = try makeFixture(sessions: sessions)
-    defer { try? FileManager.default.removeItem(at: fixture.directory) }
-    let store = await loadedStore(for: fixture)
-    let candidate = makeSet(exerciseID: fixture.exercise.id, weight: 200, reps: 12)
-
-    _ = store.personalRecord(for: candidate, exerciseID: fixture.exercise.id)
-    let elapsed = ContinuousClock().measure {
-      for _ in 0..<20 {
-        _ = store.personalRecord(for: candidate, exerciseID: fixture.exercise.id)
+    func history(_ count: Int) -> [LiftSession] {
+      (0..<count).map { offset in
+        makeSession(
+          startedAt: Date(timeIntervalSince1970: 1_700_000_000 + Double(offset)),
+          sets: [makeSet(weight: 100 + Double(offset % 5) * 5, reps: 5 + offset % 5)]
+        )
       }
     }
+    func fastestLookup(sessions: [LiftSession]) async throws -> Duration {
+      let fixture = try makeFixture(sessions: sessions)
+      defer { try? FileManager.default.removeItem(at: fixture.directory) }
+      let store = await loadedStore(for: fixture)
+      let candidate = makeSet(exerciseID: fixture.exercise.id, weight: 200, reps: 12)
+      _ = store.personalRecord(for: candidate, exerciseID: fixture.exercise.id)
+      var fastest = Duration.seconds(1_000)
+      for _ in 0..<5 {
+        fastest = min(fastest, ContinuousClock().measure {
+          for _ in 0..<20 {
+            _ = store.personalRecord(for: candidate, exerciseID: fixture.exercise.id)
+          }
+        })
+      }
+      return fastest
+    }
 
-    #expect(elapsed < .milliseconds(100))
+    let base = try await fastestLookup(sessions: history(125))
+    let large = try await fastestLookup(sessions: history(500))
+    #expect(large <= base * 8 + .milliseconds(2))
   }
 
   @Test("The feature flag defaults on without entering the persistence envelope")

@@ -47,6 +47,33 @@ public struct DailyStrainCandidate: Equatable {
     }
 }
 
+/// A workout's Strain as it should be shown, with whose number it is. **Display only.**
+///
+/// This is a presentation read model and deliberately not a ``ResolvedStrain``: an imported WHOOP score
+/// is the output of WHOOP's algorithm, not NOOP's, so it must never enter a canonical sum, average,
+/// trend, load or score. Canonical consumers keep using ``StrainResolver/canonicalWorkout(_:)``, which
+/// still excludes imported values.
+public struct WorkoutStrainDisplay: Equatable, Sendable {
+    public enum Provenance: Equatable, Sendable {
+        /// NOOP's own canonical Strain V2, computed from the workout's heart rate.
+        case noop
+        /// WHOOP's own activity strain, as imported from a WHOOP data export.
+        case whoop
+    }
+
+    /// On NOOP's 0...100 stored axis for both provenances, like ``ResolvedStrain/storedValue``; convert
+    /// at the UI boundary with `StrainScale.displayValue(fromStored:)`. An imported value was rescaled by
+    /// 100/21 from WHOOP's 0...21 at import (`WhoopExportImporter.dayStrainToEffortScale`), so that
+    /// conversion returns the number WHOOP showed.
+    public let storedValue: Double
+    public let provenance: Provenance
+
+    public init(storedValue: Double, provenance: Provenance) {
+        self.storedValue = storedValue
+        self.provenance = provenance
+    }
+}
+
 /// Pure source and freshness selection. Imported and legacy values are deliberately
 /// excluded from the canonical NOOP chain and remain available as explicit comparisons.
 public enum StrainResolver {
@@ -91,6 +118,29 @@ public enum StrainResolver {
                               asOf: Date(timeIntervalSince1970: TimeInterval(row.endTs)),
                               rawFrontierTs: row.endTs)
     }
+
+    /// The Strain to show for a workout row and whose it is. **Display only: never feed the result into
+    /// canonical sums, averages, trends or scores**; those use ``canonicalWorkout(_:)``, which is unchanged
+    /// and still returns nil for imported values.
+    ///
+    /// - NOOP's canonical V2 value, exactly as `canonicalWorkout` resolves it, gives `.noop`. It takes
+    ///   precedence even on a WHOOP-sourced row that NOOP scored itself.
+    /// - Otherwise a row the WHOOP export importer wrote (`source == "whoop"`, no strain version) with a
+    ///   finite strain gives `.whoop`: WHOOP's own number, on the same stored axis.
+    /// - Anything else gives nil: a manual, Apple Health, lifting, activity-file or unversioned
+    ///   NOOP-detected row has no trustworthy attribution, and a WHOOP row without a strain has no value.
+    public static func workoutStrainForDisplay(_ row: WorkoutRow) -> WorkoutStrainDisplay? {
+        if let canonical = canonicalWorkout(row) {
+            return WorkoutStrainDisplay(storedValue: canonical.storedValue, provenance: .noop)
+        }
+        guard row.strainVersion == nil,
+              row.source.lowercased() == whoopImportSource,
+              let stored = row.strain, stored.isFinite else { return nil }
+        return WorkoutStrainDisplay(storedValue: stored, provenance: .whoop)
+    }
+
+    /// `WorkoutRow.source` written by the WHOOP export importer (`Strand/Data/WhoopImporter.swift`).
+    private static let whoopImportSource = "whoop"
 
     public static func importedComparison(
         day: String,

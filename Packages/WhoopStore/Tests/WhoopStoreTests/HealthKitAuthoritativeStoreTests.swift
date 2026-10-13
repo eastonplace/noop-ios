@@ -63,6 +63,90 @@ final class HealthKitAuthoritativeStoreTests: XCTestCase {
         XCTAssertEqual(loaded[identities.count], identities[0])
     }
 
+    func testExportIdentityPurgeRemovesLargePageWithoutTouchingOtherSourcesOrTypes() async throws {
+        let store = try await WhoopStore.inMemory()
+        let exportSource = "noop-healthkit-export"
+        let sampleType = "HKQuantityTypeIdentifierHeartRate"
+        let otherType = "HKQuantityTypeIdentifierRestingHeartRate"
+        let identities = (0..<1_005).map { index in
+            HealthKitObjectIdentity(
+                sampleType: sampleType, objectUUID: "export-\(index)",
+                startTs: 1_700_000_000 + index, endTs: 1_700_000_001 + index)
+        }
+        let otherIdentities = identities.map {
+            HealthKitObjectIdentity(
+                sampleType: otherType, objectUUID: $0.objectUUID,
+                startTs: $0.startTs, endTs: $0.endTs)
+        }
+        let retained = HealthKitObjectIdentity(
+            sampleType: sampleType, objectUUID: "unconsumed-export",
+            startTs: 1_700_000_000, endTs: 1_700_000_060)
+        try await store.upsertHealthKitObjectIdentities(identities + [retained], deviceId: exportSource)
+        try await store.upsertHealthKitObjectIdentities(identities, deviceId: "apple-health")
+        try await store.upsertHealthKitObjectIdentities(otherIdentities, deviceId: exportSource)
+
+        let emptyCount = try await store.removeHealthKitObjectIdentities(
+            sampleType: sampleType, objectUUIDs: [], deviceId: exportSource)
+        let blankCount = try await store.removeHealthKitObjectIdentities(
+            sampleType: sampleType, objectUUIDs: ["", ""], deviceId: exportSource)
+        XCTAssertEqual(emptyCount, 0)
+        XCTAssertEqual(blankCount, 0)
+
+        let identifiers = identities.map(\.objectUUID)
+        let requested = identifiers + [identifiers[0], "unknown", ""]
+        let removed = try await store.removeHealthKitObjectIdentities(
+            sampleType: sampleType, objectUUIDs: requested, deviceId: exportSource)
+        let repeated = try await store.removeHealthKitObjectIdentities(
+            sampleType: sampleType, objectUUIDs: requested, deviceId: exportSource)
+        XCTAssertEqual(removed, 1_005)
+        XCTAssertEqual(repeated, 0)
+
+        let remaining = try await store.healthKitObjectIdentities(
+            sampleType: sampleType, objectUUIDs: identifiers + [retained.objectUUID], deviceId: exportSource)
+        let external = try await store.healthKitObjectIdentities(
+            sampleType: sampleType, objectUUIDs: identifiers, deviceId: "apple-health")
+        let other = try await store.healthKitObjectIdentities(
+            sampleType: otherType, objectUUIDs: identifiers, deviceId: exportSource)
+        XCTAssertEqual(remaining, [retained])
+        XCTAssertEqual(external, identities)
+        XCTAssertEqual(other, otherIdentities)
+    }
+
+    func testExportIdentityPurgeRollsBackEarlierChunksWhenLaterDeleteFails() async throws {
+        let store = try await WhoopStore.inMemory()
+        let exportSource = "noop-healthkit-export"
+        let sampleType = "HKQuantityTypeIdentifierHeartRate"
+        let identities = (0..<805).map { index in
+            HealthKitObjectIdentity(
+                sampleType: sampleType, objectUUID: "export-\(index)",
+                startTs: 1_700_000_000 + index, endTs: 1_700_000_001 + index)
+        }
+        try await store.upsertHealthKitObjectIdentities(identities, deviceId: exportSource)
+        try await store.registryWriter.write { db in
+            try db.execute(sql: """
+                CREATE TRIGGER fail_export_identity_purge BEFORE DELETE ON healthKitObjectIndex
+                WHEN OLD.deviceId = 'noop-healthkit-export'
+                  AND OLD.sampleType = 'HKQuantityTypeIdentifierHeartRate'
+                  AND (SELECT COUNT(*) FROM healthKitObjectIndex
+                       WHERE deviceId = 'noop-healthkit-export'
+                         AND sampleType = 'HKQuantityTypeIdentifierHeartRate') = 405
+                BEGIN SELECT RAISE(ABORT, 'forced-export-purge-failure'); END;
+                """)
+        }
+
+        do {
+            _ = try await store.removeHealthKitObjectIdentities(
+                sampleType: sampleType, objectUUIDs: identities.map(\.objectUUID), deviceId: exportSource)
+            XCTFail("Expected a failure after the first 400 deletions")
+        } catch {
+            XCTAssertTrue(String(describing: error).contains("forced-export-purge-failure"))
+        }
+
+        let remaining = try await store.healthKitObjectIdentities(
+            sampleType: sampleType, objectUUIDs: identities.map(\.objectUUID), deviceId: exportSource)
+        XCTAssertEqual(remaining, identities)
+    }
+
     func testEarliestAppleHealthTimestampIncludesHyphenatedWorkoutSource() async throws {
         let store = try await WhoopStore.inMemory()
         let start = 1_700_000_000
@@ -120,5 +204,24 @@ final class HealthKitAuthoritativeStoreTests: XCTestCase {
         XCTAssertTrue(dailyRows.isEmpty)
         XCTAssertTrue(points.isEmpty)
         XCTAssertTrue(workouts.isEmpty)
+    }
+}
+
+extension HealthKitAuthoritativeStoreTests {
+    func testLargeHistoryReplacementKeepsEveryMetricAndReportsCost() async throws {
+        let store = try await WhoopStore.inMemory()
+        let points = (0..<4000).flatMap { day in
+            (0..<10).map { key in MetricPoint(day: String(format: "%04d-01-01", day + 2000),
+                key: "metric-\(key)", value: Double(day)) }
+        }
+        let start = Date()
+        try await store.replaceAppleHealthRange(appleDaily: [], dailyMetrics: [],
+            metricPoints: points, workouts: [], deviceId: "apple-health",
+            fromDay: "2000-01-01", toDay: "5999-01-01", fromTimestamp: 0, toTimestamp: 1)
+        print("HEALTH_HISTORY_40000_ROWS_SECONDS=\(Date().timeIntervalSince(start))")
+        let result = try await store.metricSeries(deviceId: "apple-health", key: "metric-3",
+            from: "2000-01-01", to: "5999-01-01")
+        XCTAssertEqual(result.count, 4000)
+        XCTAssertEqual(result.last?.value, 3999)
     }
 }

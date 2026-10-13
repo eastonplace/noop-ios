@@ -1,73 +1,70 @@
+import StrandDesign
 import SwiftUI
 
+/// Every exercise Lift knows, searchable and filterable by muscle and equipment. Browsing opens an exercise's own page;
+/// with `onSelect` it is a picker (the live workout's swap and add, the routine editor's add) and a tap hands the
+/// exercise back.
 struct ExerciseLibraryView: View {
   @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-  @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @EnvironmentObject private var store: LiftStore
   private let onSelect: ((LiftExercise) -> Void)?
-  @State private var selectedExerciseID: UUID?
   @State private var showingAddExercise = false
   @State private var query = ""
+  @State private var muscle: String?
+  @State private var equipment: String?
   @State private var sourceSnapshot: [LiftExercise] = []
+  @State private var facets: (muscles: [String], equipment: [String]) = ([], [])
   @State private var sourceRevision = 0
   @State private var results: [LiftExercise] = []
   @State private var isSearching = false
+
+  /// How many matches the list draws; the rest are one narrower search away.
+  private static let resultLimit = 60
 
   init(onSelect: ((LiftExercise) -> Void)? = nil) {
     self.onSelect = onSelect
   }
 
   var body: some View {
-    ScrollView {
-      LazyVStack(alignment: .leading, spacing: 16) {
-        header
-
-        if onSelect == nil, let selectedExercise {
-          ExerciseDetailReceipt(exercise: selectedExercise)
-            .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
+    LiftPage(
+      title: "Exercise library",
+      lazy: true,
+      trailing: {
+        if onSelect == nil {
+          HeaderChipButton("plus", accessibilityLabel: "Add exercise") { showingAddExercise = true }
         }
-
-        if onSelect != nil {
-          Text("SELECT MOVE / APPLY TO WORKOUT")
-            .font(.receipt(10, weight: .black))
-            .tracking(0.7)
-            .foregroundStyle(LiftTheme.paper)
-            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-            .padding(.horizontal, 12)
-            .background(LiftTheme.ink)
-            .accessibilityLabel("Select a move to apply to the workout")
-        }
-
-        searchField
-        libraryList
       }
-      .padding(.horizontal, 18)
-      .padding(.top, 18)
-      .padding(.bottom, 78)
+    ) {
+      VStack(alignment: .leading, spacing: 0) {
+        if onSelect != nil {
+          LiftNote(text: "Select a move to apply it to your workout")
+        }
+        PaperSearchField(
+          "Search name, muscle, or equipment",
+          text: $query,
+          inputConfiguration: .searchQuery
+        )
+        filterRow
+      }
+      libraryList
     }
-    .scrollIndicators(.hidden)
+    .environment(\.liftScreenRole, .sheet)
     .sheet(isPresented: $showingAddExercise) {
       AddExerciseSheet()
     }
-    .onAppear {
-      refreshSource()
-      if onSelect == nil {
-        selectedExerciseID = selectedExerciseID ?? store.preferredExerciseID
-      }
-    }
-    .onChange(of: store.exercises) {
-      refreshSource()
-    }
-    .onChange(of: store.routines) {
-      refreshSource()
-    }
-    .task(id: SearchRequest(query: query, sourceRevision: sourceRevision)) {
+    .onAppear(perform: refreshSource)
+    .onChange(of: store.exercises) { refreshSource() }
+    .onChange(of: store.routines) { refreshSource() }
+    .task(id: SearchRequest(query: query, muscle: muscle, equipment: equipment, sourceRevision: sourceRevision)) {
       let captured = sourceSnapshot
       isSearching = true
       do {
         let filtered = try await LiftExerciseSearch.debouncedFilter(
           exercises: captured,
-          query: query
+          query: query,
+          muscle: muscle,
+          equipment: equipment,
+          limit: Self.resultLimit
         )
         try Task.checkCancellation()
         results = filtered
@@ -80,197 +77,138 @@ struct ExerciseLibraryView: View {
     }
   }
 
-  private var selectedExercise: LiftExercise? {
-    guard let selectedExerciseID else {
-      guard let preferredExerciseID = store.preferredExerciseID else { return sourceSnapshot.first }
-      return sourceSnapshot.first { $0.id == preferredExerciseID }
+  // MARK: Filters
+
+  private var filterRow: some View {
+    ChipRow {
+      filterMenu(
+        title: String(localized: "Muscle"), systemImage: "figure.strengthtraining.traditional",
+        selection: $muscle, options: facets.muscles)
+      filterMenu(
+        title: String(localized: "Equipment"), systemImage: "dumbbell.fill",
+        selection: $equipment, options: facets.equipment)
+      if muscle != nil || equipment != nil {
+        ChoiceChipButton(verbatimTitle: String(localized: "Clear filters"), systemImage: "xmark") {
+          muscle = nil
+          equipment = nil
+        }
+      }
     }
-    return sourceSnapshot.first { $0.id == selectedExerciseID }
+    .padding(.vertical, NoopMetrics.space2)
   }
 
-  private var header: some View {
-    VStack(alignment: .leading, spacing: 10) {
-      HStack(alignment: .top) {
-        VStack(alignment: .leading, spacing: 0) {
-          Text("MOVE")
-            .font(.receiptCondensed(48, weight: .black))
-          Text("BANK")
-            .font(.receiptCondensed(48, weight: .black))
-            .offset(y: -6)
+  private func filterMenu(
+    title: String, systemImage: String, selection: Binding<String?>, options: [String]
+  ) -> some View {
+    ChipMenu(
+      verbatimTitle: selection.wrappedValue?.liftDisplayName ?? title,
+      systemImage: systemImage,
+      isSelected: selection.wrappedValue != nil,
+      accessibilityLabel: LocalizedStringKey(title),
+      accessibilityValue: selection.wrappedValue?.liftDisplayName ?? String(localized: "All")
+    ) {
+      Button { selection.wrappedValue = nil } label: {
+        if selection.wrappedValue == nil {
+          Label("All", systemImage: "checkmark")
+        } else {
+          Text("All")
         }
-        Spacer()
-        if onSelect == nil {
-          ReceiptSecondaryButton(title: "Add", systemImage: "plus", tint: LiftTheme.ink) {
-            showingAddExercise = true
+      }
+      ForEach(options, id: \.self) { option in
+        Button { selection.wrappedValue = option } label: {
+          if selection.wrappedValue == option {
+            Label(option.liftDisplayName, systemImage: "checkmark")
+          } else {
+            Text(verbatim: option.liftDisplayName)
           }
         }
       }
-      ReceiptDashedRule()
-      Text("\(sourceSnapshot.count) LOCAL EXERCISES / PROGRAM MOVES PRINT FIRST")
-        .font(.receipt(10, weight: .black))
-        .foregroundStyle(LiftTheme.inkSecondary)
     }
   }
 
-  private var searchField: some View {
-    HStack(spacing: 10) {
-      Image(systemName: "magnifyingglass")
-        .accessibilityHidden(true)
-      TextField("Search name, muscle, or equipment", text: $query)
-        .textInputAutocapitalization(.never)
-        .autocorrectionDisabled()
-        .font(.receipt(12, weight: .bold))
-      if !query.isEmpty {
-        Button {
-          query = ""
-        } label: {
-          Image(systemName: "xmark.circle.fill")
-            .frame(width: 44, height: 44)
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Clear Search")
-      }
-    }
-    .padding(.leading, 12)
-    .frame(minHeight: 48)
-    .overlay(
-      RoundedRectangle(cornerRadius: 5)
-        .stroke(LiftTheme.ink.opacity(0.2), lineWidth: 1)
-    )
-  }
+  // MARK: List
 
   private var libraryList: some View {
-    VStack(alignment: .leading, spacing: 10) {
-      HStack(spacing: 8) {
-        Text(isSearching ? "SEARCHING" : "\(results.count) EXERCISES")
-          .font(.receipt(11, weight: .black))
-          .foregroundStyle(LiftTheme.ink)
-          .fixedSize(horizontal: true, vertical: false)
-        Rectangle()
-          .fill(LiftTheme.ink.opacity(0.16))
-          .frame(height: 1)
-      }
+    let capped = results.count >= Self.resultLimit
+    return LiftFlatSection(
+      "Exercises",
+      trailing: isSearching
+        ? .text(String(localized: "Searching"))
+        : .text(capped ? String(localized: "First \(Self.resultLimit) matches") : LiftFormat.exerciseCount(results.count)),
+      contentSpacing: 0
+    ) {
       if !isSearching && results.isEmpty {
-        Text("NO MATCHES / TRY A MUSCLE OR EQUIPMENT")
-          .font(.receipt(10, weight: .bold))
-          .foregroundStyle(LiftTheme.inkSecondary)
-          .frame(maxWidth: .infinity, minHeight: 88, alignment: .leading)
+        LiftMessage(
+          symbol: "magnifyingglass",
+          title: "No matches",
+          message: "Try a muscle or equipment name."
+        )
       }
       LazyVStack(spacing: 0) {
         ForEach(Array(results.enumerated()), id: \.element.id) { index, exercise in
-          exerciseRow(exercise, index: index)
-          if exercise.id != results.last?.id { ReceiptDashedRule() }
+          if index > 0 { FlatRowSeparator(leadingInset: thumbSize + NoopMetrics.space3) }
+          exerciseRow(exercise)
         }
       }
     }
   }
 
-  private func exerciseRow(_ exercise: LiftExercise, index: Int) -> some View {
-    let isSelected = onSelect == nil && selectedExerciseID == exercise.id
-    return Button {
-      if let onSelect {
-        onSelect(exercise)
-      } else {
-        withAnimation(reduceMotion ? LiftMotion.reducedCrossfade : LiftMotion.surface) {
-          selectedExerciseID = exercise.id
-        }
+  private var thumbSize: CGFloat { dynamicTypeSize.isAccessibilitySize ? 64 : 52 }
+
+  @ViewBuilder
+  private func exerciseRow(_ exercise: LiftExercise) -> some View {
+    let details = LiftFormat.facts([exercise.muscleGroup, exercise.equipment]).liftDisplayName
+    if let onSelect {
+      Button { onSelect(exercise) } label: {
+        LiftListRow(
+          title: exercise.name.liftDisplayName,
+          details: [details],
+          leading: { LiftExerciseThumb(exercise: exercise, size: thumbSize) },
+          accessory: {
+            Image(systemName: "plus")
+              .font(.system(size: 13, weight: .semibold))
+              .foregroundStyle(StrandPalette.textTertiary)
+              .accessibilityHidden(true)
+          }
+        )
       }
-    } label: {
-      HStack(spacing: 12) {
-        Text(String(format: "%02d", index + 1))
-          .font(.receipt(10, weight: .bold))
-          .foregroundStyle(isSelected ? LiftTheme.paper.opacity(0.72) : LiftTheme.inkSecondary)
-          .frame(width: 24, alignment: .leading)
-        LiftExerciseThumb(exercise: exercise, size: dynamicTypeSize.isAccessibilitySize ? 64 : 52)
-        VStack(alignment: .leading, spacing: 3) {
-          Text(exercise.name.uppercased())
-            .font(.receipt(12, weight: .black))
-            .foregroundStyle(isSelected ? LiftTheme.paper : LiftTheme.ink)
-            .fixedSize(horizontal: false, vertical: true)
-          Text("\(exercise.muscleGroup) / \(exercise.equipment)".uppercased())
-            .font(.receipt(9, weight: .bold))
-            .foregroundStyle(isSelected ? LiftTheme.paper.opacity(0.72) : LiftTheme.inkSecondary)
-            .fixedSize(horizontal: false, vertical: true)
-        }
-        Spacer(minLength: 8)
-        Image(systemName: onSelect == nil ? "chevron.right" : "plus")
-          .foregroundStyle(isSelected ? LiftTheme.paper : LiftTheme.ink)
-          .accessibilityHidden(true)
+      .buttonStyle(FlatRowPressStyle())
+      .accessibilityElement(children: .ignore)
+      .accessibilityLabel("Add \(exercise.name)")
+      .accessibilityValue("\(exercise.muscleGroup), \(exercise.equipment)")
+      .accessibilityHint("Adds this exercise once")
+    } else {
+      NavigationLink {
+        ExerciseProgressView(exerciseID: exercise.id)
+      } label: {
+        LiftListRow(
+          title: exercise.name.liftDisplayName,
+          details: [details],
+          showsChevron: true,
+          leading: { LiftExerciseThumb(exercise: exercise, size: thumbSize) }
+        )
       }
-      .frame(maxWidth: .infinity, minHeight: 60, alignment: .leading)
-      .padding(.horizontal, 8)
-      .background(isSelected ? LiftTheme.ink : LiftTheme.paper)
-      .contentShape(Rectangle())
+      .buttonStyle(FlatRowPressStyle())
+      .accessibilityElement(children: .ignore)
+      .accessibilityLabel(exercise.name.liftDisplayName)
+      .accessibilityValue("\(exercise.muscleGroup), \(exercise.equipment)")
+      .accessibilityHint("Shows exercise details")
     }
-    .buttonStyle(.plain)
-    .accessibilityLabel(onSelect == nil ? exercise.name : "Add \(exercise.name)")
-    .accessibilityValue("\(exercise.muscleGroup), \(exercise.equipment)")
-    .accessibilityHint(onSelect == nil ? "Shows exercise details" : "Adds this exercise once")
-    .accessibilityAddTraits(isSelected ? .isSelected : [])
   }
 
   private func refreshSource() {
     let snapshot = store.displayExercises
     guard snapshot != sourceSnapshot else { return }
     sourceSnapshot = snapshot
+    facets = LiftExerciseSearch.facets(for: snapshot)
     sourceRevision &+= 1
   }
 
   private struct SearchRequest: Equatable {
     let query: String
+    let muscle: String?
+    let equipment: String?
     let sourceRevision: Int
-  }
-}
-
-private struct ExerciseDetailReceipt: View {
-  @EnvironmentObject private var store: LiftStore
-  let exercise: LiftExercise
-
-  private var sets: [LiftSet] {
-    store.sets(for: exercise.id, includeActive: true)
-  }
-
-  var body: some View {
-    VStack(alignment: .leading, spacing: 13) {
-      HStack(alignment: .top, spacing: 13) {
-        LiftExerciseThumb(exercise: exercise, size: 96)
-        VStack(alignment: .leading, spacing: 5) {
-          Text(exercise.name.uppercased())
-            .font(.receiptCondensed(34, weight: .black))
-            .foregroundStyle(LiftTheme.ink)
-            .lineLimit(3)
-            .minimumScaleFactor(0.68)
-          Text("\(exercise.muscleGroup) / \(exercise.equipment)".uppercased())
-            .font(.receipt(10, weight: .black))
-            .foregroundStyle(LiftTheme.ink)
-          if LiftMedia.imageName(for: exercise) != nil {
-            Text("DATABANK")
-              .font(.receipt(9, weight: .black))
-              .tracking(1)
-              .padding(.horizontal, 7)
-              .padding(.vertical, 4)
-              .overlay(Rectangle().stroke(LiftTheme.ink, lineWidth: 1))
-              .padding(.top, 2)
-          }
-        }
-      }
-
-      ReceiptDashedRule()
-
-      HStack {
-        ReceiptMetric(title: "Sets", value: "\(sets.count)", tint: LiftTheme.ink)
-        ReceiptMetric(title: "Volume", value: liftVolume(sets.reduce(0) { $0 + $1.volume }), tint: LiftTheme.ink)
-        ReceiptMetric(title: "Best", value: liftMeasuredWeight(sets.map(\.estimatedOneRepMax).max() ?? 0), tint: LiftTheme.ink)
-      }
-
-      ExerciseInformationView(exercise: exercise)
-      NavigationLink("View progress charts") {
-        ExerciseProgressView(exerciseID: exercise.id)
-      }
-      .frame(minHeight: 44)
-
-    }
-    .padding(.vertical, 4)
   }
 }
 
@@ -282,70 +220,38 @@ private struct AddExerciseSheet: View {
   @State private var equipment = ""
   @State private var instructions = ""
 
+  private var canSave: Bool {
+    !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+  }
+
   var body: some View {
-    VStack(alignment: .leading, spacing: 14) {
-      HStack(alignment: .top) {
-        VStack(alignment: .leading, spacing: 0) {
-          Text("NEW")
-            .font(.receiptCondensed(44, weight: .black))
-          Text("MOVE")
-            .font(.receiptCondensed(44, weight: .black))
-            .offset(y: -6)
+    LiftSheetPage(
+      title: "New exercise",
+      onClose: { dismiss() },
+      content: {
+        LiftFlatSection("Exercise", systemImage: "dumbbell.fill") {
+          VStack(alignment: .leading, spacing: NoopMetrics.space4) {
+            LiftField(title: "Name", text: $name, placeholder: "Bench press")
+            LiftField(title: "Muscle", text: $muscleGroup, placeholder: "Chest")
+            LiftField(title: "Equipment", text: $equipment, placeholder: "Barbell")
+            LiftField(
+              title: "Cues", text: $instructions, placeholder: "Brace, control, press.", axis: .vertical,
+              capitalization: .sentences)
+          }
         }
-        Spacer()
+      },
+      footer: {
         Button {
+          store.addExercise(name: name, muscleGroup: muscleGroup, equipment: equipment, instructions: instructions)
           dismiss()
         } label: {
-          Image(systemName: "xmark")
-            .frame(width: 34, height: 34)
+          Label("Save exercise", systemImage: "checkmark").liftPillLabel()
         }
-        .buttonStyle(ReceiptIconButtonStyle())
-        .padding(.top, 8)
-        .padding(.trailing, 8)
+        .buttonStyle(PrimaryPillButtonStyle())
+        .disabled(!canSave)
       }
-
-      ReceiptDashedRule()
-
-      ReceiptField(title: "Name", text: $name, placeholder: "Bench Press")
-      ReceiptField(title: "Muscle", text: $muscleGroup, placeholder: "Chest")
-      ReceiptField(title: "Equipment", text: $equipment, placeholder: "Barbell")
-      ReceiptField(title: "Cues", text: $instructions, placeholder: "Brace, control, press.", axis: .vertical)
-
-      Spacer(minLength: 0)
-
-      ReceiptPrimaryButton(title: "Save Exercise", systemImage: "checkmark", tint: LiftTheme.ink) {
-        store.addExercise(name: name, muscleGroup: muscleGroup, equipment: equipment, instructions: instructions)
-        dismiss()
-      }
-      .opacity(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.42 : 1)
-      .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-    }
-    .padding(18)
-    .presentationDetents([.medium, .large])
-    .liftScreenBackground()
-  }
-}
-
-private struct ReceiptField: View {
-  let title: String
-  @Binding var text: String
-  let placeholder: String
-  var axis: Axis = .horizontal
-
-  var body: some View {
-    VStack(alignment: .leading, spacing: 5) {
-      Text(title.uppercased())
-        .font(.receipt(9, weight: .black))
-        .foregroundStyle(LiftTheme.inkSecondary)
-      TextField(placeholder.uppercased(), text: $text, axis: axis)
-        .font(.receipt(13, weight: .bold))
-        .textInputAutocapitalization(.words)
-        .padding(12)
-        .background(LiftTheme.paper, in: RoundedRectangle(cornerRadius: 5))
-        .overlay(
-          RoundedRectangle(cornerRadius: 5)
-            .stroke(LiftTheme.ink.opacity(0.16), lineWidth: 1)
-        )
-    }
+    )
+    .presentationDetents([.large])
+    .presentationDragIndicator(.visible)
   }
 }

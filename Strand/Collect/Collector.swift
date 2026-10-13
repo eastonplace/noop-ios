@@ -24,10 +24,17 @@ struct CollectorPolicy {
     /// ~4096 frames at ~60 bytes/frame is ~240KB, far beyond the handful seen pre-clock
     /// normally. Custom init keeps `.init(maxFrames:maxInterval:)` call sites compiling.
     var maxPreClockFrames: Int
-    init(maxFrames: Int, maxInterval: TimeInterval, maxPreClockFrames: Int = 4096) {
+    /// BLE-11: cap on the post-clock frame buffer and on each standard HR/RR buffer, so a store that keeps
+    /// failing cannot grow them without limit (the oldest entries are dropped and logged).
+    var maxBufferedFrames: Int
+    var maxStandardSamples: Int
+    init(maxFrames: Int, maxInterval: TimeInterval, maxPreClockFrames: Int = 4096,
+         maxBufferedFrames: Int = 8192, maxStandardSamples: Int = 4096) {
         self.maxFrames = maxFrames
         self.maxInterval = maxInterval
         self.maxPreClockFrames = maxPreClockFrames
+        self.maxBufferedFrames = maxBufferedFrames
+        self.maxStandardSamples = maxStandardSamples
     }
     static let `default` = CollectorPolicy(maxFrames: 64, maxInterval: 30, maxPreClockFrames: 4096)
 }
@@ -71,6 +78,11 @@ final class Collector {
     private var stdHR: [HRSample] = []
     private var stdRR: [RRInterval] = []
     private var batchStartedAt: TimeInterval
+    /// BLE-11 / CC-6: at most one cadence flush per buffer at a time, coalesced follow-ups, failure backoff.
+    private var frameFlushScheduler = FlushScheduler()
+    private var standardFlushScheduler = FlushScheduler()
+    /// Diagnostics sink for dropped-buffer notices (wired to the strap log by BLEManager).
+    var log: (@MainActor (String) -> Void)?
     var bufferedCount: Int { buffer.count }
 
     init(store: StoreWriting, deviceId: String,
@@ -136,6 +148,11 @@ final class Collector {
         assert(parsed == parseFrame(frame, family: family),
                "Collector.ingest: threaded ParsedFrame != fresh parse (#47 parse-once invariant)")
         #endif
+        // BLE-4: frames `extractStreams` ignores (chiefly the type-43 R10/R11 raw stream) decode to no
+        // rows, so hold them only while raw capture will persist them.
+        guard LiveFrameRetention.shouldBuffer(typeName: parsed.typeName,
+                                              rawCaptureActive: enableRawCapture
+                                                  || rawCapture.isActive(at: monotonic())) else { return }
         buffer.append((frame, parsed))
         // Pre-clock only: bound memory if GET_CLOCK never lands while data keeps flowing.
         // Drop OLDEST beyond the cap (keep most recent). Post-clock this branch is skipped —
@@ -144,38 +161,69 @@ final class Collector {
             buffer.removeFirst(buffer.count - policy.maxPreClockFrames)
         }
         guard clockRef != nil else { return }   // can't correlate ts yet → keep buffering
+        trimFrameBuffer()
         if buffer.count >= policy.maxFrames || (monotonic() - batchStartedAt) >= policy.maxInterval {
-            Task { @MainActor in await self.flush() }
+            requestFrameFlush()
         }
+    }
+
+    /// BLE-11: start a cadence flush only when none is running and no failure backoff is pending; a
+    /// request made meanwhile becomes one follow-up pass instead of one more concurrent flush per frame.
+    private func requestFrameFlush() {
+        guard frameFlushScheduler.request(now: monotonic()) else { return }
+        Task { @MainActor in
+            var again = true
+            while again {
+                let ok = await self.flushFrames()
+                again = self.frameFlushScheduler.finish(success: ok, now: self.monotonic())
+            }
+        }
+    }
+
+    private func trimFrameBuffer() {
+        let drop = FlushScheduler.overflow(count: buffer.count, cap: policy.maxBufferedFrames)
+        guard drop > 0 else { return }
+        buffer.removeFirst(drop)
+        log?("Collector: dropped \(drop) oldest buffered live frame(s) (store not keeping up)")
     }
 
     /// Persist + queue everything buffered. No-op when empty or before a clock ref exists.
     /// Buffer is snapshotted and cleared SYNCHRONOUSLY before the first await so that any
     /// concurrent ingest() calls during persistence accumulate into the NEXT batch cleanly.
     func flush() async {
-        guard let ref = clockRef, !buffer.isEmpty else { return }
+        await flushFrames()
+    }
+
+    /// One flush pass; false when the decoded insert failed (the batch is re-buffered).
+    @discardableResult
+    private func flushFrames() async -> Bool {
+        guard let ref = clockRef, !buffer.isEmpty else { return true }
         // SNAPSHOT + CLEAR before any await: decoded-before-raw ordering AND the
         // buffer-snapshot-before-await invariant are both satisfied here.
         let batch = buffer
         buffer.removeAll(keepingCapacity: true)
+        // CC-6: the interval restarts when the batch is taken, not after the insert succeeds; retries
+        // after a failure are paced by the FlushScheduler backoff instead of firing on every frame.
+        batchStartedAt = monotonic()
 
         let frames = batch.map(\.frame)         // still needed for the raw-capture outbox
         let parsed = batch.map(\.parsed)        // #47: the seam already decoded these — don't re-parse
-        let streams = extractStreams(parsed, family: family,
-                                     deviceClockRef: ref.device, wallClockRef: ref.wall)
+        let family = self.family
+        // BLE-11: decode off the main actor.
+        let streams = await Task.detached(priority: .utility) {
+            extractStreams(parsed, family: family, deviceClockRef: ref.device, wallClockRef: ref.wall)
+        }.value
         do {
             try await store.insert(streams, deviceId: deviceId)   // DECODED FIRST (durable)
         } catch {
             // Re-buffer at the front so these frames (and their parses) are retried on the next cadence.
             buffer.insert(contentsOf: batch, at: 0)
-            return
+            trimFrameBuffer()
+            return false
         }
-        // Reset only after a successful insert so the interval trigger keeps firing if
-        // inserts fail (batchStartedAt must NOT advance on a failed drain).
-        batchStartedAt = monotonic()
         // RAW SECOND (transient outbox), only when the research toggle is ON. Default OFF →
         // decoded-only, no raw is stored. Failure is non-fatal — decoded is already durable.
-        guard enableRawCapture || rawCapture.isActive(at: monotonic()) else { return }
+        guard enableRawCapture || rawCapture.isActive(at: monotonic()) else { return true }
         let wall = now()
         let tsValues = streams.hr.map(\.ts) + streams.rr.map(\.ts)
             + streams.events.map(\.ts) + streams.battery.map(\.ts)
@@ -184,6 +232,7 @@ final class Collector {
             startTs: tsValues.min() ?? wall, endTs: tsValues.max() ?? wall,
             frameCount: frames.count, byteSize: frames.reduce(0) { $0 + $1.count })
         try? await store.enqueueRawBatch(meta, frames: frames)
+        return true
     }
 
     // MARK: - Standard 0x2A37 HR/RR (continuous recording)
@@ -196,23 +245,48 @@ final class Collector {
         for (ordinal, r) in rr.enumerated() where r >= 250 && r <= 3000 {
             stdRR.append(RRInterval(ts: ts, rrMs: r, sourceOrdinal: ordinal, source: source))
         }
-        if stdHR.count + stdRR.count >= 30 {
-            Task { @MainActor in await self.flushStandardHR() }
+        trimStandardBuffers()
+        if stdHR.count + stdRR.count >= 30, standardFlushScheduler.request(now: monotonic()) {
+            // BLE-11: one standard-HR flush at a time (coalesced follow-up, failure backoff).
+            Task { @MainActor in
+                var again = true
+                while again {
+                    let ok = await self.flushStandardSamples()
+                    again = self.standardFlushScheduler.finish(success: ok, now: self.monotonic())
+                }
+            }
         }
     }
 
     /// Persist the buffered standard HR/RR. Re-buffers on failure so nothing is lost.
     func flushStandardHR() async {
-        guard !stdHR.isEmpty || !stdRR.isEmpty else { return }
+        await flushStandardSamples()
+    }
+
+    @discardableResult
+    private func flushStandardSamples() async -> Bool {
+        guard !stdHR.isEmpty || !stdRR.isEmpty else { return true }
         let hr = stdHR, rr = stdRR
         stdHR.removeAll(keepingCapacity: true)
         stdRR.removeAll(keepingCapacity: true)
         do {
             try await store.insert(Streams(hr: hr, rr: rr), deviceId: deviceId)
+            return true
         } catch {
             stdHR.insert(contentsOf: hr, at: 0)
             stdRR.insert(contentsOf: rr, at: 0)
+            trimStandardBuffers()
+            return false
         }
+    }
+
+    private func trimStandardBuffers() {
+        let dropHR = FlushScheduler.overflow(count: stdHR.count, cap: policy.maxStandardSamples)
+        let dropRR = FlushScheduler.overflow(count: stdRR.count, cap: policy.maxStandardSamples)
+        guard dropHR > 0 || dropRR > 0 else { return }
+        stdHR.removeFirst(dropHR)
+        stdRR.removeFirst(dropRR)
+        log?("Collector: dropped \(dropHR) HR / \(dropRR) R-R oldest buffered standard sample(s) (store not keeping up)")
     }
 
     // MARK: - On-demand raw capture

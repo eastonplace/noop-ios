@@ -33,11 +33,14 @@ extension Repository {
         let sourceIds = importedReadIds + computedReadIds + [Self.appleHealthSource]
 
         let read: CanonicalHealthSurfaceStoreSnapshot
+        let hasRMSSDSource: Bool
         do {
+            hasRMSSDSource = try await hasStoredRMSSD(in: store)
             read = try await store.canonicalHealthSurfaceSnapshot(
                 sourceIds: sourceIds,
                 windows: windows,
-                metricKeys: ["sleep_performance", Self.sleepPerformanceV2Key, "stress"]
+                metricKeys: ["sleep_performance", Self.sleepPerformanceV2Key, "stress",
+                             IntelligenceEngine.strapWornSecondsMetricKey]
             )
         } catch { return nil }
 
@@ -96,7 +99,9 @@ extension Repository {
         let appleDaily = bestDaily(read.dailyRows.filter { $0.sourceId == Self.appleHealthSource })
         let merged = Repository.mergeDaily(
             imported: importedDaily, computed: computedDaily, userEditedDays: editedDays)
-        let canonicalDays = Repository.mergeDaily(imported: merged, computed: appleDaily)
+        let canonicalDays = Repository.mergeDaily(
+            imported: merged,
+            computed: Repository.appleFallbackDaily(appleDaily, hasRMSSDSource: hasRMSSDSource))
 
         return TrendsLoadedData(
             loadIdentity: TrendsLoadIdentity(
@@ -118,7 +123,9 @@ extension Repository {
                 AppleDaily(day: $0.day, steps: $0.steps, activeKcal: $0.activeKcal,
                            basalKcal: $0.basalKcal, vo2max: $0.vo2max, avgHr: $0.avgHr,
                            maxHr: $0.maxHr, walkingHr: $0.walkingHr, weightKg: $0.weightKg)
-            }.sorted { $0.day < $1.day }
+            }.sorted { $0.day < $1.day },
+            strapWornSecondsByDay: Self.strapWornSecondsByDay(read, computedReadIds: computedReadIds),
+            bmrKcalPerDay: ProfileStore.storedBmrKcalPerDay()
         )
     }
 

@@ -164,7 +164,7 @@ struct RhythmConsentGate: View {
 
                     if let onCancel {
                         Button("Not now", action: onCancel)
-                            .buttonStyle(.noopGhost)
+                            .buttonStyle(NoopButtonStyle(.tertiary, fullWidth: true))
                     }
                 }
             }
@@ -330,13 +330,7 @@ struct RhythmView: View {
 
     @ViewBuilder private var closeButton: some View {
         if let onClose {
-            Button(action: onClose) {
-                Image(systemName: "xmark.circle.fill")
-                    .font(.system(size: 18))
-                    .foregroundStyle(StrandPalette.textTertiary)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Close Rhythm")
+            NoopIconButton("xmark", accessibilityLabel: "Close Rhythm", action: onClose)
         }
     }
 
@@ -436,7 +430,7 @@ struct RhythmView: View {
                 StatTile(label: "CLOUD SHAPE",
                          value: fmt(headlineWindow?.sd1sd2, "%.2f"),
                          caption: String(localized: "SD1:SD2 ratio"),
-                         accent: StrandPalette.metricCyan)
+                         accent: DomainTint.hrv.accent)
                 StatTile(label: "BEAT-TO-BEAT",
                          value: percent(headlineWindow?.normRmssd),
                          caption: String(localized: "variation index"),

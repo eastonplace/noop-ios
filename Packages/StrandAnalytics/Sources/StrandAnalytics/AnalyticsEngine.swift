@@ -121,6 +121,12 @@ public enum AnalyticsEngine {
         /// so the caller persists NULL there rather than a fabricated array. Feeds the H7 re-onset CONFIRM
         /// guard on the NEXT pass; never overrides the derived hypnogram. Empty on a WHOOP 4.0. (#175)
         public let sessionSleepStateByStart: [Int: [Int]]
+        /// Where this day's Effort cycle started (AN-05): the main night's detected onset, nil with no sleep.
+        /// The pass hands it to the previous day as that day's `CycleEnd`.
+        public let cycleStart: Int?
+        /// Review round 4 (5): how long the strap recorded valid heart rate on the civil day
+        /// (`DailyCalories.wornSeconds`), the coverage `DailyCalories.total` weighs the strap total by.
+        public let strapWornSeconds: Int?
 
         public init(daily: DailyMetric, sleepSessions: [SleepSession],
                     cachedSleep: [CachedSleepSession], workouts: [ExerciseSession],
@@ -133,7 +139,9 @@ public enum AnalyticsEngine {
                     sessionMotionByStart: [Int: [Double]] = [:],
                     sessionSleepStateByStart: [Int: [Int]] = [:],
                     chargeDrivers: [ChargeDriver] = [],
-                    skinTempRelative: SkinTempRelative? = nil) {
+                    skinTempRelative: SkinTempRelative? = nil,
+                    cycleStart: Int? = nil,
+                    strapWornSeconds: Int? = nil) {
             self.daily = daily; self.sleepSessions = sleepSessions
             self.cachedSleep = cachedSleep; self.workouts = workouts
             self.recovery = recovery; self.strain = strain
@@ -147,6 +155,8 @@ public enum AnalyticsEngine {
             self.restConfidence = restConfidence
             self.sessionMotionByStart = sessionMotionByStart
             self.sessionSleepStateByStart = sessionSleepStateByStart
+            self.cycleStart = cycleStart
+            self.strapWornSeconds = strapWornSeconds
         }
     }
 
@@ -189,6 +199,76 @@ public enum AnalyticsEngine {
     /// platform (nil-tolerant over fail-fast, per the #996 review).
     static func dayStartUtcSeconds(_ day: String) -> Int {
         Int(isoDay.date(from: day)?.timeIntervalSince1970 ?? 0)
+    }
+
+    /// The real local civil day `day` (yyyy-MM-dd, Gregorian) in `timeZone` as `[start, nextStart)` unix
+    /// seconds (AN-02). Calendar arithmetic, never a fixed 86,400 s: a spring-forward day is 23 h and a
+    /// fall-back day 25 h. nil for a malformed or non-existent day key.
+    public static func civilDayInterval(day: String, timeZone: TimeZone) -> Range<Int>? {
+        let parts = day.split(separator: "-", omittingEmptySubsequences: false)
+        guard parts.count == 3, parts[0].count == 4, parts[1].count == 2, parts[2].count == 2,
+              let year = Int(parts[0]), let month = Int(parts[1]),
+              let dayOfMonth = Int(parts[2]) else { return nil }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+        guard let start = calendar.date(from: DateComponents(year: year, month: month, day: dayOfMonth)),
+              calendar.dateComponents([.year, .month, .day], from: start)
+                == DateComponents(year: year, month: month, day: dayOfMonth),
+              let next = calendar.date(byAdding: .day, value: 1, to: start) else { return nil }
+        return Int(start.timeIntervalSince1970)..<Int(next.timeIntervalSince1970)
+    }
+
+    /// Wall-clock offset (seconds east of UTC) for one civil day's hour-of-day logic (AN-02): the offset in
+    /// force at the day's midpoint. That is exact on every ordinary day. On a transition day the switch
+    /// happens at 01:00-03:00 local, so the midpoint offset covers the rest of the night, the wake and any
+    /// nap; only the pre-switch part of the transition night reads one hour off, which cannot cross the
+    /// daytime (11-20 h) or overnight band edges.
+    public static func civilDayClockOffset(_ dayInterval: Range<Int>, timeZone: TimeZone) -> Int {
+        let midpoint = dayInterval.lowerBound + (dayInterval.upperBound - dayInterval.lowerBound) / 2
+        return timeZone.secondsFromGMT(for: Date(timeIntervalSince1970: TimeInterval(midpoint)))
+    }
+
+    /// Legacy pure-function day bucket: `[UTC-midnight(day) − offset, +86,400)`, the exact set the old
+    /// `dayString(ts, offsetSec:) == day` compare selected. Only for callers that pass no civil interval;
+    /// it is wrong on a DST transition day and on days scored under another day's offset (AN-02).
+    static func fixedOffsetDayInterval(_ day: String, offsetSec: Int) -> Range<Int> {
+        let utcStart = dayStartUtcSeconds(day)
+        let (start, startOverflow) = utcStart.subtractingReportingOverflow(offsetSec)
+        guard !startOverflow else { return 0..<0 }
+        let (end, endOverflow) = start.addingReportingOverflow(86_400)
+        return start..<(endOverflow ? Int.max : end)
+    }
+
+    // MARK: - Physiological day (AN-05)
+
+    /// Where day D's sleep-to-sleep cycle starts: the onset of D's main night, chosen by the one shared
+    /// selector (`SleepStageTotals.mainNightGroupIndices`) over the blocks that end on D. nil when D has no
+    /// sleep (its cycle then starts at its civil midnight). `analyzeDay` uses detected onsets; a caller that
+    /// honours sleep edits (live strain, N3-12) passes the effective onsets.
+    public static func cycleStart(_ blocks: [SleepStageTotals.NightBlock], offsetSec: Int,
+                                  habitualMidsleepSec: Int? = nil) -> Int? {
+        guard let group = SleepStageTotals.mainNightGroupIndices(
+            blocks, offsetSec: offsetSec, habitualMidsleepSec: habitualMidsleepSec) else { return nil }
+        return group.map { blocks[$0].start }.min()
+    }
+
+    /// The end of day D's cycle, which the scoring pass supplies once it knows D+1: D+1's cycle start (its
+    /// main-night onset, or its civil midnight when it has no main night), so D and D+1 meet exactly and
+    /// never overlap. `tailHr` / `tailSteps` are the readings between the end of D's read window and `end`
+    /// (a late sleeper's hours after midnight); empty when `end` falls inside the window.
+    public struct CycleEnd: Sendable {
+        public let end: Int
+        public let tailHr: [HRSample]
+        public let tailSteps: [StepSample]
+
+        public init(end: Int, tailHr: [HRSample] = [], tailSteps: [StepSample] = []) {
+            self.end = end; self.tailHr = tailHr; self.tailSteps = tailSteps
+        }
+
+        /// The boundary for D, from D+1's cycle start and civil interval.
+        public static func next(cycleStart: Int?, nextDayInterval: Range<Int>) -> Int {
+            cycleStart ?? nextDayInterval.lowerBound
+        }
     }
 
     /// Skip the redundant calendar-day re-read in analyzeRecent's per-day scan (#997, ryanbr). For a
@@ -253,7 +333,7 @@ public enum AnalyticsEngine {
                                   // falls back to the same night window the rest of the analysis uses
                                   // (preserving the pure-function contract). The caller
                                   // (IntelligenceEngine) supplies a full
-                                  // [localMidnight(day), localMidnight(day)+86400) read here so a
+                                  // civil-day [start, nextStart) read here so a
                                   // day's late hours — which fall outside the ~42h night-detection
                                   // window (it ends at dayStart+12h ≈ noon) — are still seen.
                                   //
@@ -301,10 +381,25 @@ public enum AnalyticsEngine {
                                   profile: UserProfile,
                                   baselines: ProfileBaselines = ProfileBaselines(),
                                   maxHROverride: Double? = nil,
-                                  // Wall-clock UTC offset (seconds) for the sleep detector's daytime
-                                  // false-sleep guard (#90). Default 0 keeps pure-function callers/tests
-                                  // on UTC; IntelligenceEngine passes the device's real offset.
+                                  // Wall-clock UTC offset (seconds) for the hour-of-day logic: the sleep
+                                  // detector's daytime false-sleep guard (#90) and the main-night pick.
+                                  // Default 0 keeps pure-function callers/tests on UTC; IntelligenceEngine
+                                  // passes THIS day's offset (`civilDayClockOffset`), not a pass-wide one.
                                   tzOffsetSeconds: Int = 0,
+                                  // The civil day `[start, nextStart)` that owns `day` (AN-02), from
+                                  // `civilDayInterval` or the caller's calendar enumerator. It buckets
+                                  // session attribution, steps and calories, so a 23 h / 25 h DST day keeps
+                                  // its real length. nil keeps the legacy fixed-offset 86,400 s bucket for
+                                  // pure-function callers/tests.
+                                  dayInterval: Range<Int>? = nil,
+                                  // Where the day's Effort cycle ends (AN-05): the next day's cycle start,
+                                  // supplied by the pass with any readings past the read window. nil (today,
+                                  // pure callers) runs the cycle to the last reading.
+                                  cycleEnd: CycleEnd? = nil,
+                                  // The pass's "now" (unix seconds). The daily total fills resting energy only
+                                  // up to here, so today isn't credited with hours that haven't happened yet
+                                  // (D3b). nil (pure callers/tests) fills the whole day.
+                                  nowTs: Int? = nil,
                                   // Off-wrist `[start, end)` intervals (unix seconds) for the off-wrist
                                   // sleep backstop (#500), paired from WRIST_OFF/WRIST_ON events by
                                   // `offWristIntervals`. The HR-gap proxy in detectSleep is the always-on
@@ -383,12 +478,14 @@ public enum AnalyticsEngine {
         // fans out to. `SleepStager` has its own boundary because it is public and
         // callable directly; this one also protects day totals, workouts, and local
         // calendar bucketing when callers invoke `analyzeDay` directly.
-        let hr = hr.filter { isSafeTimelineTimestamp($0.ts) }
+        // AN-03: one heart-rate plausibility range at the same boundary, so a 0-bpm off-wrist row can't
+        // become sleep, a 0 resting HR, a phantom workout or a lowered calorie threshold downstream.
+        let hr = hr.filter { isSafeTimelineTimestamp($0.ts) && HRValidity.isPlausible($0.bpm) }
         let rr = rr.filter { isSafeTimelineTimestamp($0.ts) }
         let resp = resp.filter { isSafeTimelineTimestamp($0.ts) }
         let gravity = gravity.filter { isSafeTimelineTimestamp($0.ts) }
         let steps = steps.filter { isSafeTimelineTimestamp($0.ts) }
-        let dayHr = dayHr?.filter { isSafeTimelineTimestamp($0.ts) }
+        let dayHr = dayHr?.filter { isSafeTimelineTimestamp($0.ts) && HRValidity.isPlausible($0.bpm) }
         let daySteps = daySteps?.filter { isSafeTimelineTimestamp($0.ts) }
         let dayGravity = dayGravity?.filter { isSafeTimelineTimestamp($0.ts) }
         let skinTemp = skinTemp.filter { isSafeTimelineTimestamp($0.ts) }
@@ -400,26 +497,23 @@ public enum AnalyticsEngine {
         }
         let bandSleepState = bandSleepState.filter { isSafeTimelineTimestamp($0.ts) }
 
-        // Precompute the day's UTC bounds ONCE (#996). `dayString(ts, offsetSec:)` formats the UTC
-        // calendar day of (ts + offset) with a FIXED offset, so "== day" is exactly membership in
-        // [dayStartUtc, +86400). That turns the day-bucketing filters below — otherwise a per-sample
-        // DateFormatter over the full-day dayHr/daySteps streams (~86k 1 Hz samples each) once per
-        // analyzeDay, ×maxDays every pass — into an integer range check. Byte-identical to the
-        // formatter compare (locked by AnalyticsEngineDayBoundsTests, incl. fractional offsets).
-        let dayStartUtc = dayStartUtcSeconds(day)
-        let dayEndUtc = SleepTimestampMath.adding(86_400, to: dayStartUtc) ?? Int.max
-        func tsInDay(_ ts: Int) -> Bool {
-            guard let localTimestamp = SleepTimestampMath.adding(tzOffsetSeconds, to: ts) else {
-                return false
-            }
-            return localTimestamp >= dayStartUtc && localTimestamp < dayEndUtc
-        }
+        // The day's bounds, computed ONCE as an integer range (#996: no per-sample DateFormatter over the
+        // ~86k-sample day streams). The caller's civil interval wins (AN-02): it is the real local day,
+        // so a fall-back day keeps its 00:00-01:00 hour and a spring-forward day is 23 h. Without one, the
+        // legacy fixed-offset bucket is byte-identical to the old `dayString(ts, offsetSec:) == day`
+        // compare (locked by AnalyticsEngineDayBoundsTests, incl. fractional offsets).
+        let dayBounds = dayInterval ?? fixedOffsetDayInterval(day, offsetSec: tzOffsetSeconds)
+        func tsInDay(_ ts: Int) -> Bool { dayBounds.contains(ts) }
 
         // ── Sleep detection + staging ─────────────────────────────────────────
+        // AN-07: only runs ending on this civil day are staged; the read window's other night still feeds
+        // the continuation chain but is no longer staged and dropped. The wake refinement below changes
+        // stages only, never a session's end, so attribution by the detected end is exact.
         let detectedSessions = SleepStager.detectSleep(hr: hr, rr: rr, resp: resp, gravity: gravity,
                                                   tzOffsetSeconds: tzOffsetSeconds, wristOff: wristOff,
                                                   bandSleepState: bandSleepState,
                                                   useSleepStagerV2: useSleepStagerV2,
+                                                  attributeEndRange: dayBounds,
                                                   traceSink: traceSink)
         // Motion-aware wake refinement (#364 follow-up) runs AFTER V1/V2 staging, over every detected
         // session (naps included — the same eligibility gates apply). `steps` is the SAME calendar-day/
@@ -430,7 +524,7 @@ public enum AnalyticsEngine {
             ? detectedSessions.map { WakeMotionRefinement.refine($0, grav: gravity, steps: steps) }
             : detectedSessions
         // Sessions attributed to `day` = those whose end falls on `day` (LOCAL day, #277). `day` is
-        // the caller's local-day key; attribute by the same offset so the bucket and the key agree.
+        // the caller's local-day key; attribute by the same civil bounds so the bucket and the key agree.
         let matched = allSessions.filter { tsInDay($0.end) }
 
         // ── The day's MAIN night (#525) ───────────────────────────────────────
@@ -711,7 +805,7 @@ public enum AnalyticsEngine {
         // flat when still, and wraps at 65536). The daily total is the SUM of WRAP-AWARE increments of
         // that counter across the time-ordered 1 Hz records: delta = (cur - prev) & 0xFFFF. The first
         // record has no predecessor (contributes 0). The day's read window may include adjacent-day
-        // samples, so filter to the LOCAL-day key dayString(ts, tzOffset)==day first (#277).
+        // samples, so filter to the local civil day first (#277, AN-02).
         //
         // Reading byte @57 ALONE and summing it (the old bug, #132/#276/#316: exzanimo saw ~24× too
         // many steps) both ignored the high byte and summed a running total — exploding the count to
@@ -736,31 +830,41 @@ public enum AnalyticsEngine {
         // Whole-day active+resting energy from the full HR window, using the same resting/active
         // per-second model the per-workout estimate uses (resting BMR below activeThreshold, Keytel
         // active above). effMaxHR + restingHRDaily are the same effective HRmax / resting baseline
-        // strain uses. Nil when there is no HR. A heart-rate ESTIMATE — not cloud/clinical parity.
+        // strain uses. A heart-rate ESTIMATE — not cloud/clinical parity.
+        // D3b: the total covers the whole civil day, as WHOOP and Apple Health count it. Seconds with no
+        // valid HR (off-wrist, no data, dropped 0-bpm rows) get resting BMR, worn seconds keep the per-sample
+        // model, and no second gets both. Today fills only up to `nowTs`.
         // Whole-day additive totals (steps above, calories here) are summed over the full LOCAL
         // calendar day supplied by the caller (dayHr / daySteps), NOT the ~42h sleep-detection
         // window — which, anchored to the current time-of-day, would drop a past day's late hours
-        // and double-count seconds shared with adjacent days. The filter uses the LOCAL-day key
-        // (dayString(ts, tzOffset)) so it agrees with the bucket (#277). Fall back to the
+        // and double-count seconds shared with adjacent days. The filter uses the local civil day
+        // bounds so it agrees with the bucket (#277, AN-02). Fall back to the
         // night-window hr for pure-function callers that don't supply dayHr. Strain keeps the full
         // window (bounded log).
         let dayHrFiltered = (dayHr ?? hr).filter { tsInDay($0.ts) }
-        let activeKcalEst: Double? = dayHrFiltered.isEmpty ? nil : Calories.estimateDayCalories(
-            dayHrFiltered, profile: profile, hrmax: effMaxHR,
-            restingHR: restingHRDaily.map(Double.init))
+        let fillEnd = nowTs.map { min(dayBounds.upperBound, max(dayBounds.lowerBound, $0)) } ?? dayBounds.upperBound
+        let fillWindow = dayBounds.lowerBound..<fillEnd
+        // Review round 3 (C): the fill covers the off-wrist time of a day the strap was worn for, before its first
+        // reading too. A day with no valid heart rate at all has no total, so Apple Health's measured active +
+        // basal energy applies instead of a BMR-only number.
+        let activeKcalEst: Double? = dayHrFiltered.contains(where: { HRValidity.isPlausible($0.bpm) })
+            ? Calories.estimateFullDayCalories(dayHrFiltered, fillWindow: fillWindow, profile: profile,
+                                               hrmax: effMaxHR, restingHR: restingHRDaily.map(Double.init))
+            : nil
 
         // ── Canonical Strain V2 (sleep-to-sleep physiological day) ───────────
         // The HR-derived whole-day calorie estimate includes resting energy, so it is NOT a valid
         // active-energy floor. Until a source supplies a genuine active-energy aggregate, V2 leaves
         // that optional input absent. Sleep and step floors remain non-additive with cardio load.
-        let mainSleepStart = matched.map(\.start).min()
-        let mainSleepEnd = matched.map(\.end).max()
+        // AN-05: the physiological day runs sleep-to-sleep, from this day's main-night onset (the same
+        // selector as the sleep rollup) to the next day's cycle start, which only the pass knows.
+        let cycleStartTs = mainGroup.map(\.start).min()
         // Store reads are chronological. Merge the overlapping night/calendar arrays in O(n), retaining
         // the maximum BPM for equal seconds (the defensive scorer's sorted duplicate semantics). Pure
         // callers that provide unsorted fixtures fall back to the same defensive sort.
         func mergedChronologicalHR(_ lhs: [HRSample], _ rhs: [HRSample]) -> [HRSample] {
-            let validL = lhs.filter { (30...240).contains($0.bpm) }
-            let validR = rhs.filter { (30...240).contains($0.bpm) }
+            let validL = lhs.filter { HRValidity.isPlausible($0.bpm) }
+            let validR = rhs.filter { HRValidity.isPlausible($0.bpm) }
             let orderedL = zip(validL, validL.dropFirst()).allSatisfy { $0.ts <= $1.ts }
             let orderedR = zip(validR, validR.dropFirst()).allSatisfy { $0.ts <= $1.ts }
             guard orderedL, orderedR else {
@@ -786,7 +890,8 @@ public enum AnalyticsEngine {
             }
             return result
         }
-        let mergedCycleHr = mergedChronologicalHR(hr, dayHr ?? [])
+        let cycleTailHr = (cycleEnd?.tailHr ?? []).filter { isSafeTimelineTimestamp($0.ts) }
+        let mergedCycleHr = mergedChronologicalHR(mergedChronologicalHR(hr, dayHr ?? []), cycleTailHr)
         func mergedChronologicalSteps(_ lhs: [StepSample], _ rhs: [StepSample]) -> [StepSample] {
             let orderedL = zip(lhs, lhs.dropFirst()).allSatisfy { $0.ts <= $1.ts }
             let orderedR = zip(rhs, rhs.dropFirst()).allSatisfy { $0.ts <= $1.ts }
@@ -803,20 +908,24 @@ public enum AnalyticsEngine {
             }
             return result
         }
-        let mergedCycleSteps = mergedChronologicalSteps(steps, daySteps ?? [])
-        let nextSleepStart: Int? = mainSleepEnd.flatMap { end in
-            matched
-                .filter { $0.end - $0.start >= 3 * 3_600 && $0.start >= end + 8 * 3_600 }
-                .map(\.start)
-                .min()
+        let cycleTailSteps = (cycleEnd?.tailSteps ?? []).filter { isSafeTimelineTimestamp($0.ts) }
+        let mergedCycleSteps = mergedChronologicalSteps(
+            mergedChronologicalSteps(steps, daySteps ?? []), cycleTailSteps)
+        // With no main night the cycle starts at the civil midnight. It ends where the pass says the next
+        // cycle starts; without that (today, pure callers) a slept day runs to the last reading and an
+        // unslept day to its civil end. Both cases read the merged, plausibility-filtered, chronological
+        // stream, which is what `strainSorted` requires.
+        let cycleFrom = cycleStartTs ?? dayBounds.lowerBound
+        let cycleTo: Int
+        if let end = cycleEnd?.end {
+            cycleTo = max(cycleFrom, end)
+        } else if cycleStartTs == nil {
+            cycleTo = dayBounds.upperBound
+        } else {
+            cycleTo = mergedCycleHr.last.map { $0.ts + 1 } ?? cycleFrom
         }
-        let cycleEnd = nextSleepStart ?? (mergedCycleHr.last.map { $0.ts + 1 } ?? 0)
-        let cycleHr = mainSleepStart.map { start in
-            mergedCycleHr.filter { $0.ts >= start && $0.ts < cycleEnd }
-        } ?? dayHrFiltered
-        let cycleStepRows = mainSleepStart.map { start in
-            mergedCycleSteps.filter { $0.ts >= start && $0.ts < cycleEnd }
-        } ?? (daySteps ?? steps).filter { tsInDay($0.ts) }
+        let cycleHr = mergedCycleHr.filter { $0.ts >= cycleFrom && $0.ts < cycleTo }
+        let cycleStepRows = mergedCycleSteps.filter { $0.ts >= cycleFrom && $0.ts < cycleTo }
         let cycleStepsTotal: Int? = {
             guard let ticks = StepsCounter.stepsInWindow(cycleStepRows) else { return nil }
             let scaled = Int((Double(ticks) / max(profile.stepTicksPerStep, 0.5)).rounded())
@@ -915,7 +1024,9 @@ public enum AnalyticsEngine {
                          sessionMotionByStart: sessionMotionByStart,
                          sessionSleepStateByStart: sessionSleepStateByStart,
                          chargeDrivers: chargeDrivers,
-                         skinTempRelative: skinTempRelative)
+                         skinTempRelative: skinTempRelative,
+                         cycleStart: cycleStartTs,
+                         strapWornSeconds: DailyCalories.wornSeconds(dayHrFiltered))
     }
 
     // MARK: - Rest composite (Charge/Effort/Rest)
@@ -1186,7 +1297,7 @@ public enum AnalyticsEngine {
                                             medianMappedC: medianMappedC)
         }
         var wornSeconds = Set<Int>(minimumCapacity: hr.count)
-        for h in hr where (30...220).contains(h.bpm) { wornSeconds.insert(h.ts) }
+        for h in hr where HRValidity.isPlausible(h.bpm) { wornSeconds.insert(h.ts) }
         var sum = 0.0
         var kept = 0
         var notWorn = 0, outOfWindow = 0, outOfRange = 0

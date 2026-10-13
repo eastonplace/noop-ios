@@ -56,8 +56,9 @@ struct DashboardCardDestination: View {
         case .hydration: HydrationView()
         case .coupled: CoupledView()
         case .fitnessAge: FitnessAgeDetailView()
-        case .hrv, .restingHr, .respiratory, .steps, .vitality,
-             .bloodOxygen, .skinTemp, .calories:
+        case .steps: HealthMetricTrendView(metric: .steps)
+        case .calories: HealthMetricTrendView(metric: .calories)
+        case .hrv, .restingHr, .respiratory, .vitality, .bloodOxygen, .skinTemp:
             HealthView()
         }
     }

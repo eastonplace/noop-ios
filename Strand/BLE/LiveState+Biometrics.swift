@@ -83,7 +83,9 @@ extension LiveState {
         standardHRMode = nil
         rr.removeAll(keepingCapacity: true)
         rrRecent.removeAll(keepingCapacity: true)
-        clearBatterySamples()
+        // BLE-12: battery samples are NOT cleared on a disconnect: they are the persisted discharge
+        // history the "~X days left" estimate is seeded from. BLEManager clears them only on a device or
+        // family switch.
         recentHrSamples.removeAll(keepingCapacity: true)
         recentGravitySamples.removeAll(keepingCapacity: true)
         clearStrapRange()

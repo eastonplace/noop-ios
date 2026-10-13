@@ -91,36 +91,8 @@ final class PaperIntegrationContractTests: XCTestCase {
         XCTAssertEqual(state.zoneSeconds, [1, 2, 3, 4, 5])
     }
 
-    func testPaperLocalizationCatalogsContainNoLegacyPillarKeys() throws {
-        #if os(iOS)
-        throw XCTSkip("Raw .xcstrings source files are not bundled into the physical iOS test host; this is a source-contract test.")
-        #else
-        let repositoryRoot = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-        let catalogs = [
-            "Strand/Resources/Localizable.xcstrings",
-            "Packages/StrandDesign/Sources/StrandDesign/Resources/Localizable.xcstrings",
-        ]
-        let legacyPillar = try NSRegularExpression(
-            pattern: #"(^|[^A-Za-z])(Charge|Effort|EFFORT)([^A-Za-z]|$)"#
-        )
-
-        for relativePath in catalogs {
-            let data = try Data(contentsOf: repositoryRoot.appendingPathComponent(relativePath))
-            let catalog = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
-            let strings = try XCTUnwrap(catalog["strings"] as? [String: Any])
-            XCTAssertFalse(strings.isEmpty, "Empty localization catalog: \(relativePath)")
-            for key in strings.keys {
-                let range = NSRange(key.startIndex..., in: key)
-                XCTAssertNil(
-                    legacyPillar.firstMatch(in: key, range: range),
-                    "Legacy Paper pillar key in \(relativePath): \(key)"
-                )
-            }
-        }
-        #endif
-    }
+    // ORG-8: the legacy Paper pillar key check on the .xcstrings catalogs always skipped on iOS (the raw
+    // catalogs are not bundled into the test host). It now runs as Tools/qa/paper_strings_contract_audit.py.
 }
 
 final class SleepEfficiencyPresentationTests: XCTestCase {

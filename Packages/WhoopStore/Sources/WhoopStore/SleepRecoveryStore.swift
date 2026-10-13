@@ -213,6 +213,62 @@ extension WhoopStore {
         }
     }
 
+    /// Record rejected revalidation and clear unsupported values only for the same saved window.
+    /// Keep its bounds and nullable override so later raw data can refresh the correction.
+    @discardableResult
+    public func recordRejectedSleepRecovery(
+        _ audit: SleepRecoveryAuditRecord,
+        deviceId: String,
+        revalidatingSessionStartTs: Int
+    ) async throws -> Bool {
+        try syncWrite { db in
+            try Self.upsertSleepRecoveryAudit(db, deviceId: deviceId, audit: audit)
+            guard audit.source == "manual_window",
+                  audit.outcome == "insufficient_data" || audit.outcome == "no_sleep_evidence",
+                  let day = try String.fetchOne(db, sql: """
+                    SELECT o.day FROM sleepRecoveryDailyOverride o
+                    JOIN sleepSession s
+                      ON s.deviceId = o.deviceId AND s.startTs = o.sessionStartTs
+                    WHERE s.deviceId = ? AND s.startTs = ? AND s.userEdited = 1
+                      AND COALESCE(s.startTsAdjusted, s.startTs) = ? AND s.endTs = ?
+                    """, arguments: [
+                        deviceId, revalidatingSessionStartTs, audit.requestedStartTs, audit.requestedEndTs
+                    ]) else { return false }
+
+            // Clear the overlay first so its protection triggers cannot restore stale values.
+            try db.execute(sql: """
+                UPDATE sleepRecoveryDailyOverride
+                SET totalSleepMin = NULL, efficiency = NULL, deepMin = NULL, remMin = NULL,
+                    lightMin = NULL, disturbances = NULL, restingHr = NULL, avgHrv = NULL,
+                    recovery = NULL, restScore = NULL, chargeWeightedSumWithoutSleep = NULL,
+                    chargeWeightWithoutSleep = NULL, chargeBaselineUsable = 0, updatedAt = ?
+                WHERE deviceId = ? AND day = ? AND sessionStartTs = ?
+                """, arguments: [audit.updatedAt, deviceId, day, revalidatingSessionStartTs])
+            try db.execute(sql: """
+                UPDATE sleepSession
+                SET efficiency = NULL, restingHr = NULL, avgHrv = NULL, stagesJSON = NULL
+                WHERE deviceId = ? AND startTs = ?
+                """, arguments: [deviceId, revalidatingSessionStartTs])
+            try db.execute(sql: """
+                UPDATE dailyMetric
+                SET totalSleepMin = NULL, efficiency = NULL, deepMin = NULL, remMin = NULL,
+                    lightMin = NULL, disturbances = NULL, restingHr = NULL, avgHrv = NULL,
+                    recovery = NULL
+                WHERE deviceId = ? AND day = ?
+                """, arguments: [deviceId, day])
+            try db.execute(sql: """
+                DELETE FROM metricSeries
+                WHERE deviceId = ? AND day = ? AND key IN (
+                    'sleep_performance',
+                    'noop_sleep_performance_v2',
+                    'noop_sleep_performance_v2_model',
+                    'noop_sleep_performance_v2_source'
+                )
+                """, arguments: [deviceId, day])
+            return true
+        }
+    }
+
     public func sleepRecoveryAttempts(
         deviceId: String,
         from: Int = 0,

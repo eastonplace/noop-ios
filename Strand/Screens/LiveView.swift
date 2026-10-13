@@ -21,6 +21,7 @@ import WhoopStore
 /// the stream and gate the layout.
 struct LiveView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var typeSize
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var live: LiveState
     @EnvironmentObject private var repo: Repository
@@ -46,16 +47,21 @@ struct LiveView: View {
         return active.displayName
     }
 
-    /// Live workout mode (#238) — presents the full in-exercise screen while a manual workout is
-    /// active. Auto-opens when a workout begins; closing just hides it (the workout keeps recording).
-    @State private var showLiveWorkout = false
-    @State private var showStartSport = false
+    /// iOS presents Live as a modal quick action, whose scaffold header owns the single close button, so a
+    /// back chevron here would be a second one. macOS keeps its dismiss chevron.
+    private var scaffoldBackAction: (() -> Void)? {
+        #if os(iOS)
+        return nil
+        #else
+        return { dismiss() }
+        #endif
+    }
 
     var body: some View {
         ScreenScaffold(title: "Live Body Console",
                        subtitle: nil,
                        topBackground: nil,
-                       backAction: { dismiss() }) {
+                       backAction: scaffoldBackAction) {
             VStack(alignment: .leading, spacing: NoopMetrics.sectionGap) {
                 if let message = live.bluetoothUnavailableMessage {
                     NoteCard(LocalizedStringKey(message), title: "Bluetooth unavailable", style: .warning)
@@ -88,7 +94,7 @@ struct LiveView: View {
         #if os(iOS)
         .toolbar(.hidden, for: .navigationBar)
         #endif
-        .onAppear { refreshLiveSession(); consumeActiveWorkoutRequest() }
+        .onAppear { refreshLiveSession() }
         .onDisappear { model.stopRealtimeHR() }
         // A fresh bond/connection re-arms the BLE stream (Apple must re-send startRealtime on a new
         // connection) WITHOUT bumping the ref-count — `refreshLiveSession`'s `startRealtimeHR` already
@@ -97,36 +103,12 @@ struct LiveView: View {
         // the stream stuck armed after leaving Live (#681 ref-count balance).
         .onChangeCompat(of: live.bonded) { _ in reconnectLiveSession() }
         .onChangeCompat(of: live.connected) { _ in reconnectLiveSession() }
-        // Live workout mode (#238): open the in-exercise screen the moment a workout starts.
-        .onChangeCompat(of: model.activeWorkout != nil) { active in
-            if active && !showStartSport { showLiveWorkout = true }
-        }
-        .sheet(isPresented: $showLiveWorkout) {
-            LiveWorkoutView(onClose: { showLiveWorkout = false })
-                .environmentObject(model)
-                .environmentObject(live)
-        }
-        // Pick a named sport before starting (#519) — the live workout view then opens
-        // off the activeWorkout change above, so no extra navigation is needed here.
-        .sheet(isPresented: $showStartSport, onDismiss: {
-            if model.activeWorkout != nil { showLiveWorkout = true }
-        }) {
-            StartWorkoutSheet { name in model.startWorkout(sport: name) }
-        }
     }
 
-    // MARK: - Frosted card helper (matches Paper Today.card: rounded 22 + resting hairline)
+    // MARK: - Section helper (flat content section on iOS, bounded card elsewhere)
 
-    private func card<V: View>(@ViewBuilder _ content: () -> V) -> some View {
-        content()
-            .padding(16)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .fill(StrandPalette.surfaceRaised)
-                    .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous)
-                        .strokeBorder(StrandPalette.hairline, lineWidth: 1))
-            )
+    private func card<V: View>(@ViewBuilder _ content: @escaping () -> V) -> some View {
+        StrandCard(padding: NoopMetrics.cardPadding, content: content)
     }
 
     // MARK: - Console header
@@ -235,8 +217,8 @@ struct LiveView: View {
         NoopButton(model.activeWorkout == nil ? "Start workout" : "Open active workout",
                    systemImage: model.activeWorkout == nil ? "figure.run" : "timer",
                    kind: .primary, fullWidth: true) {
-            if model.activeWorkout == nil { showStartSport = true }
-            else { showLiveWorkout = true }
+            if model.activeWorkout == nil { router.beginWorkout() }
+            else { router.openActiveWorkout() }
         }
     }
 
@@ -255,47 +237,15 @@ struct LiveView: View {
     }
 
     private func reconnectGuideBanner(_ guide: String) -> some View {
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(StrandPalette.statusWarning)
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 3) {
-                Text("Can't connect: your strap's pairing was reset")
-                    .font(StrandFont.subhead).foregroundStyle(StrandPalette.textPrimary)
-                Text(guide)
-                    .font(StrandFont.footnote).foregroundStyle(StrandPalette.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(NoopMetrics.space3)
-        .background(StrandPalette.surfaceRaised, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous)
-            .strokeBorder(StrandPalette.statusWarning.opacity(0.5), lineWidth: 1))
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Reconnect help: \(guide)")
+        NoteCard(LocalizedStringKey(guide), title: "Can't connect: your strap's pairing was reset", style: .warning)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("Reconnect help: \(guide)")
     }
 
     private func pairingHintBanner(_ hint: String) -> some View {
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(StrandPalette.statusWarning)
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 3) {
-                Text("Live HR works. Free the strap to unlock buzz, alarms & sync")
-                    .font(StrandFont.subhead).foregroundStyle(StrandPalette.textPrimary)
-                Text(hint)
-                    .font(StrandFont.footnote).foregroundStyle(StrandPalette.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(NoopMetrics.space3)
-        .background(StrandPalette.surfaceRaised, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous)
-            .strokeBorder(StrandPalette.statusWarning.opacity(0.5), lineWidth: 1))
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Pairing help: \(hint)")
+        NoteCard(LocalizedStringKey(hint), title: "Live HR works. Free the strap to unlock buzz, alarms & sync", style: .warning)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("Pairing help: \(hint)")
     }
 
     /// Whether the low-bandwidth standard-HR fallback note should render. The note explains that live HR
@@ -311,26 +261,12 @@ struct LiveView: View {
     /// is NOT a warning — live HR is working — so it uses the accent (health-green) treatment with a signal
     /// glyph. Mirrors the banner layout (icon + headline + one-line explanation) for visual consistency.
     private func standardHRNote(_ detail: String) -> some View {
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: "antenna.radiowaves.left.and.right")
-                .foregroundStyle(StrandPalette.accent)
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 3) {
-                Text("Standard HR mode (low bandwidth)")
-                    .font(StrandFont.subhead).foregroundStyle(StrandPalette.textPrimary)
-                Text(detail)
-                    .font(StrandFont.footnote).foregroundStyle(StrandPalette.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                Text("Other metrics (R-R, frames, battery, history) need a full sync.")
-                    .font(StrandFont.footnote).foregroundStyle(StrandPalette.textTertiary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer(minLength: 0)
+        VStack(alignment: .leading, spacing: NoopMetrics.space1) {
+            NoteCard(LocalizedStringKey(detail), title: "Standard HR mode (low bandwidth)", style: .info)
+            Text("Other metrics (R-R, frames, battery, history) need a full sync.")
+                .font(StrandFont.footnote).foregroundStyle(StrandPalette.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(NoopMetrics.space3)
-        .background(StrandPalette.surfaceRaised, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous)
-            .strokeBorder(StrandPalette.accent.opacity(0.4), lineWidth: 1))
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Standard HR mode, low bandwidth. \(detail)")
     }
@@ -340,24 +276,35 @@ struct LiveView: View {
     /// Pick the strap family to scan for. Switching the selection drops the current strap's bond so the
     /// newly-picked one connects fresh — letting a user move between a WHOOP 4 and a 5/MG.
     private var modelPicker: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 10) {
-                Text("Strap").font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
-                SegmentedPillControl(
-                    WhoopModel.allCases,
-                    selection: Binding(
-                        get: { selectedModel },
-                        set: { newModel in
-                            guard newModel.rawValue != selectedModelRaw else { return }
-                            selectedModelRaw = newModel.rawValue
-                            // Clear the previous strap's sticky bond/connection so the next scan targets the
-                            // new family's service and bonds it fresh.
-                            model.prepareStrapSwitch()
-                        }
-                    ),
-                    label: { $0.displayName }
-                )
-                Spacer()
+        let strapLabel = Text("Strap").font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
+        let strapPicker = SegmentedPillControl(
+            WhoopModel.allCases,
+            selection: Binding(
+                get: { selectedModel },
+                set: { newModel in
+                    guard newModel.rawValue != selectedModelRaw else { return }
+                    selectedModelRaw = newModel.rawValue
+                    // Clear the previous strap's sticky bond/connection so the next scan targets the
+                    // new family's service and bonds it fresh.
+                    model.prepareStrapSwitch()
+                }
+            ),
+            label: { $0.displayName }
+        )
+        return VStack(alignment: .leading, spacing: 10) {
+            // The control stacks its segments one per row at the accessibility sizes, so it takes the width under its
+            // label there instead of the sliver beside it.
+            if typeSize.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: 6) {
+                    strapLabel
+                    strapPicker
+                }
+            } else {
+                HStack(spacing: 10) {
+                    strapLabel
+                    strapPicker
+                    Spacer()
+                }
             }
             // Proactive 5/MG guidance: the strap bonds to one host at a time, so if it's still paired in
             // the official WHOOP app a scan here finds nothing. Shown the moment 5/MG is picked — not only
@@ -406,8 +353,6 @@ struct LiveView: View {
                 scanButton
             }
         }
-        .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous)
-            .strokeBorder(StrandPalette.accent.opacity(0.30), lineWidth: 1))
     }
 
     // MARK: - Manage devices link
@@ -439,10 +384,8 @@ struct LiveView: View {
                     .foregroundStyle(StrandPalette.textTertiary)
                     .accessibilityHidden(true)
             }
-            .padding(NoopMetrics.space3)
-            .background(StrandPalette.surfaceRaised, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .strokeBorder(StrandPalette.hairline, lineWidth: 1))
+            .padding(.vertical, NoopMetrics.space3)
+            .frame(minHeight: 44)
             .contentShape(Rectangle())
         }
         .buttonStyle(PaperPressStyle())
@@ -520,17 +463,6 @@ struct LiveView: View {
         model.getBattery()
     }
 
-    /// Honour a one-shot "Return to workout" from the Today indicator card: present the in-exercise screen
-    /// for an already-running workout, then clear the flag. The #238 "a workout just started" transition
-    /// trigger never fires for a session that is already in flight, so this is the path that re-opens it.
-    /// Guarded on a live `activeWorkout` so a stale flag can never present an empty live-workout sheet, and
-    /// it sets the SAME `showLiveWorkout` one-shot the manual re-open button uses (no new sheet machinery).
-    private func consumeActiveWorkoutRequest() {
-        guard router.presentActiveWorkout else { return }
-        router.presentActiveWorkout = false
-        if model.activeWorkout != nil { showLiveWorkout = true }
-    }
-
     /// A fresh bond/connection landed while the Live tab is up: re-arm the BLE stream (Apple re-sends
     /// startRealtime on a new connection) and refresh battery — WITHOUT taking another ref-count, since
     /// these events can fire several times per appearance against the single `.onDisappear` release.
@@ -591,6 +523,7 @@ private struct PaperLiveHeartCard: View {
     /// not a freshness signal: a steady heart rate can legitimately repeat for minutes.
     @State private var lastHRArrival: Date?
     @State private var freshnessNow = Date()
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     private var bpm: Int? { model.bpm }
     private var zoneSet: HRZoneSet { HRZones.zones(maxHR: Double(max(1, hrMax)), source: "profile") }
@@ -610,38 +543,19 @@ private struct PaperLiveHeartCard: View {
                     .font(StrandFont.sectionOverline)
                     .tracking(StrandFont.sectionOverlineTracking)
                     .foregroundStyle(StrandPalette.textSecondary)
-                HStack(spacing: 20) {
-                    VStack(spacing: 8) {
-                        if let bpm {
-                            ScoreRing(value: Double(bpm), range: 0...Double(max(1, hrMax)),
-                                      accent: StrandPalette.liveRed, size: 96,
-                                      format: { "\(Int($0.rounded()))" }, centerCaption: "BPM")
-                        } else {
-                            ZStack {
-                                Circle().stroke(StrandPalette.inset, lineWidth: 7)
-                                VStack(spacing: 1) {
-                                    Text("—").font(StrandFont.ringScoreLarge)
-                                    Text("BPM").font(StrandFont.micro)
-                                }
-                                .foregroundStyle(StrandPalette.textTertiary)
-                            }
-                            .frame(width: 96, height: 96)
-                        }
-                        StatePill(
-                            vitalPresentation.label,
-                            tone: vitalPresentation.tone,
-                            pulsing: vitalPresentation.pulsing
-                        )
+                if typeSize.isAccessibilitySize {
+                    // The ring and the three rows are too wide for one line at the accessibility sizes (the rows
+                    // squeezed to a sliver of text beside the ring and ran into each other), so they stack.
+                    VStack(alignment: .leading, spacing: 14) {
+                        ringColumn
+                        metricRows
                     }
-                    VStack(spacing: 0) {
-                        metricRow(label: zone > 0 ? "ZONE \(zone)" : "ZONE 1",
-                                  value: zoneThreshold)
-                        metricRow(label: "HRV", value: rollingRMSSD.map { "\(Int($0.rounded())) ms" } ?? "—",
-                                  positive: rollingRMSSD != nil)
-                        metricRow(label: "RHR", value: restingHR.map { "\($0) bpm" } ?? "—",
-                                  divider: false)
+                } else {
+                    HStack(spacing: 20) {
+                        ringColumn
+                        metricRows
+                        Spacer(minLength: 0)
                     }
-                    Spacer(minLength: 0)
                 }
             }
         }
@@ -662,6 +576,42 @@ private struct PaperLiveHeartCard: View {
                 guard !Task.isCancelled else { return }
                 freshnessNow = Date()
             }
+        }
+    }
+
+    private var ringColumn: some View {
+        VStack(spacing: 8) {
+            if let bpm {
+                ScoreRing(value: Double(bpm), range: 0...Double(max(1, hrMax)),
+                          accent: StrandPalette.liveRed, size: 96,
+                          format: { "\(Int($0.rounded()))" }, centerCaption: "BPM")
+            } else {
+                ZStack {
+                    Circle().stroke(StrandPalette.inset, lineWidth: 7)
+                    VStack(spacing: 1) {
+                        Text("—").font(StrandFont.ringScoreLarge)
+                        Text("BPM").font(StrandFont.micro)
+                    }
+                    .foregroundStyle(StrandPalette.textTertiary)
+                }
+                .frame(width: 96, height: 96)
+            }
+            StatePill(
+                vitalPresentation.label,
+                tone: vitalPresentation.tone,
+                pulsing: vitalPresentation.pulsing
+            )
+        }
+    }
+
+    private var metricRows: some View {
+        VStack(spacing: 0) {
+            metricRow(label: zone > 0 ? "ZONE \(zone)" : "ZONE 1",
+                      value: zoneThreshold)
+            metricRow(label: "HRV", value: rollingRMSSD.map { "\(Int($0.rounded())) ms" } ?? "—",
+                      positive: rollingRMSSD != nil)
+            metricRow(label: "RHR", value: restingHR.map { "\($0) bpm" } ?? "—",
+                      divider: false)
         }
     }
 
@@ -910,8 +860,8 @@ private struct LivePhysiology: View {
 
     private var activeConnection: Bool { live.connected && live.bonded }
 
-    /// The liquid heart pink (matches PaperSparkline's default + the mockup #ff6b81).
-    private let heartTrace = Color(.sRGB, red: 1, green: 107 / 255, blue: 129 / 255, opacity: 1)
+    /// The live-heart red (matches PaperSparkline's default + the live heart-rate ring).
+    private let heartTrace = StrandPalette.liveRed
 
     var body: some View {
         VStack(alignment: .leading, spacing: NoopMetrics.space4) {
@@ -1120,91 +1070,87 @@ struct LiveLogCard: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 12) {
-                Text("STRAP LOG").font(StrandFont.overline).tracking(StrandFont.overlineTracking)
-                    .foregroundStyle(StrandPalette.textSecondary)
-                Spacer()
-                // Export the log so people can attach it to a bug report (issue #17 — macOS users
-                // had no way to share it). Copy → clipboard; Save… → a .txt file.
-                Button("Copy") { copyStrapLog() }
-                    .buttonStyle(.plain).font(StrandFont.mono).foregroundStyle(StrandPalette.accent)
-                Button("Save…") { saveStrapLog() }
-                    .buttonStyle(.plain).font(StrandFont.mono).foregroundStyle(StrandPalette.accent)
-            }
-            ScrollViewReader { proxy in
-                VStack(alignment: .leading, spacing: 6) {
-                    if hiddenLineCount > 0 {
-                        Button("Load \(min(300, hiddenLineCount)) older lines") {
-                            displayedLineCount += min(300, hiddenLineCount)
-                            followsTail = false
-                        }
-                        .buttonStyle(.plain)
-                        .font(StrandFont.mono)
-                        .foregroundStyle(StrandPalette.accent)
-                        .accessibilityLabel("Load older strap log lines")
-                    }
-                    HStack {
-                        Text("Showing \(visibleLog.count) of \(live.log.count) lines")
-                            .font(StrandFont.micro)
-                            .foregroundStyle(StrandPalette.textTertiary)
-                        Spacer()
-                        Button(followsTail ? "Following latest" : "Follow latest") {
-                            followsTail = true
-                            if let last = live.log.indices.last {
-                                proxy.scrollTo(last, anchor: .bottom)
-                            }
-                        }
-                        .buttonStyle(.plain)
-                        .font(StrandFont.micro)
-                        .foregroundStyle(StrandPalette.accent)
-                    }
-                    ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 2) {
-                            ForEach(visibleLog.indices, id: \.self) { idx in
-                                let line = live.log[idx]
-                            Text(line).font(StrandFont.mono)
-                                .foregroundStyle(StrandPalette.textSecondary)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .id(idx)
-                            }
-                        }
-                    }
-                    .frame(height: 200)
-                    // A deliberate drag means the reader is inspecting history. New streaming lines never
-                    // yank that context away; the explicit control above resumes tail-following.
-                    .simultaneousGesture(DragGesture().onChanged { _ in followsTail = false })
-                    .onChangeCompat(of: live.log.count) { _ in
-                        guard followsTail, let last = live.log.indices.last else { return }
-                        proxy.scrollTo(last, anchor: .bottom)
-                    }
+        StrandCard(padding: NoopMetrics.cardPadding) {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 12) {
+                    Text("STRAP LOG").font(StrandFont.overline).tracking(StrandFont.overlineTracking)
+                        .foregroundStyle(StrandPalette.textSecondary)
+                    Spacer()
+                    // Export the log so people can attach it to a bug report (issue #17 — macOS users
+                    // had no way to share it). Copy → clipboard; Save… → a .txt file.
+                    Button("Copy") { copyStrapLog() }
+                        .buttonStyle(.plain).font(StrandFont.mono).foregroundStyle(StrandPalette.accent)
+                    Button("Save…") { saveStrapLog() }
+                        .buttonStyle(.plain).font(StrandFont.mono).foregroundStyle(StrandPalette.accent)
                 }
-            }
-
-            // Users look on Live first when something's wrong (#507/#509), so link straight into the
-            // Test Centre diagnostic home, one tap from the log.
-            if showsTestCentreLink {
-                Divider().overlay(StrandPalette.hairline)
-                NavigationLink(destination: TestCentreView()) {
-                    HStack(spacing: 8) {
-                        Image(systemName: "testtube.2").foregroundStyle(StrandPalette.accent)
-                        Text("Open Test Centre to report a bug").font(StrandFont.mono)
+                ScrollViewReader { proxy in
+                    VStack(alignment: .leading, spacing: 6) {
+                        if hiddenLineCount > 0 {
+                            Button("Load \(min(300, hiddenLineCount)) older lines") {
+                                displayedLineCount += min(300, hiddenLineCount)
+                                followsTail = false
+                            }
+                            .buttonStyle(.plain)
+                            .font(StrandFont.mono)
                             .foregroundStyle(StrandPalette.accent)
-                        Spacer()
-                        Image(systemName: "chevron.right").foregroundStyle(StrandPalette.textSecondary)
+                            .accessibilityLabel("Load older strap log lines")
+                        }
+                        HStack {
+                            Text("Showing \(visibleLog.count) of \(live.log.count) lines")
+                                .font(StrandFont.micro)
+                                .foregroundStyle(StrandPalette.textTertiary)
+                            Spacer()
+                            Button(followsTail ? "Following latest" : "Follow latest") {
+                                followsTail = true
+                                if let last = live.log.indices.last {
+                                    proxy.scrollTo(last, anchor: .bottom)
+                                }
+                            }
+                            .buttonStyle(.plain)
+                            .font(StrandFont.micro)
+                            .foregroundStyle(StrandPalette.accent)
+                        }
+                        ScrollView {
+                            LazyVStack(alignment: .leading, spacing: 2) {
+                                ForEach(visibleLog.indices, id: \.self) { idx in
+                                    let line = live.log[idx]
+                                Text(line).font(StrandFont.mono)
+                                    .foregroundStyle(StrandPalette.textSecondary)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .id(idx)
+                                }
+                            }
+                        }
+                        .frame(height: 200)
+                        // A deliberate drag means the reader is inspecting history. New streaming lines never
+                        // yank that context away; the explicit control above resumes tail-following.
+                        .simultaneousGesture(DragGesture().onChanged { _ in followsTail = false })
+                        .onChangeCompat(of: live.log.count) { _ in
+                            guard followsTail, let last = live.log.indices.last else { return }
+                            proxy.scrollTo(last, anchor: .bottom)
+                        }
                     }
-                    .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Open Test Centre")
+
+                // Users look on Live first when something's wrong (#507/#509), so link straight into the
+                // Test Centre diagnostic home, one tap from the log.
+                if showsTestCentreLink {
+                    Divider().overlay(StrandPalette.hairline)
+                    NavigationLink(destination: TestCentreView()) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "testtube.2").foregroundStyle(StrandPalette.accent)
+                            Text("Open Test Centre to report a bug").font(StrandFont.mono)
+                                .foregroundStyle(StrandPalette.accent)
+                            Spacer()
+                            Image(systemName: "chevron.right").foregroundStyle(StrandPalette.textSecondary)
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Open Test Centre")
+                }
             }
         }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(StrandPalette.surfaceRaised,
-                    in: RoundedRectangle(cornerRadius: NoopMetrics.cardRadius, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: NoopMetrics.cardRadius, style: .continuous)
-            .strokeBorder(StrandPalette.hairline, lineWidth: 1))
     }
 
     // MARK: - Strap-log export (issue #17 — let macOS users share the log for bug reports)
@@ -1281,39 +1227,33 @@ private struct SignalTrustTile: View {
     let tile: Model
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
-                // The signal's liquid gauge — a static-posed small vessel (no per-frame cost).
-                PaperGauge(value: tile.frac, tint: tile.tint, animated: false)
-                    .frame(width: 22, height: 22)
-                    .accessibilityHidden(true)
-                Text(tile.title.uppercased())
-                    .font(StrandFont.overline)
-                    .tracking(StrandFont.overlineTracking)
-                    .foregroundStyle(StrandPalette.textSecondary)
-                Spacer(minLength: 0)
+        StrandCard(padding: 14) {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 8) {
+                    // The signal's liquid gauge — a static-posed small vessel (no per-frame cost).
+                    PaperGauge(value: tile.frac, tint: tile.tint, animated: false)
+                        .frame(width: 22, height: 22)
+                        .accessibilityHidden(true)
+                    Text(tile.title.uppercased())
+                        .font(StrandFont.overline)
+                        .tracking(StrandFont.overlineTracking)
+                        .foregroundStyle(StrandPalette.textSecondary)
+                    Spacer(minLength: 0)
+                }
+                Text(tile.value)
+                    .font(StrandFont.headline)
+                    .foregroundStyle(tile.tint)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.65)
+                Text(tile.detail)
+                    .font(StrandFont.footnote)
+                    .foregroundStyle(StrandPalette.textTertiary)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.8)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            Text(tile.value)
-                .font(StrandFont.headline)
-                .foregroundStyle(tile.tint)
-                .lineLimit(1)
-                .minimumScaleFactor(0.65)
-            Text(tile.detail)
-                .font(StrandFont.footnote)
-                .foregroundStyle(StrandPalette.textTertiary)
-                .lineLimit(2)
-                .minimumScaleFactor(0.8)
-                .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(14)
         .frame(minHeight: 112, alignment: .top)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(StrandPalette.surfaceRaised)
-                .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .strokeBorder(StrandPalette.hairline, lineWidth: 1))
-        )
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(tile.title): \(tile.value). \(tile.detail)")
     }

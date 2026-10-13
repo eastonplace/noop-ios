@@ -101,7 +101,7 @@ final class TodayFirstPaintSemanticsTests: XCTestCase {
                                       generatedAt: now, rawFrontierTs: now)
 
         XCTAssertEqual(TodayView.firstPaintMetricFreshness(
-            staleFrontier, snapshot: recentSnapshot,
+            .strain, value: staleFrontier, snapshot: recentSnapshot,
             currentLogicalDay: currentDay, currentLocalDay: currentDay,
             nowTimestamp: now), .stale)
         XCTAssertEqual(TodayView.firstPaintMetricDetail(
@@ -113,45 +113,68 @@ final class TodayFirstPaintSemanticsTests: XCTestCase {
         let oldSnapshot = snapshot(day: currentDay, strain: generatedOnly,
                                    generatedAt: now - (60 * 60 + 1))
         XCTAssertEqual(TodayView.firstPaintMetricFreshness(
-            generatedOnly, snapshot: oldSnapshot,
+            .strain, value: generatedOnly, snapshot: oldSnapshot,
             currentLogicalDay: currentDay, currentLocalDay: currentDay,
             nowTimestamp: now), .stale)
     }
 
-    func testGlobalSnapshotFrontierCannotFreshenRecoveryWithoutMetricEvidence() {
+    func testGlobalSnapshotFrontierCannotFreshenStrainWithoutMetricEvidence() {
         let now = 2_000_000
         let currentDay = "2026-08-03"
-        let oldRecovery = metric(78, day: currentDay, observedAt: now - (60 * 60 + 1))
+        let oldStrain = metric(8, day: currentDay, algorithm: "strain-v2",
+                               observedAt: now - (60 * 60 + 1))
         let recentOtherMetricFrontier = snapshot(
             day: currentDay,
-            recovery: oldRecovery,
+            strain: oldStrain,
             generatedAt: now,
             rawFrontierTs: now
         )
 
         XCTAssertEqual(TodayView.firstPaintMetricFreshness(
-            oldRecovery, snapshot: recentOtherMetricFrontier,
+            .strain, value: oldStrain, snapshot: recentOtherMetricFrontier,
             currentLogicalDay: currentDay, currentLocalDay: currentDay,
             nowTimestamp: now), .stale)
 
-        let noMetricEvidence = metric(78, day: currentDay)
+        let noMetricEvidence = metric(8, day: currentDay, algorithm: "strain-v2")
         let globallyRecentOnly = snapshot(
             day: currentDay,
-            recovery: noMetricEvidence,
+            strain: noMetricEvidence,
             generatedAt: now,
             rawFrontierTs: now
         )
         XCTAssertEqual(TodayView.firstPaintMetricFreshness(
-            noMetricEvidence, snapshot: globallyRecentOnly,
+            .strain, value: noMetricEvidence, snapshot: globallyRecentOnly,
             currentLogicalDay: currentDay, currentLocalDay: currentDay,
             nowTimestamp: now), .stale)
+    }
+
+    func testSameDayRecoveryAndSleepRemainFreshAfterOvernightEvidenceAges() {
+        let now = 2_000_000
+        let currentDay = "2026-08-03"
+        let overnight = now - 10 * 60 * 60
+        let recovery = metric(78, day: currentDay, observedAt: overnight)
+        let sleep = metric(86, day: currentDay, observedAt: overnight)
+        let handoff = snapshot(day: currentDay, recovery: recovery, sleep: sleep,
+                               generatedAt: now, rawFrontierTs: now)
+
+        XCTAssertEqual(TodayView.firstPaintMetricFreshness(
+            .recovery, value: recovery, snapshot: handoff,
+            currentLogicalDay: currentDay, currentLocalDay: currentDay,
+            nowTimestamp: now), .fresh)
+        XCTAssertEqual(TodayView.firstPaintMetricFreshness(
+            .sleepScore, value: sleep, snapshot: handoff,
+            currentLogicalDay: currentDay, currentLocalDay: currentDay,
+            nowTimestamp: now), .fresh)
+        XCTAssertNil(TodayView.firstPaintMetricDetail(
+            metricDay: currentDay, snapshotDisplayDay: currentDay,
+            currentLogicalDay: currentDay, freshness: .fresh))
     }
 
     func testFreshnessDeadlineTracksMetricEvidenceNotGlobalSnapshotFrontier() {
         let now = 2_000_000
         let currentDay = "2026-08-03"
-        let recovery = metric(78, day: currentDay, observedAt: now - 120)
-        let handoff = snapshot(day: currentDay, recovery: recovery, rawFrontierTs: now)
+        let strain = metric(8, day: currentDay, algorithm: "strain-v2", observedAt: now - 120)
+        let handoff = snapshot(day: currentDay, strain: strain, rawFrontierTs: now)
 
         XCTAssertEqual(TodayView.nextFirstPaintFreshnessDeadline(
             snapshot: handoff,
@@ -170,7 +193,7 @@ final class TodayFirstPaintSemanticsTests: XCTestCase {
         let snapshot = snapshot(day: currentDay, recovery: carried, generatedAt: now)
 
         XCTAssertEqual(TodayView.firstPaintMetricFreshness(
-            carried, snapshot: snapshot,
+            .recovery, value: carried, snapshot: snapshot,
             currentLogicalDay: currentDay, currentLocalDay: currentDay,
             nowTimestamp: now), .stale)
         XCTAssertEqual(TodayView.firstPaintMetricDetail(
@@ -208,5 +231,20 @@ final class TodayFirstPaintSemanticsTests: XCTestCase {
         XCTAssertEqual(TodayView.firstPaintMetricDetail(
             metricDay: nil, snapshotDisplayDay: "2026-08-02", currentLogicalDay: currentDay),
                        "Last scored · 2026-08-02")
+    }
+
+    func testDetailPassesTheDayKeyThroughTheDisplayLabelWithoutChangingWhenItAppears() {
+        let currentDay = "2026-10-08"
+        XCTAssertEqual(TodayView.firstPaintMetricDetail(
+            metricDay: currentDay, snapshotDisplayDay: currentDay, currentLogicalDay: currentDay,
+            freshness: .stale, dayLabel: { _ in "Oct 8" }),
+                       "Stale · Oct 8")
+        XCTAssertEqual(TodayView.firstPaintMetricDetail(
+            metricDay: "2026-10-07", snapshotDisplayDay: currentDay, currentLogicalDay: currentDay,
+            dayLabel: { _ in "Oct 7" }),
+                       "Last scored · Oct 7")
+        XCTAssertNil(TodayView.firstPaintMetricDetail(
+            metricDay: currentDay, snapshotDisplayDay: currentDay, currentLogicalDay: currentDay,
+            freshness: .fresh, dayLabel: { _ in "Oct 8" }))
     }
 }

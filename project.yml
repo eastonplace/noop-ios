@@ -10,7 +10,7 @@ options:
 settings:
   base:
     MARKETING_VERSION: "9.0.1"
-    CURRENT_PROJECT_VERSION: "204"
+    CURRENT_PROJECT_VERSION: "205"
     SWIFT_EMIT_LOC_STRINGS: YES
     SWIFT_STRICT_CONCURRENCY: complete
     DEVELOPMENT_TEAM: "479HYY24G2"
@@ -83,6 +83,10 @@ targets:
               CFBundleIconFiles: []
               UIPrerenderedIcon: false
         NSSupportsLiveActivities: true
+        CFBundleURLTypes:
+          - CFBundleURLName: com.eastonplace.noop
+            CFBundleURLSchemes:
+              - noop
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
         UIBackgroundModes:
@@ -94,10 +98,14 @@ targets:
           - com.noopapp.noop.debugexport
           - com.noopapp.noop.smartalarm
           - com.noopapp.noop.privacycleanup
+          - com.noopapp.noop.historysync
+          - "$(PRODUCT_BUNDLE_IDENTIFIER).rescore"
         NSBluetoothAlwaysUsageDescription: "NOOP connects directly to your WHOOP strap over Bluetooth to read heart rate, R-R intervals, battery, and sensor data locally on your iPhone. Nothing leaves your device."
         NSLocationWhenInUseUsageDescription: "NOOP records your route during an outdoor workout to show distance, pace, and a map, and keeps recording while the screen is off. The route stays on your device. Nothing leaves it."
         NSHealthShareUsageDescription: "NOOP reads your own Apple Health data on-device to compute recovery, strain, and sleep. Nothing leaves your device."
         NSHealthUpdateUsageDescription: "NOOP writes the metrics it computes from your strap back into Apple Health, on-device and only when you allow it."
+        NSMicrophoneUsageDescription: "NOOP uses your microphone only when you tap the Coach microphone. Your spoken question is transcribed on this iPhone."
+        NSSpeechRecognitionUsageDescription: "NOOP transcribes Coach questions on this iPhone. It does not send recordings to a speech server."
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
         UIFileSharingEnabled: true
@@ -133,6 +141,7 @@ targets:
       - package: CoachPresentation
       - package: MarkdownUI
       - package: ZIPFoundation
+      - package: GRDB
       - target: NOOPiOSWidgets
 
   NOOPiOSWidgets:
@@ -198,12 +207,28 @@ targets:
         BUNDLE_LOADER: "$(TEST_HOST)"
         SWIFT_TREAT_WARNINGS_AS_ERRORS: YES
 
+  NOOPCoachUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - StrandiOSUITests
+    dependencies:
+      - target: NOOPiOS
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: com.eastonplace.noop.coachuitests
+        SWIFT_VERSION: "6.0"
+        SWIFT_TREAT_WARNINGS_AS_ERRORS: YES
+        TEST_TARGET_NAME: NOOPiOS
+
   NOOPLiftPreview:
     type: application
     platform: iOS
     deploymentTarget: "17.0"
     sources:
-      - tools/LiftPreviewApp
+      - Tools/LiftPreviewApp
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.eastonplace.noop.liftpreview
@@ -216,6 +241,15 @@ targets:
       - package: ReceiptLiftFeature
 
 schemes:
+  NOOPCoachUI:
+    build:
+      targets:
+        NOOPiOS: all
+        NOOPCoachUITests: [test]
+    test:
+      config: Debug
+      targets:
+        - NOOPCoachUITests
   NOOPiOS:
     build:
       targets:

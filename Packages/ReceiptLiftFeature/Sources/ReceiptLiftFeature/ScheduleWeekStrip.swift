@@ -1,3 +1,4 @@
+import StrandDesign
 import SwiftUI
 
 struct LiftScheduleWeekDay: Identifiable, Equatable, Sendable {
@@ -45,6 +46,7 @@ struct ScheduleWeekStrip: View {
   private let calendar: Calendar
 
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @Environment(\.locale) private var locale
   @Namespace private var selectionNamespace
 
   init(
@@ -84,18 +86,17 @@ struct ScheduleWeekStrip: View {
     } label: {
       VStack(spacing: 3) {
         Text(weekdaySymbol(for: day.date))
-          .font(.receipt(8, weight: .black))
-          .tracking(0.3)
-        Text(String(calendar.component(.day, from: day.date)))
-          .font(.receipt(12, weight: .black))
-          .monospacedDigit()
+          .font(StrandFont.micro)
+          .foregroundStyle(isSelected ? StrandPalette.onInk : StrandPalette.textTertiary)
+        Text(calendar.component(.day, from: day.date).formatted(.number.locale(locale)))
+          .font(StrandFont.number(16))
+          .foregroundStyle(isSelected ? StrandPalette.onInk : StrandPalette.textPrimary)
         Circle()
-          .fill(isSelected ? LiftTheme.paper : LiftTheme.ink)
+          .fill(isSelected ? StrandPalette.onInk : StrandPalette.accent)
           .frame(width: 4, height: 4)
           .opacity(day.isTrained ? 1 : 0)
           .accessibilityHidden(true)
       }
-      .foregroundStyle(isSelected ? LiftTheme.paper : LiftTheme.ink)
       .frame(maxWidth: .infinity)
       .frame(minHeight: LiftDesignMetrics.ScheduleWeek.minimumTargetSize)
       .background {
@@ -104,7 +105,7 @@ struct ScheduleWeekStrip: View {
             cornerRadius: LiftDesignMetrics.ScheduleWeek.selectionCornerRadius,
             style: .continuous
           )
-          .fill(LiftTheme.ink)
+          .fill(StrandPalette.ink)
           .matchedGeometryEffect(id: "schedule-week-selection", in: selectionNamespace)
         }
       }
@@ -117,13 +118,15 @@ struct ScheduleWeekStrip: View {
 
   private func weekdaySymbol(for date: Date) -> String {
     let weekday = calendar.component(.weekday, from: date)
-    let symbols = calendar.veryShortWeekdaySymbols
+    var localized = calendar
+    localized.locale = locale
+    let symbols = localized.veryShortWeekdaySymbols
     guard symbols.indices.contains(weekday - 1) else { return "" }
     return symbols[weekday - 1].uppercased()
   }
 
   private func accessibilityLabel(for day: LiftScheduleWeekDay) -> String {
-    let date = day.date.formatted(.dateTime.weekday(.wide).month(.wide).day())
-    return day.isTrained ? "\(date), trained" : date
+    let date = day.date.formatted(.dateTime.weekday(.wide).month(.wide).day().locale(locale))
+    return day.isTrained ? String(localized: "\(date), trained") : date
   }
 }

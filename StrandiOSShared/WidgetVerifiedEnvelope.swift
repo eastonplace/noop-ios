@@ -81,8 +81,21 @@ public enum VerifiedWidgetEnvelopeStore {
     }
 
     public static func loadForDisplay(defaults: UserDefaults) -> WidgetSnapshot? {
+        display(defaults: defaults, dayGate: nil)
+    }
+
+    /// `loadForDisplay` as a widget draws it at `now`: without the day-scoped figures (Strain, Steps, Calories,
+    /// the stress strip) of an earlier logical day, and with the overlay's Strain only if the overlay is today's.
+    public static func loadForDisplay(
+        defaults: UserDefaults,
+        now: Date,
+        calendar: Calendar = .current
+    ) -> WidgetSnapshot? {
+        display(defaults: defaults, dayGate: WidgetDayGate(now: now, calendar: calendar))
+    }
+
+    private static func display(defaults: UserDefaults, dayGate: WidgetDayGate?) -> WidgetSnapshot? {
         guard let envelope = rawActiveEnvelope(defaults: defaults) else { return nil }
-        var snapshot = envelope.snapshot
         guard let overlayData = defaults.data(
             forKey: ActiveVerifiedSinkEpochStore.widgetLiveOverlayKey
         ),
@@ -93,14 +106,9 @@ public enum VerifiedWidgetEnvelopeStore {
         overlay.epoch == envelope.epoch,
         overlay.contextId == envelope.contextId,
         overlay.generation == envelope.generation else {
-            return snapshot
+            return envelope.snapshot.displayed(overlay: nil, dayGate: dayGate)
         }
-        snapshot.bpm = overlay.bpm
-        snapshot.batteryPct = overlay.batteryPct
-        snapshot.bonded = overlay.bonded
-        snapshot.hrSparkline = overlay.hrSparkline
-        snapshot.updated = overlay.updated
-        return snapshot
+        return envelope.snapshot.displayed(overlay: overlay, dayGate: dayGate)
     }
 
     /// One payload, one UserDefaults key, one read-back. The generation fence can

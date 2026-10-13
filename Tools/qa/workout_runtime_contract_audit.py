@@ -47,14 +47,10 @@ try:
         "samples.min(by:",
         "samples.max(by:",
     )
-    require(
-        "Strand/Screens/LiveWorkoutView.swift",
-        "workout.chartProjection",
-        "range: projection.range",
-        'Text("HEART RATE")',
-        'projection.observedSeconds',
-        'min window',
-        'workout.currentBPM.map',
+    forbid(
+        "Strand/Screens/LiveWorkoutSections.swift",
+        "samples.suffix(360)",
+        "range: 100...180",
     )
     forbid(
         "Strand/Screens/LiveWorkoutView.swift",
@@ -69,14 +65,38 @@ try:
         "acquireWorkoutRealtimeHR()",
         "releaseWorkoutRealtimeHR()",
     )
+    # The named-sport picker that is left of the old start sheet names a merged session.
     require(
-        "Strand/Screens/ManualWorkoutSheet.swift",
-        "dismissAfterStart",
-        "private func performStart()",
+        "Strand/Screens/StartWorkoutSheet.swift",
+        "private func confirm()",
+    )
+    # Start is the journey's setup page, hosted in the full-screen cover: it advances to the countdown or the live screen
+    # itself, so it never dismisses after Start. The countdown starts the workout at zero.
+    require(
+        "Strand/Screens/WorkoutJourneyView.swift",
+        "WorkoutSetupPage(",
+        "WorkoutCountdownView(",
+    )
+    require(
+        "Strand/Screens/WorkoutSetupPage.swift",
+        "private func start(countdown: Bool)",
+        "RecentSportsPrefs.recordSelection",
+        "WorkoutReadinessStrip(",
+    )
+    # The live screen's Heart page is one glance, pinned figure by figure: the heart-rate reading (the page's big number), the
+    # zone row (time in each zone), strain and calories. The in-page heart-rate trace was dropped for the calm of the page
+    # (Direction A, the owner's pick, 7c044dac). No Release surface draws the bounded projection any more: it stays in the
+    # model, pinned above, and is read only by the Simulator Live Activity preview (WorkoutRefinementQA) and its tests.
+    require(
+        "Strand/Screens/LiveWorkoutPages.swift",
+        "LiveWorkoutFigure(value: value(.heartRate)",
+        "LiveZoneRow(seconds: workout.personalZoneSeconds",
+        "LiveWorkoutFigure(value: value(.strain)",
+        "LiveWorkoutFigure(value: value(.calories)",
     )
     require(
         "StrandiOS/App/RootTabView.swift",
-        "StartWorkoutSheet(dismissAfterStart: false)",
+        ".fullScreenCover(item: $journey",
     )
     require(
         "StrandiOS/App/StrandiOSApp.swift",

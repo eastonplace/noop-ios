@@ -67,8 +67,10 @@ public enum ManualSleepDailyScorer {
                 statedEfficiency: analysis.efficiency)
             : nil
 
-        let restingHr = analysis.restingHR ?? existing?.restingHr
-        let avgHrv = analysis.avgHRV ?? existing?.avgHrv
+        // The fresh bounded analysis owns these vitals. Falling back to an older
+        // override resurrects a value that the current raw-data check rejected.
+        let restingHr = analysis.restingHR
+        let avgHrv = analysis.avgHRV
 
         // The recovered window owns the sleep fields for this wake day. If motion was
         // too sparse to defend staging, those fields stay nil rather than inheriting a

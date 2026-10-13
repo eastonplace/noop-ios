@@ -11,14 +11,23 @@ struct PostAnalysisTodaySnapshotInput: Sendable {
     /// Durable owner for the exact historical publication. The dashboard scope remains canonical.
     let ownerDeviceId: String
     let read: CanonicalHealthSurfaceStoreSnapshot
+    let readWindows: [CanonicalHealthSurfaceReadWindow]
     let importedSourceIds: [String]
     let computedSourceIds: [String]
     let appleSourceId: String
+    /// DL-11: `Repository.hasStoredRMSSD(in:)`, decided over the whole store rather than these read windows.
+    let hasRMSSDSource: Bool
     let sleepMode: SleepPerformanceV2Prefs.Mode
     let analysisGeneration: Int64
     let rawFrontierTs: Int?
     let recordedTimeZoneIdentifier: String
     let now: Date
+    /// The profile's resting energy per day, for the calorie resolver (review round 4, 5).
+    var bmrKcalPerDay: Double? = nil
+    /// Apple Health's daily row for the display day, for the calorie resolver (review round 5, 1). The exact
+    /// read covers only the namespace's verification sources, which never include apple-health, so the caller
+    /// reads this row on its own; it feeds the calorie total and nothing the pipeline validates.
+    var displayDayAppleDaily: AppleDaily? = nil
 }
 
 enum PostAnalysisTodaySnapshotBuilderError: Error {
@@ -61,7 +70,9 @@ enum RepositoryPostAnalysisSnapshotBuilder {
             computed: computedMetrics,
             userEditedDays: editedWakeDays
         )
-        let allDaily = Repository.mergeDaily(imported: importedAndComputed, computed: appleMetrics)
+        let allDaily = Repository.mergeDaily(
+            imported: importedAndComputed,
+            computed: Repository.appleFallbackDaily(appleMetrics, hasRMSSDSource: input.hasRMSSDSource))
         let base = allDaily.last(where: { $0.day == displayDay.key })
             ?? emptyDailyMetric(day: displayDay.key)
 
@@ -182,7 +193,9 @@ enum RepositoryPostAnalysisSnapshotBuilder {
         let metricStates: [TodayHealthSnapshot.Metric: TodayHealthMetricState] = [
             .recovery: state(
                 value: recovery,
-                prior: input.template.recoveryState,
+                prior: try refreshedCarry(.recovery, input: input, displayDay: displayDay,
+                                          imported: importedRows, computed: computedRows, apple: appleRows,
+                                          editedWakeDays: editedWakeDays, latestSleepEnd: latestSleepEnd),
                 carryPrior: true,
                 metric: .recovery,
                 displayDay: displayDay.key,
@@ -198,7 +211,9 @@ enum RepositoryPostAnalysisSnapshotBuilder {
             ),
             .sleepScore: state(
                 value: sleepScore,
-                prior: input.template.sleepScoreState,
+                prior: try refreshedCarry(.sleepScore, input: input, displayDay: displayDay,
+                                          imported: importedRows, computed: computedRows, apple: appleRows,
+                                          editedWakeDays: editedWakeDays, latestSleepEnd: latestSleepEnd),
                 carryPrior: true,
                 metric: .sleepScore,
                 displayDay: displayDay.key,
@@ -206,7 +221,9 @@ enum RepositoryPostAnalysisSnapshotBuilder {
             ),
             .sleepDurationMinutes: state(
                 value: sleepDuration,
-                prior: input.template.sleepDurationMinutesState,
+                prior: try refreshedCarry(.sleepDurationMinutes, input: input, displayDay: displayDay,
+                                          imported: importedRows, computed: computedRows, apple: appleRows,
+                                          editedWakeDays: editedWakeDays, latestSleepEnd: latestSleepEnd),
                 carryPrior: true,
                 metric: .sleepDurationMinutes,
                 displayDay: displayDay.key,
@@ -214,11 +231,41 @@ enum RepositoryPostAnalysisSnapshotBuilder {
             ),
         ]
 
+        // Review round 4 (5): the day's calorie total by the one resolver, so the payloads built from this
+        // snapshot show the number Trends and the Coupled view show. Apple's energy comes from the caller's
+        // display-day row (review round 5, 1), else from the read when it happens to cover apple-health.
+        let appleRow = input.read.appleDailyRows
+            .filter { $0.day == displayDay.key && $0.sourceId == input.appleSourceId }
+            .max { $0.sourcePriority < $1.sourcePriority }
+        let displayDayApple = input.displayDayAppleDaily.flatMap { $0.day == displayDay.key ? $0 : nil }
+        let appleEnergy: (activeKcal: Double?, basalKcal: Double?)? =
+            displayDayApple.map { ($0.activeKcal, $0.basalKcal) }
+            ?? appleRow.map { ($0.activeKcal, $0.basalKcal) }
+        let strapWornSeconds = input.read.metricRows
+            .filter {
+                $0.day == displayDay.key && computedIds.contains($0.sourceId)
+                    && $0.key == IntelligenceEngine.strapWornSecondsMetricKey
+            }
+            .max { $0.sourcePriority < $1.sourcePriority }?.value
+        let dayTiming = DailyCalories.dayTiming(
+            day: displayDay.key,
+            timeZone: TimeZone(identifier: input.recordedTimeZoneIdentifier) ?? .current,
+            now: input.now)
+        let calories = DailyCalories.total(
+            strapKcal: base.activeKcalEst,
+            strapWornSeconds: strapWornSeconds,
+            appleActiveKcal: appleEnergy?.activeKcal,
+            appleBasalKcal: appleEnergy?.basalKcal,
+            bmrKcalPerDay: input.bmrKcalPerDay,
+            daySeconds: dayTiming?.daySeconds,
+            elapsedSeconds: dayTiming?.elapsedSeconds)
+
         // Keep this row truthful for its own day. Carried prior-night values stay only in metricStates.
         let daily = base.replacing(
             totalSleepMin: .some(sleepDuration?.value),
             recovery: .some(recovery?.value),
             strain: .some(strain?.value),
+            activeKcalEst: .some(calories),
             strainVersion: .some(strain == nil ? nil : 2)
         )
         return TodayHealthSnapshot(
@@ -236,6 +283,69 @@ enum RepositoryPostAnalysisSnapshotBuilder {
             dailyMetric: daily,
             metricStates: metricStates
         )
+    }
+
+    /// A carried night can be recalculated after today's snapshot exists. Resolve its values from this
+    /// same completed read; copying the template would freeze the old score across every new generation.
+    /// Preserve an older carry only when this exact source/day read did not cover its evidence.
+    private static func refreshedCarry(
+        _ metric: TodayHealthSnapshot.Metric,
+        input: PostAnalysisTodaySnapshotInput,
+        displayDay: CivilDay,
+        imported: [String: StoredSourcedDailyMetric],
+        computed: [String: StoredSourcedDailyMetric],
+        apple: [String: StoredSourcedDailyMetric],
+        editedWakeDays: Set<String>,
+        latestSleepEnd: [String: Int]
+    ) throws -> TodayHealthMetricState {
+        let prior = input.template.state(for: metric)
+        let sourceIds = Set(input.importedSourceIds + input.computedSourceIds + [input.appleSourceId])
+        var days = Set(input.read.dailyRows.map { $0.metric.day })
+        days.formUnion(input.read.metricRows.map(\.day))
+        if let day = prior.value?.metricDay { days.insert(day) }
+        for key in days.filter({ $0 < displayDay.key }).sorted(by: >) {
+            let covered = input.readWindows.contains { $0.fromDay <= key && key <= $0.throughDay }
+            if let value = prior.value, value.metricDay == key,
+               !covered || !sourceIds.contains(value.sourceId) {
+                return prior
+            }
+            guard covered, let day = try? CivilDay(key: key) else { continue }
+            let value: Double?
+            let sourceId: String?
+            let algorithm: String
+            switch metric {
+            case .recovery:
+                let row = winningDailyRow(day: key, imported: imported, computed: computed,
+                                         apple: apple, field: { $0.recovery })
+                value = row?.metric.recovery
+                sourceId = row?.sourceId
+                algorithm = "daily-recovery-v1"
+            case .sleepDurationMinutes:
+                let row = winningSleepDurationRow(day: key, editedWakeDays: editedWakeDays,
+                                                 imported: imported, computed: computed, apple: apple)
+                value = row?.metric.totalSleepMin
+                sourceId = row?.sourceId
+                algorithm = "daily-sleep-duration-v1"
+            case .sleepScore:
+                let point = try canonicalSleepResolution(
+                    day: day, read: input.read, importedSourceIds: Set(input.importedSourceIds),
+                    computedSourceIds: Set(input.computedSourceIds), editedWakeDays: editedWakeDays,
+                    mode: input.sleepMode, analysisGeneration: input.analysisGeneration,
+                    latestSleepEnd: latestSleepEnd).production
+                value = point?.value
+                sourceId = point?.sourceId
+                algorithm = point?.modelVersion ?? point?.model.rawValue ?? "sleep-performance-v1"
+            case .strain:
+                return .unknown
+            }
+            if let value, let sourceId {
+                return .value(TodayHealthMetricValue(
+                    value: value, metricDay: key, sourceId: sourceId,
+                    observedAt: latestSleepEnd[key], rawFrontierTs: input.rawFrontierTs,
+                    algorithmVersion: algorithm, freshness: .aging))
+            }
+        }
+        return .unknown
     }
 
     private static func bestDailyRows(
@@ -393,6 +503,35 @@ enum RepositoryPostAnalysisSnapshotBuilder {
         if metricDay.key < logicalDayKey { return .aging }
         guard let observedAt else { return kind == .strain ? .stale : .aging }
         return now.timeIntervalSince1970 - TimeInterval(observedAt) <= 3_600 ? .fresh : .aging
+    }
+
+    /// The Resting HR the Widget core carries for `displayDay`. Today's own value is missing until tonight's sleep
+    /// is scored, while Recovery and Sleep already carry the last scored night, so the core carries Resting HR
+    /// the same way: `stored` (the display day's own merged value) when there is one, else the freshest earlier
+    /// night with a value, resolved per field in the same imported, computed order as the day's row.
+    /// The search stays inside the exact read that built this generation and inside `CarriedVitalWindow`, the
+    /// window Today carries a prior night for, so the figure is never a stale value from another day.
+    /// The strap's nights only: the exact read never includes Apple Health, whose Resting HR the delivery adds
+    /// from its own read (`WidgetSnapshot.todayRestingHR`).
+    static func widgetRestingHR(
+        stored: Int?,
+        displayDay: String,
+        dailyRows: [StoredSourcedDailyMetric],
+        importedSourceIds: Set<String>,
+        computedSourceIds: Set<String>
+    ) -> Int? {
+        if let stored { return stored }
+        let imported = bestDailyRows(dailyRows.filter { importedSourceIds.contains($0.sourceId) })
+        let computed = bestDailyRows(dailyRows.filter { computedSourceIds.contains($0.sourceId) })
+        for day in Set(dailyRows.map { $0.metric.day }).filter({ $0 < displayDay }).sorted(by: >) {
+            guard CarriedVitalWindow.permits(day: day, anchorDay: displayDay) else { break }
+            if let rhr = winningDailyRow(day: day, imported: imported, computed: computed, apple: [:],
+                                         field: { $0.restingHr.map(Double.init) })?.metric.restingHr,
+               (20...300).contains(rhr) {
+                return rhr
+            }
+        }
+        return nil
     }
 
     private static func emptyDailyMetric(day: String) -> DailyMetric {

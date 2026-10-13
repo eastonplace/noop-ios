@@ -328,6 +328,39 @@ enum RouteStore {
 
 // MARK: - GpsWorkoutRecorder (CoreLocation wrapper)
 
+/// Seam over `CLBackgroundActivitySession` (iOS 17+, unavailable on macOS) so tests can assert the session is
+/// held while a route records and released afterwards without touching the real CoreLocation service.
+protocol GpsBackgroundActivity: AnyObject {
+    func invalidate()
+}
+
+#if os(iOS)
+extension CLBackgroundActivitySession: GpsBackgroundActivity {}
+#endif
+
+/// What a start screen can truthfully say about route capture, from the location permission as it stands.
+enum GpsAvailability: Equatable {
+    /// Authorised (while using the app, or always): a route will record.
+    case ready
+    /// Not decided yet: starting a workout asks once, so nothing is promised until the person answers.
+    case willAsk
+    /// The person said no, or Location Services is off for the whole device (CoreLocation reports both as denied). They
+    /// can turn it on in Settings.
+    case denied
+    /// Restricted (screen-time limits or device management): the person cannot change it here.
+    case restricted
+
+    static func of(status: CLAuthorizationStatus) -> GpsAvailability {
+        switch status {
+        case .authorizedWhenInUse, .authorizedAlways: return .ready
+        case .notDetermined: return .willAsk
+        case .denied: return .denied
+        case .restricted: return .restricted
+        @unknown default: return .willAsk
+        }
+    }
+}
+
 /// Records the route of an in-flight GPS workout from CoreLocation. Thin and fail-safe: requests
 /// When-In-Use authorization, streams fixes through `TrackFilter`, and accumulates the route + live
 /// distance/pace. The owning `AppModel` starts it when a distance-type sport is begun and reads the final
@@ -356,8 +389,34 @@ final class GpsWorkoutRecorder: NSObject, ObservableObject {
     @Published private(set) var paceSecPerKm: Double?
     /// Number of accepted route points so far (lets the UI distinguish "recording, no fix yet" from "off").
     @Published private(set) var pointCount = 0
+    /// True while the user has granted only approximate location (Settings > Privacy > Location > Precise
+    /// Location off). The route still records, but fixes are kilometres coarse and TrackFilter's 50 m
+    /// accuracy gate will reject most of them, so a screen can explain the sparse route.
+    @Published private(set) var isReducedAccuracy = false
+    /// What the location permission allows right now, kept current as the person answers the prompt or changes it in
+    /// Settings, so a start screen never claims GPS is ready before it is.
+    @Published private(set) var availability: GpsAvailability = .willAsk
+    /// True while the workout is paused. Location updates and the background session stay open, so the workout can be
+    /// resumed from a locked phone, but no fix is added to the route or the distance until it is resumed.
+    @Published private(set) var isPaused = false
+    /// The latest fix the system delivered, accepted or not, and the latest the filter kept. A screen compares them with
+    /// the clock to say the signal is weak or gone; a person standing still delivers no new fixes, which is not a fault.
+    private(set) var lastRawFixAt: Date?
+    private(set) var lastAcceptedFixAt: Date?
+    /// Set when the system reports a location error, cleared by the next delivered fix.
+    private(set) var lastErrorAt: Date?
+    /// When this recording (or its restore) began, the start of the "no fix yet" wait.
+    private(set) var recordingBeganAt: Date?
+    /// Seconds the workout has actually run, for live pace. The owner of the workout supplies it so a pause never slows
+    /// the pace; nil falls back to the wall clock since the start.
+    var activeElapsedProvider: (() -> TimeInterval?)?
 
-    private let manager = CLLocationManager()
+    private let manager: CLLocationManager
+    /// Keeps a When-In-Use app's location updates alive while the screen is locked (iOS 17+). Held from the
+    /// moment updates begin until `stop()`. A session can only become active while the app is in the
+    /// foreground, so it is recreated whenever the app returns to the foreground mid-recording.
+    private var backgroundActivity: GpsBackgroundActivity?
+    private let makeBackgroundActivity: () -> GpsBackgroundActivity?
     private var filter = TrackFilter()
     private var segments: [[RouteMath.LatLng]] = []
     private var sessionID: UUID?
@@ -383,13 +442,21 @@ final class GpsWorkoutRecorder: NSObject, ObservableObject {
     #if DEBUG
     /// Deterministic screenshot fixture, stripped from Release. It fills the same published
     /// fields the CoreLocation ingest path owns without changing the production recorder path.
-    func seedDemoRoute(points: [RouteMath.LatLng], elapsedSeconds: Double) {
+    func seedDemoRoute(points: [RouteMath.LatLng], elapsedSeconds: Double,
+                       paused: Bool = false, signalLost: Bool = false) {
         segments = points.isEmpty ? [] : [points]
         pointCount = points.count
         distanceM = RouteMath.totalMeters(points)
         paceSecPerKm = RouteMath.paceSecPerKm(meters: distanceM, seconds: elapsedSeconds)
         startsNewSegmentOnNextFix = points.isEmpty
         isRecording = true
+        isPaused = paused
+        availability = .ready
+        let now = Date()
+        recordingBeganAt = now.addingTimeInterval(-elapsedSeconds)
+        lastRawFixAt = now.addingTimeInterval(signalLost ? -75 : -1)
+        lastAcceptedFixAt = lastRawFixAt
+        lastErrorAt = signalLost ? now.addingTimeInterval(-40) : nil
     }
     #endif
 
@@ -403,9 +470,13 @@ final class GpsWorkoutRecorder: NSObject, ObservableObject {
     var onCheckpoint: ((ActiveGpsWorkoutPersistence.Checkpoint) -> Void)?
     private var rawFixCount = 0
 
-    override init() {
+    init(manager: CLLocationManager = CLLocationManager(),
+         makeBackgroundActivity: @escaping () -> GpsBackgroundActivity? = GpsWorkoutRecorder.liveBackgroundActivity) {
+        self.manager = manager
+        self.makeBackgroundActivity = makeBackgroundActivity
         super.init()
         manager.delegate = self
+        refreshAvailability()
         manager.desiredAccuracy = kCLLocationAccuracyBest
         // ~5 m between callbacks; TrackFilter still gates on accuracy + speed. Matches the cadence intent
         // of Android's 2 s / 0 m platform request (let the filter, not the platform, do the gating).
@@ -417,6 +488,25 @@ final class GpsWorkoutRecorder: NSObject, ObservableObject {
         manager.allowsBackgroundLocationUpdates = true
         manager.pausesLocationUpdatesAutomatically = false
         manager.activityType = .fitness
+        // The system's blue "NOOP is using your location" pill, which also lets the user tap back into the app.
+        manager.showsBackgroundLocationIndicator = true
+        #endif
+    }
+
+    /// Re-read the location permission. The authorization callback keeps `availability` current while the app runs; a
+    /// screen calls this when it appears or the app returns to the foreground, in case the change was made in Settings
+    /// while the app was suspended.
+    func refreshAvailability() {
+        let next = GpsAvailability.of(status: manager.authorizationStatus)
+        if next != availability { availability = next }
+    }
+
+    /// The production session factory. nil off iOS, where `CLBackgroundActivitySession` does not exist.
+    nonisolated static func liveBackgroundActivity() -> GpsBackgroundActivity? {
+        #if os(iOS)
+        return CLBackgroundActivitySession()
+        #else
+        return nil
         #endif
     }
 
@@ -435,6 +525,10 @@ final class GpsWorkoutRecorder: NSObject, ObservableObject {
         startsNewSegmentOnNextFix = true
         hadTerminatedGap = false
         isRecording = true
+        isPaused = false
+        resetSignal()
+        releaseBackgroundActivity()
+        refreshAccuracyAuthorization()
 
         switch manager.authorizationStatus {
         case .notDetermined:
@@ -455,9 +549,16 @@ final class GpsWorkoutRecorder: NSObject, ObservableObject {
     @discardableResult
     func stop() -> [RouteMath.LatLng] {
         manager.stopUpdatingLocation()
+        releaseBackgroundActivity()
         isRecording = false
+        isPaused = false
+        isReducedAccuracy = false
         return routePoints
     }
+
+    /// Whether `capturedRoute()` would return a route: some one segment holds two points. The same test the save applies, so
+    /// "would this workout save" never says yes for two fixes that were never joined (one before a pause, one after).
+    var hasDrawableRoute: Bool { segments.contains { $0.count >= 2 } }
 
     /// The encoded polyline + distance for the captured route, or nil when fewer than two points landed
     /// (honest: no route drawn unless points were actually captured). Used by `AppModel` to persist via
@@ -492,11 +593,80 @@ final class GpsWorkoutRecorder: NSObject, ObservableObject {
         hadTerminatedGap = snapshot.hadTerminatedGap || snapshot.recordingWasActive
         pointCount = snapshot.acceptedPointCount
         distanceM = snapshot.distanceM
-        let elapsed = Double(Int64(Date().timeIntervalSince1970 * 1000) - startMs) / 1000
-        paceSecPerKm = RouteMath.paceSecPerKm(meters: distanceM, seconds: elapsed)
+        paceSecPerKm = RouteMath.paceSecPerKm(meters: distanceM, seconds: elapsedSeconds())
         isRecording = snapshot.recordingWasActive
+        isPaused = false
+        resetSignal()
+        if isRecording {
+            refreshAccuracyAuthorization()
+        }
         if isRecording, (manager.authorizationStatus == .authorizedWhenInUse || manager.authorizationStatus == .authorizedAlways) {
             beginUpdates()
+        }
+    }
+
+    /// Pause or resume the route. Idempotent. Pausing leaves CoreLocation and the background session running; it only
+    /// stops fixes reaching the route and the distance. Resuming forgets the filter's last fix and starts a new segment,
+    /// so wherever the person moved while paused is never drawn as a line or added to the distance.
+    func setPaused(_ paused: Bool) {
+        guard isRecording, paused != isPaused else { return }
+        isPaused = paused
+        if !paused {
+            filter = TrackFilter()
+            startsNewSegmentOnNextFix = true
+            recordingBeganAt = Date()
+            lastErrorAt = nil
+        }
+    }
+
+    /// Seconds the workout has run, as its owner counts them; the wall clock since the start when there is no owner.
+    private func elapsedSeconds() -> Double {
+        if let active = activeElapsedProvider?() { return max(0, active) }
+        return max(0, Double(Int64(Date().timeIntervalSince1970 * 1000) - startMs) / 1000)
+    }
+
+    private func resetSignal() {
+        lastRawFixAt = nil
+        lastAcceptedFixAt = nil
+        lastErrorAt = nil
+        recordingBeganAt = Date()
+    }
+
+    /// What the live screen may truthfully say about the signal. A standing person gets no new fixes, so silence after
+    /// a good fix is not reported; only a wait for the first fix, rejected-only fixes and system errors are.
+    enum SignalState: Equatable {
+        case notRecording, paused, ok, searching, weak, lost
+    }
+
+    func signalState(now: Date = Date(), patience: TimeInterval = 30) -> SignalState {
+        guard isRecording, availability == .ready else { return .notRecording }
+        if isPaused { return .paused }
+        if let lastErrorAt, lastErrorAt > (lastRawFixAt ?? .distantPast),
+           now.timeIntervalSince(lastErrorAt) > 5 { return .lost }
+        if lastAcceptedFixAt == nil {
+            guard let began = recordingBeganAt, now.timeIntervalSince(began) > patience else { return .ok }
+            return lastRawFixAt == nil ? .searching : .weak
+        }
+        if let raw = lastRawFixAt, let accepted = lastAcceptedFixAt,
+           raw > accepted, now.timeIntervalSince(accepted) > patience, now.timeIntervalSince(raw) < patience {
+            return .weak
+        }
+        return .ok
+    }
+
+    /// Re-arm CoreLocation when the app returns to the foreground mid-recording. `startUpdatingLocation()`
+    /// is idempotent, so this is safe when updates never stopped; it recovers the case where they did
+    /// (the system ended them, or a permission change was missed while suspended). The background session
+    /// is recreated too, because only a foreground app can start one and an ended session cannot reactivate.
+    func resumeUpdatesIfNeeded() {
+        guard isRecording else { return }
+        refreshAccuracyAuthorization()
+        switch manager.authorizationStatus {
+        case .authorizedWhenInUse, .authorizedAlways:
+            renewBackgroundActivity()
+            beginUpdates()
+        default:
+            break
         }
     }
 
@@ -505,14 +675,54 @@ final class GpsWorkoutRecorder: NSObject, ObservableObject {
     fileprivate func beginUpdates() {
         // Wrapped: a Mac with no location services, or an OEM quirk, must never crash the app — just
         // record nothing. Mirrors Android's try/catch around requestLocationUpdates (#101).
-        guard CLLocationManager.locationServicesEnabled() else { return }
+        // `type(of:)` dispatches dynamically so a test double can stub the class-level availability check.
+        guard type(of: manager).locationServicesEnabled() else { return }
+        if backgroundActivity == nil { backgroundActivity = makeBackgroundActivity() }
         manager.startUpdatingLocation()
+    }
+
+    fileprivate func releaseBackgroundActivity() {
+        backgroundActivity?.invalidate()
+        backgroundActivity = nil
+    }
+
+    /// Replace the held session with a fresh one. The new session exists before the old one is invalidated,
+    /// so recording is never momentarily without a session.
+    private func renewBackgroundActivity() {
+        let previous = backgroundActivity
+        backgroundActivity = makeBackgroundActivity()
+        previous?.invalidate()
+    }
+
+    fileprivate func refreshAccuracyAuthorization() {
+        let reduced = manager.accuracyAuthorization == .reducedAccuracy
+        guard reduced != isReducedAccuracy else { return }
+        isReducedAccuracy = reduced
+        if reduced {
+            logWorkouts("gps reducedAccuracy=true (approximate location only; route fixes will be coarse)")
+        }
+    }
+
+    /// One diagnostic line on the Workouts & GPS test-mode channel. The mode gate comes first so the recorder
+    /// formats nothing when the mode is off.
+    fileprivate func logWorkouts(_ line: @autoclosure () -> String) {
+        if TestCentre.active(.workouts), let workoutsLog {
+            workoutsLog(line())
+        }
     }
 
     /// Fold a batch of (already bound-checked at the source) fixes into the route, updating live
     /// distance/pace. No-op when not recording.
     fileprivate func ingest(_ fixes: [RawFix]) {
         guard isRecording else { return }
+        // Paused: the system keeps delivering so the session stays alive, but nothing reaches the route or distance. The
+        // fixes are not noted either: a raw fix that never became an accepted one would, after the resume, read as a
+        // signal that is arriving and being rejected ("Weak GPS signal") on a perfectly good one.
+        guard !isPaused else { return }
+        if !fixes.isEmpty {
+            lastRawFixAt = Date()
+            lastErrorAt = nil
+        }
         rawFixCount += fixes.count
         var appendedPoints: [ActiveGpsJournalPoint] = []
         appendedPoints.reserveCapacity(fixes.count)
@@ -539,8 +749,8 @@ final class GpsWorkoutRecorder: NSObject, ObservableObject {
             }
         }
         guard !appendedPoints.isEmpty else { return }
-        let elapsed = Double(Int64(Date().timeIntervalSince1970 * 1000) - startMs) / 1000.0
-        paceSecPerKm = RouteMath.paceSecPerKm(meters: distanceM, seconds: elapsed)
+        lastAcceptedFixAt = Date()
+        paceSecPerKm = RouteMath.paceSecPerKm(meters: distanceM, seconds: elapsedSeconds())
         // Workouts & GPS test mode: one GPS-fix-progress line tagged `.workouts` per batch that added a point,
         // showing raw fixes seen, how many the accuracy/speed filter accepted, and the running distance, so a
         // route that under-records (weak signal / denied permission) is visible. Zero-cost when off (the gate
@@ -580,13 +790,19 @@ final class GpsWorkoutRecorder: NSObject, ObservableObject {
 extension GpsWorkoutRecorder: @preconcurrency CLLocationManagerDelegate {
 
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        refreshAvailability()
         guard isRecording else { return }
+        refreshAccuracyAuthorization()
         switch manager.authorizationStatus {
         case .authorizedWhenInUse, .authorizedAlways:
+            // First-run grant: the prompt is shown in the foreground, so the session `beginUpdates` creates
+            // can become active. An existing session is deliberately left alone here: this callback can also
+            // arrive in the background, where a replacement would start inactive.
             beginUpdates()
         case .denied, .restricted:
             // Revoked mid-session: stop streaming but keep whatever route was captured so far (honest).
             manager.stopUpdatingLocation()
+            releaseBackgroundActivity()
         default:
             break
         }
@@ -606,6 +822,10 @@ extension GpsWorkoutRecorder: @preconcurrency CLLocationManagerDelegate {
 
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
         // A transient failure (no fix yet) is normal and self-heals; we never tear down on it. A hard
-        // denial arrives via the auth callback instead. Swallow so a GPS hiccup can't crash a workout.
+        // denial arrives via the auth callback instead. Never throw so a GPS hiccup can't crash a workout,
+        // but leave a trace: a route that silently stops accruing is otherwise impossible to diagnose.
+        let nsError = error as NSError
+        lastErrorAt = Date()
+        logWorkouts("gps locationError domain=\(nsError.domain) code=\(nsError.code)")
     }
 }

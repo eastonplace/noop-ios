@@ -50,23 +50,62 @@ public struct StatePill: View {
                 }
             }
             Text(title)
+                .statePillLabel()
+        }
+        .statePillChrome(tint: tone.color)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(title)
+    }
+}
+
+// MARK: - Shared pill metrics
+
+extension View {
+    /// The state pill's type: overline face, 0.4pt tracking, white ink. White, never the tone, so a
+    /// red or amber pill still reads as a quiet label on a tinted chip.
+    ///
+    /// At the accessibility sizes the type is a fixed size that scales with Dynamic Type (`.caption2` bold), so a word
+    /// wider than the pill scales down instead of hyphenating ("Rest-ing") and a label wraps between words, `lines` at
+    /// most. At every smaller size it is `StrandFont.overline` with no line limit of its own, exactly as it always was.
+    func statePillLabel(lines: Int = 2) -> some View {
+        modifier(StatePillLabelFit(lines: lines))
+    }
+
+    /// The state pill's chip: 10 / 5pt padding, a 12% wash and a 1pt 28% hairline of the tone. `StatePill`
+    /// and every pill that must match it (Live HR zone, Stress value) share this one definition.
+    public func statePillChrome(tint: Color) -> some View {
+        self.padding(.horizontal, StatePillMetrics.horizontalPadding)
+            .padding(.vertical, StatePillMetrics.verticalPadding)
+            .background(Capsule(style: .continuous).fill(tint.opacity(0.12)))
+            .overlay(Capsule(style: .continuous).stroke(tint.opacity(0.28), lineWidth: 1))
+    }
+}
+
+private struct StatePillLabelFit: ViewModifier {
+    let lines: Int
+    @ScaledMetric(relativeTo: .caption2) private var size: CGFloat = 11
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    func body(content: Content) -> some View {
+        if typeSize.isAccessibilitySize {
+            content
+                .font(.system(size: size, weight: .bold, design: .default))
+                .tracking(0.4)
+                .foregroundStyle(StrandPalette.textPrimary)
+                .lineLimit(lines)
+                .minimumScaleFactor(0.5)
+        } else {
+            content
                 .font(StrandFont.overline)
                 .tracking(0.4)
                 .foregroundStyle(StrandPalette.textPrimary)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 5)
-        .background(
-            Capsule(style: .continuous)
-                .fill(tone.color.opacity(0.12))
-        )
-        .overlay(
-            Capsule(style: .continuous)
-                .stroke(tone.color.opacity(0.28), lineWidth: 1)
-        )
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(title)
     }
+}
+
+enum StatePillMetrics {
+    static let horizontalPadding: CGFloat = 10
+    static let verticalPadding: CGFloat = 5
 }
 
 // MARK: - ConnectionDot

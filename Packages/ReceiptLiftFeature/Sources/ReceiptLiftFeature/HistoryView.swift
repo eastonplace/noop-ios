@@ -1,9 +1,12 @@
-import Charts
+import StrandDesign
 import SwiftUI
 
+/// Receipts (every completed lift, newest first, by month) and Progress (the range's volume, totals and top lifts).
 struct HistoryView: View {
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @Environment(\.scenePhase) private var scenePhase
+  @Environment(\.liftFormat) private var format
+  @Environment(\.locale) private var locale
   @EnvironmentObject private var store: LiftStore
 
   private let selectedSegment: Binding<LiftHistorySegment>?
@@ -12,6 +15,7 @@ struct HistoryView: View {
   @State private var referenceNow = Date()
   @State private var showingExercisePicker = false
   @State private var selectedExerciseID: UUID?
+  @State private var months: [LiftReceiptMonth] = []
   private let progressOnly: Bool
 
   init(selectedSegment: Binding<LiftHistorySegment>? = nil, progressOnly: Bool = false) {
@@ -20,51 +24,27 @@ struct HistoryView: View {
   }
 
   private var activeSegment: LiftHistorySegment {
-    selectedSegment?.wrappedValue ?? localSegment
-  }
-
-  private var completedSessions: [LiftSession] {
-    store.sessions
-      .filter { $0.endedAt != nil }
-      .sorted { left, right in
-        if left.startedAt != right.startedAt { return left.startedAt > right.startedAt }
-        if left.endedAt != right.endedAt {
-          return (left.endedAt ?? left.startedAt) > (right.endedAt ?? right.startedAt)
-        }
-        return left.id.uuidString > right.id.uuidString
-      }
-  }
-
-  private var progressSnapshot: LiftProgressSnapshot {
-    store.progressSnapshot(for: selectedRange, now: referenceNow, calendar: .current)
+    progressOnly ? .progress : (selectedSegment?.wrappedValue ?? localSegment)
   }
 
   var body: some View {
-    ScrollView {
-      LazyVStack(alignment: .leading, spacing: 0) {
-        ReceiptHeader(title: progressOnly ? "Progress" : "History", subtitle: "Receipts and training progress")
-          .padding(.horizontal, 16)
-          .padding(.top, 12)
-
-        if !progressOnly {
-          historySegmentBar
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-        }
-
-        ReceiptRule()
-          .padding(.horizontal, 16)
-
-        if activeSegment == .receipts {
-          receiptRows
-        } else {
-          progressOverview
-        }
+    LiftPage(title: progressOnly ? "Progress" : "History", lazy: true) {
+      if !progressOnly {
+        SegmentedPillControl(LiftHistorySegment.allCases, selection: segmentSelection) { $0.label }
+          .frame(maxWidth: .infinity, alignment: .leading)
+          .padding(.vertical, NoopMetrics.space2)
       }
-      .padding(.bottom, 24)
+      if activeSegment == .receipts {
+        receipts
+      } else {
+        LiftProgressOverview(
+          range: selectedRange,
+          referenceNow: referenceNow,
+          onSelectRange: selectRange,
+          onFindExercise: { showingExercisePicker = true }
+        )
+      }
     }
-    .scrollIndicators(.hidden)
-    .background(LiftTheme.paper.ignoresSafeArea())
     .sheet(isPresented: $showingExercisePicker) {
       NavigationStack {
         ExerciseLibraryView { exercise in
@@ -80,6 +60,16 @@ struct HistoryView: View {
           .environmentObject(store)
       }
     }
+    .liftQAScene("exercise", "exercise-info") {
+      selectedExerciseID = store.progressSnapshot(for: selectedRange, now: referenceNow, calendar: .current)
+        .topExercises.first?.exerciseID ?? store.preferredExerciseID
+    }
+    .onAppear(perform: refreshMonths)
+    .onChange(of: store.sessions) {
+      refreshMonths()
+      guard activeSegment == .progress else { return }
+      referenceNow = Date()
+    }
     .onChange(of: scenePhase) {
       guard scenePhase == .active, activeSegment == .progress else { return }
       referenceNow = Date()
@@ -88,210 +78,72 @@ struct HistoryView: View {
       guard segment == .progress else { return }
       referenceNow = Date()
     }
-    .onChange(of: store.sessions) {
-      guard activeSegment == .progress else { return }
-      referenceNow = Date()
-    }
   }
 
-  private var historySegmentBar: some View {
-    HStack(spacing: 0) {
-      ForEach(LiftHistorySegment.allCases) { segment in
-        segmentButton(segment)
-      }
-    }
-    .overlay(Rectangle().stroke(LiftTheme.ink, lineWidth: 1))
+  private var segmentSelection: Binding<LiftHistorySegment> {
+    Binding(get: { activeSegment }, set: { setSegment($0) })
   }
 
-  private func segmentButton(_ segment: LiftHistorySegment) -> some View {
-    let selected = activeSegment == segment
-    return Button {
-      setSegment(segment)
-    } label: {
-      Text(segment.title)
-        .font(.receipt(10, weight: .black))
-        .foregroundStyle(selected ? LiftTheme.paper : LiftTheme.ink)
-        .frame(maxWidth: .infinity, minHeight: 44)
-        .background(selected ? LiftTheme.ink : LiftTheme.paper)
-    }
-    .buttonStyle(.plain)
-    .accessibilityLabel(segment.title.capitalized)
-    .accessibilityValue(selected ? "Selected" : "Not selected")
-    .accessibilityAddTraits(selected ? .isSelected : [])
-  }
+  // MARK: Receipts
 
   @ViewBuilder
-  private var receiptRows: some View {
-    if completedSessions.isEmpty {
-      Text("NO SAVED RECEIPTS YET.")
-        .font(.receipt(11, weight: .bold))
-        .foregroundStyle(LiftTheme.inkSecondary)
-        .padding(16)
+  private var receipts: some View {
+    if months.isEmpty {
+      LiftMessage(
+        symbol: "list.bullet.rectangle",
+        title: "No receipts yet",
+        message: "Finish a workout and its receipt shows up here."
+      )
     } else {
-      ForEach(completedSessions) { session in
-        NavigationLink {
-          CompletedReceiptView(session: session, presentation: .settled)
-        } label: {
-          receiptRow(session)
+      ForEach(Array(months.enumerated()), id: \.element.id) { index, month in
+        if index > 0 { FlatSectionSeparator() }
+        LiftDataSection(
+          title: month.title,
+          trailing: .text(LiftFormat.workoutCount(month.sessions.count))
+        ) {
+          LiftRowList(items: month.sessions) { session, _ in
+            NavigationLink {
+              CompletedReceiptView(session: session, presentation: .settled)
+            } label: {
+              receiptRow(session)
+            }
+            .buttonStyle(FlatRowPressStyle())
+          }
         }
-        .buttonStyle(.plain)
       }
     }
   }
 
   private func receiptRow(_ session: LiftSession) -> some View {
-    VStack(alignment: .leading, spacing: 8) {
-      Text(receiptDate(session.startedAt))
-        .font(.receipt(9, weight: .bold))
-        .foregroundStyle(LiftTheme.inkSecondary)
-
-      HStack(alignment: .firstTextBaseline, spacing: 12) {
-        Text(session.title.uppercased())
-          .font(.receipt(13, weight: .black))
-          .foregroundStyle(LiftTheme.ink)
-          .multilineTextAlignment(.leading)
-        Spacer(minLength: 8)
-        Text(liftVolume(session.totalVolume).uppercased())
-          .font(.receipt(11, weight: .black))
-          .foregroundStyle(LiftTheme.ink)
-        Text("→")
-          .font(.receipt(13, weight: .black))
-          .accessibilityHidden(true)
-      }
-
-      ReceiptDashedRule()
-    }
-    .padding(.horizontal, 16)
-    .padding(.top, 13)
-    .contentShape(Rectangle())
+    let seconds = (session.endedAt ?? session.startedAt).timeIntervalSince(session.startedAt)
+    let sets = session.workingSets.count
+    var facts: [String] = []
+    if sets > 0 { facts.append(LiftFormat.setCount(sets)) }
+    if seconds >= 60 { facts.append(format.shortDuration(seconds)) }
+    let when = LiftFormat.facts([format.weekdayDay(session.startedAt), format.time(session.startedAt)])
+    return LiftListRow(
+      title: session.title,
+      details: [when, LiftFormat.facts(facts)].filter { !$0.isEmpty },
+      value: format.volume(pounds: session.totalVolume),
+      showsChevron: true
+    )
     .accessibilityElement(children: .ignore)
     .accessibilityLabel(
-      "\(receiptDate(session.startedAt)), \(session.title), \(liftVolume(session.totalVolume))"
+      "\(format.dayTime(session.startedAt)), \(session.title), \(format.spokenWeight(pounds: session.totalVolume))"
     )
     .accessibilityHint("Opens completed workout receipt")
   }
 
-  private var progressOverview: some View {
-    let snapshot = progressSnapshot
-    return VStack(alignment: .leading, spacing: 18) {
-      rangeBar
-
-      ReceiptSectionLabel(title: "Weekly Volume (LB)")
-      weeklyVolumeChart(snapshot)
-
-      metricsGrid(snapshot.metrics)
-
-      ReceiptSectionLabel(title: "Top Exercises (Volume)")
-      if snapshot.topExercises.isEmpty {
-        Text("NO VOLUME IN THIS RANGE.")
-          .font(.receipt(10, weight: .bold))
-          .foregroundStyle(LiftTheme.inkSecondary)
-      } else {
-        ForEach(Array(snapshot.topExercises.enumerated()), id: \.element.id) { index, exercise in
-          NavigationLink {
-            ExerciseProgressView(exerciseID: exercise.exerciseID)
-              .environmentObject(store)
-          } label: {
-            ReceiptLine(
-              index: index + 1,
-              title: exercise.name,
-              detail: "TOTAL TRAINING VOLUME",
-              value: "\(liftVolume(exercise.volume)) →"
-            )
-          }
-          .buttonStyle(.plain)
-          .accessibilityHint("Opens exercise progress")
-        }
-      }
-
-      Button {
-        showingExercisePicker = true
-      } label: {
-        Text("FIND AN EXERCISE →")
-          .font(.receipt(10, weight: .black))
-          .foregroundStyle(LiftTheme.paper)
-          .frame(maxWidth: .infinity, minHeight: 44)
-          .background(LiftTheme.ink)
-      }
-      .buttonStyle(.plain)
-      .accessibilityHint("Searches the exercise library")
-    }
-    .id(selectedRange)
-    .transition(.opacity)
-    .padding(16)
+  private func refreshMonths() {
+    months = LiftReceiptMonth.group(store.sessions, calendar: .current, locale: locale)
   }
 
-  private var rangeBar: some View {
-    HStack(spacing: 0) {
-      ForEach(LiftProgressRange.allCases) { range in
-        let selected = selectedRange == range
-        Button {
-          referenceNow = Date()
-          withAnimation(reduceMotion ? LiftMotion.reducedCrossfade : LiftMotion.compose) {
-            selectedRange = range
-          }
-        } label: {
-          Text(range.title)
-            .font(.receipt(10, weight: .black))
-            .foregroundStyle(selected ? LiftTheme.paper : LiftTheme.ink)
-            .frame(maxWidth: .infinity, minHeight: 44)
-            .background(selected ? LiftTheme.ink : LiftTheme.paper)
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(range.title)
-        .accessibilityValue(selected ? "Selected" : "Not selected")
-        .accessibilityAddTraits(selected ? .isSelected : [])
-      }
-    }
-    .overlay(Rectangle().stroke(LiftTheme.ink, lineWidth: 1))
-  }
+  // MARK: State
 
-  private func weeklyVolumeChart(_ snapshot: LiftProgressSnapshot) -> some View {
-    let plotWidth = max(380, CGFloat(snapshot.weeklyVolume.count) * 30)
-    return ScrollView(.horizontal) {
-      Chart(snapshot.weeklyVolume) { week in
-        BarMark(
-          x: .value("Week starting", week.weekStart, unit: .weekOfYear),
-          y: .value("Weekly volume in pounds", week.volume)
-        )
-        .foregroundStyle(LiftTheme.ink)
-        .accessibilityLabel(week.weekStart.formatted(.dateTime.month(.abbreviated).day()))
-        .accessibilityValue(liftVolume(week.volume))
-      }
-      .chartXScale(domain: snapshot.window.startInclusive...snapshot.window.displayEndExclusive)
-      .chartXAxis {
-        AxisMarks(values: .automatic(desiredCount: 5)) {
-          AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5))
-            .foregroundStyle(LiftTheme.rule)
-          AxisValueLabel(format: .dateTime.month(.abbreviated).day())
-            .font(.receipt(8, weight: .bold))
-        }
-      }
-      .chartYAxis {
-        AxisMarks(position: .leading, values: .automatic(desiredCount: 4)) {
-          AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5))
-            .foregroundStyle(LiftTheme.rule)
-          AxisValueLabel()
-            .font(.receipt(8, weight: .bold))
-        }
-      }
-      .frame(width: plotWidth, height: 220)
-      .accessibilityLabel("Weekly training volume")
-      .accessibilityValue(
-        "\(snapshot.weeklyVolume.count) weeks, \(liftVolume(snapshot.metrics.workDone)) total"
-      )
-    }
-    .scrollIndicators(.hidden)
-  }
-
-  private func metricsGrid(_ metrics: LiftProgressMetrics) -> some View {
-    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 16) {
-      ReceiptMetric(title: "Work Done", value: liftVolume(metrics.workDone))
-      ReceiptMetric(title: "Workouts", value: "\(metrics.workouts)")
-      ReceiptMetric(title: "Sets", value: "\(metrics.workingSets)")
-      ReceiptMetric(title: "Avg Duration", value: liftDuration(metrics.averageDuration))
-      ReceiptMetric(title: "Consistency", value: "\(Int(metrics.consistencyPercent.rounded()))%")
-      ReceiptMetric(title: "Exercises", value: "\(metrics.exerciseCount)")
+  private func selectRange(_ range: LiftProgressRange) {
+    referenceNow = Date()
+    withAnimation(reduceMotion ? LiftMotion.reducedCrossfade : LiftMotion.compose) {
+      selectedRange = range
     }
   }
 
@@ -316,10 +168,207 @@ struct HistoryView: View {
       }
     )
   }
+}
 
-  private func receiptDate(_ date: Date) -> String {
-    let day = date.formatted(.dateTime.month(.abbreviated).day().year()).uppercased()
-    let time = date.formatted(.dateTime.hour().minute()).uppercased()
-    return "\(day) · \(time)"
+/// The completed lifts of one month, newest first.
+struct LiftReceiptMonth: Identifiable, Equatable {
+  let id: Date
+  let title: String
+  let sessions: [LiftSession]
+
+  /// Completed sessions grouped by the month they started in, newest month and newest lift first.
+  nonisolated static func group(_ sessions: [LiftSession], calendar: Calendar, locale: Locale) -> [LiftReceiptMonth] {
+    let completed = sessions
+      .filter { $0.endedAt != nil }
+      .sorted { left, right in
+        if left.startedAt != right.startedAt { return left.startedAt > right.startedAt }
+        if left.endedAt != right.endedAt {
+          return (left.endedAt ?? left.startedAt) > (right.endedAt ?? right.startedAt)
+        }
+        return left.id.uuidString > right.id.uuidString
+      }
+    var order: [Date] = []
+    var buckets: [Date: [LiftSession]] = [:]
+    for session in completed {
+      let start = calendar.dateInterval(of: .month, for: session.startedAt)?.start ?? calendar.startOfDay(for: session.startedAt)
+      if buckets[start] == nil { order.append(start) }
+      buckets[start, default: []].append(session)
+    }
+    return order.map { start in
+      LiftReceiptMonth(
+        id: start,
+        title: start.formatted(
+          Date.FormatStyle(locale: locale, calendar: calendar, timeZone: calendar.timeZone).month(.wide).year()),
+        sessions: buckets[start] ?? []
+      )
+    }
+  }
+}
+
+// MARK: - Progress
+
+/// The range's weekly volume (touch and hold the chart to read a week), its totals and its top lifts. The week under the
+/// finger lives here, so a scrub redraws this section and nothing above it.
+private struct LiftProgressOverview: View {
+  let range: LiftProgressRange
+  let referenceNow: Date
+  let onSelectRange: (LiftProgressRange) -> Void
+  let onFindExercise: () -> Void
+
+  @EnvironmentObject private var store: LiftStore
+  @Environment(\.liftFormat) private var format
+  @State private var snapshot: LiftProgressSnapshot?
+  @State private var selection: Int?
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 0) {
+      SegmentedPillControl(LiftProgressRange.allCases, selection: rangeBinding) { $0.label }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.bottom, NoopMetrics.space2)
+      if let snapshot {
+        volumeSection(snapshot)
+        FlatSectionSeparator()
+        totalsSection(snapshot.metrics)
+        FlatSectionSeparator()
+        topSection(snapshot)
+      }
+    }
+    .onAppear { refresh() }
+    .onChange(of: range) { refresh() }
+    .onChange(of: referenceNow) { refresh() }
+    .onChange(of: store.sessions) { refresh() }
+  }
+
+  private var rangeBinding: Binding<LiftProgressRange> {
+    Binding(get: { range }, set: { onSelectRange($0) })
+  }
+
+  private func refresh() {
+    selection = nil
+    snapshot = store.progressSnapshot(for: range, now: referenceNow, calendar: .current)
+  }
+
+  // MARK: Volume
+
+  private func volumeSection(_ snapshot: LiftProgressSnapshot) -> some View {
+    let weeks = snapshot.weeklyVolume
+    let shown = selection.flatMap { weeks.indices.contains($0) ? weeks[$0] : nil }
+    let pounds = shown?.volume ?? snapshot.metrics.workDone
+    let parts = format.volumeParts(pounds: pounds)
+    let caption: String = {
+      guard let shown else { return range.caption }
+      return LiftFormat.facts([
+        String(localized: "Week of \(format.day(shown.weekStart))"),
+        LiftFormat.workoutCount(shown.workoutCount),
+      ])
+    }()
+    return LiftFlatSection("Volume", systemImage: "chart.bar.fill") {
+      VStack(alignment: .leading, spacing: WidgetMetrics.contentSpacing) {
+        HeroValue(
+          value: pounds > 0 ? parts.number : LiftFormat.missing,
+          unit: pounds > 0 ? parts.unit : nil,
+          caption: caption,
+          captionPlacement: .below
+        )
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(shown == nil ? Text("Work done") : Text("Weekly volume"))
+        .accessibilityValue(
+          LiftFormat.facts([format.spokenWeight(pounds: pounds), caption]))
+        if weeks.isEmpty {
+          LiftNote(text: "No volume in this range.")
+        } else {
+          ScrubChart(
+            points: weeks.map { ScrubChartPoint(date: $0.weekStart, value: $0.volume) },
+            domain: snapshot.window.startInclusive...snapshot.window.displayEndExclusive,
+            style: .bars,
+            tint: .workout,
+            selection: $selection,
+            calendar: .current,
+            locale: format.locale,
+            summary: String(localized: "Weekly training volume, \(range.caption), \(format.spokenWeight(pounds: snapshot.metrics.workDone)) total"),
+            stepHint: "Swipe up or down to step through weeks",
+            spokenValue: { point in
+              let week = weeks.first { $0.weekStart == point.date }
+              return LiftFormat.facts([
+                String(localized: "Week of \(format.day(point.date))"),
+                format.spokenWeight(pounds: point.value),
+                week.map { LiftFormat.workoutCount($0.workoutCount) } ?? "",
+              ])
+            }
+          )
+        }
+      }
+    }
+  }
+
+  // MARK: Totals
+
+  private func totalsSection(_ metrics: LiftProgressMetrics) -> some View {
+    LiftFlatSection("Totals", systemImage: "sum") {
+      VStack(alignment: .leading, spacing: FlatSectionRhythm.rowAir) {
+        FactStrip(facts: [
+          .init("Workouts", value: metrics.workouts.formatted()),
+          .init("Sets", value: metrics.workingSets.formatted()),
+          .init("Exercises", value: metrics.exerciseCount.formatted()),
+        ])
+        FactStrip(facts: [
+          .init(
+            "Avg duration",
+            value: metrics.workouts > 0 ? format.shortDuration(metrics.averageDuration) : LiftFormat.missing,
+            spokenValue: metrics.workouts > 0 ? format.spokenDuration(metrics.averageDuration) : nil),
+          .init(
+            "Consistency",
+            value: metrics.workouts > 0
+              ? (metrics.consistencyPercent / 100).formatted(.percent.precision(.fractionLength(0)).locale(format.locale))
+              : LiftFormat.missing),
+        ])
+      }
+    }
+  }
+
+  // MARK: Top lifts
+
+  /// The muscle and equipment of a top exercise, so the list reads as movements and not as a column of captions.
+  private func topExerciseDetails(_ id: UUID) -> [String] {
+    guard let exercise = store.exercise(for: id) else { return [] }
+    return [LiftFormat.facts([exercise.muscleGroup, exercise.equipment]).liftDisplayName]
+  }
+
+  private func topSection(_ snapshot: LiftProgressSnapshot) -> some View {
+    LiftFlatSection("Top exercises", systemImage: "trophy", contentSpacing: 0) {
+      if snapshot.topExercises.isEmpty {
+        LiftNote(text: "No volume in this range.").padding(.vertical, NoopMetrics.space2)
+      } else {
+        LiftRowList(items: snapshot.topExercises, separatorInset: 28 + NoopMetrics.space3) { exercise, index in
+          NavigationLink {
+            ExerciseProgressView(exerciseID: exercise.exerciseID)
+              .environmentObject(store)
+          } label: {
+            LiftListRow(
+              title: exercise.name.liftDisplayName,
+              details: topExerciseDetails(exercise.exerciseID),
+              value: format.volume(pounds: exercise.volume),
+              showsChevron: true,
+              leading: {
+                Text((index + 1).formatted(.number.locale(format.locale)))
+                  .font(StrandFont.number(15))
+                  .foregroundStyle(StrandPalette.textTertiary)
+                  .frame(width: 28, alignment: .leading)
+              }
+            )
+          }
+          .buttonStyle(FlatRowPressStyle())
+          .accessibilityElement(children: .ignore)
+          .accessibilityLabel("\(exercise.name.liftDisplayName), \(format.spokenWeight(pounds: exercise.volume))")
+          .accessibilityHint("Opens exercise progress")
+        }
+      }
+      ChipRow {
+        WidgetChipButton(
+          title: "Find an exercise", systemImage: "magnifyingglass", accessibilityLabel: "Find an exercise",
+          accessibilityHint: "Searches the exercise library", action: onFindExercise)
+      }
+      .padding(.top, NoopMetrics.space3)
+    }
   }
 }

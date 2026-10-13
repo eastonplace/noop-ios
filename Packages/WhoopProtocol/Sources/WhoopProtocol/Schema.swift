@@ -60,6 +60,9 @@ public struct Schema {
     public var envelope: [FieldSpec]
     public var packets: [String: PacketSpec]
     private var byType: [Int: PacketSpec]
+    /// BLE-2: every type-47 version layout resolved once (ref chains followed) at load, keyed by packet
+    /// name then version byte, so the per-record decode no longer allocates a String and a Set per frame.
+    private var resolvedVersions: [String: [Int: VersionSpec]]
 
     public init(enums: [String: [String: String]], envelope: [FieldSpec], packets: [String: PacketSpec]) {
         self.enums = enums
@@ -73,6 +76,41 @@ public struct Schema {
             }
         }
         self.byType = idx
+        var resolved: [String: [Int: VersionSpec]] = [:]
+        for (name, spec) in packets where !spec.versions.isEmpty {
+            var byVersion: [Int: VersionSpec] = [:]
+            for key in spec.versions.keys {
+                guard let version = Int(key),
+                      let entry = Schema.resolveVersionChain(spec.versions, version) else { continue }
+                byVersion[version] = entry
+            }
+            resolved[name] = byVersion
+        }
+        self.resolvedVersions = resolved
+    }
+
+    /// The pre-resolved layout for `version` of packet `packetName`; falls back to resolving on demand
+    /// for a packet table that was built some other way.
+    func resolvedVersion(packet spec: PacketSpec, _ version: Int) -> VersionSpec? {
+        if let table = resolvedVersions[spec.name] { return table[version] }
+        return Schema.resolveVersionChain(spec.versions, version)
+    }
+
+    /// Mirrors interpreter._resolve_version: base entry's keys, then this entry's non-ref keys override.
+    static func resolveVersionChain(_ versions: [String: VersionSpec], _ version: Int) -> VersionSpec? {
+        guard var entry = versions[String(version)] else { return nil }
+        var seen = Set<String>()
+        while let ref = entry.ref, !seen.contains(ref) {
+            seen.insert(ref)
+            guard let base = versions[ref] else { break }
+            // base keys, then entry's non-ref keys override.
+            entry = VersionSpec(
+                kind: entry.kind ?? base.kind,
+                fields: entry.fields.isEmpty ? base.fields : entry.fields,
+                rrFirstOff: entry.rrFirstOff ?? base.rrFirstOff,
+                ref: nil)
+        }
+        return entry
     }
 }
 
@@ -96,19 +134,7 @@ public extension Schema {
     /// Mirrors interpreter._resolve_version: base entry's keys, then this entry's non-ref
     /// keys override.
     func resolveVersion(_ versions: [String: VersionSpec], _ version: Int) -> VersionSpec? {
-        guard var entry = versions[String(version)] else { return nil }
-        var seen = Set<String>()
-        while let ref = entry.ref, !seen.contains(ref) {
-            seen.insert(ref)
-            guard let base = versions[ref] else { break }
-            // base keys, then entry's non-ref keys override.
-            entry = VersionSpec(
-                kind: entry.kind ?? base.kind,
-                fields: entry.fields.isEmpty ? base.fields : entry.fields,
-                rrFirstOff: entry.rrFirstOff ?? base.rrFirstOff,
-                ref: nil)
-        }
-        return entry
+        Schema.resolveVersionChain(versions, version)
     }
 }
 
@@ -171,10 +197,16 @@ private struct RawSchema: Decodable {
     let packets: [String: RawPacket]
 }
 
-private var _cachedSchema: Schema?
+/// BLE-2: a lazily initialised global `let` (thread-safe one-time init) instead of an unsynchronised
+/// `var` cache that the main actor and the detached history decode both read and wrote. The post-hook
+/// table is registered inside the same one-time initialiser, before any caller can obtain the schema.
+private let _cachedSchema: Schema = buildSchema()
 
 public func loadSchema() -> Schema {
-    if let cached = _cachedSchema { return cached }
+    _cachedSchema
+}
+
+private func buildSchema() -> Schema {
     guard let url = Bundle.module.url(forResource: "whoop_protocol", withExtension: "json") else {
         fatalError("whoop_protocol.json missing from Bundle.module resources")
     }
@@ -228,6 +260,5 @@ public func loadSchema() -> Schema {
     }
     let schema = Schema(enums: raw.enums, envelope: raw.envelope, packets: packets)
     registerPostHooks()
-    _cachedSchema = schema
     return schema
 }

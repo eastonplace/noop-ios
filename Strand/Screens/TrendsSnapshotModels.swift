@@ -92,6 +92,34 @@ struct TrendSummaryPresentation {
     }
 }
 
+/// The words on one Scores row: the latest value, and how the period average moved against the one before.
+/// Pure, so the row text can be pinned in a test (the Strain row once scaled an already-scaled value).
+struct TrendsSummaryRowText: Equatable {
+    let latest: String
+    let delta: String
+    let tone: TrendSummaryDeltaTone
+
+    init(metric: ProductionTrendMetric, presentation: TrendSummaryPresentation) {
+        latest = presentation.latest.map(metric.scoresRowFormat) ?? WidgetMetrics.missingValue
+        var tone = presentation.deltaTone
+        if !presentation.comparisonIsReliable {
+            delta = String(localized: "Early read · \(presentation.currentCount)/\(presentation.expectedCount) days")
+        } else if let value = presentation.delta {
+            let magnitude = metric.scoresRowFormat(abs(value))
+            if trendsDeltaIsZero(magnitude) {
+                delta = String(localized: "No change")
+                tone = .neutral
+            } else {
+                let signed = (value >= 0 ? "+" : "−") + magnitude
+                delta = String(localized: "\(signed) avg")
+            }
+        } else {
+            delta = String(localized: "Need prior data")
+        }
+        self.tone = tone
+    }
+}
+
 struct PaperTrendSeries: Sendable {
     let recovery: [TrendPoint]
     let strain: [TrendPoint]
@@ -186,17 +214,25 @@ enum ProductionTrendMetric: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .strain, .sleepDuration, .respiratory, .skinTemp, .stress:
             return value.formatted(.number.precision(.fractionLength(1)))
-        case .steps, .calories:
-            return value.formatted(.number.precision(.fractionLength(0)))
         default:
-            return value.formatted(.number.precision(.fractionLength(0)))
+            // Half away from zero, like the band that colours it (RecoveryBands).
+            return ComponentValueFormat.rounded(value)
         }
     }
 
     func formatWithUnit(_ value: Double) -> String {
         let rendered = format(value)
         guard rendered != "—", !unit.isEmpty else { return rendered }
-        return unit == "%" ? "\(rendered)%" : "\(rendered) \(unit)"
+        return rendered + TrendsUnitSuffix.text(for: unit)
+    }
+
+    /// How a Scores row writes a value. Recovery and strain go bare (the row label names them); the rest carry
+    /// their unit. Strain is already on the 0–21 display scale here, so it only ever takes `format`.
+    func scoresRowFormat(_ value: Double) -> String {
+        switch self {
+        case .recovery, .strain: format(value)
+        default: formatWithUnit(value)
+        }
     }
 
     /// Imported database rows are untrusted display input. Keep corrupt but finite
@@ -213,6 +249,49 @@ enum ProductionTrendMetric: String, CaseIterable, Identifiable, Sendable {
         case .skinTemp: return (-20...20).contains(value)
         case .steps: return (0...2_000_000).contains(value)
         case .calories: return (0...100_000).contains(value)
+        }
+    }
+}
+
+extension ProductionTrendMetric {
+    /// The SF Symbol this metric wears across Today's Health Monitor and the Coach cards.
+    var symbol: String {
+        switch self {
+        case .recovery: "heart.fill"
+        case .strain: "flame.fill"
+        case .sleepPerformance: "moon.stars.fill"
+        case .sleepDuration: "bed.double.fill"
+        case .hrv: "waveform.path.ecg"
+        case .restingHR: "heart.fill"
+        case .respiratory: "lungs.fill"
+        case .spo2: "drop.fill"
+        case .skinTemp: "thermometer.medium"
+        case .steps: "figure.walk"
+        case .calories: "flame.fill"
+        case .stress: "bolt.heart"
+        }
+    }
+
+    /// One domain tint per metric: its symbol, its chart ink and its accents all read from this. Recovery
+    /// follows the band of its latest score, exactly as Today's dial does.
+    func domainTint(latest: Double?) -> DomainTint {
+        switch self {
+        case .recovery: .recovery(score: latest)
+        case .strain: .strain
+        case .sleepPerformance, .sleepDuration: .sleep
+        case .hrv: .hrv
+        case .restingHR: .heart
+        case .stress: .stress
+        case .respiratory, .spo2, .skinTemp, .steps, .calories: .custom(tint)
+        }
+    }
+
+    /// What the metric can physically be, so a chart axis never runs past it (a recovery of -4, or 108%).
+    var valueBounds: ClosedRange<Double> {
+        switch self {
+        case .recovery, .sleepPerformance, .spo2: 0...100
+        case .skinTemp: -Double.greatestFiniteMagnitude...Double.greatestFiniteMagnitude
+        default: 0...Double.greatestFiniteMagnitude
         }
     }
 }
@@ -321,7 +400,7 @@ struct TrendsScreenSnapshot: Sendable {
             return CalendarMetricDay(
                 date: calendar.startOfDay(for: date),
                 value: data.canonicalByDay[key].flatMap {
-                    value(for: metric, day: $0, data: data)
+                    value(for: metric, day: $0, data: data, now: referenceDate)
                 }
             )
         }
@@ -465,7 +544,8 @@ struct TrendsScreenSnapshot: Sendable {
     private static func value(
         for metric: ProductionTrendMetric,
         day: DailyMetric,
-        data: TrendsLoadedData
+        data: TrendsLoadedData,
+        now: Date
     ) -> Double? {
         let candidate: Double?
         switch metric {
@@ -479,7 +559,20 @@ struct TrendsScreenSnapshot: Sendable {
         case .spo2: candidate = day.spo2Pct
         case .skinTemp: candidate = day.skinTempDevC
         case .steps: candidate = day.steps.map(Double.init) ?? data.appleByDay[day.day]?.steps.map(Double.init)
-        case .calories: candidate = day.activeKcalEst ?? data.appleByDay[day.day]?.activeKcal
+        case .calories:
+            // Review round 4 (5): the shared resolver, the same total the Coupled view and the widgets show.
+            let apple = data.appleByDay[day.day]
+            let timing = TimeZone(identifier: data.timeZoneIdentifier).flatMap {
+                DailyCalories.dayTiming(day: day.day, timeZone: $0, now: now)
+            }
+            candidate = DailyCalories.total(
+                strapKcal: day.activeKcalEst,
+                strapWornSeconds: data.strapWornSecondsByDay[day.day],
+                appleActiveKcal: apple?.activeKcal,
+                appleBasalKcal: apple?.basalKcal,
+                bmrKcalPerDay: data.bmrKcalPerDay,
+                daySeconds: timing?.daySeconds,
+                elapsedSeconds: timing?.elapsedSeconds)
         case .stress: candidate = data.stressByDay[day.day]
         }
         guard let value = finite(candidate), metric.acceptsForDisplay(value) else { return nil }

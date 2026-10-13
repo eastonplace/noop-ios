@@ -31,15 +31,16 @@ extension WhoopStore {
     public func upsertMetricSeries(_ rows: [MetricPoint], deviceId: String) async throws -> Int {
         try syncWrite { db in
             var n = 0
-            for r in rows {
-                try db.execute(sql: """
+            let statement = try db.cachedStatement(sql: """
                     INSERT INTO metricSeries
                         (deviceId, day, key, value)
                     VALUES (?, ?, ?, ?)
                     ON CONFLICT(deviceId, day, key) DO UPDATE SET
                         value = excluded.value
                     WHERE metricSeries.value IS NOT excluded.value
-                    """, arguments: [deviceId, r.day, r.key, r.value])
+                    """)
+            for r in rows {
+                try statement.execute(arguments: [deviceId, r.day, r.key, r.value])
                 n += db.changesCount
             }
             return n
@@ -49,14 +50,17 @@ extension WhoopStore {
     /// Reconcile the complete set of `keys` in an inclusive day range. Existing rows absent from
     /// `rows` are deleted, unrelated keys and devices are untouched, and the operation is atomic.
     /// This is the metric-series equivalent of `reconcileDailyMetrics` and prevents derived shadow
-    /// values from surviving after their raw inputs become invalid.
+    /// values from surviving after their raw inputs become invalid. Rows on `protectedDays` are never
+    /// deleted (a caller that kept a day's other rows keeps its metric rows too), though `rows` still
+    /// upserts any value supplied for such a day.
     @discardableResult
     public func reconcileMetricSeries(
         _ rows: [MetricPoint],
         deviceId: String,
         keys: [String],
         from: String,
-        to: String
+        to: String,
+        protectedDays: Set<String> = []
     ) async throws -> Int {
         let scopedKeys = Set(keys)
         guard !scopedKeys.isEmpty,
@@ -79,7 +83,7 @@ extension WhoopStore {
             var changed = 0
             for key in scopedKeys.sorted() {
                 let desired = desiredByKey[key] ?? []
-                let desiredDays = desired.map(\.day).sorted()
+                let desiredDays = Set(desired.map(\.day)).union(protectedDays).sorted()
                 if desiredDays.isEmpty {
                     try db.execute(sql: """
                         DELETE FROM metricSeries

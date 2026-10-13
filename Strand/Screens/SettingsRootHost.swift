@@ -11,7 +11,6 @@ struct SettingsRootHost: View {
 
     @AppStorage(PuffinExperiment.powerSavingKey) private var powerSavingEnabled = false
     @AppStorage(PuffinExperiment.keepRealtimeForDataKey) private var continuousHrvEnabled = false
-    @AppStorage(AppearanceMode.storageKey) private var appearanceRaw = AppearanceMode.system.rawValue
     @AppStorage(UnitPrefs.systemKey) private var unitSystemRaw = UnitSystem.metric.rawValue
     @AppStorage(PuffinExperiment.autoDetectWorkoutsKey) private var autoDetectWorkoutsEnabled = false
     @AppStorage(PuffinExperiment.defaultsKey) private var puffinExperiments = false
@@ -22,6 +21,9 @@ struct SettingsRootHost: View {
             .background(SettingsConnectionStatusBridge(connected: $connected))
             .navigationDestination(for: SettingsRouteID.self) { route in
                 SettingsDetailHost(destination: route)
+                    #if os(iOS)
+                    .navigationBarTitleDisplayMode(.inline)
+                    #endif
             }
     }
 
@@ -33,8 +35,8 @@ struct SettingsRootHost: View {
                 : (continuousHrvEnabled
                     ? String(localized: "Continuous HRV on")
                     : String(localized: "Standard")),
-            .appearanceUnits: "\(appearanceLabel) · \(unitLabel)",
-            .workoutPreferences: autoDetectWorkoutsEnabled
+            .appearanceUnits: unitLabel,
+            .workouts: autoDetectWorkoutsEnabled
                 ? String(localized: "Auto detect on")
                 : String(localized: "Defaults"),
             .privacyDeletion: String(localized: "Local"),
@@ -44,10 +46,6 @@ struct SettingsRootHost: View {
             values[.diagnosticsExperimental] = String(localized: "Experiments on")
         }
         return SettingsRootStatus(values: values)
-    }
-
-    private var appearanceLabel: String {
-        (AppearanceMode(rawValue: appearanceRaw) ?? .system).label
     }
 
     private var unitLabel: String {

@@ -273,3 +273,77 @@ final class DeviceRegistryStoreTests: XCTestCase {
         XCTAssertEqual(try store.dayOwner("2026-06-15")?.locked, false)
     }
 }
+
+/// Counts committed write transactions on the writer connection, empty ones included.
+private final class CommitCounter: TransactionObserver, @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+    var commits: Int { lock.withLock { count } }
+
+    func observes(eventsOfKind eventKind: DatabaseEventKind) -> Bool { true }
+    func databaseDidChange(with event: DatabaseEvent) {}
+    func databaseDidCommit(_ db: Database) { lock.withLock { count += 1 } }
+    func databaseDidRollback(_ db: Database) {}
+}
+
+/// CC-4: an unchanged peripheral id is answered from a pool reader and never opens a write transaction, so a
+/// main-actor caller can't wait behind a backfill commit holding the single writer.
+final class DeviceRegistryStoreWriteAvoidanceTests: XCTestCase {
+    private var path = ""
+
+    override func setUp() {
+        super.setUp()
+        path = NSTemporaryDirectory() + "registry-writes-\(UUID().uuidString).sqlite"
+    }
+
+    override func tearDown() {
+        for suffix in ["", "-wal", "-shm"] { try? FileManager.default.removeItem(atPath: path + suffix) }
+        super.tearDown()
+    }
+
+    private func makePool() throws -> (DatabasePool, CommitCounter) {
+        let pool = try DatabasePool(path: path)
+        try WhoopStore.makeMigrator().migrate(pool)
+        let counter = CommitCounter()
+        pool.add(transactionObserver: counter, extent: .databaseLifetime)
+        return (pool, counter)
+    }
+
+    func testUnchangedPeripheralIdPerformsNoWrite() throws {
+        let (pool, counter) = try makePool()
+        let store = DeviceRegistryStore(dbQueue: pool)
+        XCTAssertTrue(try store.setPeripheralId("my-whoop", peripheralId: "peripheral-a"))
+        XCTAssertEqual(counter.commits, 1)
+
+        XCTAssertFalse(try store.setPeripheralId("my-whoop", peripheralId: "peripheral-a"))
+        XCTAssertEqual(counter.commits, 1, "the no-change call opened a write transaction")
+
+        XCTAssertTrue(try store.setPeripheralId("my-whoop", peripheralId: "peripheral-b"))
+        XCTAssertEqual(counter.commits, 2)
+    }
+
+    func testAsyncVariantsWriteOnlyOnChange() async throws {
+        let (pool, counter) = try makePool()
+        let store = DeviceRegistryStore(dbQueue: pool)
+        let lineage = try store.historyLineage(for: "my-whoop")
+
+        let adopted = try await store.setPeripheralIdAsync("my-whoop", peripheralId: "peripheral-a")
+        let repeated = try await store.setPeripheralIdAsync("my-whoop", peripheralId: "peripheral-a")
+        XCTAssertTrue(adopted)
+        XCTAssertFalse(repeated)
+        XCTAssertEqual(counter.commits, 1)
+        XCTAssertNotEqual(try store.historyLineage(for: "my-whoop"), lineage, "adoption starts a new lineage")
+
+        try await store.addAsync(PairedDevice(id: "polar-1", brand: "Polar", model: "H10", sourceKind: .liveBLE,
+                                              capabilities: [.hr], status: .paired, addedAt: 1, lastSeenAt: 1))
+        try await store.setActiveAsync("polar-1")
+        try await store.renameAsync("polar-1", nickname: "Chest")
+        XCTAssertEqual(try store.activeDeviceId(), "polar-1")
+        XCTAssertEqual(try store.all().first { $0.id == "polar-1" }?.nickname, "Chest")
+        XCTAssertEqual(try store.all().filter { $0.status == .active }.count, 1)
+        do {
+            try await store.setActiveAsync("missing")
+            XCTFail("an unknown device must not be promoted")
+        } catch DeviceLifecycleStoreError.unknownDevice {}
+    }
+}

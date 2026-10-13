@@ -1,11 +1,13 @@
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#endif
 
 // MARK: - Heart Rate (NOOP scope, data-rich tier)
 //
 // The Deep-Timeline HR chart rebuilt in the Sleep/Stress paper dialect: a custom SwiftUI
-// `Path` (deliberately not Swift Charts, mirroring StressLoadChart's rationale) so the
-// gradient stroke, dashed hairline grid, reveal animation, and quiet chrome match the
-// production SleepStressComponents exactly. Interactions replicate the production
+// `Path` (deliberately not Swift Charts) so the gradient stroke, dashed hairline grid,
+// reveal animation, and quiet chrome stay under tight control. Interactions replicate the production
 // OverviewHRChart contract — pinch zooms about the window centre, drag pans, double-tap
 // resets, touch-and-hold scrubs a crosshair readout — via the same pure zoom/pan math,
 // re-stated here over plain TimeInterval ranges so the component stays fixture-only.
@@ -21,32 +23,96 @@ public enum HRZoneStyle {
     /// Fixed bpm scale the semantic ramp is anchored to (the visible chart re-projects it).
     public static let floor: Double = 40
     public static let ceiling: Double = 180
-    /// Band boundaries for the legend / time-in-zone rows.
+    /// Band boundaries when no profile is known (previews, the Live Activity): rest under 60, steady under 110.
+    /// Screens that know the wearer read their own from the environment (`\.hrZoneThresholds`).
     public static let restCeiling: Double = 60
     public static let steadyCeiling: Double = 110
 
-    public static let stops: [Gradient.Stop] = [
-        .init(color: rest, location: 0),
-        .init(color: rest, location: unit(52)),
-        .init(color: steady, location: unit(85)),
-        .init(color: steady, location: unit(102)),
-        .init(color: push, location: unit(140)),
-        .init(color: push, location: 1),
-    ]
+    /// Where rest ends and push begins for one wearer: rest below half of their maximum heart rate, steady from
+    /// there to 70%, push from 70% up (the first, second and third-and-above heart-rate zones). Whole-bpm readings
+    /// are compared with the exact (possibly fractional) boundary, so with a maximum of 187 a reading of 93 is rest
+    /// and 94 is steady (the boundary is 93.5), 130 is steady and 131 is push (130.9).
+    public struct Thresholds: Equatable, Sendable {
+        public let rest: Double
+        public let steady: Double
+
+        /// The fixed 60 / 110 split.
+        public static let `default` = Thresholds(rest: restCeiling, steady: steadyCeiling)
+
+        /// Both boundaries are kept inside the drawn scale and apart from each other, so the ramp can never fold.
+        public init(rest: Double, steady: Double) {
+            let lowest = HRZoneStyle.floor + 5
+            let rest = rest.isFinite ? max(rest, lowest) : HRZoneStyle.restCeiling
+            let steady = steady.isFinite ? steady : HRZoneStyle.steadyCeiling
+            self.rest = rest
+            self.steady = min(max(steady, rest + 10), HRZoneStyle.ceiling - 5)
+        }
+
+        /// 50% and 70% of `hrMax` (the profile's override when set, else the age estimate). An unusable maximum falls
+        /// back to the fixed split. The 70% is computed as `hrMax * 7 / 10`, which is exact where `hrMax * 0.7` is a
+        /// hair off (a maximum of 200 must put push at exactly 140, not 140.00000000000003).
+        public init(hrMax: Double) {
+            guard hrMax.isFinite, (100...260).contains(hrMax) else {
+                self = .default
+                return
+            }
+            self.init(rest: hrMax / 2, steady: hrMax * 7 / 10)
+        }
+
+        /// 0 rest, 1 steady, 2 push.
+        public func zone(for bpm: Double) -> Int {
+            if bpm < rest { return 0 }
+            if bpm < steady { return 1 }
+            return 2
+        }
+
+        /// The first whole bpm of the steady zone ("94" for a boundary of 93.5), for legends.
+        public var steadyStartBPM: Int { Int(rest.rounded(.up)) }
+        /// The first whole bpm of the push zone ("131" for a boundary of 130.9), for legends.
+        public var pushStartBPM: Int { Int(steady.rounded(.up)) }
+
+        /// Moves a ramp anchor written against the fixed 60 / 110 split onto these boundaries, keeping its place
+        /// in its zone: the scale below 60 stretches to the rest boundary, 60 to 110 to the steady band, and
+        /// everything above to the top of the scale. The default thresholds map every anchor to itself.
+        public func anchor(_ legacyBPM: Double) -> Double {
+            let floor = HRZoneStyle.floor, ceiling = HRZoneStyle.ceiling
+            if legacyBPM <= HRZoneStyle.restCeiling {
+                return floor + (legacyBPM - floor) * (rest - floor) / (HRZoneStyle.restCeiling - floor)
+            }
+            if legacyBPM <= HRZoneStyle.steadyCeiling {
+                return rest + (legacyBPM - HRZoneStyle.restCeiling) * (steady - rest)
+                    / (HRZoneStyle.steadyCeiling - HRZoneStyle.restCeiling)
+            }
+            return steady + (legacyBPM - HRZoneStyle.steadyCeiling) * (ceiling - steady)
+                / (ceiling - HRZoneStyle.steadyCeiling)
+        }
+    }
+
+    public static let stops: [Gradient.Stop] = stops(for: .default)
+
+    /// The blue-green-rose ramp anchored to a wearer's boundaries (the default ones give `stops`).
+    public static func stops(for thresholds: Thresholds) -> [Gradient.Stop] {
+        [
+            .init(color: rest, location: 0),
+            .init(color: rest, location: unit(thresholds.anchor(52))),
+            .init(color: steady, location: unit(thresholds.anchor(85))),
+            .init(color: steady, location: unit(thresholds.anchor(102))),
+            .init(color: push, location: unit(thresholds.anchor(140))),
+            .init(color: push, location: 1),
+        ]
+    }
 
     public static func unit(_ bpm: Double) -> Double {
         min(max((bpm - floor) / (ceiling - floor), 0), 1)
     }
 
-    public static func color(for bpm: Double) -> Color {
-        StrandPalette.sample(stops: stops, at: unit(bpm))
+    public static func color(for bpm: Double, thresholds: Thresholds = .default) -> Color {
+        StrandPalette.sample(stops: thresholds == .default ? stops : stops(for: thresholds), at: unit(bpm))
     }
 
     /// 0 rest · 1 steady · 2 push.
-    public static func zone(for bpm: Double) -> Int {
-        if bpm < restCeiling { return 0 }
-        if bpm < steadyCeiling { return 1 }
-        return 2
+    public static func zone(for bpm: Double, thresholds: Thresholds = .default) -> Int {
+        thresholds.zone(for: bpm)
     }
 
     public static func zoneColor(_ zone: Int) -> Color {
@@ -55,6 +121,20 @@ public enum HRZoneStyle {
         case 1: steady
         default: push
         }
+    }
+}
+
+private struct HRZoneThresholdsKey: EnvironmentKey {
+    static let defaultValue = HRZoneStyle.Thresholds.default
+}
+
+public extension EnvironmentValues {
+    /// The wearer's rest / steady / push boundaries, set once at the app's root from their profile. Every heart-rate
+    /// surface that names a zone or paints one reads it, so Today's live pill, the timeline and the time-in-range
+    /// rows agree. The fixed 60 / 110 split when nothing sets it.
+    var hrZoneThresholds: HRZoneStyle.Thresholds {
+        get { self[HRZoneThresholdsKey.self] }
+        set { self[HRZoneThresholdsKey.self] = newValue }
     }
 }
 
@@ -80,9 +160,35 @@ public struct HRWorkoutMark: Identifiable, Equatable {
     public let symbol: String
 }
 
+// MARK: Heart ink (the Live HR module's live-red ramp)
+
+private enum HRTimelineInk {
+    static let rest = StrandPalette.liveRed.opacity(0.58)
+    static let steady = StrandPalette.liveRed
+    static let push = StrandPalette.destructive
+    static let live = StrandPalette.liveRed
+
+    static func color(for bpm: Double, zones: HRZoneStyle.Thresholds = .default) -> Color {
+        StrandPalette.sample(stops: stops(zones), at: HRZoneStyle.unit(bpm))
+    }
+
+    private static func stops(_ zones: HRZoneStyle.Thresholds) -> [Gradient.Stop] {
+        [
+            .init(color: rest, location: 0),
+            .init(color: rest, location: HRZoneStyle.unit(zones.anchor(58))),
+            .init(color: steady, location: HRZoneStyle.unit(zones.anchor(92))),
+            .init(color: steady, location: HRZoneStyle.unit(zones.anchor(112))),
+            .init(color: push, location: HRZoneStyle.unit(zones.anchor(142))),
+            .init(color: push, location: 1),
+        ]
+    }
+}
+
 // MARK: - HRTimelineChart
 
 public struct HRTimelineChart: View {
+    /// The wearer's rest / steady / push boundaries (the profile's, set at the app's root).
+    @Environment(\.hrZoneThresholds) private var zones
     let points: [HRTrackPoint]
     /// The full-day clamp the zoom window can never escape.
     let day: ClosedRange<TimeInterval>
@@ -107,21 +213,28 @@ public struct HRTimelineChart: View {
     var zoomBounds: ClosedRange<TimeInterval>? = nil
     var onSettledWindow: (ClosedRange<TimeInterval>?) -> Void = { _ in }
     @State private var localZoomDomain: ClosedRange<TimeInterval>? = nil
-    /// The window a gesture started from — pinch/pan scale off this, not the live window.
-    @State private var gestureAnchor: ClosedRange<TimeInterval>? = nil
+    /// The window a one-finger pan started from, and the window a pinch started from. They are separate because
+    /// a pinch can begin while a pan is still ending (the second finger lands): each scales off its own start,
+    /// never off the other's, so the window never jumps between them.
+    @State private var panAnchor: ClosedRange<TimeInterval>? = nil
+    @State private var pinchAnchor: ClosedRange<TimeInterval>? = nil
     @State private var plotWidth: CGFloat = 1
     @State private var scrubTime: TimeInterval? = nil
     @State private var scrubEngaged = false
+    /// Where VoiceOver's adjustable stepping has got to (nil = the latest reading). Never drawn.
+    @State private var spokenTime: TimeInterval? = nil
     @State private var revealed = false
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            header
-            plot
-                .frame(height: 170)
-            timeAxis
+        let frame = makeFrame()
+        VStack(alignment: .leading, spacing: WidgetMetrics.contentSpacing) {
+            heroRow(frame)
+            VStack(alignment: .leading, spacing: 6) {
+                plot(frame)
+                    .frame(height: 176)
+                timeAxis(frame.window)
+            }
             hintRow
-            if showsZoneLegend { HRZoneLegend() }
         }
         .onAppear {
             withAnimation(reduceMotion ? nil : .easeOut(duration: 0.85).delay(0.1)) {
@@ -145,65 +258,84 @@ public struct HRTimelineChart: View {
 
     private var interactionBounds: ClosedRange<TimeInterval> { zoomBounds ?? day }
     private var window: ClosedRange<TimeInterval> { zoomDomain ?? day }
+    private var dayLength: TimeInterval { day.upperBound - day.lowerBound }
 
-    /// Visible samples plus one neighbour either side so the line runs to the plot edges.
-    /// Raw resolution — peak/scrub read from this so zooming never changes the truth.
-    private var visibleRaw: [HRTrackPoint] {
-        guard !points.isEmpty else { return [] }
-        var lo = points.firstIndex(where: { $0.t >= window.lowerBound }) ?? points.count - 1
-        var hi = points.lastIndex(where: { $0.t <= window.upperBound }) ?? 0
+    /// Everything one render needs from the visible window, computed once per body (a scrub or a pan frame used
+    /// to rescan the samples a dozen times: for the line, the range, the peak, the readout, the rails).
+    private struct Frame {
+        let window: ClosedRange<TimeInterval>
+        /// The drawn line: the visible samples plus one neighbour either side so it runs to the plot edges, thinned
+        /// to ~420 points however far in (the trick Repository.timelineSeries plays with SQL buckets).
+        let line: [HRTrackPoint]
+        /// The samples that lie inside the window. The readout, the peak bead and the scrub dot all read these, so a
+        /// neighbour just outside the window can never be reported as "latest" or drawn off the plot.
+        let inView: [HRTrackPoint]
+        /// Padded to the visible extent so zooming into the night re-scales honestly.
+        let yRange: ClosedRange<Double>
+        let peak: HRTrackPoint?
+    }
+
+    private func makeFrame() -> Frame {
+        let window = self.window
+        guard !points.isEmpty else {
+            return Frame(window: window, line: [], inView: [], yRange: defaultYRange, peak: nil)
+        }
+        let first = points.firstIndex(where: { $0.t >= window.lowerBound })
+        let last = points.lastIndex(where: { $0.t <= window.upperBound })
+        let inView: [HRTrackPoint]
+        if let first, let last, first <= last { inView = Array(points[first...last]) } else { inView = [] }
+
+        var lo = (first ?? points.count - 1)
+        var hi = (last ?? 0)
         lo = max(0, lo - 1)
         hi = min(points.count - 1, hi + 1)
-        guard lo <= hi else { return [] }
-        return Array(points[lo...hi])
-    }
+        let raw = lo <= hi ? Array(points[lo...hi]) : []
 
-    /// The render ladder: the drawn line is capped at ~420 points regardless of zoom, the
-    /// same trick Repository.timelineSeries plays with SQL buckets — full-day stays cheap,
-    /// deep zooms pick up the fixture's full 30-second resolution.
-    private var visible: [HRTrackPoint] {
-        let raw = visibleRaw
         let maxRendered = 420
-        guard raw.count > maxRendered else { return raw }
-        let step = Double(raw.count - 1) / Double(maxRendered - 1)
-        var rendered: [HRTrackPoint] = []
-        rendered.reserveCapacity(maxRendered)
-        for index in 0..<maxRendered {
-            rendered.append(raw[Int((Double(index) * step).rounded())])
+        let line: [HRTrackPoint]
+        if raw.count > maxRendered {
+            let step = Double(raw.count - 1) / Double(maxRendered - 1)
+            line = (0..<maxRendered).map { raw[Int((Double($0) * step).rounded())] }
+        } else {
+            line = raw
         }
-        return rendered
-    }
 
-    /// Padded to the visible extent so zooming into the night re-scales honestly.
-    private var yRange: ClosedRange<Double> {
-        let values = visible.map(\.bpm)
-        guard let lo = values.min(), let hi = values.max(), hi > lo else {
-            return tint == nil ? 40...120 : 0...1
+        // The range comes from every visible sample, not the thinned line, so the peak is always inside the plot.
+        var yRange = defaultYRange
+        if let low = raw.map(\.bpm).min(), let high = raw.map(\.bpm).max(), high > low {
+            let pad = (high - low) * 0.14
+            yRange = max(30, low - pad)...(high + pad)
         }
-        let pad = (hi - lo) * 0.14
-        return max(30, lo - pad)...(hi + pad)
+        return Frame(window: window, line: line, inView: inView, yRange: yRange,
+                     peak: inView.max(by: { $0.bpm < $1.bpm }))
     }
 
-    private var visiblePeak: HRTrackPoint? {
-        visibleRaw.max(by: { $0.bpm < $1.bpm })
+    private var defaultYRange: ClosedRange<Double> { tint == nil ? 40...120 : 0...1 }
+
+    /// The sample nearest `time`, among those in view.
+    private func nearest(to time: TimeInterval, in frame: Frame) -> HRTrackPoint? {
+        frame.inView.min(by: { abs($0.t - time) < abs($1.t - time) })
     }
 
-    private var scrubSample: HRTrackPoint? {
-        guard let scrubTime else { return nil }
-        return visibleRaw.min(by: { abs($0.t - scrubTime) < abs($1.t - scrubTime) })
+    private func scrubSample(_ frame: Frame) -> HRTrackPoint? {
+        scrubTime.flatMap { nearest(to: $0, in: frame) }
     }
 
     // MARK: Zoom / pan math (pure — mirrors OverviewHRChart.zoomed/panned over TimeInterval)
 
+    /// `maxSpan` caps how far a pinch-out can go (the chart passes the day's length, so zooming out stops at the
+    /// whole day however wide the pan range is); nil falls back to the width of `bounds`.
     static func zoomed(
         _ base: ClosedRange<TimeInterval>, scale: Double, anchorFraction: Double,
-        bounds: ClosedRange<TimeInterval>, minSpan: TimeInterval = minZoomSpan
+        bounds: ClosedRange<TimeInterval>, minSpan: TimeInterval = minZoomSpan,
+        maxSpan: TimeInterval? = nil
     ) -> ClosedRange<TimeInterval> {
         let span = base.upperBound - base.lowerBound
         guard span > 0, scale > 0 else { return base }
         let pivot = base.lowerBound + span * min(max(anchorFraction, 0), 1)
         let boundsSpan = bounds.upperBound - bounds.lowerBound
-        let newSpan = min(max(span / scale, minSpan), max(boundsSpan, minSpan))
+        let ceiling = max(min(maxSpan ?? boundsSpan, boundsSpan), minSpan)
+        let newSpan = min(max(span / scale, minSpan), ceiling)
         var newLo = pivot - (pivot - base.lowerBound) * (newSpan / span)
         var newHi = newLo + newSpan
         if newLo < bounds.lowerBound { newLo = bounds.lowerBound; newHi = newLo + newSpan }
@@ -225,27 +357,56 @@ public struct HRTimelineChart: View {
 
     // MARK: Chrome
 
-    private var header: some View {
-        HStack {
-            Text(zoomDomain == nil ? "24-hour timeline" : "Zoomed window")
-                .font(StrandFont.footnote)
-                .foregroundStyle(StrandPalette.textTertiary)
-            Spacer()
-            if let sample = scrubSample {
-                Text("\(valueFormat(sample.bpm))\(unitSuffix) · \(timeLabel(sample.t))")
-                    .font(StrandFont.captionNumber)
-                    .foregroundStyle(sampleColor(sample.bpm))
-            } else if let peak = visiblePeak {
-                Text("PEAK \(valueFormat(peak.bpm)) · \(timeLabel(peak.t))")
-                    .font(StrandFont.captionNumber)
-                    .foregroundStyle(sampleColor(peak.bpm))
+    /// The Live HR module's hero: the number big with its unit, the time it was read under it, and (for heart
+    /// rate) the zone word on the shared pill. Hold and drag on the plot morphs it into the reading under the
+    /// finger, the way the Trends hero chart reads a day. The reading is the sample under the finger, else the
+    /// last reading in view. At accessibility text sizes the pill drops under the number instead of squeezing it.
+    private func heroRow(_ frame: Frame) -> some View {
+        let scrub = scrubSample(frame)
+        let shown = scrub ?? frame.inView.last
+        let value = HeroValue(
+            value: shown.map { valueFormat($0.bpm) } ?? WidgetMetrics.missingValue,
+            unit: shown == nil || unit.isEmpty ? nil : unit,
+            caption: heroCaption(shown, scrubbing: scrub != nil),
+            captionPlacement: .below
+        )
+        return ViewThatFits(in: .horizontal) {
+            HStack(alignment: .firstTextBaseline, spacing: NoopMetrics.space2) {
+                value
+                Spacer(minLength: NoopMetrics.space2)
+                heroPill(shown)
+            }
+            VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+                value
+                heroPill(shown)
             }
         }
+        .animation(StrandMotion.fade, value: scrub?.id)
     }
 
     @ViewBuilder
-    private var timeAxis: some View {
-        let win = window
+    private func heroPill(_ sample: HRTrackPoint?) -> some View {
+        if showsZoneLegend, let sample {
+            ValuePill(zoneWord(sample.bpm), tint: HRTimelineInk.live)
+        }
+    }
+
+    private func heroCaption(_ sample: HRTrackPoint?, scrubbing: Bool) -> String? {
+        guard let sample else { return nil }
+        return scrubbing
+            ? timeLabel(sample.t)
+            : String(localized: "latest · \(timeLabel(sample.t))")
+    }
+
+    private func zoneWord(_ bpm: Double) -> String {
+        switch zones.zone(for: bpm) {
+        case 0: return String(localized: "Resting")
+        case 1: return String(localized: "Steady")
+        default: return String(localized: "Pushing")
+        }
+    }
+
+    private func timeAxis(_ win: ClosedRange<TimeInterval>) -> some View {
         HStack(spacing: 0) {
             Text(timeLabel(win.lowerBound)).frame(maxWidth: .infinity, alignment: .leading)
             Text(timeLabel((win.lowerBound + win.upperBound) / 2)).frame(maxWidth: .infinity, alignment: .center)
@@ -260,70 +421,103 @@ public struct HRTimelineChart: View {
     /// Names the gestures (a hidden gesture nobody tries is a feature that doesn't exist) and
     /// carries the explicit Reset alongside the double-tap, mirroring the Deep Timeline's hint row.
     private var hintRow: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: NoopMetrics.space2) {
             Image(systemName: zoomDomain == nil
                   ? "arrow.up.left.and.arrow.down.right"
                   : "arrow.down.right.and.arrow.up.left")
-                .font(StrandFont.micro.weight(.semibold))
-            Text(zoomDomain == nil
-                 ? "Pinch to zoom · drag to pan · hold to read"
-                 : "Zoomed in · drag to pan · double-tap to reset")
-            Spacer()
+                .font(.system(size: 10, weight: .semibold))
+                .accessibilityHidden(true)
+            if zoomDomain == nil {
+                Text("Pinch to zoom · drag to pan · hold to read")
+            } else {
+                Text("Zoomed in · drag to pan · double-tap to reset")
+            }
+            Spacer(minLength: NoopMetrics.space2)
             if zoomDomain != nil {
-                Button("Reset") { resetZoom() }
-                    .font(StrandFont.footnote)
-                    .foregroundStyle(StrandPalette.accent)
-                    .buttonStyle(.plain)
+                Button { resetZoom() } label: {
+                    WidgetChip(appTitle: "Reset", showsChevron: false, overhangs: false).chipHitTarget()
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Text("Reset zoom"))
             }
         }
-        .font(StrandFont.footnote)
+        .font(StrandFont.micro)
         .foregroundStyle(StrandPalette.textTertiary)
     }
 
     // MARK: Plot
 
-    private var plot: some View {
+    private func plot(_ frame: Frame) -> some View {
         GeometryReader { proxy in
             let size = proxy.size
-            plotLayers(size: size)
-                .contentShape(Rectangle())
-                // Scrub sits on the inner view so its 0.25 s hold gate arbitrates first: an immediate
-                // drag fails the hold and falls through to the pan/pinch below (OverviewHRChart #979).
-                .gesture(scrubGesture)
+            plotTouch(plotLayers(size: size, frame: frame).contentShape(Rectangle()))
                 .onAppear { plotWidth = size.width }
                 .onChangeCompat(of: size.width) { plotWidth = $0 }
         }
         .frame(maxWidth: .infinity)
-        .gesture(magnifyGesture)
-        .simultaneousGesture(panGesture)
-        .simultaneousGesture(TapGesture(count: 2).onEnded { resetZoom() })
-        // One collapsed VoiceOver element with a whole-picture summary, never a mark-by-mark walk.
+        // One collapsed VoiceOver element: a summary of the window in view, a reading VoiceOver steps through with
+        // swipe up/down, and named actions for the pinch and the double tap. Never a mark-by-mark walk.
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(accessibilitySummary)
+        .accessibilityLabel(accessibilitySummary(frame))
+        .accessibilityValue(spokenReading(frame))
+        .accessibilityAdjustableAction { direction in stepSpokenReading(direction, frame: frame) }
+        .accessibilityActions {
+            Button("Zoom in") { zoomForAccessibility(scale: 2) }
+            Button("Zoom out") { zoomForAccessibility(scale: 0.5) }
+            if zoomDomain != nil { Button("Reset zoom") { resetZoom(announcing: true) } }
+        }
+    }
+
+    /// The plot's touch handling. On iOS every gesture lives on one UIKit surface so a vertical drag is the
+    /// page scrolling (as it is over every other chart), a hold reads, a horizontal drag pans, two fingers
+    /// zoom and a double tap resets. Elsewhere the same actions ride on SwiftUI gestures.
+    @ViewBuilder
+    private func plotTouch<Content: View>(_ content: Content) -> some View {
+        #if canImport(UIKit)
+        content.overlay(
+            HRTimelineTouchSurface(
+                onScrub: scrub, onScrubEnd: endScrub,
+                onPan: panChanged, onPanEnd: panEnded,
+                onPinch: pinchChanged, onPinchEnd: pinchEnded,
+                onDoubleTap: { resetZoom() }
+            )
+            .accessibilityHidden(true)
+        )
+        #else
+        content
+            .modifier(TrendsScrubModifier(onScrub: scrub, onEnd: endScrub))
+            .simultaneousGesture(magnifyGesture)
+            .simultaneousGesture(panGesture)
+            .simultaneousGesture(TapGesture(count: 2).onEnded { resetZoom() })
+        #endif
     }
 
     @ViewBuilder
-    private func plotLayers(size: CGSize) -> some View {
-        let win = window
+    private func plotLayers(size: CGSize, frame: Frame) -> some View {
+        let win = frame.window
         let span = max(win.upperBound - win.lowerBound, 1)
-        let yr = yRange
+        let yr = frame.yRange
         let ySpan = max(yr.upperBound - yr.lowerBound, 1)
         let xOf: (TimeInterval) -> CGFloat = { size.width * CGFloat(($0 - win.lowerBound) / span) }
         let yOf: (Double) -> CGFloat = { size.height - size.height * CGFloat(($0 - yr.lowerBound) / ySpan) }
-        let rendered = visible.map { (xOf($0.t), yOf($0.bpm)) }
+        let rendered = frame.line.map { (xOf($0.t), yOf($0.bpm)) }
 
         ZStack {
-            sleepLayer(size: size, xOf: xOf)
-            gridLayer(size: size, yOf: yOf)
-            lineLayer(size: size, rendered: rendered)
-            workoutLayer(size: size, xOf: xOf, yOf: yOf)
-            peakLayer(xOf: xOf, yOf: yOf)
-            scrubLayer(size: size, xOf: xOf, yOf: yOf)
+            sleepLayer(size: size, window: win, xOf: xOf)
+            gridLayer(size: size, yRange: yr, yOf: yOf)
+            // The line runs on to its off-screen neighbours; the plot's own edge is where it stops.
+            lineLayer(size: size, rendered: rendered, frame: frame)
+                .clipShape(Rectangle())
+            workoutLayer(size: size, frame: frame, xOf: xOf, yOf: yOf)
+            peakLayer(frame: frame, xOf: xOf, yOf: yOf)
+            scrubLayer(size: size, frame: frame, xOf: xOf, yOf: yOf)
         }
     }
 
     @ViewBuilder
-    private func sleepLayer(size: CGSize, xOf: (TimeInterval) -> CGFloat) -> some View {
+    private func sleepLayer(
+        size: CGSize, window: ClosedRange<TimeInterval>, xOf: (TimeInterval) -> CGFloat
+    ) -> some View {
         if let sleep, sleep.end > window.lowerBound, sleep.start < window.upperBound {
             let x0 = max(xOf(sleep.start), 0)
             let x1 = min(xOf(sleep.end), size.width)
@@ -355,8 +549,10 @@ public struct HRTimelineChart: View {
     }
 
     @ViewBuilder
-    private func gridLayer(size: CGSize, yOf: @escaping (Double) -> CGFloat) -> some View {
-        ForEach(gridValues, id: \.self) { value in
+    private func gridLayer(
+        size: CGSize, yRange: ClosedRange<Double>, yOf: @escaping (Double) -> CGFloat
+    ) -> some View {
+        ForEach(gridValues(in: yRange), id: \.self) { value in
             let y = yOf(value)
             Path { path in
                 path.move(to: CGPoint(x: 0, y: y))
@@ -366,16 +562,24 @@ public struct HRTimelineChart: View {
                 StrandPalette.hairlineStrong.opacity(0.7),
                 style: StrokeStyle(lineWidth: 0.7, dash: [3, 4])
             )
+            // Rail labels knock the canvas out of the line, so a line that passes under one stays legible and
+            // reads as passing behind it (the Live HR module's and the Trends chart's rails).
             Text(valueFormat(value))
                 .font(StrandFont.micro)
                 .monospacedDigit()
                 .foregroundStyle(StrandPalette.textTertiary)
-                .position(x: size.width - 12, y: max(8, y - 8))
+                .background {
+                    RoundedRectangle(cornerRadius: 3, style: .continuous)
+                        .fill(StrandPalette.appCanvas.opacity(0.88))
+                        .padding(.horizontal, -3)
+                        .padding(.vertical, -1)
+                }
+                .position(x: size.width - 14, y: max(8, y - 8))
         }
     }
 
     /// Dashed rails at whole-bpm steps sized to the visible range (2–4 lines, never a dense grid).
-    private var gridValues: [Double] {
+    private func gridValues(in yRange: ClosedRange<Double>) -> [Double] {
         let lo = yRange.lowerBound, hi = yRange.upperBound
         let span = hi - lo
         let step = [0.25, 0.5, 1, 2, 5, 10, 20, 25, 50].first(where: { span / $0 <= 4 }) ?? 50
@@ -386,12 +590,13 @@ public struct HRTimelineChart: View {
     }
 
     @ViewBuilder
-    private func lineLayer(size: CGSize, rendered: [(CGFloat, CGFloat)]) -> some View {
+    private func lineLayer(size: CGSize, rendered: [(CGFloat, CGFloat)], frame: Frame) -> some View {
         if rendered.count >= 2 {
             areaPath(rendered, height: size.height)
                 .fill(
+                    // The Coach trend charts' wash: the domain ink at 14% fading to nothing.
                     LinearGradient(
-                        colors: [averageZoneColor.opacity(0.16), averageZoneColor.opacity(0.02)],
+                        colors: [washColor.opacity(0.14), .clear],
                         startPoint: .top,
                         endPoint: .bottom
                     )
@@ -400,10 +605,10 @@ public struct HRTimelineChart: View {
             linePath(rendered)
                 .trim(from: 0, to: revealed ? 1 : 0)
                 .stroke(
-                    lineGradient,
-                    style: StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round)
+                    lineGradient(frame.yRange),
+                    style: StrokeStyle(lineWidth: 2.2, lineCap: .round, lineJoin: .round)
                 )
-        } else if let only = rendered.first, let sample = visible.first {
+        } else if let only = rendered.first, let sample = frame.line.first {
             Circle()
                 .fill(sampleColor(sample.bpm))
                 .frame(width: 7, height: 7)
@@ -414,11 +619,12 @@ public struct HRTimelineChart: View {
 
     @ViewBuilder
     private func workoutLayer(
-        size: CGSize, xOf: @escaping (TimeInterval) -> CGFloat, yOf: @escaping (Double) -> CGFloat
+        size: CGSize, frame: Frame,
+        xOf: @escaping (TimeInterval) -> CGFloat, yOf: @escaping (Double) -> CGFloat
     ) -> some View {
         ForEach(workouts) { workout in
-            if workout.end > window.lowerBound, workout.start < window.upperBound,
-               let peak = visible
+            if workout.end > frame.window.lowerBound, workout.start < frame.window.upperBound,
+               let peak = frame.inView
                    .filter({ $0.t >= workout.start && $0.t <= workout.end })
                    .max(by: { $0.bpm < $1.bpm }) {
                 let x = min(max(xOf(peak.t), 14), size.width - 14)
@@ -442,8 +648,10 @@ public struct HRTimelineChart: View {
     }
 
     @ViewBuilder
-    private func peakLayer(xOf: (TimeInterval) -> CGFloat, yOf: (Double) -> CGFloat) -> some View {
-        if scrubTime == nil, let peak = visiblePeak {
+    private func peakLayer(
+        frame: Frame, xOf: (TimeInterval) -> CGFloat, yOf: (Double) -> CGFloat
+    ) -> some View {
+        if scrubTime == nil, let peak = frame.peak {
             Circle()
                 .fill(sampleColor(peak.bpm))
                 .frame(width: 8, height: 8)
@@ -455,9 +663,9 @@ public struct HRTimelineChart: View {
 
     @ViewBuilder
     private func scrubLayer(
-        size: CGSize, xOf: (TimeInterval) -> CGFloat, yOf: (Double) -> CGFloat
+        size: CGSize, frame: Frame, xOf: (TimeInterval) -> CGFloat, yOf: (Double) -> CGFloat
     ) -> some View {
-        if let sample = scrubSample {
+        if let sample = scrubSample(frame) {
             let x = xOf(sample.t)
             let y = yOf(sample.bpm)
             let color = sampleColor(sample.bpm)
@@ -492,34 +700,30 @@ public struct HRTimelineChart: View {
         return unit == "%" ? "%" : " \(unit)"
     }
 
-    /// The colour a single sample speaks: the flat metric tint, or HR's zone ramp.
+    /// The colour a single sample speaks: the flat metric tint, or the heart's own ramp.
     private func sampleColor(_ value: Double) -> Color {
-        tint ?? HRZoneStyle.color(for: value)
+        tint ?? HRTimelineInk.color(for: value, zones: zones)
     }
 
-    /// Vertical zone ramp re-projected onto the visible bpm range, so a zoomed-in night reads
-    /// all-rest blue and the workout window reads push rose — the colour never lies under zoom.
-    /// Flat-tinted metrics ride a simple deep→bright vertical gradient instead (Deep Timeline).
-    private var lineGradient: LinearGradient {
+    /// The line's vertical ramp, re-projected onto the visible range: the Live HR module's live-red ramp for the
+    /// heart (a quiet red at rest, the full red when steady, the hot red when pushing), so the colour never lies
+    /// under zoom. Flat-tinted metrics ride a simple deep-to-bright vertical gradient of their tint instead.
+    private func lineGradient(_ yRange: ClosedRange<Double>) -> LinearGradient {
         if let tint {
             return LinearGradient(colors: [tint.opacity(0.55), tint], startPoint: .bottom, endPoint: .top)
         }
         let lo = yRange.lowerBound
         let span = yRange.upperBound - lo
         let stops = stride(from: 0.0, through: 1.0, by: 0.125).map { position in
-            Gradient.Stop(color: HRZoneStyle.color(for: lo + position * span), location: position)
+            Gradient.Stop(color: HRTimelineInk.color(for: lo + position * span, zones: zones), location: position)
         }
         return LinearGradient(gradient: Gradient(stops: stops), startPoint: .bottom, endPoint: .top)
     }
 
-    private var averageZoneColor: Color {
-        if let tint { return tint }
-        let values = visible.map(\.bpm)
-        guard !values.isEmpty else { return HRZoneStyle.rest }
-        return HRZoneStyle.color(for: values.reduce(0, +) / Double(values.count))
-    }
+    /// The wash under the line: the metric's tint, or the heart's.
+    private var washColor: Color { tint ?? DomainTint.heart.accent }
 
-    /// Midpoint-bezier smoothing — byte-identical curve construction to StressLoadChart.
+    /// Midpoint-bezier smoothing.
     private func linePath(_ points: [(CGFloat, CGFloat)]) -> Path {
         var path = Path()
         guard let first = points.first else { return path }
@@ -551,55 +755,62 @@ public struct HRTimelineChart: View {
 
     private var magnifyGesture: some Gesture {
         MagnificationGesture()
-            .onChanged { scale in
-                let base = gestureAnchor ?? window
-                if gestureAnchor == nil { gestureAnchor = base }
-                apply(Self.zoomed(base, scale: Double(scale), anchorFraction: 0.5, bounds: interactionBounds))
-            }
-            .onEnded { _ in
-                gestureAnchor = nil
-                onSettledWindow(zoomDomain)
-            }
+            .onChanged { pinchChanged(scale: Double($0)) }
+            .onEnded { _ in pinchEnded() }
     }
 
     private var panGesture: some Gesture {
         DragGesture(minimumDistance: 6)
-            .onChanged { value in
-                let base = gestureAnchor ?? window
-                if gestureAnchor == nil { gestureAnchor = base }
-                let span = base.upperBound - base.lowerBound
-                let secondsPerPoint = plotWidth > 0 ? span / Double(plotWidth) : 0
-                apply(Self.panned(base, delta: -value.translation.width * secondsPerPoint, bounds: interactionBounds))
-            }
-            .onEnded { _ in
-                gestureAnchor = nil
-                onSettledWindow(zoomDomain)
-            }
+            .onChanged { panChanged(dx: $0.translation.width) }
+            .onEnded { _ in panEnded() }
+    }
+
+    private func pinchChanged(scale: Double) {
+        let base = pinchAnchor ?? window
+        if pinchAnchor == nil { pinchAnchor = base }
+        // Zooming never leaves the day it started in, and never zooms out past it: a window already dragged back
+        // past midnight may roam the wider pan range, but its width still tops out at one day.
+        let bounds = Self.contains(day, base) ? day : interactionBounds
+        apply(Self.zoomed(base, scale: scale, anchorFraction: 0.5, bounds: bounds, maxSpan: dayLength))
+    }
+
+    private func pinchEnded() {
+        pinchAnchor = nil
+        onSettledWindow(zoomDomain)
+    }
+
+    private func panChanged(dx: CGFloat) {
+        // A hold that has engaged the crosshair owns the touch: the window stays put under the finger.
+        guard !scrubEngaged else { return }
+        let base = panAnchor ?? window
+        if panAnchor == nil { panAnchor = base }
+        let span = base.upperBound - base.lowerBound
+        let secondsPerPoint = plotWidth > 0 ? span / Double(plotWidth) : 0
+        apply(Self.panned(base, delta: -dx * secondsPerPoint, bounds: interactionBounds))
+    }
+
+    private func panEnded() {
+        panAnchor = nil
+        onSettledWindow(zoomDomain)
     }
 
     /// Touch-and-hold-then-drag scrub: the stationary hold is the gate that separates reading
     /// from the pan drag and pinch that own immediate movement (OverviewHRChart #979 contract).
-    private var scrubGesture: some Gesture {
-        LongPressGesture(minimumDuration: 0.25, maximumDistance: 8)
-            .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .local))
-            .onChanged { value in
-                guard case .second(true, let drag) = value else { return }
-                if !scrubEngaged {
-                    scrubEngaged = true
-                    StrandHaptic.selection.play()
-                }
-                if let drag {
-                    var transaction = Transaction()
-                    transaction.disablesAnimations = true
-                    withTransaction(transaction) { scrubTime = time(atX: drag.location.x) }
-                }
-            }
-            .onEnded { _ in
-                scrubEngaged = false
-                var transaction = Transaction()
-                transaction.disablesAnimations = true
-                withTransaction(transaction) { scrubTime = nil }
-            }
+    private func scrub(at point: CGPoint) {
+        if !scrubEngaged {
+            scrubEngaged = true
+            StrandHaptic.selection.play()
+        }
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) { scrubTime = time(atX: point.x) }
+    }
+
+    private func endScrub() {
+        scrubEngaged = false
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) { scrubTime = nil }
     }
 
     private func time(atX x: CGFloat) -> TimeInterval {
@@ -608,43 +819,106 @@ public struct HRTimelineChart: View {
         return window.lowerBound + fraction * span
     }
 
-    /// Gesture frames apply un-animated; a window that covers the whole day normalises back to
-    /// nil so the hint row never claims "Zoomed in" at full width (OverviewHRChart's rule).
+    /// True when `inner` lies inside `outer` (within a second).
+    static func contains(_ outer: ClosedRange<TimeInterval>, _ inner: ClosedRange<TimeInterval>) -> Bool {
+        inner.lowerBound >= outer.lowerBound - 1 && inner.upperBound <= outer.upperBound + 1
+    }
+
+    /// Gesture frames apply un-animated. A window that is the whole day (within a second) is stored as "no zoom",
+    /// so the hint row and the section title never claim "Zoomed in" at full width. Pinching out stops at the day
+    /// (`zoomed(maxSpan:)`), so there is no window wider than a day to normalise and nothing snaps on the way.
     private func apply(_ domain: ClosedRange<TimeInterval>) {
         var transaction = Transaction()
         transaction.disablesAnimations = true
         withTransaction(transaction) {
-            zoomDomain = (domain.lowerBound <= interactionBounds.lowerBound && domain.upperBound >= interactionBounds.upperBound)
-                ? nil : domain
+            let wholeDay = Self.contains(domain, day) && Self.contains(day, domain)
+            zoomDomain = wholeDay ? nil : domain
+            spokenTime = nil
         }
     }
 
-    private func resetZoom() {
+    private func resetZoom(announcing: Bool = false) {
         guard zoomDomain != nil else { return }
+        panAnchor = nil
+        pinchAnchor = nil
         withAnimation(reduceMotion ? nil : StrandMotion.interactive) {
             zoomDomain = nil
             scrubTime = nil
+            spokenTime = nil
         }
         onSettledWindow(nil)
+        if announcing { announce(String(localized: "Showing the whole day")) }
     }
 
-    private var accessibilitySummary: String {
-        guard !points.isEmpty else { return "\(title), no data yet" }
-        let values = points.map(\.bpm)
+    // MARK: Accessibility
+
+    /// What VoiceOver hears for the window in view: the title and the span, how many readings, their average and
+    /// range, then the sleep band and workouts when they fall inside it. Reflects the zoom, not just the day.
+    private func accessibilitySummary(_ frame: Frame) -> String {
+        let win = frame.window
+        let head = zoomDomain == nil
+            ? String(localized: "\(title), 24 hours")
+            : String(localized: "\(title), \(timeLabel(win.lowerBound)) to \(timeLabel(win.upperBound))")
+        let values = frame.inView.map(\.bpm)
+        guard !values.isEmpty else { return String(localized: "\(head), no data in view") }
         let average = valueFormat(values.reduce(0, +) / Double(values.count))
-        let low = valueFormat(values.min() ?? 0)
-        let high = valueFormat(values.max() ?? 0)
         var parts = [
-            "\(title), 24 hours",
-            "\(points.count) readings",
-            "average \(average)",
-            "range \(low) to \(high)",
+            head,
+            String(localized: "\(values.count) readings"),
+            String(localized: "average \(average)"),
+            String(localized: "range \(valueFormat(values.min() ?? 0)) to \(valueFormat(values.max() ?? 0))"),
         ]
-        if sleep != nil { parts.append("sleep band shown") }
-        if !workouts.isEmpty {
-            parts.append(workouts.count == 1 ? "1 workout" : "\(workouts.count) workouts")
+        if let sleep, sleep.end > win.lowerBound, sleep.start < win.upperBound {
+            parts.append(String(localized: "sleep band shown"))
         }
+        let inWindow = workouts.filter { $0.end > win.lowerBound && $0.start < win.upperBound }.count
+        if inWindow > 0 { parts.append(String(localized: "\(inWindow) workouts")) }
         return parts.joined(separator: ", ")
+    }
+
+    /// The reading VoiceOver is parked on: the latest in view until the user steps, then the stepped reading.
+    private func spokenReading(_ frame: Frame) -> String {
+        let sample = spokenTime.flatMap { nearest(to: $0, in: frame) } ?? frame.inView.last
+        guard let sample else { return "" }
+        let value = "\(valueFormat(sample.bpm))\(unitSuffix)"
+        return spokenTime == nil
+            ? "\(value), \(String(localized: "latest · \(timeLabel(sample.t))"))"
+            : "\(value), \(timeLabel(sample.t))"
+    }
+
+    /// Swipe up/down steps through the window (about 24 steps across it, so a day reads hour by hour), starting at
+    /// the latest reading. The step is only ever spoken; it never moves the picture.
+    private func stepSpokenReading(_ direction: AccessibilityAdjustmentDirection, frame: Frame) {
+        let win = frame.window
+        let stride = max((win.upperBound - win.lowerBound) / 24, 1)
+        let current = spokenTime.flatMap { win.contains($0) ? $0 : nil } ?? frame.inView.last?.t ?? win.upperBound
+        let delta: TimeInterval
+        switch direction {
+        case .increment: delta = stride
+        case .decrement: delta = -stride
+        @unknown default: return
+        }
+        spokenTime = min(max(current + delta, win.lowerBound), win.upperBound)
+    }
+
+    /// The pinch as a named action: the window about its centre, one notch in or out (out stops at the day).
+    private func zoomForAccessibility(scale: Double) {
+        let base = window
+        let bounds = Self.contains(day, base) ? day : interactionBounds
+        apply(Self.zoomed(base, scale: scale, anchorFraction: 0.5, bounds: bounds, maxSpan: dayLength))
+        onSettledWindow(zoomDomain)
+        if zoomDomain == nil {
+            announce(String(localized: "Showing the whole day"))
+        } else {
+            let win = window
+            announce(String(localized: "Showing \(timeLabel(win.lowerBound)) to \(timeLabel(win.upperBound))"))
+        }
+    }
+
+    private func announce(_ text: String) {
+        #if canImport(UIKit)
+        UIAccessibility.post(notification: .announcement, argument: text)
+        #endif
     }
 }
 
@@ -707,7 +981,7 @@ public struct HRRangeStrip: View {
     }
 }
 
-// MARK: - HRZoneTotalsView (mirrors StressBandTotalsView)
+// MARK: - HRZoneTotalsView
 
 public struct HRZoneTotal: Identifiable, Equatable {
     public let id: String
@@ -747,34 +1021,6 @@ public struct HRZoneTotalsView: View {
     }
 }
 
-// MARK: - HRZoneLegend (mirrors StressBandLegend)
-
-public struct HRZoneLegend: View {
-    public var body: some View {
-        HStack(spacing: 12) {
-            key(range: "<60", label: "Rest", color: HRZoneStyle.rest)
-            key(range: "60–110", label: "Steady", color: HRZoneStyle.steady)
-            key(range: "110+", label: "Push", color: HRZoneStyle.push)
-        }
-    }
-
-    private func key(range: String, label: String, color: Color) -> some View {
-        HStack(spacing: 4) {
-            RoundedRectangle(cornerRadius: 2, style: .continuous)
-                .fill(color)
-                .frame(width: 10, height: 7)
-                .accessibilityHidden(true)
-            Text(range)
-                .font(StrandFont.micro.weight(.bold))
-                .monospacedDigit()
-                .foregroundStyle(StrandPalette.textPrimary)
-            Text(label.uppercased())
-                .font(StrandFont.micro)
-                .foregroundStyle(StrandPalette.textSecondary)
-        }
-    }
-}
-
 // Keep stateful public initializers in the declaring file for Swift 6.4 code generation.
 public extension HRTimelineChart {
     init(
@@ -810,3 +1056,128 @@ public extension HRTimelineChart {
         self.onSettledWindow = onSettledWindow
     }
 }
+
+#if canImport(UIKit)
+
+/// The HR timeline's touch surface: hold-to-read, one-finger horizontal pan, pinch and double tap on one
+/// transparent UIKit view laid over the plot.
+///
+/// They share a view because a touch only reaches the recognisers on the view it lands on. Keeping every
+/// recogniser here (and none as a SwiftUI gesture on the plot) is what lets a vertical drag fall through to the
+/// page's scroll view: the pan declines to begin unless the finger is moving more sideways than up or down, and
+/// the hold only reads once the finger has rested for a beat.
+private struct HRTimelineTouchSurface: UIViewRepresentable {
+    var onScrub: (CGPoint) -> Void
+    var onScrubEnd: () -> Void
+    var onPan: (CGFloat) -> Void
+    var onPanEnd: () -> Void
+    var onPinch: (Double) -> Void
+    var onPinchEnd: () -> Void
+    var onDoubleTap: () -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView()
+        view.backgroundColor = .clear
+        view.isAccessibilityElement = false
+        let coordinator = context.coordinator
+
+        let hold = UILongPressGestureRecognizer(target: coordinator, action: #selector(Coordinator.hold(_:)))
+        hold.minimumPressDuration = 0.25
+        hold.allowableMovement = 8
+
+        let pan = UIPanGestureRecognizer(target: coordinator, action: #selector(Coordinator.pan(_:)))
+        pan.maximumNumberOfTouches = 1
+
+        let pinch = UIPinchGestureRecognizer(target: coordinator, action: #selector(Coordinator.pinch(_:)))
+
+        let doubleTap = UITapGestureRecognizer(target: coordinator, action: #selector(Coordinator.doubleTap(_:)))
+        doubleTap.numberOfTapsRequired = 2
+
+        for recognizer in [hold, pan, pinch, doubleTap] as [UIGestureRecognizer] {
+            recognizer.cancelsTouchesInView = false
+            recognizer.delegate = coordinator
+            view.addGestureRecognizer(recognizer)
+        }
+        return view
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {
+        let coordinator = context.coordinator
+        coordinator.onScrub = onScrub
+        coordinator.onScrubEnd = onScrubEnd
+        coordinator.onPan = onPan
+        coordinator.onPanEnd = onPanEnd
+        coordinator.onPinch = onPinch
+        coordinator.onPinchEnd = onPinchEnd
+        coordinator.onDoubleTap = onDoubleTap
+    }
+
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        var onScrub: (CGPoint) -> Void = { _ in }
+        var onScrubEnd: () -> Void = {}
+        var onPan: (CGFloat) -> Void = { _ in }
+        var onPanEnd: () -> Void = {}
+        var onPinch: (Double) -> Void = { _ in }
+        var onPinchEnd: () -> Void = {}
+        var onDoubleTap: () -> Void = {}
+
+        @MainActor @objc func hold(_ recognizer: UILongPressGestureRecognizer) {
+            switch recognizer.state {
+            case .began, .changed: onScrub(recognizer.location(in: recognizer.view))
+            case .ended, .cancelled, .failed: onScrubEnd()
+            default: break
+            }
+        }
+
+        @MainActor @objc func pan(_ recognizer: UIPanGestureRecognizer) {
+            switch recognizer.state {
+            case .began, .changed: onPan(recognizer.translation(in: recognizer.view).x)
+            case .ended, .cancelled, .failed: onPanEnd()
+            default: break
+            }
+        }
+
+        @MainActor @objc func pinch(_ recognizer: UIPinchGestureRecognizer) {
+            switch recognizer.state {
+            case .began, .changed: onPinch(Double(recognizer.scale))
+            case .ended, .cancelled, .failed: onPinchEnd()
+            default: break
+            }
+        }
+
+        @MainActor @objc func doubleTap(_ recognizer: UITapGestureRecognizer) {
+            if recognizer.state == .ended { onDoubleTap() }
+        }
+
+        /// A drag that starts more up-and-down than sideways is the page scrolling: the pan stays out of it. One that
+        /// starts in the strip along the leading screen edge is the swipe back, which the pan leaves to the stack.
+        nonisolated func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+            MainActor.assumeIsolated {
+                guard let pan = gestureRecognizer as? UIPanGestureRecognizer else { return true }
+                if LeadingEdgeStrip.contains(startOf: pan) { return false }
+                let velocity = pan.velocity(in: pan.view)
+                return abs(velocity.x) > abs(velocity.y)
+            }
+        }
+
+        /// The hold may run beside the scroll view's pan and the navigation pop only until it has been
+        /// recognised; from then on the reading owns the touch. Pinch and double tap combine with this surface's
+        /// own recognisers and nothing else: never with the page's scroll, the navigation pop or a sheet's
+        /// dismiss drag, which a pinch has no business moving. A pan never runs beside another pan or the hold.
+        nonisolated func gestureRecognizer(
+            _ gestureRecognizer: UIGestureRecognizer,
+            shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer
+        ) -> Bool {
+            MainActor.assumeIsolated {
+                switch gestureRecognizer {
+                case is UILongPressGestureRecognizer: return gestureRecognizer.state == .possible
+                case is UIPanGestureRecognizer: return false
+                default: return other.view === gestureRecognizer.view
+                }
+            }
+        }
+    }
+}
+#endif

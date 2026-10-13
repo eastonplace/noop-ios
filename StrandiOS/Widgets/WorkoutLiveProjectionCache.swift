@@ -46,13 +46,15 @@ final class WorkoutLiveProjectionCache {
         )
         let zoneSet = HRZones.zones(maxHR: Double(profile.hrMax), source: "profile")
 
+        let pauses = workout.pauseLedger
         if signature != nextSignature || accumulator == nil {
             rebuild(
                 samples: workout.samples,
                 signature: nextSignature,
                 profile: userProfile,
                 maxHR: Double(profile.hrMax),
-                zoneSet: zoneSet
+                zoneSet: zoneSet,
+                pauses: pauses
             )
         } else {
             appendNewSamplesOrRebuild(
@@ -60,7 +62,8 @@ final class WorkoutLiveProjectionCache {
                 signature: nextSignature,
                 profile: userProfile,
                 maxHR: Double(profile.hrMax),
-                zoneSet: zoneSet
+                zoneSet: zoneSet,
+                pauses: pauses
             )
         }
 
@@ -82,16 +85,26 @@ final class WorkoutLiveProjectionCache {
             building = false
         }
 
+        // The timer's anchor moves forward by the pauses already over, and a pause still open freezes it where it began:
+        // the Lock Screen clock counts the time the workout ran, exactly as the app's own does.
+        // Once a finish is pending the clock stops where the save will end the workout (`frozenAt`), so the pauses are
+        // counted up to that moment, not to now.
+        let now = workout.clockEnd(at: Date())
+        let closedPause = pauses.pausedSeconds(
+            from: workout.start.timeIntervalSince1970,
+            to: pauses.openSince ?? now.timeIntervalSince1970)
         return WorkoutLiveActivityState(
             sport: workout.sport,
-            startedAt: workout.start,
+            startedAt: workout.start.addingTimeInterval(closedPause),
+            pausedAt: pauses.openSince.map(Date.init(timeIntervalSince1970:)),
             strain: strain,
             strainBuilding: building,
             calories: projection.sampleCount >= 2 && projection.caloriesKcal > 0
                 ? Int(projection.caloriesKcal.rounded()) : nil,
             hrTrace: projection.hrTrace,
             zoneSeconds: projection.zoneSeconds.map { Int($0.rounded()) },
-            maxHR: Double(profile.hrMax)
+            maxHR: Double(profile.hrMax),
+            frozenAt: workout.frozenAt
         )
     }
 
@@ -100,32 +113,52 @@ final class WorkoutLiveProjectionCache {
         signature: Signature,
         profile: UserProfile,
         maxHR: Double,
-        zoneSet: HRZoneSet
+        zoneSet: HRZoneSet,
+        pauses: WorkoutPauseLedger
     ) {
         guard var accumulator, let snapshot else {
-            rebuild(samples: samples, signature: signature, profile: profile, maxHR: maxHR, zoneSet: zoneSet)
+            rebuild(samples: samples, signature: signature, profile: profile, maxHR: maxHR, zoneSet: zoneSet,
+                    pauses: pauses)
             return
         }
         guard samples.count >= snapshot.sampleCount else {
-            rebuild(samples: samples, signature: signature, profile: profile, maxHR: maxHR, zoneSet: zoneSet)
+            rebuild(samples: samples, signature: signature, profile: profile, maxHR: maxHR, zoneSet: zoneSet,
+                    pauses: pauses)
             return
         }
         if snapshot.sampleCount > 0 {
             let cachedTail = samples[snapshot.sampleCount - 1]
             guard cachedTail.ts == snapshot.lastTimestamp,
                   cachedTail.bpm == snapshot.lastBPM else {
-                rebuild(samples: samples, signature: signature, profile: profile, maxHR: maxHR, zoneSet: zoneSet)
+                rebuild(samples: samples, signature: signature, profile: profile, maxHR: maxHR, zoneSet: zoneSet,
+                        pauses: pauses)
                 return
             }
         }
+        var previousTs = snapshot.lastTimestamp
         for sample in samples.dropFirst(snapshot.sampleCount) {
-            guard accumulator.append(sample) else {
-                rebuild(samples: samples, signature: signature, profile: profile, maxHR: maxHR, zoneSet: zoneSet)
+            guard Self.append(sample, after: previousTs, to: &accumulator, pauses: pauses) else {
+                rebuild(samples: samples, signature: signature, profile: profile, maxHR: maxHR, zoneSet: zoneSet,
+                        pauses: pauses)
                 return
             }
+            previousTs = sample.ts
         }
         self.accumulator = accumulator
         self.snapshot = accumulator.snapshot()
+    }
+
+    /// The first reading after a pause starts a new stretch: nothing is credited across the pause before it.
+    private static func append(
+        _ sample: HRSample,
+        after previousTs: Int?,
+        to accumulator: inout WorkoutLiveProjectionAccumulator,
+        pauses: WorkoutPauseLedger
+    ) -> Bool {
+        if let previousTs, pauses.separates(previousTs, sample.ts) {
+            return accumulator.appendAfterPause(sample)
+        }
+        return accumulator.append(sample)
     }
 
     private func rebuild(
@@ -133,15 +166,20 @@ final class WorkoutLiveProjectionCache {
         signature: Signature,
         profile: UserProfile,
         maxHR: Double,
-        zoneSet: HRZoneSet
+        zoneSet: HRZoneSet,
+        pauses: WorkoutPauseLedger
     ) {
-        let rebuilt = WorkoutLiveProjectionAccumulator(
-            samples: samples,
+        var rebuilt = WorkoutLiveProjectionAccumulator(
             profile: profile,
             hrmax: maxHR,
             restingHR: nil,
             zoneSet: zoneSet
         )
+        var previousTs: Int?
+        for sample in samples.sorted(by: { $0.ts < $1.ts }) {
+            _ = Self.append(sample, after: previousTs, to: &rebuilt, pauses: pauses)
+            previousTs = sample.ts
+        }
         self.signature = signature
         accumulator = rebuilt
         snapshot = rebuilt.snapshot()

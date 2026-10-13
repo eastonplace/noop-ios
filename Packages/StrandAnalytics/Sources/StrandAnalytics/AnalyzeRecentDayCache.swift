@@ -37,6 +37,9 @@ public enum AnalyzeRecentDayCache {
     /// - `persistedSleepFingerprint`: the stable bounds of imported sleep blocks assigned to this day.
     ///   Imported sleep is an authoritative descriptive fallback when the local raw stream cannot detect a
     ///   night again, so a changed imported bound must also invalidate reuse without relying on an HR change.
+    /// - `cycleFingerprint`: where this day's Effort cycle ends (the next day's cycle start) plus the HR
+    ///   fingerprint of any readings past the night window up to it (AN-05). A new night tomorrow, or late
+    ///   post-midnight readings, change this day's Effort without moving its own night-window fingerprint.
     ///
     /// Inputs that feed `analyzeDay` but are pass-global rather than per-day (profile, baselines1, sleep
     /// need / consistency, habitual midsleep, tz, stager toggles) are NOT in this key — the engine drops the
@@ -44,6 +47,7 @@ public enum AnalyzeRecentDayCache {
     public static func cacheKey(owner: String, hrCount: Int, hrMaxTs: Int, skinAnchorRaw: Double?,
                                 sleepEditFingerprint: String = "",
                                 persistedSleepFingerprint: String = "",
+                                cycleFingerprint: String = "",
                                 // #1575: whether this day is the one that emits the PER-WINDOW HRV detail
                                 // (`dayStart == nowLocalMidnight`). Now that an active trace no longer
                                 // disables reuse, this has to invalidate: the night cached as "today" with
@@ -53,8 +57,14 @@ public enum AnalyzeRecentDayCache {
                                 // cache's whole promise is that a reused night is indistinguishable from a
                                 // freshly-scored one. Costs one day's re-score per rollover, and only while
                                 // a trace mode is on.
-                                hrvWindowDetail: Bool) -> String {
+                                hrvWindowDetail: Bool,
+                                // D3b: where today's resting-energy fill stops (the pass's "now"). nil for a
+                                // past day, which always fills to its end. Today's total grows with the clock
+                                // even when no new heart rate arrives, so it must not replay an older fill.
+                                calorieFillEnd: Int? = nil) -> String {
         let anchor = skinAnchorRaw.map { String($0.bitPattern) } ?? "nil"
-        return "\(owner)|\(hrCount):\(hrMaxTs):\(anchor):\(sleepEditFingerprint):\(persistedSleepFingerprint):\(hrvWindowDetail ? "d" : "s")"
+        return "\(owner)|\(hrCount):\(hrMaxTs):\(anchor):\(sleepEditFingerprint):\(persistedSleepFingerprint):"
+            + "\(cycleFingerprint):\(hrvWindowDetail ? "d" : "s")"
+            + (calorieFillEnd.map { ":f\($0)" } ?? "")
     }
 }

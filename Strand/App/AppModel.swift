@@ -5,6 +5,7 @@ import WhoopProtocol
 import WhoopStore
 import StrandAnalytics
 import StrandImport
+import StrandDesign
 #if os(iOS)
 import UserNotifications
 #endif
@@ -23,6 +24,12 @@ enum WorkoutFinishState: Equatable {
     case failed(String)
 }
 
+/// Why a new workout cannot be started right now. Mirrors the guard at the top of `AppModel.startWorkout`.
+enum WorkoutStartBlock: Equatable {
+    case workoutActive
+    case liftActive
+}
+
 enum WorkoutFinishError: LocalizedError {
     case noActiveWorkout
     case insufficientEvidence
@@ -32,11 +39,11 @@ enum WorkoutFinishError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .noActiveWorkout: return "No workout is recording."
-        case .insufficientEvidence: return "Keep recording until heart-rate data or a GPS route is available."
-        case .storeUnavailable: return "Workout storage is unavailable. Try again."
-        case .persistenceFailed(let message): return "Couldn’t save the workout: \(message)"
-        case .readBackMissing: return "The workout could not be verified after saving. Try again."
+        case .noActiveWorkout: return String(localized: "No workout is recording.")
+        case .insufficientEvidence: return String(localized: "Keep recording until heart-rate data or a GPS route is available.")
+        case .storeUnavailable: return String(localized: "Workout storage is unavailable. Try again.")
+        case .persistenceFailed(let message): return String(localized: "Couldn’t save the workout: \(message)")
+        case .readBackMissing: return String(localized: "The workout could not be verified after saving. Try again.")
         }
     }
 }
@@ -57,6 +64,13 @@ enum DurableSourceTransitionKind: Equatable {
     case replacePeripheral
     case archive
     case deleteData
+}
+
+extension HistoricalReceiptWatermark: MergeableWatermark {
+    /// The union of both watermarks' scopes, newest generation per scope (`init(coordinates:)` resolves it).
+    func merged(with newer: HistoricalReceiptWatermark) -> HistoricalReceiptWatermark {
+        HistoricalReceiptWatermark(coordinates: coordinates + newer.coordinates)
+    }
 }
 
 enum FullHistoryRepairAdmissionPolicy {
@@ -159,6 +173,9 @@ final class AppModel: ObservableObject {
 
     /// Opt-in AI coach (bring-your-own-key) , the one networked feature, off until the user enables it.
     let coach: AICoachEngine
+    #if os(iOS)
+    let localCoach: LocalCoachEngine
+    #endif
 
     /// Observable cache over the paired-device registry; `activeDeviceId` drives the source coordinator.
     /// Built lazily once the store opens (see `wireSourceCoordinator`). nil until then , with no generic
@@ -194,11 +211,50 @@ final class AppModel: ObservableObject {
     /// "manual"), which then shows in the Workouts view. The day's strain already counts this HR (it's
     /// the same live stream the store persists), so this is a per-session annotation, not a double-count.
     @Published var activeWorkout: ActiveWorkout?
-    /// The just-ended workout, for a brief inline confirmation on Live (cleared on the next start).
+    /// The just-saved workout (cleared on the next start and on a discard). The journey reads the saved row from
+    /// `workoutFinishState`; this stays for the surfaces that only need to know the last one.
     @Published var lastWorkout: WorkoutRow?
-    @Published private(set) var workoutFinishState: WorkoutFinishState = .recording
+    @Published private(set) var workoutFinishState: WorkoutFinishState = .recording {
+        // The hold-to-end button's "confirmed" flag is sticky, so it is rebuilt (`.id(finishAttemptID)`) each time the
+        // finish state comes back to a place where End can be asked for again.
+        didSet {
+            switch workoutFinishState {
+            case .recording, .failed: finishAttemptID &+= 1
+            case .saving, .saved: break
+            }
+        }
+    }
+    /// Bumped whenever `workoutFinishState` returns to `.recording` or `.failed`.
+    @Published private(set) var finishAttemptID = 0
     /// A visible, non-blocking warning whenever the active workout has data that is not yet durable.
     @Published private(set) var workoutDurabilityWarning: String?
+    /// Why `workoutDurabilityWarning` is set. Two very different things share the text: data that is not safely stored (a
+    /// warning, for as long as it is true), and a workout restored after the app was closed (good news with a gap in it,
+    /// worth saying once, not for the rest of the session).
+    enum WorkoutDurabilityIssue: Equatable, Sendable {
+        case notRecoverable
+        case gpsGapRestored
+    }
+    @Published private(set) var workoutDurabilityIssue: WorkoutDurabilityIssue?
+    /// When the workout was restored with a GPS gap, so the notice can be bounded to the moments after.
+    private(set) var gpsGapRestoredAt: Date?
+    /// When the restored gap's notice window began: the first time the live screen had the workout in front of the wearer in the
+    /// foreground. Kept here, not in the screen, so reopening the screen from the resume bar does not start the window again;
+    /// a real return from the background does (`reopenGpsGapNoticeWindow`). Cleared with the gap itself.
+    @Published private(set) var gpsGapNoticeShownAt: Date?
+
+    /// The live screen is showing the restored workout in the foreground: the notice's window starts the first time this is said.
+    func noteGpsGapNoticeOnScreen(at now: Date = Date()) {
+        guard gpsHadTerminatedGap, gpsGapNoticeShownAt == nil else { return }
+        gpsGapNoticeShownAt = now
+    }
+
+    /// The app came back from the background with the live screen up: the notice is due once more for its window, as it was the
+    /// first time. Nothing happens if the notice was never shown.
+    func reopenGpsGapNoticeWindow(at now: Date = Date()) {
+        guard gpsHadTerminatedGap, gpsGapNoticeShownAt != nil else { return }
+        gpsGapNoticeShownAt = now
+    }
 
     /// Records the GPS route of an in-flight distance-type workout (run / ride / walk / hike) from
     /// CoreLocation (#524) , the Apple analogue of Android's `GpsSession` + foreground `LocationManager`.
@@ -211,11 +267,42 @@ final class AppModel: ObservableObject {
     let gpsRecorder = GpsWorkoutRecorder()
     /// True while the active workout is a GPS-type session (drives the End-time route persist). Mirrors
     /// Android's `ActiveWorkout.gpsEnabled`.
-    private var activeWorkoutIsGps = false
-    private var pendingWorkoutSnapshot: ActiveWorkout?
+    private(set) var activeWorkoutIsGps = false
+    /// The workout End was tried on. Entering or leaving this state is an edge the Lock Screen and Dynamic Island must see
+    /// at once (the Pause button there is unavailable while it is set), so it raises `workoutPauseEdge` too.
+    private var pendingWorkoutSnapshot: ActiveWorkout? {
+        didSet { if (oldValue == nil) != (pendingWorkoutSnapshot == nil) { workoutPauseEdge &+= 1 } }
+    }
     private var pendingWorkoutEnd: Date?
     private var pendingWorkoutRoute: WorkoutRoute?
     private var pendingWorkoutWasGps = false
+    /// The natural key of the workout row a finish that then failed had already written (its route or read-back failed after
+    /// the row was saved). Discarding the workout removes that row too, so "Nothing will be saved" is true. It is kept in
+    /// UserDefaults, not only in memory: after the app was closed and reopened the restored workout is still the one whose
+    /// row is in Workouts, and discarding it must still take the row back.
+    var pendingWorkoutRowKey: WorkoutRowKey? {
+        get { Self.loadPendingRowKey(from: .standard) }
+        set { Self.storePendingRowKey(newValue, in: .standard) }
+    }
+    struct WorkoutRowKey: Equatable {
+        let startTs: Int
+        let sport: String
+    }
+    static let pendingRowKeyDefaultsKey = "pendingWorkoutRowKey"
+
+    static func storePendingRowKey(_ key: WorkoutRowKey?, in defaults: UserDefaults) {
+        if let key {
+            defaults.set(["startTs": key.startTs, "sport": key.sport], forKey: pendingRowKeyDefaultsKey)
+        } else {
+            defaults.removeObject(forKey: pendingRowKeyDefaultsKey)
+        }
+    }
+
+    static func loadPendingRowKey(from defaults: UserDefaults) -> WorkoutRowKey? {
+        guard let stored = defaults.dictionary(forKey: pendingRowKeyDefaultsKey),
+              let startTs = stored["startTs"] as? Int, let sport = stored["sport"] as? String else { return nil }
+        return WorkoutRowKey(startTs: startTs, sport: sport)
+    }
     /// Queue admission and durable pointer commit are separate facts. A background writer may accept a
     /// checkpoint then fail later because storage became unavailable or protected.
     private var lastWorkoutSnapshotEnqueuedAt: Date = .distantPast
@@ -224,7 +311,9 @@ final class AppModel: ObservableObject {
     private var latestGpsSnapshotAttempt: UInt64 = 0
     private var workoutSnapshotDurabilityFailed = false
     private var gpsSnapshotDurabilityFailed = false
-    private var gpsHadTerminatedGap = false
+    private var gpsHadTerminatedGap = false {
+        didSet { if !gpsHadTerminatedGap { gpsGapRestoredAt = nil; gpsGapNoticeShownAt = nil } }
+    }
     private var applicationIsActive = true
 
     /// A manual workout in progress. `samples` accumulate from the smoothed live `bpm`; `liveStrain`
@@ -248,51 +337,197 @@ final class AppModel: ObservableObject {
         private var chartAccumulator = WorkoutHeartChartAccumulator()
         private let maxHR: Double
 
-        init(sessionID: UUID = UUID(), start: Date, sport: String, maxHR: Double) {
+        /// The pauses so far. A reading taken during one is never ingested, so the average, peak, strain and
+        /// energy below already leave paused time out, and the timer reads `activeElapsed`.
+        @Published private(set) var pauseLedger = WorkoutPauseLedger()
+        /// Energy so far in kcal, from the active readings only. nil until there are two, or when no profile was given.
+        @Published private(set) var liveCalories: Int?
+        /// When the last reading arrived, running or paused, for the "waiting for fresh heart rate" state. Not published:
+        /// the screen asks on its own clock.
+        private(set) var lastReadingAt: Date?
+        private var energy: WorkoutLiveProjectionAccumulator?
+        /// The next accepted reading is the first after a pause: nothing is credited across the gap before it.
+        private var startsNewStretch = false
+        /// Time in each of the wearer's zones (rest, steady, push), in whole seconds, counted from the readings. Published in
+        /// steps of five seconds, so the screen is not invalidated by every reading for a number shown in minutes.
+        @Published private(set) var personalZoneSeconds: [Int] = [0, 0, 0]
+        private var zones = PersonalZoneSeconds()
+        private let zoneThresholds: HRZoneStyle.Thresholds
+
+        var isPaused: Bool { pauseLedger.isPaused }
+
+        #if DEBUG
+        /// Screenshot fixtures only: stamp when the last reading arrived, so a stale-signal frame needs no wait.
+        func seedDemoLastReading(_ time: Date?) { lastReadingAt = time }
+        #endif
+
+        /// While a finish is pending (End was tried and the save is running or failed and waits for a retry), the moment
+        /// the workout stopped counting. The retry saves a workout that ended then, so every clock stops there rather than
+        /// running on past a time the saved workout will not have. nil while the workout is live.
+        @Published private(set) var frozenAt: Date?
+
+        func freeze(at time: Date?) { frozenAt = time }
+
+        /// End was tried: the save is running, or it failed and waits for a retry. Every surface says "Ending".
+        var isEnding: Bool { frozenAt != nil }
+
+        /// Nothing on the live screen is live: the workout is paused, or End was tried and it waits on its save (saving, failed,
+        /// nothing to save). The figures are the flat paused grey in both.
+        var isStill: Bool { isPaused || isEnding }
+
+        /// The instant the clocks read as of `now`: `now` itself, or the freeze if the workout has stopped counting.
+        func clockEnd(at now: Date) -> Date {
+            frozenAt.map { min($0, now) } ?? now
+        }
+
+        /// Seconds the workout has actually run: the timer's value, frozen while paused and once a finish is pending.
+        func activeElapsed(at now: Date = Date()) -> TimeInterval {
+            pauseLedger.activeSeconds(from: start.timeIntervalSince1970, to: clockEnd(at: now).timeIntervalSince1970)
+        }
+
+        init(sessionID: UUID = UUID(), start: Date, sport: String, maxHR: Double,
+             energyProfile: UserProfile? = nil, zoneThresholds: HRZoneStyle.Thresholds = .default) {
             self.sessionID = sessionID
             self.start = start
             self.sport = sport
             self.maxHR = maxHR
+            self.zoneThresholds = zoneThresholds
             self.strainAccumulator = .init(maxHR: maxHR)
+            self.energyProfile = energyProfile
+            self.energy = Self.makeEnergy(energyProfile, maxHR: maxHR)
+        }
+
+        private let energyProfile: UserProfile?
+
+        private static func makeEnergy(_ profile: UserProfile?, maxHR: Double) -> WorkoutLiveProjectionAccumulator? {
+            profile.map {
+                WorkoutLiveProjectionAccumulator(
+                    profile: $0, hrmax: maxHR, restingHR: nil,
+                    zoneSet: HRZones.zones(maxHR: maxHR, source: "profile"))
+            }
+        }
+
+        /// Pause or resume at `time`. Idempotent: a pause while paused, or a resume while running, returns false and
+        /// changes nothing. Pausing ends the strain stretch, so resuming never credits the time in between.
+        @discardableResult
+        func setPaused(_ paused: Bool, at time: Date = Date()) -> Bool {
+            var next = pauseLedger
+            let changed = paused
+                ? next.pause(at: time.timeIntervalSince1970)
+                : next.resume(at: time.timeIntervalSince1970)
+            guard changed else { return false }
+            if paused {
+                strainAccumulator.breakStream()
+                zones.breakStretch()
+                startsNewStretch = true
+            }
+            pauseLedger = next
+            return true
+        }
+
+        /// The live reading while paused: shown, never counted.
+        func noteReading(_ bpm: Int, at time: Date = Date()) {
+            guard (30...240).contains(bpm) else { return }
+            lastReadingAt = time
+            if currentBPM != bpm { currentBPM = bpm }
         }
 
         @discardableResult
         func ingest(_ sample: HRSample) -> Bool {
             guard sample.ts > 0, (30...240).contains(sample.bpm) else { return false }
+            guard !pauseLedger.isPausedSecond(sample.ts) else {
+                noteReading(sample.bpm)
+                return false
+            }
             if let last = samples.last {
                 guard sample.ts >= last.ts else { return false }
                 if sample.ts == last.ts {
                     samples[samples.count - 1] = sample
+                    countZone(sample)
                     guard strainAccumulator.replaceCurrentSecond(with: sample),
                           chartAccumulator.ingest(sample) else { return false }
                 } else {
                     samples.append(sample)
+                    countZone(sample)
                     strainAccumulator.append(sample)
+                    appendEnergy(sample)
                     guard chartAccumulator.ingest(sample) else { return false }
                 }
             } else {
                 samples.append(sample)
+                countZone(sample)
                 strainAccumulator.append(sample)
+                appendEnergy(sample)
                 guard chartAccumulator.ingest(sample) else { return false }
             }
+            lastReadingAt = Date()
             publishLiveState(sample: sample)
             return true
         }
 
-        func restore(samples restoredSamples: [HRSample]) {
+        private func countZone(_ sample: HRSample) {
+            zones.append(sample, thresholds: zoneThresholds)
+            let shown = zones.quantized(step: 5)
+            if shown != personalZoneSeconds { personalZoneSeconds = shown }
+        }
+
+        private func appendEnergy(_ sample: HRSample) {
+            guard var energy else { return }
+            if startsNewStretch {
+                energy.appendAfterPause(sample)
+                startsNewStretch = false
+            } else {
+                energy.append(sample)
+            }
+            self.energy = energy
+            publishEnergy()
+        }
+
+        private func publishEnergy() {
+            guard let energy, energy.readingCount >= 2 else { return }
+            let kcal = Int(energy.caloriesKcal.rounded())
+            if liveCalories != kcal { liveCalories = kcal }
+        }
+
+        func restore(samples restoredSamples: [HRSample], pauses: WorkoutPauseLedger = WorkoutPauseLedger()) {
             var canonical: [HRSample] = []
             for sample in restoredSamples.sorted(by: { $0.ts < $1.ts })
                 where sample.ts > 0 && (30...240).contains(sample.bpm) {
                 if canonical.last?.ts == sample.ts { canonical[canonical.count - 1] = sample }
                 else { canonical.append(sample) }
             }
+            canonical = pauses.activeSamples(canonical)
+            pauseLedger = pauses
             samples = canonical
-            strainAccumulator = .init(samples: canonical, maxHR: maxHR)
+            // Rebuild the running totals stretch by stretch so a pause is never credited, exactly as the live path
+            // did when the readings first arrived.
+            var accumulator = StrainScorerV2.ActivityAccumulator(maxHR: maxHR)
+            var energy = Self.makeEnergy(energyProfile, maxHR: maxHR)
+            for (index, segment) in pauses.segments(of: canonical).enumerated() {
+                if index > 0 { accumulator.breakStream() }
+                for (position, sample) in segment.enumerated() {
+                    accumulator.append(sample)
+                    if position == 0, index > 0 { energy?.appendAfterPause(sample) } else { energy?.append(sample) }
+                }
+            }
+            // A pause after the last reading (open, or closed with nothing since) ends the stretch too.
+            let trailingPause = pauses.isPaused || canonical.last.map { pauses.separates($0.ts, .max) } == true
+            if trailingPause { accumulator.breakStream() }
+            startsNewStretch = trailingPause
+            strainAccumulator = accumulator
+            self.energy = energy
+            zones = PersonalZoneSeconds.compute(samples: canonical, pauses: pauses, thresholds: zoneThresholds)
+            // The same trailing pause ends the zone stretch too: the first reading after the resume starts a new one and is not
+            // credited for the time since the last reading before the pause.
+            if trailingPause { zones.breakStretch() }
+            personalZoneSeconds = zones.quantized(step: 5)
             chartAccumulator = WorkoutHeartChartAccumulator(samples: canonical)
             chartProjection = chartAccumulator.projection
             currentBPM = canonical.last?.bpm
             avgHr = strainAccumulator.averageHR ?? 0
             peakHr = strainAccumulator.peakHR ?? 0
+            liveCalories = nil
+            publishEnergy()
             if let strain = strainAccumulator.strain {
                 liveStrainState = .scored(storedValue: strain)
             } else {
@@ -402,6 +637,9 @@ final class AppModel: ObservableObject {
         self.ble = BLEManager(state: live, deviceId: deviceId)
         self.repo = Repository(deviceId: deviceId)
         self.coach = AICoachEngine(repo: repo)
+        #if os(iOS)
+        self.localCoach = LocalCoachEngine(repo: repo)
+        #endif
         self.intelligence = IntelligenceEngine(repo: repo, profile: profile, deviceId: deviceId)
         // Route the engine's per-day scoring diagnostic into the SAME shareable strap log every other
         // subsystem writes to (PII-scrubbed by `live.append(log:)`), so a bug report ships proof of what
@@ -436,6 +674,10 @@ final class AppModel: ObservableObject {
         live.onWristChange = { [weak self] worn in self?.handleWristChange(worn) }
         gpsRecorder.onCheckpoint = { [weak self] checkpoint in
             _ = self?.persistActiveGpsWorkout(checkpoint)
+        }
+        // Live pace is distance over the time the workout has actually run, so a pause never slows it.
+        gpsRecorder.activeElapsedProvider = { [weak self] in
+            self?.activeWorkout?.activeElapsed()
         }
         // Strap battery alerts (#368): low-battery warning + full-charge note. The notifier self-gates
         // on the user's setting and the OS authorization, and carries its own persisted once-per-
@@ -476,7 +718,7 @@ final class AppModel: ObservableObject {
             .debounce(for: .seconds(2), scheduler: DispatchQueue.main)
             .sink { [weak self] finalization in
                 Task { [weak self] in
-                    await self?.refreshAfterBackfillBurst(watermark: finalization.watermark)
+                    await self?.handleFinalizedBackfillBurst(watermark: finalization.watermark)
                 }
             }
             .store(in: &hrCancellables)
@@ -581,10 +823,24 @@ final class AppModel: ObservableObject {
                 // `force: false` skips the heavy 21-day rescore when the raw HR stream is unchanged since the
                 // last run, instead of re-reading ~21×54 h of HR every 15 min on a big-import library. A new
                 // sample (the heal above, or a sync) moves the fingerprint and the tick rescores as before.
+                #if os(iOS)
+                let cadenceDecision = RescoreBackgroundPolicy.decide(
+                    isBackground: RescoreBackgroundPolicy.isBackgrounded,
+                    trigger: .cadenceBackstop,
+                    hasBackgroundGrant: false
+                )
+                if cadenceDecision != .skip {
+                    await self.intelligence.analyzeRecent(force: false)
+                }
+                #else
                 await self.intelligence.analyzeRecent(force: false)
+                #endif
                 // v5: recompute the skin-temp suite snapshots (cycle phase + body clock) from the
-                // freshly-scored history so the Health hub cards read a ready result.
-                await self.refreshV5Signals()
+                // freshly-scored history so the Health hub cards read a ready result. Skipped while a run or
+                // lift is active: it is a synchronous bulk SQLite aggregation, and the next tick catches up.
+                if !self.hasActiveWorkoutSession {
+                    await self.refreshV5Signals()
+                }
                 // Advance one durable immutable-artifact repair page per idle cadence grant. The keyset
                 // cursor moves past irreparable legacy heads, so later compatible rows cannot starve.
                 let cadenceRepairs = await self.repo.repairIncompleteVerifiedArtifacts()
@@ -691,6 +947,133 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// What the normal-launch verified-sink repair did. Logged; no context identity is ever logged.
+    enum VerifiedSinkBootstrapOutcome: String, Equatable {
+        case repositoryNotLoaded = "repository not loaded"
+        case waitingForSourceTransition = "waiting for source transition"
+        case kept
+        case closedSourceLeftAlone = "no context, left alone"
+        case waitingForProjection = "waiting for projection"
+        case activated
+        case failed
+    }
+
+    /// Only a source transition writes the App Group's verified-sink token, so an install that predates the token, or a
+    /// context that moved outside a transition (a lineage or database change), left every Widget and Live Activity write
+    /// that carries health superseded, for good. This repairs it through `VerifiedSinkBootstrapPolicy`, under the source
+    /// transition fence and after durable transition recovery:
+    /// - a non-terminal transition record owns the token, so the token is not touched while one exists;
+    /// - a nil context before the repository has loaded is transient, never a closed source;
+    /// - a closed source stays as the transition that closed it left it. Every writer checks the token against the
+    ///   repository's current context, so a token naming a context the repository no longer has publishes nothing.
+    /// Static, with the App Group and the sink activation passed in, so it is testable without a running app.
+    static func bootstrapVerifiedSink(
+        repositoryLoaded: Bool,
+        projectionContextId: String?,
+        snapshotContextId: String?,
+        hasPendingTransition: Bool,
+        defaults: UserDefaults,
+        activateSinks: (_ contextId: String, _ epoch: UInt64) -> Bool
+    ) -> VerifiedSinkBootstrapOutcome {
+        if hasPendingTransition { return .waitingForSourceTransition }
+        guard repositoryLoaded else { return .repositoryNotLoaded }
+        let activeToken = ActiveVerifiedSinkEpochStore.activeToken(defaults: defaults)
+        // The snapshot's context stands in for a missing token only. At a cold launch there is no projection yet (the
+        // historical pipeline publishes it after this runs), and the token that exists may name the projection the
+        // widgets render: rotating it from the snapshot would blank them. It is left alone, and the projection observer
+        // repairs it once a projection loads (`repairVerifiedSinkIfContextMoved`). A token naming another database (one
+        // restored in place, then relaunched) can never match again, so it is not waited for: it is rotated below.
+        if projectionContextId == nil, let snapshotContextId, let activeToken,
+           activeToken.contextId != snapshotContextId,
+           !isFromAnotherDatabase(activeToken.contextId, snapshot: snapshotContextId) {
+            return .waitingForProjection
+        }
+        let expectedContextId = verifiedSinkContextId(projection: projectionContextId, snapshot: snapshotContextId)
+        switch VerifiedSinkBootstrapPolicy.decide(
+            activeToken: activeToken,
+            expectedContextId: expectedContextId,
+            hasPendingTransition: false
+        ) {
+        case .keep:
+            return .kept
+        case .waitForPendingTransition:
+            return .waitingForSourceTransition
+        case .clearClosedSource:
+            return .closedSourceLeftAlone
+        case .activate(let contextId):
+            // A fresh epoch above every surviving record, as a transition takes one. Everything fenced to the old epoch
+            // goes with it, as the transition's privacy clear does: the Widget envelope (its commit refuses any other
+            // epoch, so the Home Screen widget would stay blank for good), its overlay and generation, and the Live
+            // Activity's generation record (which would reject every verified write under the new epoch).
+            guard let epoch = ActiveSinkEpochRecovery.beginTransitionRecovering(defaults: defaults) else {
+                return .failed
+            }
+            ActiveVerifiedSinkEpochStore.clearLegacyKeys(defaults: defaults)
+            ActiveSinkEpochRecovery.clearVerifiedWidgetState(defaults: defaults)
+            ActiveSinkEpochRecovery.clearLiveActivityGeneration(defaults: defaults)
+            guard ActiveVerifiedSinkEpochStore.activate(contextId: contextId, epoch: epoch, defaults: defaults) != nil,
+                  activateSinks(contextId, epoch) else { return .failed }
+            return .activated
+        }
+    }
+
+    /// The context the repair names. Widget and Live Activity writes are admitted only under a token naming the verified
+    /// projection's context (`WidgetSnapshot.publish`, `LiveActivityDriveAdmission`), so the projection's comes first: a
+    /// token that matches it is kept even while the day's snapshot has moved on, and the widgets it feeds keep working.
+    /// The snapshot's context stands in only while there is no projection yet, and only for a missing token (an existing
+    /// one waits for the projection); when one arrives naming another context, the projection observer repairs again
+    /// (`repairVerifiedSinkIfContextMoved`).
+    ///
+    /// A projection from another database is not the current one: a database restored in place keeps the old projection in
+    /// memory until the pipeline publishes for the new one, and keeping its token would leave the old database's values on
+    /// the widgets and admit its Recovery onto the Lock Screen. The snapshot's context is named then.
+    static func verifiedSinkContextId(projection: String?, snapshot: String?) -> String? {
+        if isFromAnotherDatabase(projection, snapshot: snapshot) { return snapshot }
+        return projection ?? snapshot
+    }
+
+    /// Whether the projection's context names another database than the snapshot's. The database instance is the first
+    /// field of `TodayHealthSnapshotContext.identifier`, which the projection's context is built from. An id without that
+    /// field carries no evidence of another database, so it never counts as one.
+    static func isFromAnotherDatabase(_ projection: String?, snapshot: String?) -> Bool {
+        guard let projection, let snapshot, projection.contains("|"), snapshot.contains("|") else { return false }
+        return projection.prefix { $0 != "|" } != snapshot.prefix { $0 != "|" }
+    }
+
+    /// Run the repair for this model. Call only while `sourceTransitionFence` owns source mutation.
+    private func bootstrapVerifiedSinkIfNeededUnfenced() async {
+        guard let store = await repo.storeHandle(), let defaults = try? sinkDefaults() else { return }
+        let hasPendingTransition: Bool
+        do {
+            hasPendingTransition = try await store.latestSourceTransitionRecovery() != nil
+        } catch {
+            return   // the journal could not be read: never act on a guess
+        }
+        // `currentVerifiedSinkContextIdForActivation` is the snapshot's context, or the projection's when there is none.
+        let projectionContextId = repo.verifiedHealthProjection?.contextId
+        let snapshotContextId = repo.currentVerifiedSinkContextIdForActivation
+        let expectedContextId = Self.verifiedSinkContextId(projection: projectionContextId, snapshot: snapshotContextId)
+        let token = ActiveVerifiedSinkEpochStore.activeToken(defaults: defaults)
+        let tokenState = token == nil ? "missing" : (token?.contextId == expectedContextId ? "match" : "mismatch")
+        let outcome = Self.bootstrapVerifiedSink(
+            repositoryLoaded: repo.loaded && !repo.verifiedExternalSurfaceFenced,
+            projectionContextId: projectionContextId,
+            snapshotContextId: snapshotContextId,
+            hasPendingTransition: hasPendingTransition,
+            defaults: defaults,
+            activateSinks: { [verifiedSinkLifecycle] contextId, epoch in
+                verifiedSinkLifecycle?.activate(contextId: contextId, epoch: epoch) ?? false
+            })
+        NSLog("NOOP verified sink: token: %@, %@", tokenState, outcome.rawValue)
+        LiveActivityTrace.shared.record(
+            "sink-bootstrap result=\(outcome.rawValue.replacingOccurrences(of: " ", with: "-")) token=\(tokenState)")
+        guard outcome == .activated else { return }
+        // The widget was cleared with the old epoch: publish the current projection under the new one now, rather than
+        // waiting for a new generation or the next foreground.
+        await signalExternalPublication()
+        _ = await WidgetSnapshot.publish(from: self)
+    }
+
     private func makeHistoricalPipelineRuntime() -> HistoricalPipelineRuntime {
         let postAnalysisSnapshotBuilder = RepositoryPostAnalysisSnapshotBuilder.self
         let classifyError: @Sendable (any Error) -> PipelineFailureClassification =
@@ -752,14 +1135,16 @@ final class AppModel: ObservableObject {
             },
             publishRepository: { [weak self] work, snapshot in
                 guard let self else { throw HistoricalPipelineRuntimeError.storeUnavailable }
-                let outcome = try await self.repo.publishVerifiedExactDays(
-                    snapshot.analyzedDays,
-                    recordedTimeZoneIdentifier: snapshot.recordedTimeZoneIdentifier,
-                    snapshot: snapshot,
-                    sourceDeviceId: work.scope.deviceId
-                )
-                guard outcome.authoritativeDataPublished else {
-                    throw HistoricalPipelineRuntimeError.snapshotUnavailable
+                try await HistoricalRepositoryPublicationGate.run {
+                    let outcome = try await self.repo.publishVerifiedExactDays(
+                        snapshot.analyzedDays,
+                        recordedTimeZoneIdentifier: snapshot.recordedTimeZoneIdentifier,
+                        snapshot: snapshot,
+                        sourceDeviceId: work.scope.deviceId
+                    )
+                    guard outcome.authoritativeDataPublished else {
+                        throw HistoricalPipelineRuntimeError.snapshotUnavailable
+                    }
                 }
             },
             commitOutbox: { [weak self] snapshot in
@@ -945,7 +1330,7 @@ final class AppModel: ObservableObject {
             hasTodaySnapshot: repo.todayHealthSnapshot != nil,
             hasActiveImport: hasActiveImport,
             isBackfilling: live.backfilling,
-            hasActiveWorkout: activeWorkout != nil)
+            hasActiveWorkout: hasActiveWorkoutSession)
     }
 
     private func fullHistoryRepairPresentationScope() -> HistoricalCursorScope? {
@@ -1426,7 +1811,18 @@ final class AppModel: ObservableObject {
     func recoverPendingSourceTransition() async {
         await sourceTransitionFence.run { @MainActor [weak self] in
             await self?.recoverDurableSourceTransitionIfNeededUnfenced()
+            // A transition that just completed has activated the sink itself; one still pending keeps it untouched.
+            await self?.bootstrapVerifiedSinkIfNeededUnfenced()
         }
+    }
+
+    /// The verified projection now names a context the App Group token does not (a lineage or database change outside a
+    /// source transition). Run the same repair, under the same fence.
+    func repairVerifiedSinkIfContextMoved(to contextId: String?) async {
+        guard let contextId,
+              let defaults = try? sinkDefaults(),
+              ActiveVerifiedSinkEpochStore.activeToken(defaults: defaults)?.contextId != contextId else { return }
+        await recoverPendingSourceTransition()
     }
 
     /// A prepared record aborts safely. Postcommit stages load the exact commit payload captured in the same
@@ -1634,6 +2030,35 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// A finished history burst triggers a dashboard refresh that reads and aggregates months of rows
+    /// synchronously (`refreshV5Signals`, the pipeline's exact-day analysis). Run while a run or lift is in
+    /// flight and backgrounded, that is the sustained CPU iOS kills the app for, so it is parked and replayed,
+    /// coalesced, when the session ends or the app next foregrounds with none. The durable receipts it would
+    /// have processed stay pending meanwhile.
+    private func handleFinalizedBackfillBurst(watermark: HistoricalReceiptWatermark?) async {
+        guard deferredSessionWork.admitBurst(watermark, sessionActive: hasActiveWorkoutSession) else {
+            live.append(log: "Backfill: dashboard refresh deferred until the active workout ends.")
+            return
+        }
+        await refreshAfterBackfillBurst(watermark: watermark)
+    }
+
+    /// Replay whatever was parked, once, when no run or lift is active. Called when a run ends, when a lift
+    /// session ends, and on return to the foreground; a no-op while a session is still active.
+    func replayDeferredSessionWorkIfIdle() {
+        let jobs = deferredSessionWork.drain(sessionActive: hasActiveWorkoutSession)
+        guard !jobs.isEmpty else { return }
+        live.append(log: "Backfill: replaying \(jobs.count) deferred refresh job(s) after the workout.")
+        Task { @MainActor [weak self] in
+            for job in jobs {
+                switch job {
+                case .burstRefresh(let watermark): await self?.refreshAfterBackfillBurst(watermark: watermark)
+                case .pipelineSignal: _ = await self?.signalHistoricalPipeline()
+                }
+            }
+        }
+    }
+
     private func refreshAfterBackfillBurst(watermark: HistoricalReceiptWatermark? = nil) async {
         let trace = PerformanceTrace.begin("backfill_finalize")
         defer { PerformanceTrace.end(trace) }
@@ -1665,41 +2090,81 @@ final class AppModel: ObservableObject {
     }
 
     /// Signal the durable pipeline. Counts are diagnostic only; durable work remains the source of truth.
-    private func signalHistoricalPipeline() async -> HistoricalPipelineRuntimeResult {
+    private func signalHistoricalPipeline(
+        hasBackgroundGrant: Bool = false,
+        includeBroadMaintenance: Bool = true
+    ) async -> HistoricalPipelineRuntimeResult {
+        #if os(iOS)
+        let admission = RescoreBackgroundPolicy.decide(
+            isBackground: RescoreBackgroundPolicy.isBackgrounded,
+            trigger: .durablePipeline,
+            hasBackgroundGrant: hasBackgroundGrant
+        )
+        if admission == .runWithBackgroundFallback {
+            HistoricalScoringBackgroundTaskRegistrar.schedule()
+            live.append(log: "Historical pipeline: paced background scoring started; recovery wake armed.")
+        }
+        #endif
+
         await intelligence.enqueuePendingTimestampHealMaintenance()
         let result = await historicalPipelineRuntime.signal()
+        // CORE-01 (#980): the pipeline's commitOutbox step only enqueues widget, Live Activity and HealthKit
+        // rows. A strap backfill usually finishes while the app is backgrounded, where no scene event drains
+        // them, so a pass that committed work wakes the outbox here, before broad maintenance can delay it.
+        if result.committedExternalPublicationWork {
+            await signalExternalPublication()
+        }
         // Broad repair is intentionally separate from the exact receipt drain. It can only acquire work
         // after this call has had a chance to admit/finish current-day work, and its own idle gate enforces
         // Today-first-paint plus background/no-import/no-workout conditions.
-        await fullHistoryRepairMaintenance.signal()
+        if includeBroadMaintenance {
+            await fullHistoryRepairMaintenance.signal()
+        }
         if result.admittedReceipts > 0 || result.completedWork > 0 {
             let pending = result.pendingWork.map(String.init) ?? "unknown"
             live.append(log: "Historical pipeline: admitted \(result.admittedReceipts) receipt(s), completed \(result.completedWork) exact work item(s), pending \(pending).")
         }
+
+        #if os(iOS)
+        if !hasBackgroundGrant {
+            switch HistoricalScoringBackgroundTaskRegistrar.completionDisposition(for: result) {
+            case .complete:
+                HistoricalScoringBackgroundTaskRegistrar.cancelPendingRequest()
+            case .retry:
+                HistoricalScoringBackgroundTaskRegistrar.schedule()
+            }
+        }
+        #endif
         return result
     }
+
+    #if os(iOS)
+    /// Entry point used only by the registered BGProcessingTask. It drains the same source-scoped receipt
+    /// pipeline as foreground and Bluetooth-finalization signals, with no generic replay or duplicate debt.
+    func runHistoricalScoringBackgroundTask() async -> HistoricalPipelineRuntimeResult {
+        await signalHistoricalPipeline(
+            hasBackgroundGrant: true,
+            includeBroadMaintenance: false
+        )
+    }
+
+    /// BG task expiration must cancel the pipeline owner, not only the waiting caller. Quiescing propagates
+    /// cancellation into the detached scan and returns the owned durable lease to pending before reopening.
+    func cancelHistoricalScoringBackgroundTask() async {
+        do {
+            let epoch = try await historicalPipelineRuntime.quiesce()
+            try await historicalPipelineRuntime.resume(expectedEpoch: epoch)
+            live.append(log: "Historical pipeline: background scoring expired; durable work remains pending.")
+        } catch {
+            live.append(log: "Historical pipeline: background scoring cancellation failed closed: \(error)")
+        }
+    }
+    #endif
 
     /// Lifecycle re-arm for environmental failures. The runtime performs the
     /// whitelist re-arm and drains immediately; structural rows remain blocked.
     func resumeEnvironmentalBlockedHistoricalWorkAndDrain() async {
         _ = await signalHistoricalPipeline()
-    }
-
-    /// One post-analysis refresh publishes both committed raw history and its computed rows. It runs only
-    /// after receipt acknowledgement or the pre-existing heal-only path, so it never replaces a visible
-    /// dashboard generation with a half-analyzed result.
-    private func publishAfterCommittedHistoricalAnalysis() async {
-        _ = await repo.refresh(.currentDay)
-        await refreshV5Signals()
-        #if os(iOS)
-        // #980: a strap backfill routinely completes while the app is BACKGROUNDED (it runs as a
-        // bluetooth-central, so it stays alive to receive the offload). The only other widget-publish
-        // sites are gated on scenePhase == .active, so a background sync would rescore today's data but
-        // never rewrite the shared App-Group snapshot or call WidgetCenter.reloadAllTimelines — the
-        // widget kept showing yesterday's numbers. Publishing here, on the real "new data landed"
-        // signal, pushes the fresh snapshot to the home-screen widget without needing a foreground.
-        _ = await WidgetSnapshot.publish(from: self)
-        #endif
     }
 
     /// Direct HR and R-R are independent live streams. Keeping their sinks separate prevents one R-R
@@ -1755,14 +2220,17 @@ final class AppModel: ObservableObject {
         let name = sport.trimmingCharacters(in: .whitespaces)
         let resolved = name.isEmpty ? WorkoutCatalog.defaultSportName : name
         let started = Date()
+        ActiveWorkoutPauseStore.clear()
         activeWorkout = ActiveWorkout(start: started, sport: resolved,
-                                      maxHR: Double(profile.hrMax))
+                                      maxHR: Double(profile.hrMax), energyProfile: workoutEnergyProfile,
+                                      zoneThresholds: workoutZoneThresholds)
         acquireWorkoutRealtimeHR()
         workoutFinishState = .recording
         pendingWorkoutSnapshot = nil
         pendingWorkoutEnd = nil
         pendingWorkoutRoute = nil
         pendingWorkoutWasGps = false
+        pendingWorkoutRowKey = nil
         workoutSnapshotDurabilityFailed = false
         gpsSnapshotDurabilityFailed = false
         gpsHadTerminatedGap = false
@@ -1795,6 +2263,293 @@ final class AppModel: ObservableObject {
         emitWorkoutsTrace(WorkoutsTrace.sessionLine(
             event: "start", sportKey: WorkoutSource.traceSportKey(resolved), hrSamples: 0))
         buzz(loops: 1)
+    }
+
+    #if DEBUG
+    /// What a screenshot of the live workout screen shows. Set by `--demo-live-workout`.
+    enum DemoLiveWorkoutScenario: String {
+        case running, paused, stale, indoor
+        /// End was tried and the save failed: the clocks stand at the end a retry will use, and the screen says "Ending".
+        case ending
+        /// The same, with the strap quiet since before End (no reading is taken while a finish is pending): the screen says
+        /// "Ending" and nothing else. A pending finish is not waiting for a reading, so it is never "no heart-rate signal".
+        case endingQuiet = "ending-quiet"
+        /// A pending finish whose save failed: the failed-save panel with Try again. Same fixture as `ending`.
+        case failed
+        /// A save in progress: End was held and the store has not answered yet.
+        case saving
+        /// End was held with no heart rate and no route: the nothing-to-save panel.
+        case nothingToSave = "nothing-to-save"
+        /// A strength session with no strap that ever connected: no heart rate, no strain.
+        case noStrap = "no-strap"
+        /// A run whose GPS signal has been lost for over a minute.
+        case gpsLost = "gps-lost"
+        /// 1:04:26, to test the numeral's fit.
+        case long
+        /// A ride with a route: the speed layout.
+        case cycling
+        /// A strength session: the indoor layout.
+        case strength
+        /// Paused with nothing that would be saved (no heart rate, no route).
+        case pausedNothing = "paused-nothing"
+        /// A run whose latest changes are not safely recoverable: the durability warning in the notice slot.
+        case durability
+        /// A run restored after the app was closed, with a GPS gap: the one-off "GPS gap while closed" notice.
+        case gpsGap = "gps-gap"
+    }
+
+    /// True for a fixture workout: nothing about it is written to disk, so a screenshot run can never leave a
+    /// synthetic session to be restored on the next launch.
+    private(set) var activeWorkoutIsDemo = false
+
+    /// DEBUG only, simulator only: put a deterministic workout in flight so the live workout screen can be captured
+    /// running, paused or with a stale signal. Heart rate, route and pauses are synthetic and never persisted.
+    func seedDemoLiveWorkout(_ scenario: DemoLiveWorkoutScenario, now: Date = Date()) {
+        #if targetEnvironment(simulator)
+        guard activeWorkout == nil else { return }
+        let activeSeconds = scenario == .long ? 64 * 60 + 26 : 34 * 60 + 12
+        let paused = scenario == .paused || scenario == .pausedNothing || scenario == .nothingToSave
+        let pausedFor = paused ? 180 : 0
+        let indoor = scenario == .indoor || scenario == .strength || scenario == .noStrap
+            || scenario == .pausedNothing || scenario == .nothingToSave
+        let started = now.addingTimeInterval(-Double(activeSeconds + pausedFor))
+        let startTs = Int(started.timeIntervalSince1970)
+        let sport = switch scenario {
+        case .cycling: "Cycling"
+        case .strength, .noStrap, .pausedNothing, .nothingToSave: "Strength Training"
+        case .indoor: "Strength"
+        default: "Running"
+        }
+        let workout = ActiveWorkout(start: started, sport: sport,
+                                    maxHR: Double(profile.hrMax), energyProfile: workoutEnergyProfile,
+                                    zoneThresholds: workoutZoneThresholds)
+        // No strap, or nothing worth saving: no readings at all. Otherwise a warm-up into a steady block, with a little
+        // beat-to-beat wobble.
+        let noReadings = scenario == .noStrap || scenario == .pausedNothing || scenario == .nothingToSave
+        let readings = noReadings ? [] : (2...activeSeconds).map { second -> HRSample in
+            let ramp = min(1.0, Double(second) / 600.0)
+            let bpm = 96 + 58 * ramp + 9 * sin(Double(second) / 41) + 4 * sin(Double(second) / 7)
+            return HRSample(ts: startTs + second, bpm: Int(bpm.rounded()))
+        }
+        // A paused fixture stopped counting three minutes ago: its open pause began at the last reading.
+        let pauses = paused
+            ? WorkoutPauseLedger(openSince: Double(startTs + activeSeconds) + 0.5) : WorkoutPauseLedger()
+        workout.restore(samples: readings, pauses: pauses)
+        let quiet = scenario == .stale || scenario == .endingQuiet || noReadings
+        if !noReadings { workout.seedDemoLastReading(now.addingTimeInterval(quiet ? -47 : -2)) }
+        activeWorkoutIsDemo = true
+        activeWorkout = workout
+        workoutFinishState = .recording
+        if scenario == .ending || scenario == .endingQuiet || scenario == .failed || scenario == .saving {
+            // The state a failed End leaves: frozen at the moment End was tried, awaiting a retry.
+            let stoppedAt = now.addingTimeInterval(-30)
+            workout.freeze(at: stoppedAt)
+            pendingWorkoutEnd = stoppedAt
+            pendingWorkoutSnapshot = workout
+            workoutFinishState = scenario == .saving
+                ? .saving : .failed(WorkoutFinishError.storeUnavailable.localizedDescription)
+        }
+        if scenario == .nothingToSave {
+            // End was held on a session with nothing in it: still the workout in progress, and the failure says why.
+            workoutFinishState = .failed(WorkoutFinishError.insufficientEvidence.localizedDescription)
+        }
+        if !indoor {
+            activeWorkoutIsGps = true
+            gpsRecorder.seedDemoRoute(points: Self.demoRoutePoints(), elapsedSeconds: Double(activeSeconds),
+                                      paused: paused, signalLost: scenario == .stale || scenario == .gpsLost)
+        }
+        if scenario == .durability {
+            workoutSnapshotDurabilityFailed = true
+            refreshWorkoutDurabilityWarning()
+        }
+        if scenario == .gpsGap {
+            gpsHadTerminatedGap = true
+            gpsGapRestoredAt = Date()
+            refreshWorkoutDurabilityWarning()
+        }
+        // A strap that keeps reporting, so a capture taken a while after launch is not a stale frame by accident.
+        // The stale and quiet-ending scenarios are the fixtures that deliberately go quiet.
+        if !quiet { startDemoHeartbeat(for: workout, from: activeSeconds) }
+        #endif
+    }
+
+    #if targetEnvironment(simulator)
+    private func startDemoHeartbeat(for workout: ActiveWorkout, from activeSeconds: Int) {
+        Task { @MainActor [weak self, weak workout] in
+            var tick = 0
+            while let self, let workout, self.activeWorkout === workout, self.activeWorkoutIsDemo {
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                tick += 1
+                let second = activeSeconds + tick
+                let bpm = 96 + 58 + 9 * sin(Double(second) / 41) + 4 * sin(Double(second) / 7)
+                workout.ingest(HRSample(ts: Int(Date().timeIntervalSince1970), bpm: Int(bpm.rounded())))
+            }
+        }
+    }
+    #endif
+
+    /// A 5.4 km loop of a park, drawn as 200 points. Fixture geometry, not a real route.
+    nonisolated static func demoRoutePoints() -> [RouteMath.LatLng] {
+        (0..<200).map { index in
+            let angle = Double(index) / 199 * 1.84 * Double.pi
+            let lat = 40.7829 + 0.0108 * sin(angle) + 0.0009 * sin(angle * 5)
+            let lon = -73.9654 + 0.0150 * (cos(angle) - 1) * 0.5 + 0.0006 * cos(angle * 3)
+            return RouteMath.LatLng(lat, lon)
+        }
+    }
+    #endif
+
+    /// The wearer's three heart-rate zones, taken when a workout starts or is restored: the screen's zone word and the time in
+    /// each zone use the same boundaries.
+    private var workoutZoneThresholds: HRZoneStyle.Thresholds {
+        ProfileStore.hrZoneThresholds(override: profile.hrMaxOverride, age: profile.age)
+    }
+
+    /// The wearer's body numbers for the live energy estimate, taken when a workout starts or is restored.
+    private var workoutEnergyProfile: UserProfile {
+        UserProfile(weightKg: profile.weightKg, heightCm: profile.heightCm,
+                    age: Double(profile.age), sex: profile.sex)
+    }
+
+    /// Whether the workout in flight is paused. False when there is none.
+    var isWorkoutPaused: Bool { activeWorkout?.isPaused == true }
+
+    /// Pause or resume the workout in flight. Manual only, and idempotent: pausing a paused workout, or resuming a
+    /// running one, does nothing and returns false, so a double tap or a Lock Screen button pressed twice cannot
+    /// flip it back. While paused the timer stands still, no reading or GPS fix is counted, and the heart-rate link
+    /// and the location session stay open so the workout can be resumed from a locked phone.
+    @discardableResult
+    func setWorkoutPaused(_ paused: Bool, at time: Date = Date()) -> Bool {
+        guard let workout = activeWorkout, pendingWorkoutSnapshot == nil,
+              workoutFinishState != .saving else { return false }
+        guard workout.setPaused(paused, at: time) else { return false }
+        // "Nothing to save yet" describes the moment End was held. Once the workout is paused or resumed again (from the
+        // screen, the resume bar or the Lock Screen) it is no longer true, and the dock must offer Pause again.
+        acknowledgeFinishState()
+        // Written at once: a pause iOS ends the app in the middle of must still be a pause on relaunch.
+        #if DEBUG
+        if !activeWorkoutIsDemo { ActiveWorkoutPauseStore.store(workout.pauseLedger, sessionID: workout.sessionID) }
+        #else
+        ActiveWorkoutPauseStore.store(workout.pauseLedger, sessionID: workout.sessionID)
+        #endif
+        if activeWorkoutIsGps { gpsRecorder.setPaused(paused) }
+        persistActiveWorkout(force: true)
+        // The Lock Screen and Dynamic Island read this edge; nothing else changes when only the ledger does.
+        workoutPauseEdge &+= 1
+        emitWorkoutsTrace(WorkoutsTrace.sessionLine(
+            event: paused ? "pause" : "resume", sportKey: WorkoutSource.traceSportKey(workout.sport),
+            hrSamples: workout.samples.count))
+        return true
+    }
+
+    /// Bumped on every real pause or resume, and when a finish starts or is abandoned, so external surfaces update at once
+    /// instead of on the next heart-rate tick.
+    @Published private(set) var workoutPauseEdge = 0
+
+    /// A request to pause or resume from outside the app (the Live Activity's button). Returns whether there was a workout
+    /// to answer it. When the workout is already in the requested state the request changes nothing, but it proves the
+    /// button that sent it is out of date: the same edge a real toggle raises is raised, so the Lock Screen and the
+    /// Dynamic Island are rewritten from the workout's true state instead of staying wrong until something else updates.
+    @discardableResult
+    func applyWorkoutPauseRequest(_ paused: Bool, at time: Date = Date()) -> Bool {
+        guard activeWorkout != nil else { return false }
+        if !setWorkoutPaused(paused, at: time) { workoutPauseEdge &+= 1 }
+        return true
+    }
+
+    /// A workout whose End was tried and has not completed (the save failed) is frozen at the moment it ended: it can be
+    /// ended again, not paused or resumed.
+    var isWorkoutFinishPending: Bool { pendingWorkoutSnapshot != nil }
+
+    /// What stops a workout from starting now, or nil when one can. Mirrors the guard in `startWorkout(sport:)`, so a
+    /// screen can say why Start would do nothing instead of letting it silently do nothing.
+    var workoutStartBlock: WorkoutStartBlock? {
+        if activeWorkout != nil { return .workoutActive }
+        if liftDoubleTapHandler != nil || hasActiveReceiptLift?() == true { return .liftActive }
+        return nil
+    }
+
+    /// Whether ending the workout in flight right now would save one: it has two heart-rate readings or a recorded route (two
+    /// points in one segment). The same gate `endWorkout()` applies, so the paused screen can say what End will do before
+    /// it is held.
+    var workoutWouldSave: Bool {
+        (activeWorkout?.samples.count ?? 0) >= 2 || (activeWorkoutIsGps && gpsRecorder.hasDrawableRoute)
+    }
+
+    /// End was held and there was nothing to save: no heart rate and no route. The workout is still the one in progress.
+    /// The one comparison of the failure text lives here.
+    var finishNeedsMoreEvidence: Bool {
+        !isWorkoutFinishPending
+            && workoutFinishState == .failed(WorkoutFinishError.insufficientEvidence.localizedDescription)
+    }
+
+    /// The person has seen how the last finish went (the summary's Done, or Keep recording): back to `.recording`. A save
+    /// that failed and is waiting for a retry stays as it is, since the workout is still pending.
+    func acknowledgeFinishState() {
+        switch workoutFinishState {
+        case .saved:
+            workoutFinishState = .recording
+        case .failed:
+            if !isWorkoutFinishPending { workoutFinishState = .recording }
+        case .recording, .saving:
+            break
+        }
+    }
+
+    /// Throw the workout in flight away: the success path's clean-up without any store write, so nothing is saved and
+    /// nothing is left to restore on the next launch. Refused while a save is running. Returns whether anything was
+    /// discarded.
+    @discardableResult
+    func discardWorkout() -> Bool {
+        guard let workout = activeWorkout, workoutFinishState != .saving else { return false }
+        let wasGps = activeWorkoutIsGps
+        if wasGps {
+            gpsRecorder.stop()
+            _ = ActiveGpsWorkoutPersistence.flushPendingWrites()
+        }
+        // The same clears, in the same order, as a successful save: an in-flight snapshot write is ordered before them,
+        // so it cannot bring the workout back on the next launch.
+        ActiveWorkoutPersistence.clear()
+        ActiveGpsWorkoutPersistence.clear()
+        ActiveWorkoutPauseStore.clear()
+        activeWorkout = nil
+        releaseWorkoutRealtimeHR()
+        activeWorkoutIsGps = false
+        workoutSnapshotDurabilityFailed = false
+        gpsSnapshotDurabilityFailed = false
+        gpsHadTerminatedGap = false
+        refreshWorkoutDurabilityWarning()
+        pendingWorkoutSnapshot = nil
+        pendingWorkoutEnd = nil
+        pendingWorkoutRoute = nil
+        pendingWorkoutWasGps = false
+        lastWorkout = nil
+        workoutFinishState = .recording
+        // A save that failed after its row was written: that row goes too, so nothing of this workout is left in Workouts.
+        if let key = pendingWorkoutRowKey {
+            pendingWorkoutRowKey = nil
+            removeWrittenWorkoutRow(key)
+        }
+        // The Lock Screen and Dynamic Island are rebuilt from the workout in flight: with none, the activity ends. Paused and
+        // nothing-to-save workouts raise no other edge on their way out.
+        workoutPauseEdge &+= 1
+        emitWorkoutsTrace(WorkoutsTrace.sessionLine(
+            event: "discarded-by-user", sportKey: WorkoutSource.traceSportKey(workout.sport),
+            hrSamples: workout.samples.count, gpsPoints: wasGps ? gpsRecorder.pointCount : nil))
+        replayDeferredSessionWorkIfIdle()
+        return true
+    }
+
+    /// Takes back the row, route and pauses a finish wrote before it failed.
+    private func removeWrittenWorkoutRow(_ key: WorkoutRowKey) {
+        RouteStore.remove(startTs: key.startTs, sport: key.sport)
+        WorkoutPauseStore.remove(startTs: key.startTs, sport: key.sport)
+        let deviceId = self.deviceId
+        Task { [repo] in
+            guard let store = await repo.storeHandle() else { return }
+            _ = try? await store.deleteWorkouts(deviceId: deviceId, sport: key.sport, from: key.startTs, to: key.startTs)
+            _ = await repo.refresh(.currentDay)
+        }
     }
 
     /// Emit one Workouts & GPS test-mode line tagged `.workouts` iff the mode is on. The cheap
@@ -1842,6 +2597,9 @@ final class AppModel: ObservableObject {
         synchronously: Bool = false
     ) -> Bool {
         guard let w = activeWorkout else { return true }
+        #if DEBUG
+        if activeWorkoutIsDemo { return true }
+        #endif
         let now = Date()
         guard force || now.timeIntervalSince(lastWorkoutSnapshotEnqueuedAt) >= 5 else { return true }
         latestWorkoutSnapshotAttempt &+= 1
@@ -1895,6 +2653,9 @@ final class AppModel: ObservableObject {
         synchronously: Bool = false
     ) -> Bool {
         guard activeWorkout?.sessionID == checkpoint.sessionID, activeWorkoutIsGps else { return true }
+        #if DEBUG
+        if activeWorkoutIsDemo { return true }
+        #endif
         latestGpsSnapshotAttempt &+= 1
         let attempt = latestGpsSnapshotAttempt
         let sessionID = checkpoint.sessionID
@@ -1922,14 +2683,18 @@ final class AppModel: ObservableObject {
     private func refreshWorkoutDurabilityWarning() {
         guard activeWorkout != nil else {
             workoutDurabilityWarning = nil
+            workoutDurabilityIssue = nil
             return
         }
         if workoutSnapshotDurabilityFailed || gpsSnapshotDurabilityFailed {
             workoutDurabilityWarning = String(localized: "This workout is recording, but recent changes are not safely recoverable if NOOP closes. Keep the app open and free storage before continuing.")
+            workoutDurabilityIssue = .notRecoverable
         } else if gpsHadTerminatedGap {
             workoutDurabilityWarning = String(localized: "GPS paused while NOOP was closed. Your captured route was restored and recording can resume. The gap is separated and is not added to distance.")
+            workoutDurabilityIssue = .gpsGapRestored
         } else {
             workoutDurabilityWarning = nil
+            workoutDurabilityIssue = nil
         }
     }
 
@@ -1941,15 +2706,20 @@ final class AppModel: ObservableObject {
         guard activeWorkout == nil, let snap = ActiveWorkoutPersistence.load() else { return }
         let w = ActiveWorkout(sessionID: snap.sessionID,
                               start: Date(timeIntervalSince1970: TimeInterval(snap.startSec)),
-                              sport: snap.sport, maxHR: Double(profile.hrMax))
-        w.restore(samples: snap.samples)
+                              sport: snap.sport, maxHR: Double(profile.hrMax),
+                              energyProfile: workoutEnergyProfile, zoneThresholds: workoutZoneThresholds)
+        let pauses = ActiveWorkoutPauseStore.load(sessionID: snap.sessionID) ?? WorkoutPauseLedger()
+        w.restore(samples: snap.samples, pauses: pauses)
         activeWorkout = w
         acquireWorkoutRealtimeHR()
         if let gps = ActiveGpsWorkoutPersistence.load(), gps.sessionID == snap.sessionID {
             activeWorkoutIsGps = true
             gpsRecorder.restore(gps)
+            // A workout that was paused when the app closed is still paused: location stays open, no fix counts.
+            if pauses.isPaused { gpsRecorder.setPaused(true) }
             if gps.recordingWasActive {
                 gpsHadTerminatedGap = true
+                gpsGapRestoredAt = Date()
                 refreshWorkoutDurabilityWarning()
             }
         }
@@ -1982,13 +2752,17 @@ final class AppModel: ObservableObject {
                       !self.applicationIsActive,
                       !self.hasActiveImport,
                       !self.live.backfilling,
-                      self.activeWorkout == nil else { return }
+                      !self.hasActiveWorkoutSession else { return }
                 await self.intelligence.runEffortRescoreIfNeeded {
                     self.applicationIsActive || self.hasActiveImport
-                        || self.live.backfilling || self.activeWorkout != nil
+                        || self.live.backfilling || self.hasActiveWorkoutSession
                 }
             }
         } else {
+            // A GPS run keeps recording through a screen lock. On return, make sure CoreLocation is still
+            // streaming and that the background session is live (no-op unless a route is recording).
+            gpsRecorder.resumeUpdatesIfNeeded()
+            replayDeferredSessionWorkIfIdle()
             Task { [weak self] in
                 guard let self,
                       self.repo.loaded,
@@ -2001,7 +2775,10 @@ final class AppModel: ObservableObject {
         // Re-arm the broad-repair lane at both scene edges. Its durable idle gate rejects the active edge,
         // while the inactive edge allows one bounded chronological batch after Today is already visible.
         Task { [weak self] in
-            _ = await self?.signalHistoricalPipeline()
+            guard let self,
+                  self.deferredSessionWork.admitPipelineSignal(sessionActive: self.hasActiveWorkoutSession)
+            else { return }
+            _ = await self.signalHistoricalPipeline()
         }
     }
 
@@ -2016,11 +2793,37 @@ final class AppModel: ObservableObject {
         defer { PerformanceTrace.end(trace, changedRows: lastWorkout == nil ? 0 : 1) }
         workoutFinishState = .saving
         if pendingWorkoutSnapshot == nil {
+            // Ended while paused, the workout stops at the moment it was paused: the time since is not part of it.
+            let stoppedAt = current.pauseLedger.openSince.map(Date.init(timeIntervalSince1970:)) ?? Date()
+            pendingWorkoutEnd = stoppedAt
+            // Every clock stops at the end the save (and any retry) will use. Set before the snapshot, whose assignment
+            // raises the edge that rewrites the Lock Screen: the activity is then built with the freeze already in it.
+            current.freeze(at: stoppedAt)
             pendingWorkoutSnapshot = current
-            pendingWorkoutEnd = Date()
             pendingWorkoutWasGps = activeWorkoutIsGps
         }
         let wasGps = pendingWorkoutWasGps
+        let samples = w.samples
+        // Save when there's an HR window OR a real GPS route , a GPS-only walk (HR not streaming) is
+        // still a workout (parity with Android's `samples.size < 2 && track.size < 2` discard gate).
+        // Decided BEFORE the recorder is touched: a workout with nothing in it carries on (Keep recording), and a recorder
+        // that End had already stopped would leave it without a route and without a background location session.
+        let hasRoute = pendingWorkoutRoute != nil || (wasGps && gpsRecorder.hasDrawableRoute)
+        guard samples.count >= 2 || hasRoute else {
+            // Workouts & GPS test mode: record WHY a session vanished (too short / no route), tagged `.workouts`.
+            emitWorkoutsTrace(WorkoutsTrace.sessionLine(
+                event: "discarded", sportKey: WorkoutSource.traceSportKey(w.sport),
+                hrSamples: samples.count, gpsPoints: 0))
+            lastWorkout = nil
+            // Nothing to save: the workout is still the one in progress, so its clocks run again.
+            current.freeze(at: nil)
+            pendingWorkoutSnapshot = nil
+            pendingWorkoutEnd = nil
+            pendingWorkoutRoute = nil
+            pendingWorkoutWasGps = false
+            workoutFinishState = .failed(WorkoutFinishError.insufficientEvidence.localizedDescription)
+            return .failure(.insufficientEvidence)
+        }
         // #524: finalize the GPS route. Stop the recorder and take its captured route , it kept
         // accumulating from CoreLocation independently of the HR window. `capturedRoute()` is nil unless
         // ≥2 points actually landed (honest: no route, no distance, when nothing was captured , e.g. a
@@ -2034,41 +2837,26 @@ final class AppModel: ObservableObject {
             pendingWorkoutRoute = gpsRecorder.capturedRoute()
         }
         let route = pendingWorkoutRoute
-        let samples = w.samples
-        // Save when there's an HR window OR a real GPS route , a GPS-only walk (HR not streaming) is
-        // still a workout (parity with Android's `samples.size < 2 && track.size < 2` discard gate).
-        guard samples.count >= 2 || route != nil else {
-            // Workouts & GPS test mode: record WHY a session vanished (too short / no route), tagged `.workouts`.
-            emitWorkoutsTrace(WorkoutsTrace.sessionLine(
-                event: "discarded", sportKey: WorkoutSource.traceSportKey(w.sport),
-                hrSamples: samples.count, gpsPoints: route == nil ? 0 : nil))
-            lastWorkout = nil
-            pendingWorkoutSnapshot = nil
-            pendingWorkoutEnd = nil
-            pendingWorkoutRoute = nil
-            pendingWorkoutWasGps = false
-            workoutFinishState = .failed(WorkoutFinishError.insufficientEvidence.localizedDescription)
-            return .failure(.insufficientEvidence)
-        }
         let end = pendingWorkoutEnd ?? Date()
+        // The pauses the workout keeps: any pause still open when it ended was dropped above.
+        let pauses = w.pauseLedger.droppingOpenPause()
         // ActiveWorkout already maintains these values exactly as canonical same-second samples
         // are appended or replaced. Reuse them instead of allocating and scanning the full
         // three-hour sample array twice on the main actor during Finish.
         let avg = samples.isEmpty ? nil : w.avgHr
         let peak = samples.isEmpty ? nil : w.peakHr
-        let strain = samples.count >= 2
-            ? StrainScorerV2.strain(samples, maxHR: Double(profile.hrMax), mode: .activity) : nil
-        // Estimate calories from the captured HR window (same Keytel/Harris–Benedict model the
-        // auto-detector uses) so a manual session shows energy too, not just duration/strain. (#117)
-        let up = UserProfile(weightKg: profile.weightKg, heightCm: profile.heightCm,
-                             age: Double(profile.age), sex: profile.sex)
-        let kcal = samples.count >= 2
-            ? Calories.estimateBoutCalories(samples, profile: up, hrmax: Double(profile.hrMax), restingHR: nil).0
-            : 0
+        // A paused workout is scored stretch by stretch so nothing is credited across a pause; one that was never
+        // paused takes the single-stretch path it always did. Calories use the same Keytel/Harris-Benedict model the
+        // auto-detector uses, so a manual session shows energy too, not just duration and strain. (#117)
+        let scored = ManualWorkoutScoring.score(
+            samples: samples, pauses: pauses, start: w.start, end: end,
+            maxHR: Double(profile.hrMax), profile: workoutEnergyProfile)
+        let strain = scored.strain
+        let kcal = scored.kcal
         let startTs = Int(w.start.timeIntervalSince1970)
         let row = WorkoutRow(
             startTs: startTs, endTs: Int(end.timeIntervalSince1970),
-            sport: w.sport, source: "manual", durationS: end.timeIntervalSince(w.start),
+            sport: w.sport, source: "manual", durationS: scored.durationS,
             energyKcal: kcal > 0 ? kcal : nil, avgHr: avg, maxHr: peak, strain: strain,
             // GPS distance rides the shared row so the Workouts list / detail show it like any other
             // distance workout; the polyline itself is persisted alongside in RouteStore (the shared
@@ -2081,6 +2869,8 @@ final class AppModel: ObservableObject {
         }
         do {
             _ = try await store.upsertWorkouts([row], deviceId: deviceId)
+            // From here a failure leaves the row in Workouts, so a discard has to take it back.
+            pendingWorkoutRowKey = WorkoutRowKey(startTs: row.startTs, sport: row.sport)
             let readBack = try await store.workouts(deviceId: deviceId, from: row.startTs,
                                                     to: row.startTs, limit: 10)
                 .first(where: { $0.startTs == row.startTs && $0.sport == row.sport })
@@ -2088,6 +2878,9 @@ final class AppModel: ObservableObject {
                 workoutFinishState = .failed(WorkoutFinishError.readBackMissing.localizedDescription)
                 return .failure(.readBackMissing)
             }
+            // A workout that was paused keeps its pauses next to its route, so the detail screen, the rescore pass and the
+            // Health write-back leave the same paused time out as the live session did.
+            WorkoutPauseStore.store(pauses, startTs: saved.startTs, sport: saved.sport)
             if let route {
                 RouteStore.store(route, startTs: saved.startTs, sport: saved.sport)
                 guard RouteStore.load(startTs: saved.startTs, sport: saved.sport) == route else {
@@ -2095,22 +2888,10 @@ final class AppModel: ObservableObject {
                     return .failure(.readBackMissing)
                 }
             }
+            // Verified: settle it as saved before anything else is awaited, then refresh.
+            commitVerifiedWorkoutSave(saved)
             _ = await repo.refresh(.currentDay)
-            lastWorkout = saved
-            ActiveWorkoutPersistence.clear()
-            ActiveGpsWorkoutPersistence.clear()
-            activeWorkout = nil
-            releaseWorkoutRealtimeHR()
-            activeWorkoutIsGps = false
-            workoutSnapshotDurabilityFailed = false
-            gpsSnapshotDurabilityFailed = false
-            gpsHadTerminatedGap = false
-            refreshWorkoutDurabilityWarning()
-            pendingWorkoutSnapshot = nil
-            pendingWorkoutEnd = nil
-            pendingWorkoutRoute = nil
-            pendingWorkoutWasGps = false
-            workoutFinishState = .saved(saved)
+            replayDeferredSessionWorkIfIdle()
             emitWorkoutsTrace(WorkoutsTrace.sessionLine(
                 event: "end", sportKey: WorkoutSource.traceSportKey(w.sport), hrSamples: samples.count,
                 durationSec: Int(end.timeIntervalSince(w.start)),
@@ -2124,11 +2905,42 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// The save is written and read back (the row, its pauses, its route): from here the workout is a saved one. Everything
+    /// that could bring it back as a workout in flight goes at once, in one synchronous block before `endWorkout` awaits
+    /// anything else: the snapshot, the pause ledger and the GPS journal on disk, the in-memory workout (so a suspension's
+    /// flush has nothing left to write back), and the row key a discard deletes by. A process that dies after this point
+    /// relaunches with the workout saved and nothing to restore, so a discard can never take a verified row back. The journey
+    /// relies on `activeWorkout = nil` and `.saved` arriving together, which this keeps.
+    func commitVerifiedWorkoutSave(_ saved: WorkoutRow) {
+        lastWorkout = saved
+        ActiveWorkoutPersistence.clear()
+        ActiveGpsWorkoutPersistence.clear()
+        ActiveWorkoutPauseStore.clear()
+        pendingWorkoutRowKey = nil
+        activeWorkout = nil
+        releaseWorkoutRealtimeHR()
+        activeWorkoutIsGps = false
+        workoutSnapshotDurabilityFailed = false
+        gpsSnapshotDurabilityFailed = false
+        gpsHadTerminatedGap = false
+        refreshWorkoutDurabilityWarning()
+        pendingWorkoutSnapshot = nil
+        pendingWorkoutEnd = nil
+        pendingWorkoutRoute = nil
+        pendingWorkoutWasGps = false
+        workoutFinishState = .saved(saved)
+    }
+
     /// Append the current smoothed `bpm` to the active workout and advance its O(1) running strain
     /// accumulator. Called from the direct-HR path (or the R-R fallback when direct HR is absent); a
     /// no-op when no workout is running. No growing-window rescan occurs at the ~1 Hz live cadence.
     private func captureWorkoutSample() {
         guard pendingWorkoutSnapshot == nil, let w = activeWorkout, let hr = bpm else { return }
+        // Paused: the live number still shows, but it is not a reading of the workout.
+        if w.isPaused {
+            w.noteReading(hr)
+            return
+        }
         let sample = HRSample(ts: Int(Date().timeIntervalSince1970), bpm: hr)
         guard w.ingest(sample) else { return }
         // Re-snapshot the durable session so a kill keeps the latest accumulated HR window (#529).
@@ -2492,6 +3304,18 @@ final class AppModel: ObservableObject {
     var liftDoubleTapHandler: (() -> Void)?
     var discardLiftForDeletedSource: ((String) -> Void)?
     var hasActiveReceiptLift: (() -> Bool)?
+
+    /// A run or a lift is in flight. Heavy post-sync processing waits for this to clear (see
+    /// `ActiveSessionWorkPolicy`).
+    var hasActiveWorkoutSession: Bool {
+        ActiveSessionWorkPolicy.isSessionActive(
+            hasActiveWorkout: activeWorkout != nil,
+            hasActiveLift: hasActiveReceiptLift?() == true)
+    }
+
+    /// Post-sync refresh work parked while a session was active, replayed by `replayDeferredSessionWorkIfIdle`.
+    private var deferredSessionWork = DeferredSessionWork<HistoricalReceiptWatermark>()
+    var hasDeferredSessionWork: Bool { deferredSessionWork.hasPending }
 
     private func handleDoubleTap() {
         let now = Date()

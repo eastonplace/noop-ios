@@ -50,6 +50,28 @@ private actor PR29AttemptCounter {
 
 @MainActor
 final class PR28Round3RootFixTests: XCTestCase {
+    /// T3: wait for a signal sent by the code under test, but fail instead of hanging the whole test run
+    /// when a regression means it never arrives (CI runs without per-test timeouts).
+    private func awaitSignal(_ signals: AsyncStream<Void>, _ what: String,
+                             timeout: Duration = .seconds(10),
+                             file: StaticString = #filePath, line: UInt = #line) async -> Bool {
+        let arrived = await withTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                for await _ in signals { return true }
+                return false
+            }
+            group.addTask {
+                try? await Task.sleep(for: timeout)
+                return false
+            }
+            let first = await group.next() ?? false
+            group.cancelAll()
+            return first
+        }
+        if !arrived { XCTFail("timed out after \(timeout) waiting for \(what)", file: file, line: line) }
+        return arrived
+    }
+
     func testExactRepositoryReplacementUsesRequestedDaysForDeletionAcrossCacheFamilies() throws {
         let requested = try CivilDay(key: "2026-08-02")
         let other = try CivilDay(key: "2026-08-03")
@@ -266,10 +288,14 @@ final class PR28Round3RootFixTests: XCTestCase {
     func testLiveAndVerifiedActivityKitCommandsRemainStrictlySerialized() async throws {
         let token = VerifiedSinkToken(epoch: 1, contextId: "context")
         var calls: [String] = []
+        // ORG-8: the live commands are submitted once the verified command has actually started, signalled
+        // by the command itself, instead of after a fixed 5 ms sleep that a loaded test run can outlast.
+        let (verifiedStarted, verifiedStartedSignal) = AsyncStream<Void>.makeStream()
         let publication = SerializedLiveActivityCommands<String>(
             validate: { candidate in candidate == token },
             perform: { payload, _ in
                 if payload == "verified" {
+                    verifiedStartedSignal.yield()
                     try await Task.sleep(for: .milliseconds(25))
                 }
                 calls.append(payload)
@@ -280,7 +306,7 @@ final class PR28Round3RootFixTests: XCTestCase {
         let verified = Task { @MainActor in
             try await publication.submitVerified("verified", token: token)
         }
-        try await Task.sleep(for: .milliseconds(5))
+        guard await awaitSignal(verifiedStarted, "the verified command to start") else { return }
         publication.submitLive("live-old", token: nil)
         publication.submitLive("live-new", token: nil)
 
@@ -312,6 +338,8 @@ final class PR28Round3RootFixTests: XCTestCase {
             createdAt: Date(timeIntervalSince1970: 1_800_000_000))
         let sequence = PR28LeaseSequence(item: item)
         let probe = PR28PublicationProbe()
+        // ORG-8: wait for the HealthKit write to start on a signal it sends, not a 500 ms polling budget.
+        let (healthKitStarted, healthKitStartedSignal) = AsyncStream<Void>.makeStream()
         let worker = ExternalPublicationWorker(
             dependencies: ExternalPublicationWorkerDependencies(
                 leaseNext: { _, _, _, _ in await sequence.next() },
@@ -327,6 +355,7 @@ final class PR28Round3RootFixTests: XCTestCase {
                 publishLiveActivity: { _ in .published },
                 publishHealthKitWriteOnly: { _ in
                     await probe.append("healthKit-started")
+                    healthKitStartedSignal.yield()
                     try await Task.sleep(for: .seconds(60))
                     return .published
                 },
@@ -339,10 +368,9 @@ final class PR28Round3RootFixTests: XCTestCase {
                 now: { Date(timeIntervalSince1970: 1_800_000_000) }))
 
         let signal = Task { await worker.signal(maximumItems: 1) }
-        for _ in 0..<100 {
-            let events = await probe.snapshot()
-            if events.contains("healthKit-started") { break }
-            try await Task.sleep(for: .milliseconds(5))
+        guard await awaitSignal(healthKitStarted, "the HealthKit write to start") else {
+            signal.cancel()
+            return
         }
         let startedEvents = await probe.snapshot()
         XCTAssertTrue(startedEvents.contains("healthKit-started"))

@@ -367,7 +367,7 @@ private struct StrapComparisonMessageCard: View {
 
                 if let retry {
                     Button("Try again", action: retry)
-                        .buttonStyle(.noopSecondary)
+                        .buttonStyle(NoopButtonStyle(.secondary, fullWidth: true))
                 }
             }
         }

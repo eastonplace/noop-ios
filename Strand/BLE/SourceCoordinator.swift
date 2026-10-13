@@ -1,6 +1,7 @@
 import Foundation
 import Combine
 import WhoopStore
+import WhoopProtocol
 import OuraProtocol
 
 /// Runs exactly ONE device's live BLE at a time, driven by `DeviceRegistry.activeDeviceId`.
@@ -328,7 +329,9 @@ final class SourceCoordinator: ObservableObject {
             live: live,
             deviceId: id,
             persist: { [storeHandle] streams in
-                Task { if let store = await storeHandle() { _ = try? await store.insert(streams, deviceId: id) } }
+                // BLE-6: throws so the source's sink retries it, and so the Oura cursor stays put on failure.
+                guard let store = await storeHandle() else { throw SinkUnavailableError() }
+                _ = try await store.insert(streams, deviceId: id)
             },
             log: straplog,   // generic-HR lifecycle → the SAME exported strap log (issue #421)
             // Surface the generic strap's standard Battery Service (0x180F) charge the SAME place the
@@ -354,7 +357,9 @@ final class SourceCoordinator: ObservableObject {
             live: live,
             deviceId: id,
             persist: { [storeHandle] streams in
-                Task { if let store = await storeHandle() { _ = try? await store.insert(streams, deviceId: id) } }
+                // BLE-6: throws so the source's sink retries it, and so the Oura cursor stays put on failure.
+                guard let store = await storeHandle() else { throw SinkUnavailableError() }
+                _ = try await store.insert(streams, deviceId: id)
             },
             log: straplog,
             onBattery: { [live] pct in live.setBattery(Double(pct)) })
@@ -384,7 +389,9 @@ final class SourceCoordinator: ObservableObject {
             ringGen: ringGen,
             authKey: { OuraKeyStore.read(deviceId: id) },
             persist: { [storeHandle] streams in
-                Task { if let store = await storeHandle() { _ = try? await store.insert(streams, deviceId: id) } }
+                // BLE-6: throws so the source's sink retries it, and so the Oura cursor stays put on failure.
+                guard let store = await storeHandle() else { throw SinkUnavailableError() }
+                _ = try await store.insert(streams, deviceId: id)
             },
             log: straplog,
             onBattery: { [live] pct in live.setBattery(Double(pct)) },

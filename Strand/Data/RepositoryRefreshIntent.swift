@@ -12,6 +12,8 @@ enum RepositoryRefreshIntent: Equatable, Sendable, CustomStringConvertible {
     case recentDashboard(days: Int)
     case postBackfill
     case initialLoad
+    /// A sleep or workout edit. It goes through the publication fence like every other typed refresh (DL-09).
+    case userEdit
     case activeDeviceChanged
     case postImport
     case fullHistoryMigration
@@ -22,7 +24,7 @@ enum RepositoryRefreshIntent: Equatable, Sendable, CustomStringConvertible {
             return 1
         case .recentDashboard(let days):
             return min(30, max(1, days))
-        case .activeDeviceChanged, .postImport, .fullHistoryMigration:
+        case .userEdit, .activeDeviceChanged, .postImport, .fullHistoryMigration:
             return 30
         }
     }
@@ -35,6 +37,7 @@ enum RepositoryRefreshIntent: Equatable, Sendable, CustomStringConvertible {
         case .recentDashboard: return "recent-\(days)"
         case .postBackfill: return "post-backfill"
         case .initialLoad: return "initial-load"
+        case .userEdit: return "user-edit"
         case .activeDeviceChanged: return "active-device-changed"
         case .postImport: return "post-import"
         case .fullHistoryMigration: return "full-history-migration"
@@ -49,6 +52,7 @@ enum RepositoryRefreshIntent: Equatable, Sendable, CustomStringConvertible {
         case .recentDashboard: return "repository_refresh_recent_dashboard"
         case .postBackfill: return "repository_refresh_post_backfill"
         case .initialLoad: return "repository_refresh_initial_load"
+        case .userEdit: return "repository_refresh_user_edit"
         case .activeDeviceChanged: return "repository_refresh_active_device_changed"
         case .postImport: return "repository_refresh_post_import"
         case .fullHistoryMigration: return "repository_refresh_full_history_migration"
@@ -75,9 +79,10 @@ enum RepositoryRefreshIntent: Equatable, Sendable, CustomStringConvertible {
         case .recentDashboard: return 1
         case .postBackfill: return 2
         case .initialLoad: return 3
-        case .activeDeviceChanged: return 4
-        case .postImport: return 5
-        case .fullHistoryMigration: return 6
+        case .userEdit: return 4
+        case .activeDeviceChanged: return 5
+        case .postImport: return 6
+        case .fullHistoryMigration: return 7
         }
     }
 
@@ -88,6 +93,7 @@ enum RepositoryRefreshIntent: Equatable, Sendable, CustomStringConvertible {
         case .recentDashboard(let days): return .recentDashboardRequest(days: days)
         case .postBackfill: return .currentDayRequest
         case .initialLoad: return .initialLoadRequest
+        case .userEdit: return .recentDashboardRequest(days: 30)
         case .activeDeviceChanged: return .activeDeviceChangedRequest
         case .postImport: return .postImportRequest
         case .fullHistoryMigration:
@@ -122,6 +128,10 @@ enum RepositoryRefreshContext {
 /// - A blocked refresh returns `false` immediately (so analysis cannot deadlock waiting on its own publication)
 ///   and is re-requested after the fence opens; the normal refresh coordinator coalesces those retries.
 /// - The source owner performs its one coherent final refresh directly while holding the fence.
+/// - The fence is held only while a source run is active (CC-1). Durable journals keep failed work for retry;
+///   they never keep the fence closed across a failed run or a relaunch.
+/// - Waiting for the fence honours Task cancellation (CC-3), so quiesce and BG-task expiry can stop a parked
+///   owner. A watchdog reclaims a hold that outlives `watchdogLimit` and logs it.
 ///
 /// MainActor isolation makes the handoff deterministic without locks. The class is injectable so tests and
 /// previews do not share production fence state.
@@ -129,9 +139,22 @@ enum RepositoryRefreshContext {
 final class RepositoryPublicationBarrier {
     static let shared = RepositoryPublicationBarrier()
 
+    /// Proof of one exclusive grant. Releasing with a grant the watchdog already reclaimed is a logged no-op,
+    /// so a late owner can never open a fence that now belongs to someone else.
+    struct Ownership: Equatable, Sendable {
+        fileprivate let generation: UInt64
+    }
+
     private var exclusive = false
     private var activeRefreshes = 0
-    private var exclusiveWaiters: [CheckedContinuation<Void, Never>] = []
+    private let exclusiveWaiters = CancellableWaiterQueue<Void>()
+    private var ownerGeneration: UInt64 = 0
+    private let watchdogLimit: Duration
+    private let watchdogTick: Duration
+    private let watchdogSlack: Duration
+    private let watchdogClock: @MainActor () -> ContinuousClock.Instant
+    private let watchdogSleep: @Sendable (Duration) async throws -> Void
+    private var watchdog: Task<Void, Never>?
     private struct DeferredRefresh {
         var intent: RepositoryRefreshIntent
         let operation: @MainActor (RepositoryRefreshIntent) -> Void
@@ -140,8 +163,29 @@ final class RepositoryPublicationBarrier {
 
     #if DEBUG
     private(set) var deferredRequestCount = 0
+    private(set) var watchdogReleaseCount = 0
     var deferredRepositoryCount: Int { afterOpen.count }
     #endif
+
+    /// Ten minutes is far beyond one HealthKit import batch or scoring generation, so the watchdog only fires
+    /// for a hung owner. It is a safety net, not a scheduler.
+    ///
+    /// The limit is running time, accumulated from short ticks. Every clock Swift offers keeps running while
+    /// iOS suspends the process, so neither one long sleep nor a count of wake-ups measures it: a ten-minute
+    /// sleep fired on the first wake after a long suspension, and sixty short BLE wakes counted sixty full
+    /// ticks. Each tick is credited with its measured elapsed time, and a tick that took longer than
+    /// `watchdogTick + watchdogSlack` spanned a suspension and is credited nothing.
+    init(watchdogLimit: Duration = .seconds(600),
+         watchdogTick: Duration = .seconds(1),
+         watchdogSlack: Duration = .milliseconds(500),
+         watchdogClock: @escaping @MainActor () -> ContinuousClock.Instant = { ContinuousClock.now },
+         watchdogSleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }) {
+        self.watchdogLimit = watchdogLimit
+        self.watchdogTick = max(.nanoseconds(1), min(watchdogTick, watchdogLimit))
+        self.watchdogSlack = max(.zero, watchdogSlack)
+        self.watchdogClock = watchdogClock
+        self.watchdogSleep = watchdogSleep
+    }
 
     var blocksRefreshes: Bool {
         exclusive || !exclusiveWaiters.isEmpty
@@ -149,38 +193,38 @@ final class RepositoryPublicationBarrier {
 
     /// Acquire the source-publication fence. New refreshes stop immediately; an already-running typed refresh
     /// is allowed to finish before the source begins writing, so it cannot publish a snapshot taken mid-import.
-    func acquireExclusive() async {
+    /// - Throws: `CancellationError` if the calling task is cancelled before it owns the fence. A waiter that
+    ///   is cancelled just after ownership reached it releases the fence before throwing.
+    @discardableResult
+    func acquireExclusive() async throws -> Ownership {
+        try Task.checkCancellation()
         if !exclusive, activeRefreshes == 0, exclusiveWaiters.isEmpty {
-            exclusive = true
-            return
+            return grant()
         }
-        await withCheckedContinuation { continuation in
-            exclusiveWaiters.append(continuation)
+        do {
+            try await exclusiveWaiters.wait(())
+        } catch {
+            // The cancelled waiter has left the queue. If it was the only thing closing the fence, replay the
+            // refreshes it deferred.
+            openIfIdle()
+            throw error
         }
+        // `handOff()` granted this generation in the same main-actor turn that resumed this waiter.
+        let ownership = Ownership(generation: ownerGeneration)
+        if Task.isCancelled {
+            releaseExclusive(ownership)
+            throw CancellationError()
+        }
+        return ownership
     }
 
-    /// Best-effort synchronous bootstrap for a scoring journal restored before AppModel launch. The iOS app
-    /// initializes the HealthKit coordinator before constructing AppModel, so production reaches this with no
-    /// active refresh. If a test or future host initializes late, the normal async acquisition still closes it.
-    func acquireRestoredExclusiveIfIdle() -> Bool {
-        guard !exclusive, activeRefreshes == 0, exclusiveWaiters.isEmpty else { return false }
-        exclusive = true
-        return true
-    }
-
-    func releaseExclusive() {
-        precondition(exclusive, "Repository publication fence released by non-owner")
-        if !exclusiveWaiters.isEmpty {
-            // Transfer ownership without opening a publication gap between two source transactions.
-            let next = exclusiveWaiters.removeFirst()
-            next.resume()
+    func releaseExclusive(_ ownership: Ownership) {
+        guard exclusive, ownership.generation == ownerGeneration else {
+            NSLog("RepositoryPublicationBarrier: ignored a stale release (grant %llu, current %llu)",
+                  ownership.generation, ownerGeneration)
             return
         }
-
-        exclusive = false
-        let callbacks = Array(afterOpen.values)
-        afterOpen.removeAll(keepingCapacity: true)
-        callbacks.forEach { $0.operation($0.intent) }
+        handOff()
     }
 
     /// Called by the typed refresh executor immediately before it reads Repository's SQLite projection.
@@ -195,9 +239,12 @@ final class RepositoryPublicationBarrier {
     func endRefresh() {
         precondition(activeRefreshes > 0, "Repository refresh fence count underflow")
         activeRefreshes -= 1
-        guard activeRefreshes == 0, !exclusive, !exclusiveWaiters.isEmpty else { return }
-        exclusive = true
-        exclusiveWaiters.removeFirst().resume()
+        guard activeRefreshes == 0, !exclusive else { return }
+        if exclusiveWaiters.resumeNext() != nil {
+            _ = grant()
+        } else {
+            openIfIdle()
+        }
     }
 
     /// Retain at most one replay per Repository until all exclusive source generations have completed.
@@ -223,6 +270,76 @@ final class RepositoryPublicationBarrier {
         } else {
             afterOpen[key] = DeferredRefresh(intent: intent, operation: operation)
         }
+    }
+
+    private func grant() -> Ownership {
+        exclusive = true
+        ownerGeneration &+= 1
+        let generation = ownerGeneration
+        watchdog?.cancel()
+        watchdog = Task { @MainActor [weak self, watchdogLimit, watchdogTick, watchdogSlack, watchdogClock,
+                                      watchdogSleep] in
+            var running = Duration.zero
+            while running < watchdogLimit {
+                let start = watchdogClock()
+                do {
+                    try await watchdogSleep(watchdogTick)
+                } catch {
+                    return
+                }
+                if Task.isCancelled { return }
+                let elapsed = watchdogClock() - start
+                if elapsed <= watchdogTick + watchdogSlack { running += elapsed }
+            }
+            self?.watchdogExpired(generation)
+        }
+        return Ownership(generation: generation)
+    }
+
+    /// Transfer ownership to the next waiter without opening a publication gap, or open the fence.
+    private func handOff() {
+        watchdog?.cancel()
+        watchdog = nil
+        if exclusiveWaiters.resumeNext() != nil {
+            _ = grant()
+            return
+        }
+        exclusive = false
+        openIfIdle()
+    }
+
+    private func openIfIdle() {
+        guard !exclusive, exclusiveWaiters.isEmpty, !afterOpen.isEmpty else { return }
+        let callbacks = Array(afterOpen.values)
+        afterOpen.removeAll(keepingCapacity: true)
+        callbacks.forEach { $0.operation($0.intent) }
+    }
+
+    private func watchdogExpired(_ generation: UInt64) {
+        guard exclusive, generation == ownerGeneration else { return }
+        NSLog("RepositoryPublicationBarrier: exclusive hold %llu exceeded the watchdog limit; releasing it",
+              generation)
+        #if DEBUG
+        watchdogReleaseCount += 1
+        #endif
+        handOff()
+    }
+}
+
+/// Serializes historical exact-day publication with other source-owned Repository generations. Historical
+/// analysis may finish while HealthKit is publishing the same shared projection; waiting on the same fence
+/// prevents either publisher from invalidating the other's in-flight Repository refresh generation.
+/// The wait is cancellable (CC-3): a quiesced drain unwinds into its `cancelOwnedLease` path instead of
+/// holding the pipeline's quiescence token until the fence opens.
+@MainActor
+enum HistoricalRepositoryPublicationGate {
+    static func run<T>(
+        barrier: RepositoryPublicationBarrier = .shared,
+        operation: @MainActor () async throws -> T
+    ) async throws -> T {
+        let ownership = try await barrier.acquireExclusive()
+        defer { barrier.releaseExclusive(ownership) }
+        return try await operation()
     }
 }
 

@@ -4,9 +4,11 @@ import SwiftUI
 /// Fail-closed presentation helpers for component defaults. Components are public building blocks, so
 /// their own defaults must be safe even when a preview or a future caller bypasses app-level sanitation.
 public enum ComponentValueFormat {
+    /// A whole number, rounded half away from zero. This is the rounding `RecoveryBands` cuts a score with, so a 66.5
+    /// that is painted green is also labelled "67" (the formatter's own default, half to even, would say "66").
     public static func rounded(_ value: Double) -> String {
         guard value.isFinite else { return "—" }
-        return value.formatted(.number.precision(.fractionLength(0)))
+        return value.formatted(.number.precision(.fractionLength(0)).rounded(rule: .toNearestOrAwayFromZero))
     }
 
     public static func oneDecimal(_ value: Double) -> String {
@@ -77,10 +79,6 @@ public extension HRZoneTotal {
 
 public extension HRZoneTotalsView {
     init(_publicAPI: Void = (), totals: [HRZoneTotal]) { self.totals = totals }
-}
-
-public extension HRZoneLegend {
-    init(_publicAPI: Void = ()) {}
 }
 
 

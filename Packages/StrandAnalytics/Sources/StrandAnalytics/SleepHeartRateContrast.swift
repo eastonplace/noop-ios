@@ -14,8 +14,8 @@ import Foundation
 /// can be computed. Window selection (primary-session detection, local-time semantics, shift schedules)
 /// is the caller's responsibility, where that context is available.
 public enum SleepHeartRateContrast {
-    public static let validMinBpm: Double = 30
-    public static let validMaxBpm: Double = 220
+    public static let validMinBpm = Double(HRValidity.bpmRange.lowerBound)
+    public static let validMaxBpm = Double(HRValidity.bpmRange.upperBound)
     public static let defaultMinimumValidSamples: Int = 30
 
     public struct Result: Equatable, Sendable {
@@ -56,7 +56,7 @@ public enum SleepHeartRateContrast {
     ///
     /// Each array is expected equal-duration epochs in the caller's chosen window. `nil` is an unobserved
     /// epoch, so valid/total is a real coverage fraction rather than a sample-cadence guess. Values
-    /// outside `30...220` bpm are treated as invalid/unobserved for this metric and are never imputed —
+    /// outside `HRValidity.bpmRange` are treated as invalid/unobserved for this metric and are never imputed —
     /// they only lower coverage.
     ///
     /// The mean is unweighted across valid epochs; that equals a time-weighted mean only because the

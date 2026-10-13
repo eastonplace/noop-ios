@@ -78,6 +78,8 @@ struct SyncStrapIntent: AppIntent {
 /// Surfaces NOOP's intents to Siri, Spotlight, and the Shortcuts gallery without any user setup.
 struct NOOPShortcuts: AppShortcutsProvider {
     static var appShortcuts: [AppShortcut] {
+        // Ten registrations total: the three strap actions remain. Build/review share a
+        // parameterized action. Free-text questions are requested by Siri, not trigger phrases.
         AppShortcut(intent: SyncStrapIntent(),
                     phrases: ["Sync my \(.applicationName) strap"],
                     shortTitle: "Sync Strap",
@@ -90,6 +92,34 @@ struct NOOPShortcuts: AppShortcutsProvider {
                     phrases: ["Buzz my \(.applicationName) strap"],
                     shortTitle: "Buzz Strap",
                     systemImageName: "waveform.path")
+        AppShortcut(intent: AskLocalCoachIntent(),
+                    phrases: ["Ask \(.applicationName) coach", "Ask my coach in \(.applicationName)"],
+                    shortTitle: "Ask Coach",
+                    systemImageName: "bubble.left.and.text.bubble.right")
+        AppShortcut(intent: LocalCoachMorningIntent(),
+                    phrases: ["My morning outlook in \(.applicationName)", "My daily outlook in \(.applicationName)"],
+                    shortTitle: "Morning Outlook",
+                    systemImageName: "sun.horizon")
+        AppShortcut(intent: LocalCoachEveningIntent(),
+                    phrases: ["Review my evening in \(.applicationName)"],
+                    shortTitle: "Evening Review",
+                    systemImageName: "moon.stars")
+        AppShortcut(intent: LocalCoachWeeklyIntent(),
+                    phrases: ["Review my week in \(.applicationName)"],
+                    shortTitle: "Weekly Review",
+                    systemImageName: "calendar")
+        AppShortcut(intent: LocalCoachActivityIntent(),
+                    phrases: ["Review my activity in \(.applicationName)"],
+                    shortTitle: "Activity Review",
+                    systemImageName: "figure.run")
+        AppShortcut(intent: LocalCoachSleepIntent(),
+                    phrases: ["Review my sleep in \(.applicationName)"],
+                    shortTitle: "Sleep Review",
+                    systemImageName: "bed.double")
+        AppShortcut(intent: LocalCoachPlanIntent(),
+                    phrases: ["\(\.$action) in \(.applicationName)", "Plan my training with \(.applicationName)"],
+                    shortTitle: "Training Plan",
+                    systemImageName: "list.clipboard")
     }
 }
 #endif

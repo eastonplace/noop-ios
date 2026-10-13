@@ -39,6 +39,132 @@ enum PerformanceTrace {
     }
 }
 
+/// Privacy-safe timing evidence for one WHOOP 5 historical chunk. This records only monotonic
+/// durations, a local cycle number, frame class, and characteristic UUID. It never records health
+/// values, wall-clock dates, device identifiers, or payload bytes.
+@MainActor
+enum HistoricalTransportTrace {
+    enum FrameKind: String {
+        case historical
+        case realtime
+        case other
+    }
+
+    private static let log = OSLog(subsystem: "com.eastonplace.noop", category: "HistoricalTransport")
+    private static var cycle = 0
+    private static var historyEndAt: TimeInterval?
+    private static var ackCallbackAt: TimeInterval?
+    private static var awaitingFirstProtectedFrame = false
+    private static var awaitingFirstTrafficFrame = false
+
+    static func beginSession() {
+        cycle = 0
+        historyEndAt = nil
+        ackCallbackAt = nil
+        awaitingFirstProtectedFrame = false
+        awaitingFirstTrafficFrame = false
+    }
+
+    static func historyEndReceived() {
+        cycle &+= 1
+        let now = ProcessInfo.processInfo.systemUptime
+        historyEndAt = now
+        ackCallbackAt = nil
+        awaitingFirstProtectedFrame = false
+        awaitingFirstTrafficFrame = false
+        emit(stage: "history_end_received", now: now)
+    }
+
+    static func decodeEnded(succeeded: Bool) {
+        emit(stage: "decode_end", succeeded: succeeded)
+    }
+
+    static func commitEnded(succeeded: Bool) {
+        emit(stage: "commit_end", succeeded: succeeded)
+    }
+
+    static func ackIssued() {
+        emit(stage: "ack_issue")
+    }
+
+    static func ackCallback(succeeded: Bool) {
+        let now = ProcessInfo.processInfo.systemUptime
+        emit(stage: "ack_callback", now: now, succeeded: succeeded)
+        guard succeeded else {
+            ackCallbackAt = nil
+            awaitingFirstProtectedFrame = false
+            awaitingFirstTrafficFrame = false
+            return
+        }
+        ackCallbackAt = now
+        awaitingFirstProtectedFrame = true
+        awaitingFirstTrafficFrame = true
+    }
+
+    static func protectedFrameReceived(kind: FrameKind, characteristic: String) {
+        guard awaitingFirstProtectedFrame || awaitingFirstTrafficFrame else { return }
+        let now = ProcessInfo.processInfo.systemUptime
+        if awaitingFirstProtectedFrame {
+            awaitingFirstProtectedFrame = false
+            emit(
+                stage: "first_protected_frame_after_ack",
+                now: now,
+                frameKind: kind,
+                characteristic: characteristic)
+            if kind != .other {
+                awaitingFirstTrafficFrame = false
+                return
+            }
+        }
+        if awaitingFirstTrafficFrame, kind != .other {
+            awaitingFirstTrafficFrame = false
+            emit(
+                stage: "first_history_or_realtime_frame_after_ack",
+                now: now,
+                frameKind: kind,
+                characteristic: characteristic)
+        }
+    }
+
+    private static func emit(
+        stage: String,
+        now: TimeInterval = ProcessInfo.processInfo.systemUptime,
+        succeeded: Bool = true,
+        frameKind: FrameKind = .other,
+        characteristic: String = "none"
+    ) {
+        let uptimeMs = now * 1_000
+        let sinceHistoryEndMs = historyEndAt.map { (now - $0) * 1_000 } ?? -1
+        let sinceAckCallbackMs = ackCallbackAt.map { (now - $0) * 1_000 } ?? -1
+        let success = succeeded ? 1 : 0
+        os_signpost(
+            .event,
+            log: log,
+            name: "historical_transport",
+            "cycle=%{public}d stage=%{public}@ uptime_ms=%{public}.3f since_history_end_ms=%{public}.3f since_ack_callback_ms=%{public}.3f success=%{public}d frame_kind=%{public}@ characteristic=%{public}@",
+            cycle,
+            stage,
+            uptimeMs,
+            sinceHistoryEndMs,
+            sinceAckCallbackMs,
+            success,
+            frameKind.rawValue,
+            characteristic)
+        os_log(
+            .info,
+            log: log,
+            "historical_transport cycle=%{public}d stage=%{public}@ uptime_ms=%{public}.3f since_history_end_ms=%{public}.3f since_ack_callback_ms=%{public}.3f success=%{public}d frame_kind=%{public}@ characteristic=%{public}@",
+            cycle,
+            stage,
+            uptimeMs,
+            sinceHistoryEndMs,
+            sinceAckCallbackMs,
+            success,
+            frameKind.rawValue,
+            characteristic)
+    }
+}
+
 // MARK: - IOSDiagnostics
 //
 // iOS is a minefield of variables that quietly break a sideloaded health app: the OS/beta you're on,
@@ -69,13 +195,13 @@ struct IOSDiagnostics {
              Self.backgroundRefreshText(UIApplication.shared.backgroundRefreshStatus))
         }
         return IOSDiagnostics(
-            deviceModel: Self.machineIdentifier(),
+            deviceModel: Self.cachedMachineIdentifier,
             osVersionString: ProcessInfo.processInfo.operatingSystemVersionString,
             isProtectedDataAvailable: protectedData,
             backgroundRefresh: backgroundRefresh,
             isLowPowerMode: ProcessInfo.processInfo.isLowPowerModeEnabled,
-            isSideloaded: Self.isSideloadedBuild(),
-            sideloadExpiry: Self.provisioningExpiryDate()
+            isSideloaded: Self.cachedIsSideloaded,
+            sideloadExpiry: Self.cachedSideloadExpiry
         )
         #elseif os(macOS)
         return IOSDiagnostics(
@@ -168,6 +294,12 @@ struct IOSDiagnostics {
     // MARK: - iOS-only probes
 
     #if os(iOS)
+
+    /// CC-9: launch constants, read once. `capture()` runs on every Settings body evaluation, and used to
+    /// re-read and re-parse `embedded.mobileprovision` each time; only the volatile fields are re-read now.
+    private static let cachedMachineIdentifier = machineIdentifier()
+    private static let cachedIsSideloaded = isSideloadedBuild()
+    private static let cachedSideloadExpiry = provisioningExpiryDate()
 
     /// The hardware model identifier (e.g. "iPhone16,2", "iPad14,1") via `uname` → `utsname.machine`.
     /// On the Simulator this returns the host arch (e.g. "arm64"); harmless for diagnostics.

@@ -19,6 +19,23 @@ def require(rel: str, *needles: str) -> None:
             raise AssertionError(f"{rel}: missing contract marker {needle!r}")
 
 
+def declaration(rel: str, start: str) -> str:
+    """The source of one top-level declaration: from `start` to the next closing brace at column zero."""
+    source = text(rel)
+    begin = source.find(start)
+    if begin < 0:
+        raise AssertionError(f"{rel}: missing declaration {start!r}")
+    end = source.find("\n}\n", begin)
+    return source[begin:end if end >= 0 else len(source)]
+
+
+def require_in(rel: str, start: str, *needles: str) -> None:
+    body = declaration(rel, start)
+    for needle in needles:
+        if needle not in body:
+            raise AssertionError(f"{rel}: {start!r} is missing contract marker {needle!r}")
+
+
 def forbid(rel: str, *needles: str) -> None:
     source = text(rel)
     for needle in needles:
@@ -33,9 +50,12 @@ try:
     )
     require(
         "StrandiOS/App/RootTabView.swift",
-        "@Environment(\\.dynamicTypeSize)",
-        "dynamicTypeSize.isAccessibilitySize ? 92 : NoopMetrics.navBarHeight",
-        ".fixedSize(horizontal: false, vertical: true)",
+        # A tab label is one line that scales to its slot (never split inside a word), under a growth ceiling, with the
+        # large content viewer carrying the full-size label, and the bar keeps one height at every text size.
+        "struct PaperTabLabel: View",
+        ".microLabelFit(lines: 1,",
+        ".accessibilityShowsLargeContentViewer",
+        ".frame(height: NoopMetrics.navBarHeight)",
     )
     require(
         "Strand/Screens/SmartAlarmView.swift",
@@ -57,6 +77,12 @@ try:
     require(
         "Strand/Screens/TrendsView+SelectedRange.swift",
         "private var rangeControls",
+        "TrendsControlRow(",
+    )
+    require_in(
+        "Packages/StrandDesign/Sources/StrandDesign/TrendsWidgetComponents.swift",
+        "public struct TrendsControlRow",
+        "typeSize >= .xLarge",
         "ViewThatFits(in: .horizontal)",
         ".frame(minHeight: 44)",
     )

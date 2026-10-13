@@ -66,6 +66,29 @@ final class IntelligenceRecoveryPersistenceReceiptTests: XCTestCase {
         XCTAssertFalse(receipt.complete)
     }
 
+    func testReceiptIgnoresCachedResultsOutsideCommittedRange() async throws {
+        let store = try await WhoopStore.inMemory()
+        let repository = Repository(deviceId: Repository.whoopSource)
+        repository.setStoreForTesting(store)
+        let source = Repository.whoopSource + "-noop"
+        let committedDay = "2026-09-27"
+        let cachedOlderDay = "2025-04-18"
+        _ = try await store.upsertDailyMetrics(
+            [daily(committedDay, 77)],
+            deviceId: source
+        )
+
+        let receipt = await verify(
+            [result(cachedOlderDay, 42), result(committedDay, 77)],
+            committedDay...committedDay,
+            repository
+        )
+
+        XCTAssertTrue(receipt.complete)
+        XCTAssertEqual(receipt.expectedResults, 1)
+        XCTAssertEqual(receipt.verifiedResults, 1)
+    }
+
     func testWhoopOwnsRecoveryOnlyWhenItsFieldIsNonNil() async throws {
         let store = try await WhoopStore.inMemory()
         let repository = Repository(deviceId: Repository.whoopSource)

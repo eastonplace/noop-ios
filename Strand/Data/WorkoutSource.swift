@@ -324,13 +324,39 @@ enum WorkoutSource: Equatable {
     /// zonesJSON, notes) over from the row being edited. A v1.67 live-tracked session has real
     /// captured strain/maxHr; rebuilding the row from the sheet's inputs alone would silently wipe
     /// them on an edit. No-op for a fresh add (`old == nil`).
-    static func preservingCaptured(_ row: WorkoutRow, from old: WorkoutRow?) -> WorkoutRow {
+    ///
+    /// `pauses` are the pauses kept for the edited row (nil, or empty, for one that was never paused). A paused recording
+    /// stores two different spans: `durationS` is the time it ran, `endTs` is the wall clock it ended at, and the pauses
+    /// sit between them. The sheet edits the running time and the start, so the end is worked out here from the pauses
+    /// themselves rather than from any total: the pauses move with the start (`WorkoutPauseStore.follow` stores them that
+    /// way), and the end is the first moment the running time is reached after the new start. Whatever is edited, the
+    /// window minus its pauses is exactly `durationS`, so the heart-rate reconcile, the zones and the Health write-back
+    /// all agree with the duration the list shows.
+    static func preservingCaptured(_ row: WorkoutRow, from old: WorkoutRow?, pauses: WorkoutPauseLedger? = nil) -> WorkoutRow {
         guard let old else { return row }
-        return row.replacing(
+        let kept = row.replacing(
             maxHr: .some(old.maxHr), strain: .some(old.strain), distanceM: .some(old.distanceM),
             zonesJSON: .some(old.zonesJSON), notes: .some(old.notes),
             strainVersion: .some(old.strainVersion)
         )
+        guard let pauses, !pauses.intervals.isEmpty else { return kept }
+        // The stepper shows whole minutes; a running time it was not asked to change keeps its exact seconds.
+        let minutesUnchanged = Int(((kept.durationS ?? 0) / 60).rounded()) == editableDurationMin(old)
+        if kept.startTs == old.startTs && minutesUnchanged {
+            // Nothing about the time was touched (a rename, an Avg HR or calories edit): the row keeps its exact window
+            // and its exact running time.
+            return kept.replacing(endTs: old.endTs, durationS: .some(old.durationS))
+        }
+        let running = minutesUnchanged ? (old.durationS ?? kept.durationS ?? 0) : (kept.durationS ?? 0)
+        let moved = pauses.shifted(by: Double(kept.startTs - old.startTs))
+        let end = moved.wallClockEnd(from: Double(kept.startTs), activeSeconds: running)
+        return kept.replacing(endTs: Int(end.rounded()), durationS: .some(running))
+    }
+
+    /// The whole minutes the add/edit sheet's duration stepper starts from: the time the workout ran. A recorded
+    /// workout's `durationS` already leaves its pauses out, so for one that was paused this is shorter than its window.
+    static func editableDurationMin(_ row: WorkoutRow) -> Int {
+        max(1, Int(((row.durationS ?? Double(row.endTs - row.startTs)) / 60).rounded()))
     }
 
     /// Build a retroactive manual workout (source "manual", persisted under the strap deviceId by the
@@ -352,6 +378,38 @@ enum WorkoutSource: Equatable {
     }
 }
 
+// MARK: - What a row's origin reads as
+//
+// `WorkoutSource.classify` can only read a row's stored `source`, and a workout recorded live in the app is stored under
+// source "manual" (`AppModel.endWorkout`), the same as a session typed into the Add Workout sheet. A person should
+// not read "Manual" on a run the app recorded, so the UI tells the two apart here. This is display and filtering only:
+// nothing stored changes, `classify` still returns `.manual` for both, and editing, merging and deleting treat them alike.
+
+/// The origin a person reads on a workout and filters by.
+enum WorkoutOrigin: Equatable {
+    case whoop, apple, recorded, detected, manual, lifting, activityFile
+
+    static func of(_ row: WorkoutRow) -> WorkoutOrigin {
+        switch WorkoutSource.classify(row.source) {
+        case .whoop: return .whoop
+        case .apple: return .apple
+        case .detected: return .detected
+        case .lifting: return .lifting
+        case .activityFile: return .activityFile
+        case .manual: return isRecordedInApp(row) ? .recorded : .manual
+        }
+    }
+
+    /// A row stored as manual was recorded when it carries something only a recording produces: a Strain score or a
+    /// peak heart rate (both from the captured heart-rate window) or a GPS distance. The Add Workout sheet has no field
+    /// for any of them and writes none, so a row with one of them was recorded: live in the app, or edited since without
+    /// losing what was captured (`WorkoutSource.preservingCaptured`). A session typed in by hand has none and stays
+    /// "Manual".
+    static func isRecordedInApp(_ row: WorkoutRow) -> Bool {
+        row.strain != nil || row.maxHr != nil || row.distanceM != nil
+    }
+}
+
 // MARK: - Filter predicate (#64)
 //
 // The Workouts list filters beyond the time range: a SPORT filter (a specific displayed sport, or all)
@@ -361,31 +419,32 @@ enum WorkoutSource: Equatable {
 // set. Kept alongside `WorkoutSource` so both platforms share one rule and the unit test pins it.
 
 /// One workout-list filter state. `sport` is a displayed-sport key (`WorkoutSource.displaySport`), nil =
-/// all sports. `sourceClass` is the origin class, nil = all sources. `search` is a free-text query over
-/// the displayed sport name (trimmed, case-insensitive; empty = no search).
+/// all sports. `origin` is where the workout came from as a person reads it (`WorkoutOrigin`), nil = all
+/// sources. `search` is a free-text query over the displayed sport name (trimmed, case-insensitive; empty = no
+/// search).
 struct WorkoutFilter: Equatable {
     var sport: String?
-    var sourceClass: WorkoutSource?
+    var origin: WorkoutOrigin?
     var search: String
 
-    init(sport: String? = nil, sourceClass: WorkoutSource? = nil, search: String = "") {
+    init(sport: String? = nil, origin: WorkoutOrigin? = nil, search: String = "") {
         self.sport = sport
-        self.sourceClass = sourceClass
+        self.origin = origin
         self.search = search
     }
 
     /// True when no facet is active — the caller can skip the walk and keep the input verbatim.
     var isActive: Bool {
-        sport != nil || sourceClass != nil
+        sport != nil || origin != nil
             || !search.trimmingCharacters(in: .whitespaces).isEmpty
     }
 
     /// Does one row pass every active facet? Sport matches on the DISPLAYED name (so "detected" folds to
-    /// "Activity", camelCase splits) exactly as the picker lists it; source matches on `classify`; search
+    /// "Activity", camelCase splits) exactly as the picker lists it; source matches on `WorkoutOrigin`; search
     /// is a case-insensitive substring of the displayed sport.
     func matches(_ row: WorkoutRow) -> Bool {
         if let sport, WorkoutSource.displaySport(row.sport) != sport { return false }
-        if let sourceClass, WorkoutSource.classify(row.source) != sourceClass { return false }
+        if let origin, WorkoutOrigin.of(row) != origin { return false }
         let q = search.trimmingCharacters(in: .whitespaces)
         if !q.isEmpty,
            WorkoutSource.displaySport(row.sport).range(of: q, options: .caseInsensitive) == nil {

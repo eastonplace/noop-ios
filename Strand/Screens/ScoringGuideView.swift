@@ -75,44 +75,55 @@ struct ScoringGuideView: View {
     /// When set, the guide scrolls to (and briefly highlights) this section on appear —
     /// used by the ⓘ affordances on the Today screen so each opens at its own score.
     var initialSection: ScoreSection? = nil
+    /// Set by a host that presents the guide as a sheet: the header's X and "Got it" close that sheet. A guide pushed
+    /// onto a stack (a score breakdown's "How Recovery is calculated") has none, so it wears the pushed screens' back
+    /// chip instead of an X, and "Got it" pops back to the screen it came from.
     var onClose: (() -> Void)? = nil
+
+    private var isPushed: Bool { onClose == nil }
 
     /// Drives the brief highlight pulse on the deep-linked section.
     @State private var highlighted: ScoreSection? = nil
 
+    /// The height of the compact header the scaffold pins over the scroll content once the page header has scrolled
+    /// away (wordmark row, title row, their padding) plus a little air; it grows with the text size.
+    @ScaledMetric(relativeTo: .caption) private var pinnedHeaderClearance: CGFloat = 84
+
     var body: some View {
-        VStack(spacing: 0) {
-            header
-                // Design Reset: a FLAT opaque WHOOP-grey title surface — no scenic hero, no bloom, no
-                // domain tint. The header reads as a clean raised card edge, matching the Today look.
-                .background(StrandPalette.surfaceRaised)
-            Divider().overlay(StrandPalette.hairline)
-            ScrollViewReader { proxy in
-                ScrollView {
-                    VStack(alignment: .leading, spacing: NoopMetrics.sectionGap) {
-                        introCard
-                        scoreCard(.recovery,
-                                  headline: String(localized: "Recovery: how recovered are you?"),
-                                  body: String(localized: "Led by your heart-rate variability (HRV) measured against your own personal baseline, plus resting heart rate, last night's Sleep, breathing rate, and a skin-temperature signal (an early illness or overreach flag). Higher HRV versus your baseline means higher Recovery. NOOP needs a few nights to learn your baseline first. Until then you'll see “Calibrating”."),
-                                  vsWhoop: String(localized: "Same core idea as WHOOP's Recovery % (HRV-led recovery), but our weighting and baseline maths are our own, and openly documented."))
-                        scoreCard(.strain,
-                                  headline: String(localized: "Strain: how hard did your heart work?"),
-                                  body: String(localized: "Your cardiovascular and movement load across your sleep-to-sleep day. NOOP continuously weights each valid heart-rate interval by heart-rate reserve, credits worn sleep and real movement without double counting, and displays the result on the canonical 0–21 Strain scale. Ordinary days register; sustained maximum effort approaches 21. This is NOOP's transparent score, not WHOOP's proprietary formula, and muscular load is not yet included."),
-                                  vsWhoop: String(localized: "The display uses WHOOP's familiar 0–21 Day Strain scale. NOOP's underlying training-load recipe remains its own and is documented here."))
-                        scoreCard(.sleep,
-                                  headline: String(localized: "Sleep: how restorative was your sleep?"),
-                                  body: Self.sleepBody,
-                                  vsWhoop: String(localized: "Similar in spirit to WHOOP's Sleep Performance %; our composite is our own."))
-                        confidenceCard
-                        footerNote
-                    }
-                    .padding(20)
-                }
-                .onAppear { jump(to: initialSection, using: proxy) }
+        ScrollViewReader { proxy in
+            ScreenScaffold(title: "How your scores work",
+                           subtitle: "Recovery · Strain · Sleep",
+                           trailing: {
+                               if !isPushed { NoopIconButton("xmark", accessibilityLabel: "Close", action: close) }
+                           }) {
+                introCard
+                scoreCard(.recovery,
+                          headline: String(localized: "Recovery: how recovered are you?"),
+                          body: String(localized: "Led by your heart-rate variability (HRV) measured against your own personal baseline, plus resting heart rate, last night's Sleep, breathing rate, and a skin-temperature signal (an early illness or overreach flag). Higher HRV versus your baseline means higher Recovery. NOOP needs a few nights to learn your baseline first. Until then you'll see “Calibrating”."),
+                          vsWhoop: String(localized: "Same core idea as WHOOP's Recovery % (HRV-led recovery), but our weighting and baseline maths are our own, and openly documented."))
+                scoreCard(.strain,
+                          headline: String(localized: "Strain: how hard did your heart work?"),
+                          body: String(localized: "Your cardiovascular and movement load across your sleep-to-sleep day. NOOP continuously weights each valid heart-rate interval by heart-rate reserve, credits worn sleep and real movement without double counting, and displays the result on the canonical 0–21 Strain scale. Ordinary days register; sustained maximum effort approaches 21. This is NOOP's transparent score, not WHOOP's proprietary formula, and muscular load is not yet included."),
+                          vsWhoop: String(localized: "The display uses WHOOP's familiar 0–21 Day Strain scale. NOOP's underlying training-load recipe remains its own and is documented here."))
+                scoreCard(.sleep,
+                          headline: String(localized: "Sleep: how restorative was your sleep?"),
+                          body: Self.sleepBody,
+                          vsWhoop: String(localized: "Similar in spirit to WHOOP's Sleep Performance %; our composite is our own."))
+                confidenceCard
+                footerNote
             }
-            Divider().overlay(StrandPalette.hairline)
-            footerBar
+            .onAppear { jump(to: initialSection, using: proxy) }
         }
+        .safeAreaInset(edge: .bottom, spacing: 0) { footerBar.sheetFooterBar() }
+        // Nearest to the scaffold, so a pushed guide stays a drill-in (back chip, compact row) while the sheet reset
+        // below still clears the presenter's chrome and close action.
+        .environment(\.screenScaffoldNavigationRole, isPushed ? .detail : .root)
+        .sheetScreenScaffoldEnvironment()
+        #if os(iOS)
+        // Pushed onto a NavigationStack (a score breakdown sheet's "How Recovery is calculated"), the guide still draws
+        // its own header and back chip; the system bar above it would be a second, empty one. A sheet root has no bar.
+        .toolbar(.hidden, for: .navigationBar)
+        #endif
         // Same sizing split as WhatsNewView: a fixed window on macOS, fill the presented
         // sheet on iOS so nothing runs off a narrow phone screen (#185).
         #if os(macOS)
@@ -122,45 +133,16 @@ struct ScoringGuideView: View {
         // A long explainer scroll → open full-height, with a grabber for swipe-to-dismiss.
         .noopSheetPresentation(largeFirst: true)
         #endif
-        .background(StrandPalette.surfaceBase)
     }
 
     // MARK: - Header / footer
 
-    private var header: some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("YOUR DAILY SCORES").font(StrandFont.overline)
-                    .tracking(StrandFont.overlineTracking)
-                    .foregroundStyle(StrandPalette.textTertiary)
-                Text("How your scores work").font(StrandFont.rounded(26, weight: .bold))
-                    .foregroundStyle(StrandPalette.textPrimary)
-                Text("Recovery · Strain · Sleep").font(StrandFont.caption)
-                    .foregroundStyle(StrandPalette.textSecondary)
-            }
-            Spacer()
-            Button(action: close) {
-                Image(systemName: "xmark.circle.fill")
-                    .font(.system(size: 22))
-                    .foregroundStyle(StrandPalette.textTertiary)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Close")
-        }
-        .padding(20)
-    }
-
     private var footerBar: some View {
-        HStack {
-            Spacer()
-            Button(action: close) {
-                Text("Got it").frame(minWidth: 120).padding(.vertical, 4)
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(StrandPalette.ink)
-            .keyboardShortcut(.defaultAction)
+        Button(action: close) {
+            Text("Got it")
         }
-        .padding(16)
+        .buttonStyle(NoopButtonStyle(.primary, fullWidth: true))
+        .keyboardShortcut(.defaultAction)
     }
 
     /// Sheet hosts supply their state callback; pushed guides use the ambient navigation dismissal.
@@ -218,13 +200,30 @@ struct ScoringGuideView: View {
         }
     }
 
+    /// A score section and the target a jump scrolls to. The target is an empty strip as tall as the compact header the
+    /// scaffold pins over the content once the page header has scrolled away, directly above the card, so a jump leaves
+    /// the card just below that header, not under it. (Padding on the card itself does not move where a jump lands;
+    /// the id has to sit on a view with a frame of its own.) The strip is pulled up into the gap above the card, so
+    /// the cards sit exactly where they would without it.
+    private func scoreCard(_ section: ScoreSection, headline: String, body: String, vsWhoop: String) -> some View {
+        VStack(spacing: 0) {
+            Color.clear
+                .frame(height: pinnedHeaderClearance)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+                .id(section.id)
+            scoreCardContent(section, headline: headline, body: body, vsWhoop: vsWhoop)
+        }
+        .padding(.top, -pinnedHeaderClearance)
+    }
+
     /// One colour-accented score section: a FLAT WHOOP-grey card (faintly washed with the section's Reset
     /// accent) carrying a clean sample ring of that score beside an accent-tinted headline, the body, and
     /// an italic "vs WHOOP" line set off by a hairline rule. The ring is illustrative — a "what a strong
     /// day reads like" preview in the section's own colour — so a glance maps a card to its Today ring.
     /// Design Reset: a flat GlowRing (no bloom) replaces the old BevelGauge; the accent is a Reset score
     /// token, never gold / strain / sleep-purple.
-    private func scoreCard(_ section: ScoreSection, headline: String, body: String, vsWhoop: String) -> some View {
+    private func scoreCardContent(_ section: ScoreSection, headline: String, body: String, vsWhoop: String) -> some View {
         PaperCard {
             VStack(alignment: .leading, spacing: 14) {
                 // Header row — the flat sample ring sits beside the accent icon + headline.
@@ -276,7 +275,6 @@ struct ScoringGuideView: View {
                 .opacity(highlighted == section ? 1 : 0)
         )
         .animation(.easeOut(duration: 0.35), value: highlighted)
-        .id(section.id)
     }
 
     /// The flat illustrative ring for a score section — a clean GlowRing (Design Reset: solid crisp arc,

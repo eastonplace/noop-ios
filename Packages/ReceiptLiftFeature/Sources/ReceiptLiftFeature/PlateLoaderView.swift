@@ -1,3 +1,4 @@
+import StrandDesign
 import SwiftUI
 
 enum LiftPlateLoaderEligibility {
@@ -8,48 +9,65 @@ enum LiftPlateLoaderEligibility {
 }
 
 enum LiftPlatePresentation {
+  /// The plates of one side as (plate, how many), heaviest first. `perSide` is heaviest first already.
+  nonisolated static func grouped(_ perSide: [Double]) -> [(plate: Double, count: Int)] {
+    var groups: [(plate: Double, count: Int)] = []
+    for plate in perSide {
+      if let last = groups.last, last.plate == plate {
+        groups[groups.count - 1].count += 1
+      } else {
+        groups.append((plate, 1))
+      }
+    }
+    return groups
+  }
+
+  /// What VoiceOver says for the whole loading. Every figure is in the person's unit.
   nonisolated static func accessibilityLabel(
     total: Double,
     solution: LiftPlateMath.PlateSolution,
-    bar: Double = LiftDesignMetrics.PlateLoader.barWeight
+    bar: Double,
+    format: LiftFormat
   ) -> String {
-    let totalText = number(total)
-    let barText = number(bar)
+    let totalText = format.spokenWeight(inUnit: total)
+    let barText = format.spokenWeight(inUnit: bar)
 
     if solution.exact {
       guard !solution.perSide.isEmpty else {
-        return "\(totalText) pounds: bare bar. Bar \(barText)."
+        return String(localized: "\(totalText): bare bar. Bar \(barText).")
       }
-      let plates = solution.perSide.map(number).joined(separator: ", ")
-      return "\(totalText) pounds: per side \(plates). Bar \(barText)."
+      let plates = solution.perSide.map { format.number(inUnit: $0) }.joined(separator: ", ")
+      return String(localized: "\(totalText): per side \(plates). Bar \(barText).")
     }
 
-    let below = solution.nearestBelow.map { "below \(number($0))" }
-    let above = solution.nearestAbove.map { "above \(number($0))" }
+    let below = solution.nearestBelow.map { String(localized: "below \(format.spokenWeight(inUnit: $0))") }
+    let above = solution.nearestAbove.map { String(localized: "above \(format.spokenWeight(inUnit: $0))") }
     let nearest = [below, above].compactMap { $0 }.joined(separator: ", ")
-    return "\(totalText) pounds: not loadable. Nearest \(nearest). Bar \(barText)."
-  }
-
-  nonisolated static func number(_ value: Double) -> String {
-    if value.rounded() == value {
-      return String(Int(value))
-    }
-    return String(format: "%.1f", value)
+    return String(localized: "\(totalText): not loadable. Nearest \(nearest). Bar \(barText).")
   }
 }
 
+/// A barbell loaded to a target weight: the plates on each side, the bar, and the nearest loadable weights when the
+/// target cannot be made. The target arrives in pounds (as Lift stores it) and everything on screen is in the person's
+/// unit, with that unit's bar and plates.
 struct PlateLoaderView: View {
+  @Environment(\.dismiss) private var dismiss
+  @Environment(\.liftFormat) private var format
   @Binding private var targetWeight: Double
   private let exercise: LiftExercise
-  private let barWeight = LiftDesignMetrics.PlateLoader.barWeight
 
   init(targetWeight: Binding<Double>, exercise: LiftExercise) {
     _targetWeight = targetWeight
     self.exercise = exercise
   }
 
+  private var unit: LiftWeightUnit { format.unit }
+
+  /// The target in the person's unit, kilograms snapped to the half so the figure matches what is stored.
+  private var displayTarget: Double { unit.snappedDisplay(fromPounds: targetWeight) }
+
   private var solution: LiftPlateMath.PlateSolution {
-    LiftPlateMath.solve(target: targetWeight, bar: barWeight)
+    LiftPlateMath.solve(target: displayTarget, bar: unit.barWeight, plates: unit.plates)
   }
 
   private var perSideTotal: Double {
@@ -57,52 +75,93 @@ struct PlateLoaderView: View {
   }
 
   var body: some View {
-    ReceiptSheet {
-      ReceiptHeader(
-        title: "Plate Loader",
-        subtitle: exercise.name,
-        trailing: "\(LiftPlatePresentation.number(targetWeight)) LB"
-      )
-      ReceiptDashedRule()
-
-      VStack(spacing: 12) {
-        plateDiagram
-        Text(
-          "BAR \(LiftPlatePresentation.number(barWeight)) \u{00B7} EACH SIDE \(LiftPlatePresentation.number(perSideTotal))"
-        )
-        .font(.receipt(10, weight: .black))
-        .monospacedDigit()
-        .foregroundStyle(LiftTheme.ink)
+    LiftSheetPage(title: "Plate loader", onClose: { dismiss() }) {
+      targetSection
+      FlatSectionSeparator()
+      // A weight these plates cannot make has no loading to draw, so the person is offered the nearest ones instead.
+      if solution.exact {
+        sideSection
+      } else {
+        nearestSection
       }
-      .frame(maxWidth: .infinity)
+    }
+    .presentationDetents([.large])
+    .presentationDragIndicator(.visible)
+  }
+
+  // MARK: Target
+
+  private var targetSection: some View {
+    let parts = (number: format.number(inUnit: displayTarget), unit: format.unitSymbol)
+    return LiftFlatSection("Target", systemImage: "scalemass.fill") {
+      HeroValue(
+        value: parts.number, unit: parts.unit, caption: exercise.name.liftDisplayName, captionPlacement: .below
+      )
       .accessibilityElement(children: .ignore)
       .accessibilityLabel(
         LiftPlatePresentation.accessibilityLabel(
-          total: targetWeight,
-          solution: solution,
-          bar: barWeight
-        )
-      )
+          total: displayTarget, solution: solution, bar: unit.barWeight, format: format))
+    }
+  }
 
-      if !solution.exact {
-        nearestChoices
+  // MARK: Plates
+
+  private var sideSection: some View {
+    LiftFlatSection("Each side", systemImage: "circle.grid.2x1.fill") {
+      VStack(alignment: .leading, spacing: WidgetMetrics.contentSpacing) {
+        plateDiagram
+          .accessibilityHidden(true)
+        FactStrip(facts: [
+          .init("Bar", value: format.number(inUnit: unit.barWeight), unit: LocalizedStringKey(format.unitSymbol)),
+          .init("Plates", value: format.number(inUnit: perSideTotal), unit: LocalizedStringKey(format.unitSymbol)),
+        ])
+        .accessibilityHidden(true)
+        platesList
+          .accessibilityHidden(true)
       }
     }
+  }
+
+  @ViewBuilder
+  private var platesList: some View {
+    let groups = LiftPlatePresentation.grouped(solution.perSide)
+    if groups.isEmpty {
+      if solution.exact { LiftNote(text: "Bare bar") }
+    } else {
+      LiftRowList(items: groups.map { PlateGroup(plate: $0.plate, count: $0.count) }) { group, _ in
+        HStack {
+          Text(verbatim: "\(group.count) ×")
+            .font(StrandFont.number(15))
+            .foregroundStyle(StrandPalette.textTertiary)
+            .frame(minWidth: 34, alignment: .leading)
+          LiftScaledValue(value: format.weight(inUnit: group.plate))
+          Spacer(minLength: 0)
+        }
+        .frame(minHeight: 44)
+      }
+    }
+  }
+
+  private struct PlateGroup: Identifiable {
+    let plate: Double
+    let count: Int
+    var id: Double { plate }
   }
 
   private var plateDiagram: some View {
     ZStack {
       Rectangle()
-        .fill(LiftTheme.ink)
-        .frame(height: 1)
+        .fill(StrandPalette.textTertiary)
+        .frame(height: 2)
 
       HStack(spacing: 3) {
         if solution.perSide.isEmpty {
-          Rectangle()
-            .fill(LiftTheme.paper)
+          RoundedRectangle(cornerRadius: 3, style: .continuous)
+            .fill(StrandPalette.surfaceInset)
             .frame(width: 12, height: 72)
             .overlay {
-              Rectangle().stroke(LiftTheme.ink, lineWidth: 1)
+              RoundedRectangle(cornerRadius: 3, style: .continuous)
+                .strokeBorder(StrandPalette.textTertiary, lineWidth: 1)
             }
         } else {
           ForEach(Array(solution.perSide.enumerated()), id: \.offset) { index, plate in
@@ -112,63 +171,51 @@ struct PlateLoaderView: View {
       }
     }
     .frame(height: 112)
+    .frame(maxWidth: .infinity)
   }
 
   private func plateSlab(_ plate: Double, index: Int) -> some View {
-    let ratio = CGFloat(max(min(plate / 45, 1), 0.22))
-    return Text(LiftPlatePresentation.number(plate))
-      .font(.receipt(8, weight: .black))
-      .foregroundStyle(LiftTheme.ink)
+    let heaviest = unit.plates.first ?? 45
+    let ratio = CGFloat(max(min(plate / heaviest, 1), 0.22))
+    return Text(format.number(inUnit: plate))
+      .font(StrandFont.number(11, weight: .bold))
+      .foregroundStyle(StrandPalette.appCanvas)
+      .fixedSize()
       .rotationEffect(.degrees(-90))
-      .frame(width: 20, height: 48 + (48 * ratio))
-      .background(LiftTheme.paper)
-      .overlay {
-        Rectangle()
-          .stroke(LiftTheme.ink, lineWidth: index == 0 ? 1.5 : 1)
-      }
+      .frame(width: 22, height: 48 + (48 * ratio))
+      .background(
+        index == 0 ? DomainTint.workout.accent : DomainTint.workout.accent.opacity(0.72),
+        in: RoundedRectangle(cornerRadius: 3, style: .continuous)
+      )
   }
 
-  private var nearestChoices: some View {
-    VStack(alignment: .leading, spacing: 8) {
-      Text("NEAREST")
-        .font(.receipt(9, weight: .black))
-        .tracking(0.8)
-        .foregroundStyle(LiftTheme.inkSecondary)
+  // MARK: Nearest
 
-      HStack(spacing: 8) {
-        if let nearestBelow = solution.nearestBelow {
-          nearestButton(title: "BELOW", value: nearestBelow)
-        }
-        if let nearestAbove = solution.nearestAbove {
-          nearestButton(title: "ABOVE", value: nearestAbove)
+  private var nearestSection: some View {
+    LiftFlatSection("Nearest loadable", systemImage: "arrow.up.arrow.down") {
+      VStack(alignment: .leading, spacing: NoopMetrics.space3) {
+        LiftNote(text: "That weight cannot be made with these plates.")
+        ChipRow {
+          if let nearestBelow = solution.nearestBelow {
+            nearestChip(title: String(localized: "Below"), value: nearestBelow, spoken: "below")
+          }
+          if let nearestAbove = solution.nearestAbove {
+            nearestChip(title: String(localized: "Above"), value: nearestAbove, spoken: "above")
+          }
         }
       }
     }
-    .padding(.top, 2)
   }
 
-  private func nearestButton(title: String, value: Double) -> some View {
-    Button {
-      targetWeight = value
-    } label: {
-      VStack(spacing: 2) {
-        Text(title)
-          .font(.receipt(8, weight: .bold))
-          .foregroundStyle(LiftTheme.inkSecondary)
-        Text("\(LiftPlatePresentation.number(value)) LB")
-          .font(.receipt(12, weight: .black))
-          .monospacedDigit()
-          .foregroundStyle(LiftTheme.ink)
-      }
-      .frame(maxWidth: .infinity)
-      .frame(minHeight: LiftDesignMetrics.PlateLoader.minimumTargetSize)
-      .overlay {
-        Rectangle().stroke(LiftTheme.ink, lineWidth: 1)
-      }
+  private func nearestChip(title: String, value: Double, spoken: String) -> some View {
+    ChoiceChipButton(
+      verbatimTitle: String(localized: "\(title) · \(format.weight(inUnit: value))"),
+      accessibilityLabel: Text(
+        spoken == "below"
+          ? String(localized: "Use \(format.spokenWeight(inUnit: value)), nearest below")
+          : String(localized: "Use \(format.spokenWeight(inUnit: value)), nearest above"))
+    ) {
+      targetWeight = unit.toPounds(value)
     }
-    .buttonStyle(.plain)
-    .accessibilityLabel(
-      "Use \(LiftPlatePresentation.number(value)) pounds, nearest \(title.lowercased())"
-    )
   }
 }

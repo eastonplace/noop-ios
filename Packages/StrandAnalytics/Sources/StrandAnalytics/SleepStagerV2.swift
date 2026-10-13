@@ -60,7 +60,9 @@ public enum SleepStagerV2 {
         // (we drop only rows `features()` could never touch) and it also tightens the fingerprint to the rows
         // that matter. PAD_LO/PAD_HI are the SAME values the Android twin (R1) clips with.
         let gravW = clipToWindow(grav, lo: bounds.lo, hi: bounds.hi, ts: { $0.ts })
+        // AN-03: implausible HR (0 bpm off-wrist, decode glitches) never reaches staging.
         let hrW = clipToWindow(hr, lo: bounds.lo, hi: bounds.hi, ts: { $0.ts })
+            .filter { HRValidity.isPlausible($0.bpm) }
         let rrW = clipToWindow(rr, lo: bounds.lo, hi: bounds.hi, ts: { $0.ts })
         let key = V2Key(
             start: start, end: end,
@@ -366,7 +368,8 @@ public enum SleepStagerV2 {
 
     /// RSA respiration regularity: tachogram → 4 Hz resample → detrend → power spectrum → peak/sum of the
     /// 0.15–0.40 Hz (9–24 brpm) band. Returns spectral peakedness (higher = more regular breathing) or nil
-    /// when there are too few beats. A direct band-limited DFT (only the ~50 in-band bins are needed).
+    /// when there are too few beats. Goertzel evaluates only the ~50 in-band DFT bins and avoids calling
+    /// sin/cos for every sample in every 30-second epoch.
     static func respRegularity(_ beats: [(Double, Double)]) -> Double? {
         if beats.count < 12 { return nil }
         let t0 = beats.first!.0, tN = beats.last!.0
@@ -393,10 +396,34 @@ public enum SleepStagerV2 {
         if kHi < kLo || kLo < 0 { return nil }
         var maxP = 0.0, sumP = 0.0
         for k in kLo...kHi {
-            var re = 0.0, im = 0.0
-            let w = -2.0 * Double.pi * Double(k) / Double(n)
-            for j in 0..<n { let a = w * Double(j); re += y[j] * cos(a); im += y[j] * sin(a) }
-            let p = re * re + im * im
+            let coefficient = 2.0 * cos(2.0 * Double.pi * Double(k) / Double(n))
+            let p = y.withUnsafeBufferPointer { samples -> Double in
+                var previous = 0.0
+                var previous2 = 0.0
+                var index = 0
+                while index + 3 < samples.count {
+                    var current = samples[index] + coefficient * previous - previous2
+                    previous2 = previous
+                    previous = current
+                    current = samples[index + 1] + coefficient * previous - previous2
+                    previous2 = previous
+                    previous = current
+                    current = samples[index + 2] + coefficient * previous - previous2
+                    previous2 = previous
+                    previous = current
+                    current = samples[index + 3] + coefficient * previous - previous2
+                    previous2 = previous
+                    previous = current
+                    index += 4
+                }
+                while index < samples.count {
+                    let current = samples[index] + coefficient * previous - previous2
+                    previous2 = previous
+                    previous = current
+                    index += 1
+                }
+                return previous * previous + previous2 * previous2 - coefficient * previous * previous2
+            }
             sumP += p
             if p > maxP { maxP = p }
         }

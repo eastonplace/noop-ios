@@ -17,10 +17,46 @@ final class MetricsCacheTests: XCTestCase {
     }
 
     func testSchemaVersionBumped() {
-        XCTAssertEqual(WhoopStoreInfo.schemaVersion, 57)
+        XCTAssertEqual(WhoopStoreInfo.schemaVersion, 58)
     }
 
     // MARK: - sleep sessions
+
+    /// DL-06: the source tile counts sessions without decoding rows or stage blobs.
+    func testSleepSessionCountIsPerSourceAndDecodesNothing() async throws {
+        let store = try await WhoopStore.inMemory()
+        let sessions = (0..<3).map {
+            CachedSleepSession(startTs: 1_000 + $0 * 10_000, endTs: 5_000 + $0 * 10_000, efficiency: 0.9,
+                               restingHr: 52, avgHrv: 60, stagesJSON: "[]")
+        }
+        try await store.upsertSleepSessions(sessions, deviceId: "xiaomi-band")
+        try await store.upsertSleepSessions([sessions[0]], deviceId: "devA")
+        let xiaomi = try await store.sleepSessionCount(deviceId: "xiaomi-band")
+        let other = try await store.sleepSessionCount(deviceId: "devA")
+        let missing = try await store.sleepSessionCount(deviceId: "none")
+        XCTAssertEqual(xiaomi, 3)
+        XCTAssertEqual(other, 1)
+        XCTAssertEqual(missing, 0)
+    }
+
+    /// DL-11: the "has an RMSSD source" fact covers every stored day of the named sources, not a window.
+    func testHasDailyHrvLooksAtAllDaysOfTheNamedSourcesOnly() async throws {
+        let store = try await WhoopStore.inMemory()
+        func day(_ key: String, hrv: Double?) -> DailyMetric {
+            DailyMetric(day: key, totalSleepMin: 420, efficiency: nil, deepMin: nil, remMin: nil, lightMin: nil,
+                        disturbances: nil, restingHr: 52, avgHrv: hrv, recovery: nil, strain: nil,
+                        exerciseCount: nil)
+        }
+        _ = try await store.upsertDailyMetrics([day("2026-01-03", hrv: 61)], deviceId: "strap-noop")
+        _ = try await store.upsertDailyMetrics([day("2026-05-01", hrv: nil)], deviceId: "my-whoop")
+        _ = try await store.upsertDailyMetrics([day("2026-05-01", hrv: 38)], deviceId: "apple-health")
+        let strapHistory = try await store.hasDailyHrv(deviceIds: ["my-whoop", "strap-noop"])
+        let importOnly = try await store.hasDailyHrv(deviceIds: ["my-whoop"])
+        let none = try await store.hasDailyHrv(deviceIds: [])
+        XCTAssertTrue(strapHistory)
+        XCTAssertFalse(importOnly)
+        XCTAssertFalse(none)
+    }
 
     func testSleepSessionUpsertReadAndIdempotency() async throws {
         let store = try await WhoopStore.inMemory()

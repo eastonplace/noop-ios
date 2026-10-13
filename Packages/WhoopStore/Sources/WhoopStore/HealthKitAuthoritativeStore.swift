@@ -91,6 +91,37 @@ extension WhoopStore {
         }
     }
 
+    /// Removes matching identities in one transaction and returns the number of rows removed.
+    /// Export callers use `noop-healthkit-export` and purge acknowledged UUIDs only after saving
+    /// the observer anchor. Other sources and sample types retain their historical windows.
+    @discardableResult
+    public func removeHealthKitObjectIdentities(
+        sampleType: String,
+        objectUUIDs: [String],
+        deviceId: String
+    ) async throws -> Int {
+        let identifiers = Array(Set(objectUUIDs.filter { !$0.isEmpty }))
+        guard !identifiers.isEmpty else { return 0 }
+        return try syncWrite { db in
+            var removed = 0
+            for start in stride(
+                from: 0,
+                to: identifiers.count,
+                by: Self.healthKitIdentityQueryChunkSize
+            ) {
+                let end = min(start + Self.healthKitIdentityQueryChunkSize, identifiers.count)
+                let chunk = Array(identifiers[start..<end])
+                let placeholders = Array(repeating: "?", count: chunk.count).joined(separator: ",")
+                try db.execute(sql: """
+                    DELETE FROM healthKitObjectIndex
+                    WHERE deviceId = ? AND sampleType = ? AND objectUUID IN (\(placeholders))
+                    """, arguments: StatementArguments([deviceId, sampleType] + chunk))
+                removed += db.changesCount
+            }
+            return removed
+        }
+    }
+
     /// The earliest Apple Health-derived row. Unknown historical deletion UUIDs use this as a conservative
     /// re-aggregation start, never an arbitrary recent-month fallback.
     public func earliestAppleHealthTimestamp(deviceId: String) async throws -> Int? {
@@ -144,39 +175,41 @@ extension WhoopStore {
                     WHERE deviceId = ? AND source = ? AND startTs >= ? AND startTs <= ?
                     """, arguments: [deviceId, workoutSource, fromTimestamp, toTimestamp])
 
+            // Reuse prepared INSERTs across history rows. Recompiling each row
+            // dominated the device profile during a multi-year Health catch-up.
             for row in appleDaily {
-                try db.execute(sql: """
+                try db.cachedStatement(sql: """
                     INSERT INTO appleDaily
                         (deviceId, day, steps, activeKcal, basalKcal, vo2max, avgHr, maxHr, walkingHr, weightKg)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, arguments: [deviceId, row.day, row.steps, row.activeKcal, row.basalKcal,
+                    """).execute(arguments: [deviceId, row.day, row.steps, row.activeKcal, row.basalKcal,
                                      row.vo2max, row.avgHr, row.maxHr, row.walkingHr, row.weightKg])
             }
             for row in dailyMetrics {
-                try db.execute(sql: """
+                try db.cachedStatement(sql: """
                     INSERT INTO dailyMetric
                         (deviceId, day, totalSleepMin, efficiency, deepMin, remMin, lightMin,
                          disturbances, restingHr, avgHrv, recovery, strain, exerciseCount,
                          spo2Pct, skinTempDevC, respRateBpm, steps, activeKcalEst,
                          spo2Red, spo2Ir, strainVersion)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, arguments: [deviceId, row.day, row.totalSleepMin, row.efficiency, row.deepMin,
+                    """).execute(arguments: [deviceId, row.day, row.totalSleepMin, row.efficiency, row.deepMin,
                                      row.remMin, row.lightMin, row.disturbances, row.restingHr, row.avgHrv,
                                      row.recovery, row.strain, row.exerciseCount, row.spo2Pct,
                                      row.skinTempDevC, row.respRateBpm, row.steps, row.activeKcalEst,
                                      row.spo2Red, row.spo2Ir, row.strainVersion])
             }
             for point in metricPoints {
-                try db.execute(sql: "INSERT INTO metricSeries (deviceId, day, key, value) VALUES (?, ?, ?, ?)",
+                try db.cachedStatement(sql: "INSERT INTO metricSeries (deviceId, day, key, value) VALUES (?, ?, ?, ?)").execute(
                                arguments: [deviceId, point.day, point.key, point.value])
             }
             for workout in workouts {
-                try db.execute(sql: """
+                try db.cachedStatement(sql: """
                     INSERT INTO workout
                         (deviceId, startTs, endTs, sport, source, durationS, energyKcal,
                          avgHr, maxHr, strain, distanceM, zonesJSON, notes, strainVersion)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, arguments: [deviceId, workout.startTs, workout.endTs, workout.sport,
+                    """).execute(arguments: [deviceId, workout.startTs, workout.endTs, workout.sport,
                                      workout.source, workout.durationS, workout.energyKcal,
                                      workout.avgHr, workout.maxHr, workout.strain, workout.distanceM,
                                      workout.zonesJSON, workout.notes, workout.strainVersion])

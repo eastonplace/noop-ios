@@ -11,9 +11,18 @@ enum ScreenScaffoldPresentation: Sendable {
     case settingsDetail
 }
 
+/// Boxes the sheet-dismiss closure so it can live in the environment (`@Entry` rejects bare closures).
+struct ScreenScaffoldCloseAction {
+    let perform: () -> Void
+}
+
 extension EnvironmentValues {
     @Entry var screenScaffoldNavigationRole: ScreenScaffoldNavigationRole = .root
     @Entry var screenScaffoldPresentation: ScreenScaffoldPresentation = .standard
+    /// Dismisses the modal sheet whose root screen is the current scaffold. When set (by
+    /// `sheetScreenScaffoldEnvironment(onClose:)`), the root scaffold's header shows one canonical close
+    /// button in its trailing slot, so a sheet never needs a system navigation bar "Done".
+    @Entry var screenScaffoldCloseAction: ScreenScaffoldCloseAction? = nil
 }
 
 /// Captures the process-wide `AppModel` as a plain reference for a heavy screen root.
@@ -102,6 +111,10 @@ struct ScreenScaffold<Content: View, Trailing: View>: View {
     /// Optional inline back action for pushed/sheet screens. When present, the shared Paper header
     /// owns the chevron so navigation never consumes a separate row above the wordmark.
     var backAction: (() -> Void)? = nil
+    /// Tertiary context shown at the trailing end of a pushed screen's compact title row (the date being viewed,
+    /// say). Pushed screens drop `subtitle` from their header, so anything the subtitle said that matters belongs
+    /// here or in the screen's content. Ignored everywhere else.
+    var headerContext: String? = nil
     /// Optional element pinned to the header's trailing edge (e.g. the strap-battery badge on Today).
     /// Defaults to `EmptyView` via the convenience init below, so other screens are unaffected.
     @ViewBuilder var trailing: () -> Trailing
@@ -118,6 +131,7 @@ struct ScreenScaffold<Content: View, Trailing: View>: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.appHeaderChromeVisibility) private var appHeaderChromeVisibility
+    @Environment(\.screenScaffoldCloseAction) private var sheetCloseAction
     @State private var showsCompactHeader = false
     /// The actual visible scroll viewport. The content column is assigned this exact width (including
     /// its 16pt side insets) so no child with a long intrinsic label can enlarge UIScrollView's content
@@ -129,6 +143,9 @@ struct ScreenScaffold<Content: View, Trailing: View>: View {
         ScrollView(.vertical) {
             column
             #if os(iOS)
+            // Anything navigated to from inside this screen's content is a drill-in: it owns a back
+            // chevron, never the pinned app chrome, a system bar or the presenting sheet's close button.
+            .modifier(ScreenScaffoldDrillInEnvironment(active: presentation == .standard))
             // Unified side margins matching the liquid home (16pt) so every page's cards + header line up
             // to the same edges (2026-07-02); macOS keeps the classic 28 in the #else branch.
             .padding(.horizontal, 16)
@@ -157,7 +174,8 @@ struct ScreenScaffold<Content: View, Trailing: View>: View {
         }
         .coordinateSpace(.named("screen-scaffold-scroll"))
         .overlay(alignment: .top) {
-            if showsCompactHeader, title != nil || subtitle != nil {
+            // Never at a tab root: the pinned chrome stays put and its title row scrolls away like Today's.
+            if showsCompactHeader, !showsAppHeaderChrome, title != nil || subtitle != nil {
                 compactHeader
                 .padding(.horizontal, 16)
                 .padding(.vertical, 6)
@@ -168,7 +186,7 @@ struct ScreenScaffold<Content: View, Trailing: View>: View {
         }
         .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: showsCompactHeader)
         .safeAreaInset(edge: .top, spacing: 0) {
-            if presentation == .standard, appHeaderChromeVisibility == .visible { AppHeaderChrome() }
+            if showsAppHeaderChrome { AppHeaderChrome() }
         }
         // This is a vertical screen contract. Because the exact-width column cannot overflow, size-based
         // horizontal bounce resolves to disabled and the page cannot expose an off-canvas edge.
@@ -191,6 +209,10 @@ struct ScreenScaffold<Content: View, Trailing: View>: View {
         }
         .modifier(RefreshableIfNeeded(onRefresh: onRefresh))
         .modifier(ScreenScaffoldSettingsNavigation(title: title, presentation: presentation))
+        #if os(iOS)
+        .modifier(ScreenScaffoldPushedNavigationBar(
+            hidden: presentation == .standard && navigationRole == .detail, backAction: detailBackAction))
+        #endif
         #if os(macOS)
         // The mac window toolbar's default vibrant material washed the top of the liquid day-of-sky WHITE
         // (the scroll-under-titlebar blend). Hide it so the sky reads edge-to-edge and dark, like iOS.
@@ -225,7 +247,26 @@ struct ScreenScaffold<Content: View, Trailing: View>: View {
 
     @ViewBuilder private var headerForColumn: some View {
         #if os(iOS)
-        if presentation == .standard, title != nil || subtitle != nil {
+        if showsAppHeaderChrome, let title {
+            // A tab root already has the pinned chrome row (and its wordmark) above the content, so it gets
+            // one compact title row, like Today's, instead of a second wordmark, a large title and a subtitle.
+            NoopTabTitleRow(title, hasTrailing: Trailing.self != EmptyView.self || resolvedCloseAction != nil) {
+                headerTrailing
+            }
+        } else if let title, let back = detailBackAction {
+            // A pushed screen gets one compact row of its own: back chip, caps title, optional context. No
+            // wordmark (the tab it came from owns that) and no subtitle line. The bare `trailing()` goes in (a
+            // pushed screen has no sheet close button), so an empty one adds no gap after the context.
+            NoopDetailTitleRow(title, context: headerContext, backAction: back) { trailing() }
+                .accessibilityHidden(showsCompactHeader)
+                .onGeometryChange(for: Bool.self) { proxy in
+                    proxy.frame(in: .named("screen-scaffold-scroll")).maxY <= 0
+                } action: { isPastTop in
+                    if showsCompactHeader != isPastTop {
+                        showsCompactHeader = isPastTop
+                    }
+                }
+        } else if presentation == .standard, title != nil || subtitle != nil {
             expandedHeader
                 .accessibilityHidden(showsCompactHeader)
                 .onGeometryChange(for: Bool.self) { proxy in
@@ -242,10 +283,40 @@ struct ScreenScaffold<Content: View, Trailing: View>: View {
     }
 
     #if os(iOS)
+    /// The pinned app chrome (strap, sync, updates, profile) belongs to tab roots only. A drill-in owns a
+    /// back chevron instead, and a modal sheet owns a close button, so neither stacks a second header.
+    private var showsAppHeaderChrome: Bool {
+        presentation == .standard && appHeaderChromeVisibility == .visible && navigationRole == .root
+    }
+
+    /// The back action of a pushed screen that wears the compact title row, nil for every other screen: a tab
+    /// root (pinned chrome), a modal sheet's root (a close button, or a wizard's own back step, keeps its header),
+    /// Settings' native detail pages, and a scaffold that draws over a sky backdrop or has no title of its own.
+    private var detailBackAction: (() -> Void)? {
+        guard presentation == .standard, navigationRole == .detail, topBackground == nil, title != nil else { return nil }
+        return resolvedBackAction
+    }
+
     private var resolvedBackAction: (() -> Void)? {
         if let backAction { return backAction }
         guard navigationRole == .detail else { return nil }
         return { dismiss() }
+    }
+
+    /// The sheet's single close affordance, only on the screen that roots a modal sheet.
+    private var resolvedCloseAction: (() -> Void)? {
+        guard presentation == .standard, navigationRole == .root else { return nil }
+        return sheetCloseAction?.perform
+    }
+
+    /// The screen's own trailing content followed by the sheet's close button, when it has one.
+    private var headerTrailing: some View {
+        HStack(spacing: 8) {
+            trailing()
+            if let close = resolvedCloseAction {
+                NoopIconButton("xmark", accessibilityLabel: "Close", action: close)
+            }
+        }
     }
 
     private var expandedHeader: some View {
@@ -256,19 +327,23 @@ struct ScreenScaffold<Content: View, Trailing: View>: View {
             backAction: resolvedBackAction,
             onDark: overSky,
             style: .expanded,
-            trailing: trailing
+            trailing: { headerTrailing }
         )
     }
 
-    private var compactHeader: some View {
-        NoopScreenHeader(
-            title: title,
-            subtitle: subtitle,
-            backAction: resolvedBackAction,
-            onDark: false,
-            style: .compact,
-            trailing: trailing
-        )
+    @ViewBuilder private var compactHeader: some View {
+        if let title, let back = detailBackAction {
+            NoopDetailTitleRow(title, context: headerContext, backAction: back) { trailing() }
+        } else {
+            NoopScreenHeader(
+                title: title,
+                subtitle: subtitle,
+                backAction: resolvedBackAction,
+                onDark: false,
+                style: .compact,
+                trailing: { headerTrailing }
+            )
+        }
     }
     #endif
 
@@ -285,6 +360,42 @@ struct ScreenScaffold<Content: View, Trailing: View>: View {
 }
 
 #if os(iOS)
+/// Marks everything inside a standard scaffold's content column as a drill-in destination.
+private struct ScreenScaffoldDrillInEnvironment: ViewModifier {
+    let active: Bool
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if active {
+            content
+                .environment(\.screenScaffoldNavigationRole, .detail)
+                .environment(\.screenScaffoldCloseAction, nil)
+        } else {
+            content
+        }
+    }
+}
+
+/// A pushed screen draws its own back chevron in the scaffold header, so the system navigation bar the
+/// host `NavigationStack` would otherwise show above it (a second, empty back button) is hidden. With the bar
+/// hidden UIKit stops the edge swipe from popping, so the screen also asks for it back (`EdgeSwipeBack`): the stack
+/// pops, or, for a screen that roots a modal stack, the screen's own back action runs.
+private struct ScreenScaffoldPushedNavigationBar: ViewModifier {
+    let hidden: Bool
+    let backAction: (() -> Void)?
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if hidden {
+            content
+                .toolbar(.hidden, for: .navigationBar)
+                .background { EdgeSwipeBack(rootBackAction: backAction).frame(width: 0, height: 0) }
+        } else {
+            content
+        }
+    }
+}
+
 private struct ScreenScaffoldSettingsNavigation: ViewModifier {
     let title: LocalizedStringKey?
     let presentation: ScreenScaffoldPresentation
@@ -316,12 +427,56 @@ extension ScreenScaffold where Trailing == EmptyView {
          onRefresh: (() async -> Void)? = nil, lazy: Bool = false, topBackground: AnyView? = nil,
          showsSubtitleInExpandedHeader: Bool = true,
          backAction: (() -> Void)? = nil,
+         headerContext: String? = nil,
          @ViewBuilder content: @escaping () -> Content) {
         self.init(title: title, subtitle: subtitle, onRefresh: onRefresh, lazy: lazy,
                   topBackground: topBackground,
                   showsSubtitleInExpandedHeader: showsSubtitleInExpandedHeader,
                   backAction: backAction,
+                  headerContext: headerContext,
                   trailing: { EmptyView() }, content: content)
+    }
+}
+
+extension View {
+    /// Prepares the environment for a `ScreenScaffold` that is the root of a modal sheet.
+    ///
+    /// Sheets inherit their presenter's environment, so without this a sheet opened from a pushed
+    /// screen would show a stray back chevron, one opened from Settings would drop the scaffold header
+    /// (`.settingsDetail` hides it), and the pinned app chrome would sit above the sheet's own header.
+    ///
+    /// Pass `onClose` when the sheet's root screen has no close control of its own: the scaffold then
+    /// shows the canonical xmark `NoopIconButton` in its header. Omitting it also clears any close action
+    /// inherited from a presenting sheet, so a nested sheet never dismisses the wrong layer.
+    func sheetScreenScaffoldEnvironment(onClose: (() -> Void)? = nil) -> some View {
+        environment(\.appHeaderChromeVisibility, .hidden)
+            .environment(\.screenScaffoldNavigationRole, .root)
+            .environment(\.screenScaffoldPresentation, .standard)
+            .environment(\.screenScaffoldCloseAction, onClose.map(ScreenScaffoldCloseAction.init))
+    }
+
+    /// Apply to the `NavigationStack` that hosts a tab or a modal sheet. Screens pushed onto the stack
+    /// resolve their environment from the stack itself, not from the root view's modifiers, so this is
+    /// what makes every drill-in a `.detail`: a back chevron, no pinned app chrome, no inherited close
+    /// button. The stack's own root screen opts back in (`.root` for a tab, `sheetScreenScaffoldEnvironment`
+    /// for a sheet), because it inherits this too.
+    func drillInDestinationEnvironment() -> some View {
+        environment(\.screenScaffoldNavigationRole, .detail)
+            .environment(\.screenScaffoldCloseAction, nil)
+    }
+}
+
+extension View {
+    /// The pinned action bar at the foot of a modal sheet: the canvas, a hairline above, and the shared
+    /// 16pt gutter. Attach with `.safeAreaInset(edge: .bottom, spacing: 0) { actions.sheetFooterBar() }`.
+    func sheetFooterBar() -> some View {
+        padding(.horizontal, 16)
+            .padding(.vertical, NoopMetrics.space3)
+            .frame(maxWidth: .infinity)
+            .background(StrandPalette.appCanvas)
+            .overlay(alignment: .top) {
+                Rectangle().fill(StrandPalette.hairline).frame(height: 1).accessibilityHidden(true)
+            }
     }
 }
 

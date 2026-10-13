@@ -7,138 +7,99 @@ import Foundation
 
 extension TrendsView {
 
+    // MARK: - Rhythm
+
+    /// The one hairline between two Trends sections: the same 1pt hairline Today draws, with even air on
+    /// both sides (the sections' ink, not their layout boxes, sets the visible gap).
+    var trendsSeparator: some View {
+        TodaySectionSeparator(above: 10, below: 12)
+    }
+
+    // MARK: - Training load
+
     @ViewBuilder
     var trainingLoadCard: some View {
         if let snapshot = currentScreenSnapshot {
-            let load = snapshot.trainingLoad
-            VStack(alignment: .leading, spacing: NoopMetrics.space3) {
-                SectionHeader(
-                    "Training load",
-                    overline: "Effort",
-                    trailing: load.map(trainingLoadStatus) ?? String(localized: "Loading")
+            trendsSeparator
+            trainingLoadSection(snapshot.trainingLoad)
+        }
+    }
+
+    private func trainingLoadSection(_ load: TrainingLoadSnapshot?) -> some View {
+        VStack(alignment: .leading, spacing: WidgetMetrics.headerSpacing) {
+            SectionEyebrow(
+                title: String(localized: "Training load"),
+                systemImage: "flame.fill",
+                tint: .strain,
+                trailing: .pill(
+                    LocalizedStringKey(load.map(trainingLoadStatus) ?? "Loading"),
+                    tone: load?.state == .established ? .positive : .neutral
                 )
-                PaperCard {
-                    VStack(alignment: .leading, spacing: NoopMetrics.space4) {
-                        if let load, load.state == .unavailable {
-                            HStack(alignment: .top, spacing: 12) {
-                                Image(systemName: "chart.line.uptrend.xyaxis")
-                                    .font(.system(size: 18, weight: .semibold))
-                                    .foregroundStyle(StrandPalette.strainAccent)
-                                    .frame(width: 28, height: 28)
-                                    .background(StrandPalette.strainAccent.opacity(0.10), in: Circle())
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(trainingLoadUnavailableTitle(load))
-                                        .font(StrandFont.subhead.weight(.semibold))
-                                        .foregroundStyle(StrandPalette.textPrimary)
-                                    Text(trainingLoadUnavailableDetail(load))
-                                        .font(StrandFont.micro)
-                                        .foregroundStyle(StrandPalette.textSecondary)
-                                }
-                            }
-                        } else if let load {
-                            ViewThatFits(in: .horizontal) {
-                                HStack(spacing: 0) {
-                                    trainingLoadMetric("Chronic", value: load.chronic, caption: "42-day")
-                                    Divider().padding(.horizontal, NoopMetrics.space3)
-                                    trainingLoadMetric("Acute", value: load.acute, caption: "7-day")
-                                    Divider().padding(.horizontal, NoopMetrics.space3)
-                                    trainingLoadBalance(load.balance)
-                                }
-                                VStack(alignment: .leading, spacing: NoopMetrics.space3) {
-                                    HStack(spacing: 0) {
-                                        trainingLoadMetric("Chronic", value: load.chronic, caption: "42-day")
-                                        Divider().padding(.horizontal, NoopMetrics.space3)
-                                        trainingLoadMetric("Acute", value: load.acute, caption: "7-day")
-                                    }
-                                    trainingLoadBalance(load.balance)
-                                }
-                            }
+            )
+            trainingLoadBody(load)
+            Text("Based on daily Effort. Descriptive only; it does not change Readiness.")
+                .font(StrandFont.micro)
+                .foregroundStyle(StrandPalette.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
 
-                            if load.chronicSpark.count > 1, load.acuteSpark.count > 1 {
-                                VStack(spacing: NoopMetrics.space3) {
-                                    trainingLoadSparkRow(
-                                        "Chronic",
-                                        values: load.chronicSpark,
-                                        tint: StrandPalette.strainAccent.opacity(0.72)
-                                    )
-                                    trainingLoadSparkRow(
-                                        "Acute",
-                                        values: load.acuteSpark,
-                                        tint: StrandPalette.strainAccent
-                                    )
-                                }
-                                .padding(.top, NoopMetrics.space2)
-                            }
-                        } else {
-                            HStack(alignment: .top, spacing: 12) {
-                                ProgressView()
-                                    .controlSize(.small)
-                                    .frame(width: 28, height: 28)
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text("Reading load history")
-                                        .font(StrandFont.subhead.weight(.semibold))
-                                        .foregroundStyle(StrandPalette.textPrimary)
-                                    Text("NOOP is reading up to 180 days of daily Effort before showing your load.")
-                                        .font(StrandFont.micro)
-                                        .foregroundStyle(StrandPalette.textSecondary)
-                                }
-                            }
-                        }
-
-                        Text("Based on daily Effort. Descriptive only; it does not change Readiness.")
-                            .font(StrandFont.micro)
-                            .foregroundStyle(StrandPalette.textTertiary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
+    @ViewBuilder
+    private func trainingLoadBody(_ load: TrainingLoadSnapshot?) -> some View {
+        if let load, load.state == .unavailable {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(trainingLoadUnavailableTitle(load))
+                    .font(StrandFont.subhead.weight(.semibold))
+                    .foregroundStyle(StrandPalette.textPrimary)
+                Text(trainingLoadUnavailableDetail(load))
+                    .font(StrandFont.footnote)
+                    .foregroundStyle(StrandPalette.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        } else if let load {
+            VStack(alignment: .leading, spacing: WidgetMetrics.contentSpacing) {
+                StatFooter(
+                    items: [
+                        (String(localized: "Chronic · 42d"), trainingLoadNumber(load.chronic)),
+                        (String(localized: "Acute · 7d"), trainingLoadNumber(load.acute)),
+                        (String(localized: "Balance"), trainingLoadBalance(load.balance)),
+                    ],
+                    style: .prominent
+                )
+                if load.chronicSpark.count > 1, load.acuteSpark.count > 1 {
+                    TrendsLoadChart(
+                        chronic: load.chronicSpark,
+                        acute: load.acuteSpark,
+                        tint: .strain,
+                        startLabel: String(localized: "\(load.acuteSpark.count - 1) days ago"),
+                        endLabel: String(localized: "Today")
+                    )
+                }
+            }
+        } else {
+            HStack(alignment: .top, spacing: 12) {
+                ProgressView()
+                    .controlSize(.small)
+                    .frame(width: 20, height: 20)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Reading load history")
+                        .font(StrandFont.subhead.weight(.semibold))
+                        .foregroundStyle(StrandPalette.textPrimary)
+                    Text("NOOP is reading up to 180 days of daily Effort before showing your load.")
+                        .font(StrandFont.footnote)
+                        .foregroundStyle(StrandPalette.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
         }
     }
 
-    private func trainingLoadMetric(_ title: String, value: Double?, caption: String) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(title.uppercased())
-                .font(StrandFont.overline)
-                .tracking(StrandFont.overlineTracking)
-                .foregroundStyle(StrandPalette.textTertiary)
-            Text(value.map { String(format: "%.1f", $0) } ?? "—")
-                .font(StrandFont.number(24, weight: .semibold))
-                .monospacedDigit()
-                .foregroundStyle(StrandPalette.textPrimary)
-            Text(caption)
-                .font(StrandFont.micro)
-                .foregroundStyle(StrandPalette.textSecondary)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
+    private func trainingLoadNumber(_ value: Double?) -> String {
+        value.map { String(format: "%.1f", $0) } ?? WidgetMetrics.missingValue
     }
 
-    private func trainingLoadBalance(_ value: Double?) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text("BALANCE")
-                .font(StrandFont.overline)
-                .tracking(StrandFont.overlineTracking)
-                .foregroundStyle(StrandPalette.textTertiary)
-            Text(value.map { String(format: "%@%.1f", $0 > 0 ? "+" : "", $0) } ?? "—")
-                .font(StrandFont.number(24, weight: .semibold))
-                .monospacedDigit()
-                .foregroundStyle(StrandPalette.textPrimary)
-            Text("chronic − acute")
-                .font(StrandFont.micro)
-                .foregroundStyle(StrandPalette.textSecondary)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private func trainingLoadSparkRow(_ label: String, values: [Double], tint: Color) -> some View {
-        HStack(spacing: 10) {
-            Text(label)
-                .font(StrandFont.micro.weight(.semibold))
-                .foregroundStyle(StrandPalette.textSecondary)
-                .frame(width: 54, alignment: .leading)
-            PaperSparkline(bpm: values, tint: tint, height: 30, animated: false)
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(label) training load trend")
+    private func trainingLoadBalance(_ value: Double?) -> String {
+        value.map { String(format: "%@%.1f", $0 > 0 ? "+" : "", $0) } ?? WidgetMetrics.missingValue
     }
 
     private func trainingLoadStatus(_ load: TrainingLoadSnapshot) -> String {
@@ -170,206 +131,207 @@ extension TrendsView {
         return String(localized: "NOOP needs a continuous run of daily Effort values to model acute and chronic load.")
     }
 
+    // MARK: - Selected range
+
     @ViewBuilder
     var paperScoresOverTime: some View {
         if let screenSnapshot = currentScreenSnapshot {
             paperScoresOverTime(screenSnapshot)
         } else {
-            VStack(alignment: .leading, spacing: 14) {
-                rangeControls
-                ProgressView("Preparing trends…")
-                    .frame(maxWidth: .infinity, minHeight: 180)
-            }
+            preparingSection
+        }
+    }
+
+    /// Controls first, so the layout does not jump when the snapshot lands, with a quiet rail where the chart
+    /// will be.
+    private var preparingSection: some View {
+        let tint = selectedMetric.domainTint(latest: nil)
+        return VStack(alignment: .leading, spacing: WidgetMetrics.headerSpacing) {
+            selectedRangeHeader(tint: tint)
+            HeroValue(
+                value: WidgetMetrics.missingValue,
+                caption: String(localized: "Preparing trends…"),
+                captionPlacement: .below
+            )
+            TrendsGhostRail(height: 148)
         }
     }
 
     private func paperScoresOverTime(_ snapshot: TrendsScreenSnapshot) -> some View {
         let series = snapshot.currentSeries
         let previousSeries = snapshot.previousSeries
+        let hasSelectedData = !snapshot.selectedPoints.isEmpty
+        let showsCalendar = hasSelectedData && selectedRange != .week && !snapshot.heatDays.isEmpty
+        let showsWeekdays = !snapshot.weekdayAverages.compactMap({ $0 }).isEmpty
 
-        return VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Selected range").strandOverline()
-                Text("Last \(selectedRange.days) calendar days through today")
-                    .font(StrandFont.micro)
-                    .foregroundStyle(StrandPalette.textSecondary)
+        return VStack(alignment: .leading, spacing: 0) {
+            selectedRangeSection(snapshot)
+            if showsCalendar {
+                trendsSeparator
+                calendarSection(snapshot)
             }
+            if showsWeekdays {
+                trendsSeparator
+                weekdaySection(snapshot)
+            }
+            trendsSeparator
+            scoresSection(series: series, previousSeries: previousSeries)
+        }
+    }
 
-            rangeControls
+    private func selectedRangeSection(_ snapshot: TrendsScreenSnapshot) -> some View {
+        let tint = selectedMetric.domainTint(latest: snapshot.selectedPoints.last?.value)
+        return VStack(alignment: .leading, spacing: WidgetMetrics.headerSpacing) {
+            selectedRangeHeader(tint: tint)
 
-            if !snapshot.selectedPoints.isEmpty {
-                TrendPanelChart(
+            if snapshot.selectedPoints.isEmpty {
+                HeroValue(
+                    value: WidgetMetrics.missingValue,
+                    caption: String(localized: "No \(selectedMetric.rawValue) data in this range"),
+                    captionPlacement: .below
+                )
+                TrendsGhostRail(height: 148)
+            } else {
+                TrendsHeroChart(
                     days: snapshot.selectedCalendarDays,
                     dateDomain: snapshot.selectedDateDomain,
                     referenceDate: trendReferenceDate,
                     calendar: .current,
                     baseline: snapshot.baseline,
                     typical: snapshot.typical,
-                    tint: selectedMetric.tint,
+                    tint: tint,
+                    colorsLineByBand: selectedMetric == .recovery,
                     unit: selectedMetric.unit,
                     valueFormat: selectedMetric.format,
-                    range: selectedRange,
-                    direction: selectedMetric.chartDirection
+                    valueBounds: selectedMetric.valueBounds,
+                    direction: selectedMetric.chartDirection,
+                    metricName: selectedMetric.rawValue
                 )
                 .id("\(selectedMetric.rawValue)-\(selectedRange.rawValue)")
 
-                if selectedRange != .week {
-                    VStack(alignment: .leading, spacing: NoopMetrics.space3) {
-                        Text("Calendar heat · latest 35 days")
-                            .font(StrandFont.micro)
-                            .foregroundStyle(StrandPalette.textSecondary)
-                        TrendMonthHeat(
-                            days: snapshot.heatDays,
-                            tint: selectedMetric.tint,
-                            referenceDate: trendReferenceDate,
-                            valueFormat: selectedMetric.format,
-                            colorScale: selectedMetric == .recovery ? .recoveryBands : .intensity
-                        )
-                        .id("heat-\(selectedMetric.rawValue)-\(selectedRange.rawValue)")
-                    }
-                    // Keep the secondary calendar detail below a clear fold; the custom tab bar owns the
-                    // lower edge of the first viewport, so this gap prevents the heatmap from reading as
-                    // clipped content instead of the next layer of the Trends story.
-                    .padding(.top, NoopMetrics.space6)
-                }
+                let values = snapshot.selectedPoints.map(\.value)
+                StatFooter(items: [
+                    (String(localized: "Low"), selectedMetric.formatWithUnit(values.min() ?? .nan)),
+                    (String(localized: "Average"), selectedMetric.formatWithUnit(snapshot.baseline)),
+                    (String(localized: "High"), selectedMetric.formatWithUnit(values.max() ?? .nan)),
+                ])
             }
+        }
+    }
 
-            trendV2Row(
-                "Recovery",
-                points: series.recovery,
-                previousPoints: previousSeries.recovery,
-                goodDirection: .higher,
-                tint: StrandPalette.recoveryData,
-                format: ProductionTrendMetric.recovery.format
+    /// Eyebrow, then the metric menu and the range control tight beneath it.
+    private func selectedRangeHeader(tint: DomainTint) -> some View {
+        VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+            SectionEyebrow(
+                title: String(localized: "Selected range"),
+                systemImage: selectedMetric.symbol,
+                tint: tint,
+                trailing: .text(String(localized: "Last \(selectedRange.days) days"))
             )
-            trendV2Row(
-                "Strain",
-                points: series.strain,
-                previousPoints: previousSeries.strain,
-                goodDirection: .neutral,
-                tint: StrandPalette.strainAccent,
-                format: StrainScale.formatted
-            )
-            trendV2Row(
-                "Sleep",
-                points: series.sleep,
-                previousPoints: previousSeries.sleep,
-                goodDirection: .higher,
-                tint: StrandPalette.sleepAccent,
-                format: ProductionTrendMetric.sleepPerformance.formatWithUnit
-            )
-            trendV2Row(
-                "HRV",
-                points: series.hrv,
-                previousPoints: previousSeries.hrv,
-                goodDirection: .higher,
-                tint: StrandPalette.metricPurple,
-                format: ProductionTrendMetric.hrv.formatWithUnit
-            )
+            rangeControls
+        }
+    }
 
-            if !snapshot.weekdayAverages.compactMap({ $0 }).isEmpty {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(selectedRange.averageHeading).strandOverline()
-                    Text("By weekday · \(selectedRange.days) calendar days")
-                        .font(StrandFont.micro)
-                        .foregroundStyle(StrandPalette.textSecondary)
-                }
-                TrendWeekdayBars(
-                    values: snapshot.weekdayAverages,
-                    tint: selectedMetric.tint,
-                    referenceDate: trendReferenceDate,
-                    calendar: .current,
-                    valueFormat: selectedMetric.formatWithUnit
+    // MARK: - Calendar
+
+    private func calendarSection(_ snapshot: TrendsScreenSnapshot) -> some View {
+        let tint = selectedMetric.domainTint(latest: snapshot.selectedPoints.last?.value)
+        return VStack(alignment: .leading, spacing: WidgetMetrics.headerSpacing) {
+            SectionEyebrow(
+                title: String(localized: "Calendar"),
+                systemImage: "calendar",
+                tint: tint,
+                trailing: .text(String(localized: "Last 5 weeks"))
+            )
+            TrendsCalendarHeat(
+                days: snapshot.heatDays,
+                tint: tint,
+                referenceDate: trendReferenceDate,
+                calendar: .current,
+                valueFormat: selectedMetric.format,
+                colorScale: selectedMetric == .recovery ? .recoveryBands : .intensity
+            )
+            .id("heat-\(selectedMetric.rawValue)-\(selectedRange.rawValue)")
+        }
+    }
+
+    // MARK: - Weekday
+
+    private func weekdaySection(_ snapshot: TrendsScreenSnapshot) -> some View {
+        let tint = selectedMetric.domainTint(latest: snapshot.selectedPoints.last?.value)
+        return VStack(alignment: .leading, spacing: WidgetMetrics.headerSpacing) {
+            SectionEyebrow(
+                title: String(localized: "By weekday"),
+                systemImage: "chart.bar.xaxis",
+                tint: tint,
+                trailing: .text(String(localized: "Average · last \(selectedRange.days) days"))
+            )
+            TrendsWeekdayBars(
+                values: snapshot.weekdayAverages,
+                tint: tint,
+                referenceDate: trendReferenceDate,
+                calendar: .current,
+                barColor: selectedMetric == .recovery ? { RecoveryBands.color(for: $0) } : nil,
+                valueFormat: selectedMetric.formatWithUnit
+            )
+            .frame(height: 124)
+        }
+    }
+
+    // MARK: - Scores
+
+    private func scoresSection(series: PaperTrendSeries, previousSeries: PaperTrendSeries) -> some View {
+        VStack(alignment: .leading, spacing: WidgetMetrics.headerSpacing) {
+            SectionEyebrow(
+                title: String(localized: "Scores"),
+                systemImage: "chart.line.uptrend.xyaxis",
+                tint: .neutral,
+                trailing: .text(selectedRange.summarySubtitle)
+            )
+            VStack(alignment: .leading, spacing: NoopMetrics.space3) {
+                trendSummaryRow(
+                    String(localized: "Recovery"),
+                    metric: .recovery,
+                    points: series.recovery,
+                    previousPoints: previousSeries.recovery,
+                    goodDirection: .higher,
+                    tint: ProductionTrendMetric.recovery.domainTint(latest: series.recovery.last?.value)
                 )
-                .frame(height: 150)
-            }
-        }
-    }
-
-    private var rangeControls: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: 7) {
-                metricDropdown
-                Spacer(minLength: 8)
-                ForEach(TrendRange.allCases) { range in rangeChip(range) }
-            }
-            VStack(alignment: .leading, spacing: 8) {
-                metricDropdown
-                HStack(spacing: 7) {
-                    ForEach(TrendRange.allCases) { range in rangeChip(range) }
-                }
-            }
-        }
-    }
-
-    private var metricDropdown: some View {
-        Menu {
-            ForEach(ProductionTrendMetric.allCases) { metric in
-                Button {
-                    selectedMetric = metric
-                } label: {
-                    if selectedMetric == metric {
-                        Label(metric.rawValue, systemImage: "checkmark")
-                    } else {
-                        Text(metric.rawValue)
-                    }
-                }
-            }
-        } label: {
-            HStack(spacing: 6) {
-                Circle().fill(selectedMetric.tint).frame(width: 7, height: 7)
-                Text(selectedMetric.rawValue)
-                    .font(StrandFont.caption.weight(.semibold))
-                    .lineLimit(1)
-                Image(systemName: "chevron.up.chevron.down")
-                    .font(.system(size: 9, weight: .bold))
-            }
-            .foregroundStyle(StrandPalette.textPrimary)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 9)
-            .frame(minHeight: 44)
-            .background(StrandPalette.surfaceRaised, in: Capsule())
-            .overlay(Capsule().stroke(StrandPalette.hairlineStrong, lineWidth: 0.75))
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Metric: \(selectedMetric.rawValue). Opens the metric list")
-    }
-
-    private func rangeChip(_ range: TrendRange) -> some View {
-        Button { selectedRange = range } label: {
-            Text(range.rawValue)
-                .font(StrandFont.micro.weight(.semibold))
-                .fixedSize()
-                .foregroundStyle(selectedRange == range
-                    ? StrandPalette.appCanvas
-                    : StrandPalette.textSecondary)
-                .padding(.horizontal, 9)
-                .padding(.vertical, 8)
-                .frame(minWidth: 44, minHeight: 44)
-                .background(
-                    selectedRange == range
-                        ? StrandPalette.textPrimary
-                        : StrandPalette.surfaceRaised,
-                    in: Capsule()
+                trendSummaryRow(
+                    String(localized: "Strain"),
+                    metric: .strain,
+                    points: series.strain,
+                    previousPoints: previousSeries.strain,
+                    goodDirection: .neutral,
+                    tint: .strain
                 )
-                .overlay(
-                    Capsule().stroke(
-                        StrandPalette.hairlineStrong,
-                        lineWidth: selectedRange == range ? 0 : 0.75
-                    )
+                trendSummaryRow(
+                    String(localized: "Sleep"),
+                    metric: .sleepPerformance,
+                    points: series.sleep,
+                    previousPoints: previousSeries.sleep,
+                    goodDirection: .higher,
+                    tint: .sleep
                 )
+                trendSummaryRow(
+                    String(localized: "HRV"),
+                    metric: .hrv,
+                    points: series.hrv,
+                    previousPoints: previousSeries.hrv,
+                    goodDirection: .higher,
+                    tint: .hrv
+                )
+            }
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel("\(range.days) days")
     }
 
-    private func trendV2Row(
+    private func trendSummaryRow(
         _ label: String,
+        metric: ProductionTrendMetric,
         points: [TrendPoint],
         previousPoints: [TrendPoint],
         goodDirection: TrendSummaryGoodDirection,
-        tint: Color,
-        format: (Double) -> String
+        tint: DomainTint
     ) -> some View {
         let presentation = TrendSummaryPresentation(
             series: points,
@@ -377,26 +339,82 @@ extension TrendsView {
             goodDirection: goodDirection,
             expectedCount: selectedRange.days
         )
+        let text = TrendsSummaryRowText(metric: metric, presentation: presentation)
         let tone: TrendDeltaTone
-        switch presentation.deltaTone {
+        switch text.tone {
         case .positive: tone = .positive
         case .negative: tone = .negative
         case .neutral: tone = .neutral
         }
-        let deltaText = !presentation.comparisonIsReliable
-            ? "Early read · \(presentation.currentCount)/\(presentation.expectedCount) days"
-            : presentation.delta.map { delta in
-                "\(delta >= 0 ? "+" : "−")\(format(abs(delta))) avg"
-            } ?? "Need prior data"
 
-        return TrendDeltaRow(
+        return TrendsSummaryRow(
+            systemImage: metric.symbol,
             label: label,
-            subtitle: selectedRange.summarySubtitle,
             values: presentation.spark.map(\.value),
-            latest: presentation.latest.map(format) ?? "—",
-            delta: deltaText,
+            latest: text.latest,
+            delta: text.delta,
             tone: tone,
             tint: tint
         )
     }
+
+    // MARK: - Controls
+
+    private var rangeControls: some View {
+        TrendsControlRow(
+            leading: { isCompact in metricMenu(isCompact: isCompact) },
+            trailing: { rangePicker }
+        )
+    }
+
+    private func metricMenu(isCompact: Bool) -> some View {
+        let tint = selectedMetric.domainTint(latest: currentScreenSnapshot?.selectedPoints.last?.value)
+        return Menu {
+            Picker("Metric", selection: $selectedMetric) {
+                ForEach(ProductionTrendMetric.allCases) { metric in
+                    Label(metric.rawValue, systemImage: metric.symbol).tag(metric)
+                }
+            }
+        } label: {
+            TrendsMenuChipLabel(
+                title: selectedMetric.rawValue,
+                systemImage: selectedMetric.symbol,
+                tint: tint.accent,
+                isCompact: isCompact
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Metric: \(selectedMetric.rawValue). Opens the metric list")
+    }
+
+    /// The canonical segmented pill, announced as one adjustable "Range" control so VoiceOver reads "30 days"
+    /// instead of the bare "M".
+    private var rangePicker: some View {
+        SegmentedPillControl(TrendRange.allCases, selection: $selectedRange) { $0.rawValue }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Range")
+            .accessibilityValue("\(selectedRange.days) days")
+            .accessibilityAdjustableAction { direction in
+                let all = TrendRange.allCases
+                guard let index = all.firstIndex(of: selectedRange) else { return }
+                switch direction {
+                case .increment: selectedRange = all[min(index + 1, all.count - 1)]
+                case .decrement: selectedRange = all[max(index - 1, 0)]
+                default: break
+                }
+            }
+            // Direct choices for Voice Control and Switch Control, which cannot swipe an adjustable.
+            .accessibilityActions {
+                ForEach(TrendRange.allCases) { range in
+                    Button(String(localized: "Last \(range.days) days")) { selectedRange = range }
+                }
+            }
+    }
+}
+
+/// True when a formatted change reads as nothing (every digit is a zero), so it can say "No change" instead of
+/// "+0%".
+func trendsDeltaIsZero(_ formatted: String) -> Bool {
+    let digits = formatted.filter(\.isNumber)
+    return !digits.isEmpty && digits.allSatisfy { $0 == "0" }
 }

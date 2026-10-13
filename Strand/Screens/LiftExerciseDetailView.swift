@@ -61,7 +61,7 @@ struct LiftExerciseDetailView: View {
                             HStack(alignment: .firstTextBaseline) {
                                 VStack(alignment: .leading, spacing: 6) {
                                     Text("BEST EST. 1RM · RECENT").font(.caption.weight(.semibold)).foregroundStyle(StrandPalette.textSecondary)
-                                    Text(LiftFormat.weight(best, system: system)).font(.system(size: 32, weight: .semibold, design: .rounded))
+                                    Text(LiftFormat.weight(best, system: system)).font(StrandFont.number(32))
                                 }
                                 Spacer()
                                 Text("\(Set(working.map(\.sessionId)).count) sessions").font(.caption)

@@ -16,6 +16,8 @@ struct TestCentreView: View {
     /// must not subscribe to every HR/R-R/log publication just because a few child controls issue actions.
     @State private var appModel: AppModel?
     @State private var liveState: LiveState?
+    /// Starting or returning to a workout is the shell's job (one full-screen journey), so this screen only asks.
+    @EnvironmentObject private var router: NavRouter
     #if os(iOS)
     @Environment(\.screenScaffoldNavigationRole) private var navigationRole
     @Environment(\.dismiss) private var dismiss
@@ -42,8 +44,6 @@ struct TestCentreView: View {
     @State private var infoTitle = ""
     @State private var infoMessage = ""
     @State private var showInfo = false
-    @State private var showStartSport = false
-    @State private var showLiveWorkout = false
     @State private var showHRVSnapshot = false
     @State private var showingLiveActions = false
     @State private var toastMessage: String?
@@ -117,8 +117,8 @@ struct TestCentreView: View {
                         model: model,
                         live: live,
                         modeActivationRevision: modeActivationRevision,
-                        onStartWorkout: { showStartSport = true },
-                        onOpenWorkout: { showLiveWorkout = true },
+                        onStartWorkout: { router.beginWorkout() },
+                        onOpenWorkout: { router.openActiveWorkout() },
                         onRefresh: refreshStrap,
                         onEnableWorkoutCapture: enableWorkoutCapture)
                 }
@@ -132,25 +132,18 @@ struct TestCentreView: View {
         .onAppear {
             ScheduledDebugExport.activateIfEnabled()
         }
+        // A sheet opened from here gets its own header context, not this screen's (a pushed screen's compact row
+        // has no subtitle and Settings' native header draws none), or the review would lose the line that says
+        // nothing leaves the device until Share.
         .sheet(item: $report.pending) { _ in
             ReportReviewSheet(report: report)
-        }
-        .sheet(isPresented: $showStartSport, onDismiss: {
-            if model.activeWorkout != nil { showLiveWorkout = true }
-        }) {
-            StartWorkoutSheet { name in
-                model.startWorkout(sport: name)
-            }
-        }
-        .sheet(isPresented: $showLiveWorkout) {
-            LiveWorkoutView(onClose: { showLiveWorkout = false })
-                .environmentObject(model)
-                .environmentObject(live)
+                .sheetScreenScaffoldEnvironment(onClose: { report.cancel() })
         }
         .sheet(isPresented: $showHRVSnapshot) {
             HRVSnapshotView(onClose: { showHRVSnapshot = false }, source: hrvSnapshotSource)
                 .environmentObject(model)
                 .environmentObject(live)
+                .sheetScreenScaffoldEnvironment()
         }
         .alert(infoTitle, isPresented: $showInfo) {
             Button("OK", role: .cancel) { }
@@ -266,7 +259,7 @@ struct TestCentreView: View {
                     // Recalibrate Charge baseline: the same Baselines.recalibrateRecoveryBaselines call the
                     // Settings Recovery card uses.
                     NavigationLink {
-                        SettingsDetailHost(destination: .scoringBaselines)
+                        SettingsDetailHost(destination: .personalProfile)
                     } label: {
                         DeviceCommandNavigationRow(
                             title: "Recovery baseline settings",
@@ -1189,9 +1182,14 @@ private struct ReportReviewSheet: View {
 
     var body: some View {
         let preview = report.pending?.gate.previewText ?? ""
-        return ScreenScaffold(title: "Review before sharing",
-                              subtitle: "This is exactly what your report will contain. Nothing leaves \(Platform.deviceNounPhrase) until you tap Share.") {
+        return ScreenScaffold(title: "Review before sharing") {
             VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
+                // The promise is what this sheet is for, so it is a sentence that wraps, in full, not a header
+                // subtitle (the header keeps a subtitle to one line and would cut it at "Nothing leaves th...").
+                Text("This is exactly what your report will contain. Nothing leaves \(Platform.deviceNounPhrase) until you tap Share.")
+                    .font(StrandFont.subhead)
+                    .foregroundStyle(StrandPalette.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
                 if report.pending?.modeInactive == true {
                     // #1002: the selected profile's test mode is not on, so this bundle carries no capture
                     // for the very thing being reported (the #812 capture_check only grades ACTIVE modes,

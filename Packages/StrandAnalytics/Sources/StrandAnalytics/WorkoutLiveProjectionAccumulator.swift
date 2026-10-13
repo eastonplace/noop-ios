@@ -49,6 +49,10 @@ public struct WorkoutLiveProjectionAccumulator {
         rebuild(samples)
     }
 
+    /// Energy so far in kcal and the number of readings behind it, without building a whole snapshot.
+    public var caloriesKcal: Double { max(0, totalCalories) }
+    public var readingCount: Int { sampleCount }
+
     @discardableResult
     public mutating func append(_ sample: HRSample) -> Bool {
         guard let previous = lastSample else {
@@ -64,6 +68,24 @@ public struct WorkoutLiveProjectionAccumulator {
         totalCalories += calorieContribution(sample, duration: 1)
 
         addGap(gap, bucket: zoneBucket(for: previous.bpm))
+        lastSample = sample
+        sampleCount += 1
+        trace.append(sample.bpm)
+        if trace.count > Self.traceLimit { trace.removeFirst(trace.count - Self.traceLimit) }
+        return true
+    }
+
+    /// Append the first reading after a pause. The previous reading keeps the one second it already stands for
+    /// and no gap is credited between the two, so a pause is never counted as time at the last reading's rate.
+    @discardableResult
+    public mutating func appendAfterPause(_ sample: HRSample) -> Bool {
+        guard let previous = lastSample else {
+            addFirst(sample)
+            return true
+        }
+        guard sample.ts >= previous.ts else { return false }
+        totalCalories += calorieContribution(sample, duration: 1)
+        addGap(1, bucket: zoneBucket(for: previous.bpm))
         lastSample = sample
         sampleCount += 1
         trace.append(sample.bpm)

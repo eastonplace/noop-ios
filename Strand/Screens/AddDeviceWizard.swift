@@ -162,30 +162,33 @@ struct AddDeviceWizard: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            header
-            Divider().overlay(StrandPalette.hairline)
-            ScrollView {
-                VStack(alignment: .leading, spacing: NoopMetrics.gap) {
-                    if type == .oura {
-                        // The Oura type runs its OWN step machine (gate -> prep -> pick -> confirm ->
-                        // adopting/failed), NOT the generic prep/pick/confirm. Parity with the Android flow.
-                        ouraFlow
-                    } else {
-                        switch step {
-                        case .type:    typeStep
-                        case .prep:    prepStep
-                        case .pick:    pickStep
-                        case .confirm: confirmStep
-                        }
+        ScreenScaffold(title: headerTitle,
+                       subtitle: headerSubtitle,
+                       // Back is offered on every step except the very first (the type list), AND, on the
+                       // Oura adopt flow, except the Adopting progress (no meaningful back while a key
+                       // install is in flight). This re-enables back/cancel everywhere else so the user is
+                       // never trapped on the Failed state.
+                       backAction: showBack ? { goBack() } : nil,
+                       trailing: {
+                           NoopIconButton("xmark", accessibilityLabel: "Close") { stopAllScans(); onClose() }
+                       }) {
+            VStack(alignment: .leading, spacing: NoopMetrics.gap) {
+                if type == .oura {
+                    // The Oura type runs its OWN step machine (gate -> prep -> pick -> confirm ->
+                    // adopting/failed), NOT the generic prep/pick/confirm. Parity with the Android flow.
+                    ouraFlow
+                } else {
+                    switch step {
+                    case .type:    typeStep
+                    case .prep:    prepStep
+                    case .pick:    pickStep
+                    case .confirm: confirmStep
                     }
                 }
-                .padding(20)
-                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
+        .sheetScreenScaffoldEnvironment()
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(StrandPalette.surfaceBase)
         // Stop whichever scan is live whenever the sheet goes away (belt-and-braces alongside the
         // per-transition stops below) so neither central keeps scanning after dismiss.
         .onDisappear { stopAllScans() }
@@ -226,40 +229,6 @@ struct AddDeviceWizard: View {
     }
 
     // MARK: Header
-
-    private var header: some View {
-        HStack(spacing: 12) {
-            // Back is offered on every step except the very first (the type list), AND, on the Oura adopt
-            // flow, except the Adopting progress (no meaningful back while a key install is in flight). This
-            // re-enables back/cancel everywhere else so the user is never trapped on the Failed state.
-            if showBack {
-                Button(action: goBack) {
-                    Image(systemName: "chevron.left")
-                        .font(StrandFont.headline)
-                        .foregroundStyle(StrandPalette.textSecondary)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Back")
-            }
-            VStack(alignment: .leading, spacing: 2) {
-                Text(headerTitle).font(StrandFont.title2)
-                    .foregroundStyle(StrandPalette.textPrimary)
-                if let sub = headerSubtitle {
-                    Text(sub).font(StrandFont.caption)
-                        .foregroundStyle(StrandPalette.textTertiary)
-                }
-            }
-            Spacer()
-            Button(action: { stopAllScans(); onClose() }) {
-                Image(systemName: "xmark.circle.fill")
-                    .font(.system(size: 20))
-                    .foregroundStyle(StrandPalette.textTertiary)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Close")
-        }
-        .padding(20)
-    }
 
     /// Back is shown on every step except the very first (the type list) and, on the Oura adopt flow, the
     /// Adopting progress (no back while a key install is in flight). Parity with the Android `showBack`.
@@ -408,35 +377,30 @@ struct AddDeviceWizard: View {
                     singleConnectionWarning
                 }
 
-                VStack(alignment: .leading, spacing: 12) {
-                    ForEach(Array(prepInstructions(type).enumerated()), id: \.offset) { _, line in
-                        HStack(alignment: .top, spacing: 10) {
-                            Image(systemName: "checkmark.circle.fill")
-                                .font(StrandFont.subhead)
-                                .foregroundStyle(StrandPalette.accent)
-                                .accessibilityHidden(true)
-                            Text(line)
-                                .font(StrandFont.body)
-                                .foregroundStyle(StrandPalette.textSecondary)
-                                .fixedSize(horizontal: false, vertical: true)
+                StrandCard(padding: 16) {
+                    VStack(alignment: .leading, spacing: 12) {
+                        ForEach(Array(prepInstructions(type).enumerated()), id: \.offset) { _, line in
+                            HStack(alignment: .top, spacing: 10) {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .font(StrandFont.subhead)
+                                    .foregroundStyle(StrandPalette.accent)
+                                    .accessibilityHidden(true)
+                                Text(line)
+                                    .font(StrandFont.body)
+                                    .foregroundStyle(StrandPalette.textSecondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
                         }
                     }
                 }
-                .padding(16)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .frostedCardSurface(cornerRadius: 14)
 
                 Button {
                     startScan(for: type)
                     step = .pick
                 } label: {
                     Label("Scan", systemImage: "dot.radiowaves.left.and.right")
-                        .font(StrandFont.headline)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 6)
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(StrandPalette.ink)
+                .buttonStyle(NoopButtonStyle(.primary, fullWidth: true))
                 .accessibilityLabel("Scan for \(typeTitle(type))")
             }
         }
@@ -589,12 +553,8 @@ struct AddDeviceWizard: View {
             ouraStep = .prep   // tick confirmed: advance to the factory-reset checklist face
         } label: {
             Label("Continue", systemImage: "arrow.right")
-                .font(StrandFont.headline)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 6)
         }
-        .buttonStyle(.borderedProminent)
-        .tint(StrandPalette.ink)
+        .buttonStyle(NoopButtonStyle(.primary, fullWidth: true))
         .disabled(!ouraConsented)
         .accessibilityHint("Continue to get your ring ready")
 
@@ -647,35 +607,30 @@ struct AddDeviceWizard: View {
         .background(StrandPalette.statusWarning.opacity(0.10),
                     in: RoundedRectangle(cornerRadius: 12, style: .continuous))
 
-        VStack(alignment: .leading, spacing: 12) {
-            ForEach(Array(prepInstructions(.oura).enumerated()), id: \.offset) { _, line in
-                HStack(alignment: .top, spacing: 10) {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(StrandFont.subhead)
-                        .foregroundStyle(StrandPalette.accent)
-                        .accessibilityHidden(true)
-                    Text(line)
-                        .font(StrandFont.body)
-                        .foregroundStyle(StrandPalette.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
+        StrandCard(padding: 16) {
+            VStack(alignment: .leading, spacing: 12) {
+                ForEach(Array(prepInstructions(.oura).enumerated()), id: \.offset) { _, line in
+                    HStack(alignment: .top, spacing: 10) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(StrandFont.subhead)
+                            .foregroundStyle(StrandPalette.accent)
+                            .accessibilityHidden(true)
+                        Text(line)
+                            .font(StrandFont.body)
+                            .foregroundStyle(StrandPalette.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
             }
         }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .frostedCardSurface(cornerRadius: 14)
 
         Button {
             startScan(for: .oura)
             ouraStep = .pick
         } label: {
             Label("Scan for your ring", systemImage: "dot.radiowaves.left.and.right")
-                .font(StrandFont.headline)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 6)
         }
-        .buttonStyle(.borderedProminent)
-        .tint(StrandPalette.ink)
+        .buttonStyle(NoopButtonStyle(.primary, fullWidth: true))
         .accessibilityLabel("Scan for your Oura ring")
     }
 
@@ -728,12 +683,8 @@ struct AddDeviceWizard: View {
             ouraStep = .pick
         } label: {
             Label("Scan for your ring", systemImage: "dot.radiowaves.left.and.right")
-                .font(StrandFont.headline)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 6)
         }
-        .buttonStyle(.borderedProminent)
-        .tint(StrandPalette.ink)
+        .buttonStyle(NoopButtonStyle(.primary, fullWidth: true))
         .disabled(ouraKeyBytes == nil)
         .accessibilityLabel("Scan for your Oura ring")
 
@@ -778,37 +729,36 @@ struct AddDeviceWizard: View {
     @ViewBuilder private var ouraConfirmFace: some View {
         let gen = pickedOura?.gen ?? .gen3
         VStack(alignment: .leading, spacing: 16) {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(spacing: 10) {
-                    Image(systemName: "circle.circle")
-                        .font(.system(size: 22))
-                        .foregroundStyle(StrandPalette.accent)
-                        .accessibilityHidden(true)
-                    Text(gen.displayName).font(StrandFont.headline)
-                        .foregroundStyle(StrandPalette.textPrimary)
-                    Spacer()
-                    StatePill("Beta", tone: .warning, showsDot: false)
-                }
-                ForEach(Array(ouraCapabilityRows(for: gen).enumerated()), id: \.offset) { _, row in
-                    HStack(alignment: .top, spacing: 8) {
-                        Text(row.mark)
-                            .font(StrandFont.caption)
-                            .foregroundStyle(StrandPalette.textTertiary)
-                            .frame(width: 14, alignment: .leading)
-                        Text(row.label)
-                            .font(StrandFont.caption)
-                            .foregroundStyle(StrandPalette.textSecondary)
-                            .fixedSize(horizontal: false, vertical: true)
+            StrandCard(padding: 16) {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack(spacing: 10) {
+                        Image(systemName: "circle.circle")
+                            .font(.system(size: 22))
+                            .foregroundStyle(StrandPalette.accent)
+                            .accessibilityHidden(true)
+                        Text(gen.displayName).font(StrandFont.headline)
+                            .foregroundStyle(StrandPalette.textPrimary)
+                        Spacer()
+                        StatePill("Beta", tone: .warning, showsDot: false)
                     }
+                    ForEach(Array(ouraCapabilityRows(for: gen).enumerated()), id: \.offset) { _, row in
+                        HStack(alignment: .top, spacing: 8) {
+                            Text(row.mark)
+                                .font(StrandFont.caption)
+                                .foregroundStyle(StrandPalette.textTertiary)
+                                .frame(width: 14, alignment: .leading)
+                            Text(row.label)
+                                .font(StrandFont.caption)
+                                .foregroundStyle(StrandPalette.textSecondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    Text("Beta. * is an on-device estimate. Skin temp is a trend versus your own baseline, steps are a raw motion count, and HRV needs you to be still. No Oura Readiness or SpO2 percentage comes off the ring (import an Oura file for those).")
+                        .font(StrandFont.footnote)
+                        .foregroundStyle(StrandPalette.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-                Text("Beta. * is an on-device estimate. Skin temp is a trend versus your own baseline, steps are a raw motion count, and HRV needs you to be still. No Oura Readiness or SpO2 percentage comes off the ring (import an Oura file for those).")
-                    .font(StrandFont.footnote)
-                    .foregroundStyle(StrandPalette.textTertiary)
-                    .fixedSize(horizontal: false, vertical: true)
             }
-            .padding(16)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .frostedCardSurface(cornerRadius: 14)
 
             Text("Name").strandOverline()
             TextField("Oura ring", text: $nameDraft)
@@ -827,12 +777,8 @@ struct AddDeviceWizard: View {
                     finishAdvancedOura()
                 } label: {
                     Text("Connect to this ring")
-                        .font(StrandFont.headline)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 6)
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(StrandPalette.ink)
+                .buttonStyle(NoopButtonStyle(.primary, fullWidth: true))
                 .accessibilityLabel("Connect to this ring")
                 Text("Both NOOP and the Oura app can use a ring you own by key, but only one can hold the Bluetooth link at a time.")
                     .font(StrandFont.footnote)
@@ -844,14 +790,8 @@ struct AddDeviceWizard: View {
                     ouraConfirmAdopt = true
                 } label: {
                     Text("Take over this ring")
-                        .font(StrandFont.headline)
-                        .foregroundStyle(StrandPalette.statusCritical)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 10)
-                        .background(StrandPalette.statusCritical.opacity(0.16),
-                                    in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(NoopButtonStyle(.destructive, fullWidth: true))
                 .accessibilityLabel("Take over this ring")
             }
         }
@@ -863,21 +803,20 @@ struct AddDeviceWizard: View {
     /// is in flight (the standard adopt path; the Advanced path never lands here). Driven to success/Failed by
     /// the live source's `adoptPhase` (see the body `.onChange`). Mirrors the Android `OuraAdoptingStep`.
     @ViewBuilder private var ouraAdoptingFace: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 12) {
-                ProgressView().tint(StrandPalette.ink)
-                Text("Taking over your ring")
-                    .font(StrandFont.headline)
-                    .foregroundStyle(StrandPalette.textPrimary)
+        StrandCard(padding: 20) {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 12) {
+                    ProgressView().tint(StrandPalette.ink)
+                    Text("Taking over your ring")
+                        .font(StrandFont.headline)
+                        .foregroundStyle(StrandPalette.textPrimary)
+                }
+                Text("Installing NOOP's key and confirming the ring answers only to NOOP. Keep the ring close and do not open the Oura app.")
+                    .font(StrandFont.subhead)
+                    .foregroundStyle(StrandPalette.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            Text("Installing NOOP's key and confirming the ring answers only to NOOP. Keep the ring close and do not open the Oura app.")
-                .font(StrandFont.subhead)
-                .foregroundStyle(StrandPalette.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(20)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .frostedCardSurface(cornerRadius: 14)
     }
 
     // MARK: Step 5 (Oura, failure) - honest dead-end, never a fabricated success
@@ -886,48 +825,37 @@ struct AddDeviceWizard: View {
     /// two reachable fallbacks (Try again -> back to pick; Use file import -> close to Data Sources). Re-enables
     /// the user's exits so they are never trapped. Mirrors the Android `OuraFailedStep`.
     @ViewBuilder private var ouraFailedFace: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("We could not take over this ring.")
-                .font(StrandFont.headline)
-                .foregroundStyle(StrandPalette.textPrimary)
-            Text(model.ouraNeedsPairing ?? "The most common cause is the ring was not fully reset in the Oura app, or the Oura app is still running. Reset the ring again, force-quit Oura, then try once more. If it keeps failing, your ring may be a generation NOOP cannot adopt yet. The ring is not bricked: re-pair it in the Oura app to recover it. You can still use file import.")
-                .font(StrandFont.subhead)
-                .foregroundStyle(StrandPalette.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-            HStack(spacing: 10) {
-                Button {
-                    pickedOura = nil
-                    ouraScanner.scan()
-                    ouraStep = .pick
-                } label: {
-                    Text("Try again")
-                        .font(StrandFont.headline)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 6)
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(StrandPalette.ink)
-                .accessibilityLabel("Try again")
+        StrandCard(padding: 16) {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("We could not take over this ring.")
+                    .font(StrandFont.headline)
+                    .foregroundStyle(StrandPalette.textPrimary)
+                Text(model.ouraNeedsPairing ?? "The most common cause is the ring was not fully reset in the Oura app, or the Oura app is still running. Reset the ring again, force-quit Oura, then try once more. If it keeps failing, your ring may be a generation NOOP cannot adopt yet. The ring is not bricked: re-pair it in the Oura app to recover it. You can still use file import.")
+                    .font(StrandFont.subhead)
+                    .foregroundStyle(StrandPalette.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 10) {
+                    Button {
+                        pickedOura = nil
+                        ouraScanner.scan()
+                        ouraStep = .pick
+                    } label: {
+                        Text("Try again")
+                    }
+                    .buttonStyle(NoopButtonStyle(.primary, fullWidth: true))
+                    .accessibilityLabel("Try again")
 
-                Button {
-                    ouraScanner.stop()
-                    onClose()   // honest non-destructive fallback: head to file import
-                } label: {
-                    Text("Use file import")
-                        .font(StrandFont.headline)
-                        .foregroundStyle(StrandPalette.accent)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 6)
-                        .background(StrandPalette.surfaceInset,
-                                    in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    Button {
+                        ouraScanner.stop()
+                        onClose()   // honest non-destructive fallback: head to file import
+                    } label: {
+                        Text("Use file import")
+                    }
+                    .buttonStyle(NoopButtonStyle(.secondary, fullWidth: true))
+                    .accessibilityLabel("Use file import")
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Use file import")
             }
         }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .frostedCardSurface(cornerRadius: 14)
     }
 
     /// The per-generation capability checklist (section 3 of the onboarding UX spec). Each row is a (mark,
@@ -1089,19 +1017,18 @@ struct AddDeviceWizard: View {
 
     @ViewBuilder private var confirmStep: some View {
         VStack(alignment: .leading, spacing: 16) {
-            HStack(spacing: 12) {
-                SignalBars(rssi: confirmRSSI)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(confirmAdvertisedName).font(StrandFont.headline)
-                        .foregroundStyle(StrandPalette.textPrimary)
-                    Text(confirmBrand).font(StrandFont.caption)
-                        .foregroundStyle(StrandPalette.textTertiary)
+            StrandCard(padding: 14) {
+                HStack(spacing: 12) {
+                    SignalBars(rssi: confirmRSSI)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(confirmAdvertisedName).font(StrandFont.headline)
+                            .foregroundStyle(StrandPalette.textPrimary)
+                        Text(confirmBrand).font(StrandFont.caption)
+                            .foregroundStyle(StrandPalette.textTertiary)
+                    }
+                    Spacer()
                 }
-                Spacer()
             }
-            .padding(14)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .frostedCardSurface(cornerRadius: 12)
 
             Text("Name").strandOverline()
             TextField("Device name", text: $nameDraft)
@@ -1114,9 +1041,7 @@ struct AddDeviceWizard: View {
                 .accessibilityLabel("Device name")
 
             Button("Add") { askMakeActive = true }
-                .buttonStyle(.borderedProminent)
-                .tint(StrandPalette.ink)
-                .frame(maxWidth: .infinity)
+                .buttonStyle(NoopButtonStyle(.primary, fullWidth: true))
                 .disabled(nameDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 .padding(.top, 4)
         }
@@ -1600,24 +1525,22 @@ private struct OuraPickList: View {
             if let msg = scanner.needsPairing {
                 // Honest needs-pairing state: the ring won't answer (still Oura-owned / not reset). Never a
                 // fabricated reading: point at the file-import lane instead.
-                VStack(alignment: .leading, spacing: 12) {
-                    HStack(alignment: .top, spacing: 10) {
-                        Image(systemName: "info.circle")
-                            .foregroundStyle(StrandPalette.statusWarning)
-                            .accessibilityHidden(true)
-                        Text(msg)
-                            .font(StrandFont.body)
-                            .foregroundStyle(StrandPalette.textPrimary)
-                            .fixedSize(horizontal: false, vertical: true)
+                StrandCard(padding: 16) {
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack(alignment: .top, spacing: 10) {
+                            Image(systemName: "info.circle")
+                                .foregroundStyle(StrandPalette.statusWarning)
+                                .accessibilityHidden(true)
+                            Text(msg)
+                                .font(StrandFont.body)
+                                .foregroundStyle(StrandPalette.textPrimary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        Button("Use file import") { onUseImport() }
+                            .buttonStyle(NoopButtonStyle(.primary, fullWidth: true))
+                            .accessibilityLabel("Use file import for Oura")
                     }
-                    Button("Use file import") { onUseImport() }
-                        .buttonStyle(.borderedProminent)
-                        .tint(StrandPalette.ink)
-                        .accessibilityLabel("Use file import for Oura")
                 }
-                .padding(16)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .frostedCardSurface(cornerRadius: 14)
             } else if scanner.discovered.isEmpty {
                 VStack(alignment: .leading, spacing: 10) {
                     SearchingCard()
@@ -1664,25 +1587,24 @@ private struct SearchingCard: View {
     /// FTMS / Huami / Oura pick lists keep their existing copy unchanged.
     var whoopHint: Bool = false
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            ProgressView().tint(StrandPalette.ink)
-            Text("Searching…")
-                .font(StrandFont.body)
-                .foregroundStyle(StrandPalette.textPrimary)
-            Text("Make sure it's awake and not connected elsewhere.")
-                .font(StrandFont.subhead)
-                .foregroundStyle(StrandPalette.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-            if whoopHint {
-                Text("Not showing up? The official WHOOP app may still be holding it. Force-quit that app, then tap Rescan.")
-                    .font(StrandFont.footnote)
+        StrandCard(padding: 20) {
+            VStack(alignment: .leading, spacing: 10) {
+                ProgressView().tint(StrandPalette.ink)
+                Text("Searching…")
+                    .font(StrandFont.body)
                     .foregroundStyle(StrandPalette.textPrimary)
+                Text("Make sure it's awake and not connected elsewhere.")
+                    .font(StrandFont.subhead)
+                    .foregroundStyle(StrandPalette.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
+                if whoopHint {
+                    Text("Not showing up? The official WHOOP app may still be holding it. Force-quit that app, then tap Rescan.")
+                        .font(StrandFont.footnote)
+                        .foregroundStyle(StrandPalette.textPrimary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(20)
-        .frostedCardSurface(cornerRadius: 14)
     }
 }
 
@@ -1710,7 +1632,12 @@ private struct DiscoveredRow: View {
             }
             .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .frostedCardSurface(cornerRadius: 12)
+            // A selectable device tile is a control, so it keeps an explicit boundary (spec 010) — drawn
+            // from the card tokens at the canonical card radius rather than the gradient card surface.
+            .background(StrandPalette.card,
+                        in: RoundedRectangle(cornerRadius: NoopMetrics.cardRadius, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: NoopMetrics.cardRadius, style: .continuous)
+                .strokeBorder(StrandPalette.cardBorder, lineWidth: 1))
         }
         .buttonStyle(.plain)
         .accessibilityLabel("\(name), signal \(SignalBars.level(for: rssi)) of 4")

@@ -1028,6 +1028,7 @@ extension WhoopStore {
         RRSourceMigration.register(on: &migrator)
         LiftLogMigration.register(on: &migrator)
         LiftReceiptStateMigration.register(on: &migrator)
+        StoreIndexHygieneMigration.register(on: &migrator)
         return migrator
     }
 }

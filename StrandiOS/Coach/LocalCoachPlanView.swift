@@ -1,0 +1,449 @@
+#if os(iOS)
+import SwiftUI
+import StrandDesign
+
+struct LocalCoachPlanView: View {
+    @EnvironmentObject private var coach: LocalCoachEngine
+    @State private var editing: PlanEdit?
+    @State private var confirmSave = false
+    @State private var showWorkouts = false
+    @State private var summaryExpanded = false
+    @ScaledMetric(relativeTo: .caption) private var stepDiameter: CGFloat = 24
+    let onBuild: () -> Void
+
+    /// The exercise being tuned and the day it belongs to, so the edit lands on the right session.
+    private struct PlanEdit: Identifiable {
+        let dayID: UUID
+        let exercise: LocalCoachPlannedExercise
+        var id: UUID { exercise.id }
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                if coach.isPreview { LocalCoachFixtureLabel().padding(.bottom, NoopMetrics.space3) }
+                if let plan = coach.plan {
+                    planHeader(plan)
+                    ForEach(plan.days) { day in
+                        FlatSectionSeparator.coach
+                        daySection(day, in: plan)
+                    }
+                    Text("Tap an exercise to adjust sets, reps, rest or notes. Start with a load you can control.")
+                        .font(StrandFont.footnote).foregroundStyle(StrandPalette.textTertiary)
+                        .padding(.top, NoopMetrics.space4)
+                } else {
+                    emptyPlan
+                }
+            }
+            .padding(.horizontal, NoopMetrics.space4)
+            .padding(.top, CoachRhythm.pageTop)
+            .padding(.bottom, CoachRhythm.pageBottom)
+        }
+        .sheet(item: $editing) { edit in
+            LocalCoachExerciseEditor(exercise: edit.exercise) { edited in
+                guard var plan = coach.plan, let dayIndex = plan.days.firstIndex(where: { $0.id == edit.dayID }),
+                      let exerciseIndex = plan.days[dayIndex].exercises.firstIndex(where: { $0.id == edited.id }) else { return }
+                plan.days[dayIndex].exercises[exerciseIndex] = edited
+                coach.updatePlan(plan)
+            }
+            .noopSheetPresentation(largeFirst: true)
+        }
+        .sheet(isPresented: $showWorkouts) {
+            NavigationStack {
+                // A sheet inherits the presenter's header context (Coach is pushed from Explore, a drill-in): reset it so
+                // Workouts draws its own header here, and give it the canonical close button. Workouts hides the navigation
+                // bar, so a toolbar Done would never show.
+                WorkoutsView()
+                    .sheetScreenScaffoldEnvironment(onClose: { showWorkouts = false })
+                    .background(StrandPalette.appCanvas.ignoresSafeArea())
+            }
+            .tint(StrandPalette.accent)
+            .noopSheetPresentation(largeFirst: true)
+        }
+        // A workout request (Quick Actions, the Live Activity, a deep link) closes the Workouts sheet, so the workout
+        // journey's cover can open at the root.
+        .collapsesForWorkoutJourney($showWorkouts)
+        .collapsesForWorkoutJourney($editing)
+        .confirmationDialog("Save this plan to NOOP?", isPresented: $confirmSave, titleVisibility: .visible) {
+            Button("Save reviewed plan") { Task { await coach.savePlan() } }
+            Button("Keep reviewing", role: .cancel) { }
+        } message: {
+            Text("This adds the reviewed sessions to your local workout plan. It does not start or mark a workout as completed.")
+        }
+        .accessibilityIdentifier("coach.plan")
+    }
+
+    // MARK: Header
+
+    /// The plan as one summary: its state, title and summary, three facts and the actions that move it forward.
+    private func planHeader(_ plan: LocalCoachPlan) -> some View {
+        let perSession = CoachPlanText.minutesPerSession(plan.days.map(\.minutes))
+        let exercises = plan.days.reduce(0) { $0 + $1.exercises.count }
+        return FlatSection(plan.saved ? "Saved to your workouts" : "Built for your review",
+                            systemImage: plan.saved ? "checkmark.circle.fill" : "calendar.badge.plus",
+                            tint: .workout,
+                            trailing: .pill(plan.saved ? "Saved" : "Draft", tone: plan.saved ? .positive : .neutral)) {
+            VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+                Text(plan.title).font(StrandFont.title1).foregroundStyle(StrandPalette.textPrimary)
+                    .fixedSize(horizontal: false, vertical: true)
+                // A generated summary can run long (assumptions, caveats). Keep the header calm: three lines,
+                // with a chip to read the rest when it really runs past them. VoiceOver always reads all of it.
+                CoachCollapsibleSummary(text: plan.summary, isExpanded: $summaryExpanded)
+            }
+            FactStrip(facts: [
+                .init("Workouts", value: "\(plan.days.count)"),
+                .init("Per workout", value: perSession.map(String.init) ?? WidgetMetrics.missingValue,
+                      unit: "min"),
+                .init("Exercises", value: "\(exercises)")
+            ])
+            actions(plan)
+        }
+    }
+
+    /// Save is the one primary action; rebuilding is a chip beside it (below it at large text sizes).
+    private func actions(_ plan: LocalCoachPlan) -> some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: NoopMetrics.space3) {
+                saveButton(plan)
+                rebuildChip
+                Spacer(minLength: 0)
+            }
+            VStack(alignment: .leading, spacing: NoopMetrics.space3) {
+                saveButton(plan)
+                rebuildChip
+            }
+        }
+    }
+
+    private func saveButton(_ plan: LocalCoachPlan) -> some View {
+        Button {
+            if plan.saved { showWorkouts = true } else { confirmSave = true }
+        } label: {
+            Label(plan.saved ? "Open saved workouts" : "Review & save plan",
+                  systemImage: plan.saved ? "checkmark.circle" : "plus.circle")
+                .labelStyle(.titleAndIcon)
+        }
+        .buttonStyle(PrimaryPillButtonStyle())
+        .disabled(coach.isResponding || coach.isPreview)
+        .accessibilityIdentifier("coach.savePlan")
+    }
+
+    private var rebuildChip: some View {
+        Button(action: onBuild) {
+            WidgetChip(appTitle: "Build a different plan", systemImage: "arrow.triangle.2.circlepath",
+                       showsChevron: false, overhangs: false)
+                .chipHitTarget()
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: Days
+
+    private func date(of day: LocalCoachPlanDay, in plan: LocalCoachPlan) -> Date {
+        Calendar.current.date(byAdding: .day, value: day.dayOffset, to: plan.createdAt) ?? plan.createdAt
+    }
+
+    /// One session: the weekday as the eyebrow (a Today pill on the day itself), its title and focus, then the
+    /// exercises as plain rows.
+    private func daySection(_ day: LocalCoachPlanDay, in plan: LocalCoachPlan) -> some View {
+        let when = date(of: day, in: plan)
+        let isToday = Calendar.current.isDateInToday(when)
+        let heading = when.formatted(.dateTime.weekday(.wide).month(.abbreviated).day())
+        return FlatSection(verbatim: heading, systemImage: "figure.strengthtraining.traditional", tint: .workout,
+                            trailing: isToday ? .pill("Today", tone: .accent) : .none) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(day.title).font(StrandFont.headline).foregroundStyle(StrandPalette.textPrimary)
+                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                    Text(day.focus).font(StrandFont.footnote).foregroundStyle(StrandPalette.textSecondary)
+                    Text("·").font(StrandFont.footnote).foregroundStyle(StrandPalette.textTertiary)
+                    Text("\(day.minutes)").font(StrandFont.captionNumber).foregroundStyle(StrandPalette.textPrimary)
+                    Text("min").font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
+                }
+                .accessibilityElement(children: .combine)
+            }
+            VStack(spacing: 0) {
+                ForEach(Array(day.exercises.enumerated()), id: \.element.id) { index, exercise in
+                    if index > 0 {
+                        Rectangle().fill(StrandPalette.hairline).frame(height: 1).accessibilityHidden(true)
+                    }
+                    Button { editing = PlanEdit(dayID: day.id, exercise: exercise) } label: { exerciseRow(exercise) }
+                        .buttonStyle(.plain)
+                }
+            }
+            // The rows carry their own air; pull them in so the gaps under the heading and above the next
+            // section's hairline match the rest of the page.
+            .padding(.top, -NoopMetrics.space1)
+            .padding(.bottom, -NoopMetrics.space2)
+        }
+    }
+
+    private func exerciseRow(_ exercise: LocalCoachPlannedExercise) -> some View {
+        HStack(spacing: NoopMetrics.space3) {
+            CoachExerciseThumbnail(exercise: exercise)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(exercise.name.capitalized).font(StrandFont.subhead.weight(.semibold))
+                    .foregroundStyle(StrandPalette.textPrimary)
+                Text("\(exercise.equipment.capitalized) · \(exercise.restSeconds)s rest")
+                    .font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
+            }
+            .multilineTextAlignment(.leading)
+            Spacer(minLength: NoopMetrics.space2)
+            // The prescription is never cut short; the name beside it wraps instead.
+            VStack(alignment: .trailing, spacing: 0) {
+                Text("\(exercise.sets) × \(exercise.reps)").font(StrandFont.bodyNumber)
+                    .foregroundStyle(StrandPalette.textPrimary)
+                Text("sets × reps").font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
+            }
+            .fixedSize(horizontal: true, vertical: false)
+            Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(StrandPalette.textTertiary).accessibilityHidden(true)
+        }
+        .padding(.vertical, NoopMetrics.space2)
+        .frame(minHeight: 44)
+        .contentShape(Rectangle())
+    }
+
+    // MARK: Empty
+
+    /// No plan yet: an invitation, the one action, and what happens next.
+    private var emptyPlan: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: NoopMetrics.space3) {
+                CoachMedallion(systemImage: "figure.strengthtraining.traditional", tint: .workout)
+                Text("Make room\nfor progress.").font(StrandFont.title1)
+                    .foregroundStyle(StrandPalette.textPrimary)
+                Text("Build a training plan around your focus and available time. Review the exercises, adjust the details and save it to your NOOP workouts.")
+                    .font(StrandFont.subhead).lineSpacing(3).foregroundStyle(StrandPalette.textSecondary)
+                Button(action: onBuild) { Text("Build my plan") }
+                    .buttonStyle(PrimaryPillButtonStyle())
+                    .accessibilityIdentifier("coach.buildPlan")
+            }
+            FlatSectionSeparator.coach
+            FlatSection("How it works", systemImage: "list.number", tint: .workout) {
+                VStack(alignment: .leading, spacing: NoopMetrics.space3) {
+                    step(1, "Pick your focus and time")
+                    step(2, "Review and adjust the draft")
+                    step(3, "Save it to your workouts")
+                }
+            }
+        }
+    }
+
+    private func step(_ number: Int, _ title: LocalizedStringKey) -> some View {
+        HStack(spacing: NoopMetrics.space3) {
+            Text("\(number)").font(StrandFont.captionNumber)
+                .foregroundStyle(DomainTint.workout.accent)
+                .frame(width: stepDiameter, height: stepDiameter)
+                .background(Circle().fill(DomainTint.workout.accent.opacity(0.14)))
+                .accessibilityHidden(true)
+            Text(title).font(StrandFont.subhead).foregroundStyle(StrandPalette.textSecondary)
+        }
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// A paragraph that collapses to three lines behind a More chip only when it really runs past three lines at the
+/// current width and text size. Measured with two hidden copies, not guessed from a character count.
+private struct CoachCollapsibleSummary: View {
+    let text: String
+    @Binding var isExpanded: Bool
+    @State private var fullHeight: CGFloat = 0
+    @State private var clampedHeight: CGFloat = 0
+
+    private var overflows: Bool { fullHeight > clampedHeight + 1 }
+
+    private func summary(lines: Int?) -> some View {
+        Text(text).font(StrandFont.subhead).lineSpacing(3)
+            .foregroundStyle(StrandPalette.textSecondary)
+            .lineLimit(lines)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+            summary(lines: isExpanded ? nil : 3)
+            if overflows {
+                Button { withAnimation(.easeOut(duration: 0.2)) { isExpanded.toggle() } } label: {
+                    WidgetChip(appTitle: isExpanded ? "Less" : "More",
+                               systemImage: isExpanded ? "chevron.up" : "chevron.down",
+                               showsChevron: false, overhangs: false)
+                        .chipHitTarget()
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .background {
+            ZStack {
+                summary(lines: nil).fixedSize(horizontal: false, vertical: true)
+                    .background(GeometryReader { proxy in
+                        Color.clear.preference(key: CoachFullHeightKey.self, value: proxy.size.height)
+                    })
+                summary(lines: 3).fixedSize(horizontal: false, vertical: true)
+                    .background(GeometryReader { proxy in
+                        Color.clear.preference(key: CoachClampedHeightKey.self, value: proxy.size.height)
+                    })
+            }
+            .hidden()
+            .accessibilityHidden(true)
+        }
+        .onPreferenceChange(CoachFullHeightKey.self) { fullHeight = $0 }
+        .onPreferenceChange(CoachClampedHeightKey.self) { clampedHeight = $0 }
+    }
+}
+
+private struct CoachFullHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
+}
+
+private struct CoachClampedHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
+}
+
+/// Exercise pictures from the catalog: found through an index built once, read and scaled off the main thread, and
+/// kept by exercise. The plan redraws with every streamed token, so a redraw never goes back to the disk.
+@MainActor
+private enum CoachExerciseArt {
+    private static let cache = NSCache<NSString, UIImage>()
+    private static let entriesByID = Dictionary(NoopLiftCatalog.entries.map { ($0.id, $0) },
+                                                uniquingKeysWith: { first, _ in first })
+
+    /// What the picture depends on: the catalog entry the plan names, or the exercise's own name when the plan names
+    /// one the catalog does not have. Exercises with the same key share a picture.
+    static func key(for exercise: LocalCoachPlannedExercise) -> String {
+        entriesByID[exercise.catalogID] != nil ? exercise.catalogID : "name:" + exercise.name.lowercased()
+    }
+
+    static func cached(for exercise: LocalCoachPlannedExercise) -> UIImage? {
+        cache.object(forKey: key(for: exercise) as NSString)
+    }
+
+    static func image(for exercise: LocalCoachPlannedExercise, pixelSize: CGSize) async -> UIImage? {
+        if let hit = cached(for: exercise) { return hit }
+        let entry = entriesByID[exercise.catalogID] ?? NoopLiftCatalog.resolve(name: exercise.name)
+        guard let url = entry?.imageURL else { return nil }
+        let image = await Task.detached(priority: .utility) {
+            UIImage(contentsOfFile: url.path)?.preparingThumbnail(of: pixelSize)
+        }.value
+        if let image { cache.setObject(image, forKey: key(for: exercise) as NSString) }
+        return image
+    }
+}
+
+/// The exercise's picture, or the dumbbell until it has loaded (and for an exercise with no picture).
+private struct CoachExerciseThumbnail: View {
+    let exercise: LocalCoachPlannedExercise
+    @Environment(\.displayScale) private var displayScale
+    @State private var image: UIImage?
+
+    init(exercise: LocalCoachPlannedExercise) {
+        self.exercise = exercise
+        _image = State(initialValue: CoachExerciseArt.cached(for: exercise))
+    }
+
+    var body: some View {
+        // The calm tile Lift draws exercises in: the picture is inset in a dark mat instead of a glaring white square.
+        ExerciseArtTile(size: 54) {
+            if let image {
+                Image(uiImage: image).resizable().scaledToFit()
+                    .background(Color.white)
+            } else {
+                Image(systemName: "dumbbell").font(.system(size: 18, weight: .regular))
+                    .foregroundStyle(DomainTint.workout.accent)
+            }
+        }
+        .task(id: CoachExerciseArt.key(for: exercise)) {
+            image = CoachExerciseArt.cached(for: exercise)
+            image = await CoachExerciseArt.image(
+                for: exercise, pixelSize: CGSize(width: 54 * displayScale, height: 54 * displayScale))
+        }
+    }
+}
+
+struct LocalCoachPlanBuilder: View {
+    @EnvironmentObject private var coach: LocalCoachEngine
+    @Environment(\.dismiss) private var dismiss
+    @State private var focus = "Full body strength"
+    @State private var minutes = 45
+    @State private var days = 3
+    @State private var building = false
+    let onBuilt: () -> Void
+
+    var body: some View {
+        NavigationStack {
+            NativeSettingsList {
+                Section {
+                    Text("A plan you can make your own.")
+                        .font(StrandFont.title2).padding(.vertical, NoopMetrics.space2)
+                    Text("Choose your focus and schedule. NOOP uses its local exercise catalog to create a draft for you to review.")
+                        .font(StrandFont.subhead).foregroundStyle(.secondary)
+                }
+                Section("Your training") {
+                    TextField("Focus", text: $focus, axis: .vertical).lineLimit(2...4)
+                    Picker("Time per session", selection: $minutes) {
+                        ForEach([20, 30, 45, 60, 75, 90], id: \.self) { Text("\($0) minutes").tag($0) }
+                    }
+                    Stepper("\(days) sessions this week", value: $days, in: 1...7)
+                }
+                if !coach.preferences.usePersonalData {
+                    Section {
+                        Toggle("Allow local records for planning", isOn: $coach.preferences.usePersonalData)
+                    } footer: { Text("Your plan stays on this iPhone. Review it before adding sessions to your workouts.") }
+                }
+                Section {
+                    Button {
+                        building = true
+                        let oldID = coach.plan?.id
+                        Task {
+                            await coach.createPlan(focus: focus, minutes: minutes, days: days)
+                            building = false
+                            if coach.plan?.id != oldID, coach.plan != nil { onBuilt(); dismiss() }
+                        }
+                    } label: {
+                        HStack { Text(building ? "Building your draft…" : "Create my draft"); Spacer(); if building { ProgressView() } }
+                    }.disabled(building || !coach.preferences.usePersonalData || focus.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .accessibilityIdentifier("coach.createPlan")
+                }
+                if let error = coach.errorText { CoachNotice(error: error) }
+            }
+            .navigationTitle("Build a plan").navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { if building { coach.cancel() }; dismiss() } } }
+        }
+        .coachSettingsSheetEnvironment()
+    }
+}
+
+private struct LocalCoachExerciseEditor: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var draft: LocalCoachPlannedExercise
+    let onSave: (LocalCoachPlannedExercise) -> Void
+
+    init(exercise: LocalCoachPlannedExercise, onSave: @escaping (LocalCoachPlannedExercise) -> Void) {
+        _draft = State(initialValue: exercise)
+        self.onSave = onSave
+    }
+
+    var body: some View {
+        NavigationStack {
+            NativeSettingsList {
+                Section(draft.name.capitalized) {
+                    Stepper("\(draft.sets) sets", value: $draft.sets, in: 1...8)
+                    Stepper("\(draft.reps) reps", value: $draft.reps, in: 1...30)
+                    Stepper("\(draft.restSeconds) seconds rest", value: $draft.restSeconds, in: 15...300, step: 15)
+                    TextField("Coaching note", text: $draft.note, axis: .vertical).lineLimit(3...6)
+                }
+                if let entry = NoopLiftCatalog.entries.first(where: { $0.id == draft.catalogID }) ?? NoopLiftCatalog.resolve(name: draft.name),
+                   !entry.instructions.isEmpty {
+                    Section("Movement guide") { Text(entry.instructions).font(StrandFont.subhead) }
+                }
+            }
+            .navigationTitle("Tune your workout").navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) { Button("Apply") { onSave(draft); dismiss() } }
+            }
+        }
+        .coachSettingsSheetEnvironment()
+    }
+}
+#endif

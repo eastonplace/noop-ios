@@ -1,5 +1,9 @@
 # Active work
 
+- [x] Repair Coach navigation and general-chat regressions: restored Quick Actions, reserved composer space, corrected source invalidation and reply-completion timing. Build 205 installed and launched on the iPhone 18 Pro. All 64 focused tests and the physical full-shell UI test passed, including a READY reply. Live personal-record coaching remains pending the app's record update. See `docs/local-coach-phone-fix-20260926.md`.
+
+- [~] Local Apple-model Coach, September 26, 2026: native screens, 14 tools, reviewed Lift plans, memory, Siri routes, voice input, and testing/reporting implemented. Current build 205 passed 64 focused tests and a real-iPhone UI test, with physical screenshots inspected. General on-device chat is verified; live personal-record coaching, WHOOP connection, Siri/voice flows, and broader parity remain open. See `docs/local-coach-phone-fix-20260926.md`; `docs/local-coach-verification-20260926.md` is historical build-204 evidence.
+
 - [x] Polish approved workout screens: red heart-rate charts, clearer zone selection, and simplified controls and summary chrome.
   - Debug build, rendered views, zone selection/reset, scrolling, and large-text checks passed. Screenshots saved with the review.
   - Local review only. Normal HealthKit startup and physical/background checks remain open; no push, merge, or phone installation.

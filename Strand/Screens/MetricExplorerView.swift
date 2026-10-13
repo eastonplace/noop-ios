@@ -6,11 +6,10 @@ import WhoopStore
 
 // MARK: - Explore (Metric Explorer + Detail)
 //
-// The catalog-driven "Explore" surface. The root is a grouped list — one
-// SectionHeader per MetricCatalog.category, then a row per metric — pushing a
-// MetricDetailView. The detail is a uniform analytic dossier built ONLY from the
-// locked StrandDesign components (NoopCard / ChartCard / StatTile / InsightCard /
-// SegmentedPillControl). No custom card heights, paddings, or surfaces anywhere.
+// The catalog-driven "Explore" surface. The root is a flat list: one section per MetricCatalog.category, a row per
+// metric, each pushing a MetricDetailView. The detail is a drill-in in the same language as the Today drill-ins and
+// Trends: flat sections opened by an eyebrow, the Trends hero chart for the selected range, Low / Average / High,
+// and what correlates, all with the metric's own domain tint.
 //
 // Sparse-metric rule (owner saw "no data" on metrics that HAVE data): a series may
 // be sampled weekly (weight / body fat). The window is taken RELATIVE TO THE LATEST
@@ -18,98 +17,6 @@ import WhoopStore
 // selected window holds ≥1 point we SHOW THAT WINDOW (so W/M/3M stay visibly
 // distinct); only when it holds ZERO points do we auto-expand to the smallest larger
 // range that does. The hero always shows the latest available point + "as of <date>".
-
-// yyyy-MM-dd → Date, fixed UTC / en_US_POSIX (per task spec).
-private let strandDayParser: DateFormatter = {
-    let f = DateFormatter()
-    f.locale = Locale(identifier: "en_US_POSIX")
-    f.timeZone = TimeZone(identifier: "UTC")
-    f.dateFormat = "yyyy-MM-dd"
-    return f
-}()
-
-private func parseDay(_ day: String) -> Date? { strandDayParser.date(from: day) }
-
-/// "9 Jun 2026" — long, locale-stable date for the hero "as of" line.
-private func longDate(_ d: Date) -> String {
-    let f = DateFormatter()
-    f.locale = Locale(identifier: "en_US_POSIX")
-    f.timeZone = TimeZone(identifier: "UTC")
-    f.dateFormat = "d MMM yyyy"
-    return f.string(from: d)
-}
-
-/// The category accent (colour communicates category only — never decoration).
-private func metricAccent(_ m: MetricDescriptor) -> Color {
-    switch m.key {
-    case "recovery":
-        return StrandPalette.recoveryData
-    case "sleep_performance", "hours_vs_needed_pct", "sleep_consistency",
-         "restorative_pct", "restorative_min", "sleep_efficiency", "sleep_total_min",
-         "sleep_deep_min", "sleep_rem_min":
-        return StrandPalette.accent
-    case "strain", "hr_zones45_min", "hr_zones_all_min", "strength_min", "hr_zones13_min":
-        return StrandPalette.strainColor(14)              // mid-strain hue
-    case "hrv", "vo2max", "lean_mass":
-        return StrandPalette.metricPurple
-    case "rhr", "stress", "sleep_debt_min", "body_fat", "max_hr":
-        return StrandPalette.metricRose
-    case "spo2", "steps":
-        return StrandPalette.metricCyan
-    case "energy_kcal", "active_kcal":
-        return StrandPalette.metricAmber
-    default:
-        switch m.source {
-        case "apple-health": return StrandPalette.metricCyan
-        case "xiaomi-band":  return StrandPalette.metricAmber
-        default:             return StrandPalette.textPrimary
-        }
-    }
-}
-
-/// The gradient for a metric's trend line — strain/recovery ride their data scales;
-/// everything else uses a flat tint of its category accent.
-private func metricGradient(_ m: MetricDescriptor) -> Gradient {
-    if m.key == "strain" {
-        return Gradient(colors: [StrandPalette.strainAccent, StrandPalette.strainAccent])
-    }
-    if m.key == "recovery" {
-        return Gradient(colors: [StrandPalette.recoveryData.opacity(0.55), StrandPalette.recoveryData])
-    }
-    let c = metricAccent(m)
-    return Gradient(colors: [c.opacity(0.55), c])
-}
-
-/// The Bevel colour world a metric's detail hero belongs to — the catalog's category
-/// already names it (Charge / Sleep / Strain), and Heart/Health/Nutrition/Mind metrics
-/// fall back to the world that best fits their accent. Drives the ScenicHeroBackground
-/// tint + the hero gauge/number glow.
-private func metricDomain(_ m: MetricDescriptor) -> DomainTheme {
-    switch m.category {
-    case "Charge":            return .charge
-    case "Effort":            return .effort
-    case "Rest", "Mind":      return .rest
-    default:
-        // Heart / Health / Nutrition: lean on the metric's own world. RHR-style risk
-        // metrics read as Stress (teal); everything else rides the Charge green chrome.
-        switch m.key {
-        case "rhr", "max_hr", "stress", "body_fat": return .stress
-        default:                                    return .charge
-        }
-    }
-}
-
-/// A 0–100 score that reads naturally as a layered ring gauge in the hero (vs a bare
-/// headline number). Recovery / Sleep / Blood-oxygen sit on a clean 0–100 axis.
-private func metricGaugeFraction(_ m: MetricDescriptor, value: Double) -> Double? {
-    switch m.key {
-    case "recovery", "sleep_performance", "spo2", "hours_vs_needed_pct",
-         "sleep_consistency", "restorative_pct", "sleep_efficiency":
-        return min(max(value / 100.0, 0), 1)
-    default:
-        return nil
-    }
-}
 
 // MARK: - Range
 
@@ -129,8 +36,26 @@ enum ExploreRange: Int, CaseIterable, Identifiable, Hashable {
         case .half: return String(localized: "6 months"); case .year: return String(localized: "year"); case .all: return String(localized: "all time")
         }
     }
+    /// "Last 30 days", or "All time" for ALL: what the range control beside it selects.
+    var title: String {
+        guard let days else { return String(localized: "All time") }
+        return String(localized: "Last \(days) days")
+    }
     /// Trailing days the window spans (nil = everything).
     var days: Int? { self == .all ? nil : rawValue }
+
+    /// Why a sparse window shows this range instead of the one picked, as a whole phrase per range so a language can
+    /// inflect the range name. nil for the week, which no window widens to.
+    var widenedPhrase: String? {
+        switch self {
+        case .week: return nil
+        case .month: return String(localized: "sparse, widened to a month")
+        case .quarter: return String(localized: "sparse, widened to 3 months")
+        case .half: return String(localized: "sparse, widened to 6 months")
+        case .year: return String(localized: "sparse, widened to a year")
+        case .all: return String(localized: "sparse, widened to all time")
+        }
+    }
 
     /// This range plus every LARGER range, ascending — the auto-expand search order
     /// when the selected window holds zero points. ALW always terminates the chain.
@@ -156,18 +81,31 @@ enum ExploreRangeGating {
 
 // MARK: - Root: categorized list
 
+/// What the first pass over the catalog learned about one metric: it has no series at all, or this latest reading.
+private enum MetricProbe: Equatable {
+    case empty
+    case latest(Double)
+}
+
 /// The "Explore" picker — categories as sections, metrics as rows, each pushing a
-/// MetricDetailView. A faint trailing "•" marks metrics whose series is empty.
+/// MetricDetailView. Every row ends the same way: the latest reading with its unit set apart and muted, or a muted
+/// "No data" when the series is empty.
 struct MetricExplorerView: View {
     @EnvironmentObject var repo: Repository
-    /// metric.id → whether its series is empty. Filled INCREMENTALLY by `probeEmptiness()`; a metric
-    /// absent from the map simply has no empty-dot yet (rows never wait on it — see `MetricRow`).
-    @State private var emptyByID: [String: Bool] = [:]
+    /// metric.id → what the probe found. Filled INCREMENTALLY by `probeEmptiness()`; a metric absent from the map
+    /// simply shows nothing at its trailing edge yet (rows never wait on it — see `MetricRow`).
+    @State private var probeByID: [String: MetricProbe] = [:]
     @State private var probedRefreshSeq: Int?
-    /// True while the empty-dot probe is still running its first pass. Drives a small inline progress
-    /// hint in the header, never gating the rows: the catalog is static, so every row's label/icon/unit
+    /// True once a pass has read every metric for `probedRefreshSeq`. A pass the list's `.task` cancelled part-way (a row was
+    /// tapped while it ran) leaves this false, so the next pass carries on where it stopped.
+    @State private var probeComplete = false
+    /// True while the empty-series probe is still running its first pass. Drives a small inline progress
+    /// hint at the top, never gating the rows: the catalog is static, so every row's label/icon/unit
     /// must paint immediately even before any series read returns (#199).
     @State private var probing = true
+
+    /// The categories that have at least one metric, in catalog order.
+    private let categories = MetricCatalog.categories.filter { !MetricCatalog.inCategory($0).isEmpty }
 
     var body: some View {
         #if os(macOS)
@@ -184,52 +122,56 @@ struct MetricExplorerView: View {
     }
 
     private var exploreScaffold: some View {
-        // PERF (scroll): lazy column. Unlike most screens, Explore's content is a flat list of sibling
-        // sections (the probe hint, the Deep Timeline row, then a long per-category ForEach of metric
-        // cards), so LazyVStack genuinely builds the off-screen category cards on demand. No
-        // `staggeredAppear` here and identical column alignment/spacing (20) + per-child bottom padding,
-        // so the layout is byte-identical to the eager VStack.
-        ScreenScaffold(title: "Explore", subtitle: "Every signal, one tap deep.",
+        // PERF (scroll): lazy column. Explore's content is a flat list of sibling sections (the probe hint, the Deep
+        // Timeline row, then a long per-category ForEach of metric rows), so the LazyVStack genuinely builds the
+        // off-screen categories on demand.
+        ScreenScaffold(title: "All metrics",
                        onRefresh: { _ = await repo.refresh(.currentDay) }, lazy: true,
                        topBackground: nil) {
-            // A quiet, non-blocking hint while the empty-dot probe runs its first pass. The rows below
-            // render in full immediately regardless — this only reassures during the scan, and never
-            // leaves the screen reading as a bare/empty list before the probe lands (#199).
-            if probing {
-                HStack(spacing: 8) {
-                    ProgressView().controlSize(.small)
-                    Text("Scanning your data…")
-                        .font(StrandFont.footnote)
-                        .foregroundStyle(StrandPalette.textTertiary)
+            LazyVStack(alignment: .leading, spacing: 0) {
+                // A quiet, non-blocking hint while the empty-series probe runs its first pass. The rows below
+                // render in full immediately regardless — this only reassures during the scan, and never
+                // leaves the screen reading as a bare/empty list before the probe lands (#199).
+                if probing {
+                    HStack(spacing: NoopMetrics.space2) {
+                        ProgressView().controlSize(.small)
+                        Text("Scanning your data…")
+                            .font(StrandFont.footnote)
+                            .foregroundStyle(StrandPalette.textTertiary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.top, NoopMetrics.space2)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            // The headline tap-through (#575): a full-day, full-resolution, zoomable timeline. Sits above
-            // the per-metric catalog because it's a different kind of view — every second of one day rather
-            // than one number per day. Closure-based NavigationLink, matching the metric rows below (#38/#199).
-            NavigationLink {
-                FullDayChartView()
-            } label: {
-                deepTimelineRow
-            }
-            // Liquid press language: the settle-inward PaperPressStyle (the same physical response the
-            // Today / batch-1 cards use), replacing the classic StrandPressableButtonStyle.
-            .buttonStyle(PaperPressStyle())
-            #if os(iOS)
-            .simultaneousGesture(TapGesture().onEnded { StrandHaptic.selection.play() })
-            #endif
-            .padding(.bottom, NoopMetrics.sectionGap - 20)
+                // The headline tap-through (#575): a full-day, full-resolution, zoomable timeline. Sits above
+                // the per-metric catalog because it's a different kind of view — every second of one day rather
+                // than one number per day. Closure-based NavigationLink, matching the metric rows below (#38/#199).
+                NavigationLink {
+                    FullDayChartView()
+                } label: {
+                    ExploreFlatRow(
+                        symbol: "waveform.path.ecg", tint: .heart,
+                        title: Text("Deep Timeline"),
+                        subtitle: Text("Every second of your day, zoomable."),
+                        spoken: String(localized: "Deep Timeline, every second of your day, zoomable"))
+                }
+                .exploreRowPress()
+                FlatSectionSeparator.afterExploreRows
 
-            ForEach(MetricCatalog.categories, id: \.self) { category in
-                let metrics = MetricCatalog.inCategory(category)
-                if !metrics.isEmpty {
-                    VStack(alignment: .leading, spacing: NoopMetrics.gap) {
+                ForEach(Array(categories.enumerated()), id: \.element) { index, category in
+                    let metrics = MetricCatalog.inCategory(category)
+                    VStack(alignment: .leading, spacing: 0) {
                         // Localized at the render site only; `category` itself stays the raw
                         // English identifier that `inCategory` filters on.
-                        catalogSectionHeader(MetricCatalog.categoryDisplayName(category), count: metrics.count)
-                        PaperCard(padding: 0) {
+                        FlatSection(
+                            verbatim: MetricCatalog.categoryDisplayName(category),
+                            systemImage: MetricCatalog.categorySymbol(category),
+                            tint: MetricCatalog.categoryTint(category),
+                            trailing: .text(metrics.count.formatted()),
+                            contentSpacing: 0
+                        ) {
                             VStack(spacing: 0) {
-                                ForEach(Array(metrics.enumerated()), id: \.element.id) { idx, metric in
+                                ForEach(Array(metrics.enumerated()), id: \.element.id) { row, metric in
+                                    if row > 0 { ExploreRowSeparator() }
                                     // Push the detail directly (closure-based), like every other More-tab
                                     // screen. The old value + .navigationDestination(for:) pairing resolved
                                     // against TWO registered destinations and double-pushed — the detail
@@ -237,29 +179,14 @@ struct MetricExplorerView: View {
                                     NavigationLink {
                                         MetricDetailView(metric: metric)
                                     } label: {
-                                        MetricRow(metric: metric,
-                                                  isEmpty: emptyByID[metric.id] ?? false)
+                                        MetricRow(metric: metric, probe: probeByID[metric.id])
                                     }
-                                    // Full-row press-down feedback in the liquid language — the settle-inward
-                                    // PaperPressStyle (a transform, so it works edge-to-edge with dividers
-                                    // between, no corner radius to match). Matches Today's tappable rows.
-                                    .buttonStyle(PaperPressStyle())
-                                    #if os(iOS)
-                                    // Light selection tick on tap; the simultaneousGesture leaves the
-                                    // NavigationLink push intact.
-                                    .simultaneousGesture(TapGesture().onEnded {
-                                        StrandHaptic.selection.play()
-                                    })
-                                    #endif
-                                    if idx < metrics.count - 1 {
-                                        Divider().overlay(StrandPalette.hairline)
-                                            .padding(.leading, 56)
-                                    }
+                                    .exploreRowPress()
                                 }
                             }
                         }
+                        if index < categories.count - 1 { FlatSectionSeparator.afterExploreRows }
                     }
-                    .padding(.bottom, NoopMetrics.sectionGap - 20)
                 }
             }
         }
@@ -267,78 +194,39 @@ struct MetricExplorerView: View {
         // pairing, which is what double-pushed (#38). Nothing else registers a MetricDescriptor destination.
     }
 
-    private func catalogSectionHeader(_ title: String, count: Int) -> some View {
-        HStack(alignment: .firstTextBaseline) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("CATEGORY").strandOverline()
-                Text(title).font(StrandFont.cardTitle).foregroundStyle(StrandPalette.textPrimary)
-            }
-            Spacer()
-            Text("\(count)").font(StrandFont.caption).foregroundStyle(StrandPalette.textTertiary)
-        }
-    }
-
-    /// The hero entry that opens the Deep Timeline (#575). A full-bleed card, not a list row, so it reads
-    /// as the headline above the per-metric catalog.
-    private var deepTimelineRow: some View {
-        PaperCard {
-            HStack(spacing: 14) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 11, style: .continuous)
-                        .fill(StrandPalette.metricRose.opacity(0.16))
-                    Image(systemName: "waveform.path.ecg")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundStyle(StrandPalette.metricRose)
-                }
-                .frame(width: 42, height: 42)
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Deep Timeline")
-                        .font(StrandFont.body)
-                        .fontWeight(.semibold)
-                        .foregroundStyle(StrandPalette.textPrimary)
-                    Text("Every second of your day, zoomable.")
-                        .font(StrandFont.footnote)
-                        .foregroundStyle(StrandPalette.textTertiary)
-                }
-                Spacer(minLength: 8)
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(StrandPalette.textTertiary)
-            }
-        }
-        .contentShape(Rectangle())
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Deep Timeline, every second of your day, zoomable")
-        .accessibilityAddTraits(.isButton)
-    }
-
-    /// One lightweight pass to learn which metrics have no series, so rows can flag them with the
-    /// faint trailing dot. Failures default to "has data" (no dot).
+    /// One lightweight pass to learn which metrics have no series and, for the rest, their latest reading, so each
+    /// row can end in a value or a muted "No data". The series is read for emptiness anyway; its last point is free.
+    /// Failures default to "has data" (nothing shown yet).
     ///
-    /// Crucially this assigns into `emptyByID` PER METRIC, not in one final batch (#199): the previous
+    /// Crucially this assigns into `probeByID` PER METRIC, not in one final batch (#199): the previous
     /// version ran ~35 sequential `exploreSeries` reads — each hopping back to the @MainActor Repository
     /// — before publishing a single result, so on iOS the main thread stayed busy and the freshly-pushed
     /// list painted blank until the whole sweep finished. Publishing each result (with a `Task.yield()`
     /// between reads so the run loop can lay the rows out) lets the catalog rows render immediately and
-    /// the dots fill in as the probe lands. Rows already render their label/icon/unit without waiting on
-    /// this — the map only ever ADDS a trailing dot.
+    /// the values fill in as the probe lands. Rows already render their label/icon without waiting on
+    /// this — the map only ever ADDS a trailing value.
     private func probeEmptiness(refreshSeq: Int) async {
-        guard probedRefreshSeq != refreshSeq || emptyByID.isEmpty else { probing = false; return }
-        probedRefreshSeq = refreshSeq
-        emptyByID = [:]
+        guard probedRefreshSeq != refreshSeq || !probeComplete else { probing = false; return }
+        if probedRefreshSeq != refreshSeq {
+            // New data: start again. The same data after an interrupted pass: keep what was read and finish the rest.
+            probedRefreshSeq = refreshSeq
+            probeByID = [:]
+            probeComplete = false
+        }
         probing = true
         for metric in MetricCatalog.all {
             guard !Task.isCancelled else { return }
+            if probeByID[metric.id] != nil { continue }
             let s = metric.key == "strain"
                 ? repo.canonicalDays.compactMap { day in
                     repo.canonicalStrain(for: day.day).map { (day: day.day, value: $0.storedValue) }
                 }
                 : await repo.exploreSeries(key: metric.key, source: metric.source)
             guard !Task.isCancelled else { return }
-            emptyByID[metric.id] = s.isEmpty
+            probeByID[metric.id] = s.last.map { .latest($0.value) } ?? .empty
             await Task.yield()
         }
+        probeComplete = true
         probing = false
     }
 }
@@ -347,75 +235,59 @@ struct MetricExplorerView: View {
 
 private struct MetricRow: View {
     let metric: MetricDescriptor
-    let isEmpty: Bool
+    /// nil until the probe has read this metric.
+    let probe: MetricProbe?
 
-    // Trailing unit chip follows the Imperial/Metric preference (kg→lb, °C→°F) and the Strain scale
-    // (/100→/21, #268).
+    // The value and its unit follow the Imperial/Metric preference (kg→lb, °C→°F) and the Strain scale (/100→/21, #268).
     @AppStorage(UnitPrefs.systemKey) private var unitSystemRaw = UnitSystem.metric.rawValue
     @AppStorage(UnitPrefs.temperatureKey) private var temperatureRaw = ""
     @AppStorage(UnitPrefs.effortScaleKey) private var effortScaleRaw = EffortScale.whoop.rawValue
-    private var unitLabel: String {
+
+    /// The latest reading as the person reads it, split so the unit can sit apart and muted.
+    private var latestParts: (number: String, unit: String)? {
+        guard case .latest(let value)? = probe else { return nil }
         let system = UnitSystem(rawValue: unitSystemRaw) ?? .metric
-        let temp = UnitPrefs.resolveTemperature(system: system, override: temperatureRaw)
+        let temperature = UnitPrefs.resolveTemperature(system: system, override: temperatureRaw)
         let effort = UnitPrefs.resolveEffortScale(effortScaleRaw)
-        return metric.displayUnit(system: system, temperature: temp, effortScale: effort)
+        return metric.displayParts(value, system: system, temperature: temperature, effortScale: effort)
+    }
+
+    /// What VoiceOver says: a whole string per variant, never a concatenated localized tail.
+    private var spoken: String {
+        if let parts = latestParts {
+            let value = parts.unit.isEmpty ? parts.number : "\(parts.number) \(parts.unit)"
+            return String(localized: "\(metric.title), latest \(value)")
+        }
+        if probe == .empty { return String(localized: "\(metric.title), no data") }
+        return metric.title
     }
 
     var body: some View {
-        HStack(spacing: 14) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .fill(StrandPalette.surfaceInset)
-                Image(systemName: metric.icon)
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundStyle(metricAccent(metric))
-            }
-            .frame(width: 34, height: 34)
-
-            VStack(alignment: .leading, spacing: 1) {
-                Text(metric.title)
-                    .font(StrandFont.body)
-                    .foregroundStyle(StrandPalette.textPrimary)
-                Text(metric.sourceLabel)
+        ExploreFlatRow(
+            symbol: metric.icon,
+            tint: metric.domainTint(),
+            title: Text(verbatim: metric.title),
+            subtitle: Text(verbatim: metric.sourceLabel),
+            spoken: spoken
+        ) {
+            // One rule for every row: the latest value with a muted unit, a muted "No data" when there is none, and
+            // nothing at all while the probe is still reading. Never a unit with no number.
+            if let parts = latestParts {
+                ExploreLatestValue(number: parts.number, unit: parts.unit)
+            } else if probe == .empty {
+                Text("No data")
                     .font(StrandFont.footnote)
                     .foregroundStyle(StrandPalette.textTertiary)
             }
-
-            Spacer(minLength: 8)
-
-            if !unitLabel.isEmpty {
-                Text(unitLabel)
-                    .font(StrandFont.captionNumber)
-                    .foregroundStyle(StrandPalette.textSecondary)
-            }
-            // Faint trailing dot ONLY when this metric has no series at all.
-            if isEmpty {
-                Text("•")
-                    .font(StrandFont.caption)
-                    .foregroundStyle(StrandPalette.textTertiary.opacity(0.5))
-                    .accessibilityLabel("No data")
-            }
-            Image(systemName: "chevron.right")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(StrandPalette.textTertiary)
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 11)
-        .contentShape(Rectangle())
-        .accessibilityElement(children: .combine)
-        // Whole-string key per variant (never a concatenated localized tail on an a11y label).
-        .accessibilityLabel(isEmpty
-            ? "\(metric.title), \(unitLabel.isEmpty ? MetricCatalog.categoryDisplayName(metric.category) : unitLabel), no data"
-            : "\(metric.title), \(unitLabel.isEmpty ? MetricCatalog.categoryDisplayName(metric.category) : unitLabel)")
-        .accessibilityAddTraits(.isButton)
     }
 }
 
 // MARK: - Detail / drill-down
 
-/// The full analytic dossier for one metric, built ONLY from locked components:
-/// a SegmentedPillControl range, a hero ChartCard (line + latest "as of"), a uniform
-/// StatTile row (Average / Min / Max / Latest / Δ), and a "What correlates" NoopCard.
+/// One metric's page: the metric's tint, the Trends hero chart for the selected range (the hero value, its
+/// distance from the range average, a tinted line over a wash and a typical band, touch and hold to read a day),
+/// Low / Average / High, and what correlates with it.
 struct MetricDetailView: View {
     @Environment(\.dismiss) private var dismiss
     let metric: MetricDescriptor
@@ -433,16 +305,29 @@ struct MetricDetailView: View {
         UnitPrefs.resolveTemperature(system: unitSystem, override: temperatureRaw)
     }
     private var effortScale: EffortScale { UnitPrefs.resolveEffortScale(effortScaleRaw) }
+    /// A stored value as the person reads it, unit included ("54 ms", "74.2 kg", "5.4 /21").
     private func fmt(_ v: Double) -> String {
         metric.format(v, system: unitSystem, temperature: temperatureUnit, effortScale: effortScale)
     }
+    /// The unit the person reads this metric in ("lb" for a weight in pounds), or "" for a bare number.
+    private var displayUnit: String {
+        metric.displayUnit(system: unitSystem, temperature: temperatureUnit, effortScale: effortScale)
+    }
+    /// A stored value's number alone: `fmt` without its unit, for a hero and chart labels that set the unit apart.
+    private func number(_ v: Double) -> String {
+        let text = fmt(v)
+        guard !displayUnit.isEmpty, text.hasSuffix(displayUnit) else { return text }
+        return String(text.dropLast(displayUnit.count)).trimmingCharacters(in: .whitespaces)
+    }
 
     @State private var range: ExploreRange = .month
-    /// Draw-in fraction for the hero ring gauge (0–100 scores). Set to the real fraction
-    /// in `.onAppear` with a soft ease, exactly as TodayView animates its rings.
-    @State private var heroAnimatedFraction: Double = 0
     /// Full ascending series for this metric — ALL history.
     @State private var series: [(day: String, value: Double)] = []
+    /// The start of each series day (Gregorian, local time zone), row for row with `series`.
+    @State private var seriesDates: [Date] = []
+    /// Each row's day as a number of days since 1970-01-01 (`ExploreDayKey.dayNumber`), parallel to `series`: the window and
+    /// the history span are counted on these, never on `seriesDates`, which a day with no local midnight would skew.
+    @State private var seriesDayNumbers: [Int] = []
     /// Every OTHER catalog series, loaded once for the correlation scan.
     @State private var others: [(metric: MetricDescriptor, series: [(day: String, value: Double)])] = []
     @State private var loaded = false
@@ -456,6 +341,10 @@ struct MetricDetailView: View {
     /// The (metricID, range) the cache was built for; nil means "not yet computed".
     @State private var correlationKey: String? = nil
     private var loadTaskID: String { "\(metric.id)|\(repo.refreshSeq)" }
+    /// The Gregorian calendar in the person's time zone: day keys and the chart's window use it (the window slice and the
+    /// history span count day numbers instead, see `ExploreWindow`). The device's own calendar and locale are for display
+    /// only (`dateText`).
+    private let calendar = ExploreDayKey.calendar()
 
     // MARK: Derived
 
@@ -463,14 +352,9 @@ struct MetricDetailView: View {
     /// point (not "now") — `.all` returns everything.
     private func slice(for r: ExploreRange) -> [(day: String, value: Double)] {
         guard let days = r.days else { return series }
-        guard let lastDay = series.last?.day, let last = parseDay(lastDay) else { return [] }
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
-        guard let cutoff = calendar.date(byAdding: .day, value: -(days - 1), to: last) else { return [] }
-        return series.filter { row in
-            guard let d = parseDay(row.day) else { return false }
-            return d >= cutoff
-        }
+        guard let first = ExploreWindow.firstIndex(dayNumbers: seriesDayNumbers, days: days),
+              series.indices.contains(first) || first == series.count else { return [] }
+        return Array(series[first...])
     }
 
     /// The range actually shown: the SELECTED range whenever its window holds ≥1
@@ -504,14 +388,9 @@ struct MetricDetailView: View {
         ).range
     }
 
-    /// Whole days between the first and last reading (0 for a single point). The
-    /// UTC-fixed day parser makes the Int truncation exact.
+    /// Whole days between the first and last reading (0 for a single point).
     private var historySpanDays: Int {
-        guard let firstDay = series.first?.day, let lastDay = series.last?.day,
-              let first = parseDay(firstDay), let last = parseDay(lastDay) else { return 0 }
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
-        return calendar.dateComponents([.day], from: first, to: last).day ?? 0
+        ExploreWindow.spanDays(dayNumbers: seriesDayNumbers)
     }
 
     /// Whether a range chip is selectable (#943, reimplemented from ryanbr's PR): a longer
@@ -551,152 +430,348 @@ struct MetricDetailView: View {
         return Array(series[prevLo..<lo])
     }
 
-    private func trendPoints(_ windowed: [(day: String, value: Double)]) -> [TrendPoint] {
-        windowed.compactMap { row in
-            guard let d = parseDay(row.day) else { return nil }
-            return TrendPoint(date: d, value: row.value)
-        }
-    }
-
-    /// Padded value range so the line never sits flush against an axis.
-    private func valueRange(_ windowValues: [Double]) -> ClosedRange<Double> {
-        let v = windowValues
-        guard let lo = v.min(), let hi = v.max() else { return 0...1 }
-        if hi <= lo { return (lo - 1)...(hi + 1) }
-        let span = hi - lo
-        return (lo - span * 0.12)...(hi + span * 0.12)
-    }
-
     private var latest: (day: String, value: Double)? { series.last }
+    private var latestDate: Date? { seriesDates.last }
 
     // MARK: Body
+
+    /// What the pushed header row says beside the title: the category (unless it only repeats the title) and the source
+    /// the numbers come from, so Whoop's resting heart rate and a Mi Band's are never the same page. Data text, shown
+    /// verbatim.
+    static func headerContext(category: String, title: String, source: String) -> String {
+        category.caseInsensitiveCompare(title) == .orderedSame ? source : "\(category) \u{00B7} \(source)"
+    }
 
     var body: some View {
         // Compute the heavy window derivations ONCE per body eval, then hand them to
         // the subviews — instead of every subview re-deriving `effectiveRange` /
-        // `windowed` (each of which re-parses + re-filters the full history).
+        // `windowed` (each of which re-filters the full history).
         let effRange = effectiveRange
         let win = slice(for: effRange)
-        let fellBack = effRange != range
-        return ScreenScaffold(title: LocalizedStringKey(metric.title),
-                              subtitle: LocalizedStringKey(MetricCatalog.categoryDisplayName(metric.category)),
+        let fellBack = effRange != coercedSelection
+        let tint = metric.domainTint(latest: latest?.value)
+        return ScreenScaffold(title: LocalizedStringKey(dataText: metric.title),
+                              subtitle: LocalizedStringKey(dataText: MetricCatalog.categoryDisplayName(metric.category)),
                               topBackground: nil,
-                              backAction: { dismiss() }) {
+                              backAction: { dismiss() },
+                              // Pushed, the header row carries the category the subtitle used to name (and says
+                              // nothing when it would only repeat the title: "Recovery" under "Recovery").
+                              headerContext: Self.headerContext(category: MetricCatalog.categoryDisplayName(metric.category),
+                                                                title: metric.title, source: metric.sourceLabel)) {
+            VStack(alignment: .leading, spacing: 0) {
                 if loaded && series.isEmpty {
-                    // No data in the entire history — keep the range bar for context, then the
-                    // honest empty state (no scenic hero floating over nothing). Deliberately
-                    // NOT gated by the #943 chip locking: with zero data there is no chart for
-                    // the ranges to misrepresent, and hiding the bar here would regress this
-                    // "for context" intent.
-                    rangeBar(effectiveRange: effRange, windowed: win, windowFellBack: fellBack)
-                    ComingSoon(what: "Import your history first. A WHOOP export in Data Sources fills every metric you can explore here in about a minute.")
+                    // No data in the entire history — keep the range bar for context, then the honest empty
+                    // state. Deliberately NOT gated by the #943 chip locking: with zero data there is no chart for
+                    // the ranges to misrepresent, and hiding the bar here would regress this "for context" intent.
+                    VStack(alignment: .leading, spacing: WidgetMetrics.headerSpacing) {
+                        SectionEyebrow("Trend", systemImage: metric.icon, tint: tint)
+                        rangeControls(caption: nil)
+                    }
+                    ExploreMessage(
+                        symbol: "tray", title: Text("No data"),
+                        message: Text("Import your history first. A WHOOP export in Data Sources fills every metric you can explore here in about a minute."))
                 } else if !loaded {
-                    rangeBar(effectiveRange: effRange, windowed: win, windowFellBack: fellBack)
-                    ComingSoon(what: "Reading your \(metric.title.lowercased())…")
+                    VStack(alignment: .leading, spacing: WidgetMetrics.headerSpacing) {
+                        SectionEyebrow("Trend", systemImage: metric.icon, tint: tint)
+                        rangeControls(caption: nil)
+                    }
+                    ExploreMessage(isLoading: true, title: Text("Reading your \(metric.title.lowercased())…"))
                 } else {
-                    let config = metricDetailConfig(windowed: win, effectiveRange: effRange)
-                    MetricDetailTemplate(config: config) {
-                        rangeBar(effectiveRange: effRange, windowed: win, windowFellBack: fellBack)
-                    } extensions: {
-                        // TrendPanelChart needs a real typical-range source. Metrics without
-                        // one keep their existing dated TrendChart rather than a fake rail.
-                        if config.typical == nil {
-                            heroChart(effectiveRange: effRange, windowed: win, windowFellBack: fellBack)
-                            statRow(effectiveRange: effRange, windowed: win)
+                    trendSection(effectiveRange: effRange, windowed: win, windowFellBack: fellBack, tint: tint)
+                    FlatSectionSeparator()
+                    correlationSection
+                    if let about = metric.description {
+                        FlatSectionSeparator()
+                        FlatSection("How this is computed", systemImage: "function") {
+                            Text(verbatim: about)
+                                .font(StrandFont.footnote)
+                                .foregroundStyle(StrandPalette.textSecondary)
+                                .fixedSize(horizontal: false, vertical: true)
                         }
-                        correlationCard
                     }
                 }
+            }
         }
+        // A 24-letter German metric name is scaled to the row at the accessibility sizes, never broken mid-word.
+        .headerTitleKeepsWordsWhole(of: metric.title)
         #if os(iOS)
         .toolbar(.hidden, for: .navigationBar)
         #endif
         .task(id: loadTaskID) { await load() }
         // Range changes the window, hence the correlation inputs — recompute the
-        // cached scan rather than letting `correlationCard` run it inside body.
+        // cached scan rather than letting `correlationSection` run it inside body.
         .onChangeCompat(of: range) { _ in recomputeCorrelations() }
     }
 
-    /// Production adapter: catalog metadata + repository-resolved dated rows become
-    /// the immutable promoted display model. Only metrics backed by the canonical
-    /// Baselines configuration receive a typical rail.
-    private func metricDetailConfig(
-        windowed: [(day: String, value: Double)],
-        effectiveRange: ExploreRange
-    ) -> MetricDetailConfig {
-        let values = windowed.map(\.value)
-        let stats = ComparisonEngine.stat(values)
-        let prior = previousWindow(effectiveRange: effectiveRange, windowed: windowed).map(\.value)
-        let comparison = ComparisonEngine.compare(current: values, previous: prior)
-        let samples = windowed.compactMap { row -> MetricDetailSample? in
-            parseDay(row.day).map { MetricDetailSample(date: $0, value: row.value) }
-        }
-        let latestDate = latest.flatMap { parseDay($0.day) } ?? Date()
-        let baseline = baselineDisplay(values: values)
-        let delta: String? = comparison.current.n > 0 && comparison.previous.n > 0
-            ? signed(comparison.delta)
-            : nil
-        let deltaPositive: Bool? = comparison.direction == 0 || metric.higherIsBetter == nil
-            ? nil
-            : ((comparison.direction > 0) == metric.higherIsBetter)
+    // MARK: Baseline and typical band
 
-        return MetricDetailConfig(
-            id: metric.id,
-            title: metric.title,
-            subtitle: metric.description ?? metric.sourceLabel,
-            icon: metric.icon,
-            tint: metricAccent(metric),
-            // `fmt` already applies the user's unit/temperature/effort preference.
-            unit: "",
-            currentValue: latest?.value ?? 0,
-            asOf: latestDate,
-            delta: delta,
-            deltaPositive: deltaPositive,
-            stateWord: baseline.map {
-                $0.inRange ? String(localized: "In range") : String(localized: "Outside range")
-            },
-            stateGood: baseline?.inRange,
-            typical: baseline.map { MetricDetailTypicalRange(range: $0.range, label: $0.label) },
-            samples: samples,
-            baseline: baseline?.center,
-            stats: (
-                low: MetricDetailStat(value: fmt(stats.min), detail: String(localized: "window low")),
-                average: MetricDetailStat(value: fmt(stats.mean), detail: String(localized: "\(stats.n) readings")),
-                high: MetricDetailStat(value: fmt(stats.max), detail: String(localized: "window high"))
-            ),
-            about: metric.description,
-            format: fmt
-        )
+    /// What the chart shades as "typical", and whether the latest reading sits inside it. Metrics the Baselines
+    /// engine backs (HRV, resting HR, respiration, skin temperature, Effort) use its rolling baseline and spread
+    /// (σ × 1.253, the mean absolute deviation to a standard deviation), and say whether the latest reading is in
+    /// range. Every other metric shades the window's mean ± one standard deviation and says nothing about "in range".
+    private struct TypicalBand {
+        let baseline: Double
+        let typical: ClosedRange<Double>
+        /// nil when the metric has no baseline model to judge the latest reading against.
+        let latestInRange: Bool?
     }
 
-    private struct BaselineDisplay {
-        let center: Double
-        let range: ClosedRange<Double>
-        let label: String
-        let inRange: Bool
+    private func typicalBand(values: [Double]) -> TypicalBand? {
+        guard let raw = rawTypicalBand(values: values) else { return nil }
+        // Held inside what the metric can be, so the row, the chart's shading and the spoken summary agree.
+        let held = ExploreTypicalBand.clamped(baseline: raw.baseline, typical: raw.typical, to: metric.validRange)
+        return TypicalBand(baseline: held.baseline, typical: held.typical, latestInRange: raw.latestInRange)
     }
 
-    private func baselineDisplay(values: [Double]) -> BaselineDisplay? {
+    private func rawTypicalBand(values: [Double]) -> TypicalBand? {
         let key: String
         switch metric.key {
         case "rhr": key = "resting_hr"
         case "resp_rate": key = "resp"
         default: key = metric.key
         }
-        guard let cfg = Baselines.metricCfg[key] else { return nil }
-        let state = Baselines.rollingMeanSD(values.map(Optional.some), cfg: cfg)
-        guard state.usable, let current = latest?.value else { return nil }
-        let sigma = state.spread * 1.253
-        let range = (state.baseline - sigma)...(state.baseline + sigma)
-        return BaselineDisplay(
-            center: state.baseline,
-            range: range,
-            label: String(localized: "\(fmt(range.lowerBound))-\(fmt(range.upperBound)) typical"),
-            inRange: Baselines.deviation(current, state: state).inNormalRange
-        )
+        if let cfg = Baselines.metricCfg[key] {
+            let state = Baselines.rollingMeanSD(values.map(Optional.some), cfg: cfg)
+            if state.usable, let current = latest?.value {
+                let sigma = state.spread * 1.253
+                return TypicalBand(
+                    baseline: state.baseline,
+                    typical: (state.baseline - sigma)...(state.baseline + sigma),
+                    latestInRange: Baselines.deviation(current, state: state).inNormalRange)
+            }
+        }
+        return DrillInTrendStats.baselineAndTypical(of: values)
+            .map { TypicalBand(baseline: $0.baseline, typical: $0.typical, latestInRange: nil) }
+    }
+
+    // MARK: Trend section
+
+    /// What a metric can physically be, so a chart axis never runs past it (a blood oxygen of 104%).
+    private var valueBounds: ClosedRange<Double> { metric.validRange }
+
+    private var chartDirection: TrendPanelChart.Direction {
+        switch metric.higherIsBetter {
+        case true?: return .higherIsBetter
+        case false?: return .lowerIsBetter
+        case nil: return .contextual
+        }
+    }
+
+    @ViewBuilder
+    private func trendSection(effectiveRange: ExploreRange,
+                              windowed: [(day: String, value: Double)],
+                              windowFellBack: Bool,
+                              tint: DomainTint) -> some View {
+        let values = windowed.map(\.value)
+        let band = typicalBand(values: values)
+        let caption = rangeCaption(effectiveRange: effectiveRange, windowed: windowed, windowFellBack: windowFellBack)
+        VStack(alignment: .leading, spacing: WidgetMetrics.headerSpacing) {
+            SectionEyebrow(
+                title: String(localized: "Trend"),
+                systemImage: metric.icon,
+                tint: tint,
+                trailing: eyebrowTrailing(band: band))
+            if let latestDate, values.count >= 2, let band {
+                // Value first: the hero (the latest reading and how it sits against the average), the chart, then the
+                // range control beneath it and one caption, then the numbers behind the chart.
+                trendChart(effectiveRange: effectiveRange, windowed: windowed, band: band,
+                           latestDate: latestDate, tint: tint)
+                rangeControls(caption: caption)
+                statFooter(values: values)
+                comparisonRows(effectiveRange: effectiveRange, windowed: windowed, band: band)
+            } else if let latest, let latestDate {
+                // One reading in the window: a dot is not a trend, so the value stands alone with its change against
+                // the reading before it.
+                HeroValue(
+                    value: number(latest.value),
+                    unit: displayUnit.isEmpty ? nil : displayUnit,
+                    caption: String(localized: "latest \u{00B7} \(dateText(latestDate))"),
+                    captionPlacement: .below)
+                rangeControls(caption: caption)
+                // A typed key, so the ternary's two literals are looked up in the catalog like any other string.
+                let note: LocalizedStringKey = longerRangeShowsMore(effectiveRange: effectiveRange, windowedCount: windowed.count)
+                    ? "Only one reading in this range. Choose a longer range to see a trend."
+                    : "Only one reading so far. A trend appears once there are more."
+                Text(note)
+                    .font(StrandFont.subhead)
+                    .foregroundStyle(StrandPalette.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+                comparisonRows(effectiveRange: effectiveRange, windowed: windowed, band: nil)
+            }
+        }
+    }
+
+    /// Whether a longer range the person can pick holds more readings than the window on screen, so "choose a longer
+    /// range" is only said when it would help.
+    private func longerRangeShowsMore(effectiveRange: ExploreRange, windowedCount: Int) -> Bool {
+        effectiveRange.widening.dropFirst().contains { isUnlocked($0) && slice(for: $0).count > windowedCount }
+    }
+
+    /// The date of the latest reading, and — for a metric the Baselines engine backs — whether it is in range.
+    private func eyebrowTrailing(band: TypicalBand?) -> EyebrowTrailing {
+        guard let latestDate else { return .none }
+        let asOf = String(localized: "as of \(dateText(latestDate))")
+        switch band?.latestInRange {
+        case true?: return .pillAndText("In range", tone: .positive, text: asOf)
+        case false?: return .pillAndText("Outside range", tone: .warning, text: asOf)
+        case nil: return .text(asOf)
+        }
+    }
+
+    /// "9 Jun" this year, "9 Jun 2025" before it, in the person's language and order. Which year a date is in is part of
+    /// how it is displayed, so it is judged in the device calendar the date is printed in (a Persian or Buddhist year
+    /// does not turn over with the Gregorian one).
+    private func dateText(_ date: Date) -> String {
+        let sameYear = Calendar.autoupdatingCurrent.isDate(date, equalTo: Date(), toGranularity: .year)
+        return sameYear
+            ? date.formatted(.dateTime.day().month(.abbreviated))
+            : date.formatted(.dateTime.day().month(.abbreviated).year())
+    }
+
+    /// What the range control selects ("Last 30 days") with the control beside it, then the one caption under both. A
+    /// range the history is too short for stays visible but dimmed and inert (#943).
+    @ViewBuilder
+    private func rangeControls(caption: (text: String, widened: Bool)?) -> some View {
+        ExploreRangeControl(selection: selectionBinding, isEnabled: isUnlocked)
+        if let caption {
+            Text(caption.text)
+                .font(StrandFont.micro)
+                .foregroundStyle(caption.widened ? StrandPalette.statusWarning : StrandPalette.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    @ViewBuilder
+    private func trendChart(effectiveRange: ExploreRange,
+                            windowed: [(day: String, value: Double)],
+                            band: TypicalBand,
+                            latestDate: Date,
+                            tint: DomainTint) -> some View {
+        let rangeDays: Int = {
+            if let days = effectiveRange.days { return days }
+            // ALL starts at the first reading (never a window shorter than a month, so a short history is not
+            // stretched across the whole chart).
+            return max(historySpanDays + 1, 30)
+        }()
+        let observations = zip(windowed, windowDates(windowed)).compactMap { row, date in
+            date.map { CalendarMetricDay(date: $0, value: row.value) }
+        }
+        let days = TrendCalendar.buildRollingWindow(
+            observations: observations, through: latestDate, count: rangeDays, calendar: calendar)
+        if let domain = TrendCalendar.dateDomain(through: latestDate, count: rangeDays, calendar: calendar) {
+            TrendsHeroChart(
+                days: days,
+                dateDomain: domain,
+                referenceDate: latestDate,
+                calendar: calendar,
+                // Day counts stay Gregorian; the month and year labels are printed in the device calendar, as the page's
+                // other dates are.
+                displayCalendar: .autoupdatingCurrent,
+                baseline: band.baseline,
+                typical: band.typical,
+                tint: tint,
+                colorsLineByBand: metric.key == "recovery",
+                unit: displayUnit,
+                valueFormat: number,
+                valueBounds: valueBounds,
+                direction: chartDirection,
+                metricName: metric.title,
+                longRange: effectiveRange == .year || effectiveRange == .all,
+                // A weekly or sparse series still draws one connected line; the chip tone follows the typical band,
+                // not the sign of the move; and the pill drops under the value at the accessibility sizes.
+                maxGapDays: ExploreCadence.gapLimitDays(
+                    dayOffsets: days.indices.filter { days[$0].value != nil }),
+                neutralInsideTypical: true,
+                stacksPillAtAccessibilitySizes: true
+            )
+            .id("\(metric.id)-\(effectiveRange.rawValue)")
+        }
+    }
+
+    /// The start of each windowed row's day, found by walking the series from the window's first row.
+    private func windowDates(_ windowed: [(day: String, value: Double)]) -> [Date?] {
+        let offset = series.count - windowed.count
+        return windowed.indices.map { seriesDates.indices.contains(offset + $0) ? seriesDates[offset + $0] : nil }
+    }
+
+    private func statFooter(values: [Double]) -> some View {
+        let stats = ComparisonEngine.stat(values)
+        return StatFooter(items: [
+            (String(localized: "Low"), fmt(stats.min)),
+            (String(localized: "Average"), fmt(stats.mean)),
+            (String(localized: "High"), fmt(stats.max)),
+        ])
+    }
+
+    /// The typical band's numbers and the change against what came before, as quiet metric rows. A window with one
+    /// reading has no band, and compares that reading with the one before it.
+    @ViewBuilder
+    private func comparisonRows(effectiveRange: ExploreRange,
+                                windowed: [(day: String, value: Double)],
+                                band: TypicalBand?) -> some View {
+        let comparison = ComparisonEngine.compare(
+            current: windowed.map(\.value),
+            previous: previousWindow(effectiveRange: effectiveRange, windowed: windowed).map(\.value))
+        let hasDelta = comparison.current.n > 0 && comparison.previous.n > 0
+        VStack(alignment: .leading, spacing: NoopMetrics.space3) {
+            if let band {
+                MetricValueRow(
+                    systemImage: "arrow.left.and.right",
+                    label: String(localized: "Typical range"),
+                    value: "\(number(band.typical.lowerBound))\u{2013}\(number(band.typical.upperBound))",
+                    unit: displayUnit.isEmpty ? nil : displayUnit,
+                    tint: .neutral)
+            }
+            if hasDelta {
+                MetricValueRow(
+                    systemImage: comparison.direction > 0 ? "arrow.up.right" : (comparison.direction < 0 ? "arrow.down.right" : "arrow.right"),
+                    label: windowed.count == 1
+                        ? String(localized: "vs previous reading")
+                        : String(localized: "vs prev \(effectiveRange.name)"),
+                    value: signed(comparison.delta),
+                    unit: comparison.pctChange.map { ExploreChange.signedPercent($0) },
+                    tint: deltaTint(deltaPositive(direction: comparison.direction)))
+            }
+        }
+    }
+
+    private func deltaPositive(direction: Int) -> Bool? {
+        guard direction != 0, let better = metric.higherIsBetter else { return nil }
+        return (direction > 0) == better
+    }
+
+    /// The tint of a comparison row's glyph: green for a change in the good direction, red for the other, quiet for
+    /// anything that has no good direction.
+    private func deltaTint(_ positive: Bool?) -> DomainTint {
+        switch positive {
+        case true?: return .custom(StrandPalette.statusPositive)
+        case false?: return .custom(StrandPalette.statusCritical)
+        case nil: return .neutral
+        }
+    }
+
+    /// One caption under the range control: "N readings", then why the range is not what was picked (a sparse window
+    /// widened to a longer one) or, while some ranges are still locked, that longer ones unlock as history builds.
+    /// Each tail is a whole phrase per range, so a language that inflects the range name (Russian, German) can.
+    private func rangeCaption(effectiveRange: ExploreRange,
+                              windowed: [(day: String, value: Double)],
+                              windowFellBack: Bool) -> (text: String, widened: Bool)? {
+        guard loaded, !series.isEmpty else { return nil }
+        let readings = String(localized: "\(windowed.count) readings")
+        if windowFellBack, let widened = effectiveRange.widenedPhrase {
+            return ("\(readings) \u{00B7} \(widened)", true)
+        }
+        if hasLockedRanges {
+            return ("\(readings) \u{00B7} \(String(localized: "longer ranges unlock as history builds"))", false)
+        }
+        return (readings, false)
     }
 
     private func load() async {
+        #if DEBUG
+        // QA: hold the detail in its loading state so that state can be captured (`--noop-qa-hold-load`).
+        if ProcessInfo.processInfo.arguments.contains("--noop-qa-hold-load") { return }
+        #endif
         let loadSeq = repo.refreshSeq
         let primary = metric.key == "strain"
             ? repo.canonicalDays.compactMap { day in
@@ -707,7 +782,10 @@ struct MetricDetailView: View {
 
         // First useful commit. The selected metric owns the hero, chart, stats, and range controls.
         // Correlations are secondary and should never hold the whole detail page behind their catalog scan.
-        series = primary
+        let dated = primary.compactMap { row in ExploreDayKey.date(for: row.day).map { (row: row, date: $0) } }
+        series = dated.map(\.row)
+        seriesDates = dated.map(\.date)
+        seriesDayNumbers = dated.map { ExploreDayKey.dayNumber(for: $0.row.day) ?? 0 }
         loaded = true
         correlationsLoaded = false
         others = []
@@ -733,286 +811,6 @@ struct MetricDetailView: View {
         // with no snap-back. See `coercedSelection`.
         // First correlation build, now that `series`/`others` exist.
         recomputeCorrelations()
-    }
-
-    // MARK: Scenic hero
-
-    /// The detail's opening hero: the metric's latest value as either the signature liquid
-    /// PaperGauge gauge (for 0–100 scores, filled to the score with the number counting up over
-    /// it) or a big count-up headline number, floated over a domain-tinted ScenicHeroBackground,
-    /// with the category overline, the "as of" line, and the range pill. Mirrors TodayView's
-    /// liquid score-hero idiom (and Health's Fitness-Age / Vitality vessels).
-    @ViewBuilder
-    private func heroHeader(effectiveRange: ExploreRange,
-                            windowed: [(day: String, value: Double)],
-                            windowFellBack: Bool) -> some View {
-        let domain = metricDomain(metric)
-        let value = latest?.value
-        let heroValue = latest.map { fmt($0.value) } ?? "—"
-        let asOf: String = {
-            guard let day = latest?.day, let d = parseDay(day) else { return "—" }
-            return String(localized: "as of \(longDate(d))")
-        }()
-        let fraction = value.flatMap { metricGaugeFraction(metric, value: $0) }
-        let heroAccent = metric.key == "recovery"
-            ? value.map { RecoveryBands.color(for: $0) } ?? StrandPalette.recoveryData
-            : domain.bright
-
-        // Gap fix (2026-07-02): draw the starfield as the content's BACKGROUND, not as a
-        // stretching ZStack sibling — an unconstrained ScenicHeroBackground inside a ScrollView filled
-        // the whole viewport and left a huge blank band above the chart. As a .background it sizes to
-        // the hero content, so the number/ring sits directly under the range pill.
-        VStack(alignment: .leading, spacing: NoopMetrics.gap) {
-                // Category + title on their OWN full-width row so a long title ("Heart Rate Variability")
-                // is never crushed into a letter-per-line column by the range pill (2026-07-02).
-                VStack(alignment: .leading, spacing: 2) {
-                    // Craft pass (003): skip the overline when it just repeats the title
-                    // ("RECOVERY" over "Recovery" read as a stutter on the pillar screens).
-                    let category = MetricCatalog.categoryDisplayName(metric.category)
-                    if category.caseInsensitiveCompare(metric.title) != .orderedSame {
-                        Text(category.uppercased()).strandOverline()
-                    }
-                    Text(metric.title)
-                        .font(StrandFont.title2)
-                        .foregroundStyle(StrandPalette.textPrimary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                // Range control on its own row beneath the title.
-                SegmentedPillControl(ExploreRange.allCases, selection: selectionBinding,
-                                     isEnabled: isUnlocked) { $0.label }
-
-                // The headline read-out in the liquid language: for a 0–100 score, the signature
-                // PaperGauge gauge filled to the score (the same hero idiom as Today's rings / Health's
-                // Fitness-Age + Vitality heroes), with the integer counting up over it and the unit + "as
-                // of" line beneath. For a non-score metric, a big count-up number. The vessel fills from 0
-                // to its fraction on appear (`heroAnimatedFraction`), so it settles once like TodayView's
-                // rings; the number ticks itself. A liquid accent on the ONE headline value, where it reads
-                // well — never over the chart below.
-                HStack {
-                    Spacer(minLength: 0)
-                    if fraction != nil, let v = value {
-                        VStack(spacing: 10) {
-                            ZStack {
-                                // The big hero vessel stays live (animated) — the one sloshing gauge on the
-                                // screen, exactly like the hero gauges on Today.
-                                PaperGauge(value: heroAnimatedFraction, tint: heroAccent, animated: true)
-                                    .frame(width: 132, height: 132)
-                                    .accessibilityHidden(true)
-                                VStack(spacing: 2) {
-                                    // Craft pass (003): ink on paper — onDark* here rendered a
-                                    // ghost-white numeral on the light canvas.
-                                    CountUpNumber(value: v, font: StrandFont.rounded(36))
-                                        .foregroundStyle(StrandPalette.textPrimary)
-                                    if !metric.unit.isEmpty {
-                                        Text(metric.unit)
-                                            .font(StrandFont.micro)
-                                            .foregroundStyle(StrandPalette.textSecondary)
-                                    }
-                                }
-                                .allowsHitTesting(false)
-                            }
-                            Text(asOf)
-                                .font(StrandFont.footnote)
-                                .foregroundStyle(StrandPalette.textTertiary)
-                        }
-                        // One VoiceOver stop for the hero read-out (the vessel is decorative above).
-                        .accessibilityElement(children: .ignore)
-                        .accessibilityLabel("\(heroValue), \(asOf)")
-                    } else if let v = value {
-                        VStack(spacing: 6) {
-                            CountUpText(value: v, format: { fmt($0) },
-                                        font: StrandFont.number(54),
-                                        color: StrandPalette.textPrimary)
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.5)
-                            Text(asOf)
-                                .font(StrandFont.footnote)
-                                .foregroundStyle(StrandPalette.textTertiary)
-                        }
-                        .padding(.vertical, 18)
-                    } else {
-                        VStack(spacing: 6) {
-                            Text(heroValue)
-                                .font(StrandFont.number(54))
-                                .foregroundStyle(StrandPalette.textPrimary)
-                            Text(asOf)
-                                .font(StrandFont.footnote)
-                                .foregroundStyle(StrandPalette.textTertiary)
-                        }
-                        .padding(.vertical, 18)
-                    }
-                    Spacer(minLength: 0)
-                }
-
-                // The "N readings · range" caption (auto-widen flagged when it happens).
-                Text(rangeCaption(effectiveRange: effectiveRange,
-                                  windowed: windowed,
-                                  windowFellBack: windowFellBack))
-                    .font(StrandFont.footnote)
-                    .foregroundStyle(windowFellBack ? StrandPalette.statusWarning : StrandPalette.textTertiary)
-                    .accessibilityLabel(rangeCaption(effectiveRange: effectiveRange,
-                                                     windowed: windowed,
-                                                     windowFellBack: windowFellBack))
-                // The subtle reason the dimmed chips exist (#943); shown only while some are locked.
-                // Byte-identical wording to the Android HealthScreen's unlock hint.
-                if hasLockedRanges {
-                    Text("Longer ranges unlock as more history builds.")
-                        .font(StrandFont.footnote)
-                        .foregroundStyle(StrandPalette.textTertiary)
-                }
-            }
-        .padding(NoopMetrics.cardPadding)
-        .background(StrandPalette.surfaceRaised)
-        .overlay(
-            RoundedRectangle(cornerRadius: NoopMetrics.cardRadius, style: .continuous)
-                .strokeBorder(StrandPalette.hairline, lineWidth: 1)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: NoopMetrics.cardRadius, style: .continuous))
-        // The hero shows the LATEST available point (range-independent), so the vessel fills once on
-        // appear (0 → its fraction) and settles — like TodayView's rings.
-        .onAppear {
-            withAnimation(.easeOut(duration: 0.9)) {
-                heroAnimatedFraction = fraction ?? 0
-            }
-        }
-    }
-
-    // MARK: Range bar
-
-    private func rangeBar(effectiveRange: ExploreRange,
-                          windowed: [(day: String, value: Double)],
-                          windowFellBack: Bool) -> some View {
-        let caption = rangeCaption(effectiveRange: effectiveRange,
-                                   windowed: windowed,
-                                   windowFellBack: windowFellBack)
-        return VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .firstTextBaseline) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(MetricCatalog.categoryDisplayName(metric.category).uppercased()).strandOverline()
-                    Text(metric.title)
-                        .font(StrandFont.title2)
-                        .foregroundStyle(StrandPalette.textPrimary)
-                }
-                Spacer()
-                SegmentedPillControl(ExploreRange.allCases, selection: selectionBinding,
-                                     isEnabled: isUnlocked) { $0.label }
-            }
-            Text(caption)
-                .font(StrandFont.footnote)
-                .foregroundStyle(windowFellBack ? StrandPalette.statusWarning : StrandPalette.textTertiary)
-                .accessibilityLabel(caption)
-        }
-    }
-
-    /// "N readings · <range>" near the control, flagging an auto-widen when one happened.
-    /// Whole-phrase variants per count so translators never see a stitched plural.
-    private func rangeCaption(effectiveRange: ExploreRange,
-                              windowed: [(day: String, value: Double)],
-                              windowFellBack: Bool) -> String {
-        guard loaded, !series.isEmpty else { return "—" }
-        let n = windowed.count
-        if windowFellBack {
-            return n == 1
-                ? String(localized: "1 reading · sparse, widened to \(effectiveRange.name)")
-                : String(localized: "\(n) readings · sparse, widened to \(effectiveRange.name)")
-        }
-        return n == 1
-            ? String(localized: "1 reading · \(range.name)")
-            : String(localized: "\(n) readings · \(range.name)")
-    }
-
-    // MARK: Hero chart
-
-    private func heroChart(effectiveRange: ExploreRange,
-                           windowed: [(day: String, value: Double)],
-                           windowFellBack: Bool) -> some View {
-        let chartRows = metric.key == "strain"
-            ? windowed.map { (day: $0.day, value: StrainScale.displayValue(fromStored: $0.value)) }
-            : windowed
-        let asOf: String = {
-            guard let day = latest?.day, let d = parseDay(day) else { return "—" }
-            return String(localized: "as of \(longDate(d))")
-        }()
-        let heroValue = latest.map { fmt($0.value) } ?? "—"
-        let subtitle = windowFellBack
-            ? String(localized: "Sparse, widened to \(effectiveRange.name) · \(windowed.count) readings")
-            : String(localized: "\(windowed.count) readings · \(range.name)")
-        return ChartCard(
-            title: "\(metric.title)",
-            subtitle: subtitle,
-            trailing: "\(heroValue) · \(asOf)",
-            tint: metric.key == "recovery" ? StrandPalette.recoveryData : metricDomain(metric).color
-        ) {
-            TrendChart(
-                points: trendPoints(chartRows),
-                gradient: metricGradient(metric),
-                valueRange: metric.key == "strain" ? 0...21 : valueRange(chartRows.map(\.value)),
-                showsArea: true,
-                height: NoopMetrics.chartHeight,
-                valueFormat: {
-                    metric.key == "strain" ? String(format: "%.1f", $0) : fmt($0)
-                },
-                yAxisValues: metric.key == "strain" ? [0, 7, 14, 21] : nil
-            )
-        } footer: {
-            ChartFooter([
-                ("Window", effectiveRange.label),
-                ("Points", "\(windowed.count)"),
-                ("Latest", heroValue),
-            ])
-        }
-    }
-
-    // MARK: Stat tile row (uniform 104pt tiles)
-
-    private func statRow(effectiveRange: ExploreRange,
-                         windowed: [(day: String, value: Double)]) -> some View {
-        let windowValues = windowed.map(\.value)
-        let s = ComparisonEngine.stat(windowValues)
-        let cmp = ComparisonEngine.compare(current: windowValues,
-                                           previous: previousWindow(effectiveRange: effectiveRange,
-                                                                    windowed: windowed).map(\.value))
-        let accent = metricAccent(metric)
-
-        // Δ vs previous equal-length window. Tinted by higherIsBetter.
-        let hasDelta = cmp.current.n > 0 && cmp.previous.n > 0
-        let deltaText: String? = hasDelta ? signed(cmp.delta) : nil
-        let deltaColor: Color = {
-            guard hasDelta, cmp.direction != 0, let better = metric.higherIsBetter else {
-                return StrandPalette.textTertiary
-            }
-            return ((cmp.direction > 0) == better)
-                ? StrandPalette.statusPositive : StrandPalette.statusCritical
-        }()
-        let deltaCaption = hasDelta ? String(localized: "vs prev \(effectiveRange.name)")
-            : (effectiveRange == .all ? String(localized: "all history") : String(localized: "no prior \(effectiveRange.name)"))
-
-        return LazyVGrid(
-            columns: [GridItem(.adaptive(minimum: 168), spacing: NoopMetrics.gap)],
-            alignment: .leading,
-            spacing: NoopMetrics.gap
-        ) {
-            StatTile(label: "Average", value: fmt(s.mean),
-                     caption: s.n == 1 ? String(localized: "1 day") : String(localized: "\(s.n) days"),
-                     accent: StrandPalette.textPrimary,
-                     sparkline: windowValues.count > 1 ? windowValues : nil,
-                     sparkColor: accent)
-            StatTile(label: "Min", value: fmt(s.min),
-                     accent: StrandPalette.textPrimary)
-            StatTile(label: "Max", value: fmt(s.max),
-                     accent: StrandPalette.textPrimary)
-            StatTile(label: "Latest", value: latest.map { fmt($0.value) } ?? "—",
-                     caption: latestCaption, accent: StrandPalette.textPrimary)
-            StatTile(label: "Δ vs prev", value: deltaText ?? "—",
-                     caption: deltaCaption, accent: StrandPalette.textPrimary,
-                     delta: cmp.pctChange.map { "\($0 >= 0 ? "+" : "")\(String(format: "%.1f", $0))%" },
-                     deltaColor: deltaColor)
-        }
-    }
-
-    private var latestCaption: String? {
-        guard let day = latest?.day, let d = parseDay(day) else { return nil }
-        return longDate(d)
     }
 
     // MARK: Correlations
@@ -1054,77 +852,64 @@ struct MetricDetailView: View {
         correlationCache = computeCorrelationRows(windowed: slice(for: effectiveRange))
     }
 
-    private var correlationCard: some View {
+    private var correlationSection: some View {
         let rows = correlationCache
-        return PaperCard {
-            VStack(alignment: .leading, spacing: NoopMetrics.gap) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("What correlates").strandOverline()
-                    Text("Pearson r over the visible window · |r| ≥ 0.30, n ≥ 10")
-                        .font(StrandFont.footnote)
-                        .foregroundStyle(StrandPalette.textTertiary)
-                }
-                if !correlationsLoaded {
-                    HStack(spacing: 10) {
-                        ProgressView().controlSize(.small)
-                        Text("Reading related metrics…")
-                            .font(StrandFont.subhead)
-                            .foregroundStyle(StrandPalette.textTertiary)
-                    }
-                    .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
-                } else if rows.isEmpty {
-                    Text("Nothing in the catalog moves clearly with \(metric.title.lowercased()) over this window. Widen the range to surface relationships.")
+        return FlatSection("What correlates", systemImage: "link", contentSpacing: NoopMetrics.space1) {
+            Text("Pearson r over the visible window · |r| ≥ 0.30, n ≥ 10")
+                .font(StrandFont.micro)
+                .foregroundStyle(StrandPalette.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
+            if !correlationsLoaded {
+                HStack(spacing: NoopMetrics.space2) {
+                    ProgressView().controlSize(.small)
+                    Text("Reading related metrics…")
                         .font(StrandFont.subhead)
                         .foregroundStyle(StrandPalette.textTertiary)
-                        .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
-                        .fixedSize(horizontal: false, vertical: true)
-                } else {
-                    VStack(spacing: 0) {
-                        ForEach(Array(rows.enumerated()), id: \.element.id) { idx, row in
-                            correlationRowView(row)
-                            if idx < rows.count - 1 {
-                                Divider().overlay(StrandPalette.hairline)
-                            }
-                        }
+                }
+                .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
+            } else if rows.isEmpty {
+                Text("Nothing in the catalog moves clearly with \(metric.title.lowercased()) over this window. Widen the range to surface relationships.")
+                    .font(StrandFont.subhead)
+                    .foregroundStyle(StrandPalette.textTertiary)
+                    .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                VStack(spacing: 0) {
+                    ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
+                        if index > 0 { ExploreRowSeparator() }
+                        correlationRowView(row)
                     }
                 }
             }
         }
     }
 
-    @ViewBuilder
     private func correlationRowView(_ row: CorrRow) -> some View {
-        let color = correlationColor(row.r)
-        HStack(spacing: 12) {
-            Image(systemName: row.metric.icon)
-                .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(StrandPalette.textSecondary)
-                .frame(width: 22)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(row.metric.title)
-                    .font(StrandFont.body)
-                    .foregroundStyle(StrandPalette.textPrimary)
-                Text("\(MetricCatalog.categoryDisplayName(row.metric.category)) · n = \(row.n)")
-                    .font(StrandFont.footnote)
-                    .foregroundStyle(StrandPalette.textTertiary)
-            }
-            Spacer(minLength: 8)
-            HStack(spacing: 10) {
-                // The strength bar as the signature liquid tube — filled to |r|, tinted by the
-                // correlation's sign (positive green / negative red), posed (static) so a list of them
-                // costs one cached frame each. Replaces the flat capsule with the liquid range-bar idiom.
-                PaperProgressBar(frac: min(abs(row.r), 1.0), tint: color, height: 8, animated: false)
-                    .frame(width: 64)
-                    .accessibilityHidden(true)
-                Text("\(row.r >= 0 ? "+" : "−")\(String(format: "%.2f", abs(row.r)))")
-                    .font(StrandFont.number(15))
-                    .foregroundStyle(color)
-                    .frame(width: 52, alignment: .trailing)
-            }
+        let strength = CorrelationStrength(r: row.r)
+        let color = CorrelationStrength.color(for: row.r)
+        let value = CorrelationStrength.signedText(row.r)
+        return ExploreFlatRow(
+            symbol: row.metric.icon,
+            tint: row.metric.domainTint(),
+            title: Text(verbatim: row.metric.title),
+            subtitle: Text(verbatim: correlationSubtitle(row)),
+            showsChevron: false,
+            spoken: String(localized: "\(row.metric.title), \(strength.word) correlation \(value), \(row.n) days")
+        ) {
+            // Direction by sign and colour, strength by the word beside the number; no bar encodes |r| twice.
+            CorrelationTrailing(value: value, word: strength.word, color: color)
         }
-        .padding(.vertical, 10)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(row.metric.title), correlation \(String(format: "%.2f", row.r)), \(row.n) days")
+    }
+
+    /// What sits under a correlated metric's name: its category when that is not just the name again, its source when
+    /// it differs from this page's, then how many days the figure rests on.
+    private func correlationSubtitle(_ row: CorrRow) -> String {
+        var parts: [String] = []
+        let category = MetricCatalog.categoryDisplayName(row.metric.category)
+        if category.caseInsensitiveCompare(row.metric.title) != .orderedSame { parts.append(category) }
+        if row.metric.source != metric.source { parts.append(row.metric.sourceLabel) }
+        parts.append(String(localized: "n = \(row.n)"))
+        return parts.joined(separator: " \u{00B7} ")
     }
 
     // MARK: Helpers
@@ -1133,11 +918,6 @@ struct MetricDetailView: View {
         // A difference between two readings: route through the delta formatter so a temperature Δ
         // scales without the +32 offset.
         (delta >= 0 ? "+" : "−") + metric.formatDelta(abs(delta), system: unitSystem, temperature: temperatureUnit, effortScale: effortScale)
-    }
-
-    private func correlationColor(_ r: Double) -> Color {
-        let base = r >= 0 ? StrandPalette.statusPositive : StrandPalette.statusCritical
-        return base.opacity(0.55 + 0.45 * min(abs(r), 1.0))
     }
 }
 

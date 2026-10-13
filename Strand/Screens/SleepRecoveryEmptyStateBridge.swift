@@ -9,9 +9,19 @@ import WhoopStore
 @ViewBuilder
 func sleepRecoveryEmptyState(what: String) -> some View {
     if MissedSleepRecoveryRouting.shouldReplaceEmptyState(what) {
-        MissedSleepRecoveryBridge()
+        // No night at all: the card carries the guidance the placeholder message would have shown.
+        MissedSleepRecoveryBridge(emptyDetail: what)
     } else {
-        ComingSoon(what: LocalizedStringKey(what))
+        FlatSection("Sleep", systemImage: "moon.zzz.fill", tint: .sleep) {
+            HStack(spacing: NoopMetrics.space2) {
+                ProgressView().tint(StrandPalette.restColor).accessibilityHidden(true)
+                Text(LocalizedStringKey(what))
+                    .font(StrandFont.subhead)
+                    .foregroundStyle(StrandPalette.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .accessibilityElement(children: .combine)
     }
 }
 
@@ -22,6 +32,10 @@ enum MissedSleepRecoveryRouting {
 }
 
 struct MissedSleepRecoveryBridge: View {
+    /// The empty-state guidance, when the screen has no night at all (nil for "no sleep recorded for today yet" over
+    /// a screen that has history).
+    var emptyDetail: String? = nil
+
     @EnvironmentObject private var repo: Repository
     @EnvironmentObject private var intelligence: IntelligenceEngine
 
@@ -32,6 +46,7 @@ struct MissedSleepRecoveryBridge: View {
     var body: some View {
         MissedSleepRecoveryCard(
             isRetrying: isRetrying,
+            emptyDetail: emptyDetail,
             onRetry: { Task { await retryDetection() } },
             onSetWindow: { editorSeed = .lastNight() })
             .sheet(item: $editorSeed) { seed in
@@ -126,56 +141,57 @@ private struct MissedSleepWindowEditor: View {
                 VStack(alignment: .leading, spacing: 20) {
                     VStack(alignment: .leading, spacing: 7) {
                         Text("When were you in bed?")
-                            .font(.system(size: 28, weight: .bold, design: .rounded))
+                            .font(StrandFont.title1)
                         Text("These times only bound the review. NOOP will inspect the physiological data inside the window and keep uncertain signals unknown.")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
+                            .font(StrandFont.subhead)
+                            .foregroundStyle(StrandPalette.textSecondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
 
-                    VStack(spacing: 0) {
-                        dateRow(
-                            title: "In bed",
-                            icon: "moon.fill",
-                            selection: $start,
-                            range: ...Date())
-                        Divider().padding(.leading, 48)
-                        dateRow(
-                            title: "Woke up",
-                            icon: "sun.max.fill",
-                            selection: $end,
-                            range: ...Date())
+                    StrandCard(padding: 0) {
+                        VStack(spacing: 0) {
+                            dateRow(
+                                title: "In bed",
+                                icon: "moon.fill",
+                                selection: $start,
+                                range: ...Date())
+                            Divider().overlay(StrandPalette.hairline).padding(.leading, 36)
+                            dateRow(
+                                title: "Woke up",
+                                icon: "sun.max.fill",
+                                selection: $end,
+                                range: ...Date())
+                        }
                     }
-                    .padding(.horizontal, 16)
-                    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
 
                     HStack(spacing: 10) {
                         Image(systemName: isValidWindow ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                            .foregroundStyle(isValidWindow ? .green : .orange)
+                            .foregroundStyle(isValidWindow ? StrandPalette.statusPositive : StrandPalette.statusWarning)
                         Text(validationMessage ?? durationText)
-                            .font(.subheadline.weight(.medium))
-                            .foregroundStyle(.secondary)
+                            .font(StrandFont.subhead)
+                            .foregroundStyle(StrandPalette.textSecondary)
                     }
                     .padding(.horizontal, 4)
 
-                    VStack(alignment: .leading, spacing: 10) {
-                        Label("What happens next", systemImage: "waveform.path.ecg.rectangle")
-                            .font(.headline)
-                        recoveryExplanation(
-                            number: "1",
-                            text: "Read HR, HRV, respiration, and motion only inside this window.")
-                        recoveryExplanation(
-                            number: "2",
-                            text: "Rebuild sleep stages only when the sensor evidence supports them.")
-                        recoveryExplanation(
-                            number: "3",
-                            text: "Regenerate Rest and Charge and preserve the correction through later syncs.")
+                    StrandCard(padding: NoopMetrics.cardPadding) {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Label("What happens next", systemImage: "waveform.path.ecg.rectangle")
+                                .font(StrandFont.headline)
+                            recoveryExplanation(
+                                number: "1",
+                                text: "Read HR, HRV, respiration, and motion only inside this window.")
+                            recoveryExplanation(
+                                number: "2",
+                                text: "Rebuild sleep stages only when the sensor evidence supports them.")
+                            recoveryExplanation(
+                                number: "3",
+                                text: "Regenerate Rest and Charge and preserve the correction through later syncs.")
+                        }
                     }
-                    .padding(16)
-                    .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
                 }
-                .padding(20)
+                .padding(16)
             }
+            .background(StrandPalette.appCanvas)
             .navigationTitle("Recover sleep")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -218,9 +234,9 @@ private struct MissedSleepWindowEditor: View {
         HStack(spacing: 12) {
             Image(systemName: icon)
                 .frame(width: 24)
-                .foregroundStyle(.blue)
+                .foregroundStyle(StrandPalette.accent)
             Text(title)
-                .font(.headline)
+                .font(StrandFont.headline)
             Spacer()
             DatePicker(
                 title,
@@ -235,13 +251,13 @@ private struct MissedSleepWindowEditor: View {
     private func recoveryExplanation(number: String, text: String) -> some View {
         HStack(alignment: .top, spacing: 10) {
             Text(number)
-                .font(.caption.bold())
-                .foregroundStyle(.white)
+                .font(StrandFont.caption.weight(.bold))
+                .foregroundStyle(StrandPalette.onInk)
                 .frame(width: 22, height: 22)
-                .background(.blue, in: Circle())
+                .background(StrandPalette.ink, in: Circle())
             Text(text)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .font(StrandFont.subhead)
+                .foregroundStyle(StrandPalette.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }

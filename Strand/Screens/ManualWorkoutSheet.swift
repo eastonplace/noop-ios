@@ -1,4 +1,5 @@
 import SwiftUI
+import StrandAnalytics
 import StrandDesign
 import WhoopStore
 
@@ -6,7 +7,8 @@ import WhoopStore
 //
 // Add a workout you tracked elsewhere, or edit one you already logged. Five inputs — sport,
 // start, duration, average HR, calories — validated by WorkoutSource.buildManualRow (the same
-// honest-row rules the engine uses). On save the caller persists it under the strap source via
+// honest-row rules the engine uses). The sport is chosen from the catalogue like the start sheet's (recent chips, and
+// every activity in a sheet of its own); "Other" opens a field for an activity the catalogue does not list. On save the caller persists it under the strap source via
 // Repository.saveManualWorkout. Captured-but-unexposed fields (maxHr / strain / zones) on an edited
 // row are carried over by WorkoutSource.preservingCaptured so editing a live-tracked session's
 // sport/duration never silently wipes its real strain.
@@ -21,22 +23,33 @@ struct ManualWorkoutSheet: View {
     let onSave: (_ row: WorkoutRow, _ replacing: WorkoutRow?) -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var typeSize
+    /// The duration value beside its stepper, scaled with Dynamic Type like the labels around it.
+    @ScaledMetric(relativeTo: .body) private var durationValueSize: CGFloat = 16
 
-    @State private var sport: String
+    /// The catalogue sport chosen; empty until one is. "Other" may carry a name of its own (`customSport`).
+    @State private var chosenSport: String
+    @State private var customSport: String
     @State private var start: Date
     @State private var durationMin: Int
     @State private var avgHrText: String
     @State private var kcalText: String
+    /// The sports used lately, offered under the Sport field as one-tap chips.
+    @State private var recentSports: [String] = RecentSportsPrefs.recent()
+    @State private var showsAllActivities = false
+    /// True once Add has been tapped on a form that could not be saved. Until then, what is missing is a hint, not a fault.
+    @State private var attemptedAdd = false
 
-    /// Focus for the numeric (Avg HR / Calories) fields so the keyboard Done button can resign them —
-    /// the decimal pad has no return key. iOS-only effect; the enum keeps both platforms compiling.
-    private enum NumberField: Hashable { case avgHr, calories }
-    @FocusState private var focusedField: NumberField?
+    /// Focus for the text fields so the keyboard Done button can resign them — the decimal pad has no return key.
+    /// iOS-only effect; the enum keeps both platforms compiling.
+    private enum FormField: Hashable { case customSport, avgHr, calories }
+    @FocusState private var focusedField: FormField?
 
-    /// Whether the Sport text field is being edited — drives whether the catalogue suggestions show
-    /// beneath it. The list also stays hidden once the typed text exactly matches a catalogue sport
-    /// (a settled choice), so the form isn't permanently half-covered.
-    @FocusState private var sportFocused: Bool
+    /// The pauses kept for the edited workout; nil for a new workout or one that never was paused.
+    private let pauses: WorkoutPauseLedger?
+
+    /// The sport as it is saved.
+    private var sport: String { ManualWorkoutSport.sport(chosen: chosenSport, custom: customSport) }
 
     init(editing: WorkoutRow? = nil,
          onSave: @escaping (_ row: WorkoutRow, _ replacing: WorkoutRow?) -> Void) {
@@ -46,63 +59,80 @@ struct ManualWorkoutSheet: View {
         let e = editing
         // Seeds the LOCALE-STABLE editable form, not the localized display: the field's content is
         // persisted verbatim on save, and a translated word would split cross-source dedup per language.
-        _sport = State(initialValue: e.map { WorkoutSource.editableSport($0.sport) } ?? "")
+        let choice = ManualWorkoutSport.choice(for: e.map { WorkoutSource.editableSport($0.sport) })
+        _chosenSport = State(initialValue: choice.chosen)
+        _customSport = State(initialValue: choice.custom)
         _start = State(initialValue: e.map { Date(timeIntervalSince1970: TimeInterval($0.startTs)) } ?? Date())
-        _durationMin = State(initialValue: e.map { max(1, Int((($0.durationS ?? Double($0.endTs - $0.startTs)) / 60).rounded())) } ?? 45)
+        _durationMin = State(initialValue: e.map(WorkoutSource.editableDurationMin) ?? 45)
+        // A recorded workout that was paused keeps its pauses in a store of their own: the stepper edits the time it ran,
+        // so the window's wall-clock end has to be worked back from them.
+        pauses = e.flatMap { WorkoutPauseStore.load(startTs: $0.startTs, sport: $0.sport) }
         _avgHrText = State(initialValue: e?.avgHr.map(String.init) ?? "")
         _kcalText = State(initialValue: e?.energyKcal.map { String(Int($0.rounded())) } ?? "")
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: NoopMetrics.space5) {
-            header
-            VStack(alignment: .leading, spacing: NoopMetrics.space4) {
-                field(String(localized: "Sport")) {
-                    sportPicker
-                }
-                field(String(localized: "Start")) {
-                    DatePicker("", selection: $start, in: ...Date(),
-                               displayedComponents: [.date, .hourAndMinute])
-                        .labelsHidden()
-                        .accessibilityLabel("Start date and time")
-                }
-                field(String(localized: "Duration")) {
-                    HStack(spacing: 12) {
-                        Stepper(value: $durationMin, in: 1...(24 * 60), step: 5) {
-                            Text(durationLabel)
-                                .font(StrandFont.number(16))
-                                .foregroundStyle(StrandPalette.effortBright)
+        // The form scrolls and the footer stays pinned above the keyboard. The sheet opens at full height: at the medium
+        // one the last fields sat clipped under the footer.
+        ScrollView {
+            VStack(alignment: .leading, spacing: NoopMetrics.space5) {
+                header
+                VStack(alignment: .leading, spacing: NoopMetrics.space4) {
+                    field(String(localized: "Sport")) {
+                        sportPicker
+                    }
+                    field(String(localized: "Start")) {
+                        DatePicker(selection: $start, in: ...Date(), displayedComponents: [.date, .hourAndMinute]) {
+                            Text("Start date and time")
                         }
-                        .accessibilityLabel("Duration in minutes")
+                        .labelsHidden()
                     }
+                    field(String(localized: "Duration")) {
+                        HStack(spacing: 12) {
+                            Stepper(value: $durationMin, in: 1...(24 * 60), step: 5) {
+                                Text(durationLabel)
+                                    .font(StrandFont.number(durationValueSize))
+                                    .foregroundStyle(StrandPalette.effortBright)
+                                    .lineLimit(2)
+                                    .minimumScaleFactor(0.6)
+                            }
+                            // The label names what the stepper changes; the value is what it is now, spoken after each step.
+                            .accessibilityLabel("Duration")
+                            .accessibilityValue(WorkoutFormat.spokenDuration(Double(durationMin) * 60))
+                        }
+                    }
+                    numberFields
                 }
-                HStack(spacing: 14) {
-                    field(String(localized: "Avg HR")) {
-                        numberInput(String(localized: "optional"), text: $avgHrText, unit: "bpm", field: .avgHr)
-                            .accessibilityLabel("Average heart rate in beats per minute, optional")
-                    }
-                    field(String(localized: "Calories")) {
-                        numberInput(String(localized: "optional"), text: $kcalText, unit: "kcal", field: .calories)
-                            .accessibilityLabel("Calories in kilocalories, optional")
-                    }
-                }
+                if avgHrEditedNote { noteRow(String(localized: "Avg HR is shown as typed. The HR graph, zones and Strain stay from the recorded session.")) }
+                // At accessibility text sizes a pinned footer would take half the sheet, so it follows the form.
+                if typeSize.isAccessibilitySize { footerWithNote }
             }
-            if let validationNote { noteRow(validationNote) }
-            if avgHrEditedNote { noteRow(String(localized: "Avg HR is shown as typed. The HR graph, zones and Strain stay from the recorded session.")) }
-            footer
+            .padding(.horizontal, NoopMetrics.space6)
+            .padding(.top, NoopMetrics.space6)
+            .padding(.bottom, NoopMetrics.space4)
         }
-        .padding(NoopMetrics.space6)
+        .scrollDismissesKeyboard(.interactively)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            // What is wrong with the form stays beside the button it explains, however far the form is scrolled.
+            if !typeSize.isAccessibilitySize {
+                footerWithNote
+                    .padding(.horizontal, NoopMetrics.space6)
+                    .padding(.top, NoopMetrics.space2)
+                    .padding(.bottom, NoopMetrics.space3)
+                    .background(StrandPalette.surfaceOverlay)
+            }
+        }
         // A fixed 420pt is right for the free-floating macOS sheet, but on iPhone it's wider than
         // the screen, so the Avg HR/Calories row, the Start DatePicker and the footer ran off the
         // right edge (#185, same fix as WhatsNewView/ScoringGuideView). iOS fills the presented
         // sheet's width and sizes to content height instead.
         #if os(macOS)
-        .frame(width: 420)
+        .frame(width: 420, height: 560)
         #else
         .frame(maxWidth: .infinity)
-        // A short 5-field form → open at .medium with .large a drag away; the grabber also gives the
-        // top dismiss affordance the sheet otherwise lacks (only a bottom Cancel).
-        .noopSheetPresentation(largeFirst: false)
+        // Full height always; the grabber also gives the top dismiss affordance the sheet otherwise lacks (only a
+        // bottom Cancel).
+        .noopSheetPresentation(largeFirst: true)
         #endif
         .background(StrandPalette.surfaceOverlay)
         // Lets the user dismiss the decimal pad (which has no return key) and reach Cancel/Add. No-op on macOS.
@@ -111,102 +141,163 @@ struct ManualWorkoutSheet: View {
 
     // MARK: - Sport picker
     //
-    // A searchable PICKER over the shared WorkoutCatalog (the same named-sport list the live tracker
-    // uses, incl. Padel) with a free-text FALLBACK: the text field IS the value, so an unusual sport
-    // NOOP doesn't enumerate still saves exactly as typed (#519). Typing filters the catalogue
-    // beneath the field; tapping a match fills it; the list collapses on a settled / off-catalogue
-    // entry so the short form isn't permanently covered. Mirrors Android WorkoutsScreen.SportPickerField.
+    // The sports used lately as chips (with the current choice among them), a row that opens every activity in a sheet of
+    // its own, and, once "Other" is chosen, a field for the activity's own name. That field is the free-text path (#519):
+    // an activity the catalogue does not list still saves exactly as typed.
 
-    /// Suggestions for the current text — the whole catalogue while empty, else a case-insensitive
-    /// name filter. Empty list ⇒ a free-typed sport with no match (keeps whatever was typed).
-    private var sportSuggestions: [WorkoutCatalog.Sport] { WorkoutCatalog.matching(sport) }
-
-    /// Show the list only while the field is focused, there are matches, and the text isn't already an
-    /// exact catalogue name (a settled choice collapses it).
-    private var showSportSuggestions: Bool {
-        sportFocused && !sportSuggestions.isEmpty && WorkoutCatalog.sport(named: sport) == nil
-    }
+    private var chipSports: [String] { ManualWorkoutSport.chips(recents: recentSports, chosen: chosenSport) }
 
     private var sportPicker: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            TextField("e.g. Running", text: $sport)
-                .textFieldStyle(.plain)
-                .font(StrandFont.body)
-                .foregroundStyle(StrandPalette.textPrimary)
-                .focused($sportFocused)
-                .padding(.horizontal, 12).padding(.vertical, 9)
-                .background(StrandPalette.surfaceInset, in: inputShape)
-                .overlay(inputShape.strokeBorder(StrandPalette.hairline, lineWidth: 1))
-                .accessibilityLabel("Sport")
-            if showSportSuggestions {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 0) {
-                        ForEach(sportSuggestions) { sp in
-                            Button {
-                                sport = sp.name
-                                sportFocused = false
-                            } label: {
-                                HStack(spacing: 6) {
-                                    Text(sp.name)
-                                        .font(StrandFont.body)
-                                        .foregroundStyle(StrandPalette.textPrimary)
-                                    if sp.isDistanceSport {
-                                        Text("· GPS")
-                                            .font(StrandFont.footnote)
-                                            .foregroundStyle(StrandPalette.textTertiary)
-                                    }
-                                    Spacer(minLength: 0)
-                                }
-                                .contentShape(Rectangle())
-                                .padding(.horizontal, 12).padding(.vertical, 8)
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel("Pick \(sp.name)")
-                        }
-                    }
-                }
-                .frame(maxHeight: 168)
-                .background(StrandPalette.surfaceInset, in: inputShape)
-                .overlay(inputShape.strokeBorder(StrandPalette.hairline, lineWidth: 1))
+        VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+            if !chipSports.isEmpty {
+                WorkoutRecentSportChips(sports: chipSports, selected: chosenSport) { chosenSport = $0 }
             }
+            allActivitiesRow
+            if chosenSport == WorkoutCatalog.defaultSportName { customSportField }
         }
+        .sheet(isPresented: $showsAllActivities) {
+            WorkoutActivityPickerSheet(
+                selected: chosenSport,
+                onSelect: { chosenSport = $0 },
+                onCustom: { name in
+                    chosenSport = WorkoutCatalog.defaultSportName
+                    customSport = name
+                })
+        }
+    }
+
+    private var allActivitiesRow: some View {
+        Button { showsAllActivities = true } label: {
+            HStack(spacing: NoopMetrics.space2) {
+                Image(systemName: "square.grid.2x2")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(DomainTint.workout.accent)
+                    .accessibilityHidden(true)
+                Text("All activities")
+                    .font(StrandFont.subhead.weight(.semibold))
+                    .foregroundStyle(StrandPalette.textPrimary)
+                Spacer(minLength: NoopMetrics.space2)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(StrandPalette.textTertiary)
+                    .accessibilityHidden(true)
+            }
+            .padding(.horizontal, 12)
+            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+            .background(StrandPalette.surfaceInset, in: inputShape)
+            .overlay(inputShape.strokeBorder(StrandPalette.hairline, lineWidth: 1))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var customSportField: some View {
+        TextField("Name it (optional)", text: $customSport)
+            .textFieldStyle(.plain)
+            .font(StrandFont.body)
+            .foregroundStyle(StrandPalette.textPrimary)
+            .focused($focusedField, equals: .customSport)
+            .submitLabel(.done)
+            .padding(.horizontal, 12)
+            .frame(minHeight: 44)
+            .background(StrandPalette.surfaceInset, in: inputShape)
+            .overlay(inputShape.strokeBorder(StrandPalette.hairline, lineWidth: 1))
+            .accessibilityLabel("Name of the activity, optional")
     }
 
     // MARK: - Sections
 
+    /// Avg HR and Calories share a row; at accessibility sizes each is as wide as the sheet, so what is typed stays in view.
+    @ViewBuilder private var numberFields: some View {
+        let avgHrField = field(String(localized: "Avg HR")) {
+            numberInput(String(localized: "optional"), text: $avgHrText, unit: "bpm", field: .avgHr)
+                .accessibilityLabel("Average heart rate in beats per minute, optional")
+        }
+        let caloriesField = field(String(localized: "Calories")) {
+            numberInput(String(localized: "optional"), text: $kcalText, unit: "kcal", field: .calories)
+                .accessibilityLabel("Calories in kilocalories, optional")
+        }
+        if typeSize.isAccessibilitySize {
+            VStack(alignment: .leading, spacing: NoopMetrics.space4) { avgHrField; caloriesField }
+        } else {
+            HStack(spacing: 14) { avgHrField; caloriesField }
+        }
+    }
+
     private var header: some View {
-        HStack(alignment: .top, spacing: 12) {
-            // A small Strain-world glyph so the sheet reads as part of the workouts (amber) world.
-            Image(systemName: "figure.run")
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundStyle(StrandPalette.effortColor)
-                .frame(width: 30, height: 30)
-                .background(StrandPalette.effortColor.opacity(0.14), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(editing == nil ? "Add Workout" : "Edit Workout")
-                    .font(StrandFont.title2)
-                    .foregroundStyle(StrandPalette.textPrimary)
-                Text(editing == nil
-                     ? "Log a session you tracked elsewhere."
-                     : "Adjust this session's details.")
-                    .font(StrandFont.subhead)
-                    .foregroundStyle(StrandPalette.textSecondary)
+        Group {
+            if typeSize.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: NoopMetrics.space3) {
+                    // The same glyph the rest of the workouts screens wear, so the sheet reads as part of them.
+                    WorkoutSportGlyph(symbol: "figure.run")
+                    headerTexts
+                }
+            } else {
+                HStack(alignment: .top, spacing: 12) {
+                    WorkoutSportGlyph(symbol: "figure.run")
+                    headerTexts
+                    Spacer(minLength: 0)
+                }
             }
-            Spacer(minLength: 0)
+        }
+    }
+
+    private var headerTexts: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(editing == nil ? "Add Workout" : "Edit Workout")
+                .font(StrandFont.title2)
+                .foregroundStyle(StrandPalette.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(editing == nil
+                 ? "Log a session you tracked elsewhere."
+                 : "Adjust this session's details.")
+                .font(StrandFont.subhead)
+                .foregroundStyle(StrandPalette.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    /// What is wrong with the form, beside the buttons it explains.
+    private var footerWithNote: some View {
+        VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+            if let validationNote {
+                // Before anyone has tried to add, what is missing is a hint; a fault is for a form that was tried.
+                noteRow(validationNote.text,
+                        systemImage: validationNote.isHint ? "info.circle" : "exclamationmark.circle.fill",
+                        tint: validationNote.isHint ? StrandPalette.textTertiary : StrandPalette.statusWarning)
+            }
+            footer
         }
     }
 
     private var footer: some View {
-        HStack(spacing: NoopMetrics.space3) {
-            NoopButton("Cancel", kind: .tertiary) { dismiss() }
-            Spacer()
-            NoopButton(editing == nil ? "Add" : "Save", systemImage: "checkmark", kind: .primary) {
-                save()
+        Group {
+            if typeSize.isAccessibilitySize {
+                // Stacked, the primary action first and as wide as the sheet, so neither label wraps.
+                VStack(spacing: NoopMetrics.space2) {
+                    saveButton.frame(maxWidth: .infinity)
+                    WorkoutCancelButton(fillsWidth: true)
+                }
+            } else {
+                HStack(spacing: NoopMetrics.space3) {
+                    WorkoutCancelButton()
+                    Spacer()
+                    saveButton
+                }
             }
-            .disabled(builtRow == nil)
-            .accessibilityLabel(editing == nil ? "Add workout" : "Save workout")
         }
+    }
+
+    private var saveButton: some View {
+        // Never disabled: a button that cannot be pressed cannot say what is missing. Pressed on an incomplete form it
+        // turns the hint into the fault. Until the form can be saved it is drawn in the standard unavailable look.
+        Button { attemptSave() } label: {
+            Label { editing == nil ? Text("Add") : Text("Save") } icon: { Image(systemName: "checkmark") }
+                .frame(maxWidth: typeSize.isAccessibilitySize ? .infinity : nil)
+        }
+        .buttonStyle(PrimaryPillButtonStyle(looksUnavailable: builtRow == nil))
+        .accessibilityLabel(editing == nil ? "Add workout" : "Save workout")
+        .accessibilityHint(Text(verbatim: builtRow == nil ? (validationNote?.text ?? "") : ""))
     }
 
     private func field<Content: View>(_ label: String, @ViewBuilder _ content: () -> Content) -> some View {
@@ -217,7 +308,7 @@ struct ManualWorkoutSheet: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func numberInput(_ placeholder: String, text: Binding<String>, unit: String, field: NumberField) -> some View {
+    private func numberInput(_ placeholder: String, text: Binding<String>, unit: String, field: FormField) -> some View {
         HStack(spacing: 6) {
             TextField(placeholder, text: text)
                 .textFieldStyle(.plain)
@@ -237,24 +328,26 @@ struct ManualWorkoutSheet: View {
         .overlay(inputShape.strokeBorder(StrandPalette.hairline, lineWidth: 1))
     }
 
-    private func noteRow(_ text: String) -> some View {
-        Text(text)
-            .font(StrandFont.footnote)
-            .foregroundStyle(StrandPalette.textPrimary)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .accessibilityLabel(text)
+    private func noteRow(_ text: String, systemImage: String = "info.circle", tint: Color = StrandPalette.textTertiary) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: NoopMetrics.space2) {
+            Image(systemName: systemImage)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(tint)
+                .accessibilityHidden(true)
+            Text(text)
+                .font(StrandFont.footnote)
+                .foregroundStyle(StrandPalette.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
     }
 
     // MARK: - Validation / build
 
     private var inputShape: RoundedRectangle { RoundedRectangle(cornerRadius: 10, style: .continuous) }
 
-    private var durationLabel: String {
-        let h = durationMin / 60, m = durationMin % 60
-        if h > 0 && m > 0 { return "\(h)h \(m)m" }
-        if h > 0 { return "\(h)h" }
-        return "\(m)m"
-    }
+    private var durationLabel: String { WorkoutFormat.duration(Double(durationMin) * 60) }
 
     /// Parsed avg-HR — nil for blank, an out-of-band sentinel handled by buildManualRow otherwise.
     private var avgHr: Int? { Int(avgHrText.trimmingCharacters(in: .whitespaces)) }
@@ -270,7 +363,7 @@ struct ManualWorkoutSheet: View {
                                                       sport: sport, avgHr: avgHr, energyKcal: kcal)
         else { return nil }
         // Carry over captured-but-unexposed fields when editing an existing strap session.
-        return WorkoutSource.preservingCaptured(base, from: editing)
+        return WorkoutSource.preservingCaptured(base, from: editing, pauses: pauses)
     }
 
     /// #18: true when this edit changes the Avg HR on a row that carries CAPTURED strain/zones from a
@@ -284,461 +377,41 @@ struct ManualWorkoutSheet: View {
         return captured && built.avgHr != editing.avgHr
     }
 
-    private var validationNote: String? {
+    /// What stops the form being saved. `isHint` is true for the one thing a fresh form always lacks (a sport) until an
+    /// Add has been tried; everything else follows something the person typed or picked, so it is a fault at once.
+    private struct ValidationNote {
+        let text: String
+        var isHint = false
+    }
+
+    private var validationNote: ValidationNote? {
         guard builtRow == nil else { return nil }
-        if sport.trimmingCharacters(in: .whitespaces).isEmpty { return String(localized: "Enter a sport.") }
-        if start > Date() { return String(localized: "Start can't be in the future.") }
+        if chosenSport.isEmpty { return ValidationNote(text: String(localized: "Choose a sport."), isHint: !attemptedAdd) }
+        if start > Date() { return ValidationNote(text: String(localized: "Start can't be in the future.")) }
         if !avgHrText.trimmingCharacters(in: .whitespaces).isEmpty, avgHr == nil || !(25...250).contains(avgHr ?? -1) {
-            return String(localized: "Average HR must be 25-250 bpm.")
+            return ValidationNote(text: String(localized: "Average HR must be 25-250 bpm."))
         }
         if !kcalText.trimmingCharacters(in: .whitespaces).isEmpty, kcal == nil || (kcal ?? -1) < 0 || (kcal ?? 0) > 20_000 {
-            return String(localized: "Calories must be 0-20,000.")
+            return ValidationNote(text: String(localized: "Calories must be 0-20,000."))
         }
-        return String(localized: "Check the values and try again.")
+        return ValidationNote(text: String(localized: "Check the values and try again."))
+    }
+
+    /// Add on a form that cannot be saved shows what is missing; on one that can, it saves.
+    private func attemptSave() {
+        guard builtRow != nil else {
+            attemptedAdd = true
+            return
+        }
+        save()
     }
 
     private func save() {
         guard let row = builtRow else { return }
+        if let recorded = ManualWorkoutSport.recordedName(for: sport) { RecentSportsPrefs.recordSelection(recorded) }
         onSave(row, editing)
         dismiss()
     }
-}
-
-// MARK: - Live workout start picker
-//
-// The Apple-side entry point for LIVE tracking, mirroring Android's StartWorkoutSheet (WorkoutStart.kt):
-// pick a named sport from the shared WorkoutCatalog, then begin the session. Brings the iOS/macOS live
-// tracker to parity with Android, which has had a named-sport picker on Start since #115 — previously
-// the Apple "Start workout" buttons called `startWorkout()` with no sport and every live session saved
-// as the generic "Workout". A host presents this and forwards the chosen name to
-// `AppModel.startWorkout(sport:)`. Free-text isn't offered here (a live start is a quick tap from a
-// fixed list); an unusual sport can still be set afterwards via the manual edit sheet's free-text field.
-
-struct StartWorkoutSheet: View {
-    /// Called with the chosen sport name once the user taps the action button. The host wires this to
-    /// `model.startWorkout(sport:)` (and presents the live workout view) by default, or (#64) to name a
-    /// merged session when the title/action are overridden.
-    let onStart: (_ sport: String) -> Void
-
-    /// #64: heading + explainer + action-verb overrides so this picker doubles as the "name the merged
-    /// session" prompt. Defaults keep the "Start a workout" behaviour byte-identical.
-    private let heading: String
-    private let explainer: String
-    private let actionVerb: String
-    private let isWorkoutStart: Bool
-    private let dismissAfterStart: Bool
-
-    init(title: String? = nil, subtitle: String? = nil, actionVerb: String? = nil,
-         initialSport: String = WorkoutCatalog.defaultSportName,
-         dismissAfterStart: Bool = true,
-         onStart: @escaping (_ sport: String) -> Void) {
-        self.onStart = onStart
-        self.heading = title ?? String(localized: "Start a workout")
-        self.explainer = subtitle
-            ?? String(localized: "Pick a sport. NOOP records HR, peak, average and effort from the live feed.")
-        self.actionVerb = actionVerb ?? String(localized: "Start")
-        self.isWorkoutStart = title == nil && actionVerb == nil
-        self.dismissAfterStart = dismissAfterStart
-        _selected = State(initialValue: WorkoutCatalog.sport(named: initialSport)?.name
-            ?? WorkoutCatalog.defaultSportName)
-    }
-
-    @Environment(\.dismiss) private var dismiss
-    @EnvironmentObject private var repo: Repository
-    @EnvironmentObject private var model: AppModel
-    @AppStorage(UnitPrefs.systemKey) private var unitSystemRaw = UnitSystem.metric.rawValue
-    @AppStorage("workoutKeepScreenOn") private var keepScreenOn = false
-    @State private var query = ""
-    @State private var selected: String
-    @State private var recentRows: [WorkoutRow] = []
-    @State private var showsAllWorkoutTypes = false
-
-    private var filtered: [WorkoutCatalog.Sport] { WorkoutCatalog.matching(query) }
-    private var unitSystem: UnitSystem { UnitSystem(rawValue: unitSystemRaw) ?? .metric }
-    private var inputShape: RoundedRectangle { RoundedRectangle(cornerRadius: 10, style: .continuous) }
-
-    var body: some View {
-        Group {
-            if isWorkoutStart && showsStrengthFlow {
-                LiftLogView(onBack: { showsStrengthFlow = false })
-            }
-            else if isWorkoutStart { paperWorkoutStart }
-            else { compactSportPicker }
-        }
-        .task(id: repo.refreshSeq) { recentRows = await repo.workoutRows(days: 365) }
-    }
-
-    @State private var showsStrengthFlow = false
-
-    private var paperWorkoutStart: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
-                HStack {
-                    Button { dismiss() } label: {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(StrandPalette.textPrimary)
-                            .frame(width: 36, height: 36)
-                            .background(StrandPalette.inset, in: Circle())
-                    }
-                    .buttonStyle(.plain)
-                    Spacer()
-                    Text("N O O P")
-                        .font(StrandFont.wordmark)
-                        .tracking(StrandFont.wordmarkTracking)
-                        .foregroundStyle(StrandPalette.textPrimary)
-                    Spacer()
-                    Button {
-                        showsAllWorkoutTypes.toggle()
-                    } label: {
-                        Image(systemName: "gearshape")
-                            .font(.system(size: 16, weight: .medium))
-                            .foregroundStyle(StrandPalette.textPrimary)
-                            .frame(width: 36, height: 36)
-                            .background(StrandPalette.card, in: Circle())
-                            .overlay(Circle().strokeBorder(StrandPalette.cardBorder, lineWidth: 1))
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Choose workout type")
-                }
-
-                NoopButton("Lift weights", systemImage: "dumbbell.fill", kind: .primary) {
-                    showsStrengthFlow = true
-                }
-                Text("Choose a routine and track sets, reps and weight.")
-                    .font(.subheadline).foregroundStyle(StrandPalette.textSecondary)
-
-                HStack(alignment: .top, spacing: 10) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(workoutDisplayTitle)
-                            .font(StrandFont.cardTitle)
-                            .foregroundStyle(StrandPalette.textPrimary)
-                        Text(selectedSport?.isDistanceSport == true ? "Outdoor workout" : "Indoor workout")
-                            .font(StrandFont.caption)
-                            .foregroundStyle(StrandPalette.textSecondary)
-                    }
-                    Spacer()
-                    if selectedSport?.isDistanceSport == true && model.gpsRecorder.canRecordRoute {
-                        VStack(alignment: .trailing, spacing: 6) {
-                            StatusBadge("GPS Ready", style: .ready)
-                            StatusBadge("Route saving · Local only", style: .imported,
-                                        tint: StrandPalette.textSecondary)
-                        }
-                    }
-                }
-
-                VStack(alignment: .leading, spacing: 8) {
-                    SectionHeader("Run type")
-                    HStack(spacing: 8) {
-                        ForEach(quickTypes) { sport in
-                            Button { selected = sport.name } label: {
-                                HStack(spacing: 7) {
-                                    Image(systemName: sport.isDistanceSport ? "figure.run" : "figure.run.treadmill")
-                                        .font(.system(size: 14, weight: .medium))
-                                    Text(shortSportName(sport.name))
-                                        .font(StrandFont.micro.weight(.semibold))
-                                        .lineLimit(1).minimumScaleFactor(0.7)
-                                }
-                                .foregroundStyle(StrandPalette.textPrimary)
-                                .frame(maxWidth: .infinity, minHeight: 44)
-                                .background(StrandPalette.card,
-                                            in: RoundedRectangle(cornerRadius: 11, style: .continuous))
-                                .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous)
-                                    .strokeBorder(sport.name == selected ? StrandPalette.ink : StrandPalette.cardBorder,
-                                                  lineWidth: sport.name == selected ? 2 : 1))
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                }
-
-                if let recentRoute {
-                    VStack(alignment: .leading, spacing: 8) {
-                        SectionHeader("Recent route")
-                        PaperCard {
-                            HStack(spacing: 12) {
-                                WorkoutRouteMap(segments: recentRoute.segments, showsEndpoints: false)
-                                    .frame(width: 104, height: 78)
-                                    .allowsHitTesting(false)
-                                    .compositingGroup()
-                                    .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
-                                    .accessibilityHidden(true)
-                                VStack(alignment: .leading, spacing: 3) {
-                                    Text(WorkoutSource.displaySport(recentRoute.row.sport))
-                                        .font(StrandFont.body).foregroundStyle(StrandPalette.textPrimary)
-                                    Text(UnitFormatter.distanceFromMeters(recentRoute.route.distanceM,
-                                                                          system: unitSystem))
-                                        .font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
-                                    Text("Last used \(dateText(recentRoute.row.startTs))")
-                                        .font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
-                                }
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                            }
-                        }
-                    }
-                }
-
-                if let last = recentRows.first {
-                    VStack(alignment: .leading, spacing: 8) {
-                        SectionHeader("Last workout")
-                        PaperCard {
-                            HStack(spacing: 12) {
-                                if let effort = StrainResolver.canonicalWorkout(last)?.storedValue {
-                                    ScoreRing(value: StrainScale.displayValue(fromStored: effort), range: 0...21,
-                                              accent: StrandPalette.effortAccent,
-                                              size: 56, lineWidth: 4,
-                                              format: { String(format: "%.1f", $0) })
-                                }
-                                VStack(alignment: .leading, spacing: 3) {
-                                    Text(WorkoutSource.displaySport(last.sport))
-                                        .font(StrandFont.body).foregroundStyle(StrandPalette.textPrimary)
-                                    Text(lastWorkoutMeta(last))
-                                        .font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
-                                    Text(lastWorkoutSummary(last))
-                                        .font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
-                                        .lineLimit(2)
-                                }
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                            }
-                        }
-                    }
-                }
-
-                VStack(alignment: .leading, spacing: 8) {
-                    SectionHeader("Run setup")
-                    PaperCard {
-                        VStack(spacing: 0) {
-                            Button {
-                                showsAllWorkoutTypes.toggle()
-                            } label: {
-                                HStack(spacing: 10) {
-                                    Image(systemName: "figure.run")
-                                        .font(.system(size: 14, weight: .medium))
-                                        .frame(width: 24)
-                                    Text("Workout type").font(StrandFont.body)
-                                    Spacer()
-                                    Text(selected)
-                                        .font(StrandFont.caption)
-                                        .foregroundStyle(StrandPalette.textSecondary)
-                                        .lineLimit(1)
-                                    Image(systemName: showsAllWorkoutTypes ? "chevron.up" : "chevron.down")
-                                        .font(.system(size: 10, weight: .semibold))
-                                        .foregroundStyle(StrandPalette.textTertiary)
-                                }
-                                .foregroundStyle(StrandPalette.textPrimary)
-                                .frame(minHeight: 42)
-                                .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-                            Divider().overlay(StrandPalette.hairline)
-                            Toggle(isOn: $keepScreenOn) {
-                                HStack(spacing: 10) {
-                                    Image(systemName: "sun.max")
-                                        .font(.system(size: 14, weight: .medium))
-                                        .frame(width: 24)
-                                    Text("Keep screen awake").font(StrandFont.body)
-                                }
-                                .foregroundStyle(StrandPalette.textPrimary)
-                            }
-                            .toggleStyle(.switch)
-                            .tint(StrandPalette.ink)
-                            .frame(minHeight: 42)
-                            .accessibilityHint("Stops the screen dimming while a workout is recording")
-                        }
-                    }
-                    if showsAllWorkoutTypes {
-                        sportSearchAndList(maxHeight: 170)
-                    }
-                }
-
-            }
-            .padding(16)
-        }
-        .background(StrandPalette.surfaceBase.ignoresSafeArea())
-        .safeAreaInset(edge: .bottom) {
-            NoopButton("\(actionVerb) \(workoutDisplayTitle)", systemImage: "play.fill",
-                       kind: .primary, fullWidth: true, action: performStart)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
-            .background(StrandPalette.card.opacity(0.97))
-        }
-        #if os(iOS)
-        .noopSheetPresentation(largeFirst: true)
-        #endif
-    }
-
-    private var compactSportPicker: some View {
-        VStack(alignment: .leading, spacing: NoopMetrics.space4) {
-            HStack(alignment: .top, spacing: NoopMetrics.space3) {
-                Image(systemName: "figure.run")
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(StrandPalette.effortColor)
-                    .frame(width: 30, height: 30)
-                    .background(StrandPalette.effortColor.opacity(0.14),
-                                in: RoundedRectangle(cornerRadius: 9, style: .continuous))
-                    .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(heading)
-                        .font(StrandFont.title2)
-                        .foregroundStyle(StrandPalette.textPrimary)
-                    Text(explainer)
-                        .font(StrandFont.subhead)
-                        .foregroundStyle(StrandPalette.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                Spacer(minLength: 0)
-            }
-
-            sportSearchAndList(maxHeight: 240)
-
-            HStack(spacing: NoopMetrics.space3) {
-                NoopButton("Cancel", kind: .tertiary) { dismiss() }
-                Spacer()
-                NoopButton("\(actionVerb) \(selected)", systemImage: "figure.run",
-                           kind: .primary, action: performStart)
-                .accessibilityLabel("\(actionVerb) \(selected)")
-            }
-        }
-        .padding(NoopMetrics.space6)
-        #if os(macOS)
-        .frame(width: 420)
-        #else
-        .frame(maxWidth: .infinity)
-        .noopSheetPresentation(largeFirst: false)
-        #endif
-        .background(StrandPalette.surfaceOverlay)
-    }
-
-    /// The quick-action host keeps this picker alive while it presents the live workout above it.
-    /// Every ordinary host still dismisses first and presents its next sheet from `onDismiss`, avoiding
-    /// two competing sheet transitions in the same update cycle.
-    private func performStart() {
-        onStart(selected)
-        if dismissAfterStart { dismiss() }
-    }
-
-    private func sportSearchAndList(maxHeight: CGFloat) -> some View {
-        VStack(spacing: 8) {
-            PaperSearchField("Search sport", text: $query, height: 42, cornerRadius: 10)
-                .accessibilityLabel("Search sport")
-            ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
-                    ForEach(filtered) { sport in
-                        Button { selected = sport.name } label: {
-                            HStack(spacing: 6) {
-                                Text(sport.name)
-                                    .font(StrandFont.body)
-                                    .foregroundStyle(sport.name == selected
-                                                     ? StrandPalette.link : StrandPalette.textPrimary)
-                                if sport.isDistanceSport {
-                                    Text("· GPS").font(StrandFont.micro)
-                                        .foregroundStyle(StrandPalette.textTertiary)
-                                }
-                                Spacer()
-                                if sport.name == selected {
-                                    Image(systemName: "checkmark")
-                                        .font(.system(size: 11, weight: .bold))
-                                        .foregroundStyle(StrandPalette.success)
-                                }
-                            }
-                            .contentShape(Rectangle())
-                            .padding(.horizontal, 12).padding(.vertical, 9)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-            }
-            .frame(maxHeight: maxHeight)
-            .background(StrandPalette.surfaceInset, in: inputShape)
-            .overlay(inputShape.strokeBorder(StrandPalette.hairline, lineWidth: 1))
-        }
-    }
-
-    private var selectedSport: WorkoutCatalog.Sport? { WorkoutCatalog.sport(named: selected) }
-
-    private var quickTypes: [WorkoutCatalog.Sport] {
-        ["Running", "Treadmill run", "Hiking"].compactMap {
-            WorkoutCatalog.sport(named: $0)
-        }
-    }
-
-    private var workoutDisplayTitle: String {
-        switch selected {
-        case "Running": return String(localized: "Run")
-        case "Hiking": return String(localized: "Hike")
-        case "Cycling": return String(localized: "Ride")
-        default: return selected
-        }
-    }
-
-    private func shortSportName(_ name: String) -> String {
-        switch name {
-        case "Running": return String(localized: "Outdoor Run")
-        case "Treadmill run": return String(localized: "Treadmill")
-        case "Hiking": return String(localized: "Trail Run")
-        default: return name
-        }
-    }
-
-    private struct RecentRoute {
-        let row: WorkoutRow
-        let route: WorkoutRoute
-        let segments: [[RouteMath.LatLng]]
-    }
-
-    /// D15: only a genuinely persisted, decodable route earns a route card. A distance-only
-    /// workout stays route-less; no map placeholder or synthetic production fallback is shown.
-    private var recentRoute: RecentRoute? {
-        for row in recentRows {
-            guard let route = RouteStore.load(startTs: row.startTs, sport: row.sport) else { continue }
-            let segments = route.decodedSegments.filter { $0.count >= 2 }
-            guard !segments.isEmpty else { continue }
-            return RecentRoute(row: row, route: route, segments: segments)
-        }
-        return nil
-    }
-
-    private func lastWorkoutMeta(_ row: WorkoutRow) -> String {
-        [dateText(row.startTs), row.durationS.map(clockDuration)].compactMap { $0 }.joined(separator: " · ")
-    }
-
-    private func lastWorkoutSummary(_ row: WorkoutRow) -> String {
-        [row.distanceM.map {
-            UnitFormatter.distanceFromMeters($0, system: unitSystem)
-        }, averagePace(row), row.avgHr.map { "\($0) bpm" }]
-        .compactMap { $0 }
-        .joined(separator: " · ")
-    }
-
-    private func averagePace(_ row: WorkoutRow) -> String? {
-        guard let meters = row.distanceM, meters > 0 else { return nil }
-        let seconds = row.durationS ?? Double(row.endTs - row.startTs)
-        guard seconds > 0 else { return nil }
-        let units = unitSystem == .imperial ? meters / 1609.344 : meters / 1000
-        guard units > 0 else { return nil }
-        let pace = Int((seconds / units).rounded())
-        return String(format: "%d:%02d %@", pace / 60, pace % 60,
-                      unitSystem == .imperial ? "/mi" : "/km")
-    }
-
-    private func clockDuration(_ seconds: Double) -> String {
-        let total = max(0, Int(seconds.rounded()))
-        if total >= 3600 {
-            return String(format: "%d:%02d:%02d", total / 3600, (total % 3600) / 60, total % 60)
-        }
-        return String(format: "%d:%02d", total / 60, total % 60)
-    }
-
-    private func dateText(_ timestamp: Int) -> String {
-        Self.dateFormatter.string(from: Date(timeIntervalSince1970: TimeInterval(timestamp)))
-    }
-
-    private static let dateFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale.current
-        formatter.setLocalizedDateFormatFromTemplate("MMM d yyyy")
-        return formatter
-    }()
 }
 
 #if DEBUG
@@ -752,11 +425,6 @@ struct StartWorkoutSheet: View {
         startTs: Int(Date().timeIntervalSince1970) - 3600, endTs: Int(Date().timeIntervalSince1970),
         sport: "Running", source: "manual", durationS: 3600, energyKcal: 540,
         avgHr: 148, maxHr: 172, strain: 12.4, distanceM: nil, zonesJSON: nil, notes: nil)) { _, _ in }
-        .preferredColorScheme(.dark)
-}
-
-#Preview("Start") {
-    StartWorkoutSheet { _ in }
         .preferredColorScheme(.dark)
 }
 #endif

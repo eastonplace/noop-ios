@@ -21,6 +21,11 @@ enum UnitSystem: String, CaseIterable, Identifiable {
     /// "follow the system" pairs temperature with the length/mass choice; an explicit case lets the
     /// user pin °C or °F independently of whether distances are in km or miles.
     var temperatureMatching: TemperatureUnit { self == .imperial ? .fahrenheit : .celsius }
+
+    /// The person's setting as stored, for code with no `@AppStorage` (metric until they choose).
+    static var stored: UnitSystem {
+        UnitSystem(rawValue: UserDefaults.standard.string(forKey: UnitPrefs.systemKey) ?? "") ?? .metric
+    }
 }
 
 /// Temperature display unit. Kept separate from `UnitSystem` so it can be overridden on its own.

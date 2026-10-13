@@ -5,38 +5,38 @@ import StrandAnalytics
 import WhoopStore
 import Foundation
 
-private func canonicalWorkoutStrain(_ row: WorkoutRow) -> Double? {
-    StrainResolver.canonicalWorkout(row)?.storedValue
-}
-
 // MARK: - Workouts
 //
-// The activity log, instrument-grade and uniform. Built ONLY from the locked Noop
-// component system (NoopMetrics / NoopCard / StatTile / SectionHeader /
-// SegmentedPillControl / SourceBadge) so every card, tile and row lines up:
+// The activity hub, in the widget design language: flat sections on the canvas, one hairline between them, values
+// bright with their units muted.
 //
-//  • a range pill (7D / 30D / 90D / 1Y / All) that filters the loaded sessions,
-//  • a LazyVGrid of summary StatTiles (count / time / calories / distance / most-active),
-//  • an "ACTIVITY BREAKDOWN" LazyVGrid of per-sport NoopCards — identical internal layout,
-//  • an "ALL SESSIONS" NoopCard containing fixed-height rows (date · sport · dur · HR · kcal · dist · source).
+//  • This week: active time, a bar per day, sessions, calories and (when NOOP scored any) the average Strain,
+//    with the two ways to begin a workout.
+//  • Lift: the last lift, and the routes into the Lift screens.
+//  • Recent: the latest three sessions.
+//  • Heart rate zones and the latest pace, over the range the history below is showing.
+//  • History: every session, with range, sport, source and search filters, multi-select merge/delete and a row menu.
 //
-// No custom card heights, paddings, colours or surfaces — uniformity is the bar.
+// The pieces live in WorkoutsHubSections.swift and WorkoutsHubParts.swift; the rules they draw from (which Strain a
+// row shows, how a week adds up) in WorkoutsHubModel.swift. This file owns the data, the filters and the sheets.
 
 struct WorkoutsView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.screenScaffoldNavigationRole) private var navigationRole
+    @Environment(\.screenScaffoldCloseAction) private var sheetCloseAction
     @EnvironmentObject var repo: Repository
     /// #459: "Start Workout" used to live ONLY on the Live screen, so a user reaching Workouts (via the
     /// Quick-action FAB or the tab) had no way to begin one from the obvious place. The model is captured
     /// as a plain command reference below rather than observed by this large history root.
     @State private var appModel: AppModel?
+    /// Starting or returning to a workout is the shell's job (one full-screen journey), so this screen only asks.
+    @EnvironmentObject private var router: NavRouter
     private var model: AppModel {
         guard let appModel else {
             preconditionFailure("WorkoutsView rendered before AppModelReferenceCapture supplied AppModel")
         }
         return appModel
     }
-    @State private var showLiveWorkout = false
-    @State private var showStartSport = false
     @State private var historyScope: WorkoutHistoryScope = .current
     @State private var liftDestination: LiftDestination?
 
@@ -44,10 +44,6 @@ struct WorkoutsView: View {
     // re-labels them to miles/yards. Display-only — nothing on disk changes.
     @AppStorage(UnitPrefs.systemKey) private var unitSystemRaw = UnitSystem.metric.rawValue
     private var unitSystem: UnitSystem { UnitSystem(rawValue: unitSystemRaw) ?? .metric }
-
-    // Strain display scale (#268) — drives the effort hero's read-out. Display-only.
-    @AppStorage(UnitPrefs.effortScaleKey) private var effortScaleRaw = EffortScale.whoop.rawValue
-    private var effortScale: EffortScale { UnitPrefs.resolveEffortScale(effortScaleRaw) }
 
     /// All loaded sessions, newest first. Seedable for previews. #797: this holds only the rows inside the
     /// currently-LOADED window (`loadedWindowDays`), not the entire history. A 1700+-workout import made
@@ -71,12 +67,6 @@ struct WorkoutsView: View {
     /// covers the 1Y range plus headroom.
     static let firstPaintWindowDays = 400
 
-    // iPhone (.compact) can't fit the labelled "Add workout" button beside the 5-segment range pill —
-    // the button got crushed into a tall sliver (#234/#339). Stack them there; iPad/Mac keep one row.
-    #if os(iOS)
-    @Environment(\.horizontalSizeClass) private var hSizeClass
-    #endif
-
     /// The add/edit sheet target: `.some(nil)` = add a new workout, `.some(row)` = edit `row`,
     /// `nil` = sheet closed. Wrapped in Identifiable so `.sheet(item:)` can drive presentation.
     @State private var sheet: WorkoutSheetTarget?
@@ -90,12 +80,30 @@ struct WorkoutsView: View {
     @State private var postLogNote: String?
     @State private var postLogGeneration = 0
 
+    /// The most recent finished lift, read from the lifting log. Nil until read, and when there is none.
+    @State private var lastLift: WorkoutLastLift?
+    /// Heart-rate zone minutes across the sessions the history is showing. Parsed off the main thread when the
+    /// window or the filters change, never in `body`. `.pending` until the first parse reports, so a section that
+    /// has not looked yet never claims there is no data.
+    @State private var zonesPhase: WorkoutZonesSection.Phase = .pending
+    /// Bumped whenever `allRows` is replaced, so everything computed from the rows knows they changed, whatever
+    /// their count and newest start say.
+    @State private var rowsGeneration = 0
+    /// What the hub derives from the rows once per change rather than once per body: the week and the pace row.
+    @State private var derived: HubDerived?
+
+    private struct HubDerived {
+        let day: Date
+        let week: WorkoutWeekSummary
+        let paceRow: WorkoutRow?
+    }
+
     // MARK: - Filters + selection (#64)
 
     /// Filter beyond the time range: a displayed-sport key (nil = all), an origin class (nil = all), and
     /// a free-text search over the displayed sport. Pure `WorkoutFilter` applies them after the window cut.
     @State private var sportFilter: String?
-    @State private var sourceFilter: WorkoutSource?
+    @State private var sourceFilter: WorkoutOrigin?
     @State private var searchText = ""
 
     /// Multi-select + merge mode. `selectionMode` toggles the leading checkmarks + the toolbar strip;
@@ -150,77 +158,54 @@ struct WorkoutsView: View {
         .background(AppModelReferenceCapture(reference: $appModel))
     }
 
+    /// A pushed hub (or one with no close control of its own) draws a back chevron. The hub at the root of a sheet that
+    /// supplies its own close action (Coach's plan opens it so) has nothing to go back to: the scaffold draws the
+    /// canonical close button there instead.
+    private var dashboardBackAction: (() -> Void)? {
+        navigationRole == .root && sheetCloseAction != nil ? nil : { dismiss() }
+    }
+
     private var dashboard: some View {
         ScreenScaffold(title: "Workouts", subtitle: "Every session, threaded together.",
                        onRefresh: { _ = await repo.refresh(.currentDay) },
-                       // PERF: the column ends in the full "All Sessions" log (the breakdown grid, the
-                       // zones card, and a row-per-session table). On a large imported history the eager
-                       // VStack built every section + the whole table up-front; the LazyVStack path (which
-                       // is byte-identical layout) builds the off-screen sections/rows on demand instead.
+                       // PERF: the column ends in the full history log. On a large imported history the eager
+                       // VStack built every section + every row up-front; the LazyVStack path (which is
+                       // byte-identical layout) builds the off-screen sections/rows on demand instead.
                        lazy: true,
-                       // The day-of-sky liquid backdrop, matching Today / Health / Sleep / Trends: a fixed,
-                       // full-bleed time-of-day sky behind the scroll content (it does not scroll).
                        topBackground: nil,
-                       backAction: { dismiss() }) {
-            HStack(spacing: 16) {
-                Button { liftDestination = .history } label: {
-                    Label("Lift history", systemImage: "list.bullet.rectangle")
-                }
-                Spacer()
-                Button { liftDestination = .progress } label: {
-                    Label("Lift progress", systemImage: "chart.xyaxis.line")
-                }
-            }.font(.subheadline.weight(.semibold)).tint(StrandPalette.accent)
-            Button { liftDestination = .routines } label: {
-                Label("Manage routines", systemImage: "calendar")
-            }.font(.subheadline).tint(StrandPalette.textSecondary)
-            if allRows.isEmpty {
-                VStack(alignment: .leading, spacing: NoopMetrics.space4) {
-                    ComingSoon(what: loaded
-                        ? "No workouts yet. They come from your WHOOP and Apple Health history. Import in Data Sources to bring them in, or add one you tracked elsewhere."
-                        : "Loading your sessions…")
-                    if loaded {
-                        HStack(spacing: NoopMetrics.rowSpacing) { startLiveWorkoutButton; addWorkoutButton }
-                    }
-                }
-            } else {
-                // Compute the windowed rows and per-sport groups ONCE per body
-                // evaluation, then thread them into every section. SwiftUI re-runs
-                // `body` on hover/animation/1Hz HR ticks; the previous computed-
-                // property fan-out (rows → effectiveRange → sessions(_:), and
-                // sportGroups → rows → …) rebuilt the same filters/aggregations
-                // several times per render. Same windowing, same results.
-                let resolved = effectiveRange
-                let windowRows = sessions(for: resolved)
-                let zonesSummary = WorkoutZones.summary(from: windowRows)
-
-                startLiveWorkoutButton
-                paperWorkoutScore(rows: windowRows)
-                paperRecentWorkouts(rows: windowRows)
-                paperWorkoutBreakdown(rows: windowRows, zones: zonesSummary)
-                Picker("Workout history", selection: $historyScope) {
-                    Text("Current").tag(WorkoutHistoryScope.current)
-                    Text("Archived").tag(WorkoutHistoryScope.archived)
-                }.pickerStyle(.segmented)
-                Text("Current contains the last 90 days. Archived sessions stay saved.")
-                    .font(.caption).foregroundStyle(StrandPalette.textSecondary)
-                paperWorkoutHistory(rows: WorkoutHistoryScope.filter(windowRows, scope: historyScope), effectiveRange: resolved)
-            }
+                       backAction: dashboardBackAction) {
+            LazyVStack(alignment: .leading, spacing: 0) { hub }
         }
         #if os(iOS)
         .toolbar(.hidden, for: .navigationBar)
         #endif
         .task(id: repo.refreshSeq) {
             guard !usesPreviewRows else { return }
+            #if DEBUG
+            // QA: hold the hub in its loading state so that state can be captured (`--noop-qa-hold-load`).
+            if ProcessInfo.processInfo.arguments.contains("--noop-qa-hold-load") { return }
+            #endif
             // #797: read only the currently-loaded window (bounded on first paint), not the whole history.
             let r = await repo.workoutRows(days: loadedWindowDays ?? 4000)
-            allRows = r
+            setRows(r)
             let wasLoaded = loaded
             loaded = true
             if !wasLoaded {
                 range = defaultRange(for: r)
                 seededInitialRange = true
             }
+            lastLift = await readLastLift()
+        }
+        .task(id: zonesKey) {
+            // Before the rows arrive there is nothing to parse, and parsing nothing would report "No zone data" for a
+            // history that has some. The generation bump that comes with the rows starts this task again.
+            guard loaded else { return }
+            let rows = sessions(for: effectiveRange)
+            let summary = await Task.detached(priority: .userInitiated) { WorkoutZones.summary(from: rows) }.value
+            // A detached task does not stop with this one. Without the check a parse for rows the person has already
+            // filtered away could land after the newer one and replace it.
+            guard !Task.isCancelled else { return }
+            zonesPhase = .ready(summary)
         }
         .onAppear {
             // Preview-seeded rows skip `.task`; still choose a range that has data.
@@ -271,6 +256,9 @@ struct WorkoutsView: View {
             NavigationStack {
                 WorkoutDetailView(row: target.row)
                     .environmentObject(repo)
+                    // Modal: one close button in the scaffold header, not the back chevron this screen
+                    // inherits from being presented over a pushed screen.
+                    .sheetScreenScaffoldEnvironment(onClose: { detail = nil })
             }
             #if os(iOS)
             .noopSheetPresentation(largeFirst: true)
@@ -278,32 +266,23 @@ struct WorkoutsView: View {
             .frame(width: 620, height: 720)
             #endif
         }
-        // #459: the in-exercise view, presented when Start Workout is tapped here (same screen LiveView
-        // shows). activeWorkout is global on AppModel, so ending it from either surface stays in sync.
-        .sheet(isPresented: $showLiveWorkout) {
-            LiveWorkoutView(onClose: { showLiveWorkout = false })
-                // Inject the shared live snapshot so the in-exercise sensor readout (speed/cadence/power)
-                // resolves here too, matching how LiveView presents the same screen.
-                .environmentObject(model.live)
-        }
-        // #519: name the sport before a live session starts, then open the in-exercise view directly
-        // (same direct present as the button's already-active path — no cross-view auto-present race).
-        .sheet(isPresented: $showStartSport, onDismiss: {
-            if model.activeWorkout != nil { showLiveWorkout = true }
-        }) {
-            StartWorkoutSheet { name in
-                model.startWorkout(sport: name)
-            }
-        }
         // #64: name the merged session when every selected row is a bare detected bout (there's no sport
         // to inherit). Reuses the "Start a workout" named-sport picker.
         .sheet(item: $mergeSportPrompt) { target in
-            StartWorkoutSheet(title: String(localized: "Name the merged session"),
-                              subtitle: String(localized: "These sessions have no sport label yet. Pick one for the merged session."),
-                              actionVerb: String(localized: "Merge")) { name in
+            StartWorkoutSheet { name in
                 performMerge(target.rows, sport: name)
             }
         }
+        // A workout request (Quick Actions, the Live Activity, a deep link) closes what this screen is presenting, so the
+        // workout journey's cover can open at the root.
+        #if os(iOS)
+        .collapsesForWorkoutJourney {
+            sheet = nil
+            detail = nil
+            liftDestination = nil
+            mergeSportPrompt = nil
+        }
+        #endif
     }
 
     /// Present the read-only detail for a tapped row. The primary affordance; the ••• menu stays the
@@ -314,7 +293,28 @@ struct WorkoutsView: View {
     /// Keeps the user's current range — only the initial load picks a default — and the auto-widen
     /// (`effectiveRange`) still covers a now-empty window.
     private func reload() async {
-        allRows = await repo.workoutRows(days: loadedWindowDays ?? 4000)
+        setRows(await repo.workoutRows(days: loadedWindowDays ?? 4000))
+    }
+
+    /// Replaces the loaded rows and everything derived from them. The one place `allRows` is assigned.
+    private func setRows(_ rows: [WorkoutRow]) {
+        allRows = rows
+        rowsGeneration &+= 1
+        derived = Self.derive(from: rows, unitSystem: unitSystem)
+    }
+
+    private static func derive(from rows: [WorkoutRow], unitSystem: UnitSystem, now: Date = Date()) -> HubDerived {
+        HubDerived(
+            day: Calendar.current.startOfDay(for: now),
+            week: WorkoutWeekSummary.make(rows: rows, now: now),
+            paceRow: rows.first { WorkoutPace.perUnit($0, system: unitSystem) != nil })
+    }
+
+    /// The derived values, recomputed (without touching state) only when a new day has begun since they were made or
+    /// when a preview seeded rows before the first load.
+    private var currentDerived: HubDerived {
+        if let derived, derived.day == Calendar.current.startOfDay(for: Date()) { return derived }
+        return Self.derive(from: allRows, unitSystem: unitSystem)
     }
 
     /// #797: page the FULL workout history in when the user selects a range wider than the bounded
@@ -326,7 +326,98 @@ struct WorkoutsView: View {
         // A bounded range that fits inside what's already loaded needs no wider read.
         if let pickedDays = picked.days, pickedDays <= (loadedWindowDays ?? 0) { return }
         loadedWindowDays = nil
-        allRows = await repo.workoutRows(days: 4000)
+        setRows(await repo.workoutRows(days: 4000))
+    }
+
+    /// The finished lift with the latest start, with its working-set count, from the lifting log.
+    private func readLastLift() async -> WorkoutLastLift? {
+        guard !usesPreviewRows, let store = await repo.storeHandle() else { return nil }
+        let owner = repo.deviceId
+        let now = Int(Date().timeIntervalSince1970)
+        guard let sessions = try? await store.liftSessions(deviceId: owner, fromTs: now - 365 * 86_400, toTs: now + 1),
+              let latest = sessions.first(where: { $0.endTs != nil }) else { return nil }
+        let sets = (try? await store.liftSets(sessionId: latest.id)) ?? []
+        return WorkoutLastLift.make(session: latest, sets: sets)
+    }
+
+    // MARK: - Hub
+
+    /// Everything the column holds. The rows are windowed and grouped ONCE per body evaluation and threaded into
+    /// every section: SwiftUI re-runs `body` on hover, animation and every state change.
+    @ViewBuilder private var hub: some View {
+        if !loaded {
+            WorkoutsHubSkeleton()
+        } else if allRows.isEmpty {
+            emptyHub
+        } else {
+            populatedHub
+        }
+    }
+
+    @ViewBuilder private var populatedHub: some View {
+        let resolved = effectiveRange
+        let windowRows = sessions(for: resolved)
+        let derived = currentDerived
+        WorkoutsWeekSection(week: derived.week) { actionPills }
+        FlatSectionSeparator()
+        WorkoutsLiftSection(lastLift: lastLift) { liftDestination = $0 }
+        FlatSectionSeparator()
+        WorkoutsRecentSection(rows: Array(allRows.prefix(3)), unitSystem: unitSystem, onOpen: openDetail)
+        FlatSectionSeparator.afterRows
+        WorkoutZonesSection(phase: zonesPhase, zoneSet: zoneSet, windowCaption: resolved.caption)
+        if let paceRow = derived.paceRow, let pace = WorkoutPace.perUnit(paceRow, system: unitSystem) {
+            FlatSectionSeparator()
+            WorkoutPaceSection(row: paceRow, pace: pace, unitSystem: unitSystem)
+        }
+        FlatSectionSeparator.beforeChipHeader
+        history(rows: WorkoutHistoryScope.filter(windowRows, scope: historyScope), effectiveRange: resolved)
+    }
+
+    /// No workouts at all: the week with nothing in it, the ways to begin one, the Lift entry points and a note on
+    /// where workouts come from.
+    @ViewBuilder private var emptyHub: some View {
+        WorkoutsWeekSection(week: WorkoutWeekSummary.make(rows: [], now: Date())) { actionPills }
+        FlatSectionSeparator()
+        WorkoutsLiftSection(lastLift: lastLift) { liftDestination = $0 }
+        FlatSectionSeparator()
+        WorkoutEmptyState(
+            symbol: "figure.run", title: "No workouts yet",
+            message: "They come from your WHOOP and Apple Health history. Import in Data Sources to bring them in, or add one you tracked elsewhere.")
+    }
+
+    /// Start (or return to) a live workout, and add one tracked elsewhere. Same size, one primary.
+    private var actionPills: some View {
+        ChipRow {
+            WorkoutsActiveWorkoutButtonLeaf(
+                model: model,
+                onStart: { router.beginWorkout() },
+                onOpen: { router.openActiveWorkout() })
+            Button { sheet = WorkoutSheetTarget(editing: nil) } label: {
+                Label("Add workout", systemImage: "plus")
+            }
+            .buttonStyle(SecondaryPillButtonStyle())
+            .accessibilityLabel("Add a workout")
+        }
+    }
+
+    /// The heart-rate zones the hub's zone section describes, from the profile's max heart rate.
+    private var zoneSet: HRZoneSet? {
+        model.profile.hrMax > 0 ? HRZones.zones(maxHR: Double(model.profile.hrMax), source: "profile") : nil
+    }
+
+    /// What the zone section depends on. A change reruns the parse; typing in the search field does not, until the
+    /// filtered set actually changes.
+    private struct ZonesKey: Equatable {
+        let generation: Int
+        let range: Range
+        let sport: String?
+        let source: WorkoutOrigin?
+        let search: String
+    }
+
+    private var zonesKey: ZonesKey {
+        ZonesKey(generation: rowsGeneration, range: range,
+                 sport: sportFilter, source: sourceFilter, search: searchText)
     }
 
     // MARK: - Post-log activity-cost note (#439)
@@ -391,6 +482,7 @@ struct WorkoutsView: View {
         // #524: also drop any on-device GPS route stored under this session's natural key, so deleting a
         // workout doesn't leave its route orphaned in the RouteStore side-store.
         RouteStore.remove(startTs: row.startTs, sport: row.sport)
+        WorkoutPauseStore.remove(startTs: row.startTs, sport: row.sport)
         Task { await repo.deleteWorkout(row); await reload() }
     }
 
@@ -400,46 +492,67 @@ struct WorkoutsView: View {
                                         "Swimming", "Rowing", "Yoga", "HIIT",
                                         "CrossFit", "Hiking", "Tennis"]
 
-    // MARK: - Range control
+    // MARK: - History
 
-    private func rangeBar(rows: [WorkoutRow], effectiveRange: Range) -> some View {
-        let fellBack = effectiveRange != range
-        let caption = rangeCaption(rows: rows, effectiveRange: effectiveRange, fellBack: fellBack)
-        #if os(iOS)
-        let stacked = hSizeClass == .compact
-        #else
-        let stacked = false
-        #endif
-        return PaperCard(padding: 14) {
-            VStack(alignment: .leading, spacing: 10) {
-            if stacked {
-                // iPhone: button on its own row, the range pill full-width below — no crushed sliver.
-                addWorkoutButton
-                SegmentedPillControl(Range.allCases, selection: $range) { $0.label }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            } else {
-                HStack(spacing: 12) {
-                    addWorkoutButton
-                    Spacer()
-                    SegmentedPillControl(Range.allCases, selection: $range) { $0.label }
-                }
+    /// The history: a header with its controls, then one lazily-built child per session. The rows are children of
+    /// the page's own lazy stack, not a lazy stack of their own: a lazy stack inside a lazy stack mis-measures the
+    /// section above its rows, and a long history only builds the rows on screen this way.
+    @ViewBuilder
+    private func history(rows: [WorkoutRow], effectiveRange: Range) -> some View {
+        FlatSection("History", systemImage: "list.bullet.rectangle", tint: .workout,
+                    trailing: .custom(AnyView(selectChip(rows: rows)))) {
+            VStack(alignment: .leading, spacing: WidgetMetrics.contentSpacing) {
+                controls(rows: rows, effectiveRange: effectiveRange)
+                if selectionMode { selectionToolbar(rows: rows) }
             }
-            filterBar
-            Text(caption)
+        }
+        if rows.isEmpty {
+            Text("No sessions in this view")
                 .font(StrandFont.footnote)
-                .foregroundStyle(fellBack ? StrandPalette.statusWarning : StrandPalette.textTertiary)
+                .foregroundStyle(StrandPalette.textTertiary)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .accessibilityLabel(caption)
+                .padding(.vertical, NoopMetrics.space3)
+        } else {
+            ForEach(Array(rows.enumerated()), id: \.element.listID) { index, row in
+                VStack(spacing: 0) {
+                    if index > 0 { WorkoutRowSeparator(leadingExtra: selectionMode ? Self.selectionColumnWidth : 0) }
+                    sessionRow(row)
+                }
             }
         }
     }
 
-    /// #64: filter controls beside the range pill — a Sport menu, a Source menu, and a search field, with
-    /// an "×" clear chip that appears only when a filter is active. Present on both size classes / both
-    /// platforms. The predicate is the pure `WorkoutFilter`; these controls only drive its state.
+    /// The scope and range pills, the sport and source filters, the search field and the one-line count.
+    private func controls(rows: [WorkoutRow], effectiveRange: Range) -> some View {
+        let fellBack = effectiveRange != range
+        return VStack(alignment: .leading, spacing: NoopMetrics.space3) {
+            SegmentedPillControl(WorkoutHistoryScope.allCases, selection: $historyScope) { scope in
+                scope == .current ? String(localized: "Current") : String(localized: "Archived")
+            }
+            Text("Current contains the last 90 days. Archived sessions stay saved.")
+                .font(StrandFont.footnote)
+                .foregroundStyle(StrandPalette.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
+            SegmentedPillControl(Range.allCases, selection: $range) { $0.label }
+            filterBar
+            Text(verbatim: rangeCaption(count: rows.count, effectiveRange: effectiveRange))
+                .font(StrandFont.footnote)
+                .foregroundStyle(StrandPalette.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
+            if fellBack {
+                Text("Few sessions in that range, so this shows \(effectiveRange.caption).")
+                    .font(StrandFont.footnote)
+                    .foregroundStyle(StrandPalette.statusWarning)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    /// #64: filter controls: a Sport menu, a Source menu, a search field, and a Clear chip that appears only when a
+    /// filter is active. The predicate is the pure `WorkoutFilter`; these controls only drive its state.
     private var filterBar: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
+        VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+            ChipRow {
                 filterMenu(
                     title: sportFilter ?? String(localized: "All sports"),
                     active: sportFilter != nil,
@@ -468,15 +581,14 @@ struct WorkoutsView: View {
                             sportFilter = nil; sourceFilter = nil; searchText = ""
                         }
                     } label: {
-                        Label(String(localized: "Clear"), systemImage: "xmark.circle.fill")
-                            .font(StrandFont.footnote)
-                            .foregroundStyle(StrandPalette.textSecondary)
+                        WidgetChip(appTitle: "Clear", systemImage: "xmark", showsChevron: false, overhangs: false)
+                            .chipHitTarget()
                     }
-                    .accessibilityLabel(String(localized: "Clear filters"))
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Clear filters")
                 }
-                Spacer(minLength: 0)
             }
-            PaperSearchField("Search sport", text: $searchText, height: 38, cornerRadius: 10)
+            PaperSearchField("Search sport", text: $searchText, height: 44, cornerRadius: 10)
                 #if os(iOS)
                 .autocorrectionDisabled()
                 .textInputAutocapitalization(.never)
@@ -484,24 +596,15 @@ struct WorkoutsView: View {
         }
     }
 
-    /// A pill-styled filter menu: the current selection as its label, tinted the Strain colour when a
-    /// filter is active so the user can see at a glance that the list is narrowed.
+    /// A chip that opens a menu: the current selection as its label, filled with the brand ink when a filter is
+    /// active so the narrowed list is obvious at a glance.
     private func filterMenu<Content: View>(title: String, active: Bool, a11y: String,
                                            @ViewBuilder content: () -> Content) -> some View {
         Menu {
             content()
         } label: {
-            HStack(spacing: 4) {
-                Text(title).font(StrandFont.footnote).lineLimit(1)
-                Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold))
-            }
-            .foregroundStyle(active ? StrandPalette.effortColor : StrandPalette.textSecondary)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(
-                (active ? StrandPalette.effortColor.opacity(0.14) : StrandPalette.surfaceInset.opacity(0.6)),
-                in: Capsule()
-            )
+            WidgetChip(verbatimTitle: title, opensMenu: true, isSelected: active)
+                .chipHitTarget()
         }
         .menuStyle(.borderlessButton)
         .fixedSize()
@@ -509,15 +612,16 @@ struct WorkoutsView: View {
         .accessibilityValue(title)
     }
 
-    /// The origin classes offered in the Source filter (imported + on-device), in a stable menu order.
-    private static let sourceFilterOptions: [WorkoutSource] =
-        [.whoop, .apple, .detected, .manual, .lifting, .activityFile]
+    /// The origins offered in the Source filter (imported + on-device), in a stable menu order.
+    private static let sourceFilterOptions: [WorkoutOrigin] =
+        [.whoop, .apple, .recorded, .detected, .manual, .lifting, .activityFile]
 
-    /// The Source-filter menu label for an origin class (matches the row source badges).
-    private static func sourceFilterLabel(_ c: WorkoutSource) -> String {
+    /// The Source-filter menu label for an origin.
+    private static func sourceFilterLabel(_ c: WorkoutOrigin) -> String {
         switch c {
         case .whoop:        return String(localized: "Whoop")
         case .apple:        return String(localized: "Apple")
+        case .recorded:     return String(localized: "Recorded")
         case .detected:     return String(localized: "Detected")
         case .manual:       return String(localized: "Manual")
         case .lifting:      return String(localized: "Lifting")
@@ -525,24 +629,203 @@ struct WorkoutsView: View {
         }
     }
 
-    /// Opens the add sheet (editing == nil). Present on the populated screen and the empty state so a
-    /// user with no imports can still log a session.
-    private var addWorkoutButton: some View {
-        NoopButton("Add workout", systemImage: "plus", kind: .secondary) {
-            sheet = WorkoutSheetTarget(editing: nil)
+    // MARK: Session rows
+
+    /// One session: tap opens its detail (or toggles it in selection mode), the ••• menu holds the row actions.
+    /// In selection mode a leading checkmark (mergeable rows) or a lock (imported, read-only) replaces the menu.
+    private func sessionRow(_ row: WorkoutRow) -> some View {
+        let selectable = WorkoutMerge.isMergeable(row)
+        let isSelected = selected.contains(selectionKey(row))
+        let presentation = WorkoutRowPresentation.make(
+            row, unitSystem: unitSystem, when: .dayAndTime, detail: .full, includesSource: true)
+        return HStack(spacing: 0) {
+            Button {
+                if selectionMode {
+                    guard selectable else { return }
+                    withAnimation(.easeOut(duration: 0.12)) { toggleSelection(row) }
+                } else {
+                    openDetail(row)
+                }
+            } label: {
+                // The glyph is part of the button, so tapping the checkmark selects the row like tapping its text.
+                HStack(spacing: 0) {
+                    if selectionMode {
+                        selectionGlyph(selectable: selectable, isSelected: isSelected)
+                            .frame(width: Self.selectionColumnWidth)
+                    }
+                    WorkoutRowContent(presentation: presentation)
+                }
+            }
+            .buttonStyle(PaperPressStyle())
+            .accessibilityValue(selectionMode
+                ? (isSelected ? Text("Selected") : Text("Not selected"))
+                : Text(verbatim: ""))
+            .accessibilityHint(selectionMode
+                ? (selectable ? Text("Double-tap to select") : Text("Imported history can't be merged"))
+                : Text("Opens workout detail"))
+            if !selectionMode { rowActionsMenu(row) }
         }
-        .accessibilityLabel("Add a workout")
+        .contextMenu { if !selectionMode { rowMenu(row) } }
     }
 
-    /// #459: begin (or jump back into) a live, manually-tracked workout straight from Workouts — the
-    /// place people instinctively look — instead of only from the Live screen. Starts the session and
-    /// presents the in-exercise view directly (no cross-view auto-present race with LiveView's sheet).
-    private var startLiveWorkoutButton: some View {
-        WorkoutsActiveWorkoutButtonLeaf(
-            model: model,
-            onStart: { showStartSport = true },
-            onOpen: { showLiveWorkout = true })
+    /// The width of the selection glyph's column, which the separators between rows start after.
+    private static let selectionColumnWidth: CGFloat = 36
+
+    /// The leading selection glyph: a filled/hollow checkmark for a mergeable row, or a lock for imported
+    /// history (which can never be merged or bulk-deleted).
+    @ViewBuilder
+    private func selectionGlyph(selectable: Bool, isSelected: Bool) -> some View {
+        if selectable {
+            Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                .font(.system(size: 20, weight: .regular))
+                .foregroundStyle(isSelected ? DomainTint.workout.accent : StrandPalette.textTertiary)
+                .accessibilityHidden(true)
+        } else {
+            Image(systemName: "lock.fill")
+                .font(.system(size: 14, weight: .regular))
+                .foregroundStyle(StrandPalette.textTertiary.opacity(0.6))
+                .accessibilityHidden(true)
+        }
     }
+
+    /// Toggle one row's selection (mergeable rows only).
+    private func toggleSelection(_ row: WorkoutRow) {
+        let key = selectionKey(row)
+        if selected.contains(key) { selected.remove(key) } else { selected.insert(key) }
+    }
+
+    /// The same actions as `rowMenu`, as a tappable ••• button so they are discoverable without a long-press.
+    private func rowActionsMenu(_ row: WorkoutRow) -> some View {
+        Menu {
+            rowMenu(row)
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(StrandPalette.textTertiary)
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .accessibilityLabel("Workout actions")
+    }
+
+    /// Context-menu actions per row. A DETECTED bout can be re-labelled (becomes a real manual session
+    /// that survives re-detection) or dismissed (durably hidden). A MANUAL session can be edited or
+    /// deleted. Imported WHOOP / Apple rows are read-only (we never rewrite imported history).
+    @ViewBuilder
+    private func rowMenu(_ row: WorkoutRow) -> some View {
+        switch WorkoutSource.classify(row.source) {
+        case .detected:
+            Menu("Re-label as") {
+                ForEach(Self.relabelSports, id: \.self) { sport in
+                    Button(sport) { relabel(row, to: sport) }
+                }
+            }
+            Button("Edit details…") { editWorkout(row) }
+            Divider()
+            Button("Dismiss (not a workout)", role: .destructive) { dismiss(row) }
+        case .manual:
+            Button("Edit…") { editWorkout(row) }
+            Divider()
+            Button("Delete", role: .destructive) { delete(row) }
+        case .whoop, .apple, .lifting, .activityFile:
+            // Imported history is read-only; offer a copy-to-manual edit path that doesn't touch it.
+            Button("Duplicate as manual…") { editWorkout(asManualCopy(row)) }
+        }
+    }
+
+    /// A manual-source copy of an imported row, so "Duplicate as manual" opens the add sheet pre-filled
+    /// without ever mutating the imported original (the sheet saves under the strap source).
+    private func asManualCopy(_ row: WorkoutRow) -> WorkoutRow {
+        row.replacing(sport: WorkoutSource.displaySport(row.sport), source: "manual")
+    }
+
+    // MARK: Selection (#64)
+
+    /// The "Select" chip in the History header toggles multi-select mode. Only shown when at least one row is
+    /// selectable (manual / detected); a pure-imported list has nothing to merge or bulk-delete.
+    @ViewBuilder
+    private func selectChip(rows: [WorkoutRow]) -> some View {
+        if rows.contains(where: WorkoutMerge.isMergeable) {
+            Button {
+                withAnimation(.easeOut(duration: 0.15)) {
+                    selectionMode.toggle()
+                    if !selectionMode { selected.removeAll() }
+                }
+            } label: {
+                Group {
+                    if selectionMode {
+                        WidgetChip(appTitle: "Done", showsChevron: false, overhangs: false, isSelected: true)
+                    } else {
+                        WidgetChip(appTitle: "Select", showsChevron: false, overhangs: false)
+                    }
+                }
+                .chipHitTarget()
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(selectionMode
+                ? Text("Finish selecting")
+                : Text("Select sessions to merge or delete"))
+        }
+    }
+
+    /// #64: the Merge / Delete / Cancel strip shown above the list in selection mode. Merge needs 2+
+    /// eligible rows; Delete needs 1+.
+    private func selectionToolbar(rows: [WorkoutRow]) -> some View {
+        let chosen = rows.filter { selected.contains(selectionKey($0)) }
+        let canMerge = WorkoutMerge.canMerge(chosen)
+        return ChipRow {
+            Button {
+                beginMerge(chosen)
+            } label: {
+                Label(String(localized: "Merge (\(chosen.count))"), systemImage: "arrow.triangle.merge")
+            }
+            .buttonStyle(PrimaryPillButtonStyle())
+            .disabled(!canMerge)
+
+            Button(role: .destructive) {
+                let toDelete = chosen
+                selectionMode = false; selected.removeAll()
+                Task { await repo.bulkDeleteWorkouts(toDelete); await reload() }
+            } label: {
+                Label(String(localized: "Delete (\(chosen.count))"), systemImage: "trash")
+            }
+            .buttonStyle(SecondaryPillButtonStyle())
+            .disabled(chosen.isEmpty)
+
+            Button(String(localized: "Cancel")) {
+                withAnimation(.easeOut(duration: 0.15)) { selectionMode = false; selected.removeAll() }
+            }
+            .buttonStyle(SecondaryPillButtonStyle())
+        }
+    }
+
+    /// Start a merge: if the chosen rows carry a real sport, merge straight away; if every one is a bare
+    /// detected bout, prompt the user to name the merged session first.
+    private func beginMerge(_ chosen: [WorkoutRow]) {
+        guard WorkoutMerge.canMerge(chosen) else { return }
+        if WorkoutMerge.resolvedSport(chosen) == nil {
+            mergeSportPrompt = MergeSportTarget(rows: chosen)
+        } else {
+            performMerge(chosen, sport: nil)
+        }
+    }
+
+    /// Commit a merge through the repository (manual-row path), then rescore + reload. Leaves selection
+    /// mode. Imported rows can never reach here (canMerge gates on manual/detected).
+    private func performMerge(_ chosen: [WorkoutRow], sport: String?) {
+        guard let merged = WorkoutMerge.merge(chosen, sport: sport) else { return }
+        selectionMode = false; selected.removeAll(); mergeSportPrompt = nil
+        Task {
+            await repo.mergeWorkouts(chosen, into: merged)
+            await model.intelligence.analyzeRecent()
+            await reload()
+        }
+    }
+
+    // MARK: - Windowing + filtering
 
     /// The latest session start (anchors every window — windows are relative to the
     /// most recent session, not "now", so an old log still resolves).
@@ -555,9 +838,9 @@ struct WorkoutsView: View {
     }
 
     /// The active filter (#64), composed once. Sport / source / search all apply AFTER the window cut,
-    /// so the effort hero, tiles, breakdown, zones and list all read one filtered set.
+    /// so the zones and the list all read one filtered set.
     private var filter: WorkoutFilter {
-        WorkoutFilter(sport: sportFilter, sourceClass: sourceFilter, search: searchText)
+        WorkoutFilter(sport: sportFilter, origin: sourceFilter, search: searchText)
     }
 
     /// Sessions inside a given range, RELATIVE TO THE LATEST session, then passed through the active
@@ -592,21 +875,9 @@ struct WorkoutsView: View {
         return .all
     }
 
-    /// "N sessions · <range>" near the control, flagging an auto-widen. Appends "· filtered" (#64) when a
-    /// sport/source/search filter is narrowing the list. Takes the already-resolved range / windowed rows
-    /// so `body` computes them once.
-    private func rangeCaption(rows: [WorkoutRow], effectiveRange: Range, fellBack: Bool) -> String {
-        guard loaded, !allRows.isEmpty else { return "—" }
-        let n = rows.count
-        let suffix = filter.isActive ? String(localized: " · filtered") : ""
-        if fellBack {
-            return (n == 1
-                ? String(localized: "1 session · sparse, widened to \(effectiveRange.caption)")
-                : String(localized: "\(n) sessions · sparse, widened to \(effectiveRange.caption)")) + suffix
-        }
-        return (n == 1
-            ? String(localized: "1 session · \(effectiveRange.caption)")
-            : String(localized: "\(n) sessions · \(effectiveRange.caption)")) + suffix
+    /// "12 sessions · last 30 days". The count is a plural in the string catalog.
+    private func rangeCaption(count: Int, effectiveRange: Range) -> String {
+        String(localized: "\(count) sessions · \(effectiveRange.caption)")
     }
 
     /// Pick the tightest range that still holds ≥2 sessions; otherwise show All.
@@ -617,1068 +888,6 @@ struct WorkoutsView: View {
             if source.filter({ $0.startTs >= cutoff }).count >= 2 { return r }
         }
         return .all
-    }
-
-    // MARK: - Strain hero (typical effort on a flat Reset card)
-
-    private func paperWorkoutScore(rows: [WorkoutRow]) -> some View {
-        let strains = rows.compactMap(canonicalWorkoutStrain)
-        let average = strains.isEmpty ? nil : strains.reduce(0, +) / Double(strains.count)
-        let display = average.map { UnitFormatter.effortValue($0, scale: effortScale) }
-        let spark = rows.reversed().compactMap(canonicalWorkoutStrain)
-        return PaperCard {
-            HStack(spacing: 12) {
-                VStack(alignment: .leading, spacing: 5) {
-                    Text("WORKOUT SCORE")
-                        .font(StrandFont.sectionOverline)
-                        .tracking(StrandFont.sectionOverlineTracking)
-                        .foregroundStyle(StrandPalette.textSecondary)
-                    HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        Text(display.map { String(format: "%.1f", $0) } ?? "—")
-                            .font(StrandFont.metricValue)
-                            .foregroundStyle(StrandPalette.textPrimary)
-                        MicroBadge(
-                            LocalizedStringKey(workoutScoreState(average)),
-                            tint: StrandPalette.effortColor
-                        )
-                    }
-                    Text(workoutScoreDelta)
-                        .font(StrandFont.micro)
-                        .foregroundStyle(StrandPalette.textTertiary)
-                }
-                Spacer(minLength: 8)
-                if spark.count > 1 {
-                    Sparkline(values: spark,
-                              gradient: Gradient(colors: [StrandPalette.link, StrandPalette.link]),
-                              lineWidth: 2, showsArea: false, showsHead: false, showsHover: false)
-                        .frame(width: 128, height: 54)
-                }
-            }
-        }
-    }
-
-    private func paperRecentWorkouts(rows: [WorkoutRow]) -> some View {
-        let recent = Array(rows.prefix(3))
-        return PaperCard(padding: 0) {
-            VStack(alignment: .leading, spacing: 0) {
-                Text("RECENT WORKOUTS")
-                    .font(StrandFont.sectionOverline)
-                    .tracking(StrandFont.sectionOverlineTracking)
-                    .foregroundStyle(StrandPalette.textSecondary)
-                    .padding(.horizontal, 16)
-                    .padding(.top, 16)
-                    .padding(.bottom, 8)
-                ForEach(Array(recent.enumerated()), id: \.offset) { index, row in
-                    Button { openDetail(row) } label: {
-                        HStack(spacing: 12) {
-                            Image(systemName: sportSymbol(row.sport))
-                                .font(.system(size: 14, weight: .semibold))
-                                .foregroundStyle(StrandPalette.textSecondary)
-                                .frame(width: 32, height: 32)
-                                .background(StrandPalette.inset, in: Circle())
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text(WorkoutSource.displaySport(row.sport))
-                                    .font(StrandFont.body)
-                                    .foregroundStyle(StrandPalette.textPrimary)
-                                    .lineLimit(1)
-                                Text(dateLabel(row.startTs))
-                                    .font(StrandFont.caption)
-                                    .foregroundStyle(StrandPalette.textTertiary)
-                            }
-                            Spacer(minLength: 8)
-                            VStack(alignment: .trailing, spacing: 3) {
-                                Text(distanceLabel(row.distanceM))
-                                    .font(StrandFont.captionNumber)
-                                    .foregroundStyle(StrandPalette.textPrimary)
-                                Text(durationLabel(row.durationS))
-                                    .font(StrandFont.caption)
-                                    .foregroundStyle(StrandPalette.textTertiary)
-                            }
-                            MicroBadge(
-                                LocalizedStringKey(StrainScale.badgeText(fromStored: canonicalWorkoutStrain(row))),
-                                tint: canonicalWorkoutStrain(row) == nil
-                                    ? StrandPalette.textTertiary
-                                    : StrandPalette.strainAccent
-                            )
-                        }
-                        .padding(.horizontal, 16)
-                        .frame(minHeight: 62)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .overlay(alignment: .bottom) {
-                        if index < recent.count - 1 {
-                            Rectangle().fill(StrandPalette.hairline).frame(height: 1)
-                                .padding(.leading, 60)
-                        }
-                    }
-                }
-                Divider().overlay(StrandPalette.hairline)
-                HStack {
-                    Text("View all workouts")
-                    Spacer()
-                    Image(systemName: "chevron.right")
-                }
-                .font(StrandFont.caption.weight(.semibold))
-                .foregroundStyle(StrandPalette.link)
-                .padding(.horizontal, 16)
-                .frame(height: 44)
-            }
-        }
-    }
-
-    private func paperWorkoutBreakdown(rows: [WorkoutRow], zones: WorkoutZones.Summary?) -> some View {
-        let zoneSet = model.profile.hrMax > 0
-            ? HRZones.zones(maxHR: Double(model.profile.hrMax), source: "profile") : nil
-        return VStack(alignment: .leading, spacing: 10) {
-            PaperCard(padding: 12) {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("HR ZONES")
-                        .font(StrandFont.sectionOverline)
-                        .tracking(StrandFont.sectionOverlineTracking)
-                    Text("Time in zones").font(StrandFont.micro)
-                        .foregroundStyle(StrandPalette.textTertiary)
-                    if let zones, zones.totalMinutes > 0 {
-                        ZoneBars((1...5).map { zone in
-                            let minutes = zones.minutes[zone - 1]
-                            let fraction = zones.minutes[zone - 1] / zones.totalMinutes
-                            return ZoneBarItem(zone: zone,
-                                               fraction: fraction,
-                                               duration: durationLabel(minutes * 60),
-                                               bpmRange: zoneSet?.bpmRangeLabel(forZone: zone))
-                        })
-                    } else {
-                        Text("No zone data")
-                            .font(StrandFont.caption)
-                            .foregroundStyle(StrandPalette.textTertiary)
-                            .frame(maxWidth: .infinity, minHeight: 72, alignment: .center)
-                    }
-                }
-            }
-
-            PaperCard(padding: 12) {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("SPLITS")
-                        .font(StrandFont.sectionOverline)
-                        .tracking(StrandFont.sectionOverlineTracking)
-                    Text("Pace / \(unitSystem == .imperial ? "mi" : "km")")
-                        .font(StrandFont.micro)
-                        .foregroundStyle(StrandPalette.textTertiary)
-                    if let latest = rows.first, let pace = averagePace(latest) {
-                        VStack(spacing: 0) {
-                            miniSplitRow(label: "AVG", pace: pace, header: false)
-                            Divider().overlay(StrandPalette.hairline)
-                            miniSplitRow(label: "HR", pace: latest.avgHr.map { "\($0)" } ?? "—", header: false)
-                        }
-                    } else {
-                        Text("No split data")
-                            .font(StrandFont.caption)
-                            .foregroundStyle(StrandPalette.textTertiary)
-                            .frame(maxWidth: .infinity, minHeight: 72, alignment: .center)
-                    }
-                }
-            }
-        }
-    }
-
-    private func miniSplitRow(label: String, pace: String, header: Bool) -> some View {
-        HStack {
-            Text(label)
-            Spacer()
-            Text(pace)
-        }
-        .font(header ? StrandFont.micro.weight(.semibold) : StrandFont.captionNumber)
-        .foregroundStyle(header ? StrandPalette.textTertiary : StrandPalette.textPrimary)
-        .frame(height: 34)
-    }
-
-    private func workoutScoreState(_ raw: Double?) -> String {
-        guard let raw else { return String(localized: "No data") }
-        return StrainScale.band(StrainScale.displayValue(fromStored: raw)).title
-    }
-
-    private var workoutScoreDelta: String {
-        guard let anchor = latestTs else { return String(localized: "No weekly comparison") }
-        let currentCutoff = calendarCutoff(anchor: anchor, daysBack: 7)
-        let previousCutoff = calendarCutoff(anchor: anchor, daysBack: 14)
-        let current = allRows.filter { $0.startTs >= currentCutoff }.compactMap(canonicalWorkoutStrain)
-        let previous = allRows.filter { $0.startTs < currentCutoff && $0.startTs >= previousCutoff }
-            .compactMap(canonicalWorkoutStrain)
-        guard !current.isEmpty, !previous.isEmpty else { return String(localized: "Building your weekly comparison") }
-        let currentMean = current.reduce(0, +) / Double(current.count)
-        let previousMean = previous.reduce(0, +) / Double(previous.count)
-        let delta = UnitFormatter.effortValue(currentMean, scale: effortScale)
-            - UnitFormatter.effortValue(previousMean, scale: effortScale)
-        return String(format: "%+.1f vs last week", delta)
-    }
-
-    private func averagePace(_ row: WorkoutRow) -> String? {
-        guard let distance = row.distanceM, distance > 0 else { return nil }
-        let seconds = row.durationS ?? Double(row.endTs - row.startTs)
-        guard seconds > 0 else { return nil }
-        let unitMeters = unitSystem == .imperial ? 1609.344 : 1000
-        let paceSeconds = Int((seconds / (distance / unitMeters)).rounded())
-        guard paceSeconds > 0, paceSeconds < 60 * 60 else { return nil }
-        return String(format: "%d:%02d", paceSeconds / 60, paceSeconds % 60)
-    }
-
-    /// Design Reset hero for the windowed range: the typical session Strain on the clean flat ring
-    /// (GlowRing, bloom OFF), on a flat opaque Reset card — NO scenic backdrop float — with the session
-    /// count + total time alongside. The ring reads the AVERAGE per-session strain (the stored 0–100
-    /// Strain axis, mirroring the Today effort ring); the headline number is shown on the user's scale.
-    @ViewBuilder
-    private func effortHero(rows: [WorkoutRow], effectiveRange: Range, groups: [SportGroup]) -> some View {
-        let strains = rows.compactMap(canonicalWorkoutStrain)
-        let avgStrain = strains.isEmpty ? 0 : strains.reduce(0, +) / Double(strains.count)
-        let totalTimeH = rows.compactMap(\.durationS).reduce(0, +) / 3600.0
-        NoopCard(padding: 20, tint: StrandPalette.effortColor) {
-            ViewThatFits(in: .horizontal) {
-                HStack(alignment: .center, spacing: 24) {
-                    effortHeroGauge(avgStrain: avgStrain, hasData: !strains.isEmpty)
-                    effortHeroStats(rows: rows, effectiveRange: effectiveRange,
-                                    groups: groups, totalTimeH: totalTimeH)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                VStack(alignment: .center, spacing: 16) {
-                    effortHeroGauge(avgStrain: avgStrain, hasData: !strains.isEmpty)
-                    effortHeroStats(rows: rows, effectiveRange: effectiveRange,
-                                    groups: groups, totalTimeH: totalTimeH)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func effortHeroGauge(avgStrain: Double, hasData: Bool) -> some View {
-        // The signature liquid gauge: a filling `PaperGauge` tinted Strain with the typical effort
-        // counting up over it — the SAME hero language Today's score cells, the Sleep Sleep hero and the
-        // Trends headline use. The vessel fills to value/max on the user's selected Strain scale; the big
-        // number is the same `effortDisplay` read-out the old ring showed.
-        let diameter: CGFloat = 168
-        let scaleMax: Double = 21
-        let displayValue = UnitFormatter.effortValue(avgStrain, scale: effortScale)
-        let fraction = max(0, min(1, displayValue / scaleMax))
-        VStack(spacing: 18) {
-            Text("TYPICAL STRAIN")
-                .font(StrandFont.overline).tracking(StrandFont.overlineTracking)
-                .foregroundStyle(StrandPalette.effortColor)
-            if hasData {
-                ZStack {
-                    // Hero vessel → animated (this is one of the page's live gauges, like the Sleep Sleep
-                    // hero and the Today score cells). Reduce-Motion falls back to the static frame inside
-                    // PaperGauge itself.
-                    PaperGauge(value: fraction, tint: StrandPalette.effortColor, animated: true)
-                        .frame(width: diameter, height: diameter)
-                    VStack(spacing: 0) {
-                        // `displayValue` is already on the selected scale (0–100 or 0–21), so the count-up
-                        // interpolates it straight to one decimal — no re-scaling in the format closure.
-                        CountUpText(
-                            value: displayValue,
-                            format: { String(format: "%.1f", $0) },
-                            font: StrandFont.rounded(46),
-                            color: StrandPalette.textPrimary
-                        )
-                        .shadow(color: .black.opacity(0.5), radius: 6, y: 1)
-                    }
-                    .allowsHitTesting(false)   // taps fall through to the vessel → splash
-                }
-                .frame(maxWidth: .infinity)
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel(String(localized: "Typical Strain \(UnitFormatter.effortDisplay(avgStrain, scale: effortScale))"))
-            } else {
-                // No strain data in the window — an empty vessel (posed, no fill) with a centred "No data",
-                // the honest liquid analogue of the old empty ring.
-                ZStack {
-                    PaperGauge(value: 0, tint: StrandPalette.effortColor, animated: false)
-                        .frame(width: diameter, height: diameter)
-                    Text("No data")
-                        .font(StrandFont.headline)
-                        .foregroundStyle(StrandPalette.textSecondary)
-                        .lineLimit(1).minimumScaleFactor(0.7).fixedSize()
-                        .allowsHitTesting(false)
-                }
-                .frame(maxWidth: .infinity)
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel(String(localized: "Typical Strain, no data"))
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func effortHeroStats(rows: [WorkoutRow], effectiveRange: Range,
-                                 groups: [SportGroup], totalTimeH: Double) -> some View {
-        let modal = modalSport(from: groups)
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Strain this \(effectiveRange.heroWord)")
-                .font(StrandFont.headline)
-                .foregroundStyle(StrandPalette.textPrimary)
-            HStack(spacing: NoopMetrics.gap) {
-                heroCountStat(String(localized: "Sessions"), value: Double(rows.count),
-                              format: { "\(Int($0.rounded()))" }, tint: StrandPalette.effortColor)
-                heroStat(String(localized: "Active"), String(localized: "\(oneDecimal(totalTimeH))h"), tint: StrandPalette.textPrimary)
-                heroStat(String(localized: "Top sport"), modal.count > 0 ? "\(modal.count)×" : "—",
-                         tint: StrandPalette.effortBright)
-            }
-            Text(modal.count > 0
-                 ? "Mostly \(WorkoutSource.displaySport(modal.sport)) (\(effectiveRange.caption))."
-                 : "Logged sessions across \(effectiveRange.caption).")
-                .font(StrandFont.footnote)
-                .foregroundStyle(StrandPalette.textTertiary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-    }
-
-    private func heroStat(_ title: String, _ value: String, tint: Color) -> some View {
-        ValueToken(LocalizedStringKey(title), value: value, tint: tint)
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    /// The plain session-count value, kept as a separate helper so its numeric formatting remains
-    /// explicit while sharing the same canonical value presentation as the other hero stats.
-    private func heroCountStat(_ title: String, value: Double,
-                               format: @escaping (Double) -> String, tint: Color) -> some View {
-        ValueToken(LocalizedStringKey(title), value: format(value), tint: tint)
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    // MARK: - Summary tiles (uniform 104pt StatTiles)
-
-    private func summarySection(rows: [WorkoutRow], effectiveRange: Range, groups: [SportGroup]) -> some View {
-        let totalCount = rows.count
-        let totalTimeH = rows.compactMap(\.durationS).reduce(0, +) / 3600.0
-        let totalKcal = rows.compactMap(\.energyKcal).reduce(0, +)
-        let totalKmRaw = rows.compactMap(\.distanceM).reduce(0, +) / 1000.0
-        let modal = modalSport(from: groups)
-
-        return LazyVGrid(columns: tileColumns, alignment: .leading, spacing: NoopMetrics.gap) {
-            StatTile(label: "Total Workouts",
-                     value: "\(totalCount)",
-                     caption: effectiveRange.caption,
-                     accent: StrandPalette.effortColor)
-            StatTile(label: "Total Time",
-                     value: String(localized: "\(oneDecimal(totalTimeH))h"),
-                     caption: String(localized: "active"),
-                     accent: StrandPalette.textPrimary)
-            StatTile(label: "Total Calories",
-                     value: grouped(totalKcal),
-                     caption: "kcal",
-                     accent: StrandPalette.metricAmber)
-            StatTile(label: "Total Distance",
-                     value: UnitFormatter.distanceFromKilometers(totalKmRaw, system: unitSystem),
-                     caption: String(localized: "covered"),
-                     accent: StrandPalette.metricCyan)
-            StatTile(label: "Most Active",
-                     value: modal.sport,
-                     caption: modal.count > 0
-                         ? (modal.count == 1 ? String(localized: "1 session") : String(localized: "\(modal.count) sessions"))
-                         : nil,
-                     accent: StrandPalette.textPrimary)
-        }
-    }
-
-    // MARK: - Activity breakdown (per-sport NoopCards, identical layout)
-
-    private func breakdownSection(groups: [SportGroup], rows: [WorkoutRow]) -> some View {
-        VStack(alignment: .leading, spacing: NoopMetrics.gap) {
-            SectionHeader("Activity Breakdown",
-                          overline: "By sport",
-                          trailing: groups.count == 1
-                              ? String(localized: "1 sport")
-                              : String(localized: "\(groups.count) sports"))
-            LazyVGrid(columns: breakdownColumns, alignment: .leading, spacing: NoopMetrics.gap) {
-                ForEach(groups) { g in
-                    // This sport's own sessions, so the card can carry an HR-zone mini-bar.
-                    sportCard(g, zones: WorkoutZones.summary(from: rows.filter { $0.sport == g.sport }))
-                }
-            }
-        }
-    }
-
-    private func sportCard(_ g: SportGroup, zones: WorkoutZones.Summary?) -> some View {
-        // Frosted Strain-tinted card with the sport glyph in the Strain world, an HR-zone mini-bar when
-        // the sessions carry imported zones, and the bright "now" end-cap on its busiest zone.
-        NoopCard(tint: StrandPalette.effortColor) {
-            VStack(alignment: .leading, spacing: 12) {
-                // Identical header for every card.
-                HStack(spacing: 10) {
-                    Image(systemName: sportIcon(g.sport))
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(StrandPalette.effortColor)
-                        .frame(width: 22, alignment: .center)
-                    Text(WorkoutSource.displaySport(g.sport))
-                        .font(StrandFont.headline)
-                        .foregroundStyle(StrandPalette.textPrimary)
-                        .lineLimit(1)
-                    Spacer(minLength: 0)
-                    Text("\(g.count)")
-                        .font(StrandFont.number(15))
-                        .foregroundStyle(StrandPalette.effortBright)
-                }
-                if let zones { zoneMiniBar(zones) }
-                Divider().overlay(StrandPalette.hairline)
-                // Identical 4-up stat strip for every card.
-                HStack(spacing: 0) {
-                    miniStat(String(localized: "SESSIONS"), "\(g.count)")
-                    miniStat(String(localized: "TIME"), String(localized: "\(oneDecimal(g.totalTimeH))h"))
-                    miniStat(String(localized: "KCAL"), grouped(g.totalKcal), tint: StrandPalette.metricAmber)
-                    miniStat(String(localized: "AVG/SESS"), String(localized: "\(Int(g.avgTimePerSessionMin.rounded()))m"))
-                }
-            }
-        }
-    }
-
-    /// A slim proportional HR-zone bar for one sport's sessions — the zone colours, with the busiest
-    /// zone carrying a crisp bright end-cap stroke so the card reads as a chart, not a flat strip. No glow.
-    private func zoneMiniBar(_ z: WorkoutZones.Summary) -> some View {
-        let busiest = z.minutes.indices.max(by: { z.minutes[$0] < z.minutes[$1] }) ?? 0
-        return GeometryReader { geo in
-            HStack(spacing: 2) {
-                ForEach(0..<5, id: \.self) { i in
-                    RoundedRectangle(cornerRadius: 2, style: .continuous)
-                        .fill(StrandPalette.hrZoneColor(i + 1))
-                        .frame(width: max(0, CGFloat(z.minutes[i] / max(z.totalMinutes, 0.001)) * geo.size.width))
-                        .overlay {
-                            if i == busiest {
-                                RoundedRectangle(cornerRadius: 2, style: .continuous)
-                                    .strokeBorder(StrandPalette.textPrimary.opacity(0.85), lineWidth: 1.5)
-                            }
-                        }
-                }
-            }
-        }
-        .frame(height: 8)
-        .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(String(localized: "Heart-rate zone split: \((1...5).map { String(localized: "zone \($0) \(Int((z.minutes[$0 - 1] / max(z.totalMinutes, 0.001) * 100).rounded())) percent") }.joined(separator: ", "))"))
-    }
-
-    private func miniStat(_ label: String, _ value: String, tint: Color = StrandPalette.textPrimary) -> some View {
-        ValueToken(LocalizedStringKey(label), value: value, tint: tint)
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    // MARK: - HR zones (imported per-workout zone split, one card)
-
-    private func zonesSection(_ z: WorkoutZones.Summary, totalSessions: Int) -> some View {
-        VStack(alignment: .leading, spacing: NoopMetrics.gap) {
-            SectionHeader("HR Zones",
-                          overline: "Whoop import",
-                          trailing: totalSessions == 1
-                              ? String(localized: "\(z.sessionsWithZones) of 1 session")
-                              : String(localized: "\(z.sessionsWithZones) of \(totalSessions) sessions"))
-            NoopCard(tint: StrandPalette.effortColor) {
-                VStack(alignment: .leading, spacing: 12) {
-                    // Proportional stacked bar — same construction as SleepView's stage bar, with the
-                    // busiest zone carrying a crisp bright end-cap stroke so it reads as a chart. No glow.
-                    let busiest = z.minutes.indices.max(by: { z.minutes[$0] < z.minutes[$1] }) ?? 0
-                    GeometryReader { geo in
-                        HStack(spacing: 2) {
-                            ForEach(0..<5, id: \.self) { i in
-                                Rectangle()
-                                    .fill(StrandPalette.hrZoneColor(i + 1))
-                                    .frame(width: max(0, CGFloat(z.minutes[i] / z.totalMinutes) * geo.size.width))
-                                    .overlay {
-                                        if i == busiest {
-                                            Rectangle()
-                                                .strokeBorder(StrandPalette.textPrimary.opacity(0.85), lineWidth: 1.5)
-                                        }
-                                    }
-                            }
-                        }
-                    }
-                    .frame(height: 34)
-                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel(String(localized: "Heart-rate zone split: \((1...5).map { String(localized: "zone \($0) \(Int((z.minutes[$0 - 1] / z.totalMinutes * 100).rounded())) percent") }.joined(separator: ", "))"))
-                    Divider().overlay(StrandPalette.hairline)
-                    // 5-up stat strip, identical rhythm to the sport cards' miniStat row.
-                    HStack(spacing: 0) {
-                        ForEach(0..<5, id: \.self) { i in
-                            zoneStat(i + 1, minutes: z.minutes[i], total: z.totalMinutes)
-                        }
-                    }
-                    Text("Share of imported zone time, duration-weighted across sessions (approximate).")
-                        .font(StrandFont.footnote)
-                        .foregroundStyle(StrandPalette.textTertiary)
-                }
-            }
-        }
-    }
-
-    private func zoneStat(_ zone: Int, minutes: Double, total: Double) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            HStack(spacing: 5) {
-                RoundedRectangle(cornerRadius: 2, style: .continuous)
-                    .fill(StrandPalette.hrZoneColor(zone))
-                    .frame(width: 9, height: 9)
-                Text("Z\(zone)" as String).strandOverline()
-            }
-            Text("\(Int((minutes / max(total, 0.001) * 100).rounded()))%")
-                .font(StrandFont.number(15))
-                .foregroundStyle(StrandPalette.textPrimary)
-            Text(durationLabel(minutes * 60))
-                .font(StrandFont.footnote)
-                .foregroundStyle(StrandPalette.textTertiary)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    // MARK: - Paper workout history
-
-    private func paperWorkoutHistory(rows: [WorkoutRow], effectiveRange: Range) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            workoutHistoryHeader("Workout history", overline: "Complete log",
-                                 trailing: String(localized: "\(rows.count) sessions"))
-            rangeBar(rows: rows, effectiveRange: effectiveRange)
-            sessionsSection(rows: rows)
-        }
-    }
-
-    // MARK: - All sessions (one PaperCard, uniform fixed-height rows)
-
-    /// Whether the compact-native session list is used. iPhone (.compact) gets full-width rows; macOS and
-    /// iPad regular width keep the fixed-column table byte-identical (#64).
-    private var usesCompactSessions: Bool {
-        #if os(iOS)
-        return hSizeClass == .compact
-        #else
-        return false
-        #endif
-    }
-
-    private func sessionsSection(rows: [WorkoutRow]) -> some View {
-        VStack(alignment: .leading, spacing: NoopMetrics.gap) {
-            HStack(alignment: .firstTextBaseline) {
-                workoutHistoryHeader("All Sessions", overline: "Log",
-                                     trailing: String(localized: "\(rows.count) total"))
-                selectPill(rows: rows)
-            }
-            if selectionMode { selectionToolbar(rows: rows) }
-            PaperCard(padding: 0) {
-                if usesCompactSessions {
-                    // #64: full-width native rows, no horizontal scroll — the iPhone list reads like the
-                    // rest of the Paper app. The
-                    // ••• menu is visible per row + the tap-to-detail is natural, so the old hint caption
-                    // (that taught the horizontal-scroll table) is gone here.
-                    compactSessionsList(rows: rows)
-                } else {
-                    // macOS / iPad regular: the fixed-width columns total well over an iPhone's width, but
-                    // these windows are wide enough to show it all, so they keep the full-width table.
-                    sessionsTable(rows: rows)
-                }
-            }
-            #if os(iOS)
-            // iPad regular keeps the table's hint (byte-identical to before); the compact list drops it.
-            if !usesCompactSessions {
-                Text("Tap a workout for its detail · tap ••• to re-label, edit or delete it.")
-                    .font(StrandFont.caption)
-                    .foregroundStyle(StrandPalette.textTertiary)
-                    .padding(.horizontal, 4)
-            }
-            #endif
-        }
-    }
-
-    /// #64: the "Select" pill in the All-Sessions header trailing slot toggles multi-select mode. Only
-    /// shown when at least one row is selectable (manual / detected); a pure-imported list has nothing to
-    /// merge or bulk-delete.
-    @ViewBuilder
-    private func selectPill(rows: [WorkoutRow]) -> some View {
-        let anySelectable = rows.contains(where: WorkoutMerge.isMergeable)
-        if anySelectable {
-            Button {
-                withAnimation(.easeOut(duration: 0.15)) {
-                    selectionMode.toggle()
-                    if !selectionMode { selected.removeAll() }
-                }
-            } label: {
-                Text(selectionMode ? String(localized: "Done") : String(localized: "Select"))
-                    .font(StrandFont.footnote)
-                    .foregroundStyle(selectionMode ? StrandPalette.effortColor : StrandPalette.accent)
-                    .padding(.horizontal, 12).padding(.vertical, 6)
-                    .background(selectionMode ? StrandPalette.effortColor.opacity(0.12) : StrandPalette.inset,
-                                in: Capsule())
-                    .overlay {
-                        Capsule().strokeBorder(StrandPalette.hairline, lineWidth: 1)
-                    }
-            }
-            .accessibilityLabel(selectionMode
-                ? String(localized: "Finish selecting")
-                : String(localized: "Select sessions to merge or delete"))
-        }
-    }
-
-    /// #64: the Merge / Delete / Cancel strip shown above the card in selection mode. Merge needs 2+
-    /// eligible rows; Delete needs 1+.
-    private func selectionToolbar(rows: [WorkoutRow]) -> some View {
-        let chosen = rows.filter { selected.contains(selectionKey($0)) }
-        let canMerge = WorkoutMerge.canMerge(chosen)
-        return HStack(spacing: 10) {
-            Button {
-                beginMerge(chosen)
-            } label: {
-                Label(String(localized: "Merge (\(chosen.count))"), systemImage: "arrow.triangle.merge")
-                    .font(StrandFont.subhead)
-            }
-            .disabled(!canMerge)
-            .foregroundStyle(canMerge ? StrandPalette.effortColor : StrandPalette.textTertiary)
-
-            Button(role: .destructive) {
-                let toDelete = chosen
-                selectionMode = false; selected.removeAll()
-                Task { await repo.bulkDeleteWorkouts(toDelete); await reload() }
-            } label: {
-                Label(String(localized: "Delete (\(chosen.count))"), systemImage: "trash")
-                    .font(StrandFont.subhead)
-            }
-            .disabled(chosen.isEmpty)
-            .foregroundStyle(chosen.isEmpty ? StrandPalette.textTertiary : StrandPalette.metricRose)
-
-            Spacer(minLength: 0)
-            Button(String(localized: "Cancel")) {
-                withAnimation(.easeOut(duration: 0.15)) { selectionMode = false; selected.removeAll() }
-            }
-            .font(StrandFont.subhead)
-            .foregroundStyle(StrandPalette.textSecondary)
-        }
-        .padding(.horizontal, NoopMetrics.space3)
-        .padding(.vertical, NoopMetrics.space3)
-        .background(StrandPalette.inset,
-                    in: RoundedRectangle(cornerRadius: NoopMetrics.cardRadius, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: NoopMetrics.cardRadius, style: .continuous)
-                .strokeBorder(StrandPalette.hairline, lineWidth: 1)
-        }
-        .accessibilityElement(children: .contain)
-    }
-
-    /// Start a merge: if the chosen rows carry a real sport, merge straight away; if every one is a bare
-    /// detected bout, prompt the user to name the merged session first.
-    private func beginMerge(_ chosen: [WorkoutRow]) {
-        guard WorkoutMerge.canMerge(chosen) else { return }
-        if WorkoutMerge.resolvedSport(chosen) == nil {
-            mergeSportPrompt = MergeSportTarget(rows: chosen)
-        } else {
-            performMerge(chosen, sport: nil)
-        }
-    }
-
-    /// Commit a merge through the repository (manual-row path), then rescore + reload. Leaves selection
-    /// mode. Imported rows can never reach here (canMerge gates on manual/detected).
-    private func performMerge(_ chosen: [WorkoutRow], sport: String?) {
-        guard let merged = WorkoutMerge.merge(chosen, sport: sport) else { return }
-        selectionMode = false; selected.removeAll(); mergeSportPrompt = nil
-        Task {
-            await repo.mergeWorkouts(chosen, into: merged)
-            await model.intelligence.analyzeRecent()
-            await reload()
-        }
-    }
-
-    /// #64: the compact-native list — full-width Paper rows, tap-to-detail, the
-    /// existing ••• menu, and (in selection mode) a leading checkmark / lock glyph.
-    @ViewBuilder
-    private func compactSessionsList(rows: [WorkoutRow]) -> some View {
-        LazyVStack(spacing: 0) {
-            ForEach(Array(rows.enumerated()), id: \.offset) { idx, row in
-                compactSessionRow(row)
-                if idx != rows.count - 1 {
-                    Divider().overlay(StrandPalette.hairline)
-                        .padding(.leading, 50)
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func sessionsTable(rows: [WorkoutRow]) -> some View {
-        LazyVStack(spacing: 0) {
-            sessionHeaderRow
-            Divider().overlay(StrandPalette.hairline)
-            ForEach(Array(rows.enumerated()), id: \.offset) { idx, row in
-                sessionRow(row)
-                if idx != rows.count - 1 {
-                    Divider().overlay(StrandPalette.hairline)
-                }
-            }
-        }
-    }
-
-    private var sessionHeaderRow: some View {
-        HStack(spacing: 0) {
-            colHeader(String(localized: "DATE"), width: ColWidth.date, align: .leading)
-            colHeader(String(localized: "SPORT"), width: ColWidth.sport, align: .leading)
-            colHeader(String(localized: "DUR"), width: ColWidth.duration, align: .trailing)
-            colHeader(String(localized: "AVG HR"), width: ColWidth.hr, align: .trailing)
-            colHeader(String(localized: "KCAL"), width: ColWidth.kcal, align: .trailing)
-            colHeader(String(localized: "DIST"), width: ColWidth.dist, align: .trailing)
-            // #796 - per-session Strain (the stored 0-100 strain this workout contributed to the day),
-            // shown on the user's selected Strain scale. Same value the Strain ring and the detail's
-            // Strain card read, surfaced per row so each session's effort is visible without opening it.
-            colHeader(String(localized: "STRAIN"), width: ColWidth.effort, align: .trailing)
-            Spacer(minLength: 0)
-            colHeader(String(localized: "SOURCE"), width: ColWidth.source, align: .trailing)
-            // Empty header over the per-row "•••" actions menu column (keeps SOURCE aligned).
-            Color.clear.frame(width: ColWidth.action)
-        }
-        .padding(.horizontal, NoopMetrics.cardPadding)
-        .frame(height: RowMetrics.headerHeight)
-    }
-
-    private func colHeader(_ t: String, width: CGFloat, align: Alignment) -> some View {
-        Text(t).strandOverline().frame(width: width, alignment: align)
-    }
-
-    private func sessionRow(_ row: WorkoutRow) -> some View {
-        let selectable = WorkoutMerge.isMergeable(row)
-        let isSelected = selected.contains(selectionKey(row))
-        // Same liquid press treatment as the compact row: the PRIMARY tap runs through a Button so the row
-        // settles inward on press, and the inline ••• Menu still captures its own taps. The fixed-width
-        // columns + uniform row height are unchanged (they live inside the Button's label).
-        return Button {
-            if selectionMode {
-                guard selectable else { return }
-                withAnimation(.easeOut(duration: 0.12)) { toggleSelection(row) }
-            } else {
-                openDetail(row)
-            }
-        } label: {
-          HStack(spacing: 0) {
-            // #64: leading selection glyph — only rendered in selection mode, so the default table row is
-            // byte-identical. A lock replaces the checkmark on imported (read-only) rows.
-            if selectionMode {
-                compactSelectionGlyph(selectable: selectable, isSelected: isSelected)
-                    .frame(width: 28)
-                    .padding(.trailing, 4)
-            }
-            // Date + time
-            VStack(alignment: .leading, spacing: 1) {
-                Text(dateLabel(row.startTs))
-                    .font(StrandFont.subhead)
-                    .foregroundStyle(StrandPalette.textPrimary)
-                Text(timeRangeLabel(row.startTs, row.endTs))
-                    .font(StrandFont.footnote)
-                    .foregroundStyle(StrandPalette.textTertiary)
-            }
-            .frame(width: ColWidth.date, alignment: .leading)
-
-            // Sport ("detected" reads as "Activity")
-            HStack(spacing: 7) {
-                Image(systemName: sportIcon(row.sport))
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(StrandPalette.textSecondary)
-                    .frame(width: 16)
-                Text(WorkoutSource.displaySport(row.sport))
-                    .font(StrandFont.subhead)
-                    .foregroundStyle(StrandPalette.textPrimary)
-                    .lineLimit(1)
-            }
-            .frame(width: ColWidth.sport, alignment: .leading)
-
-            cell(durationLabel(row.durationS), width: ColWidth.duration)
-            cell(row.avgHr.map { "\($0)" } ?? "–", width: ColWidth.hr,
-                 color: row.avgHr != nil ? StrandPalette.metricRose : nil)
-            cell(row.energyKcal.map { grouped($0) } ?? "–", width: ColWidth.kcal,
-                 color: row.energyKcal != nil ? StrandPalette.metricAmber : nil)
-            cell(distanceLabel(row.distanceM), width: ColWidth.dist)
-            // #796 - per-session Strain, on the user's scale, tinted the Strain colour when present.
-            cell(Self.effortCellLabel(strain: canonicalWorkoutStrain(row), scale: effortScale), width: ColWidth.effort,
-                 color: canonicalWorkoutStrain(row) != nil ? StrandPalette.effortColor : nil)
-
-            Spacer(minLength: 0)
-
-            HStack {
-                Spacer(minLength: 0)
-                sourceBadge(row.source)
-            }
-            .frame(width: ColWidth.source, alignment: .trailing)
-
-            // The ••• column keeps its reserved width for alignment inside the button label, but the actual
-            // interactive Menu is layered as a trailing overlay OUTSIDE the button (below) so it captures
-            // its own taps rather than being swallowed by the row button (the DevicesView #318 idiom).
-            Color.clear.frame(width: ColWidth.action)
-          }
-          .padding(.horizontal, NoopMetrics.cardPadding)
-          .frame(height: RowMetrics.rowHeight)
-          .contentShape(Rectangle())
-        }
-        .buttonStyle(PaperPressStyle())
-        // Visible per-row actions affordance (#1/#318): the ••• menu sits on top of the row at the trailing
-        // edge (over its reserved column) so relabel/edit/dismiss stay discoverable and tappable. Hidden in
-        // selection mode (the toolbar owns the actions there).
-        .overlay(alignment: .trailing) {
-            if !selectionMode {
-                rowActionsMenu(row)
-                    .frame(width: ColWidth.action, alignment: .trailing)
-                    .padding(.trailing, NoopMetrics.cardPadding)
-            }
-        }
-        .contextMenu { if !selectionMode { rowMenu(row) } }
-        .accessibilityAddTraits(.isButton)
-        .accessibilityHint("Opens workout detail")
-    }
-
-    // MARK: - Compact session row (#64, iPhone .compact)
-
-    /// A full-width native session row for iPhone. Line 1: sport glyph + name + per-session Strain. Line 2:
-    /// a "d MMM · HH:mm–HH:mm · 45m · 388 kcal · 118 bpm" summary, nil fields omitted. Trailing: the source
-    /// badge + the existing ••• actions menu. In selection mode a leading checkmark (mergeable rows) or a
-    /// lock glyph (imported, read-only) replaces the tap-to-detail gesture.
-    private func compactSessionRow(_ row: WorkoutRow) -> some View {
-        let selectable = WorkoutMerge.isMergeable(row)
-        let isSelected = selected.contains(selectionKey(row))
-        // The row's PRIMARY tap runs through a Button so it earns the liquid settle-inward press
-        // (PaperPressStyle) like every other tappable liquid surface. The trailing ••• Menu is layered as
-        // a trailing overlay OUTSIDE the button (below) so it captures its own taps rather than being
-        // swallowed by the row button (#318). Selection-mode taps toggle instead of opening the detail.
-        return Button {
-            if selectionMode {
-                guard selectable else { return }
-                withAnimation(.easeOut(duration: 0.12)) { toggleSelection(row) }
-            } else {
-                openDetail(row)
-            }
-        } label: {
-            HStack(spacing: 12) {
-                if selectionMode {
-                    compactSelectionGlyph(selectable: selectable, isSelected: isSelected)
-                }
-                Image(systemName: sportIcon(row.sport))
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundStyle(StrandPalette.textSecondary)
-                    .frame(width: 22)
-                    .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 8) {
-                        Text(WorkoutSource.displaySport(row.sport))
-                            .font(StrandFont.subhead)
-                            .foregroundStyle(StrandPalette.textPrimary)
-                            .lineLimit(1)
-                        Spacer(minLength: 0)
-                        MicroBadge(
-                            LocalizedStringKey(Self.effortCellLabel(strain: canonicalWorkoutStrain(row), scale: effortScale)),
-                            tint: canonicalWorkoutStrain(row) == nil
-                                ? StrandPalette.textTertiary
-                                : StrandPalette.strainAccent
-                        )
-                    }
-                    Text(compactRowSubtitle(row))
-                        .font(StrandFont.footnote)
-                        .foregroundStyle(StrandPalette.textTertiary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                }
-                sourceBadge(row.source)
-                // Reserve the ••• column width inside the label; the interactive Menu is overlaid on top
-                // (below) so it captures its own taps instead of being swallowed by the row button (#318).
-                if !selectionMode {
-                    Color.clear.frame(width: ColWidth.action)
-                }
-            }
-            .padding(.horizontal, NoopMetrics.cardPadding)
-            .frame(minHeight: 56)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(PaperPressStyle())
-        // Visible per-row ••• actions (#1/#318), layered at the trailing edge over its reserved column.
-        .overlay(alignment: .trailing) {
-            if !selectionMode {
-                rowActionsMenu(row)
-                    .frame(width: ColWidth.action, alignment: .trailing)
-                    .padding(.trailing, NoopMetrics.cardPadding)
-            }
-        }
-        .contextMenu { if !selectionMode { rowMenu(row) } }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(compactRowAccessibilityLabel(row, selectable: selectable, isSelected: isSelected))
-        .accessibilityAddTraits(.isButton)
-        .accessibilityHint(selectionMode
-            ? (selectable ? String(localized: "Double-tap to select") : String(localized: "Imported history can't be merged"))
-            : String(localized: "Opens workout detail"))
-    }
-
-    private func workoutHistoryHeader(_ title: LocalizedStringKey,
-                                      overline: LocalizedStringKey,
-                                      trailing: String) -> some View {
-        HStack(alignment: .firstTextBaseline) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(overline).strandOverline()
-                Text(title).font(StrandFont.cardTitle).foregroundStyle(StrandPalette.textPrimary)
-            }
-            Spacer()
-            Text(trailing).font(StrandFont.caption).foregroundStyle(StrandPalette.textTertiary)
-        }
-    }
-
-    /// The leading selection glyph: a filled/hollow checkmark for a mergeable row, or a lock for imported
-    /// history (which can never be merged or bulk-deleted).
-    @ViewBuilder
-    private func compactSelectionGlyph(selectable: Bool, isSelected: Bool) -> some View {
-        if selectable {
-            Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                .font(.system(size: 20, weight: .regular))
-                .foregroundStyle(isSelected ? StrandPalette.effortColor : StrandPalette.textTertiary)
-                .accessibilityHidden(true)
-        } else {
-            Image(systemName: "lock.fill")
-                .font(.system(size: 14, weight: .regular))
-                .foregroundStyle(StrandPalette.textTertiary.opacity(0.6))
-                .frame(width: 20)
-                .accessibilityHidden(true)
-        }
-    }
-
-    /// Toggle one row's selection (mergeable rows only).
-    private func toggleSelection(_ row: WorkoutRow) {
-        let key = selectionKey(row)
-        if selected.contains(key) { selected.remove(key) } else { selected.insert(key) }
-    }
-
-    /// The compact row's second line: "d MMM · HH:mm–HH:mm · 45m · 388 kcal · 118 bpm", nil fields omitted.
-    private func compactRowSubtitle(_ row: WorkoutRow) -> String {
-        var parts: [String] = [dateLabel(row.startTs), timeRangeLabel(row.startTs, row.endTs)]
-        if let d = durationLabelOrNil(row.durationS) { parts.append(d) }
-        if let k = row.energyKcal, k > 0 { parts.append(String(localized: "\(grouped(k)) kcal")) }
-        if let d = row.distanceM, d > 0 { parts.append(distanceLabel(row.distanceM)) }
-        if let hr = row.avgHr { parts.append(String(localized: "\(hr) bpm")) }
-        return parts.joined(separator: " · ")
-    }
-
-    /// A full-sentence a11y label for a compact row.
-    private func compactRowAccessibilityLabel(_ row: WorkoutRow, selectable: Bool, isSelected: Bool) -> String {
-        let effort = canonicalWorkoutStrain(row) != nil
-            ? String(localized: "Strain \(Self.effortCellLabel(strain: canonicalWorkoutStrain(row), scale: effortScale))")
-            : String(localized: "no Strain recorded")
-        let base = String(localized: "\(WorkoutSource.displaySport(row.sport)), \(compactRowSubtitle(row)), \(effort)")
-        guard selectionMode else { return base }
-        if !selectable { return String(localized: "\(base). Imported, can't be merged.") }
-        return isSelected ? String(localized: "\(base). Selected.") : String(localized: "\(base). Not selected.")
-    }
-
-    /// The same actions as `rowMenu`, surfaced as a tappable "•••" button so they're discoverable on
-    /// both macOS (no right-click needed) and iOS (no long-press needed). Borderless + hidden
-    /// indicator keeps it to a bare glyph that fits the row's metric rhythm.
-    private func rowActionsMenu(_ row: WorkoutRow) -> some View {
-        Menu {
-            rowMenu(row)
-        } label: {
-            Image(systemName: "ellipsis")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(StrandPalette.textTertiary)
-                .frame(width: ColWidth.action, height: RowMetrics.rowHeight)
-                .contentShape(Rectangle())
-        }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .fixedSize()
-    }
-
-    /// Right-click actions per row. A DETECTED bout can be re-labelled (becomes a real manual session
-    /// that survives re-detection) or dismissed (durably hidden). A MANUAL session can be edited or
-    /// deleted. Imported WHOOP / Apple rows are read-only (we never rewrite imported history).
-    @ViewBuilder
-    private func rowMenu(_ row: WorkoutRow) -> some View {
-        switch WorkoutSource.classify(row.source) {
-        case .detected:
-            Menu("Re-label as") {
-                ForEach(Self.relabelSports, id: \.self) { sport in
-                    Button(sport) { relabel(row, to: sport) }
-                }
-            }
-            Button("Edit details…") { editWorkout(row) }
-            Divider()
-            Button("Dismiss (not a workout)", role: .destructive) { dismiss(row) }
-        case .manual:
-            Button("Edit…") { editWorkout(row) }
-            Divider()
-            Button("Delete", role: .destructive) { delete(row) }
-        case .whoop, .apple, .lifting, .activityFile:
-            // Imported history is read-only; offer a copy-to-manual edit path that doesn't touch it.
-            Button("Duplicate as manual…") { editWorkout(asManualCopy(row)) }
-        }
-    }
-
-    /// A manual-source copy of an imported row, so "Duplicate as manual" opens the add sheet pre-filled
-    /// without ever mutating the imported original (the sheet saves under the strap source).
-    private func asManualCopy(_ row: WorkoutRow) -> WorkoutRow {
-        row.replacing(sport: WorkoutSource.displaySport(row.sport), source: "manual")
-    }
-
-    /// #796 - the per-session Strain cell label: the stored 0-100 strain mapped to the user's Strain scale
-    /// (the SAME `UnitFormatter.effortDisplay` every other Strain read-out routes through, so the toggle and
-    /// rounding stay consistent), or "–" when the session has no captured strain. Pure + unit-testable.
-    static func effortCellLabel(strain: Double?, scale: EffortScale) -> String {
-        StrainScale.badgeText(fromStored: strain)
-    }
-
-    private func cell(_ text: String, width: CGFloat, color: Color? = nil) -> some View {
-        Text(text)
-            .font(StrandFont.number(13, weight: .regular))
-            .foregroundStyle(color ?? (text == "–" ? StrandPalette.textTertiary : StrandPalette.textPrimary))
-            .frame(width: width, alignment: .trailing)
-    }
-
-    /// Source badge built from the locked SourceBadge component (no custom capsule). Four origins:
-    /// Whoop (import), Apple (import), Detected (on-device auto-detector — honestly labelled so a
-    /// duplicate is recognisable and removable), Manual (user-logged).
-    private func sourceBadge(_ source: String) -> some View {
-        let (label, tint, a11y): (String, Color, String) = {
-            switch WorkoutSource.classify(source) {
-            case .whoop:    return (String(localized: "Whoop"), StrandPalette.accent, String(localized: "Source Whoop"))
-            case .apple:    return (String(localized: "Apple"), StrandPalette.metricCyan, String(localized: "Source Apple Health"))
-            case .detected: return (String(localized: "Detected"), StrandPalette.metricPurple, String(localized: "Source on-device detected"))
-            case .manual:   return (String(localized: "Manual"), StrandPalette.statusWarning, String(localized: "Source manual entry"))
-            case .lifting:  return (String(localized: "Lifting"), StrandPalette.zone2, String(localized: "Source imported lifting log"))
-            case .activityFile: return (String(localized: "File"), StrandPalette.metricAmber, String(localized: "Source imported activity file"))
-            }
-        }()
-        // String interpolation lifts the computed label into a LocalizedStringKey (SourceBadge's type).
-        return SourceBadge("\(label)", tint: tint).accessibilityLabel(a11y)
-    }
-
-    // MARK: - Grid columns
-
-    private var tileColumns: [GridItem] {
-        [GridItem(.adaptive(minimum: 168), spacing: NoopMetrics.gap)]
-    }
-    private var breakdownColumns: [GridItem] {
-        [GridItem(.adaptive(minimum: 260), spacing: NoopMetrics.gap, alignment: .top)]
-    }
-
-    // MARK: - Aggregation
-
-    private struct SportGroup: Identifiable {
-        let sport: String
-        let count: Int
-        let totalTimeS: Double
-        let totalKcal: Double
-        var id: String { sport }
-        var totalTimeH: Double { totalTimeS / 3600.0 }
-        var avgTimePerSessionMin: Double { count > 0 ? (totalTimeS / Double(count)) / 60.0 : 0 }
-    }
-
-    /// Sessions grouped by sport, ordered by count (desc), then total time.
-    /// Takes the already-windowed rows so `body` builds the groups exactly once.
-    private func sportGroups(from rows: [WorkoutRow]) -> [SportGroup] {
-        var bySport: [String: (count: Int, time: Double, kcal: Double)] = [:]
-        for r in rows {
-            var acc = bySport[r.sport] ?? (0, 0, 0)
-            acc.count += 1
-            acc.time += r.durationS ?? 0
-            acc.kcal += r.energyKcal ?? 0
-            bySport[r.sport] = acc
-        }
-        return bySport
-            .map { SportGroup(sport: $0.key, count: $0.value.count,
-                              totalTimeS: $0.value.time, totalKcal: $0.value.kcal) }
-            .sorted { ($0.count, $0.totalTimeS) > ($1.count, $1.totalTimeS) }
-    }
-
-    /// The most-frequent sport (modal), derived from the already-built groups.
-    private func modalSport(from groups: [SportGroup]) -> (sport: String, count: Int) {
-        guard let top = groups.first else { return ("–", 0) }
-        return (top.sport, top.count)
     }
 
     // MARK: - Range model
@@ -1703,16 +912,6 @@ struct WorkoutsView: View {
             case .all:     return String(localized: "all time")
             }
         }
-        /// A short noun for the effort hero's "Strain this …" headline.
-        var heroWord: String {
-            switch self {
-            case .week:    return String(localized: "week")
-            case .month:   return String(localized: "month")
-            case .quarter: return String(localized: "quarter")
-            case .year:    return String(localized: "year")
-            case .all:     return String(localized: "log")
-            }
-        }
         /// Trailing-window length in days, or nil for "all".
         var days: Int? {
             switch self {
@@ -1731,89 +930,6 @@ struct WorkoutsView: View {
             return Array(order[i...])
         }
     }
-
-    // MARK: - Formatting
-
-    private static let dateFmt: DateFormatter = {
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.dateFormat = "d MMM yyyy"
-        return f
-    }()
-
-    // The "jmm" skeleton respects the device's 12-/24-hour setting (#337): "4:34 PM" where 12-hour is
-    // preferred, "16:34" where 24-hour is — instead of forcing 24-hour on everyone (matches TodayView).
-    private static var timeFmt: DateFormatter { AppClock.hourMinuteFormatter() }
-
-    private func dateLabel(_ ts: Int) -> String {
-        Self.dateFmt.string(from: Date(timeIntervalSince1970: TimeInterval(ts)))
-    }
-    private func timeLabel(_ ts: Int) -> String {
-        Self.timeFmt.string(from: Date(timeIntervalSince1970: TimeInterval(ts)))
-    }
-
-    /// "HH:mm–HH:mm" when the row carries a real end, start-only otherwise (#157).
-    private func timeRangeLabel(_ start: Int, _ end: Int) -> String {
-        end > start ? "\(timeLabel(start))-\(timeLabel(end))" : timeLabel(start)
-    }
-
-    private func durationLabel(_ s: Double?) -> String {
-        guard let s, s > 0 else { return "–" }
-        let total = Int(s.rounded())
-        let h = total / 3600
-        let m = (total % 3600) / 60
-        if h > 0 { return String(localized: "\(h)h \(m)m") }
-        return String(localized: "\(m)m")
-    }
-
-    /// #64: the duration label, or nil when there's no duration to show — so the compact row's summary
-    /// line can omit the field entirely rather than printing a bare "–".
-    private func durationLabelOrNil(_ s: Double?) -> String? {
-        guard let s, s > 0 else { return nil }
-        return durationLabel(s)
-    }
-
-    private func distanceLabel(_ m: Double?) -> String {
-        guard let m, m > 0 else { return "–" }
-        return UnitFormatter.distanceFromMeters(m, system: unitSystem)
-    }
-
-    private func oneDecimal(_ v: Double) -> String { String(format: "%.1f", v) }
-
-    private func grouped(_ v: Double) -> String {
-        Self.intFmt.string(from: NSNumber(value: Int(v.rounded()))) ?? "\(Int(v.rounded()))"
-    }
-    private static let intFmt: NumberFormatter = {
-        let f = NumberFormatter()
-        f.numberStyle = .decimal
-        f.maximumFractionDigits = 0
-        return f
-    }()
-
-    // MARK: - Sport icons
-
-    // Sport → SF Symbol now lives in StrandDesign (`sportSymbol`) so the Today HR
-    // overview annotates workouts with the same icons. Thin forwarder keeps call sites.
-    private func sportIcon(_ sport: String) -> String { sportSymbol(sport) }
-
-    // MARK: - Row + column metrics (uniform)
-
-    private enum RowMetrics {
-        static let headerHeight: CGFloat = 34
-        static let rowHeight: CGFloat = 46   // every session row is exactly this tall
-    }
-
-    private enum ColWidth {
-        static let date: CGFloat = 96
-        static let sport: CGFloat = 160
-        static let duration: CGFloat = 70
-        static let hr: CGFloat = 64
-        static let kcal: CGFloat = 70
-        static let dist: CGFloat = 72
-        static let effort: CGFloat = 64   // #796 per-session Strain column
-        static let source: CGFloat = 80
-        static let action: CGFloat = 36   // trailing "•••" per-row actions menu
-    }
 }
 
 /// Observes active-workout state only around the one control that renders it.
@@ -1825,12 +941,15 @@ private struct WorkoutsActiveWorkoutButtonLeaf: View {
     private var hasActiveWorkout: Bool { model.activeWorkout != nil }
 
     var body: some View {
-        NoopButton(hasActiveWorkout ? "View active workout" : "Start workout",
-                   systemImage: hasActiveWorkout ? "timer" : "figure.run",
-                   kind: .primary,
-                   fullWidth: true,
-                   action: openWorkout)
-            .accessibilityLabel(hasActiveWorkout ? "View the active workout" : "Start a workout")
+        Button(action: openWorkout) {
+            if hasActiveWorkout {
+                Label("View active workout", systemImage: "timer")
+            } else {
+                Label("Start workout", systemImage: "play.fill")
+            }
+        }
+        .buttonStyle(PrimaryPillButtonStyle())
+        .accessibilityLabel(hasActiveWorkout ? "View the active workout" : "Start a workout")
     }
 
     private func openWorkout() {

@@ -83,9 +83,12 @@ try:
         "final class HealthKitScoringCoordinator: NSObject",
         "publicationBarrier: RepositoryPublicationBarrier = .shared",
         "func withImportLease",
-        "await ensurePublicationBarrierHeld()",
-        "releasePublicationBarrierIfIdle()",
+        "try await publicationBarrier.acquireExclusive()",
+        "defer { publicationBarrier.releaseExclusive(ownership) }",
         "await acquireLease(.scoring)",
+        "CancellableWaiterQueue<PipelineLease>",
+        "struct HealthKitScoringRetryPolicy",
+        "UIApplication.willEnterForegroundNotification",
         "guard revision == snapshotRevision else { continue }",
         "try await scoringCoordinator.offer(snapshot)",
         "final class HealthKitAnchorPager",
@@ -94,14 +97,17 @@ try:
         "maximumPageCount",
         "deletedObjectUUIDs",
         "handlePage: PageHandler? = nil",
+        "let unknownDeletion = !Set(externalDeleted).isSubset(of: known)",
     )
+    # CC-1 / D4: the fence is held only while a run is active. A restored journal never closes it from init.
+    forbid(coordinator, "acquireRestoredExclusiveIfIdle", "publicationBarrierHeld", "releasePublicationBarrierIfIdle")
     # The Repository fence and scoring dependency must exist before the importer awaits HealthKit/store work.
     require_order(
         coordinator,
         "await scoringCoordinator.withImportLease",
         "try await scoringCoordinator.offer(snapshot)",
         "guard await operation(snapshot)",
-        "try persistence.save(nil)",
+        "try persistence.save(followUp)",
     )
 
     admission = "Strand/Data/IntelligenceAnalysisCoordinator.swift"
@@ -141,8 +147,11 @@ try:
     require(
         refresh,
         "final class RepositoryPublicationBarrier",
-        "func acquireExclusive() async",
-        "func acquireRestoredExclusiveIfIdle() -> Bool",
+        "func acquireExclusive() async throws -> Ownership",
+        "func releaseExclusive(_ ownership: Ownership)",
+        "CancellableWaiterQueue<Void>()",
+        "private func watchdogExpired(",
+        ") async throws -> T {",
         "func beginRefreshIfAllowed() -> Bool",
         "func performAfterOpen",
         "guard barrier.beginRefreshIfAllowed() else",
@@ -150,11 +159,20 @@ try:
         "await refresh(days: boundedRecentDays)",
     )
 
+    forbid(refresh, "acquireRestoredExclusiveIfIdle", "CheckedContinuation<Void, Never>] = []")
+    require(
+        "Packages/NoopPhase34Core/Sources/NoopPhase34Core/CancellableWaiterQueue.swift",
+        "public final class CancellableWaiterQueue",
+        "withTaskCancellationHandler",
+        "continuation.resume(throwing: CancellationError())",
+    )
+
     bridge = "StrandiOS/Health/HealthKitBridge.swift"
     require(
         bridge,
-        "try syncCoordinator.offer(window)",
-        "try Self.saveAnchor(scan.finalAnchor, forKey: key)",
+        "try self.syncCoordinator.offer(window)",
+        "try syncCoordinator.offer(HealthKitSyncWindow(start: start, end: now))",
+        "try Self.saveAnchor(anchor, forKey: key)",
         "syncCoordinator.start()",
         "await syncCoordinator.runAndWait()",
         "await acquireObserverScanLease()",
@@ -162,7 +180,6 @@ try:
         "healthKitObjectIdentities",
         "upsertHealthKitObjectIdentities",
         "replaceAppleHealthRange",
-        "var hasUnknownHistoricalDeletion = false",
         "historyQueryChunkDays = 1",
         "streamWorkouts",
         "Inbound Health data is already durably committed",
@@ -230,10 +247,12 @@ try:
     require(
         "StrandiOSTests/HealthKitSyncCoordinatorTests.swift",
         "testObserverBWidensImportAndPublishesOneDurableScoringUnion",
-        "testRestoredScoringJournalClosesPublicationBeforeDrain",
+        "testRestoredJournalAndFailingReceiptDoNotBlockInitialLoad",
+        "testRepeatedScoringFailureParksAfterThreeAttemptsUntilForeground",
+        "testBackoffDefersTheNextTriggerAndANewImportRetriesAtOnce",
         "testFailedAggregationSurvivesRelaunchAndLeavesDurableScoringWork",
-        "testFailedScoringRetainsJournalAndPublicationFenceUntilLaterDrain",
-        "testFailedRepositoryPublicationRetainsJournalAndFenceForReplay",
+        "testFailedReceiptRetainsJournalButReleasesFenceAfterRun",
+        "testFailedRepositoryPublicationRetainsJournalForReplayWithoutTheFence",
         "testAnalysisFailureDoesNotPublishDerivedSurfaces",
         "testPublicationFailureIsNotReportedAsCompletion",
         "testSuccessfulAnalysisPublishesExactlyOnceAfterAnalysis",
@@ -245,15 +264,24 @@ try:
         "StrandiOSTests/HealthKitPipelineSerializationTests.swift",
         "testRevisionAdvanceDuringAnalysisSkipsTheOlderPublication",
         "testImportLeaseExcludesWritesUntilPublicationFinishes",
-        "testFailedImportStillLeavesDurableScoringWorkAndFence",
-        "testWidenedImportCompletesBeforeAnyScoringPublication",
+        "testFailedImportLeavesDurableScoringWorkWithoutHoldingTheFence",
+        "testWidenedImportYieldsBetweenBatchesAndFollowUpRemainsDurableForNextScoringDrain",
     )
     require(
         "StrandiOSTests/RepositoryRefreshIntentTests.swift",
         "testExclusivePublicationWaitsForInFlightRefreshAndStopsNewStarts",
         "testBlockedRefreshesCoalesceToOneWidestReplayPerRepository",
         "testBlockedRefreshesKeepDifferentRepositoriesDistinct",
-        "testRestoredJournalCanFenceSynchronouslyBeforeLaunchRefresh",
+        "testCancelledFenceWaiterThrowsPromptlyAndLeavesTheHolderInCharge",
+        "testCancelledWaiterBehindARefreshReplaysDeferredRefreshes",
+        "testWatchdogReclaimsAHungHoldAndIgnoresTheLateRelease",
+    )
+    require(
+        "Packages/NoopPhase34Core/Tests/NoopPhase34CoreTests/CancellableWaiterQueueTests.swift",
+        "cancelBeforeHandOffRemovesTheWaiterAndThrows",
+        "cancelAfterHandOffReturnsOwnershipToTheCaller",
+        "waiterQueueHandsOffInFifoOrder",
+        "quiesceReturnsPromptlyWhileADrainIsParkedOnAHeldLock",
     )
     require(
         "StrandiOSTests/IntelligenceAnalysisPublicationContractTests.swift",

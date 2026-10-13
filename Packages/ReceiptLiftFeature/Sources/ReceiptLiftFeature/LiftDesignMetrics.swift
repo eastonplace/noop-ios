@@ -1,3 +1,4 @@
+import StrandDesign
 import SwiftUI
 
 /// Design-lab measurements shared by the host surfaces that adopt Spec 008.
@@ -15,8 +16,8 @@ enum LiftDesignMetrics {
   }
 
   enum RestBar {
-    static let height: CGFloat = 50
-    static let cornerRadius: CGFloat = 15
+    static let height: CGFloat = 56
+    static let cornerRadius: CGFloat = NoopMetrics.radius3
     static let horizontalPadding: CGFloat = 13
     static let inlineHorizontalPadding: CGFloat = 8
     static let eyebrowFontSize: CGFloat = 9
@@ -26,7 +27,11 @@ enum LiftDesignMetrics {
 
   enum Receipt {
     static let lineInsertionOffset: CGFloat = -8
+    #if DEBUG
+    static let stampDwellSeconds: TimeInterval = LiftQAScene.holdsStamp ? 3_600 : 1.6
+    #else
     static let stampDwellSeconds: TimeInterval = 1.6
+    #endif
   }
 
   enum PlateLoader {
@@ -36,6 +41,6 @@ enum LiftDesignMetrics {
 
   enum ScheduleWeek {
     static let minimumTargetSize: CGFloat = 44
-    static let selectionCornerRadius: CGFloat = 4
+    static let selectionCornerRadius: CGFloat = NoopMetrics.radius2
   }
 }

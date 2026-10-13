@@ -86,59 +86,42 @@ struct TrendsView: View {
             lazy: true,
             topBackground: nil,
             trailing: {
-                HStack(spacing: 12) {
+                HStack(spacing: 8) {
                     NavigationLink {
                         TrendsExploreHubView()
                     } label: {
-                        Label("Explore", systemImage: "square.grid.2x2")
-                            .font(StrandFont.caption.weight(.semibold))
-                            .padding(.horizontal, 10)
-                            .frame(minWidth: 44, minHeight: 44)
-                            .background(StrandPalette.inset, in: Capsule(style: .continuous))
-                            .contentShape(Capsule(style: .continuous))
+                        WidgetChip(appTitle: "Explore", systemImage: "square.grid.2x2", showsChevron: false,
+                                   overhangs: false)
+                            .chipHitTarget()
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Explore insights and metrics")
                     .accessibilityHint("Opens insights, comparisons, metrics, and experiments")
                     Button { showingReport = true } label: {
-                        Image(systemName: "square.and.arrow.up")
+                        WidgetChip(systemImage: "square.and.arrow.up", showsChevron: false, overhangs: false)
+                            .chipHitTarget()
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Share Trends")
                     .accessibilityHint("Opens a shareable Trends report")
                 }
-                .font(.system(size: 15, weight: .medium))
-                .foregroundStyle(StrandPalette.textPrimary)
             }
         ) {
             if let message = loadState.errorMessage {
-                NoopCard {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("Trends could not refresh")
-                            .font(StrandFont.headline)
-                            .foregroundStyle(StrandPalette.textPrimary)
-                        Text(message)
-                            .font(StrandFont.subhead)
-                            .foregroundStyle(StrandPalette.textSecondary)
-                        Button {
-                            Task { await loadDataForCurrentRevision() }
-                        } label: {
-                            Label("Try again", systemImage: "arrow.clockwise")
-                        }
-                        .buttonStyle(.bordered)
-                    }
+                TrendsErrorCard(message: message) {
+                    Task { await loadDataForCurrentRevision() }
                 }
             }
             if repo.days.isEmpty {
-                ComingSoon(what: repo.loaded
-                    ? "Trends need history to draw. Import your WHOOP export in Data Sources to see weeks, months and years instantly."
-                    : "Loading your history…")
+                TrendsEmptyState(isLoaded: repo.loaded)
             } else {
-                VStack(alignment: .leading, spacing: NoopMetrics.sectionSpacing) {
+                VStack(alignment: .leading, spacing: 0) {
                     paperScoresOverTime
                     trainingLoadCard
                     paperWeekReview
                 }
+                // Today's first section sits this far below the tab title row; match it.
+                .padding(.top, 9)
             }
         }
         .sheet(isPresented: $showingReport) {
@@ -215,7 +198,9 @@ struct TrendsView: View {
                         walkingHr: $0.walkingHr,
                         weightKg: $0.weightKg
                     )
-                }.sorted { $0.day < $1.day }
+                }.sorted { $0.day < $1.day },
+                strapWornSecondsByDay: repo.strapWornSecondsByDay,
+                bmrKcalPerDay: ProfileStore.storedBmrKcalPerDay()
             )
             if provisional != loadedData { loadedData = provisional }
         }
@@ -254,7 +239,9 @@ struct TrendsView: View {
             canonicalDays: next.canonicalDays,
             sleepPerfByDay: next.sleepPerfByDay,
             stressByDay: next.stressByDay,
-            appleDays: next.appleDays
+            appleDays: next.appleDays,
+            strapWornSecondsByDay: next.strapWornSecondsByDay,
+            bmrKcalPerDay: next.bmrKcalPerDay
         )
         if revisionAdjusted != loadedData { loadedData = revisionAdjusted }
         _ = loadState.finish(
