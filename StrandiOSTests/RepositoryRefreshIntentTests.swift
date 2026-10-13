@@ -374,16 +374,17 @@ final class RepositoryRefreshIntentTests: XCTestCase {
         XCTAssertEqual(repository.freshness.computedDays, 30)
 
         // New data lands for today only; the narrow refresh must publish it without dropping history.
+        // Stored strain is on the 0...100 scale; an out-of-range value can't be saved in the Today snapshot.
         try await store.upsertDailyMetrics([
             DailyMetric(day: keys.last!, totalSleepMin: 440, efficiency: 0.9, deepMin: 90, remMin: 100,
                         lightMin: 250, disturbances: 3, restingHr: 52, avgHrv: 63, recovery: 78,
-                        strain: 120, exerciseCount: 1, strainVersion: 2)
+                        strain: 90, exerciseCount: 1, strainVersion: 2)
         ], deviceId: Repository.whoopSource + "-noop")
         let narrow = await repository.refresh(days: 2)
         XCTAssertTrue(narrow)
         XCTAssertEqual(repository.days.count, 30, "a narrow refresh never shrinks the dashboard caches")
         XCTAssertEqual(repository.days.first?.day, keys.first)
-        XCTAssertEqual(repository.days.last?.strain, 120, "the refreshed window still publishes")
+        XCTAssertEqual(repository.days.last?.strain, 90, "the refreshed window still publishes")
         XCTAssertEqual(repository.freshness.computedDays, 30)
         XCTAssertEqual(repository.vitalRows.count, 30)
     }
