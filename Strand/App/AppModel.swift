@@ -1024,6 +1024,8 @@ final class AppModel: ObservableObject {
                 verifiedSinkLifecycle?.activate(contextId: contextId, epoch: epoch) ?? false
             })
         NSLog("NOOP verified sink: token: %@, %@", tokenState, outcome.rawValue)
+        LiveActivityTrace.shared.record(
+            "sink-bootstrap result=\(outcome.rawValue.replacingOccurrences(of: " ", with: "-")) token=\(tokenState)")
         guard outcome == .activated else { return }
         // The widget was cleared with the old epoch: publish the current projection under the new one now, rather than
         // waiting for a new generation or the next foreground.

@@ -106,9 +106,10 @@ struct LiveActivityFeed {
 
     // MARK: The two ways in
 
-    func update(_ liveActivity: LiveActivityController, recovery: Int?, effort: Double?,
+    func update(_ liveActivity: LiveActivityController, source: LiveActivityDriveSource, recovery: Int?, effort: Double?,
                 verifiedContextId: String?, verifiedProjectionGeneration: Int64?) {
         liveActivity.update(
+            source: source,
             bpm: bpm, recovery: recovery, connected: connected, effort: effort,
             verifiedContextId: verifiedContextId, verifiedProjectionGeneration: verifiedProjectionGeneration,
             workoutIsActive: workoutIsActive,

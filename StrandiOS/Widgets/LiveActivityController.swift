@@ -58,16 +58,19 @@ final class LiveActivityController {
         /// ask the clock itself.
         var heartRateIsStale: () -> Bool = { false }
         let workoutProjection: () -> WorkoutLiveActivityState?
-        /// The verified worker's own publication, which is superseded rather than written without its health values.
-        var isVerifiedPublication = false
+        /// Traced with the write's result (`LiveActivityTrace`); never health values or a context.
+        var source: LiveActivityDriveSource = .lifecycle
+        var tokenState: LiveActivityDriveAdmission.TokenState?
+        /// Why the health values were removed, when they were.
+        var healthStripped: String?
 
         /// The same write without its health values, for the tokenless lane.
-        func withoutHealth() -> DriveInput {
+        func withoutHealth(because reason: String) -> DriveInput {
             DriveInput(
                 bpm: bpm, recovery: nil, connected: connected, effort: nil, verifiedContextId: nil,
                 verifiedProjectionGeneration: nil, workoutIsActive: workoutIsActive,
                 heartRateIsStale: heartRateIsStale, workoutProjection: workoutProjection,
-                isVerifiedPublication: isVerifiedPublication)
+                source: source, tokenState: tokenState, healthStripped: reason)
         }
     }
 
@@ -86,6 +89,7 @@ final class LiveActivityController {
                 expectedToken: token)
         },
         repairStale: { [weak self] in
+            self?.traceLog.record("queue ended reason=stale-token")
             await self?.performEnd()
             if let defaults = UserDefaults(suiteName: WidgetSnapshot.suiteName) {
                 ActiveSinkEpochRecovery.clearLiveActivityGeneration(defaults: defaults)
@@ -99,6 +103,7 @@ final class LiveActivityController {
     /// Why the last write showed nothing, logged once until the reason changes or an activity starts. Heart rate drives the
     /// activity every second, so an unchanged reason is not logged again.
     private var lastLoggedExit: String?
+    private let traceLog = LiveActivityTrace.shared
     #if DEBUG
     private var component41QAMode = false
     #endif
@@ -125,6 +130,7 @@ final class LiveActivityController {
     }
 
     func update(
+        source: LiveActivityDriveSource,
         bpm: Int?,
         recovery: Int?,
         connected: Bool,
@@ -160,10 +166,15 @@ final class LiveActivityController {
             verifiedProjectionGeneration: admission.verifiedProjectionGeneration,
             workoutIsActive: workoutIsActive ?? LiveActivityWorkoutStatus.isActive,
             heartRateIsStale: heartRateIsStale,
-            workoutProjection: workout
+            workoutProjection: workout,
+            source: source,
+            tokenState: admission.tokenState,
+            healthStripped: admission.strippedHealth ? "token-\(admission.tokenState.rawValue)" : nil
         )
         if connected {
             serializedPublication.setConnectivityAvailable(true)
+            // A source transition closes the live lane until its sink is activated; the queue drops the write silently.
+            if serializedPublication.lifecycleSubmissionsAreSuspended { trace(input, "dropped", "reason=suspended") }
             serializedPublication.submitLive(input, token: admission.token)
         } else {
             serializedPublication.submitConnectivityBarrier(input)
@@ -179,14 +190,19 @@ final class LiveActivityController {
         var input = input
         var expectedToken = expectedToken
         guard expectedActiveContextId == nil || expectedActiveContextId == input.verifiedContextId else {
+            trace(input, "superseded", "reason=context-changed")
             return .superseded
         }
         if let expectedToken {
             guard input.verifiedContextId == expectedToken.contextId,
-                  isCurrentSinkToken(expectedToken) else { return .superseded }
+                  isCurrentSinkToken(expectedToken) else {
+                trace(input, "superseded", "reason=token-changed")
+                return .superseded
+            }
         }
         guard authInfo.areActivitiesEnabled else {
             logExit("not shown, Live Activities are off for NOOP in iOS Settings")
+            trace(input, "not-shown", "reason=activities-disabled")
             return .notApplicable
         }
 
@@ -204,10 +220,14 @@ final class LiveActivityController {
             logExit(enabled
                     ? "not shown, no workout and the strap is not connected"
                     : "not shown, the in-app Live Activity toggle is off")
+            trace(input, "not-shown", enabled ? "reason=no-workout-strap-disconnected" : "reason=in-app-toggle-off")
             await performEnd()
             return .notApplicable
         }
-        guard input.bpm != nil || input.workoutIsActive else { return .notApplicable }
+        guard input.bpm != nil || input.workoutIsActive else {
+            trace(input, "not-shown", "reason=no-heart-rate")
+            return .notApplicable
+        }
 
         let desiredModeIsWorkout = input.workoutIsActive
         var now = Date()
@@ -235,13 +255,14 @@ final class LiveActivityController {
         if let token = expectedToken {
             switch LiveActivityDriveAdmission.generationVerdict(
                 accepted: acceptsVerifiedGeneration(input, expectedActiveContextId: expectedActiveContextId, token: token),
-                isVerifiedPublication: input.isVerifiedPublication) {
+                isVerifiedPublication: input.source == .worker) {
             case .keepHealth:
                 break
             case .stripHealth:
-                input = input.withoutHealth()
+                input = input.withoutHealth(because: "generation-behind")
                 expectedToken = nil
             case .superseded:
+                trace(input, "superseded", "reason=generation-behind")
                 return .superseded
             }
         }
@@ -253,7 +274,9 @@ final class LiveActivityController {
             build: input.workoutProjection, heartRateIsStale: input.heartRateIsStale) {
         case .noWorkout: workoutState = nil
         case .state(let state): workoutState = state
-        case .unavailable: return .notApplicable
+        case .unavailable:
+            trace(input, "not-shown", "reason=workout-state-unavailable")
+            return .notApplicable
         }
         // The edges this write carries are the ones its workout state was BUILT with, not the ones counted by the time it
         // runs: a state built before a pause edge and queued behind other work must not mark that edge delivered. A write
@@ -292,7 +315,11 @@ final class LiveActivityController {
             }
             await activity.update(ActivityContent(state: state, staleDate: staleDate))
             if let expectedToken,
-               !recordVerifiedGeneration(input, token: expectedToken) { return .superseded }
+               !recordVerifiedGeneration(input, token: expectedToken) {
+                trace(input, "superseded", "reason=generation-record")
+                return .superseded
+            }
+            trace(input, "updated")
             lastPush = now
             lastContentState = state
             lastModeWasWorkout = desiredModeIsWorkout
@@ -309,8 +336,10 @@ final class LiveActivityController {
                 )
                 NSLog("NOOP LiveActivity: started (%@)", desiredModeIsWorkout ? "workout" : "heart rate")
                 lastLoggedExit = nil
+                trace(input, "requested")
                 if let expectedToken,
                    !recordVerifiedGeneration(input, token: expectedToken) {
+                    trace(input, "ended", "reason=generation-record")
                     await performEnd()
                     return .superseded
                 }
@@ -323,6 +352,7 @@ final class LiveActivityController {
                 // ActivityKit refuses a request made from the background, among other reasons: say which.
                 NSLog("NOOP LiveActivity: request failed (%@): %@",
                       desiredModeIsWorkout ? "workout" : "heart rate", String(describing: error))
+                trace(input, "request-failed", "error=\(String(describing: error).prefix(120))")
                 resetCachedState()
                 throw LiveActivityPublicationError.requestFailed
             }
@@ -356,7 +386,8 @@ final class LiveActivityController {
             workoutIsActive: workoutIsActive,
             heartRateIsStale: heartRateIsStale,
             workoutProjection: workoutProjection,
-            isVerifiedPublication: true
+            source: .worker,
+            tokenState: .match
         )
         return try await serializedPublication.submitVerified(input, token: token)
     }
@@ -457,6 +488,15 @@ final class LiveActivityController {
             await existing.end(nil, dismissalPolicy: .immediate)
         }
         resetCachedState()
+    }
+
+    /// One trace line: source, mode, result, reason, token state and whether health was removed. Never a value or a context.
+    private func trace(_ input: DriveInput, _ result: String, _ reason: String? = nil) {
+        var line = "\(input.source.rawValue) \(input.workoutIsActive ? "workout" : "passive") \(result)"
+        if let reason { line += " \(reason)" }
+        if let tokenState = input.tokenState { line += " token=\(tokenState.rawValue)" }
+        if let stripped = input.healthStripped { line += " health=stripped(\(stripped))" }
+        traceLog.record(line)
     }
 
     private func logExit(_ reason: String) {

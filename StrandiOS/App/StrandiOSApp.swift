@@ -345,12 +345,12 @@ struct StrandiOSApp: App {
         WorkoutLifecycleProjection.readings(of: model)
     }
 
-    private func driveLiveActivity(connected: Bool? = nil, workoutReading: Int? = nil) {
+    private func driveLiveActivity(_ source: LiveActivityDriveSource, connected: Bool? = nil, workoutReading: Int? = nil) {
         LiveActivityFeed.current(
             model: model, projections: workoutProjection, liveActivity: liveActivity,
             connected: connected, workoutReading: workoutReading
         ).update(
-            liveActivity,
+            liveActivity, source: source,
             recovery: externalSurface?.recovery,
             effort: externalSurface?.effort,
             verifiedContextId: externalSurface?.contextId,
@@ -455,7 +455,7 @@ struct StrandiOSApp: App {
         guard await model.repo.refresh(days: 1) else { return false }
         let surface = model.repo.verifiedHealthProjection.map(ExternalSurfaceProjection.init)
         LiveActivityFeed.current(model: model, projections: workoutProjection, liveActivity: liveActivity).update(
-            liveActivity,
+            liveActivity, source: .scoring,
             recovery: surface?.recovery,
             effort: surface?.effort,
             verifiedContextId: surface?.contextId,
@@ -585,18 +585,18 @@ struct StrandiOSApp: App {
                 .preferredColorScheme(AppearanceMode.resolve(appearanceRaw).colorScheme)
                 .chartStyle(chartStyleRaw)
                 .onReceive(model.live.$heartRate) { _ in
-                    if model.activeWorkout == nil { driveLiveActivity() }
+                    if model.activeWorkout == nil { driveLiveActivity(.passiveHR) }
                 }
                 .onReceive(workoutBPMUpdates) { reading in
-                    WorkoutLifecycleProjection.afterAssignment { driveLiveActivity(workoutReading: reading) }
+                    WorkoutLifecycleProjection.afterAssignment { driveLiveActivity(.workoutHR, workoutReading: reading) }
                 }
-                .onReceive(model.live.$connected) { driveLiveActivity(connected: $0) }
+                .onReceive(model.live.$connected) { driveLiveActivity(.connectivity, connected: $0) }
                 // A pause or resume (or the workout starting to finish) reaches the Lock Screen and the Dynamic Island at
                 // once, not on the next heart-rate tick, so the activity and the app never disagree about whether the
                 // workout is running or can be paused.
                 .onReceive(model.$workoutPauseEdge.dropFirst()) { _ in
                     liveActivity.noteWorkoutPauseEdge()
-                    driveLiveActivity()
+                    driveLiveActivity(.pauseEdge)
                 }
                 // A strap that stops sending publishes nothing, so nothing would ever tell the activity its reading has gone
                 // stale. The app decides that on a clock (`LiveWorkoutSignals.heartRateIsStale`, the rule its own tiles use)
@@ -608,7 +608,7 @@ struct StrandiOSApp: App {
                     activityHeartRateWasStale = stale
                     guard model.activeWorkout != nil else { return }
                     liveActivity.noteWorkoutPauseEdge()
-                    driveLiveActivity()
+                    driveLiveActivity(.timer)
                 }
                 .onReceive(model.live.$connectSettled.removeDuplicates().dropFirst()) { settled in
                     guard settled != 0 else { return }
@@ -617,7 +617,7 @@ struct StrandiOSApp: App {
                 .onReceive(WorkoutLifecycleProjection.edges(of: model)) { identity in
                     WorkoutLifecycleProjection.afterAssignment {
                         if identity == nil { workoutProjection.reset() }
-                        driveLiveActivity()
+                        driveLiveActivity(identity == nil ? .endEdge : .startEdge)
                         WidgetSnapshot.publishLive(from: model)
                     }
                 }
@@ -632,7 +632,7 @@ struct StrandiOSApp: App {
                     // Home, widget, and Live Activity day labels to become stale. Publish from the same boundary
                     // source that invalidated Today instead of waiting for the next sync.
                     refreshExternalSurface()
-                    driveLiveActivity()
+                    driveLiveActivity(.dayBoundary)
                     Task { await WidgetSnapshot.publish(from: model) }
                 }
                 .onReceive(
@@ -649,7 +649,7 @@ struct StrandiOSApp: App {
                     Task { await model.repairVerifiedSinkIfContextMoved(to: projection?.contextId) }
                     guard scenePhase == .active else { return }
                     refreshExternalSurface()
-                    driveLiveActivity()
+                    driveLiveActivity(.projection)
                     WidgetSnapshot.publishLive(from: model)
                 }
                 .onReceive(model.live.$batteryPct.dropFirst()) { _ in
@@ -754,7 +754,7 @@ struct StrandiOSApp: App {
                 // ActivityKit refuses a request made from the background, so a missed one is asked again the moment the app
                 // is in front.
                 refreshExternalSurface()
-                driveLiveActivity()
+                driveLiveActivity(.foreground)
                 alarmRuntime.handleForeground()
                 // A historical offload holds the strap link for about a minute and suspends the realtime-HR
                 // keep-alive re-arm while it runs (BLEManager `guard !backfilling`). Unlocking mid-workout
