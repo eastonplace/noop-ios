@@ -359,4 +359,35 @@ final class WidgetStalenessTests: XCTestCase {
         let measured = await WidgetSnapshot.todaySteps(repository: repository, bundle: try bundle(day: today, steps: nil))
         XCTAssertEqual(measured, 8_421, "a measured phone count beats the estimate")
     }
+
+    // MARK: - M6: the Stress widget's strip is gated on the day, not on the last sync
+
+    private func newYork() -> Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "America/New_York")!
+        return calendar
+    }
+
+    private func at(_ calendar: Calendar, _ day: Int, _ hour: Int, _ minute: Int = 0) -> Date {
+        calendar.date(from: DateComponents(year: 2026, month: 8, day: day, hour: hour, minute: minute))!
+    }
+
+    /// An hour with no strap sync used to read "No recent data" although the strip's hours were still true.
+    func testTheStripSurvivesHoursWithoutASyncWithinTheSameDay() {
+        let calendar = newYork()
+        let updated = at(calendar, 8, 9, 5)
+        XCTAssertTrue(WidgetStressFreshness.isCurrent(updated: updated, now: at(calendar, 8, 9, 5), calendar: calendar))
+        XCTAssertTrue(WidgetStressFreshness.isCurrent(updated: updated, now: at(calendar, 8, 10, 30), calendar: calendar),
+                      "an hour and a half later")
+        XCTAssertTrue(WidgetStressFreshness.isCurrent(updated: updated, now: at(calendar, 8, 21, 0), calendar: calendar),
+                      "the evening of the same day")
+    }
+
+    /// The strip is one day's hours; yesterday's must never read as today's.
+    func testTheStripIsHiddenOnceTheSnapshotIsFromAnotherDay() {
+        let calendar = newYork()
+        let updated = at(calendar, 8, 23, 30)
+        XCTAssertFalse(WidgetStressFreshness.isCurrent(updated: updated, now: at(calendar, 9, 0, 15), calendar: calendar))
+        XCTAssertFalse(WidgetStressFreshness.isCurrent(updated: updated, now: at(calendar, 9, 8, 0), calendar: calendar))
+    }
 }
