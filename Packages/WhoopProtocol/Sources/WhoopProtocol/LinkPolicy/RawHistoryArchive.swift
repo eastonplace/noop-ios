@@ -143,14 +143,16 @@ public actor RawHistoryArchive {
     /// evicted. Its lines survive only while they are within the newest `perVersionFloor` lines of their
     /// version across both segments, so a rare layout is never binned by a flood of a common one. The new
     /// previous segment is written durably BEFORE the active one is cleared (step 2): a crash in between
-    /// duplicates lines, never loses them. Returns how many lines were evicted.
+    /// duplicates lines, never loses them. Returns how many lines were evicted. A line of the old previous
+    /// segment that is also in the active one (that crash's duplicate) is not counted: its copy survives.
     private func replacePreviousSegment() throws -> Int {
         let older = Self.readLines(previousFileURL)
         let active = Self.readLines(fileURL)
         let protected = Self.protectedIndices(older + active, floor: perVersionFloor)
         let carried = older.indices.filter { protected.contains($0) }.map { older[$0] }
         try writeDurably(Data((carried + active).joined().utf8), to: previousFileURL)
-        return older.count - carried.count
+        let stillOnDisk = Set(active)
+        return older.indices.filter { !protected.contains($0) && !stillOnDisk.contains(older[$0]) }.count
     }
 
     /// Rotation, step 2: clear the active segment its lines were carried out of.

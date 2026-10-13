@@ -110,6 +110,31 @@ final class RawHistoryArchiveRotationTests: XCTestCase {
         XCTAssertTrue(previous.isEmpty, "the rotation really did drop them before the failure")
     }
 
+    /// Review #6: a crash after the previous segment is rewritten but before the active one is cleared
+    /// leaves the active lines in both files. The next rotation must not report those lines as evicted:
+    /// their active copies survive into the new previous segment.
+    func testACrashLeftoverDuplicateIsNotReportedAsEvicted() async throws {
+        let dir = tmpDir("dup"); defer { try? FileManager.default.removeItem(at: dir) }
+        let stale = (0..<5).map { line(whoop4Frame(version: 18, filler: UInt8($0)), capturedAtMs: $0) }
+        let carriedOver = (0..<10).map {
+            line(whoop4Frame(version: 18, filler: UInt8(0x40 + $0)), capturedAtMs: 100 + $0)
+        }
+        // The crash state: previous = stale + carriedOver, active = carriedOver. The cap leaves room for
+        // the active lines but not one more, so the next write rotates.
+        let archive = RawHistoryArchive(directory: dir, maxBytes: carriedOver.joined().utf8.count + 50,
+                                        perVersionFloor: 0)
+        try Data((stale + carriedOver).joined().utf8).write(to: archive.previousFileURL)
+        try Data(carriedOver.joined().utf8).write(to: archive.fileURL)
+
+        let newest = whoop4Frame(version: 18, filler: 0xEE)
+        let result = await archive.archive([newest], trim: 9, family: .whoop4)
+
+        XCTAssertEqual(result, .written(count: 1, evicted: 5), "only the five stale lines are really gone")
+        let back = await archive.readAll().map(\.frame)
+        XCTAssertEqual(back.count, 11, "the ten carried-over records and the newest one remain")
+        XCTAssertEqual(back.last, newest)
+    }
+
     func testNewLinesStoreTheVersionAsItsOwnField() async throws {
         let dir = tmpDir("field"); defer { try? FileManager.default.removeItem(at: dir) }
         let archive = RawHistoryArchive(directory: dir)
