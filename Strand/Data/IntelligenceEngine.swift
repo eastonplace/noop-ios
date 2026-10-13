@@ -1555,9 +1555,9 @@ final class IntelligenceEngine: ObservableObject {
             return false
         }
         // N2-UPG-2: the wearable fold below writes Oura / Fitbit / Garmin / Health Connect rows under the
-        // computed id, so a computed row on a day such an import covers carries that device's HRV and resting
-        // HR, not the strap's. Those days stay out of the strap baseline (#459 device-scale mix). Read once;
-        // the fold reuses the rows.
+        // computed id on days the strap did not score, and those rows carry that device's HRV and resting HR,
+        // not the strap's, so they stay out of the strap baseline (#459 device-scale mix). Read once; the
+        // fold reuses the rows.
         var wearableRowsBySource: [String: [DailyMetric]] = [:]
         for source in Repository.wearableImportSources {
             do {
@@ -1570,8 +1570,12 @@ final class IntelligenceEngine: ObservableObject {
                 return false
             }
         }
-        let wearableImportDays = Set(wearableRowsBySource.values.flatMap { $0.map(\.day) })
-        let strapComputedHist = computedHist.filter { !wearableImportDays.contains($0.day) }
+        // Review round 3 (A): only the rows the fold wrote are left out. The fold never writes on a day the strap
+        // scored, so a computed row on a day an import also covers is still the strap's own night.
+        let wearableRowsByDay = Dictionary(grouping: wearableRowsBySource.values.joined(), by: \.day)
+        let strapComputedHist = computedHist.filter {
+            !Self.isWearableFoldRow($0, importRows: wearableRowsByDay[$0.day] ?? [])
+        }
         Self.mergeNightlyIntoHistory(
             &histHrvByDay,
             Dictionary(strapComputedHist.map { ($0.day, $0.avgHrv) }, uniquingKeysWith: { a, _ in a }))
@@ -2785,6 +2789,17 @@ final class IntelligenceEngine: ObservableObject {
             candidates.append(DayOwnerResolver.Candidate(deviceId: d.id, priority: priority, hasData: hasData))
         }
         return DayOwnerResolver.resolve(day: day, lockedOwner: nil, candidates: candidates) ?? fallbackDeviceId
+    }
+
+    /// Whether a computed row is one the wearable fold wrote (review round 3, A): that day's import row copied
+    /// with the Charge the fold added, so its HRV, resting HR and respiration are the import's. A strap night
+    /// never matches an import's vitals exactly, and a steps-only import row (no vitals) is never folded.
+    nonisolated static func isWearableFoldRow(_ computed: DailyMetric, importRows: [DailyMetric]) -> Bool {
+        importRows.contains { row in
+            (row.avgHrv != nil || row.restingHr != nil || row.respRateBpm != nil)
+                && row.avgHrv == computed.avgHrv && row.restingHr == computed.restingHr
+                && row.respRateBpm == computed.respRateBpm
+        }
     }
 
     /// The strap family that wrote `owner`'s skin-temp rows (#938), so the nightly funnel converts the raw

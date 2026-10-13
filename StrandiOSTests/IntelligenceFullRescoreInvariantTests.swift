@@ -141,6 +141,53 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
         }
     }
 
+    // MARK: - Strap nights overlapping a wearable import (review round 3, findings 1, 7 and 9)
+
+    /// A strap user who also imported an Oura export covering the same months, plus a steps-only Fitbit export.
+    /// The fold never writes on a strap day, so those computed rows are the strap's own nights and stay in
+    /// its baseline: stored Charge survives a chunked rescore and a one-day pass, and matches a run with no
+    /// imports at all.
+    func testStrapNightsOverlappingAWearableImportStayInTheStrapBaseline() async throws {
+        try await withRecalibrationEpochsRestored {
+            let days = 40
+            let plain = try await makeHarness(days: days)
+            let plainCompleted = await pass(plain, maxDays: days)
+            XCTAssertTrue(plainCompleted)
+            let expected = try await stored(plain)
+            XCTAssertGreaterThan(expected.values.compactMap(\.recovery).count, 30, "fixture must score Charge")
+
+            let harness = try await makeHarness(days: days)
+            let ouraRows = (0..<days).map { k in
+                DailyMetric(day: dayKey(k), totalSleepMin: 450, efficiency: 0.9, deepMin: 80, remMin: 100,
+                            lightMin: 270, disturbances: nil, restingHr: 47, avgHrv: 130 + Double(k % 3),
+                            recovery: nil, strain: nil, exerciseCount: nil, respRateBpm: 13)
+            }
+            _ = try await harness.store.upsertDailyMetrics(ouraRows, deviceId: "oura-import")
+            let fitbitRows = (0..<days).map { k in
+                DailyMetric(day: dayKey(k), totalSleepMin: nil, efficiency: nil, deepMin: nil, remMin: nil,
+                            lightMin: nil, disturbances: nil, restingHr: nil, avgHrv: nil, recovery: nil,
+                            strain: nil, exerciseCount: nil, steps: 9_000 + k)
+            }
+            _ = try await harness.store.upsertDailyMetrics(fitbitRows, deviceId: "fitbit-import")
+            let single = await pass(harness, maxDays: days)
+            XCTAssertTrue(single)
+            let chunked = await chunkedRescore(harness, days: days)
+            XCTAssertTrue(chunked)
+            let afterChunks = try await stored(harness)
+            for day in harness.dayKeys {
+                XCTAssertEqual(afterChunks[day]?.recovery, expected[day]?.recovery, "\(day) Charge after the rescore")
+                XCTAssertEqual(afterChunks[day]?.avgHrv, expected[day]?.avgHrv, "\(day) the strap's own HRV")
+            }
+
+            let oneDay = await pass(harness, maxDays: 1)
+            XCTAssertTrue(oneDay)
+            let today = harness.dayKeys[days - 1]
+            let afterOneDay = try await stored(harness)
+            XCTAssertNotNil(afterOneDay[today]?.recovery, "a one-day pass still sees the strap's history")
+            XCTAssertEqual(afterOneDay[today]?.recovery, expected[today]?.recovery)
+        }
+    }
+
     // MARK: - F1
 
     /// Recalibrating on day 30 and then rescoring the whole history leaves every earlier day's Charge as it
