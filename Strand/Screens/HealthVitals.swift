@@ -525,7 +525,17 @@ enum HealthDailyPick {
     static func calories(
         day: String, strapKcal: Double?, phoneActiveKcal: Double?, phoneBasalKcal: Double?, context: CalorieContext
     ) -> (value: Double, isStrapEstimate: Bool)? {
-        let timing = DailyCalories.dayTiming(day: day, timeZone: context.timeZone, now: context.now)
+        calories(day: day, strapKcal: strapKcal, phoneActiveKcal: phoneActiveKcal, phoneBasalKcal: phoneBasalKcal,
+                 context: context, calendar: DailyCalories.gregorianCalendar(in: context.timeZone))
+    }
+
+    /// The same, measuring the day with a calendar the caller built once for the whole series. A multi-year
+    /// history otherwise built two `Calendar`s per day, which was most of the cost of resolving it.
+    private static func calories(
+        day: String, strapKcal: Double?, phoneActiveKcal: Double?, phoneBasalKcal: Double?, context: CalorieContext,
+        calendar: Calendar
+    ) -> (value: Double, isStrapEstimate: Bool)? {
+        let timing = DailyCalories.dayTiming(day: day, calendar: calendar, now: context.now)
         return DailyCalories.resolve(
             strapKcal: strapKcal, strapWornSeconds: context.strapWornSecondsByDay[day],
             appleActiveKcal: phoneActiveKcal, appleBasalKcal: phoneBasalKcal,
@@ -557,11 +567,12 @@ enum HealthDailyPick {
         strapKcalByDay: [String: Double], phone: [AppleDaily], context: CalorieContext = CalorieContext()
     ) -> [CaloriesDay] {
         let phoneByDay = Dictionary(phone.map { ($0.day, $0) }, uniquingKeysWith: { _, last in last })
+        let calendar = DailyCalories.gregorianCalendar(in: context.timeZone)
         return Set(strapKcalByDay.keys).union(phoneByDay.keys).sorted().compactMap { day in
             calories(
                 day: day, strapKcal: strapKcalByDay[day],
                 phoneActiveKcal: phoneByDay[day]?.activeKcal, phoneBasalKcal: phoneByDay[day]?.basalKcal,
-                context: context
+                context: context, calendar: calendar
             ).map { CaloriesDay(day: day, value: $0.value, isStrapEstimate: $0.isStrapEstimate) }
         }
     }
@@ -585,15 +596,50 @@ enum HealthDailyPick {
         let sparkline: [Double]
     }
 
+    /// How far back from the shown day the card looks for its sparkline's days: the card needs that day plus the
+    /// last `window` days with a number, and 45 calendar days holds those unless the history is sparse.
+    static let caloriesCardLookBackDays = 45
+
     static func caloriesCard(
         dayKey: String, strap: [DailyMetric], phone: [AppleDaily], context: CalorieContext = CalorieContext(),
         window: Int = 14
     ) -> CaloriesCard {
-        let upToDay = caloriesByDay(strap: strap, phone: phone, context: context).filter { $0.day <= dayKey }
+        // Resolve only the days the card shows. Resolving the whole Apple Health history (up to 4,000 days) per
+        // card, up to three times per Today snapshot, was a visible hitch on every remount. The windowed answer
+        // is the full answer whenever it holds `window` numbered days, because the card is the newest `window`
+        // numbered days up to `dayKey`; a sparse history (fewer found, with older rows left out) resolves it all.
+        if let first = Self.dayKey(dayKey, minusDays: caloriesCardLookBackDays - 1) {
+            let upToDay = caloriesByDay(
+                strap: strap.filter { $0.day >= first && $0.day <= dayKey },
+                phone: phone.filter { $0.day >= first && $0.day <= dayKey }, context: context)
+            let leftOutOlderRows = strap.contains { $0.day < first } || phone.contains { $0.day < first }
+            if upToDay.count >= window || !leftOutOlderRows {
+                return card(upToDay: upToDay, dayKey: dayKey, window: window)
+            }
+        }
+        return card(upToDay: caloriesByDay(strap: strap, phone: phone, context: context).filter { $0.day <= dayKey },
+                    dayKey: dayKey, window: window)
+    }
+
+    private static func card(upToDay: [CaloriesDay], dayKey: String, window: Int) -> CaloriesCard {
         let shown = upToDay.last(where: { $0.day == dayKey })
         return CaloriesCard(
             value: shown?.value, isStrapEstimate: shown?.isStrapEstimate ?? false,
             sparkline: upToDay.suffix(window).map(\.value))
+    }
+
+    /// `yyyy-MM-dd` `n` days before `dayKey`, by civil-date arithmetic (UTC, so no daylight-saving gap can
+    /// land on the wrong day). nil for a key that is not a date.
+    static func dayKey(_ dayKey: String, minusDays n: Int) -> String? {
+        let parts = dayKey.split(separator: "-").compactMap { Int($0) }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0) ?? .gmt
+        guard parts.count == 3,
+              let date = calendar.date(from: DateComponents(year: parts[0], month: parts[1], day: parts[2])),
+              let earlier = calendar.date(byAdding: .day, value: -n, to: date) else { return nil }
+        let c = calendar.dateComponents([.year, .month, .day], from: earlier)
+        guard let year = c.year, let month = c.month, let day = c.day else { return nil }
+        return String(format: "%04d-%02d-%02d", year, month, day)
     }
 }
 

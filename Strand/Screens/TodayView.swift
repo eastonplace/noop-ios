@@ -1600,7 +1600,10 @@ struct TodayView: View {
             .map { index, point in
                 HRTrackPoint(id: index, t: point.date.timeIntervalSince(midnight), bpm: point.value)
             }
-        let tiles = enabledDashboardCards.map { healthDashboardTile($0, day: day) }
+        // The Calories card resolves its day and sparkline once per snapshot build: the glance line, the tile value
+        // and the tile sparkline all read it, and each used to resolve it again.
+        let calories = caloriesCard
+        let tiles = enabledDashboardCards.map { healthDashboardTile($0, day: day, calories: calories) }
         let stressTargetDay = day?.day ?? selectedDayKey
         let stressDaily = selectedDayOffset == 0
             ? stressToday
@@ -1627,7 +1630,7 @@ struct TodayView: View {
             intraday: stressIntraday
         )
         return TodayScreenSnapshot(
-            hero: .init(pillars: pillars, glance: paperGlanceText,
+            hero: .init(pillars: pillars, glance: paperGlanceText(calories: calories),
                         showsWorkoutAction: selectedDayOffset == 0),
             heart: .init(samples: heartSamples, restingHR: day?.restingHr.map(Double.init)),
             stress: .init(
@@ -1734,12 +1737,12 @@ struct TodayView: View {
         }
     }
 
-    private var paperGlanceText: String {
+    private func paperGlanceText(calories card: HealthDailyPick.CaloriesCard) -> String {
         let day = displayDay
         let phoneSteps = appleDays.last(where: { $0.day == selectedDayKey })?.steps
         let steps = TodaySteps(daily: day?.steps, apple: phoneSteps, estimate: stepsEstByDay[selectedDayKey])
             .value.map { intString(Double($0)) } ?? "—"
-        let calories = caloriesText
+        let calories = caloriesText(card)
         let dayStart = Calendar.current.startOfDay(for: selectedLogicalDay)
         let dayEnd = Calendar.current.date(byAdding: .day, value: 1, to: dayStart) ?? dayStart
         let workoutCount = workouts.filter {
@@ -1837,15 +1840,17 @@ struct TodayView: View {
         }
     }
 
-    private func healthDashboardTile(_ card: DashboardCard, day: DailyMetric?) -> HealthDashboardTileModel {
+    private func healthDashboardTile(
+        _ card: DashboardCard, day: DailyMetric?, calories: HealthDailyPick.CaloriesCard? = nil
+    ) -> HealthDashboardTileModel {
         let skinTemperature = card == .skinTemp ? resolvedSkinTemperaturePresentation(for: day) : nil
-        let fullValue = dashboardValue(card, day: day, skinTemperature: skinTemperature?.current)
+        let fullValue = dashboardValue(card, day: day, skinTemperature: skinTemperature?.current, calories: calories)
         let unit = card.unit.isEmpty ? nil : card.unit
         let value = unit.map { fullValue.replacingOccurrences(of: " \($0)", with: "") } ?? fullValue
         return HealthDashboardTileModel(
             id: card.id, icon: card.icon, label: card.title, value: value, unit: unit,
             detail: skinTemperature.flatMap { Self.skinTemperatureAgeLabel(ageDays: $0.current.ageDays) },
-            spark: dashboardSpark(card, day: day, skinTemperature: skinTemperature),
+            spark: dashboardSpark(card, day: day, skinTemperature: skinTemperature, calories: calories),
             rail: dashboardRail(card, day: day, skinTemperature: skinTemperature), accent: dashboardTint(card)
         )
     }
@@ -1866,7 +1871,8 @@ struct TodayView: View {
     private func dashboardSpark(
         _ card: DashboardCard,
         day: DailyMetric? = nil,
-        skinTemperature: DatedHealthMetricPresentation? = nil
+        skinTemperature: DatedHealthMetricPresentation? = nil,
+        calories: HealthDailyPick.CaloriesCard? = nil
     ) -> [Double] {
         switch card {
         case .hrv: return sparks["hrv"] ?? []
@@ -1879,7 +1885,7 @@ struct TodayView: View {
                 ?? []
         case .sleep: return sparks["sleep_total_min"] ?? []
         case .steps: return sparks["steps"] ?? []
-        case .calories: return caloriesCard.sparkline
+        case .calories: return (calories ?? caloriesCard).sparkline
         default: return []
         }
     }
@@ -2907,7 +2913,8 @@ struct TodayView: View {
     private func dashboardValue(
         _ card: DashboardCard,
         day: DailyMetric? = nil,
-        skinTemperature: DatedHealthMetricValue? = nil
+        skinTemperature: DatedHealthMetricValue? = nil,
+        calories: HealthDailyPick.CaloriesCard? = nil
     ) -> String {
         let d = day ?? displayDay
         func withUnit(_ s: String) -> String {
@@ -2942,7 +2949,7 @@ struct TodayView: View {
             return TodaySteps(daily: d?.steps, apple: appleStepsForDay, estimate: stepsEstByDay[selectedDayKey])
                 .value.map { intString(Double($0)) } ?? "—"
         case .calories:
-            return withUnit(caloriesText)
+            return withUnit(calories.map(caloriesText) ?? self.caloriesText)
         case .stress:
             #if DEBUG
             // DEBUG promo harness: pin the Stress card (0–3) to the active frame's value. No-op otherwise.
@@ -5017,7 +5024,11 @@ struct TodayView: View {
     }
 
     private var caloriesText: String {
-        caloriesCard.value.map { intString($0) } ?? "—"
+        caloriesText(caloriesCard)
+    }
+
+    private func caloriesText(_ card: HealthDailyPick.CaloriesCard) -> String {
+        card.value.map { intString($0) } ?? "—"
     }
 
     private func workoutDuration(_ w: WorkoutRow) -> String {
