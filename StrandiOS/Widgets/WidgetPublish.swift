@@ -339,6 +339,10 @@ extension WidgetSnapshot {
             epoch: token.epoch, contextId: projection.contextId, generation: projection.generation))
     }
 
+    /// Sources whose daily rows are not the strap's: Apple Health (HRV there is SDNN), Health Connect and the
+    /// activity-file importer. A test pins these to `Repository`'s constants.
+    static let nonStrapSourceIds: Set<String> = [Repository.appleHealthSource, "health-connect", "activity-file"]
+
     /// The stress strip and summary the enrichment writes for the bundle's day. A day that is behind the current
     /// logical day gets none: its strip is yesterday's, and computing it again would only restamp it as today's.
     /// Legacy core rows did not persist the day-defining time zone either; optional stress is then omitted
@@ -367,8 +371,10 @@ extension WidgetSnapshot {
     /// the precedence order; the first value for a day wins.
     ///
     /// The value is `daily_metrics.avgHrv`, the nightly RMSSD Today shows. The strap pipeline writes it there
-    /// and never to the `hrv` metric series, which only file importers fill. Apple Health is not a source of
-    /// the namespace, so its SDNN can never stand in for it (DL-11).
+    /// and never to the `hrv` metric series, which only file importers fill. Apple Health's `avgHrv` is SDNN, a
+    /// different quantity, and DL-11 keeps it from filling or outranking RMSSD. A namespace never lists it, but a
+    /// repaired legacy core lists whichever source its projection metrics came from, so it is excluded here,
+    /// with the other sources that are not the strap's (`nonStrapSourceIds`), however `sourceIds` is built.
     static func verifiedHRVSeries(
         store: WhoopStore,
         sourceIds: [String],
@@ -393,7 +399,7 @@ extension WidgetSnapshot {
         let firstDay = try CivilDay(year: year, month: month, day: day)
 
         var byDay: [String: Double] = [:]
-        for sourceId in sourceIds {
+        for sourceId in sourceIds where !nonStrapSourceIds.contains(sourceId) {
             try Task.checkCancellation()
             let rows = try await store.dailyMetrics(
                 deviceId: sourceId,

@@ -57,6 +57,32 @@ final class WidgetStalenessTests: XCTestCase {
         XCTAssertEqual(WidgetSnapshot.widgetHRVProjection(from: series).current, 58)
     }
 
+    /// A repaired legacy core lists the source its projection metrics came from, and that can be Apple Health.
+    /// Its SDNN must neither fill a strap-less night nor win a night the strap has, wherever it sorts.
+    func testAppleSDNNNeverFillsOrOutranksTheStrapsRMSSD() async throws {
+        let store = try await WhoopStore.inMemory()
+        try await store.upsertDailyMetrics([
+            night("2026-08-07", hrv: 33), night("2026-08-08", hrv: 35),
+        ], deviceId: "apple-health")
+        try await store.upsertDailyMetrics([night("2026-08-08", hrv: 62)], deviceId: "strap-noop")
+        let anchor = try CivilDay(key: "2026-08-08")
+
+        let series = try await WidgetSnapshot.verifiedHRVSeries(
+            store: store, sourceIds: ["apple-health", "strap", "strap-noop"], anchorDay: anchor)
+        XCTAssertEqual(series.map(\.day), ["2026-08-08"], "the strap-less night stays empty")
+        XCTAssertEqual(series.map(\.value), [62], "RMSSD, not the SDNN listed ahead of it")
+
+        let appleOnly = try await WidgetSnapshot.verifiedHRVSeries(
+            store: store, sourceIds: ["apple-health"], anchorDay: anchor)
+        XCTAssertTrue(appleOnly.isEmpty)
+        XCTAssertNil(WidgetSnapshot.widgetHRVProjection(from: appleOnly, anchorDay: anchor).current)
+    }
+
+    func testTheNonStrapSourcesArePinnedToTheRepositorysConstants() {
+        XCTAssertEqual(WidgetSnapshot.nonStrapSourceIds,
+                       [Repository.appleHealthSource, Repository.healthConnectSource, Repository.activityFileSource])
+    }
+
     func testHRVEnrichmentIsEmptyWhenNoDailyHrvExists() async throws {
         let store = try await WhoopStore.inMemory()
         try await store.upsertMetricSeries([
