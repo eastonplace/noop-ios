@@ -139,11 +139,16 @@ extension WidgetSnapshot {
         let olderGenerationDay = await publishedLogicalDay(
             model: model, defaults: defaults, token: token, olderThan: verifiedProjection.generation)
         let now = Date()
-        let steps = await todaySteps(repository: model.repo, bundle: verifiedBundle, now: now)
         let store = await model.repo.storeHandle()
-        let nightsFrom = WidgetCoreDay.nightlyAnchor(bundle: verifiedBundle, now: now)
-        let hrv = await todayHRV(store: store, bundle: verifiedBundle, anchorDay: nightsFrom)
-        let restingHR = await todayRestingHR(store: store, bundle: verifiedBundle, anchorDay: nightsFrom)
+        let delivery = await coreDelivery(
+            repository: model.repo,
+            store: store,
+            bundle: verifiedBundle,
+            bpm: model.bpm ?? model.live.heartRate,
+            batteryPct: model.live.batteryPct,
+            bonded: WidgetCorePublication.widgetBonded(model.live),
+            olderGenerationDay: olderGenerationDay,
+            now: now)
         // This is the durable acknowledgement path. It contains only the verified core and in-memory Today
         // fields. HRV history, raw stress scans, and other enrichment run after the caller receives success.
         // What an earlier enrichment already added is carried over, so this commit cannot take it away.
@@ -151,15 +156,7 @@ extension WidgetSnapshot {
             bundle: verifiedBundle,
             token: token,
             defaults: defaults,
-            delivery: WidgetCorePublication.CoreDelivery(
-                bpm: model.bpm ?? model.live.heartRate,
-                batteryPct: model.live.batteryPct,
-                bonded: WidgetCorePublication.widgetBonded(model.live),
-                steps: steps,
-                currentDayStrain: todayStrain(repository: model.repo, now: now),
-                hrv: hrv,
-                restingHR: restingHR,
-                olderGenerationDay: olderGenerationDay),
+            delivery: delivery,
             now: now)
         let commitKey = WidgetEnrichmentKey(
             epoch: token.epoch,
@@ -183,6 +180,37 @@ extension WidgetSnapshot {
         case .failed:
             throw WidgetPublicationError.sinkWriteFailed
         }
+    }
+
+    /// Everything a core publication reads, at delivery, besides the immutable bundle: Today's Steps and Strain
+    /// for the current logical day, and last night's HRV and Resting HR anchored on the day Today's row is for
+    /// (`WidgetCoreDay.nightlyAnchor`). A function of its inputs and the clock, so a test drives it against an
+    /// in-memory store.
+    @MainActor
+    static func coreDelivery(
+        repository: Repository,
+        store: WhoopStore?,
+        bundle: VerifiedExternalProjectionBundle,
+        bpm: Int?,
+        batteryPct: Double?,
+        bonded: Bool,
+        olderGenerationDay: (generation: Int64, day: CivilDay)?,
+        now: Date,
+        calendar: Calendar = .current
+    ) async -> WidgetCorePublication.CoreDelivery {
+        let nightsFrom = WidgetCoreDay.nightlyAnchor(bundle: bundle, now: now, calendar: calendar)
+        let steps = await todaySteps(repository: repository, bundle: bundle, now: now, calendar: calendar)
+        let hrv = await todayHRV(store: store, bundle: bundle, anchorDay: nightsFrom)
+        let restingHR = await todayRestingHR(store: store, bundle: bundle, anchorDay: nightsFrom)
+        return WidgetCorePublication.CoreDelivery(
+            bpm: bpm,
+            batteryPct: batteryPct,
+            bonded: bonded,
+            steps: steps,
+            currentDayStrain: todayStrain(repository: repository, now: now, calendar: calendar),
+            hrv: hrv,
+            restingHR: restingHR,
+            olderGenerationDay: olderGenerationDay)
     }
 
     /// The Steps figure Today shows right now. The core carries only the strap's count, and a HealthKit step sync

@@ -51,23 +51,24 @@ enum WidgetCoreDay {
 enum WidgetCorePublication {
     /// What `publish` resolves, from the model and the store, before the durable commit. Plain values only, so
     /// everything after them (the snapshot, the carried enrichment, the envelope commit) is `commitCore`, which
-    /// a test can drive against an isolated `UserDefaults`.
+    /// a test can drive against an isolated `UserDefaults`. Every field is required, with no default, so a
+    /// delivery that stops supplying one does not compile.
     struct CoreDelivery {
-        var bpm: Int?
-        var batteryPct: Double?
-        var bonded: Bool
+        let bpm: Int?
+        let batteryPct: Double?
+        let bonded: Bool
         /// The Steps figure Today shows for the current logical day (`WidgetSnapshot.todaySteps`).
-        var steps: Int?
+        let steps: Int?
         /// The stored-scale Strain Today shows for the current logical day. It stands in for the core's own
         /// Strain only when the core is from an earlier day.
-        var currentDayStrain: Double? = nil
+        let currentDayStrain: Double?
         /// Last night's HRV as Today shows it (`WidgetSnapshot.todayHRV`).
-        var hrv: Int? = nil
+        let hrv: Int?
         /// The Resting HR Today shows, with Apple Health's nights in it (`WidgetSnapshot.todayRestingHR`); nil
-        /// keeps the core's own, which is the strap's nights only.
-        var restingHR: Int? = nil
+        /// keeps the core's own, which is the strap's nights only, while the core is the current day's.
+        let restingHR: Int?
         /// The day of the generation the envelope being replaced holds, when that is an older generation.
-        var olderGenerationDay: (generation: Int64, day: CivilDay)?
+        let olderGenerationDay: (generation: Int64, day: CivilDay)?
     }
 
     /// The durable core publication: build the core from the immutable bundle and the resolved delivery values,

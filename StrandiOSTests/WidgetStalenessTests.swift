@@ -660,10 +660,14 @@ final class WidgetStalenessTests: XCTestCase {
 
     private func delivery(
         steps: Int? = nil,
+        currentDayStrain: Double? = nil,
+        hrv: Int? = nil,
+        restingHR: Int? = nil,
         older: (generation: Int64, day: CivilDay)? = nil
     ) -> WidgetCorePublication.CoreDelivery {
         WidgetCorePublication.CoreDelivery(
-            bpm: 64, batteryPct: 81, bonded: true, steps: steps, olderGenerationDay: older)
+            bpm: 64, batteryPct: 81, bonded: true, steps: steps, currentDayStrain: currentDayStrain,
+            hrv: hrv, restingHR: restingHR, olderGenerationDay: older)
     }
 
     /// `publish` hands the durable commit exactly these inputs. The envelope that comes out has Today's Steps
@@ -852,8 +856,7 @@ final class WidgetStalenessTests: XCTestCase {
         // With Today's figures for the 9th resolved, those are what the core shows.
         let resolved = WidgetCorePublication.commitCore(
             bundle: aug8, token: token, defaults: defaults,
-            delivery: WidgetCorePublication.CoreDelivery(
-                bpm: 64, batteryPct: 81, bonded: true, steps: 640, currentDayStrain: 12, olderGenerationDay: nil),
+            delivery: delivery(steps: 640, currentDayStrain: 12),
             now: at(ny, 9, 10), calendar: ny)
         XCTAssertEqual(resolved.snapshot.steps, 640)
         XCTAssertNil(resolved.snapshot.calories)
@@ -990,9 +993,7 @@ final class WidgetStalenessTests: XCTestCase {
 
         let committed = WidgetCorePublication.commitCore(
             bundle: g6, token: token, defaults: defaults,
-            delivery: WidgetCorePublication.CoreDelivery(
-                bpm: 64, batteryPct: 81, bonded: true, steps: nil, hrv: hrv,
-                olderGenerationDay: (generation: 5, day: day)),
+            delivery: delivery(hrv: hrv, older: (generation: 5, day: day)),
             now: at(ny, 8, 15), calendar: ny)
         XCTAssertEqual(committed.snapshot.hrv, 64)
         XCTAssertEqual(try XCTUnwrap(VerifiedWidgetEnvelopeStore.rawActiveEnvelope(defaults: defaults)).snapshot.hrv, 64)
@@ -1103,8 +1104,7 @@ final class WidgetStalenessTests: XCTestCase {
         let aug8 = try bundle(day: "2026-08-08", steps: nil, generation: 5)
         let apple = WidgetCorePublication.commitCore(
             bundle: aug8, token: token, defaults: defaults,
-            delivery: WidgetCorePublication.CoreDelivery(
-                bpm: 64, batteryPct: 81, bonded: true, steps: nil, restingHR: 58, olderGenerationDay: nil),
+            delivery: delivery(restingHR: 58),
             now: at(ny, 8, 15), calendar: ny)
         XCTAssertEqual(apple.snapshot.restingHr, 58)
         XCTAssertEqual(try XCTUnwrap(VerifiedWidgetEnvelopeStore.rawActiveEnvelope(defaults: defaults)).snapshot.restingHr, 58)
@@ -1360,8 +1360,7 @@ final class WidgetStalenessTests: XCTestCase {
         let token = try install(contextId: "ctx")
         let shown = WidgetCorePublication.commitCore(
             bundle: aug8, token: token, defaults: defaults,
-            delivery: WidgetCorePublication.CoreDelivery(
-                bpm: 64, batteryPct: 81, bonded: true, steps: nil, restingHR: apple, olderGenerationDay: nil),
+            delivery: delivery(restingHR: apple),
             now: now, calendar: ny)
         XCTAssertEqual(shown.snapshot.restingHr, 58)
         let none = WidgetCorePublication.commitCore(
@@ -1453,5 +1452,71 @@ final class WidgetStalenessTests: XCTestCase {
         XCTAssertNil(WidgetSnapshot.commitEnrichment(
             defaults: defaults, token: token, bundle: try bundle(day: "2026-08-08", steps: nil, generation: 5),
             hrv: (current: 64, sparkline: [64]), hrvRead: true, stress: aStrip, now: at(ny, 8, 15), calendar: ny))
+    }
+
+    // MARK: - publish's delivery: every read, assembled and driven against an in-memory store
+
+    /// The five reads `publish` hands the durable commit, for a core that is behind: Aug 8's generation, with
+    /// Today on the 9th. A delivery that dropped one of them would fail to compile; a wrong one fails here.
+    func testTheDeliveryAssemblesEveryReadForTheCurrentDay() async throws {
+        let ny = newYork()
+        let now = at(ny, 9, 10)
+        let repository = Repository(deviceId: Repository.whoopSource)
+        repository.setLiveDayStrain(ResolvedStrain(
+            day: "2026-08-09", storedValue: 22, version: 2, origin: .liveDayV2, sourceId: "my-whoop",
+            asOf: now, rawFrontierTs: 1_000))
+        let store = try await WhoopStore.inMemory()
+        repository.setStoreForTesting(store)
+        try await store.upsertAppleDaily([appleDay("2026-08-09", steps: 640)], deviceId: Repository.appleHealthSource)
+        try await store.upsertDailyMetrics([
+            DailyMetric(day: "2026-08-09", totalSleepMin: nil, efficiency: nil, deepMin: nil, remMin: nil,
+                        lightMin: nil, disturbances: nil, restingHr: nil, avgHrv: 66,
+                        recovery: nil, strain: nil, exerciseCount: nil),
+        ], deviceId: "my-whoop-noop")
+        try await store.upsertDailyMetrics([nightRHR("2026-08-09", rhr: 58)], deviceId: "apple-health")
+        let older = (generation: Int64(3), day: try CivilDay(key: "2026-08-08"))
+
+        let aug8 = try bundle(day: "2026-08-08", steps: 3_000, generation: 4)
+        let delivered = await WidgetSnapshot.coreDelivery(
+            repository: repository, store: store, bundle: aug8, bpm: 61, batteryPct: 80.4, bonded: true,
+            olderGenerationDay: older, now: now, calendar: ny)
+        XCTAssertEqual(delivered.bpm, 61)
+        XCTAssertEqual(delivered.batteryPct, 80.4)
+        XCTAssertTrue(delivered.bonded)
+        XCTAssertEqual(delivered.steps, 640, "Today's count, not the strap's 3,000 from yesterday")
+        XCTAssertEqual(delivered.currentDayStrain, 22)
+        XCTAssertEqual(delivered.hrv, 66, "anchored on Today's day")
+        XCTAssertEqual(delivered.restingHR, 58, "Apple Health's figure for today")
+        XCTAssertEqual(delivered.olderGenerationDay?.generation, 3)
+        XCTAssertEqual(delivered.olderGenerationDay?.day, older.day)
+
+        // Through the commit, onto an isolated envelope.
+        let token = try install(contextId: "ctx")
+        let committed = WidgetCorePublication.commitCore(
+            bundle: aug8, token: token, defaults: defaults, delivery: delivered, now: now, calendar: ny)
+        XCTAssertEqual(committed.result, .published)
+        let shown = try XCTUnwrap(VerifiedWidgetEnvelopeStore.rawActiveEnvelope(defaults: defaults)).snapshot
+        XCTAssertEqual(shown.steps, 640)
+        XCTAssertEqual(shown.strain, StrainScale.displayValue(fromStored: 22))
+        XCTAssertEqual(shown.hrv, 66)
+        XCTAssertEqual(shown.restingHr, 58)
+    }
+
+    func testTheDeliveryOfACurrentCoreKeepsItsOwnFigures() async throws {
+        let ny = newYork()
+        let now = at(ny, 8, 15)
+        let repository = Repository(deviceId: Repository.whoopSource)
+        let store = try await WhoopStore.inMemory()
+        repository.setStoreForTesting(store)
+        let aug8 = try bundle(day: "2026-08-08", steps: 3_000)
+        let delivered = await WidgetSnapshot.coreDelivery(
+            repository: repository, store: store, bundle: aug8, bpm: nil, batteryPct: nil, bonded: false,
+            olderGenerationDay: nil, now: now, calendar: ny)
+        XCTAssertEqual(delivered.steps, 3_000)
+        XCTAssertNil(delivered.currentDayStrain)
+        XCTAssertNil(delivered.hrv)
+        XCTAssertNil(delivered.restingHR, "no night read: the core's own stands")
+        XCTAssertNil(delivered.olderGenerationDay)
+        XCTAssertFalse(delivered.bonded)
     }
 }
