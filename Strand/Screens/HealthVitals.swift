@@ -733,6 +733,41 @@ struct HealthTrendPage: Equatable, Sendable {
     }
 }
 
+/// What re-builds a trend page. The page is built from the repository's rows once per task, so the key has to move
+/// whenever an input the old per-pass body re-read has moved. For Calories that is more than a repository refresh:
+/// today's figure is a share of the elapsed day (the strap-coverage test and the resting-energy fallback), so the
+/// clock, the strap's worn time and the profile's resting energy all change it with no refresh in between.
+struct HealthTrendPageKey: Hashable {
+    let refreshSeq: Int
+    let temperature: TemperatureUnit
+    /// The canonical read model's presentation revision, which Today and Sleep key their loads on as well.
+    let canonicalRevision: Int64
+    /// Calories only: the profile's resting energy, the strap's worn seconds and the local day and hour.
+    let bmrKcalPerDay: Double?
+    let wornSecondsTotal: Int
+    let wornDays: Int
+    let hourBucket: String
+
+    init(metric: ProductionTrendMetric, refreshSeq: Int, temperature: TemperatureUnit, canonicalRevision: Int64,
+         bmrKcalPerDay: Double?, strapWornSecondsByDay: [String: Double], now: Date, calendar: Calendar = .current) {
+        self.refreshSeq = refreshSeq
+        self.temperature = temperature
+        self.canonicalRevision = canonicalRevision
+        if metric == .calories {
+            self.bmrKcalPerDay = bmrKcalPerDay
+            wornSecondsTotal = Int(strapWornSecondsByDay.values.reduce(0, +))
+            wornDays = strapWornSecondsByDay.count
+            let c = calendar.dateComponents([.year, .month, .day, .hour], from: now)
+            hourBucket = "\(c.year ?? 0)-\(c.month ?? 0)-\(c.day ?? 0)T\(c.hour ?? 0)"
+        } else {
+            self.bmrKcalPerDay = nil
+            wornSecondsTotal = 0
+            wornDays = 0
+            hourBucket = ""
+        }
+    }
+}
+
 /// One metric over time, on the page every Health card opens: its latest value, how the last weeks average, and the
 /// Trends range chart (hold and drag to read a day). Steps and Calories (Today's cards) land here, and so does each
 /// vital row of the Health Monitor, so a metric has one page wherever it is tapped.
@@ -778,10 +813,12 @@ struct HealthMetricTrendView: View {
             temperatureUnit: temperatureUnit)
     }
 
-    /// What re-builds the page: a repository refresh, or the °C/°F preference the skin-temperature series is in.
-    private struct PageKey: Hashable {
-        let refreshSeq: Int
-        let temperature: TemperatureUnit
+    private var pageKey: HealthTrendPageKey {
+        HealthTrendPageKey(
+            metric: metric, refreshSeq: repo.refreshSeq, temperature: temperatureUnit,
+            canonicalRevision: repo.canonicalHealth.presentationRevision,
+            bmrKcalPerDay: metric == .calories ? ProfileStore.storedBmrKcalPerDay() : nil,
+            strapWornSecondsByDay: metric == .calories ? repo.strapWornSecondsByDay : [:], now: Date())
     }
 
     var body: some View {
@@ -809,7 +846,7 @@ struct HealthMetricTrendView: View {
                 }
             }
         }
-        .task(id: PageKey(refreshSeq: repo.refreshSeq, temperature: temperatureUnit)) {
+        .task(id: pageKey) {
             var apple = appleByDay
             var estimates = stepsEstByDay
             if metric == .steps || metric == .calories {

@@ -145,4 +145,50 @@ final class HealthTrendPageTests: XCTestCase {
         XCTAssertEqual(drawn, steps)
         XCTAssertFalse(rebuilt)
     }
+
+    // MARK: - What re-builds the page
+
+    private let noon = Date(timeIntervalSince1970: 1_792_497_600)
+
+    private func key(
+        _ metric: ProductionTrendMetric = .calories, refreshSeq: Int = 1, unit: TemperatureUnit = .celsius,
+        revision: Int64 = 5, bmr: Double? = 1_700, worn: [String: Double] = ["2026-10-12": 40_000],
+        now: Date? = nil
+    ) -> HealthTrendPageKey {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        return HealthTrendPageKey(
+            metric: metric, refreshSeq: refreshSeq, temperature: unit, canonicalRevision: revision,
+            bmrKcalPerDay: bmr, strapWornSecondsByDay: worn, now: now ?? noon, calendar: calendar)
+    }
+
+    /// The old body re-read the strap's worn time, the profile's resting energy and the clock on every repository
+    /// publish; the page is built once per task, so the task's key has to move with each of them or today's
+    /// Calories figure goes stale (the strap comes off to charge, the coverage test flips, the page keeps the strap's
+    /// number).
+    func testTheCaloriesKeyMovesWithEveryInputTheOldBodyReRead() {
+        let base = key()
+        XCTAssertEqual(base, key(), "the same inputs, the same key")
+        XCTAssertNotEqual(base, key(refreshSeq: 2))
+        XCTAssertNotEqual(base, key(unit: .fahrenheit))
+        XCTAssertNotEqual(base, key(revision: 6), "a canonical presentation change rebuilds the page")
+        XCTAssertNotEqual(base, key(bmr: 1_650), "a profile edit changes the resting energy")
+        XCTAssertNotEqual(base, key(worn: ["2026-10-12": 40_000, "2026-10-13": 600]),
+                          "worn time that moved without a refresh")
+        XCTAssertNotEqual(base, key(worn: ["2026-10-12": 41_000]))
+        XCTAssertEqual(base, key(now: noon.addingTimeInterval(1_799)), "the same hour keeps the build")
+        XCTAssertNotEqual(base, key(now: noon.addingTimeInterval(3_600)), "the clock moves the figure hour by hour")
+        XCTAssertNotEqual(base, key(now: noon.addingTimeInterval(86_400)))
+    }
+
+    /// Only Calories depends on the worn time, the resting energy and the clock; the other pages are not rebuilt
+    /// every hour for inputs they never read.
+    func testOtherPagesKeyOnlyOnTheRefreshTheUnitAndTheCanonicalRevision() {
+        for metric in [ProductionTrendMetric.steps, .hrv, .skinTemp] {
+            let base = key(metric)
+            XCTAssertEqual(base, key(metric, bmr: 1_000, worn: [:], now: noon.addingTimeInterval(7_200)))
+            XCTAssertNotEqual(base, key(metric, revision: 6))
+            XCTAssertNotEqual(base, key(metric, refreshSeq: 2))
+        }
+    }
 }
