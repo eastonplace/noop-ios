@@ -815,24 +815,35 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
     /// which the loop did not read for that day, no longer makes a fold copy a strap night.
     func testLegacyRowProvenanceUsesTheRawLoopsOwnerAndGate() async throws {
         try await withRecalibrationEpochsRestored {
-            try await checkLegacyProvenance(exactSourceDeviceId: nil)
+            try await checkLegacyProvenance(.production)
         }
     }
 
-    /// Review round 6 (1): an exact pass for another device's work classifies the legacy rows the way a
-    /// production pass does. The classification covers the whole history and is stored for good, so the exact
-    /// pass's source device is not the owner of every day.
+    /// Review round 6 (1), round 7 (3): an exact pass rooted in the canonical namespace, the way
+    /// ExactDayAnalysisIntegration roots the default strap's committed work, classifies the legacy rows the way a
+    /// production pass does. The classification covers the whole history and is stored for good.
     func testAnExactPassClassifiesLegacyRowsLikeAProductionPass() async throws {
         try await withRecalibrationEpochsRestored {
-            try await checkLegacyProvenance(exactSourceDeviceId: "chest-strap")
+            try await checkLegacyProvenance(.canonicalExact)
         }
     }
 
-    /// The legacy provenance fixture: unmarked fold copies on days 10, 14 and 18, with 150 owner rows, 250 owner
-    /// rows, and 150 owner rows plus 300 a second live device recorded the evening before (inside the loop's
-    /// read window, outside the day, so the day stays the owner's under the round 6 resolver). One pass (an
-    /// exact pass when `exactSourceDeviceId` is set) classifies them.
-    private func checkLegacyProvenance(exactSourceDeviceId: String?) async throws {
+    /// Review round 7 (3): an exact pass rooted at another device's own namespace, the way
+    /// ExactDayAnalysisIntegration roots that device's committed work, classifies that namespace's legacy rows by
+    /// the device's own heart rate. The canonical resolver's owner (the active strap) is not that namespace's.
+    func testASourceRootedExactPassClassifiesItsLegacyRowsByItsSource() async throws {
+        try await withRecalibrationEpochsRestored {
+            try await checkLegacyProvenance(.chestStrapRootedExact)
+        }
+    }
+
+    private enum LegacyProvenancePass { case production, canonicalExact, chestStrapRootedExact }
+
+    /// The legacy provenance fixture: unmarked fold copies on days 6, 10, 14 and 18. Day 6 has 300 rows from the
+    /// second live device only; days 10, 14 and 18 have 150, 250 and 150 rows from the active strap, and day 18
+    /// also 300 the second device recorded the evening before (inside the loop's read window, outside the day,
+    /// so the day stays the active strap's in the canonical namespace). One pass classifies them.
+    private func checkLegacyProvenance(_ kind: LegacyProvenancePass) async throws {
         let days = 21
         let harness = try await makeHarness(days: days, strapDays: 20..<days)
         let registry = DeviceRegistryStore(dbQueue: harness.store.registryWriter)
@@ -843,9 +854,10 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
             id: "chest-strap", brand: "Polar", model: "H10", sourceKind: .liveBLE,
             capabilities: [.hr], status: .active, addedAt: 0, lastSeenAt: 0))
         try registry.setActive(Repository.whoopSource)
-        // Each case is four days from the next, outside the others' read windows. The second device's rows run
-        // from 18:30 to 23:30 the evening before day 18.
+        // Each case is four days from the next, outside the others' read windows. The second device's rows on day
+        // 6 run from 01:00 to 06:00; before day 18 they run from 18:30 to 23:30 the evening before.
         let heartRate: [(day: Int, rows: Int, deviceId: String, offset: Int)] = [
+            (6, 300, "chest-strap", 3_600),
             (10, 150, Repository.whoopSource, 3_600), (14, 250, Repository.whoopSource, 3_600),
             (18, 150, Repository.whoopSource, 3_600), (18, 300, "chest-strap", -19_800),
         ]
@@ -855,30 +867,53 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
             streams.hr = (0..<night.rows).map { HRSample(ts: start + $0 * 60, bpm: 55) }
             _ = try await harness.store.insert(streams, deviceId: night.deviceId)
         }
-        let ouraRows = [10, 14, 18].map { k in
+        let ouraRows = [6, 10, 14, 18].map { k in
             DailyMetric(day: dayKey(k), totalSleepMin: 450, efficiency: 0.9, deepMin: 80, remMin: 100,
                         lightMin: 270, disturbances: nil, restingHr: 50, avgHrv: 130,
                         recovery: nil, strain: nil, exerciseCount: nil)
         }
         _ = try await harness.store.upsertDailyMetrics(ouraRows, deviceId: "oura-import")
-        // Copies an earlier build wrote under the computed id, with no marker.
-        _ = try await harness.store.upsertDailyMetrics(
-            ouraRows.map { $0.with(recovery: 60, skinTempDevC: nil) }, deviceId: harness.computedId)
 
-        let sourceContext = try exactSourceDeviceId.map {
-            try exactSource($0, day: dayKey(days - 1), createdAt: harness.reference)
+        let completed: Bool
+        let computedId: String
+        let strapDays: Set<Int>
+        switch kind {
+        case .production, .canonicalExact:
+            computedId = harness.computedId
+            strapDays = [6, 14]
+            // Copies an earlier build wrote under the computed id, with no marker.
+            _ = try await harness.store.upsertDailyMetrics(
+                ouraRows.map { $0.with(recovery: 60, skinTempDevC: nil) }, deviceId: computedId)
+            var sourceContext: ExactWorkSourceContext?
+            if kind == .canonicalExact {
+                sourceContext = try exactSource(Repository.whoopSource, day: dayKey(days - 1),
+                                                createdAt: harness.reference)
+            }
+            completed = await pass(harness, maxDays: 1, sourceContext: sourceContext)
+        case .chestStrapRootedExact:
+            computedId = "chest-strap-noop"
+            strapDays = [6, 18]
+            _ = try await harness.store.upsertDailyMetrics(
+                ouraRows.map { $0.with(recovery: 60, skinTempDevC: nil) }, deviceId: computedId)
+            let repository = Repository(deviceId: "chest-strap")
+            repository.setStoreForTesting(harness.store)
+            let engine = IntelligenceEngine(repo: repository, profile: ProfileStore(), deviceId: "chest-strap")
+            let sourceContext = try exactSource("chest-strap", day: dayKey(days - 1), createdAt: harness.reference)
+            completed = await engine.analyzeRecent(
+                maxDays: 1, startOffset: 0, force: true, refreshRepository: false,
+                analysisReference: harness.reference, analysisCalendar: utcCalendar, sourceContext: sourceContext)
         }
-        let completed = await pass(harness, maxDays: 1, sourceContext: sourceContext)
         XCTAssertTrue(completed)
         let markers = try await harness.store.metricSeries(
-            deviceId: harness.computedId, key: IntelligenceEngine.computedRowSourceMetricKey,
+            deviceId: computedId, key: IntelligenceEngine.computedRowSourceMetricKey,
             from: dayKey(0), to: dayKey(19))
         let markerByDay = Dictionary(markers.map { ($0.day, $0.value) }, uniquingKeysWith: { a, _ in a })
-        XCTAssertEqual(markerByDay[dayKey(10)], IntelligenceEngine.wearableFoldRowSource,
-                       "150 rows: the loop never scored the day")
-        XCTAssertEqual(markerByDay[dayKey(14)], IntelligenceEngine.strapRowSource, "the loop's 200 rows")
-        XCTAssertEqual(markerByDay[dayKey(18)], IntelligenceEngine.wearableFoldRowSource,
-                       "another device's heart rate is not the owner's")
+        for k in [6, 10, 14, 18] {
+            XCTAssertEqual(markerByDay[dayKey(k)],
+                           strapDays.contains(k) ? IntelligenceEngine.strapRowSource
+                               : IntelligenceEngine.wearableFoldRowSource,
+                           "day \(k): the owner's heart rate over the loop's window decides")
+        }
     }
 
     // MARK: - Yesterday's calorie fill (review round 4, finding 2)

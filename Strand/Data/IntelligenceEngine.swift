@@ -1678,12 +1678,19 @@ final class IntelligenceEngine: ObservableObject {
                 let to = min(Int(nextStart.timeIntervalSince1970), now)
                 // Review round 6 (1): the owner a production pass resolves, in an exact pass too. The
                 // classification covers the whole history and is stored for good; sourceContext is this pass's.
-                let window = CivilDayWindow(day: row.day, start: dayStart,
-                                            nextStart: Int(nextStart.timeIntervalSince1970))
-                let owner = await Self.resolveDayOwner(day: row.day, from: from, to: to, store: store,
+                // Review round 7 (3): that holds in the canonical computed namespace, which holds every device's
+                // days. A source-rooted engine's namespace holds its source's days only, so the source owns them.
+                let owner: String
+                if deviceId == Repository.whoopSource {
+                    let window = CivilDayWindow(day: row.day, start: dayStart,
+                                                nextStart: Int(nextStart.timeIntervalSince1970))
+                    owner = await Self.resolveDayOwner(day: row.day, from: from, to: to, store: store,
                                                        devices: regDevices, activeId: regActiveId,
                                                        registry: registry, fallbackDeviceId: ownerFallbackId,
                                                        completedDay: window.nextStart <= now ? window : nil)
+                } else {
+                    owner = sourceContext?.deviceId ?? deviceId
+                }
                 let rows = try await store.hrSamples(
                     deviceId: owner, from: from, to: to, limit: Self.legacyStrapNightMinHrRows)
                 let source = rows.count >= Self.legacyStrapNightMinHrRows
