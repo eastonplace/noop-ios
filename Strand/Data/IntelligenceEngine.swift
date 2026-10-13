@@ -3104,15 +3104,19 @@ final class IntelligenceEngine: ObservableObject {
     /// hopping back to the main actor each iteration, which is the whole point of FIX 1. Logic identical.
     ///
     /// Review round 6: `completedDay` is the day's own civil window when the day is over (callers pass nil for
-    /// today). A completed day belongs to the live strap with the most heart-rate rows in that window, among the
-    /// straps that reach the raw loop's 200-row scoring gate there; the active strap wins only a tie. Without
-    /// this, a new strap's first readings late on the day before a swap made it the owner by priority, and the
-    /// day, scored from that sliver, fell below the gate and lost its row. Each count is one indexed aggregate
-    /// bounded by the one-day window. When no strap reaches the gate, the priority rule below decides as before.
+    /// today). A new strap's first readings late on the day before a swap made it the owner by priority, and the
+    /// day, scored from that sliver, fell below the raw loop's 200-row gate and lost its row, so a completed day's
+    /// owner is checked against the readings in that window. Each count is one indexed aggregate bounded by the
+    /// one-day window. When no strap reaches the gate, the priority owner keeps the day.
     ///
     /// Review round 7 (1): an archived strap still owns the completed days it recorded, so a full-history
     /// rescore scores them from its rows instead of from the live strap's empty window. Today's priority rule
     /// still leaves archived straps out.
+    ///
+    /// Review round 7 (2): the priority owner keeps a completed day whenever its own plausible readings (30 to
+    /// 240 bpm, plus PPG) reach the gate in that day. Only when it misses does the strap with the most plausible
+    /// rows take the day, so a second strap worn alongside, a long chest-strap session or an off-wrist strap's
+    /// 0 bpm stream can't take a day the active strap covered.
     nonisolated static func resolveDayOwner(day: String, from: Int, to: Int, store: WhoopStore,
                                             devices: [PairedDevice], activeId: String,
                                             registry: DeviceRegistryStore,
@@ -3141,20 +3145,6 @@ final class IntelligenceEngine: ObservableObject {
             return fallbackDeviceId
         }
 
-        if let completedDay {
-            var best: (deviceId: String, rows: Int)?
-            for d in completedDayStraps {
-                let rows = (try? await store.hrFingerprint(
-                    deviceId: d.id, from: completedDay.start, to: completedDay.nextStart - 1))?.count ?? 0
-                guard rows >= rawLoopMinHrRows else { continue }
-                if let current = best, rows < current.rows || (rows == current.rows && d.id != activeId) {
-                    continue
-                }
-                best = (d.id, rows)
-            }
-            if let best { return best.deviceId }
-        }
-
         var candidates: [DayOwnerResolver.Candidate] = []
         for d in liveDevices {
             let isImport = d.sourceKind == .cloudImport || d.sourceKind == .fileImport
@@ -3171,7 +3161,22 @@ final class IntelligenceEngine: ObservableObject {
             let hasData = !((try? await store.hrSamples(deviceId: d.id, from: from, to: to, limit: 1)) ?? []).isEmpty
             candidates.append(DayOwnerResolver.Candidate(deviceId: d.id, priority: priority, hasData: hasData))
         }
-        return DayOwnerResolver.resolve(day: day, lockedOwner: nil, candidates: candidates) ?? fallbackDeviceId
+        let priorityOwner = DayOwnerResolver.resolve(day: day, lockedOwner: nil, candidates: candidates)
+            ?? fallbackDeviceId
+        guard let completedDay else { return priorityOwner }
+        func plausibleRows(_ deviceId: String, cap: Int) async -> Int {
+            (try? await store.plausibleHRCount(
+                deviceId: deviceId, from: completedDay.start, to: completedDay.nextStart - 1,
+                bpmRange: HRValidity.bpmRange, cap: cap)) ?? 0
+        }
+        if await plausibleRows(priorityOwner, cap: rawLoopMinHrRows) >= rawLoopMinHrRows { return priorityOwner }
+        var best: (deviceId: String, rows: Int)?
+        for d in completedDayStraps where d.id != priorityOwner {
+            let rows = await plausibleRows(d.id, cap: completedDay.nextStart - completedDay.start)
+            guard rows >= rawLoopMinHrRows, rows > (best?.rows ?? 0) else { continue }
+            best = (d.id, rows)
+        }
+        return best?.deviceId ?? priorityOwner
     }
 
     /// The start offset of the oldest stored computed day before today whose calorie total was filled only part of

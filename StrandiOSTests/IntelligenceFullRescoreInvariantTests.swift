@@ -400,10 +400,10 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
         }
     }
 
-    /// Review round 6: a completed day belongs to the live strap with the most heart rate in that day, among the
-    /// straps that reach the raw loop's 200-row gate, and the active strap wins only a tie. The second strap's
-    /// first evening (23:00 on day 19) no longer takes day 19 from the first strap, whose own night and day it
-    /// was; today still goes to the active strap by priority, and a single-strap install is unchanged.
+    /// Review round 6: the second strap's first evening (23:00 on day 19) no longer takes day 19 from the first
+    /// strap, whose own night and day it was: the active strap's sliver misses the raw loop's 200-row gate in
+    /// that day, so the strap that covered it owns it (round 7, 2). Today still goes to the active strap by
+    /// priority, a tie goes to the active strap, and a single-strap install is unchanged.
     func testACompletedDayBelongsToTheStrapThatCoveredIt() async throws {
         try await withRecalibrationEpochsRestored {
             let harness = try await makeHarness(days: 30, whoop4SwapDay: 20)
@@ -429,6 +429,62 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
             let single = try await makeHarness(days: 3, whoop4: true)
             let singleOwner = try await resolvedOwner(single, day: 1, completed: true)
             XCTAssertEqual(singleOwner, Repository.whoopSource, "a single-strap install is unchanged")
+        }
+    }
+
+    /// Review round 7 (2): two straps worn at once. The active strap covered day 25, so it keeps the day even
+    /// though the other strap recorded more rows; the other strap still owns the days the active one missed.
+    func testTwoStrapsWornAtOnceKeepTheActiveStrapsDays() async throws {
+        try await withRecalibrationEpochsRestored {
+            let harness = try await makeHarness(days: 30, whoop4SwapDay: 20)
+            let start = firstDayStart + 25 * 86_400
+            var streams = Streams()
+            streams.hr = stride(from: start, to: start + 86_400, by: 1).map { HRSample(ts: $0, bpm: 64 + $0 % 7) }
+            _ = try await harness.store.insert(streams, deviceId: Repository.whoopSource)
+            let dualWear = try await resolvedOwner(harness, day: 25, completed: true)
+            XCTAssertEqual(dualWear, secondWhoop4Id, "the active strap keeps a day it covered")
+            let missed = try await resolvedOwner(harness, day: 19, completed: true)
+            XCTAssertEqual(missed, Repository.whoopSource, "the other strap owns a day the active one missed")
+        }
+    }
+
+    /// Review round 7 (2): an off-wrist active strap streaming 0 bpm all day has no plausible readings, so the
+    /// strap that was worn owns the day, however many rows the off-wrist stream has.
+    func testAnOffWristZeroBpmStreamDoesNotOwnADay() async throws {
+        try await withRecalibrationEpochsRestored {
+            let harness = try await makeHarness(days: 30, whoop4SwapDay: 20)
+            let start = firstDayStart + 10 * 86_400
+            var streams = Streams()
+            streams.hr = stride(from: start, to: start + 86_400, by: 1).map { HRSample(ts: $0, bpm: 0) }
+            _ = try await harness.store.insert(streams, deviceId: secondWhoop4Id)
+            let owner = try await resolvedOwner(harness, day: 10, completed: true)
+            XCTAssertEqual(owner, Repository.whoopSource)
+        }
+    }
+
+    /// Review round 7 (2): a chest-strap session with more rows than a fully worn WHOOP day doesn't take that day
+    /// from the active WHOOP. It owns a day the WHOOP wasn't worn.
+    func testAChestStrapSessionLargerThanAWhoopDayDoesNotTakeIt() async throws {
+        try await withRecalibrationEpochsRestored {
+            let harness = try await makeHarness(days: 30, strapDays: 0..<27)
+            let registry = DeviceRegistryStore(dbQueue: harness.store.registryWriter)
+            try registry.add(PairedDevice(
+                id: "chest-strap", brand: "Polar", model: "H10", sourceKind: .liveBLE,
+                capabilities: [.hr], status: .paired, addedAt: 0, lastSeenAt: 0))
+            for k in [25, 28] {
+                let start = firstDayStart + k * 86_400 + 8 * 3_600
+                var streams = Streams()
+                streams.hr = (0..<(6 * 3_600)).map { HRSample(ts: start + $0, bpm: 110 + $0 % 30) }
+                _ = try await harness.store.insert(streams, deviceId: "chest-strap")
+            }
+            let dayStart = firstDayStart + 25 * 86_400
+            let whoopRows = try await harness.store.hrFingerprint(
+                deviceId: Repository.whoopSource, from: dayStart, to: dayStart + 86_399).count
+            XCTAssertLessThan(whoopRows, 6 * 3_600, "the session is larger than the WHOOP day")
+            let worn = try await resolvedOwner(harness, day: 25, completed: true)
+            XCTAssertEqual(worn, Repository.whoopSource)
+            let notWorn = try await resolvedOwner(harness, day: 28, completed: true)
+            XCTAssertEqual(notWorn, "chest-strap")
         }
     }
 

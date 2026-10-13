@@ -79,6 +79,29 @@ extension WhoopStore {
         }
     }
 
+    /// Plausible heart-rate rows over `[from, to]`, counted up to `cap`: measured rows whose bpm is in `bpmRange`,
+    /// plus the PPG-derived rows for seconds with no measured row. An off-wrist strap's 0 bpm stream counts for
+    /// nothing. One indexed aggregate bounded by the window and the cap (review round 7, 2: who owns a day).
+    public func plausibleHRCount(deviceId: String, from: Int, to: Int,
+                                 bpmRange: ClosedRange<Int>, cap: Int) async throws -> Int {
+        try syncRead { db in
+            try Int.fetchOne(db, sql: """
+                SELECT COUNT(*) FROM (
+                    SELECT 1 FROM hrSample
+                    WHERE deviceId = ? AND ts >= ? AND ts <= ? AND bpm BETWEEN ? AND ?
+                    UNION ALL
+                    SELECT 1 FROM ppgHrSample p
+                    WHERE p.deviceId = ? AND p.ts >= ? AND p.ts <= ?
+                      AND NOT EXISTS (
+                        SELECT 1 FROM hrSample h
+                        WHERE h.deviceId = p.deviceId AND h.ts = p.ts)
+                    LIMIT ?
+                )
+                """, arguments: [deviceId, from, to, bpmRange.lowerBound, bpmRange.upperBound,
+                                 deviceId, from, to, cap]) ?? 0
+        }
+    }
+
     /// Indexed bounds for the same measured-first HR stream `hrSamples` scores. One-shot history repairs use
     /// this to stop at the oldest real source day instead of scanning thousands of empty calendar days.
     public func hrTimestampBounds(deviceId: String) async throws -> (earliest: Int, latest: Int)? {
