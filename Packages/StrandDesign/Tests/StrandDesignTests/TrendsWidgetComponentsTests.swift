@@ -142,6 +142,37 @@ final class TrendsWidgetComponentsTests: XCTestCase {
         XCTAssertFalse(buddhist.dropLast().contains { $0.contains("2025") || $0.contains("2026") }, "\(buddhist)")
     }
 
+    /// The scrub caption and the day VoiceOver speaks are printed in the person's calendar as the axis is, on a short range as
+    /// well as a year-long one; Today and Yesterday still count days in the window's own calendar.
+    func testTheScrubCaptionAndSpokenDayFollowTheDisplayCalendarOnShortRanges() {
+        let gregorian = Calendar(identifier: .gregorian)
+        let end = gregorian.startOfDay(for: Date(timeIntervalSince1970: 1_750_000_000))
+        let start = gregorian.date(byAdding: .day, value: -29, to: end)!
+        let days = (0...29).map { CalendarMetricDay(date: gregorian.date(byAdding: .day, value: $0, to: start)!, value: 60) }
+        func chart(display: Calendar?) -> TrendsHeroChart {
+            TrendsHeroChart(
+                days: days, dateDomain: start...end, referenceDate: end, calendar: gregorian, displayCalendar: display,
+                baseline: 60, typical: 55...65, tint: .neutral, unit: "")
+        }
+        let earlier = gregorian.date(byAdding: .day, value: -12, to: end)!
+        let yesterday = gregorian.date(byAdding: .day, value: -1, to: end)!
+        let plain = chart(display: nil)
+        let persian = chart(display: Calendar(identifier: .persian))
+
+        XCTAssertEqual(plain.dayLabel(earlier), TrendCalendar.relativeLabel(for: earlier, relativeTo: end, calendar: gregorian))
+        XCTAssertNotEqual(persian.dayLabel(earlier), plain.dayLabel(earlier), "Same day, a different calendar")
+        XCTAssertEqual(
+            persian.dayLabel(earlier),
+            TrendsDateFormatters.shared.string(from: earlier, template: "EEE MMM d", calendar: Calendar(identifier: .persian)))
+        XCTAssertEqual(persian.dayLabel(end), plain.dayLabel(end))
+        XCTAssertEqual(persian.dayLabel(yesterday), plain.dayLabel(yesterday))
+        // The last axis label reads the same way when the window does not end on the reference day.
+        let behind = gregorian.date(byAdding: .day, value: 5, to: end)!
+        XCTAssertNotEqual(
+            TrendCalendar.relativeLabel(for: end, relativeTo: behind, calendar: gregorian, displayCalendar: Calendar(identifier: .persian)),
+            TrendCalendar.relativeLabel(for: end, relativeTo: behind, calendar: gregorian))
+    }
+
     /// A weekly series has a reading every seven days, past the default three-day gap limit, so by default every
     /// reading stands alone with no line between them. A caller that knows the cadence passes a limit to match and
     /// gets one connected line with no stranded dots.

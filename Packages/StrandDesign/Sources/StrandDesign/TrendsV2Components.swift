@@ -517,17 +517,20 @@ public enum TrendCalendar {
         return start...end
     }
 
+    /// Today, Yesterday, else the weekday and date. Days are counted in `calendar`; the date itself is printed in
+    /// `displayCalendar` (the person's own calendar) when one is given.
     public static func relativeLabel(
         for date: Date,
         relativeTo referenceDate: Date,
-        calendar: Calendar = .autoupdatingCurrent
+        calendar: Calendar = .autoupdatingCurrent,
+        displayCalendar: Calendar? = nil
     ) -> String {
         let target = calendar.startOfDay(for: date)
         let reference = calendar.startOfDay(for: referenceDate)
         let difference = calendar.dateComponents([.day], from: target, to: reference).day ?? 0
         if difference == 0 { return String(localized: "Today", bundle: .module) }
         if difference == 1 { return String(localized: "Yesterday", bundle: .module) }
-        return TrendsDateFormatters.shared.string(from: target, template: "EEE MMM d", calendar: calendar)
+        return TrendsDateFormatters.shared.string(from: target, template: "EEE MMM d", calendar: displayCalendar ?? calendar)
     }
 
     public static func unitPosition(of date: Date, in domain: ClosedRange<Date>) -> Double {

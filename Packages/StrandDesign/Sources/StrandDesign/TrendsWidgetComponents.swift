@@ -1134,7 +1134,8 @@ public struct TrendsHeroChart: View {
     ) -> [(label: String, fraction: Double)] {
         let totalDays = calendar.dateComponents([.day], from: domain.lowerBound, to: domain.upperBound).day ?? 0
         guard totalDays > 0 else {
-            return [(TrendCalendar.relativeLabel(for: domain.upperBound, relativeTo: referenceDate, calendar: calendar), 0)]
+            return [(TrendCalendar.relativeLabel(
+                for: domain.upperBound, relativeTo: referenceDate, calendar: calendar, displayCalendar: displayCalendar), 0)]
         }
         let count = min(WidgetMetrics.maxXAxisLabels, totalDays + 1)
         var seen = Set<Int>()
@@ -1145,7 +1146,7 @@ public struct TrendsHeroChart: View {
                   let date = calendar.date(byAdding: .day, value: dayIndex, to: domain.lowerBound) else { continue }
             let isLast = dayIndex == totalDays
             let label = isLast
-                ? TrendCalendar.relativeLabel(for: date, relativeTo: referenceDate, calendar: calendar)
+                ? TrendCalendar.relativeLabel(for: date, relativeTo: referenceDate, calendar: calendar, displayCalendar: displayCalendar)
                 : TrendsDateFormatters.shared.string(from: date, template: template, calendar: displayCalendar)
             labels.append((label, Double(dayIndex) / Double(totalDays)))
         }
@@ -1160,9 +1161,11 @@ public struct TrendsHeroChart: View {
         return "\(dayLabel(day.date)), \(value)"
     }
 
-    /// Today, Yesterday, else the date: with the year when the window spans a year or more.
-    private func dayLabel(_ date: Date) -> String {
-        let relative = TrendCalendar.relativeLabel(for: date, relativeTo: referenceDate, calendar: calendar)
+    /// Today, Yesterday, else the date in the person's calendar: with the year when the window spans a year or more.
+    /// `internal` so the tests can read the caption and the spoken day without a view.
+    func dayLabel(_ date: Date) -> String {
+        let relative = TrendCalendar.relativeLabel(
+            for: date, relativeTo: referenceDate, calendar: calendar, displayCalendar: displayCalendar)
         guard showsYear, !calendar.isDate(date, inSameDayAs: referenceDate),
               let yesterday = calendar.date(byAdding: .day, value: -1, to: referenceDate),
               !calendar.isDate(date, inSameDayAs: yesterday) else { return relative }
