@@ -70,6 +70,7 @@ enum CompareOverlayGeometry {
 public struct CompareOverlayModel {
     fileprivate struct Line {
         let tint: Color
+        let lineStyle: CompareLineStyle
         /// The normalized (0...1) points to draw: the series itself, or a min/max-bucketed copy of a long one.
         let drawn: [TrendPoint]
         /// The unbroken stretches of `drawn` (indices), cut where the series itself has a gap.
@@ -97,6 +98,7 @@ public struct CompareOverlayModel {
                 points: normalized, dayOffsets: offsets, gapLimit: TrendCadence.gapLimitDays(dayOffsets: offsets))
             return Line(
                 tint: entry.tint,
+                lineStyle: entry.lineStyle,
                 drawn: line.drawn,
                 runs: line.runs,
                 byDay: Dictionary(normalized.map { ($0.date, $0.value) }, uniquingKeysWith: { _, later in later }),
@@ -177,6 +179,7 @@ public struct CompareOverlayChart: View {
     // MARK: Geometry
 
     private static let inset: CGFloat = 5
+    private static let lineWidth: CGFloat = 2.2
 
     private func x(of date: Date, width: CGFloat) -> CGFloat {
         Self.inset + (width - Self.inset * 2) * CGFloat(ScrubChartGeometry.unitPosition(of: date, in: domain))
@@ -269,7 +272,9 @@ public struct CompareOverlayChart: View {
                 }
                 linePath(rendered, runs: runs)
                     .trim(from: 0, to: revealed ? 1 : 0)
-                    .stroke(line.tint, style: StrokeStyle(lineWidth: 2.2, lineCap: .round, lineJoin: .round))
+                    .stroke(line.tint, style: StrokeStyle(
+                        lineWidth: Self.lineWidth, lineCap: .round, lineJoin: .round,
+                        dash: line.lineStyle.dash(lineWidth: Self.lineWidth)))
             }
             // A reading the line cannot reach (a gap either side) is a dot of its own.
             ForEach(Array(singletons).sorted(), id: \.self) { index in

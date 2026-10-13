@@ -57,10 +57,11 @@ enum CompareLogic {
     }
 
     /// Everything the overlay chart is drawn from, as one cache key: which series (in order), the palette slot each line takes,
-    /// a fingerprint of every (day, value) pair, and the time zone the days are read in. Anything that would change a line, its
-    /// colour or the day under the finger changes the key; scrubbing does not.
-    static func overlayKey(_ series: [(id: String, colorIndex: Int, rows: [Row])], timeZone: String) -> String {
-        let parts = series.map { "\($0.id)/\($0.colorIndex)/\($0.rows.count)/\(fingerprint($0.rows))" }
+    /// its place in the pick order (which sets its line style), a fingerprint of every (day, value) pair, and the time zone the
+    /// days are read in. Anything that would change a line, its colour or style, or the day under the finger changes the key;
+    /// scrubbing does not.
+    static func overlayKey(_ series: [(id: String, colorIndex: Int, slot: Int, rows: [Row])], timeZone: String) -> String {
+        let parts = series.map { "\($0.id)/\($0.colorIndex)/\($0.slot)/\($0.rows.count)/\(fingerprint($0.rows))" }
         return "\(timeZone)|" + parts.joined(separator: "|")
     }
 

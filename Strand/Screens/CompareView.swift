@@ -24,16 +24,19 @@ private struct ResolvedCompareSeries: Identifiable {
     let color: Color
     /// The palette slot behind `color`, so a change of colour is a change the overlay's cache key can see.
     let colorIndex: Int
+    /// Where the metric sits in the pick order (0 is A): it picks the line's style (`CompareLineStyle.forSlot`).
+    let slot: Int
     let rows: [(day: String, value: Double)]
     let realMin: Double
     let realMax: Double
 
     var id: String { metric.id }
 
-    init(metric: MetricDescriptor, color: Color, colorIndex: Int, rows: [(day: String, value: Double)]) {
+    init(metric: MetricDescriptor, color: Color, colorIndex: Int, slot: Int, rows: [(day: String, value: Double)]) {
         self.metric = metric
         self.color = color
         self.colorIndex = colorIndex
+        self.slot = slot
         self.rows = rows
         let values = rows.map(\.value)
         self.realMin = values.min() ?? 0
@@ -223,12 +226,13 @@ struct CompareView: View {
     private var activeSeries: [ResolvedCompareSeries] {
         let colors = seriesColors
         let indices = seriesColorIndices
-        return selected.map { metric in
+        return selected.enumerated().map { slot, metric in
             let full = fullSeries[metric.id] ?? []
             return ResolvedCompareSeries(
                 metric: metric,
                 color: colors[metric.id] ?? StrandPalette.textSecondary,
                 colorIndex: indices[metric.id] ?? -1,
+                slot: slot,
                 rows: CompareLogic.slice(full, days: effectiveRange(full).days))
         }
     }
@@ -533,10 +537,10 @@ struct CompareView: View {
         CompareLogic.correlationKey(series.map { ($0.id, $0.rows) })
     }
 
-    /// What the overlay chart is built from. Wider than `correlationKey`: a line's colour and the time zone its days were read
-    /// in change what is drawn without changing a correlation.
+    /// What the overlay chart is built from. Wider than `correlationKey`: a line's colour and style and the time zone its days
+    /// were read in change what is drawn without changing a correlation.
     private func overlayKey(_ shown: [ResolvedCompareSeries]) -> String {
-        CompareLogic.overlayKey(shown.map { ($0.id, $0.colorIndex, $0.rows) }, timeZone: TimeZone.current.identifier)
+        CompareLogic.overlayKey(shown.map { ($0.id, $0.colorIndex, $0.slot, $0.rows) }, timeZone: TimeZone.current.identifier)
     }
 
     /// Cached accessor used by the body. Returns the memoized scan when the inputs match `pairCacheKey`; otherwise
@@ -664,6 +668,7 @@ private struct CompareOverlayBlock: View {
                 ForEach(shown) { entry in
                     CompareReadoutRow(
                         color: entry.color,
+                        style: CompareLineStyle.forSlot(entry.slot),
                         title: entry.metric.title,
                         value: readoutValue(entry),
                         range: "\(format(entry.metric, entry.realMin)) \u{2013} \(format(entry.metric, entry.realMax))")
@@ -696,6 +701,7 @@ private struct CompareOverlayBlock: View {
             points: entry.rows.compactMap { row in
                 ExploreDayKey.date(for: row.day).map { ComparePoint(date: $0, value: row.value) }
             },
+            lineStyle: CompareLineStyle.forSlot(entry.slot),
             format: { format(entry.metric, $0) }
         )
     }
@@ -737,6 +743,7 @@ private struct CompareOverlayBlock: View {
 /// in the window. At the accessibility sizes the value drops under the name.
 private struct CompareReadoutRow: View {
     let color: Color
+    let style: CompareLineStyle
     let title: String
     let value: String
     let range: String
@@ -757,7 +764,7 @@ private struct CompareReadoutRow: View {
                         Spacer(minLength: NoopMetrics.space2)
                         valueText
                     }
-                    rangeText.padding(.leading, 8 + NoopMetrics.space2)
+                    rangeText.padding(.leading, CompareLineSwatch.width + NoopMetrics.space2)
                 }
             }
         }
@@ -767,7 +774,7 @@ private struct CompareReadoutRow: View {
 
     private var nameLine: some View {
         HStack(alignment: .firstTextBaseline, spacing: NoopMetrics.space2) {
-            Circle().fill(color).frame(width: 8, height: 8)
+            CompareLineSwatch(color: color, style: style)
             Text(verbatim: title)
                 .font(StrandFont.subhead)
                 .foregroundStyle(StrandPalette.textPrimary)

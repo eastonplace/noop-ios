@@ -39,10 +39,60 @@ public struct ComparePoint: Identifiable, Equatable, Sendable {
     }
 }
 
+/// How a series' line is drawn on top of its colour, so two lines of nearly the same hue (Recovery's blue and Sleep's slate
+/// blue) still differ by more than colour: A solid, B dashed, C dotted, D long-dash. The legend swatch (`CompareLineSwatch`)
+/// draws the same pattern.
+public enum CompareLineStyle: Equatable, Sendable, CaseIterable {
+    case solid, dashed, dotted, longDash
+
+    /// The style of the line in a slot (0 is A, in pick order). More than four slots start over.
+    public static func forSlot(_ slot: Int) -> CompareLineStyle {
+        let all = allCases
+        return all[((slot % all.count) + all.count) % all.count]
+    }
+
+    /// The stroke's dash pattern for a line this wide, empty for a solid one. Lengths are the pen's own, so with round caps a
+    /// dash shows `lineWidth` longer than its first number and a gap `lineWidth` shorter than its second.
+    public func dash(lineWidth: CGFloat) -> [CGFloat] {
+        switch self {
+        case .solid: return []
+        case .dashed: return [lineWidth * 2.2, lineWidth * 2.4]
+        case .dotted: return [0.01, lineWidth * 2.4]
+        case .longDash: return [lineWidth * 5, lineWidth * 3]
+        }
+    }
+}
+
+/// A short line in a series' colour and style: the legend's and the readouts' stand-in for the dot, so a reader who cannot
+/// tell two hues apart can still tell which line is which.
+public struct CompareLineSwatch: View {
+    public static let width: CGFloat = 22
+    private static let lineWidth: CGFloat = 2.2
+
+    private let color: Color
+    private let style: CompareLineStyle
+
+    public init(color: Color, style: CompareLineStyle) {
+        self.color = color
+        self.style = style
+    }
+
+    public var body: some View {
+        Path { path in
+            path.move(to: CGPoint(x: Self.lineWidth / 2, y: 4))
+            path.addLine(to: CGPoint(x: Self.width - Self.lineWidth / 2, y: 4))
+        }
+        .stroke(color, style: StrokeStyle(lineWidth: Self.lineWidth, lineCap: .round, dash: style.dash(lineWidth: Self.lineWidth)))
+        .frame(width: Self.width, height: 8)
+        .accessibilityHidden(true)
+    }
+}
+
 public struct CompareSeries {
     public let title: String
     public let unit: String
     public let tint: Color
+    public let lineStyle: CompareLineStyle
     public let points: [ComparePoint]
     public let format: (Double) -> String
     /// The series' own range, found once so scaling every point stays linear in the number of points.
@@ -54,11 +104,13 @@ public struct CompareSeries {
         unit: String,
         tint: Color,
         points: [ComparePoint],
+        lineStyle: CompareLineStyle = .solid,
         format: @escaping (Double) -> String = { ComponentValueFormat.rounded($0) }
     ) {
         self.title = title
         self.unit = unit
         self.tint = tint
+        self.lineStyle = lineStyle
         self.points = points.sorted { $0.date < $1.date }
         self.format = format
         let values = points.map(\.value)

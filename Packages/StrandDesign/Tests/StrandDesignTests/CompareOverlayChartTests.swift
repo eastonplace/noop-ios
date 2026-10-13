@@ -104,4 +104,36 @@ final class CompareOverlayChartTests: XCTestCase {
         XCTAssertEqual(TrendCadence.gapLimitDays(dayOffsets: []), 3)
         XCTAssertEqual(TrendCadence.gapLimitDays(dayOffsets: [9]), 3)
     }
+    // MARK: Line styles
+
+    /// A is solid, B dashed, C dotted, D long-dash; a fifth slot starts over.
+    func testEachSlotHasItsOwnLineStyleInPickOrder() {
+        XCTAssertEqual((0..<4).map(CompareLineStyle.forSlot), [.solid, .dashed, .dotted, .longDash])
+        XCTAssertEqual(CompareLineStyle.forSlot(4), .solid)
+        XCTAssertEqual(CompareLineStyle.forSlot(5), .dashed)
+        XCTAssertEqual(CompareLineStyle.forSlot(-1), .longDash)
+    }
+
+    /// The four patterns can be told apart: a solid line has no dashes, and the rest differ in dash and gap.
+    func testTheDashPatternsAreDistinctAndASolidLineHasNone() throws {
+        let patterns = CompareLineStyle.allCases.map { $0.dash(lineWidth: 2.2) }
+        XCTAssertEqual(patterns[0], [])
+        XCTAssertEqual(Set(patterns.map { $0.map { Double($0) } }).count, 4)
+        for pattern in patterns.dropFirst() { XCTAssertEqual(pattern.count, 2); XCTAssertTrue(pattern.allSatisfy { $0 > 0 }) }
+        // Visible dash length (round caps add one line width): dotted < dashed < long-dash.
+        let visible = patterns.dropFirst().map { $0[0] + 2.2 }
+        XCTAssertLessThan(visible[1], visible[0])
+        XCTAssertLessThan(visible[0], visible[2])
+        // The pattern follows the pen's width.
+        let wide = try XCTUnwrap(CompareLineStyle.dashed.dash(lineWidth: 4).first)
+        let narrow = try XCTUnwrap(CompareLineStyle.dashed.dash(lineWidth: 2).first)
+        XCTAssertEqual(Double(wide / 4), Double(narrow / 2), accuracy: 1e-9)
+    }
+
+    /// The style rides along on the series and survives into the model.
+    func testASeriesCarriesItsLineStyle() {
+        let points = [ComparePoint(date: Date(timeIntervalSince1970: 0), value: 1), ComparePoint(date: Date(timeIntervalSince1970: 86_400), value: 2)]
+        XCTAssertEqual(CompareSeries(title: "A", unit: "", tint: .blue, points: points).lineStyle, .solid)
+        XCTAssertEqual(CompareSeries(title: "B", unit: "", tint: .blue, points: points, lineStyle: .dashed).lineStyle, .dashed)
+    }
 }

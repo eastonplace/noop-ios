@@ -41,10 +41,11 @@ final class CompareLogicTests: XCTestCase {
 
     // MARK: What the overlay chart is built from
 
+    /// Slots default to pick order, as the screen has them.
     private func overlayKey(
         _ series: [(id: String, colorIndex: Int, rows: [Row])], zone: String = "Europe/Berlin"
     ) -> String {
-        CompareLogic.overlayKey(series, timeZone: zone)
+        CompareLogic.overlayKey(series.enumerated().map { ($1.id, $1.colorIndex, $0, $1.rows) }, timeZone: zone)
     }
 
     /// The chart is rebuilt for anything that changes what it draws, and for nothing else.
@@ -65,6 +66,10 @@ final class CompareLogicTests: XCTestCase {
         var moved = steps
         moved[1].day = "2026-10-09"
         XCTAssertNotEqual(base, overlayKey([("hrv", 0, hrv), ("steps", 3, moved)]))
+        // A line moves to another slot (and so another style) with colour and readings unchanged.
+        XCTAssertNotEqual(
+            CompareLogic.overlayKey([("hrv", 0, 0, hrv), ("steps", 3, 2, steps)], timeZone: "Europe/Berlin"),
+            CompareLogic.overlayKey([("hrv", 0, 0, hrv), ("steps", 3, 1, steps)], timeZone: "Europe/Berlin"))
         // The series, their order, and the zone the days are read in.
         XCTAssertNotEqual(base, overlayKey([("steps", 3, steps), ("hrv", 0, hrv)]))
         XCTAssertNotEqual(base, overlayKey([("hrv", 0, hrv)]))
