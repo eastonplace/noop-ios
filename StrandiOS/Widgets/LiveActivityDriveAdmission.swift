@@ -53,5 +53,18 @@ struct LiveActivityDriveAdmission: Equatable {
             token: nil, recovery: nil, effort: nil, verifiedContextId: nil, verifiedProjectionGeneration: nil,
             tokenState: tokenState, strippedHealth: true)
     }
+
+    /// What a write under a matching token does when the verified-generation fence refuses it (its generation is behind
+    /// the one the activity already carries). The fence orders health values only: a live drive keeps the write and loses
+    /// its health values, so a workout's activity is never blocked by it. Only the verified worker's own publication, whose
+    /// whole point is the health values, is superseded.
+    enum GenerationVerdict: Equatable {
+        case keepHealth, stripHealth, superseded
+    }
+
+    static func generationVerdict(accepted: Bool, isVerifiedPublication: Bool) -> GenerationVerdict {
+        if accepted { return .keepHealth }
+        return isVerifiedPublication ? .superseded : .stripHealth
+    }
 }
 #endif

@@ -53,6 +53,19 @@ final class LiveActivityDriveAdmissionTests: XCTestCase {
         assertPublishedWithoutHealth(admission)
     }
 
+    /// The verified-generation fence orders health values, never the activity: a live drive behind the generation the
+    /// activity carries is written without health (a workout's request included); only the worker's publication is superseded.
+    func testAGenerationBehindStripsHealthFromALiveDriveAndSupersedesOnlyTheWorker() {
+        XCTAssertEqual(LiveActivityDriveAdmission.generationVerdict(accepted: true, isVerifiedPublication: false),
+                       .keepHealth)
+        XCTAssertEqual(LiveActivityDriveAdmission.generationVerdict(accepted: true, isVerifiedPublication: true),
+                       .keepHealth)
+        XCTAssertEqual(LiveActivityDriveAdmission.generationVerdict(accepted: false, isVerifiedPublication: false),
+                       .stripHealth)
+        XCTAssertEqual(LiveActivityDriveAdmission.generationVerdict(accepted: false, isVerifiedPublication: true),
+                       .superseded)
+    }
+
     func testNoSurfaceIsTokenlessAndUnchanged() {
         for activeToken in [nil, VerifiedSinkToken(epoch: 4, contextId: "A")] {
             let admission = LiveActivityDriveAdmission.decide(

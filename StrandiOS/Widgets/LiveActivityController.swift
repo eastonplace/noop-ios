@@ -58,6 +58,17 @@ final class LiveActivityController {
         /// ask the clock itself.
         var heartRateIsStale: () -> Bool = { false }
         let workoutProjection: () -> WorkoutLiveActivityState?
+        /// The verified worker's own publication, which is superseded rather than written without its health values.
+        var isVerifiedPublication = false
+
+        /// The same write without its health values, for the tokenless lane.
+        func withoutHealth() -> DriveInput {
+            DriveInput(
+                bpm: bpm, recovery: nil, connected: connected, effort: nil, verifiedContextId: nil,
+                verifiedProjectionGeneration: nil, workoutIsActive: workoutIsActive,
+                heartRateIsStale: heartRateIsStale, workoutProjection: workoutProjection,
+                isVerifiedPublication: isVerifiedPublication)
+        }
     }
 
     private var activity: Activity<NOOPActivityAttributes>?
@@ -164,6 +175,9 @@ final class LiveActivityController {
         expectedActiveContextId: String? = nil,
         expectedToken: VerifiedSinkToken? = nil
     ) async throws -> ExternalSinkPublicationResult {
+        // A drive behind the verified generation is written without its health values (below).
+        var input = input
+        var expectedToken = expectedToken
         guard expectedActiveContextId == nil || expectedActiveContextId == input.verifiedContextId else {
             return .superseded
         }
@@ -214,6 +228,24 @@ final class LiveActivityController {
             now = Date()
         }
 
+        // Verified-generation ordering governs the health values only. A live drive whose generation is behind the one the
+        // activity already carries (the app's verified surface refreshes only while it is in front) loses its health values,
+        // never the write, so it can never block the activity, a workout's least of all. The verified worker's own
+        // publication still reports superseded. Nothing below suspends before the ActivityKit call, so this check holds.
+        if let token = expectedToken {
+            switch LiveActivityDriveAdmission.generationVerdict(
+                accepted: acceptsVerifiedGeneration(input, expectedActiveContextId: expectedActiveContextId, token: token),
+                isVerifiedPublication: input.isVerifiedPublication) {
+            case .keepHealth:
+                break
+            case .stripHealth:
+                input = input.withoutHealth()
+                expectedToken = nil
+            case .superseded:
+                return .superseded
+            }
+        }
+
         // The projection is reused for up to ten seconds, but the quiet-strap verdict is asked again for this write.
         let workoutState: WorkoutLiveActivityState?
         switch workoutStateCache.stateForWrite(
@@ -249,13 +281,6 @@ final class LiveActivityController {
 
         if let activity {
             let heartbeatElapsed = now.timeIntervalSince(lastPush)
-            if let expectedToken {
-                guard acceptsVerifiedGeneration(
-                    input,
-                    expectedActiveContextId: expectedActiveContextId,
-                    token: expectedToken
-                ) else { return .superseded }
-            }
             if state == lastContentState,
                heartbeatElapsed >= 0,
                heartbeatElapsed < Self.unchangedHeartbeatInterval {
@@ -275,13 +300,6 @@ final class LiveActivityController {
             return .published
         } else {
             do {
-                if let expectedToken {
-                    guard acceptsVerifiedGeneration(
-                        input,
-                        expectedActiveContextId: expectedActiveContextId,
-                        token: expectedToken
-                    ) else { return .superseded }
-                }
                 activity = try Activity.request(
                     attributes: NOOPActivityAttributes(
                         title: workoutState?.sport ?? String(localized: "Live HR")
@@ -337,7 +355,8 @@ final class LiveActivityController {
             verifiedProjectionGeneration: projection.generation,
             workoutIsActive: workoutIsActive,
             heartRateIsStale: heartRateIsStale,
-            workoutProjection: workoutProjection
+            workoutProjection: workoutProjection,
+            isVerifiedPublication: true
         )
         return try await serializedPublication.submitVerified(input, token: token)
     }
