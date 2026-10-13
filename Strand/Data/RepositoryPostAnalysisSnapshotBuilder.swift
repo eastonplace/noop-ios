@@ -244,7 +244,7 @@ enum RepositoryPostAnalysisSnapshotBuilder {
             appleActiveKcal: appleEnergy?.activeKcal,
             appleBasalKcal: appleEnergy?.basalKcal,
             bmrKcalPerDay: input.bmrKcalPerDay,
-            daySeconds: dayTiming?.daySeconds ?? 86_400,
+            daySeconds: dayTiming?.daySeconds,
             elapsedSeconds: dayTiming?.elapsedSeconds)
 
         // Keep this row truthful for its own day. Carried prior-night values stay only in metricStates.

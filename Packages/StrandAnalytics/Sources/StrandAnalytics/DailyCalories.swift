@@ -22,14 +22,15 @@ public enum DailyCalories {
     ///   - strapWornSeconds: how long the strap recorded valid heart rate that day. Nil for a total stored
     ///     before coverage was, which counts as covered (the estimate it always was).
     ///   - bmrKcalPerDay: the profile's resting energy per 24 h (`bmrKcalPerDay(profile:)`).
-    ///   - daySeconds: the civil day's length (23 h or 25 h across a DST change).
+    ///   - daySeconds: the civil day's length (23 h or 25 h across a DST change), used to prorate today.
     ///   - elapsedSeconds: seconds since the day began, for today; nil for a completed day.
+    ///   `dayTiming(day:timeZone:now:)` gives both.
     public static func total(strapKcal: Double?,
                              strapWornSeconds: Double?,
                              appleActiveKcal: Double?,
                              appleBasalKcal: Double?,
                              bmrKcalPerDay: Double?,
-                             daySeconds: Double = 86_400,
+                             daySeconds: Double? = nil,
                              elapsedSeconds: Double? = nil) -> Double? {
         if let strapKcal {
             let covered: Bool
@@ -44,7 +45,10 @@ public enum DailyCalories {
         if let active = appleActiveKcal, let basal = appleBasalKcal { return active + basal }
         if let strapKcal { return strapKcal }
         if let active = appleActiveKcal, let bmr = bmrKcalPerDay {
-            let share = elapsedSeconds.map { daySeconds > 0 ? min(1, max(0, $0 / daySeconds)) : 1 } ?? 1
+            var share = 1.0
+            if let elapsed = elapsedSeconds, let length = daySeconds, length > 0 {
+                share = min(1, max(0, elapsed / length))
+            }
             return active + bmr * share
         }
         return nil

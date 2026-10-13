@@ -571,7 +571,7 @@ struct TrendsScreenSnapshot: Sendable {
                 appleActiveKcal: apple?.activeKcal,
                 appleBasalKcal: apple?.basalKcal,
                 bmrKcalPerDay: data.bmrKcalPerDay,
-                daySeconds: timing?.daySeconds ?? 86_400,
+                daySeconds: timing?.daySeconds,
                 elapsedSeconds: timing?.elapsedSeconds)
         case .stress: candidate = data.stressByDay[day.day]
         }

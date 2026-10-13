@@ -2500,7 +2500,7 @@ final class Repository: ObservableObject {
                                    appleActiveKcal: apple?.activeKcal,
                                    appleBasalKcal: apple?.basalKcal,
                                    bmrKcalPerDay: ProfileStore.storedBmrKcalPerDay(),
-                                   daySeconds: timing?.daySeconds ?? 86_400,
+                                   daySeconds: timing?.daySeconds,
                                    elapsedSeconds: timing?.elapsedSeconds)
     }
 
