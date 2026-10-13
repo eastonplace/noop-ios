@@ -149,6 +149,46 @@ final class BLEBackgroundReconnectHandoffTests: XCTestCase {
         XCTAssertFalse(manager.whoop5HoldBackgroundTaskActiveForTesting, "the app is free to suspend once the hold ends")
     }
 
+    /// Review R3c 1: the background time iOS grants (~30 s) ends before the 60 s rung. While the strap is
+    /// still notifying, the expiry ends only the background task; the hold, its deadline and the release
+    /// timer stay, so the next notification after the deadline sends the hello on time.
+    func testBackgroundExpiryKeepsTheHoldWhileTheStrapIsNotifying() {
+        let manager = BLEManager(state: LiveState(), collector: nil)
+        let session = Whoop5SecureSessionID(peripheralID: UUID(), connectGeneration: 1, attemptEpoch: 1)
+        let deadline = Date().addingTimeInterval(60)
+        manager.holdWhoop5ClientHelloForTesting(session, until: deadline)
+        let expiry = Date().addingTimeInterval(30)
+        manager.noteInboundStrapDataForTesting(at: expiry.addingTimeInterval(-1))
+
+        manager.whoop5HoldBackgroundTimeExpiring(now: expiry)
+
+        XCTAssertEqual(manager.whoop5HeldClientHelloForTesting, session, "the hello is still held")
+        XCTAssertEqual(manager.whoop5HandshakeHoldForTesting, deadline, "the real deadline stands")
+        XCTAssertTrue(manager.whoop5HoldTimerArmedForTesting)
+        XCTAssertFalse(manager.whoop5HoldBackgroundTaskActiveForTesting, "only the background task ends")
+        manager.disconnect()
+    }
+
+    /// Review R3c 1: on a quiet link nothing would wake the app at the deadline, so the expiry releases
+    /// the hello. With no live link to send on (as here), an unexpired deadline stands for the reconnect.
+    func testBackgroundExpiryOnAQuietLinkReleasesTheHello() {
+        let manager = BLEManager(state: LiveState(), collector: nil)
+        let session = Whoop5SecureSessionID(peripheralID: UUID(), connectGeneration: 1, attemptEpoch: 1)
+        let deadline = Date().addingTimeInterval(60)
+        manager.holdWhoop5ClientHelloForTesting(session, until: deadline)
+        let expiry = Date().addingTimeInterval(30)
+        manager.noteInboundStrapDataForTesting(at: expiry.addingTimeInterval(-25))
+
+        manager.whoop5HoldBackgroundTimeExpiring(now: expiry)
+
+        XCTAssertNil(manager.whoop5HeldClientHelloForTesting, "the hold is released")
+        XCTAssertFalse(manager.whoop5HoldTimerArmedForTesting)
+        XCTAssertFalse(manager.whoop5HoldBackgroundTaskActiveForTesting)
+        XCTAssertEqual(manager.whoop5HandshakeHoldForTesting, deadline,
+                       "nothing was sent, so the unexpired deadline still covers the next attempt")
+        manager.disconnect()
+    }
+
     /// End to end through the real target lookup: with no powered-on central (the simulator) there is no
     /// strap to hand off to, so the timer stays armed for when the app comes back.
     func testWithNoReachableStrapTheBackgroundTransitionKeepsTheTimer() {

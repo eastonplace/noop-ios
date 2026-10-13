@@ -122,6 +122,18 @@ public struct ReconnectPolicy: Equatable, Sendable {
         [existing, new].compactMap { $0 }.filter { $0 > now }.max()
     }
 
+    /// A link with no inbound strap traffic for this long is quiet: nothing will wake a suspended app at a
+    /// CLIENT_HELLO hold's deadline.
+    public static let quietLinkSeconds: TimeInterval = 5
+
+    /// F1: iOS is about to end the background time that covers a CLIENT_HELLO hold (about 30 s, shorter
+    /// than the 60 s rung). On a quiet link nothing would wake the app at the deadline, so the hello goes
+    /// now; while the strap is still notifying (standard HR about once a second), each notification
+    /// releases the hello at the real deadline, so the hold is kept and only the background task ends.
+    public static func shouldSendHeldHandshakeOnBackgroundExpiry(lastInboundAt: Date, now: Date) -> Bool {
+        now.timeIntervalSince(lastInboundAt) > quietLinkSeconds
+    }
+
     /// F1: the app is leaving the foreground with a reconnect timer armed. A suspended app's timer never
     /// fires and leaves nothing pending to wake it, so the armed retry must become a pending connect now,
     /// unless the user tore the link down, auto-reconnect is paused, there is no known strap, or the strap

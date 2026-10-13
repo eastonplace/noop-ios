@@ -1585,6 +1585,17 @@ public final class BLEManager: NSObject, ObservableObject {
 
     var whoop5HandshakeHoldForTesting: Date? { whoop5SecureHandshakeNotBefore }
 
+    /// Test seams for the CLIENT_HELLO hold: start it the way the fd4b discovery path does, mark strap
+    /// traffic, and observe the held attempt.
+    func holdWhoop5ClientHelloForTesting(_ sessionID: Whoop5SecureSessionID, until notBefore: Date) {
+        whoop5SecureHandshakeNotBefore = notBefore
+        holdWhoop5ClientHello(sessionID, until: notBefore)
+    }
+
+    func noteInboundStrapDataForTesting(at date: Date) { lastDataAt = date }
+
+    var whoop5HeldClientHelloForTesting: Whoop5SecureSessionID? { whoop5HeldClientHello }
+
     // MARK: Multi-WHOOP (additive — inert on the single-WHOOP path)
 
     /// Pin connections to ONE specific strap by its CBPeripheral.identifier.uuidString. The app sets
@@ -5754,10 +5765,10 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
 
     /// F1: hold the CLIENT_HELLO until the secure-recovery delay ends. A suspended app runs no timer and
     /// a quiet strap (off-wrist, resting) may send no notification for minutes, so a background task keeps
-    /// the app running through the hold. If iOS grants less time than the hold, the task's expiration
-    /// sends the hello early rather than leaving the link connected and unauthenticated. Inbound
-    /// notifications and the app changing foreground state also release a hold that has run out
-    /// (`releaseHeldWhoop5ClientHelloIfDue`).
+    /// the app running through the hold. If iOS grants less time than the hold, its expiration sends the
+    /// hello early only on a quiet link (`whoop5HoldBackgroundTimeExpiring`); a strap that is still
+    /// notifying releases it at the real deadline. Inbound notifications and the app changing foreground
+    /// state release a hold that has run out (`releaseHeldWhoop5ClientHelloIfDue`).
     private func holdWhoop5ClientHello(_ sessionID: Whoop5SecureSessionID, until notBefore: Date) {
         // Discovery is complete; its 20 s deadline must not fail the attempt during a longer hold.
         finishWhoop5DiscoveryDeadline()
@@ -5778,21 +5789,35 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
         if whoop5HoldBackgroundTask == .invalid {
             whoop5HoldBackgroundTask = UIApplication.shared.beginBackgroundTask(
                 withName: "WHOOP secure recovery hold") { [weak self] in
-                self?.whoop5HoldDeadlineReached()
+                self?.whoop5HoldBackgroundTimeExpiring()
             }
         }
         #endif
     }
 
-    /// The hold ran out, or iOS is about to end the background time: send the hello now.
+    /// The hold's release timer fired: send the hello now.
     private func whoop5HoldDeadlineReached() {
         releaseHeldWhoop5ClientHelloIfDue(force: true)
         stopWhoop5HoldKeepAlive()
     }
 
+    /// iOS is about to end the hold's background time; the task must end before this returns. Only a
+    /// quiet link gets the hello early. Otherwise the hold, its deadline and the release timer stay, and
+    /// the strap's next notification after the deadline (or the overdue timer at the next wake) sends it.
+    func whoop5HoldBackgroundTimeExpiring(now: Date = Date()) {
+        if ReconnectPolicy.shouldSendHeldHandshakeOnBackgroundExpiry(lastInboundAt: lastDataAt, now: now) {
+            releaseHeldWhoop5ClientHelloIfDue(now: now, force: true)
+        }
+        endWhoop5HoldBackgroundTask()
+    }
+
     private func stopWhoop5HoldKeepAlive() {
         whoop5HeldClientHelloWork?.cancel()
         whoop5HeldClientHelloWork = nil
+        endWhoop5HoldBackgroundTask()
+    }
+
+    private func endWhoop5HoldBackgroundTask() {
         #if os(iOS)
         if whoop5HoldBackgroundTask != .invalid {
             UIApplication.shared.endBackgroundTask(whoop5HoldBackgroundTask)
@@ -5802,13 +5827,18 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
     }
 
     /// Release a held CLIENT_HELLO once its delay has run out (or at once when `force` is set, or the
-    /// hold was cleared). The attempt must still be the current one on a connected link.
+    /// hold was cleared). The attempt must still be the current one on a connected link; if it is not,
+    /// there is nothing to send, and a deadline that has not passed stands for the reconnect.
     private func releaseHeldWhoop5ClientHelloIfDue(now: Date = Date(), force: Bool = false) {
         guard let sessionID = whoop5HeldClientHello else { return }
-        if !force, let notBefore = whoop5SecureHandshakeNotBefore, now < notBefore { return }
-        clearWhoop5SecureHold()
+        let deadlinePassed = whoop5SecureHandshakeNotBefore.map { now >= $0 } ?? true
+        if !force && !deadlinePassed { return }
         guard currentWhoop5SecureSessionID == sessionID,
-              let peripheral, peripheral.state == .connected else { return }
+              let peripheral, peripheral.state == .connected else {
+            if deadlinePassed { clearWhoop5SecureHold() } else { cancelHeldWhoop5ClientHello() }
+            return
+        }
+        clearWhoop5SecureHold()
         log("WHOOP 5/MG: secure recovery delay over; continuing the secure handshake")
         proceedToWhoop5ClientHello(on: peripheral, sessionID: sessionID)
     }

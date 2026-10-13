@@ -217,6 +217,18 @@ final class ReconnectPolicyBackgroundTests: XCTestCase {
         XCTAssertNil(ReconnectPolicy.laterHandshakeHold(existing: nil, new: nil, now: now))
     }
 
+    /// Review R3c 1: iOS ends a hold's background time (~30 s) before the 60 s rung. Only a quiet link
+    /// sends the hello early; a strap still notifying releases it at the real deadline.
+    func testOnlyAQuietLinkSendsTheHeldHandshakeWhenBackgroundTimeEnds() {
+        let now = Date(timeIntervalSince1970: 1_000)
+        XCTAssertFalse(ReconnectPolicy.shouldSendHeldHandshakeOnBackgroundExpiry(
+            lastInboundAt: now.addingTimeInterval(-1), now: now), "standard HR about once a second")
+        XCTAssertFalse(ReconnectPolicy.shouldSendHeldHandshakeOnBackgroundExpiry(
+            lastInboundAt: now.addingTimeInterval(-ReconnectPolicy.quietLinkSeconds), now: now))
+        XCTAssertTrue(ReconnectPolicy.shouldSendHeldHandshakeOnBackgroundExpiry(
+            lastInboundAt: now.addingTimeInterval(-25), now: now), "nothing since the reconnect")
+    }
+
     // MARK: Background handoff of an armed timer (finding #1)
 
     func testAnArmedRetryIsHandedOffWhenTheAppLeavesTheForeground() {
