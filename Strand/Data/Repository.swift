@@ -4252,10 +4252,10 @@ final class Repository: ObservableObject {
     /// regardless of `days`; false (the default) honours `days` exactly as before, so existing callers are
     /// byte-identical. The flag is forwarded to the non-strap `series(...)` delegation below so every source
     /// path honours it.
-    func exploreSeries(key: String, source: String, days: Int = 4000, fullHistory: Bool = false) async -> [(day: String, value: Double)] {
+    func exploreSeries(key: String, source: String, days: Int = 4000, fullHistory: Bool = false,
+                       now: Date = Date()) async -> [(day: String, value: Double)] {
         guard source == "my-whoop" else { return await series(key: key, source: source, days: days, fullHistory: fullHistory) }
         guard let store = await ensureStore() else { return [] }
-        let now = Date()
         let from = fullHistory ? "0000-01-01" : Self.dayString(Self.dateByAddingCalendarDays(-max(0, days), to: now))
         let to = fullHistory ? "9999-12-31" : Self.dayString(Self.dateByAddingCalendarDays(1, to: now))
 
@@ -5065,9 +5065,8 @@ final class Repository: ObservableObject {
     }
 
     /// Apple Health daily aggregates (steps/energy/vo2/hr).
-    func appleDailyRows(days: Int = 4000) async -> [AppleDaily] {
+    func appleDailyRows(days: Int = 4000, now: Date = Date()) async -> [AppleDaily] {
         guard let store = await ensureStore() else { return [] }
-        let now = Date()
         return (try? await store.appleDaily(
             deviceId: "apple-health",
             from: Self.dayString(Self.dateByAddingCalendarDays(-max(0, days), to: now)),

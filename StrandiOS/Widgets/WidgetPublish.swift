@@ -143,23 +143,17 @@ extension WidgetSnapshot {
         // This is the durable acknowledgement path. It contains only the verified core and in-memory Today
         // fields. HRV history, raw stress scans, and other enrichment run after the caller receives success.
         // What an earlier enrichment already added is carried over, so this commit cannot take it away.
-        let snap = WidgetCorePublication.carryingEnrichment(
-            into: WidgetCorePublication.makeCoreSnapshot(
-                model: model,
-                bundle: verifiedBundle,
-                now: now,
-                steps: steps),
-            from: VerifiedWidgetEnvelopeStore.rawActiveEnvelope(defaults: defaults),
+        let (snap, result) = WidgetCorePublication.commitCore(
+            bundle: verifiedBundle,
             token: token,
-            generation: verifiedProjection.generation,
-            logicalDay: verifiedBundle.widgetCore.logicalDay,
-            olderGenerationDay: olderGenerationDay)
-        let result = VerifiedWidgetEnvelopeStore.commit(
-            token: token,
-            generation: verifiedProjection.generation,
-            snapshot: snap,
-            defaults: defaults
-        )
+            defaults: defaults,
+            delivery: WidgetCorePublication.CoreDelivery(
+                bpm: model.bpm ?? model.live.heartRate,
+                batteryPct: model.live.batteryPct,
+                bonded: WidgetCorePublication.widgetBonded(model.live),
+                steps: steps,
+                olderGenerationDay: olderGenerationDay),
+            now: now)
         let commitKey = WidgetEnrichmentKey(
             epoch: token.epoch,
             contextId: verifiedProjection.contextId,
@@ -191,10 +185,14 @@ extension WidgetSnapshot {
     /// The reads cover the last few days only, enough for the bundle's own day; a failed read leaves the core's
     /// count, never a number from another day.
     @MainActor
-    static func todaySteps(repository: Repository, bundle: VerifiedExternalProjectionBundle) async -> Int? {
+    static func todaySteps(
+        repository: Repository,
+        bundle: VerifiedExternalProjectionBundle,
+        now: Date = Date()
+    ) async -> Int? {
         let day = bundle.widgetCore.logicalDay.key
-        let phone = await repository.appleDailyRows(days: 3).last(where: { $0.day == day })?.steps
-        let estimate = await repository.exploreSeries(key: "steps_est", source: "my-whoop", days: 3)
+        let phone = await repository.appleDailyRows(days: 3, now: now).last(where: { $0.day == day })?.steps
+        let estimate = await repository.exploreSeries(key: "steps_est", source: "my-whoop", days: 3, now: now)
             .last(where: { $0.day == day }).map { Int($0.value.rounded()) }
         return TodaySteps(daily: bundle.widgetCore.steps, apple: phone, estimate: estimate).value
     }
@@ -417,29 +415,19 @@ extension WidgetSnapshot {
         }
         let now = Date()
         let previous = WidgetLivePublishGate.currentSnapshot(now: now)
-        let sparkline = model.activeWorkout.map { Array($0.samples.suffix(48).map(\.bpm)) }
-        // The Strain Today shows. Without a value for this generation's day the core's own Strain stands.
-        let liveStrain = liveStoredStrain(
-            model.repo.canonicalStrain(for: verified.logicalDay.key), day: verified.logicalDay)
-        var next = previous ?? base
-        next.bpm = model.bpm ?? model.live.heartRate
-        next.batteryPct = model.live.batteryPct.map { Int($0.rounded()) }
-        next.bonded = WidgetCorePublication.widgetBonded(model.live)
-        next.strain = VerifiedWidgetEnvelopeStore.rawActiveEnvelope(defaults: defaults)?.snapshot.strain
-        next.applyLiveStrain(stored: liveStrain)
-        next.updated = now
-        next.hrSparkline = sparkline
-        if model.activeWorkout == nil { next.hrSparkline = nil }
-        let overlay = WidgetLiveOverlay(
-            epoch: token.epoch,
-            contextId: verified.contextId,
-            generation: verified.generation,
+        let (next, overlay) = WidgetCorePublication.assembleLive(
+            previous: previous,
+            base: base,
+            coreStrain: VerifiedWidgetEnvelopeStore.rawActiveEnvelope(defaults: defaults)?.snapshot.strain,
+            token: token,
+            verified: verified,
             bpm: model.bpm ?? model.live.heartRate,
-            batteryPct: model.live.batteryPct.map { Int($0.rounded()) },
+            batteryPct: model.live.batteryPct,
             bonded: WidgetCorePublication.widgetBonded(model.live),
-            hrSparkline: sparkline,
-            storedStrain: liveStrain,
-            updated: now)
+            workoutSparkline: model.activeWorkout.map { Array($0.samples.suffix(48).map(\.bpm)) },
+            // The Strain Today shows. Without a value for this generation's day the core's own Strain stands.
+            todayStrain: model.repo.canonicalStrain(for: verified.logicalDay.key),
+            now: now)
         guard WidgetLivePublishGate.shouldPublish(previous: previous, next: next, now: now) else { return }
         guard ActiveVerifiedSinkEpochStore.commitLiveOverlayIfCurrent(
             token: token,

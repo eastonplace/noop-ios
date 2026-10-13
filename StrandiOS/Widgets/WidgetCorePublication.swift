@@ -1,25 +1,93 @@
 #if os(iOS)
 import Foundation
 import NoopPhase34Core
+import WhoopStore
 
 /// O(1) durable Widget payload. History-series and stress enrichment are intentionally absent from this
 /// helper and run only after the outbox caller has received its core acknowledgement.
 @MainActor
 enum WidgetCorePublication {
-    static func makeCoreSnapshot(
-        model: AppModel,
+    /// What `publish` resolves, from the model and the store, before the durable commit. Plain values only, so
+    /// everything after them (the snapshot, the carried enrichment, the envelope commit) is `commitCore`, which
+    /// a test can drive against an isolated `UserDefaults`.
+    struct CoreDelivery {
+        var bpm: Int?
+        var batteryPct: Double?
+        var bonded: Bool
+        /// The Steps figure Today shows for the day (`WidgetSnapshot.todaySteps`); nil keeps the core's own count.
+        var steps: Int?
+        /// The day of the generation the envelope being replaced holds, when that is an older generation.
+        var olderGenerationDay: (generation: Int64, day: CivilDay)?
+    }
+
+    /// The durable core publication: build the core from the immutable bundle and the resolved delivery values,
+    /// put the enrichment of the envelope being replaced back on it, and commit the envelope. It never reads
+    /// history; HRV and stress enrichment run after the caller has its acknowledgement.
+    static func commitCore(
         bundle: VerifiedExternalProjectionBundle,
-        now: Date = Date(),
-        steps: Int? = nil
-    ) -> WidgetSnapshot {
-        makeCoreSnapshot(
-            bundle: bundle,
-            bpm: model.bpm ?? model.live.heartRate,
-            batteryPct: model.live.batteryPct,
-            bonded: widgetBonded(model.live),
-            now: now,
-            steps: steps
-        )
+        token: VerifiedSinkToken,
+        defaults: UserDefaults,
+        delivery: CoreDelivery,
+        now: Date
+    ) -> (snapshot: WidgetSnapshot, result: VerifiedProjectionGenerationWriteResult) {
+        let generation = bundle.projection.generation
+        let snapshot = carryingEnrichment(
+            into: makeCoreSnapshot(
+                bundle: bundle,
+                bpm: delivery.bpm,
+                batteryPct: delivery.batteryPct,
+                bonded: delivery.bonded,
+                now: now,
+                steps: delivery.steps),
+            from: VerifiedWidgetEnvelopeStore.rawActiveEnvelope(defaults: defaults),
+            token: token,
+            generation: generation,
+            logicalDay: bundle.widgetCore.logicalDay,
+            olderGenerationDay: delivery.olderGenerationDay)
+        let result = VerifiedWidgetEnvelopeStore.commit(
+            token: token,
+            generation: generation,
+            snapshot: snapshot,
+            defaults: defaults)
+        return (snapshot, result)
+    }
+
+    /// The live lane's two outputs for one tick: the in-memory snapshot the publish gate compares, and the
+    /// overlay that is persisted over the verified core. `coreStrain` is the verified core's own Strain
+    /// (display scale), `todayStrain` what Today resolves for the generation's day.
+    static func assembleLive(
+        previous: WidgetSnapshot?,
+        base: WidgetSnapshot,
+        coreStrain: Double?,
+        token: VerifiedSinkToken,
+        verified: VerifiedHealthProjection,
+        bpm: Int?,
+        batteryPct: Double?,
+        bonded: Bool,
+        workoutSparkline: [Int]?,
+        todayStrain: ResolvedStrain?,
+        now: Date
+    ) -> (next: WidgetSnapshot, overlay: WidgetLiveOverlay) {
+        let liveStrain = WidgetSnapshot.liveStoredStrain(todayStrain, day: verified.logicalDay)
+        var next = previous ?? base
+        next.bpm = bpm
+        next.batteryPct = batteryPct.map { Int($0.rounded()) }
+        next.bonded = bonded
+        next.strain = coreStrain
+        next.applyLiveStrain(stored: liveStrain)
+        next.updated = now
+        next.hrSparkline = workoutSparkline
+        let overlay = WidgetLiveOverlay(
+            epoch: token.epoch,
+            contextId: verified.contextId,
+            generation: verified.generation,
+            bpm: bpm,
+            batteryPct: batteryPct.map { Int($0.rounded()) },
+            bonded: bonded,
+            hrSparkline: workoutSparkline,
+            storedStrain: liveStrain,
+            updated: now)
+        return (next, overlay)
     }
 
     /// CORE-10: the one widget "bonded" definition, shared with the live lane: the strap link is up. The

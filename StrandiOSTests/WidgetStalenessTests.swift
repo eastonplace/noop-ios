@@ -326,21 +326,25 @@ final class WidgetStalenessTests: XCTestCase {
         let store = try await WhoopStore.inMemory()
         let repository = Repository(deviceId: Repository.whoopSource)
         repository.setStoreForTesting(store)
-        let today = Repository.localDayKey(Date())
-        let yesterday = Repository.localDayKey(Repository.dateByAddingCalendarDays(-1, to: Date()))
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let today = Repository.localDayKey(now)
+        let yesterday = Repository.localDayKey(Repository.dateByAddingCalendarDays(-1, to: now))
 
         // Nothing but an Apple row for another day: no number, never yesterday's.
         try await store.upsertAppleDaily([appleDay(yesterday, steps: 9_999)], deviceId: Repository.appleHealthSource)
-        let noCount = await WidgetSnapshot.todaySteps(repository: repository, bundle: try bundle(day: today, steps: nil))
+        let noCount = await WidgetSnapshot.todaySteps(
+            repository: repository, bundle: try bundle(day: today, steps: nil), now: now)
         XCTAssertNil(noCount)
 
         // The day's phone count fills the missing strap total.
         try await store.upsertAppleDaily([appleDay(today, steps: 8_421)], deviceId: Repository.appleHealthSource)
-        let phone = await WidgetSnapshot.todaySteps(repository: repository, bundle: try bundle(day: today, steps: nil))
+        let phone = await WidgetSnapshot.todaySteps(
+            repository: repository, bundle: try bundle(day: today, steps: nil), now: now)
         XCTAssertEqual(phone, 8_421)
 
         // A strap total outranks the phone, exactly as the Today tile.
-        let strap = await WidgetSnapshot.todaySteps(repository: repository, bundle: try bundle(day: today, steps: 3_000))
+        let strap = await WidgetSnapshot.todaySteps(
+            repository: repository, bundle: try bundle(day: today, steps: 3_000), now: now)
         XCTAssertEqual(strap, 3_000)
     }
 
@@ -348,16 +352,19 @@ final class WidgetStalenessTests: XCTestCase {
         let store = try await WhoopStore.inMemory()
         let repository = Repository(deviceId: Repository.whoopSource)
         repository.setStoreForTesting(store)
-        let today = Repository.localDayKey(Date())
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let today = Repository.localDayKey(now)
         try await store.upsertMetricSeries(
             [MetricPoint(day: today, key: "steps_est", value: 6_499.6)],
             deviceId: Repository.whoopSource + "-noop")
 
-        let estimated = await WidgetSnapshot.todaySteps(repository: repository, bundle: try bundle(day: today, steps: nil))
+        let estimated = await WidgetSnapshot.todaySteps(
+            repository: repository, bundle: try bundle(day: today, steps: nil), now: now)
         XCTAssertEqual(estimated, 6_500, "rounded the way Today rounds the estimate")
 
         try await store.upsertAppleDaily([appleDay(today, steps: 8_421)], deviceId: Repository.appleHealthSource)
-        let measured = await WidgetSnapshot.todaySteps(repository: repository, bundle: try bundle(day: today, steps: nil))
+        let measured = await WidgetSnapshot.todaySteps(
+            repository: repository, bundle: try bundle(day: today, steps: nil), now: now)
         XCTAssertEqual(measured, 8_421, "a measured phone count beats the estimate")
     }
 
@@ -539,5 +546,139 @@ final class WidgetStalenessTests: XCTestCase {
         XCTAssertEqual(try JSONDecoder().decode(ActiveVerifiedSinkEpochRecord.self, from: oldToken).epoch, 3)
         XCTAssertEqual(VerifiedWidgetEnvelopeStore.storageKey, "noop.widget.verified-envelope.v1")
         XCTAssertEqual(ActiveVerifiedSinkEpochStore.activeKey, "noop.external-sink.active-epoch.v1")
+    }
+
+    // MARK: - Wiring: what publish and publishLive hand to the pipeline
+
+    private let fixedNow = Date(timeIntervalSince1970: 1_800_000_000)
+
+    private func projection(day: String, generation: Int64) throws -> VerifiedHealthProjection {
+        try VerifiedHealthProjection(
+            contextId: "ctx", deviceId: "my-whoop", generation: generation,
+            logicalDay: CivilDay(key: day), metrics: [:])
+    }
+
+    private func delivery(
+        steps: Int? = nil,
+        older: (generation: Int64, day: CivilDay)? = nil
+    ) -> WidgetCorePublication.CoreDelivery {
+        WidgetCorePublication.CoreDelivery(
+            bpm: 64, batteryPct: 81, bonded: true, steps: steps, olderGenerationDay: older)
+    }
+
+    /// `publish` hands the durable commit exactly these inputs. The envelope that comes out has Today's Steps
+    /// in it (the strap's own count would otherwise stand) and the enrichment of the envelope it replaced.
+    func testTheCoreCommitPutsTodaysStepsAndTheEarlierEnrichmentInTheEnvelope() throws {
+        let token = try install(contextId: "ctx")
+        XCTAssertEqual(VerifiedWidgetEnvelopeStore.commit(
+            token: token, generation: 5, snapshot: enriched(core("ctx", generation: 5)), defaults: defaults),
+                       .published)
+
+        let committed = WidgetCorePublication.commitCore(
+            bundle: try bundle(day: "2026-08-08", steps: 3_000, generation: 5),
+            token: token, defaults: defaults, delivery: delivery(steps: 8_421), now: fixedNow)
+        XCTAssertEqual(committed.result, .published)
+
+        let shown = try XCTUnwrap(VerifiedWidgetEnvelopeStore.rawActiveEnvelope(defaults: defaults)).snapshot
+        XCTAssertEqual(shown, committed.snapshot)
+        XCTAssertEqual(shown.steps, 8_421, "Today's figure, not the strap's own 3,000")
+        XCTAssertEqual(shown.bpm, 64)
+        XCTAssertEqual(shown.restingHr, 52, "the core's own values still land")
+        XCTAssertEqual(shown.verifiedProjectionGeneration, 5)
+        XCTAssertEqual(shown.hourlyStress?.count, 24, "the enrichment of the replaced envelope is carried")
+        XCTAssertEqual(shown.stressSummary, "Moderate")
+        XCTAssertEqual(shown.hrvSparkline, [58, 60, 61])
+    }
+
+    func testTheCoreCommitCarriesAcrossGenerationsOnlyWithTheReplacedGenerationsDay() throws {
+        let token = try install(contextId: "ctx")
+        let day = try CivilDay(key: "2026-08-08")
+        XCTAssertEqual(VerifiedWidgetEnvelopeStore.commit(
+            token: token, generation: 5, snapshot: enriched(core("ctx", generation: 5)), defaults: defaults),
+                       .published)
+
+        let committed = WidgetCorePublication.commitCore(
+            bundle: try bundle(day: "2026-08-08", steps: nil, generation: 6),
+            token: token, defaults: defaults,
+            delivery: delivery(older: (generation: 5, day: day)), now: fixedNow)
+        XCTAssertEqual(committed.result, .published)
+        XCTAssertEqual(committed.snapshot.verifiedProjectionGeneration, 6)
+        XCTAssertEqual(committed.snapshot.hourlyStress?.count, 24)
+        XCTAssertEqual(committed.snapshot.hrvSparkline, [58, 60, 61])
+
+        // Without the replaced generation's day, nothing crosses.
+        let bare = WidgetCorePublication.commitCore(
+            bundle: try bundle(day: "2026-08-08", steps: nil, generation: 7),
+            token: token, defaults: defaults, delivery: delivery(), now: fixedNow)
+        XCTAssertNil(bare.snapshot.hourlyStress)
+        XCTAssertNil(bare.snapshot.hrvSparkline)
+    }
+
+    func testTheCoreCommitIsSupersededByANewerGenerationAndNeverBorrowsFromIt() throws {
+        let token = try install(contextId: "ctx")
+        XCTAssertEqual(VerifiedWidgetEnvelopeStore.commit(
+            token: token, generation: 9, snapshot: enriched(core("ctx", generation: 9)), defaults: defaults),
+                       .published)
+        let committed = WidgetCorePublication.commitCore(
+            bundle: try bundle(day: "2026-08-08", steps: 3_000, generation: 8),
+            token: token, defaults: defaults, delivery: delivery(steps: 8_421), now: fixedNow)
+        XCTAssertEqual(committed.result, .superseded)
+        XCTAssertEqual(try XCTUnwrap(VerifiedWidgetEnvelopeStore.rawActiveEnvelope(defaults: defaults)).generation, 9)
+    }
+
+    private func resolved(_ day: String, stored: Double) -> ResolvedStrain {
+        ResolvedStrain(day: day, storedValue: stored, version: 2, origin: .liveDayV2, sourceId: "strap")
+    }
+
+    /// `publishLive` hands the overlay Today's Strain for the generation's day, so the widget moves with Today
+    /// between strap passes. The overlay it persists is what the display path lays over the verified core.
+    func testTheLiveOverlayCarriesTodaysStrainAndTheDisplayPathShowsIt() throws {
+        let token = try install(contextId: "ctx")
+        var base = core("ctx", generation: 5)
+        base.strain = StrainScale.displayValue(fromStored: 30)
+        XCTAssertEqual(VerifiedWidgetEnvelopeStore.commit(
+            token: token, generation: 5, snapshot: base, defaults: defaults), .published)
+        var stale = base
+        stale.strain = StrainScale.displayValue(fromStored: 35)
+
+        let assembled = WidgetCorePublication.assembleLive(
+            previous: stale, base: base, coreStrain: base.strain, token: token,
+            verified: try projection(day: "2026-08-08", generation: 5),
+            bpm: 61, batteryPct: 80.4, bonded: true, workoutSparkline: nil,
+            todayStrain: resolved("2026-08-08", stored: 40), now: fixedNow)
+
+        XCTAssertEqual(assembled.overlay.storedStrain, 40)
+        XCTAssertEqual(assembled.overlay.epoch, token.epoch)
+        XCTAssertEqual(assembled.overlay.contextId, "ctx")
+        XCTAssertEqual(assembled.overlay.generation, 5)
+        XCTAssertEqual(assembled.overlay.batteryPct, 80)
+        XCTAssertEqual(assembled.next.strain, StrainScale.displayValue(fromStored: 40))
+        XCTAssertEqual(assembled.next.bpm, 61)
+
+        XCTAssertTrue(ActiveVerifiedSinkEpochStore.commitLiveOverlayIfCurrent(
+            token: token, generation: 5, defaults: defaults, overlay: assembled.overlay))
+        XCTAssertEqual(VerifiedWidgetEnvelopeStore.loadForDisplay(defaults: defaults)?.strain,
+                       StrainScale.displayValue(fromStored: 40))
+    }
+
+    /// A Strain that is not the generation's day's leaves the core's own, and the gate snapshot is rebuilt from
+    /// the core rather than from the previous tick.
+    func testTheLiveOverlayTakesNoStrainFromAnotherDay() throws {
+        let token = try install(contextId: "ctx")
+        var base = core("ctx", generation: 5)
+        base.strain = StrainScale.displayValue(fromStored: 30)
+        var stale = base
+        stale.strain = StrainScale.displayValue(fromStored: 35)
+
+        for today in [resolved("2026-08-07", stored: 40), nil] as [ResolvedStrain?] {
+            let assembled = WidgetCorePublication.assembleLive(
+                previous: stale, base: base, coreStrain: base.strain, token: token,
+                verified: try projection(day: "2026-08-08", generation: 5),
+                bpm: 61, batteryPct: 80, bonded: true, workoutSparkline: [70, 72],
+                todayStrain: today, now: fixedNow)
+            XCTAssertNil(assembled.overlay.storedStrain)
+            XCTAssertEqual(assembled.next.strain, base.strain)
+            XCTAssertEqual(assembled.overlay.hrSparkline, [70, 72])
+        }
     }
 }
