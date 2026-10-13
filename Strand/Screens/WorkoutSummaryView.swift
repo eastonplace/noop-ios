@@ -70,7 +70,7 @@ struct WorkoutSummaryView: View {
         .background(LivePalette.canvas.ignoresSafeArea())
         .safeAreaInset(edge: .top, spacing: 0) { header }
         .safeAreaInset(edge: .bottom, spacing: 0) { doneBar }
-        .sheet(isPresented: $showsDetails) {
+        .sheet(isPresented: $showsDetails, onDismiss: reload) {
             // The Workouts hub's own screen, as the hub presents it: a sheet with its own navigation stack and one close button.
             NavigationStack {
                 WorkoutDetailView(row: displayRow)
@@ -79,7 +79,13 @@ struct WorkoutSummaryView: View {
             }
             .noopSheetPresentation(largeFirst: true)
         }
-        .task { await load() }
+        // The row is read again whenever the store changes (a rescore after the save can change the strain, the energy and the
+        // heart rate), and when Details closes, so what this page says is never behind what Details just showed.
+        .task(id: repo.refreshSeq) { await load() }
+    }
+
+    private func reload() {
+        Task { await load() }
     }
 
     // MARK: Header
