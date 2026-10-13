@@ -108,6 +108,9 @@ struct CompareView: View {
     /// Default starter selection (falls back gracefully if a key is missing).
     private static let defaultKeys = ["recovery", "sleep_performance"]
 
+    /// The time zone the overlay's days are read in. It follows the device's zone (see the `.onReceive` below) rather than
+    /// whenever a redraw happens to ask, so the cached chart cannot outlive a zone change.
+    @State private var zoneID = TimeZone.current.identifier
     @State private var range: ExploreRange = .year
     /// Ordered selection (max 4). Drives both the read-out order and the colour mapping.
     @State private var selected: [MetricDescriptor] = []
@@ -138,6 +141,9 @@ struct CompareView: View {
                 FlatSectionSeparator()
                 results
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .NSSystemTimeZoneDidChange)) { _ in
+            zoneID = TimeZone.current.identifier
         }
         .task {
             await loadIfNeeded()
@@ -544,7 +550,7 @@ struct CompareView: View {
     /// What the overlay chart is built from. Wider than `correlationKey`: a line's colour and style and the time zone its days
     /// were read in change what is drawn without changing a correlation.
     private func overlayKey(_ shown: [ResolvedCompareSeries]) -> String {
-        CompareLogic.overlayKey(shown.map { ($0.id, $0.colorIndex, $0.slot, $0.rows) }, timeZone: TimeZone.current.identifier)
+        CompareLogic.overlayKey(shown.map { ($0.id, $0.colorIndex, $0.slot, $0.rows) }, timeZone: zoneID)
     }
 
     /// Cached accessor used by the body. Returns the memoized scan when the inputs match `pairCacheKey`; otherwise
