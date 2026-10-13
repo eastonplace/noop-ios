@@ -362,6 +362,55 @@ final class RepositoryEditRescoreTests: XCTestCase {
         XCTAssertTrue(dayLater.parkedTimestamps.isEmpty, "a park older than a day is retried")
     }
 
+    func testAParkExpiresInALiveProcessOnTheNextDrainRequest() async throws {
+        let calendar = try newYorkCalendar()
+        let start = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 10, day: 12, hour: 15)))
+        let clock = EditedDayAnalyzeRecorder()
+        clock.now = start
+        let queue = virtualClockQueue(clock, calendar: calendar)
+        queue.register(clock) { request in
+            clock.requests.append(request)
+            return clock.requests.count > EditedDayRescoreQueue.maximumFailures // fails until the range parks
+        }
+        let night = Int(try XCTUnwrap(calendar.date(byAdding: .day, value: -45, to: start)).timeIntervalSince1970)
+        queue.enqueue([night])
+        await settle(queue)
+        XCTAssertEqual(queue.parkedTimestamps, [night])
+        let parkedAt = clock.now
+
+        clock.now = parkedAt.addingTimeInterval(3_600)
+        queue.scheduleDrain() // e.g. the app becoming active an hour later
+        await settle(queue)
+        XCTAssertEqual(queue.parkedTimestamps, [night], "an hour-old park holds")
+
+        clock.now = parkedAt.addingTimeInterval(25 * 3_600)
+        queue.scheduleDrain() // the same process, a day later
+        await settle(queue)
+        XCTAssertTrue(queue.timestamps.isEmpty, "the expired park drained without a relaunch")
+        XCTAssertEqual(clock.requests.count, EditedDayRescoreQueue.maximumFailures + 1)
+    }
+
+    func testAParkDatedInTheFutureCountsAsExpired() async throws {
+        let calendar = try newYorkCalendar()
+        let start = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 10, day: 12, hour: 15)))
+        let defaults = try isolatedDefaults()
+        let clock = EditedDayAnalyzeRecorder()
+        clock.now = start.addingTimeInterval(7 * 86_400) // the wall clock was set a week ahead
+        let failing = virtualClockQueue(clock, calendar: calendar, defaults: defaults)
+        failing.register(clock) { _ in false }
+        let night = Int(try XCTUnwrap(calendar.date(byAdding: .day, value: -45, to: start)).timeIntervalSince1970)
+        failing.enqueue([night])
+        await settle(failing)
+        XCTAssertEqual(failing.parkedTimestamps, [night])
+        failing.cancel()
+
+        let corrected = EditedDayAnalyzeRecorder()
+        corrected.now = start
+        let relaunched = virtualClockQueue(corrected, calendar: calendar, defaults: defaults)
+        XCTAssertTrue(relaunched.parkedTimestamps.isEmpty, "the clock moved back, so the park expired")
+        XCTAssertEqual(relaunched.timestamps, [night])
+    }
+
     func testAParkedEntryInsideALaterCompletedChunkIsDropped() async throws {
         let calendar = try newYorkCalendar()
         let start = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 10, day: 12, hour: 15)))

@@ -160,8 +160,13 @@ final class EditedDayRescoreQueue {
     static let retryMaximumDelay: TimeInterval = 1_800
     static let parkExpiry: TimeInterval = 86_400
 
+    /// CFBundleVersion rarely changes between installs, so the executable's modification date makes every
+    /// in-place install a new build.
     static var currentBuild: String {
-        Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? ""
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? ""
+        let modified = (try? Bundle.main.executableURL?.resourceValues(forKeys: [.contentModificationDateKey]))?
+            .contentModificationDate
+        return modified.map { "\(version)-\(Int($0.timeIntervalSince1970))" } ?? version
     }
 
     private struct Entry: Equatable {
@@ -309,6 +314,7 @@ final class EditedDayRescoreQueue {
 
     /// Starts a drain after `delay` unless one is already pending or running.
     func scheduleDrain(after delay: Duration = .zero) {
+        unparkExpired() // the process can outlive a park by days
         guard drainTask == nil else {
             rerunRequested = true
             return
@@ -428,11 +434,13 @@ final class EditedDayRescoreQueue {
         persist()
     }
 
-    /// A park ends when the app build changed (the failure may be fixed) or after `parkExpiry`.
+    /// A park ends when the app build changed (the failure may be fixed) or after `parkExpiry`. A park dated
+    /// in the future came from a wall clock that moved back, so it counts as expired.
     private func unparkExpired() {
         var changed = false
         for (timestamp, entry) in entries where entry.parked {
-            let expired = entry.parkedAt.map { now().timeIntervalSince($0) > Self.parkExpiry } ?? true
+            let age = entry.parkedAt.map { now().timeIntervalSince($0) }
+            let expired = age.map { $0 > Self.parkExpiry || $0 < 0 } ?? true
             guard entry.parkedBuild != build || expired else { continue }
             entries[timestamp] = Entry(version: entry.version)
             changed = true
