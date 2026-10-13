@@ -1104,6 +1104,37 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
         XCTAssertEqual(replayedRows, referenceRows)
     }
 
+    /// The scene edge and the rescore processing task arm another wake only while the v3 rescore or its settle pass
+    /// has chunks left. 45 days is two 30-day chunks per phase, one chunk per batch.
+    func testTheRescoreIsPendingUntilV3AndItsSettlePassHaveBothFinished() async throws {
+        let defaults = UserDefaults.standard
+        let keys = [IntelligenceEngine.effortRescoreFlagKey, IntelligenceEngine.effortRescoreOffsetKey]
+        let saved = keys.map { defaults.object(forKey: $0) }
+        for key in keys { defaults.removeObject(forKey: key) }
+        defer {
+            for (key, value) in zip(keys, saved) {
+                if let value { defaults.set(value, forKey: key) } else { defaults.removeObject(forKey: key) }
+            }
+        }
+        let harness = try await makeHarness(days: 45, strapDays: 0..<2)
+        let calendar = utcCalendar
+        var pending = await harness.engine.effortRescoreIsPending()
+        XCTAssertTrue(pending, "nothing has run yet")
+        var batches = 0
+        while pending, batches < 8 {
+            await harness.engine.runEffortRescoreIfNeeded(
+                historyDays: 60, reference: harness.reference, calendar: calendar)
+            batches += 1
+            pending = await harness.engine.effortRescoreIsPending()
+            if batches == 1 { XCTAssertTrue(pending, "one chunk of four is done") }
+        }
+        XCTAssertTrue((2...4).contains(batches), "at most two v3 chunks, then two settle chunks: \(batches)")
+        XCTAssertFalse(pending)
+        let settle = try await harness.store.durableMigrationProgress(
+            key: IntelligenceEngine.effortRescoreSettleDurableProgressKey)
+        XCTAssertEqual(settle?.state, .complete)
+    }
+
     private struct ChunkWrites: Equatable {
         let daily: [String: DailyMetric]
         let rest: [MetricPoint]

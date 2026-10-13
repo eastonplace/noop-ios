@@ -620,6 +620,24 @@ final class IntelligenceEngine: ObservableObject {
     }
     private var effortRescoreRunning = false
 
+    /// True while the v3 rescore or its settle pass still has chunks to run (or has not started). The scene-edge
+    /// grant and the rescore BGProcessingTask use it to decide whether another wake is worth arming. It reads the
+    /// same durable progress rows `runEffortRescoreIfNeeded` writes, so an install with nothing to rescore settles to
+    /// false after one run.
+    func effortRescoreIsPending() async -> Bool {
+        guard let store = await repo.storeHandle() else { return false }
+        let v3 = try? await store.durableMigrationProgress(key: Self.effortRescoreDurableProgressKey)
+        if let v3 {
+            guard v3.state == .complete else { return true }
+        } else if !UserDefaults.standard.bool(forKey: Self.effortRescoreFlagKey) {
+            return true   // v3 has not started
+        }
+        guard let settle = try? await store.durableMigrationProgress(key: Self.effortRescoreSettleDurableProgressKey) else {
+            return true
+        }
+        return settle.state != .complete
+    }
+
     /// One-shot, on-upgrade FULL-history Effort rescore (#313 PART B). The Effort hero gauge + numbers
     /// moved from the old 0–21 axis to NOOP's own 0–100 axis. On-device computed rows since v2.6.1
     /// already store 0–100, but rows the engine computed on an OLDER build (capped at `maxDays` per run,

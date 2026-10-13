@@ -18,6 +18,30 @@ final class EffortRescoreGrantTests: XCTestCase {
         var resume: CheckedContinuation<Void, Never>?
     }
 
+    /// A background-execution assertion that records what the grant asks of it.
+    @MainActor
+    private final class FakeAssertion {
+        private(set) var begun = 0
+        private(set) var ended: [Int] = []
+        private var handlers: [@MainActor () -> Void] = []
+
+        var provider: BackgroundExecutionAssertion {
+            BackgroundExecutionAssertion(
+                begin: { [self] onExpiry in
+                    begun += 1
+                    handlers.append(onExpiry)
+                    return begun
+                },
+                end: { [self] id in ended.append(id) })
+        }
+
+        /// iOS calling the expiration handler of the `index`th assertion (the newest by default).
+        func expire(_ index: Int? = nil) {
+            guard let handler = index.map({ handlers[$0] }) ?? handlers.last else { return }
+            handler()
+        }
+    }
+
     /// Waits for an effect of the grant's `.background`-priority task. `Task.yield` alone is not enough: with only a
     /// background-priority job pending, the runtime hands the main actor straight back to the (higher-priority) test
     /// without running it, so the test has to suspend for real. Polls, so a slow machine only makes it wait longer.
@@ -47,7 +71,7 @@ final class EffortRescoreGrantTests: XCTestCase {
     }
 
     func testAnInactiveEdgeStartsNoGrant() async {
-        let grant = EffortRescoreGrant()
+        let grant = EffortRescoreGrant(assertion: FakeAssertion().provider)
         let probe = Probe()
         probe.background = false
         start(grant, probe) { _, _ in }
@@ -57,7 +81,7 @@ final class EffortRescoreGrantTests: XCTestCase {
     }
 
     func testTheOtherGatesStopAGrantFromStarting() async {
-        let grant = EffortRescoreGrant()
+        let grant = EffortRescoreGrant(assertion: FakeAssertion().provider)
         let probe = Probe()
         probe.background = true
         probe.mayRun = false
@@ -68,7 +92,7 @@ final class EffortRescoreGrantTests: XCTestCase {
     }
 
     func testABackgroundEdgeStartsOneUnpausedGrantAndItClears() async {
-        let grant = EffortRescoreGrant()
+        let grant = EffortRescoreGrant(assertion: FakeAssertion().provider)
         let probe = Probe()
         probe.background = true
         start(grant, probe) { _, _ in }
@@ -79,7 +103,7 @@ final class EffortRescoreGrantTests: XCTestCase {
     }
 
     func testLeavingTheBackgroundPausesTheGrantBeforeItsNextChunk() async {
-        let grant = EffortRescoreGrant()
+        let grant = EffortRescoreGrant(assertion: FakeAssertion().provider)
         let probe = Probe()
         probe.background = true
         start(grant, probe) { probe, shouldPause in
@@ -96,7 +120,7 @@ final class EffortRescoreGrantTests: XCTestCase {
     }
 
     func testAForegroundReturnCancelsTheRunningGrant() async {
-        let grant = EffortRescoreGrant()
+        let grant = EffortRescoreGrant(assertion: FakeAssertion().provider)
         let probe = Probe()
         probe.background = true
         start(grant, probe) { probe, _ in
@@ -112,7 +136,7 @@ final class EffortRescoreGrantTests: XCTestCase {
     }
 
     func testAGrantIsNotStartedTwiceWhileOneIsActive() async {
-        let grant = EffortRescoreGrant()
+        let grant = EffortRescoreGrant(assertion: FakeAssertion().provider)
         let probe = Probe()
         probe.background = true
         start(grant, probe) { probe, _ in
@@ -128,7 +152,7 @@ final class EffortRescoreGrantTests: XCTestCase {
     }
 
     func testAfterACancelTheNextBackgroundEdgeStartsAgain() async {
-        let grant = EffortRescoreGrant()
+        let grant = EffortRescoreGrant(assertion: FakeAssertion().provider)
         let probe = Probe()
         probe.background = true
         start(grant, probe) { probe, _ in
@@ -145,7 +169,7 @@ final class EffortRescoreGrantTests: XCTestCase {
     /// checkpoint, often behind foreground store work). The engine drops a second caller silently while one is
     /// running, so a grant that started at once would do nothing for the whole stay. It waits for the first.
     func testAGrantStartedWhileACancelledOneUnwindsWaitsForItInsteadOfNoOpping() async {
-        let grant = EffortRescoreGrant()
+        let grant = EffortRescoreGrant(assertion: FakeAssertion().provider)
         let probe = Probe()
         probe.background = true
         // The first run ignores cancellation until released, like an engine that has not reached a checkpoint.
@@ -171,7 +195,7 @@ final class EffortRescoreGrantTests: XCTestCase {
 
     /// A grant that is cancelled while it waits behind an unwinding one never enters the engine at all.
     func testAGrantCancelledWhileItWaitsBehindAnUnwindingOneNeverRuns() async {
-        let grant = EffortRescoreGrant()
+        let grant = EffortRescoreGrant(assertion: FakeAssertion().provider)
         let probe = Probe()
         probe.background = true
         start(grant, probe) { probe, _ in
@@ -188,5 +212,116 @@ final class EffortRescoreGrantTests: XCTestCase {
         await settle()
         XCTAssertEqual(probe.runs, 1)
         XCTAssertFalse(grant.isUnwinding)
+    }
+
+    // MARK: - The background-execution assertion
+
+    func testARunningGrantHoldsOneAssertionAndEndsItWhenItFinishes() async {
+        let assertion = FakeAssertion()
+        let grant = EffortRescoreGrant(assertion: assertion.provider)
+        let probe = Probe()
+        probe.background = true
+        start(grant, probe) { probe, _ in
+            await withCheckedContinuation { probe.resume = $0 }
+        }
+        await waitUntil { probe.resume != nil }
+        XCTAssertEqual(assertion.begun, 1, "the process is kept alive for the chunk")
+        XCTAssertTrue(assertion.ended.isEmpty)
+        probe.resume?.resume()
+        await waitUntil { !grant.isActive }
+        XCTAssertEqual(assertion.ended, [1])
+    }
+
+    func testAGrantThatDoesNotRunNeverTakesAnAssertion() async {
+        let assertion = FakeAssertion()
+        let grant = EffortRescoreGrant(assertion: assertion.provider)
+        let probe = Probe()
+        probe.background = false
+        start(grant, probe) { _, _ in }
+        await settle()
+        XCTAssertEqual(assertion.begun, 0)
+        XCTAssertTrue(assertion.ended.isEmpty)
+    }
+
+    func testAForegroundCancelEndsTheAssertionOnceEvenWhileTheChunkUnwinds() async {
+        let assertion = FakeAssertion()
+        let grant = EffortRescoreGrant(assertion: assertion.provider)
+        let probe = Probe()
+        probe.background = true
+        start(grant, probe) { probe, _ in
+            await withCheckedContinuation { probe.resume = $0 }
+        }
+        await waitUntil { probe.resume != nil }
+        grant.cancel()
+        XCTAssertEqual(assertion.ended, [1], "the foreground needs no background time")
+        probe.resume?.resume()
+        await waitUntil { !grant.isUnwinding }
+        XCTAssertEqual(assertion.ended, [1], "finishing after the cancel does not end it again")
+    }
+
+    func testExpirationCancelsTheGrantAndEndsTheAssertionOnce() async {
+        let assertion = FakeAssertion()
+        let grant = EffortRescoreGrant(assertion: assertion.provider)
+        let probe = Probe()
+        probe.background = true
+        start(grant, probe) { probe, _ in
+            do { try await Task.sleep(for: .seconds(60)) } catch { probe.sawCancellation = true }
+        }
+        await waitUntil { assertion.begun == 1 && probe.runs == 1 }
+        assertion.expire()
+        XCTAssertEqual(assertion.ended, [1], "ended before the handler returns")
+        XCTAssertFalse(grant.isActive, "the grant is cancelled")
+        await waitUntil { probe.sawCancellation && !grant.isUnwinding }
+        XCTAssertTrue(probe.sawCancellation)
+        XCTAssertEqual(assertion.ended, [1])
+    }
+
+    func testAnExpirationAfterTheGrantFinishedDoesNotEndTheAssertionAgain() async {
+        let assertion = FakeAssertion()
+        let grant = EffortRescoreGrant(assertion: assertion.provider)
+        let probe = Probe()
+        probe.background = true
+        start(grant, probe) { _, _ in }
+        await waitUntil { !grant.isActive && probe.runs == 1 }
+        XCTAssertEqual(assertion.ended, [1])
+        assertion.expire()
+        XCTAssertEqual(assertion.ended, [1])
+    }
+
+    func testAnEarlierGrantsLateExpirationHandlerDoesNotCancelTheNextGrant() async {
+        let assertion = FakeAssertion()
+        let grant = EffortRescoreGrant(assertion: assertion.provider)
+        let probe = Probe()
+        probe.background = true
+        start(grant, probe) { _, _ in }
+        await waitUntil { !grant.isActive && probe.runs == 1 }
+        start(grant, probe) { probe, _ in
+            do { try await Task.sleep(for: .seconds(60)) } catch { probe.sawCancellation = true }
+        }
+        await waitUntil { assertion.begun == 2 && probe.runs == 2 }
+        assertion.expire(0)
+        await settle()
+        XCTAssertTrue(grant.isActive, "the first grant's handler is spent: it leaves the live grant alone")
+        XCTAssertFalse(probe.sawCancellation)
+        XCTAssertEqual(assertion.ended, [1])
+        grant.cancel()
+        XCTAssertEqual(assertion.ended, [1, 2])
+    }
+
+    func testCancellingTheWaiterCancelsTheGrant() async {
+        let grant = EffortRescoreGrant(assertion: FakeAssertion().provider)
+        let probe = Probe()
+        probe.background = true
+        start(grant, probe) { probe, _ in
+            do { try await Task.sleep(for: .seconds(60)) } catch { probe.sawCancellation = true }
+        }
+        await waitUntil { probe.runs == 1 }
+        let waiter = Task { @MainActor in await grant.waitUntilIdle() }
+        await settle()
+        waiter.cancel()
+        await waiter.value
+        await waitUntil { probe.sawCancellation }
+        XCTAssertTrue(probe.sawCancellation, "an expired processing task stops the chunk it was waiting on")
+        XCTAssertFalse(grant.isActive)
     }
 }

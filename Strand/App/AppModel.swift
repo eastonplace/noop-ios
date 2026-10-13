@@ -2741,6 +2741,48 @@ final class AppModel: ObservableObject {
         return gpsCommitted && workoutCommitted
     }
 
+    /// The gates a history-rescore chunk needs: the repository loaded, Today painted (a foreground concern, so
+    /// the processing task skips it: it has no screen), the app not active, and no import, strap backfill or
+    /// workout in progress.
+    private func effortRescoreMayRun(requiresFirstPaint: Bool) -> Bool {
+        repo.loaded
+            && (!requiresFirstPaint || repo.todayHealthSnapshot != nil)
+            && !applicationIsActive
+            && !hasActiveImport
+            && !live.backfilling
+            && !hasActiveWorkoutSession
+    }
+
+    private func startEffortRescoreGrant(requiresFirstPaint: Bool) {
+        effortRescoreGrant.start(
+            isBackground: { RescoreBackgroundPolicy.isGenuinelyBackground },
+            mayRun: { [weak self] in self?.effortRescoreMayRun(requiresFirstPaint: requiresFirstPaint) ?? false },
+            run: { [weak self] shouldPause in
+                await self?.intelligence.runEffortRescoreIfNeeded(shouldPause: shouldPause)
+            })
+    }
+
+    /// True while the v3 or settle rescore has chunks left.
+    func effortRescoreIsPending() async -> Bool {
+        await intelligence.effortRescoreIsPending()
+    }
+
+    #if os(iOS)
+    /// The history rescore's share of one processing-task wake: up to `maxChunks` 30-day chunks, one grant each
+    /// (the same grant the scene edge starts, so a foreground return, an import, a backfill or a workout stops it
+    /// and a scene-edge grant already running is joined, never doubled). Expiry cancels the waiting worker, which
+    /// cancels the grant; a chunk that was cut off leaves its durable cursor where it was. Low Power Mode skips it.
+    func runEffortRescoreForBackgroundTask(maxChunks: Int = 4) async {
+        guard !ProcessInfo.processInfo.isLowPowerModeEnabled else { return }
+        for _ in 0..<maxChunks {
+            guard !Task.isCancelled, effortRescoreMayRun(requiresFirstPaint: false),
+                  await intelligence.effortRescoreIsPending() else { return }
+            startEffortRescoreGrant(requiresFirstPaint: false)
+            await effortRescoreGrant.waitUntilIdle()
+        }
+    }
+    #endif
+
     func setApplicationActive(_ active: Bool) {
         applicationIsActive = active
         if !active {
@@ -2752,20 +2794,16 @@ final class AppModel: ObservableObject {
             // (Control Center, the app switcher) would otherwise run a full-history chunk in the foreground,
             // holding the analysis lock and the store queue. Every batch persists its cursor before yielding,
             // and returning to the foreground cancels the grant (see below).
-            effortRescoreGrant.start(
-                isBackground: { RescoreBackgroundPolicy.isGenuinelyBackground },
-                mayRun: { [weak self] in
-                    guard let self else { return false }
-                    return self.repo.loaded
-                        && self.repo.todayHealthSnapshot != nil
-                        && !self.applicationIsActive
-                        && !self.hasActiveImport
-                        && !self.live.backfilling
-                        && !self.hasActiveWorkoutSession
-                },
-                run: { [weak self] shouldPause in
-                    await self?.intelligence.runEffortRescoreIfNeeded(shouldPause: shouldPause)
-                })
+            startEffortRescoreGrant(requiresFirstPaint: true)
+            #if os(iOS)
+            // The grant holds a background-execution assertion, but iOS ends that after a short stay. While the
+            // history rescore is unfinished, keep the processing task armed so the remaining chunks get a stay of
+            // their own instead of replaying the same chunk on borrowed time.
+            Task { [weak self] in
+                guard let self, await self.intelligence.effortRescoreIsPending() else { return }
+                HistoricalScoringBackgroundTaskRegistrar.schedule()
+            }
+            #endif
         } else {
             // The chunk is idempotent and replays from its durable cursor, so a foreground return simply stops it.
             effortRescoreGrant.cancel()
