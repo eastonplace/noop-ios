@@ -953,6 +953,7 @@ final class AppModel: ObservableObject {
         case waitingForSourceTransition = "waiting for source transition"
         case kept
         case closedSourceLeftAlone = "no context, left alone"
+        case waitingForProjection = "waiting for projection"
         case activated
         case failed
     }
@@ -974,11 +975,20 @@ final class AppModel: ObservableObject {
         defaults: UserDefaults,
         activateSinks: (_ contextId: String, _ epoch: UInt64) -> Bool
     ) -> VerifiedSinkBootstrapOutcome {
-        let expectedContextId = verifiedSinkContextId(projection: projectionContextId, snapshot: snapshotContextId)
         if hasPendingTransition { return .waitingForSourceTransition }
         guard repositoryLoaded else { return .repositoryNotLoaded }
+        let activeToken = ActiveVerifiedSinkEpochStore.activeToken(defaults: defaults)
+        // The snapshot's context stands in for a missing token only. At a cold launch there is no projection yet (the
+        // historical pipeline publishes it after this runs), and the token that exists may name the projection the
+        // widgets render: rotating it from the snapshot would blank them. It is left alone, and the projection observer
+        // repairs it once a projection loads (`repairVerifiedSinkIfContextMoved`).
+        if projectionContextId == nil, let snapshotContextId, let activeToken,
+           activeToken.contextId != snapshotContextId {
+            return .waitingForProjection
+        }
+        let expectedContextId = verifiedSinkContextId(projection: projectionContextId, snapshot: snapshotContextId)
         switch VerifiedSinkBootstrapPolicy.decide(
-            activeToken: ActiveVerifiedSinkEpochStore.activeToken(defaults: defaults),
+            activeToken: activeToken,
             expectedContextId: expectedContextId,
             hasPendingTransition: false
         ) {
@@ -1008,8 +1018,9 @@ final class AppModel: ObservableObject {
     /// The context the repair names. Widget and Live Activity writes are admitted only under a token naming the verified
     /// projection's context (`WidgetSnapshot.publish`, `LiveActivityDriveAdmission`), so the projection's comes first: a
     /// token that matches it is kept even while the day's snapshot has moved on, and the widgets it feeds keep working.
-    /// The snapshot's context stands in only while there is no projection yet; when one arrives naming another context,
-    /// the projection observer repairs again (`repairVerifiedSinkIfContextMoved`).
+    /// The snapshot's context stands in only while there is no projection yet, and only for a missing token (an existing
+    /// one waits for the projection); when one arrives naming another context, the projection observer repairs again
+    /// (`repairVerifiedSinkIfContextMoved`).
     static func verifiedSinkContextId(projection: String?, snapshot: String?) -> String? {
         projection ?? snapshot
     }

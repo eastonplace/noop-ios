@@ -64,7 +64,7 @@ final class VerifiedSinkBootstrapTests: XCTestCase {
             token: old, generation: 5, defaults: defaults,
             generationKey: ActiveVerifiedSinkEpochStore.liveActivityGenerationKey,
             writeAndReadBackPayload: { _ in true })
-        XCTAssertEqual(bootstrap(context: "context-B"), .activated)
+        XCTAssertEqual(bootstrap(context: "context-B", projection: "context-B"), .activated)
         let token = try XCTUnwrap(ActiveVerifiedSinkEpochStore.activeToken(defaults: defaults))
         XCTAssertEqual(token.contextId, "context-B")
         XCTAssertGreaterThan(token.epoch, old.epoch)
@@ -81,7 +81,7 @@ final class VerifiedSinkBootstrapTests: XCTestCase {
             token: old, generation: 3, snapshot: oldSnapshot, defaults: defaults), .published)
         XCTAssertNotNil(VerifiedWidgetEnvelopeStore.loadForDisplay(defaults: defaults))
 
-        XCTAssertEqual(bootstrap(context: "context-B"), .activated)
+        XCTAssertEqual(bootstrap(context: "context-B", projection: "context-B"), .activated)
         XCTAssertNil(VerifiedWidgetEnvelopeStore.load(defaults: defaults), "the old epoch's envelope is gone")
         XCTAssertNil(defaults.data(forKey: ActiveVerifiedSinkEpochStore.widgetLiveOverlayKey))
 
@@ -173,6 +173,30 @@ final class VerifiedSinkBootstrapTests: XCTestCase {
         XCTAssertEqual(admission.recovery, 64)
     }
 
+    /// A cold launch: the token and widget envelope name the projection the widgets render, the day's snapshot names
+    /// another context, and the projection has not loaded yet. Nothing is rotated or cleared; once the projection loads
+    /// and matches, the token is kept.
+    func testAtColdLaunchAnExistingTokenIsNeverRotatedFromTheSnapshot() throws {
+        let token = try install(contextId: "context-P")
+        let snapshot = WidgetSnapshot(recovery: 71, bpm: nil, batteryPct: nil, bonded: false, updated: Date(),
+                                      verifiedContextId: "context-P", verifiedProjectionGeneration: 3)
+        XCTAssertEqual(VerifiedWidgetEnvelopeStore.commit(
+            token: token, generation: 3, snapshot: snapshot, defaults: defaults), .published)
+        let envelope = defaults.data(forKey: VerifiedWidgetEnvelopeStore.storageKey)
+        let record = activeRecord
+
+        XCTAssertEqual(bootstrap(context: "context-S", projection: nil), .waitingForProjection)
+        XCTAssertEqual(activeRecord, record, "the token was not rotated")
+        XCTAssertEqual(defaults.data(forKey: VerifiedWidgetEnvelopeStore.storageKey), envelope,
+                       "the widget envelope survives")
+
+        XCTAssertEqual(bootstrap(context: "context-S", projection: "context-P"), .kept, "the projection loaded")
+        XCTAssertEqual(activeRecord, record)
+        XCTAssertEqual(defaults.data(forKey: VerifiedWidgetEnvelopeStore.storageKey), envelope)
+        XCTAssertTrue(activations.isEmpty)
+    }
+
+    /// The snapshot's context is used for a missing token: an install from before the token gets one at once.
     func testWithoutAProjectionTheSnapshotsContextIsActivated() throws {
         XCTAssertEqual(bootstrap(context: "context-S", projection: nil), .activated)
         XCTAssertEqual(ActiveVerifiedSinkEpochStore.activeToken(defaults: defaults)?.contextId, "context-S")
