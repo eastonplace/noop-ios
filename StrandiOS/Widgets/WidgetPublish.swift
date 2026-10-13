@@ -140,6 +140,7 @@ extension WidgetSnapshot {
             model: model, defaults: defaults, token: token, olderThan: verifiedProjection.generation)
         let now = Date()
         let steps = await todaySteps(repository: model.repo, bundle: verifiedBundle, now: now)
+        let hrv = await todayHRV(store: await model.repo.storeHandle(), bundle: verifiedBundle)
         // This is the durable acknowledgement path. It contains only the verified core and in-memory Today
         // fields. HRV history, raw stress scans, and other enrichment run after the caller receives success.
         // What an earlier enrichment already added is carried over, so this commit cannot take it away.
@@ -153,6 +154,7 @@ extension WidgetSnapshot {
                 bonded: WidgetCorePublication.widgetBonded(model.live),
                 steps: steps,
                 currentDayStrain: todayStrain(repository: model.repo, now: now),
+                hrv: hrv,
                 olderGenerationDay: olderGenerationDay),
             now: now)
         let commitKey = WidgetEnrichmentKey(
@@ -210,6 +212,20 @@ extension WidgetSnapshot {
         let key = WidgetCoreDay.currentKey(now: now, calendar: calendar)
         guard let day = try? CivilDay(key: key) else { return nil }
         return liveStoredStrain(repository.canonicalStrain(for: key), day: day)
+    }
+
+    /// The HRV scalar for the bundle's night, computed in the core path so every core carries it: the night's own
+    /// RMSSD, else the freshest earlier night inside the window Today carries one for (`CarriedVitalWindow`),
+    /// read from the same sources and by the same rule the enrichment uses. A failed read leaves nil.
+    static func todayHRV(store: WhoopStore?, bundle: VerifiedExternalProjectionBundle) async -> Int? {
+        guard let store else { return nil }
+        let anchorDay = bundle.widgetCore.logicalDay
+        let series = (try? await verifiedHRVSeries(
+            store: store,
+            sourceIds: bundle.verifiedEnrichmentSourceIds,
+            anchorDay: anchorDay,
+            dayCount: CarriedVitalWindow.maximumAgeDays + 1)) ?? []
+        return widgetHRVProjection(from: series, anchorDay: anchorDay).current
     }
 
     /// The logical day of the generation the App Group envelope currently holds, when that generation is older
@@ -301,17 +317,17 @@ extension WidgetSnapshot {
     ) async {
         let projection = bundle.projection
         let anchorDay = bundle.widgetCore.logicalDay
-        let hrvSeries: [(day: String, value: Double)]
+        let hrvSeries: [(day: String, value: Double)]?
         if let store = await model.repo.storeHandle() {
-            hrvSeries = (try? await verifiedHRVSeries(
+            hrvSeries = try? await verifiedHRVSeries(
                 store: store,
                 sourceIds: bundle.verifiedEnrichmentSourceIds,
                 anchorDay: anchorDay
-            )) ?? []
+            )
         } else {
-            hrvSeries = []
+            hrvSeries = nil
         }
-        let hrvProjection = widgetHRVProjection(from: hrvSeries, anchorDay: anchorDay)
+        let hrvProjection = widgetHRVProjection(from: hrvSeries ?? [], anchorDay: anchorDay)
         let stress = await enrichmentStress(
             store: await model.repo.storeHandle(), bundle: bundle, now: Date())
         guard let defaults = UserDefaults(suiteName: WidgetSnapshot.suiteName),
@@ -323,7 +339,8 @@ extension WidgetSnapshot {
         // Start from the immutable verified payload, never the display view. The display view may contain
         // a transient live overlay; baking it back into the envelope would turn non-durable HR/battery
         // fields into verified state and could resurrect them after a transition or relaunch.
-        enriched.hrv = hrvProjection.current
+        // The core already carries the scalar. A read that failed outright must not blank it.
+        if hrvSeries != nil { enriched.hrv = hrvProjection.current }
         enriched.hrvSparkline = hrvProjection.sparkline
         enriched.hourlyStress = stress.hours
         enriched.stressSummary = stress.summary

@@ -40,6 +40,8 @@ enum WidgetCorePublication {
         /// The stored-scale Strain Today shows for the current logical day. It stands in for the core's own
         /// Strain only when the core is from an earlier day.
         var currentDayStrain: Double? = nil
+        /// Last night's HRV as Today shows it (`WidgetSnapshot.todayHRV`).
+        var hrv: Int? = nil
         /// The day of the generation the envelope being replaced holds, when that is an older generation.
         var olderGenerationDay: (generation: Int64, day: CivilDay)?
     }
@@ -65,7 +67,8 @@ enum WidgetCorePublication {
                 now: now,
                 calendar: calendar,
                 steps: delivery.steps,
-                currentDayStrain: delivery.currentDayStrain),
+                currentDayStrain: delivery.currentDayStrain,
+                hrv: delivery.hrv),
             from: VerifiedWidgetEnvelopeStore.rawActiveEnvelope(defaults: defaults),
             token: token,
             generation: generation,
@@ -139,6 +142,10 @@ enum WidgetCorePublication {
     /// - a newer generation carries only for the same logical day, because enrichment is that day's HRV and
     ///   hourly stress. `olderGenerationDay` is the day the replaced generation described, read from its
     ///   immutable bundle; without it nothing crosses a generation;
+    /// - the HRV scalar is the night that generation was scored on, and a newer generation can have a different
+    ///   night (it is scored after the older one was committed), so it is never carried across generations: the
+    ///   core computes it itself (`CoreDelivery.hrv`). Only a re-commit of the same generation, whose core
+    ///   could not compute it, keeps the one already there. The sparkline is history and carries as above;
     /// - the hourly stress and its summary are the core's day's, so they carry only while that day is the current
     ///   logical day (`dayIsCurrent`); a core that is behind has no strip, not yesterday's;
     /// - an envelope of another epoch or context carries nothing.
@@ -162,7 +169,7 @@ enum WidgetCorePublication {
                   older.day == logicalDay else { return core }
         }
         var carried = core
-        if carried.hrv == nil { carried.hrv = existing.snapshot.hrv }
+        if carried.hrv == nil, existing.generation == generation { carried.hrv = existing.snapshot.hrv }
         if carried.hrvSparkline == nil { carried.hrvSparkline = existing.snapshot.hrvSparkline }
         if dayIsCurrent {
             if carried.hourlyStress == nil { carried.hourlyStress = existing.snapshot.hourlyStress }
@@ -187,7 +194,8 @@ enum WidgetCorePublication {
         now: Date = Date(),
         calendar: Calendar = .current,
         steps: Int? = nil,
-        currentDayStrain: Double? = nil
+        currentDayStrain: Double? = nil,
+        hrv: Int? = nil
     ) -> WidgetSnapshot {
         let projection = bundle.projection
         let core = bundle.widgetCore
@@ -199,7 +207,7 @@ enum WidgetCorePublication {
             bpm: bpm,
             batteryPct: batteryPct,
             bonded: bonded,
-            hrv: nil,
+            hrv: hrv.map(Double.init),
             restingHr: core.restingHR,
             recoveryDelta: core.recoveryDelta,
             sleepMinutes: core.sleepMinutes,

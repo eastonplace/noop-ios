@@ -224,7 +224,7 @@ final class WidgetStalenessTests: XCTestCase {
         let carried = WidgetCorePublication.carryingEnrichment(
             into: core("ctx", generation: 6), from: existing, token: token, generation: 6,
             logicalDay: day, olderGenerationDay: (generation: 5, day: day))
-        XCTAssertEqual(carried.hrv, 61)
+        XCTAssertNil(carried.hrv, "the scalar is the night the generation was scored on: it is not carried")
         XCTAssertEqual(carried.hrvSparkline, [58, 60, 61])
         XCTAssertEqual(carried.hourlyStress?.count, 24)
         XCTAssertEqual(carried.stressSummary, "Moderate")
@@ -700,6 +700,7 @@ final class WidgetStalenessTests: XCTestCase {
         XCTAssertEqual(committed.snapshot.verifiedProjectionGeneration, 6)
         XCTAssertEqual(committed.snapshot.hourlyStress?.count, 24)
         XCTAssertEqual(committed.snapshot.hrvSparkline, [58, 60, 61])
+        XCTAssertNil(committed.snapshot.hrv, "never the older generation's scalar")
 
         // Without the replaced generation's day, nothing crosses.
         let bare = WidgetCorePublication.commitCore(
@@ -954,5 +955,71 @@ final class WidgetStalenessTests: XCTestCase {
             todayStrain: { _ in self.resolved("2026-08-08", stored: 40) },
             now: at(ny, 9, 10), calendar: ny)
         XCTAssertNil(tomorrowOnly.overlay.storedStrain, "yesterday's Strain is not the figure for today")
+    }
+
+    // MARK: - HRV is the new generation's own night, computed in the core path
+
+    /// The review's scenario: generation 5 was committed before last night was scored, so its HRV was the
+    /// night before's. Generation 6, the same day, is scored; it must show its own night, not carry the old one
+    /// while its background enrichment is cut off.
+    func testANewGenerationShowsItsOwnNightsHRVNotTheOneBeforeCarried() async throws {
+        let ny = newYork()
+        let token = try install(contextId: "ctx")
+        let day = try CivilDay(key: "2026-08-08")
+        var g5 = enriched(core("ctx", generation: 5))
+        g5.hrv = 55
+        XCTAssertEqual(VerifiedWidgetEnvelopeStore.commit(
+            token: token, generation: 5, snapshot: g5, defaults: defaults), .published)
+
+        let store = try await WhoopStore.inMemory()
+        try await store.upsertDailyMetrics([night("2026-08-07", hrv: 55), night("2026-08-08", hrv: 64)],
+                                           deviceId: "my-whoop-noop")
+        let g6 = try bundle(day: "2026-08-08", steps: nil, generation: 6)
+        let hrv = await WidgetSnapshot.todayHRV(store: store, bundle: g6)
+        XCTAssertEqual(hrv, 64)
+
+        let committed = WidgetCorePublication.commitCore(
+            bundle: g6, token: token, defaults: defaults,
+            delivery: WidgetCorePublication.CoreDelivery(
+                bpm: 64, batteryPct: 81, bonded: true, steps: nil, hrv: hrv,
+                olderGenerationDay: (generation: 5, day: day)),
+            now: at(ny, 8, 15), calendar: ny)
+        XCTAssertEqual(committed.snapshot.hrv, 64)
+        XCTAssertEqual(try XCTUnwrap(VerifiedWidgetEnvelopeStore.rawActiveEnvelope(defaults: defaults)).snapshot.hrv, 64)
+        XCTAssertEqual(committed.snapshot.hrvSparkline, [58, 60, 61], "the history still carries")
+    }
+
+    /// The scalar a re-commit of the same generation could not compute keeps the one already there.
+    func testASameGenerationRecommitKeepsAnHRVTheCoreCouldNotCompute() throws {
+        let token = try install(contextId: "ctx")
+        XCTAssertEqual(VerifiedWidgetEnvelopeStore.commit(
+            token: token, generation: 5, snapshot: enriched(core("ctx", generation: 5)), defaults: defaults),
+                       .published)
+        let committed = WidgetCorePublication.commitCore(
+            bundle: try bundle(day: "2026-08-08", steps: nil, generation: 5),
+            token: token, defaults: defaults, delivery: delivery(), now: at(newYork(), 8, 15), calendar: newYork())
+        XCTAssertEqual(committed.snapshot.hrv, 61)
+    }
+
+    func testTheCoreHRVIsTodaysNightElseTheCarriedOneInsideTheWindow() async throws {
+        let store = try await WhoopStore.inMemory()
+        let aug8 = try bundle(day: "2026-08-08", steps: nil)
+        let none = await WidgetSnapshot.todayHRV(store: store, bundle: aug8)
+        XCTAssertNil(none)
+        let noStore = await WidgetSnapshot.todayHRV(store: nil, bundle: aug8)
+        XCTAssertNil(noStore)
+
+        try await store.upsertDailyMetrics([night("2026-08-05", hrv: 50)], deviceId: "my-whoop-noop")
+        let stale = await WidgetSnapshot.todayHRV(store: store, bundle: aug8)
+        XCTAssertNil(stale, "three nights back is outside Today's window")
+
+        try await store.upsertDailyMetrics([night("2026-08-06", hrv: 52)], deviceId: "my-whoop-noop")
+        let carried = await WidgetSnapshot.todayHRV(store: store, bundle: aug8)
+        XCTAssertEqual(carried, 52)
+
+        try await store.upsertDailyMetrics([night("2026-08-08", hrv: 66)], deviceId: "my-whoop-noop")
+        try await store.upsertDailyMetrics([night("2026-08-08", hrv: 31)], deviceId: "apple-health")
+        let own = await WidgetSnapshot.todayHRV(store: store, bundle: aug8)
+        XCTAssertEqual(own, 66, "the night's own RMSSD, never Apple's SDNN")
     }
 }
