@@ -500,11 +500,64 @@ enum HealthDailyPick {
         strap.map(Double.init) ?? phone.map(Double.init) ?? estimate
     }
 
-    /// The Calories card: the phone's active energy, else the strap's estimate from heart rate. `isStrapEstimate`
-    /// says which one the number is, so a page only calls it an estimate when it is one.
-    static func calories(phoneActiveKcal: Double?, strapEstimateKcal: Double?) -> (value: Double, isStrapEstimate: Bool)? {
-        if let phoneActiveKcal { return (phoneActiveKcal, false) }
-        return strapEstimateKcal.map { ($0, true) }
+    // MARK: Calories: TOTAL energy for the whole day (owner decision D3), on the card and on the page
+
+    /// One day's calories: TOTAL energy (resting + active) for the whole day, never active energy alone. It is the
+    /// phone's active plus resting (basal) energy when it has both, else the strap's whole-day estimate
+    /// (`DailyMetric.activeKcalEst` already includes resting energy), else nothing. `isStrapEstimate` says which, so
+    /// a screen only calls the number an estimate when it is one. The Today card, its sparkline and the Calories
+    /// page all read this one function, so they cannot drift apart.
+    static func calories(
+        phoneActiveKcal: Double?, phoneBasalKcal: Double?, strapTotalKcal: Double?
+    ) -> (value: Double, isStrapEstimate: Bool)? {
+        if let active = phoneActiveKcal, let basal = phoneBasalKcal { return (active + basal, false) }
+        return strapTotalKcal.map { ($0, true) }
+    }
+
+    /// One day's calories with the day it is for.
+    struct CaloriesDay: Equatable {
+        let day: String
+        let value: Double
+        let isStrapEstimate: Bool
+    }
+
+    /// Every day that has a calories number, oldest first, from the strap's daily rows and the phone's.
+    static func caloriesByDay(strap: [DailyMetric], phone: [AppleDaily]) -> [CaloriesDay] {
+        let strapByDay = Dictionary(strap.map { ($0.day, $0) }, uniquingKeysWith: { _, last in last })
+        let phoneByDay = Dictionary(phone.map { ($0.day, $0) }, uniquingKeysWith: { _, last in last })
+        return Set(strapByDay.keys).union(phoneByDay.keys).sorted().compactMap { day in
+            calories(
+                phoneActiveKcal: phoneByDay[day]?.activeKcal, phoneBasalKcal: phoneByDay[day]?.basalKcal,
+                strapTotalKcal: strapByDay[day]?.activeKcalEst
+            ).map { CaloriesDay(day: day, value: $0.value, isStrapEstimate: $0.isStrapEstimate) }
+        }
+    }
+
+    /// Whether any of the days in `days` that fall within `window` days of the newest one is a strap estimate: the
+    /// range a page shows and averages. A note about estimates must hold for every day it covers, not only the last.
+    static func usesStrapEstimate(in days: [CaloriesDay], window: Int, dayDate: (String) -> Date?) -> Bool {
+        guard let newest = days.last.flatMap({ dayDate($0.day) }) else { return false }
+        let calendar = Calendar.current
+        return days.contains { day in
+            guard day.isStrapEstimate, let date = dayDate(day.day) else { return false }
+            return (calendar.dateComponents([.day], from: date, to: newest).day ?? 0) < window
+        }
+    }
+
+    /// What Today's Calories card shows for the day on screen: that day's number and, for the sparkline, the last
+    /// `window` days with a number up to it. Keyed to `dayKey`, never to "the newest phone row".
+    struct CaloriesCard: Equatable {
+        let value: Double?
+        let isStrapEstimate: Bool
+        let sparkline: [Double]
+    }
+
+    static func caloriesCard(dayKey: String, strap: [DailyMetric], phone: [AppleDaily], window: Int = 14) -> CaloriesCard {
+        let upToDay = caloriesByDay(strap: strap, phone: phone).filter { $0.day <= dayKey }
+        let shown = upToDay.last(where: { $0.day == dayKey })
+        return CaloriesCard(
+            value: shown?.value, isStrapEstimate: shown?.isStrapEstimate ?? false,
+            sparkline: upToDay.suffix(window).map(\.value))
     }
 }
 
@@ -540,10 +593,8 @@ struct HealthMetricTrendView: View {
                 HealthDailyPick.steps(strap: strap?.steps, phone: phone?.steps, estimate: estimate)
             }
         case .calories:
-            // The order of Today's Calories card: the phone's active energy, else the strap's estimate.
-            return Self.merged(repo.days, appleByDay, [:]) { strap, phone, _ in
-                HealthDailyPick.calories(phoneActiveKcal: phone?.activeKcal, strapEstimateKcal: strap?.activeKcalEst)?.value
-            }
+            // Total energy for the whole day, as Today's Calories card shows it.
+            return caloriesDays.map { ($0.day, $0.value) }
         default:
             return []
         }
@@ -561,12 +612,15 @@ struct HealthMetricTrendView: View {
         }
     }
 
-    /// Whether the Calories number a day shows is the strap's heart-rate estimate (rather than the phone's active energy).
-    private func isStrapEstimate(day: String?) -> Bool {
-        guard let day else { return false }
-        let strap = repo.days.last(where: { $0.day == day })
-        return HealthDailyPick.calories(
-            phoneActiveKcal: appleByDay[day]?.activeKcal, strapEstimateKcal: strap?.activeKcalEst)?.isStrapEstimate ?? false
+    /// The calories per day (total energy), from the strap's rows and the phone's.
+    private var caloriesDays: [HealthDailyPick.CaloriesDay] {
+        HealthDailyPick.caloriesByDay(strap: repo.days, phone: Array(appleByDay.values))
+    }
+
+    /// Whether any day this page shows or averages (its chart reaches back 6 months) is the strap's heart-rate
+    /// estimate rather than the phone's measured energy.
+    private var showsStrapEstimate: Bool {
+        HealthDailyPick.usesStrapEstimate(in: caloriesDays, window: 180, dayDate: BodyVitalSigns.localDate(fromDayKey:))
     }
 
     private static func vitalKey(_ metric: ProductionTrendMetric) -> String {
@@ -605,7 +659,7 @@ struct HealthMetricTrendView: View {
                     title: String(localized: "\(metric.healthEyebrowTitle) trend"), metric: metric,
                     observations: observations, referenceDate: Repository.logicalDay(Date()),
                     latest: latest?.value, display: display)
-                if metric == .calories, isStrapEstimate(day: points.last?.day) {
+                if metric == .calories, showsStrapEstimate {
                     DrillInSeparator()
                     Text("An estimate from your heart rate, not a measured burn.")
                         .font(StrandFont.footnote)
