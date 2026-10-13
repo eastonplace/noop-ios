@@ -321,27 +321,39 @@ final class RepositoryRefreshIntentTests: XCTestCase {
         XCTAssertFalse(barrier.blocksRefreshes)
     }
 
-    /// Review finding (watchdog clock): the watchdog slept once for the whole limit on a clock that keeps running
-    /// while the process is suspended, so the first wake after a suspension longer than the limit took the fence
-    /// from a healthy owner mid-import. It now counts ticks of running time: a suspension wakes the pending tick
-    /// once, so the hold survives until the full count of ticks has actually elapsed.
-    func testWatchdogCountsTicksSoOneWakeAfterASuspensionCannotReclaimTheFence() async throws {
+    /// Review findings (watchdog clock): one long sleep fired on the first wake after a long suspension, and
+    /// counting wake-ups let sixty short BLE wakes reclaim the fence from a live owner. Each tick is now
+    /// credited with its measured time, and a tick that spanned a suspension is credited nothing.
+    func testSuspensionsBurnNoWatchdogBudgetButAHungForegroundOwnerIsReclaimedAfterTheLimit() async throws {
         let clock = ManualWatchdogClock()
         let barrier = RepositoryPublicationBarrier(
-            watchdogLimit: .seconds(600), watchdogTick: .seconds(10),
+            watchdogLimit: .seconds(600), watchdogTick: .seconds(10), watchdogSlack: .milliseconds(500),
+            watchdogClock: { clock.now },
             watchdogSleep: { [clock] in await clock.sleep($0) })
         let ownership = try await barrier.acquireExclusive()
 
+        // A fifteen-minute suspension, then 100 short BLE wakes at least 11 s apart: each tick spanned a
+        // suspension, so none of them is running time.
+        try await clock.waitForSleeper()
+        clock.advance(by: .seconds(900))
+        clock.wakeOne()
+        for wake in 1...100 {
+            try await clock.waitForSleeper()
+            XCTAssertTrue(barrier.blocksRefreshes, "wake \(wake): a suspended owner lost the fence")
+            clock.advance(by: .seconds(11))
+            clock.wakeOne()
+        }
+        // A hung owner in the foreground: 60 on-time ticks of 10 s are 600 s of running time.
         for tick in 1...60 {
             try await clock.waitForSleeper()
             XCTAssertTrue(barrier.blocksRefreshes, "tick \(tick): the hold was reclaimed early")
             XCTAssertEqual(barrier.watchdogReleaseCount, 0)
+            clock.advance(by: .seconds(10))
             clock.wakeOne()
         }
         for _ in 0..<1_000 where barrier.watchdogReleaseCount == 0 { await Task.yield() }
-        XCTAssertEqual(barrier.watchdogReleaseCount, 1, "60 ticks of 10 s reach the 600 s limit")
+        XCTAssertEqual(barrier.watchdogReleaseCount, 1, "600 s of running time reaches the limit")
         XCTAssertFalse(barrier.blocksRefreshes)
-        XCTAssertEqual(clock.requested, Array(repeating: .seconds(10), count: 60))
         barrier.releaseExclusive(ownership)
         XCTAssertFalse(barrier.blocksRefreshes)
     }
@@ -426,11 +438,17 @@ final class RepositoryRefreshIntentTests: XCTestCase {
         XCTAssertEqual(repository.sleeps.map(\.endTs), [end], "the deferred refresh replays once the fence opens")
     }
 }
-/// Hands out watchdog ticks one at a time, the way a suspended process wakes its one pending sleep.
+/// Hands out watchdog ticks one at a time on a clock the test moves, the way a suspended process wakes its one
+/// pending sleep however long it was suspended.
 @MainActor
 private final class ManualWatchdogClock {
     private var sleepers: [CheckedContinuation<Void, Never>] = []
     private(set) var requested: [Duration] = []
+    private(set) var now = ContinuousClock.now
+
+    func advance(by duration: Duration) {
+        now = now.advanced(by: duration)
+    }
 
     func sleep(_ duration: Duration) async {
         requested.append(duration)
