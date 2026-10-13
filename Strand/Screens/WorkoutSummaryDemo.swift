@@ -4,14 +4,14 @@ import WhoopStore
 
 // MARK: - Screenshot fixtures for the journey's summary (DEBUG only)
 //
-// `--noop-qa-route start-workout --demo-seed --demo-journey-summary run|strength|short` opens the journey straight on its summary for
-// one of the demo week's workouts: a run with its route and a dense heart-rate trace, a strength session with no route, or a
-// 41-second session with no heart rate. `--demo-journey-summary-legacy` draws the summary the way it was before the redesign (the
+// `--noop-qa-route start-workout --demo-seed --demo-journey-summary run|strength|short|rowing` opens the journey straight on its summary
+// for one of the demo week's workouts: a run with its route and a dense heart-rate trace, a strength session with no route, a
+// 41-second session with no heart rate, or (made up, with no stored readings) a 42-minute row with its distance. `--demo-journey-summary-legacy` draws the summary the way it was before the redesign (the
 // shared workout detail screen with its Done button), so a before/after pair comes from one build.
 
 enum WorkoutSummaryDemo {
     enum Scenario: String {
-        case run, strength, short
+        case run, strength, short, rowing
     }
 
     static var requested: Scenario? {
@@ -27,6 +27,13 @@ enum WorkoutSummaryDemo {
     /// The workout the scenario names. The demo week is written at launch and the repository may not have read it yet, so look for it
     /// for a few seconds before giving up.
     @MainActor static func row(for scenario: Scenario, in repo: Repository) async -> WorkoutRow? {
+        if scenario == .rowing {
+            // A route sport that is not a run, to see its pace read as it was on the live screen.
+            let end = Int(Date().timeIntervalSince1970) - 300
+            return WorkoutRow(startTs: end - 2_520, endTs: end, sport: "Rowing", source: "recorded", durationS: 2_520,
+                              energyKcal: 436, avgHr: 142, maxHr: 171, strain: 48, distanceM: 8_400, zonesJSON: nil, notes: nil,
+                              strainVersion: 2)
+        }
         if scenario == .short {
             let end = Int(Date().timeIntervalSince1970) - 20
             return WorkoutRow(startTs: end - 41, endTs: end, sport: "Strength Training", source: "manual", durationS: 41,
@@ -38,7 +45,7 @@ enum WorkoutSummaryDemo {
                 switch scenario {
                 case .run: row.sport == "Running" && row.source == "manual"
                 case .strength: row.sport == "Strength Training" && row.source == "manual"
-                case .short: false
+                case .short, .rowing: false
                 }
             }
             if let found { return found }
