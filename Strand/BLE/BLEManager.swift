@@ -1301,7 +1301,7 @@ public final class BLEManager: NSObject, ObservableObject {
         pendingWhoop5ReconnectDelaySeconds = nil
         autoReconnectPausedForWhoop5SecureFailure = false
         autoReconnectPausedForBackgroundCap = false
-        clearHeldWhoop5ClientHello()
+        clearWhoop5SecureHold()
         whoop5FallbackMode = .none
         whoop5PausedNotifyOffPending.removeAll()
         bondLoopPausedAt = nil
@@ -1362,7 +1362,7 @@ public final class BLEManager: NSObject, ObservableObject {
         pendingWhoop5ReconnectDelaySeconds = nil
         autoReconnectPausedForWhoop5SecureFailure = false
         autoReconnectPausedForBackgroundCap = false
-        clearHeldWhoop5ClientHello()
+        clearWhoop5SecureHold()
         whoop5FallbackMode = .none
         whoop5PausedNotifyOffPending.removeAll()
         bondLoopPausedAt = nil
@@ -2189,15 +2189,19 @@ public final class BLEManager: NSObject, ObservableObject {
         sessionID != alreadyRecordedSessionID
     }
 
+    /// `helloHeld`: the attempt's CLIENT_HELLO was still held for a secure-recovery delay (F1), so the
+    /// strap was never asked to secure anything and the drop is not a secure failure.
     nonisolated static func shouldRecordWhoop5PreSecureDisconnect(
         family: DeviceFamily,
         intentional: Bool,
         state: Whoop5SecureSessionState,
-        hasSessionID: Bool
+        hasSessionID: Bool,
+        helloHeld: Bool = false
     ) -> Bool {
         family == .whoop5
             && !intentional
             && hasSessionID
+            && !helloHeld
             && state != .secureReady
             && state != .disconnected
     }
@@ -4986,11 +4990,15 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
         }
         let disconnectedSecureSessionID = currentWhoop5SecureSessionID
         let disconnectedSecureState = whoop5SecureSession.state
+        // F1: a drop while this attempt's CLIENT_HELLO was held never reached the secure handshake, so it
+        // does not climb the secure series; the rest of the hold carries over to the reconnect instead.
+        let helloWasHeld = whoop5HeldClientHello != nil && whoop5HeldClientHello == disconnectedSecureSessionID
         if Self.shouldRecordWhoop5PreSecureDisconnect(
             family: selectedModel.deviceFamily,
             intentional: intentionalDisconnect,
             state: disconnectedSecureState,
-            hasSessionID: disconnectedSecureSessionID != nil),
+            hasSessionID: disconnectedSecureSessionID != nil,
+            helloHeld: helloWasHeld),
            let disconnectedSecureSessionID {
             _ = recordWhoop5SecureFailure(
                 disconnectedSecureSessionID,
@@ -5000,7 +5008,8 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
         }
         let secureRetryDelay = pendingWhoop5ReconnectDelaySeconds
         pendingWhoop5ReconnectDelaySeconds = nil
-        clearHeldWhoop5ClientHello()   // the held attempt died with the link; the reconnect sets a new hold
+        let remainingHold = whoop5SecureHandshakeNotBefore.map { $0.timeIntervalSinceNow }.flatMap { $0 > 0 ? $0 : nil }
+        cancelHeldWhoop5ClientHello()   // the held attempt died with the link; its deadline still stands
         let retiredGeneration = connectGeneration
         confirmedCommandWrites.removeAll {
             $0.peripheralID == peripheral.identifier && $0.connectGeneration == retiredGeneration
@@ -5214,7 +5223,7 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
             // F1: the ladder paces retries in the foreground; in the background a known strap gets an
             // OS-managed pending connect (a timer would never fire), capped by ReconnectPolicy.
             let target = pendingReconnectTarget(dropped: peripheral)
-            let forcedDelay = secureRetryDelay.map { TimeInterval($0) }
+            let forcedDelay = secureRetryDelay.map { TimeInterval($0) } ?? remainingHold
             let action = reconnectPolicy.action(after: .drop, appActive: isAppActive,
                                                 knownTarget: target != nil, forcedDelay: forcedDelay)
             let reason = error.map { " — \($0.localizedDescription)" } ?? ""
@@ -5726,17 +5735,23 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
     private func releaseHeldWhoop5ClientHelloIfDue(now: Date = Date(), force: Bool = false) {
         guard let sessionID = whoop5HeldClientHello else { return }
         if !force, let notBefore = whoop5SecureHandshakeNotBefore, now < notBefore { return }
-        clearHeldWhoop5ClientHello()
+        clearWhoop5SecureHold()
         guard currentWhoop5SecureSessionID == sessionID,
               let peripheral, peripheral.state == .connected else { return }
         log("WHOOP 5/MG: secure recovery delay over; continuing the secure handshake")
         proceedToWhoop5ClientHello(on: peripheral, sessionID: sessionID)
     }
 
-    private func clearHeldWhoop5ClientHello() {
+    /// The held attempt is over (released, or its link dropped). Its deadline stands.
+    private func cancelHeldWhoop5ClientHello() {
         whoop5HeldClientHello = nil
         whoop5HeldClientHelloWork?.cancel()
         whoop5HeldClientHelloWork = nil
+    }
+
+    /// The recovery series ended (user disconnect or forget, or the hold ran out): drop the deadline too.
+    private func clearWhoop5SecureHold() {
+        cancelHeldWhoop5ClientHello()
         whoop5SecureHandshakeNotBefore = nil
     }
 

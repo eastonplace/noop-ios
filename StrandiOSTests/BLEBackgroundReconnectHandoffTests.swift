@@ -1,4 +1,5 @@
 import XCTest
+import NoopPhase34Core
 import WhoopProtocol
 @testable import NOOP
 
@@ -83,6 +84,19 @@ final class BLEBackgroundReconnectHandoffTests: XCTestCase {
         manager.applyWhoop5HandshakeHoldForTesting(held)
         manager.connect()
         XCTAssertNil(manager.whoop5HandshakeHoldForTesting, "a user Connect starts a fresh series")
+    }
+
+    /// Review R3b #2/#7: a drop while the attempt's CLIENT_HELLO is still held never reached the secure
+    /// handshake, so it must not climb the secure series toward its sticky pause. Other pre-proof drops
+    /// still count.
+    func testADropWhileTheHelloIsHeldIsNotASecureFailure() {
+        XCTAssertFalse(BLEManager.shouldRecordWhoop5PreSecureDisconnect(
+            family: .whoop5, intentional: false, state: .standardOnly, hasSessionID: true, helloHeld: true))
+        XCTAssertTrue(BLEManager.shouldRecordWhoop5PreSecureDisconnect(
+            family: .whoop5, intentional: false, state: .standardOnly, hasSessionID: true, helloHeld: false))
+        XCTAssertTrue(BLEManager.shouldRecordWhoop5PreSecureDisconnect(
+            family: .whoop5, intentional: false, state: .clientHelloPending, hasSessionID: true, helloHeld: false),
+                      "a drop after the hello went out is still a secure failure")
     }
 
     /// End to end through the real target lookup: with no powered-on central (the simulator) there is no
