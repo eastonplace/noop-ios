@@ -130,8 +130,10 @@ public struct ReconnectPolicy: Equatable, Sendable {
     /// than the 60 s rung). On a quiet link nothing would wake the app at the deadline, so the hello goes
     /// now; while the strap is still notifying (standard HR about once a second), each notification
     /// releases the hello at the real deadline, so the hold is kept and only the background task ends.
-    public static func shouldSendHeldHandshakeOnBackgroundExpiry(lastInboundAt: Date, now: Date) -> Bool {
-        now.timeIntervalSince(lastInboundAt) > quietLinkSeconds
+    /// `lastInboundAt` is the strap's last notification; nil (none on this link yet) is quiet.
+    public static func shouldSendHeldHandshakeOnBackgroundExpiry(lastInboundAt: Date?, now: Date) -> Bool {
+        guard let lastInboundAt else { return true }
+        return now.timeIntervalSince(lastInboundAt) > quietLinkSeconds
     }
 
     /// F1: the app is leaving the foreground with a reconnect timer armed. A suspended app's timer never

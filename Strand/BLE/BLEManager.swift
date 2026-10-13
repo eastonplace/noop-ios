@@ -754,6 +754,9 @@ public final class BLEManager: NSObject, ObservableObject {
     /// Keeps the app running through a CLIENT_HELLO hold (a suspended app runs no timer).
     private var whoop5HoldBackgroundTask: UIBackgroundTaskIdentifier = .invalid
     #endif
+    /// F1: when the strap last sent a notification of any kind. Set only in didUpdateValueFor, so the
+    /// hold's quiet-link test sees real traffic (lastDataAt is also stamped at init and on didConnect).
+    private var lastStrapNotificationAt: Date?
     /// NotificationCenter token for the background reconnect handoff (installBackgroundReconnectHandoff).
     private var backgroundReconnectHandoffObserver: NSObjectProtocol?
     /// When the current link came up, and whether it carried a confirmed history ACK — the two health
@@ -1498,6 +1501,7 @@ public final class BLEManager: NSObject, ObservableObject {
     /// count starts over, and a background-cap pause lifts with one system reconnect.
     func resumeAutoReconnectInForeground() {
         releaseHeldWhoop5ClientHelloIfDue()
+        ensureWhoop5HoldBackgroundTask()
         reconnectPolicy.enteredForeground()
         guard autoReconnectPausedForBackgroundCap else { return }
         autoReconnectPausedForBackgroundCap = false
@@ -1523,6 +1527,7 @@ public final class BLEManager: NSObject, ObservableObject {
     /// moves onto the secure handshake.
     func handOffArmedReconnectForBackground() {
         releaseHeldWhoop5ClientHelloIfDue()
+        ensureWhoop5HoldBackgroundTask()
         let target = pendingReconnectTarget(dropped: peripheral)
         handOffArmedReconnect(targetState: target.map { Self.reconnectLinkState($0) }) { [weak self] holdUntil in
             guard let self, let target else { return }
@@ -1592,14 +1597,12 @@ public final class BLEManager: NSObject, ObservableObject {
 
     var whoop5HandshakeHoldForTesting: Date? { whoop5SecureHandshakeNotBefore }
 
-    /// Test seams for the CLIENT_HELLO hold: start it the way the fd4b discovery path does, mark strap
-    /// traffic, and observe the held attempt.
+    /// Test seams for the CLIENT_HELLO hold: start it the way the fd4b discovery path does, and observe
+    /// the held attempt (strap traffic goes through noteStrapNotification).
     func holdWhoop5ClientHelloForTesting(_ sessionID: Whoop5SecureSessionID, until notBefore: Date) {
         whoop5SecureHandshakeNotBefore = notBefore
         holdWhoop5ClientHello(sessionID, until: notBefore)
     }
-
-    func noteInboundStrapDataForTesting(at date: Date) { lastDataAt = date }
 
     var whoop5HeldClientHelloForTesting: Whoop5SecureSessionID? { whoop5HeldClientHello }
 
@@ -5822,14 +5825,29 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
         let work = DispatchWorkItem { [weak self] in self?.whoop5HoldDeadlineReached() }
         whoop5HeldClientHelloWork = work
         DispatchQueue.main.asyncAfter(wallDeadline: .now() + max(0, notBefore.timeIntervalSinceNow), execute: work)
+        ensureWhoop5HoldBackgroundTask()
+    }
+
+    /// Keep a background task over a hold that is still running, starting one only when none is active.
+    /// A busy-link expiry ends the task but keeps the hold; if the strap then goes quiet, the next task's
+    /// expiry sees that and sends the hello instead of leaving it held with nothing to wake the app.
+    private func ensureWhoop5HoldBackgroundTask() {
         #if os(iOS)
-        if whoop5HoldBackgroundTask == .invalid {
-            whoop5HoldBackgroundTask = UIApplication.shared.beginBackgroundTask(
-                withName: "WHOOP secure recovery hold") { [weak self] in
-                self?.whoop5HoldBackgroundTimeExpiring()
-            }
+        guard whoop5HeldClientHello != nil, whoop5HoldBackgroundTask == .invalid else { return }
+        whoop5HoldBackgroundTask = UIApplication.shared.beginBackgroundTask(
+            withName: "WHOOP secure recovery hold") { [weak self] in
+            self?.whoop5HoldBackgroundTimeExpiring()
         }
         #endif
+    }
+
+    /// F1: every notification from the strap (any characteristic): release a held CLIENT_HELLO whose
+    /// deadline has passed, record the traffic for the quiet-link test, and keep a background task over a
+    /// hold that is still running.
+    func noteStrapNotification(now: Date = Date()) {
+        releaseHeldWhoop5ClientHelloIfDue(now: now)
+        lastStrapNotificationAt = now
+        ensureWhoop5HoldBackgroundTask()
     }
 
     /// The hold's release timer fired: send the hello now.
@@ -5842,7 +5860,7 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
     /// quiet link gets the hello early. Otherwise the hold, its deadline and the release timer stay, and
     /// the strap's next notification after the deadline (or the overdue timer at the next wake) sends it.
     func whoop5HoldBackgroundTimeExpiring(now: Date = Date()) {
-        if ReconnectPolicy.shouldSendHeldHandshakeOnBackgroundExpiry(lastInboundAt: lastDataAt, now: now) {
+        if ReconnectPolicy.shouldSendHeldHandshakeOnBackgroundExpiry(lastInboundAt: lastStrapNotificationAt, now: now) {
             releaseHeldWhoop5ClientHelloIfDue(now: now, force: true)
         }
         endWhoop5HoldBackgroundTask()
@@ -6537,7 +6555,7 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
             return
         }
         // F1: a held CLIENT_HELLO is released by the strap's own traffic, not only by a timer.
-        releaseHeldWhoop5ClientHelloIfDue()
+        noteStrapNotification()
         guard let data = characteristic.value else { return }
         let bytes = [UInt8](data)
         linkEpitaphState.received(

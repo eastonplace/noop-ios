@@ -227,6 +227,8 @@ final class ReconnectPolicyBackgroundTests: XCTestCase {
             lastInboundAt: now.addingTimeInterval(-ReconnectPolicy.quietLinkSeconds), now: now))
         XCTAssertTrue(ReconnectPolicy.shouldSendHeldHandshakeOnBackgroundExpiry(
             lastInboundAt: now.addingTimeInterval(-25), now: now), "nothing since the reconnect")
+        XCTAssertTrue(ReconnectPolicy.shouldSendHeldHandshakeOnBackgroundExpiry(lastInboundAt: nil, now: now),
+                      "no notification on this link at all")
     }
 
     // MARK: Background handoff of an armed timer (finding #1)

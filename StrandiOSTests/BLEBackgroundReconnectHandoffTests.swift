@@ -174,7 +174,7 @@ final class BLEBackgroundReconnectHandoffTests: XCTestCase {
         let deadline = Date().addingTimeInterval(60)
         manager.holdWhoop5ClientHelloForTesting(session, until: deadline)
         let expiry = Date().addingTimeInterval(30)
-        manager.noteInboundStrapDataForTesting(at: expiry.addingTimeInterval(-1))
+        manager.noteStrapNotification(now: expiry.addingTimeInterval(-1))
 
         manager.whoop5HoldBackgroundTimeExpiring(now: expiry)
 
@@ -193,7 +193,7 @@ final class BLEBackgroundReconnectHandoffTests: XCTestCase {
         let deadline = Date().addingTimeInterval(60)
         manager.holdWhoop5ClientHelloForTesting(session, until: deadline)
         let expiry = Date().addingTimeInterval(30)
-        manager.noteInboundStrapDataForTesting(at: expiry.addingTimeInterval(-25))
+        manager.noteStrapNotification(now: expiry.addingTimeInterval(-25))
 
         manager.whoop5HoldBackgroundTimeExpiring(now: expiry)
 
@@ -228,6 +228,30 @@ final class BLEBackgroundReconnectHandoffTests: XCTestCase {
                                                     reconnect: { reconnects += 1 },
                                                     resumeDiscovery: { discoveries += 1 })
         XCTAssertEqual(reconnects, 1, "once the pause lifts, the restored strap reconnects")
+    }
+
+    /// Review R3d 1: the strap is busy when the background time runs out (the hold is kept, the task
+    /// ends), keeps notifying for a moment, then goes quiet before the deadline. A notification re-arms a
+    /// background task over the rest of the hold, and that task's expiry sees the quiet link and sends.
+    func testAHoldThatGoesQuietAfterABusyExpiryIsStillReleased() {
+        let manager = BLEManager(state: LiveState(), collector: nil)
+        let session = Whoop5SecureSessionID(peripheralID: UUID(), connectGeneration: 1, attemptEpoch: 1)
+        let start = Date()
+        manager.holdWhoop5ClientHelloForTesting(session, until: start.addingTimeInterval(60))
+        manager.noteStrapNotification(now: start.addingTimeInterval(29))
+        manager.whoop5HoldBackgroundTimeExpiring(now: start.addingTimeInterval(30))
+        XCTAssertEqual(manager.whoop5HeldClientHelloForTesting, session, "busy: the hold is kept")
+        XCTAssertFalse(manager.whoop5HoldBackgroundTaskActiveForTesting)
+
+        manager.noteStrapNotification(now: start.addingTimeInterval(31))
+        XCTAssertTrue(manager.whoop5HoldBackgroundTaskActiveForTesting, "a task covers the rest of the hold again")
+        manager.noteStrapNotification(now: start.addingTimeInterval(32))
+        XCTAssertTrue(manager.whoop5HoldBackgroundTaskActiveForTesting)
+
+        manager.whoop5HoldBackgroundTimeExpiring(now: start.addingTimeInterval(50))
+        XCTAssertNil(manager.whoop5HeldClientHelloForTesting, "quiet since 32 s: the re-armed expiry releases")
+        XCTAssertFalse(manager.whoop5HoldBackgroundTaskActiveForTesting)
+        manager.disconnect()
     }
 
     /// End to end through the real target lookup: with no powered-on central (the simulator) there is no
