@@ -1746,7 +1746,7 @@ struct TodayView: View {
         let steps = day?.steps.map { intString(Double($0)) }
             ?? phoneSteps.map { intString(Double($0)) }
             ?? stepsEstByDay[selectedDayKey].map { intString(Double($0)) } ?? "—"
-        let calories = caloriesValue(appleDays.last(where: { $0.day == selectedDayKey }))
+        let calories = caloriesText
         let dayStart = Calendar.current.startOfDay(for: selectedLogicalDay)
         let dayEnd = Calendar.current.date(byAdding: .day, value: 1, to: dayStart) ?? dayStart
         let workoutCount = workouts.filter {
@@ -1886,7 +1886,7 @@ struct TodayView: View {
                 ?? []
         case .sleep: return sparks["sleep_total_min"] ?? []
         case .steps: return sparks["steps"] ?? []
-        case .calories: return sparks["active_kcal"] ?? []
+        case .calories: return caloriesCard.sparkline
         default: return []
         }
     }
@@ -2823,11 +2823,12 @@ struct TodayView: View {
             pinnedCardRow(icon: card.icon, tint: tint, title: card.title, subtitle: card.subtitle,
                           value: dashboardValue(card)) { SleepView() }
         case .steps:
+            // Steps and Calories have no section on the Health Monitor, so they open their own trend page.
             pinnedCardRow(icon: card.icon, tint: tint, title: card.title, subtitle: card.subtitle,
-                          value: dashboardValue(card)) { HealthView() }
+                          value: dashboardValue(card)) { HealthMetricTrendView(metric: .steps) }
         case .calories:
             pinnedCardRow(icon: card.icon, tint: tint, title: card.title, subtitle: card.subtitle,
-                          value: dashboardValue(card)) { HealthView() }
+                          value: dashboardValue(card)) { HealthMetricTrendView(metric: .calories) }
         case .hydration:
             pinnedCardRow(icon: card.icon, tint: tint, title: card.title, subtitle: card.subtitle,
                           value: dashboardValue(card)) { HydrationView() }
@@ -2919,7 +2920,7 @@ struct TodayView: View {
             let est = stepsEstByDay[selectedDayKey].map { intString(Double($0)) }
             return real ?? est ?? "—"
         case .calories:
-            return withUnit(caloriesValue(appleDays.last))
+            return withUnit(caloriesText)
         case .stress:
             #if DEBUG
             // DEBUG promo harness: pin the Stress card (0–3) to the active frame's value. No-op otherwise.
@@ -4063,10 +4064,10 @@ struct TodayView: View {
         case .calories:
             StatTile(
                 label: "Calories",
-                value: caloriesValue(aLatest),
-                caption: String(localized: "active"),
+                value: caloriesText,
+                caption: String(localized: "total"),
                 accent: StrandPalette.metricAmber,
-                sparkline: sparks["active_kcal"],
+                sparkline: caloriesCard.sparkline,
                 sparkColor: StrandPalette.metricAmber
             )
         }
@@ -4402,7 +4403,6 @@ struct TodayView: View {
         async let respRateSpark      = sparkValues("resp_rate", source: "apple-health", window: 14)
         async let stepsAppleSpark    = sparkValues("steps", source: "apple-health", window: 14)
         async let weightSpark        = sparkValues("weight", source: "apple-health", window: 90)
-        async let activeKcalSpark    = sparkValues("active_kcal", source: "apple-health", window: 14)
 
         sparks["recovery"]        = await recoverySpark
         sparks["strain"]          = await strainSpark
@@ -4419,7 +4419,6 @@ struct TodayView: View {
         let strapSteps = repo.days.suffix(14).compactMap { $0.steps.map(Double.init) }
         if !strapSteps.isEmpty { sparks["steps"] = strapSteps }
         sparks["weight"]      = await weightSpark
-        sparks["active_kcal"] = await activeKcalSpark
 
         // Steps ESTIMATE per day (WHOOP 4.0 motion → calibrated steps), the Mi-Band series, workout +
         // Apple-daily rows, and the three "your cards" series, all history-wide (none depends on the
@@ -4986,10 +4985,14 @@ struct TodayView: View {
         }
     }
 
-    /// Active calories (Apple) for the latest day, falling back to the sparkline tail.
-    private func caloriesValue(_ a: AppleDaily?) -> String {
-        if let kcal = a?.activeKcal { return intString(kcal) }
-        return latestString("active_kcal", decimals: 0)
+    /// The Calories card for the day on screen: that day's TOTAL energy and its sparkline, from the same function
+    /// the Calories page reads (`HealthDailyPick`), so the card and the page it opens always agree.
+    private var caloriesCard: HealthDailyPick.CaloriesCard {
+        HealthDailyPick.caloriesCard(dayKey: selectedDayKey, strap: repo.days, phone: appleDays)
+    }
+
+    private var caloriesText: String {
+        caloriesCard.value.map { intString($0) } ?? "—"
     }
 
     private func workoutDuration(_ w: WorkoutRow) -> String {

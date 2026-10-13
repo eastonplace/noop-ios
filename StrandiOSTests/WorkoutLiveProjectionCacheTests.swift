@@ -20,6 +20,10 @@ final class WorkoutLiveProjectionCacheTests: XCTestCase {
 
     func testSameTimestampTailCorrectionForcesAuthoritativeRebuild() {
         let profile = ProfileStore()
+        // ProfileStore writes UserDefaults.standard, which the app host shares with the simulator's app: put the
+        // override back, or every screen that reads the personal maximum shows 190 afterwards.
+        let original = profile.hrMaxOverride
+        defer { profile.hrMaxOverride = original }
         profile.hrMaxOverride = 190
         let workout = AppModel.ActiveWorkout(
             start: Date(timeIntervalSince1970: 1_700_000_000),

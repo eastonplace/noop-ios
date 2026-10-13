@@ -576,13 +576,36 @@ enum AppleDemoSeeder {
                     referenceText: "30–300 ng/mL")
             }
         }
-        _ = try await store.upsertLabMarkers(markerRows)
+        // The fixed marker ids collide on a re-seed (the takenAt moves with the clock, the id does not), so this throws on
+        // every launch after the first; it must not take the hydration fixture below down with it.
+        _ = try? await store.upsertLabMarkers(markerRows)
 
-        let hydration = [
+        // `--demo-hydration empty` launches the Hydration page with nothing logged (a fresh install's page): every
+        // total reads 0 and today's drink list is cleared. The default keeps the demo week below.
+        let hydrationEmpty = CommandLine.arguments.firstIndex(of: "--demo-hydration")
+            .map { CommandLine.arguments.indices.contains($0 + 1) && CommandLine.arguments[$0 + 1] == "empty" } ?? false
+        if hydrationEmpty {
+            let zeros = (0..<7).map { offset in
+                MetricPoint(day: formatter.string(from: calendar.date(byAdding: .day, value: -offset, to: now)!),
+                            key: HydrationStore.key, value: 0)
+            }
+            _ = try await store.upsertMetricSeries(zeros, deviceId: HydrationStore.sourceId)
+            UserDefaults.standard.removeObject(forKey: HydrationStore.entriesKey(forDay: today))
+            return
+        }
+        // A full week of totals (today, yesterday, then five older days) so the Hydration page's last-7-days bars read
+        // as a real history rather than two bars. Demo data only; the per-drink rows below are today's.
+        let olderHydration: [Double] = [2_100, 2_650, 1_480, 2_300, 1_950]
+        var hydration = [
             MetricPoint(day: today, key: HydrationStore.key, value: 1_237),
             MetricPoint(day: formatter.string(from: calendar.date(byAdding: .day, value: -1, to: now)!),
                         key: HydrationStore.key, value: 1_850),
         ]
+        for (offset, total) in olderHydration.enumerated() {
+            hydration.append(MetricPoint(
+                day: formatter.string(from: calendar.date(byAdding: .day, value: -(offset + 2), to: now)!),
+                key: HydrationStore.key, value: total))
+        }
         _ = try await store.upsertMetricSeries(hydration, deviceId: HydrationStore.sourceId)
         let entries = [
             HydrationEntry(id: UUID(uuidString: "00000000-0000-0000-0000-000000000101")!, amountMl: 500,

@@ -45,6 +45,8 @@ enum QARoute: String, CaseIterable {
     case workoutDetailManual = "workout-detail-manual"
     case manualWorkout = "manual-workout"
     case health
+    case healthSteps = "health-steps"
+    case healthCalories = "health-calories"
     case metricExplorer = "metric-explorer"
     case metricDetailHRV = "metric-detail-hrv"
     case metricDetail = "metric-detail"
@@ -97,8 +99,8 @@ enum QARoute: String, CaseIterable {
 
     var presentation: Presentation {
         switch self {
-        case .stress, .hrTimeline, .workouts, .todayWorkouts, .todayWorkoutsRest, .health, .hydration, .fitnessAge,
-             .coupled:
+        case .stress, .hrTimeline, .workouts, .todayWorkouts, .todayWorkoutsRest, .health, .healthSteps,
+             .healthCalories, .hydration, .fitnessAge, .coupled:
             return .push(.today)
         case .pillarRecovery, .pillarStrain, .sleep:
             return .cover(.today)
@@ -378,7 +380,9 @@ private struct QARouteHost: ViewModifier {
             // The demo week's rest day (AppleDemoWorkoutFixture): two days back, nothing logged.
             TodayWorkoutsView(day: Repository.logicalDay(
                 Calendar.current.date(byAdding: .day, value: -2, to: Date()) ?? Date()))
-        case .health: HealthView()
+        case .health: HealthView().modifier(QADemoLiveHR())
+        case .healthSteps: HealthMetricTrendView(metric: .steps)
+        case .healthCalories: HealthMetricTrendView(metric: .calories)
         case .hydration: HydrationView()
         case .fitnessAge: FitnessAgeDetailView()
         case .coupled: CoupledView()
@@ -486,5 +490,27 @@ private struct QAWorkoutDetailHost: View {
 extension View {
     /// DEBUG QA hook: presents `--noop-qa-route` over this tab root when the route belongs to `tab`.
     func qaRouteHost(_ tab: QARoute.Tab) -> some View { modifier(QARouteHost(tab: tab)) }
+}
+
+/// `--demo-live-hr`: feeds a synthetic heart rate into `LiveState` while the Health Monitor is up, so its live trace can be
+/// captured without a strap (the simulator has none). A warm-up from 72 to about 150 bpm with a little wobble, one reading
+/// a second. Never persisted; a launch without the flag does nothing.
+private struct QADemoLiveHR: ViewModifier {
+    @EnvironmentObject private var live: LiveState
+
+    func body(content: Content) -> some View {
+        content.task {
+            guard ProcessInfo.processInfo.arguments.contains("--demo-live-hr") else { return }
+            var tick = 0
+            while !Task.isCancelled {
+                let seconds = Double(tick)
+                let warmUp: Double = min(78.0, 2.6 * seconds)
+                let wobble: Double = 5.0 * sin(seconds / 3.0)
+                live.heartRate = Int((72.0 + warmUp + wobble).rounded())
+                tick += 1
+                try? await Task.sleep(for: .seconds(1))
+            }
+        }
+    }
 }
 #endif

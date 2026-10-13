@@ -97,6 +97,9 @@ struct DrillInTrendSection: View {
     var showsBuildingState = false
     /// The range control's segments. Defaults to W / M / 3M / 6M, like Trends.
     var ranges: [DrillInRange] = DrillInRange.standard
+    /// The unit and number format the series is shown in, for a series already converted from the metric's own
+    /// (skin temperature in °F). nil shows the metric's own.
+    var display: (unit: String, format: (Double) -> String)? = nil
 
     @State private var range: DrillInRange = .month
     private let calendar = Calendar.current
@@ -145,8 +148,8 @@ struct DrillInTrendSection: View {
                     typical: stats.typical,
                     tint: tint,
                     colorsLineByBand: metric == .recovery,
-                    unit: metric.unit,
-                    valueFormat: metric.format,
+                    unit: display?.unit ?? metric.unit,
+                    valueFormat: display?.format ?? metric.format,
                     valueBounds: valueBounds ?? metric.valueBounds,
                     direction: metric.chartDirection,
                     metricName: metric.rawValue,
@@ -154,9 +157,9 @@ struct DrillInTrendSection: View {
                 )
                 .id("\(metric.rawValue)-\(range.rawValue)")
                 StatFooter(items: [
-                    (String(localized: "Low"), metric.formatWithUnit(values.min() ?? .nan)),
-                    (String(localized: "Average"), metric.formatWithUnit(stats.baseline)),
-                    (String(localized: "High"), metric.formatWithUnit(values.max() ?? .nan)),
+                    (String(localized: "Low"), formatWithUnit(values.min() ?? .nan)),
+                    (String(localized: "Average"), formatWithUnit(stats.baseline)),
+                    (String(localized: "High"), formatWithUnit(values.max() ?? .nan)),
                 ])
             } else {
                 Text(emptyMessage ?? String(localized: "Not enough days to chart a trend yet."))
@@ -166,6 +169,13 @@ struct DrillInTrendSection: View {
                     .frame(maxWidth: .infinity, minHeight: 96, alignment: .leading)
             }
         }
+    }
+
+    private func formatWithUnit(_ value: Double) -> String {
+        guard let display else { return metric.formatWithUnit(value) }
+        let rendered = display.format(value)
+        guard rendered != WidgetMetrics.missingValue, !display.unit.isEmpty else { return rendered }
+        return rendered + TrendsUnitSuffix.text(for: display.unit)
     }
 
     /// Compact: a week of dots (filled where there is a day), how many of them, and why there is no chart yet.
