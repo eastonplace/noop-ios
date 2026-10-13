@@ -1,4 +1,5 @@
 import XCTest
+import NoopPhase34Core
 import StrandAnalytics
 import WhoopProtocol
 import WhoopStore
@@ -121,10 +122,22 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
                        reference: reference, dayKeys: (0..<days).map(dayKey))
     }
 
-    private func pass(_ harness: Harness, maxDays: Int, startOffset: Int = 0, at reference: Date? = nil) async -> Bool {
+    private func pass(_ harness: Harness, maxDays: Int, startOffset: Int = 0, at reference: Date? = nil,
+                      sourceContext: ExactWorkSourceContext? = nil) async -> Bool {
         await harness.engine.analyzeRecent(
             maxDays: maxDays, startOffset: startOffset, force: true, refreshRepository: false,
-            analysisReference: reference ?? harness.reference, analysisCalendar: utcCalendar)
+            analysisReference: reference ?? harness.reference, analysisCalendar: utcCalendar,
+            sourceContext: sourceContext)
+    }
+
+    /// An exact historical pass's source context for `deviceId`'s committed work on `day`.
+    private func exactSource(_ deviceId: String, day: String, createdAt: Date) throws -> ExactWorkSourceContext {
+        ExactWorkSourceContext(work: try HistoricalAnalysisWork(
+            scope: HistoricalAnalysisScope(
+                databaseInstanceId: "rescore-invariant-db", sourceId: deviceId, deviceId: deviceId,
+                deviceLineageId: "\(deviceId)-lineage", cursorEpoch: 0, trimScope: "historical"),
+            firstReceiptGeneration: 1, lastReceiptGeneration: 1, affectedDays: [try CivilDay(key: day)],
+            recordedTimeZoneIdentifier: "GMT", createdAt: createdAt))
     }
 
     /// The v3 migration's shape: newest-first 30-day chunks over the whole history.
@@ -550,49 +563,68 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
     /// which the loop did not read for that day, no longer makes a fold copy a strap night.
     func testLegacyRowProvenanceUsesTheRawLoopsOwnerAndGate() async throws {
         try await withRecalibrationEpochsRestored {
-            let days = 21
-            let harness = try await makeHarness(days: days, strapDays: 20..<days)
-            let registry = DeviceRegistryStore(dbQueue: harness.store.registryWriter)
-            try registry.add(PairedDevice(
-                id: Repository.whoopSource, brand: "WHOOP", model: "WHOOP 5.0", sourceKind: .liveBLE,
-                capabilities: [.hr, .hrv, .skinTemp, .sleep], status: .active, addedAt: 0, lastSeenAt: 0))
-            try registry.add(PairedDevice(
-                id: "chest-strap", brand: "Polar", model: "H10", sourceKind: .liveBLE,
-                capabilities: [.hr], status: .active, addedAt: 0, lastSeenAt: 0))
-            try registry.setActive(Repository.whoopSource)
-            // Each case is four days from the next, outside the others' read windows.
-            let heartRate: [(day: Int, rows: Int, deviceId: String)] = [
-                (10, 150, Repository.whoopSource), (14, 250, Repository.whoopSource),
-                (18, 150, Repository.whoopSource), (18, 300, "chest-strap"),
-            ]
-            for night in heartRate {
-                var streams = Streams()
-                let start = firstDayStart + night.day * 86_400 + 3_600
-                streams.hr = (0..<night.rows).map { HRSample(ts: start + $0 * 60, bpm: 55) }
-                _ = try await harness.store.insert(streams, deviceId: night.deviceId)
-            }
-            let ouraRows = [10, 14, 18].map { k in
-                DailyMetric(day: dayKey(k), totalSleepMin: 450, efficiency: 0.9, deepMin: 80, remMin: 100,
-                            lightMin: 270, disturbances: nil, restingHr: 50, avgHrv: 130,
-                            recovery: nil, strain: nil, exerciseCount: nil)
-            }
-            _ = try await harness.store.upsertDailyMetrics(ouraRows, deviceId: "oura-import")
-            // Copies an earlier build wrote under the computed id, with no marker.
-            _ = try await harness.store.upsertDailyMetrics(
-                ouraRows.map { $0.with(recovery: 60, skinTempDevC: nil) }, deviceId: harness.computedId)
-
-            let completed = await pass(harness, maxDays: 1)
-            XCTAssertTrue(completed)
-            let markers = try await harness.store.metricSeries(
-                deviceId: harness.computedId, key: IntelligenceEngine.computedRowSourceMetricKey,
-                from: dayKey(0), to: dayKey(19))
-            let markerByDay = Dictionary(markers.map { ($0.day, $0.value) }, uniquingKeysWith: { a, _ in a })
-            XCTAssertEqual(markerByDay[dayKey(10)], IntelligenceEngine.wearableFoldRowSource,
-                           "150 rows: the loop never scored the day")
-            XCTAssertEqual(markerByDay[dayKey(14)], IntelligenceEngine.strapRowSource, "the loop's 200 rows")
-            XCTAssertEqual(markerByDay[dayKey(18)], IntelligenceEngine.wearableFoldRowSource,
-                           "another device's heart rate is not the owner's")
+            try await checkLegacyProvenance(exactSourceDeviceId: nil)
         }
+    }
+
+    /// Review round 6 (1): an exact pass for another device's work classifies the legacy rows the way a
+    /// production pass does. The classification covers the whole history and is stored for good, so the exact
+    /// pass's source device is not the owner of every day.
+    func testAnExactPassClassifiesLegacyRowsLikeAProductionPass() async throws {
+        try await withRecalibrationEpochsRestored {
+            try await checkLegacyProvenance(exactSourceDeviceId: "chest-strap")
+        }
+    }
+
+    /// The legacy provenance fixture: unmarked fold copies on days 10, 14 and 18, with 150 owner rows, 250 owner
+    /// rows, and 150 owner rows plus 300 from a second live device. One pass (an exact pass when
+    /// `exactSourceDeviceId` is set) classifies them.
+    private func checkLegacyProvenance(exactSourceDeviceId: String?) async throws {
+        let days = 21
+        let harness = try await makeHarness(days: days, strapDays: 20..<days)
+        let registry = DeviceRegistryStore(dbQueue: harness.store.registryWriter)
+        try registry.add(PairedDevice(
+            id: Repository.whoopSource, brand: "WHOOP", model: "WHOOP 5.0", sourceKind: .liveBLE,
+            capabilities: [.hr, .hrv, .skinTemp, .sleep], status: .active, addedAt: 0, lastSeenAt: 0))
+        try registry.add(PairedDevice(
+            id: "chest-strap", brand: "Polar", model: "H10", sourceKind: .liveBLE,
+            capabilities: [.hr], status: .active, addedAt: 0, lastSeenAt: 0))
+        try registry.setActive(Repository.whoopSource)
+        // Each case is four days from the next, outside the others' read windows.
+        let heartRate: [(day: Int, rows: Int, deviceId: String)] = [
+            (10, 150, Repository.whoopSource), (14, 250, Repository.whoopSource),
+            (18, 150, Repository.whoopSource), (18, 300, "chest-strap"),
+        ]
+        for night in heartRate {
+            var streams = Streams()
+            let start = firstDayStart + night.day * 86_400 + 3_600
+            streams.hr = (0..<night.rows).map { HRSample(ts: start + $0 * 60, bpm: 55) }
+            _ = try await harness.store.insert(streams, deviceId: night.deviceId)
+        }
+        let ouraRows = [10, 14, 18].map { k in
+            DailyMetric(day: dayKey(k), totalSleepMin: 450, efficiency: 0.9, deepMin: 80, remMin: 100,
+                        lightMin: 270, disturbances: nil, restingHr: 50, avgHrv: 130,
+                        recovery: nil, strain: nil, exerciseCount: nil)
+        }
+        _ = try await harness.store.upsertDailyMetrics(ouraRows, deviceId: "oura-import")
+        // Copies an earlier build wrote under the computed id, with no marker.
+        _ = try await harness.store.upsertDailyMetrics(
+            ouraRows.map { $0.with(recovery: 60, skinTempDevC: nil) }, deviceId: harness.computedId)
+
+        let sourceContext = try exactSourceDeviceId.map {
+            try exactSource($0, day: dayKey(days - 1), createdAt: harness.reference)
+        }
+        let completed = await pass(harness, maxDays: 1, sourceContext: sourceContext)
+        XCTAssertTrue(completed)
+        let markers = try await harness.store.metricSeries(
+            deviceId: harness.computedId, key: IntelligenceEngine.computedRowSourceMetricKey,
+            from: dayKey(0), to: dayKey(19))
+        let markerByDay = Dictionary(markers.map { ($0.day, $0.value) }, uniquingKeysWith: { a, _ in a })
+        XCTAssertEqual(markerByDay[dayKey(10)], IntelligenceEngine.wearableFoldRowSource,
+                       "150 rows: the loop never scored the day")
+        XCTAssertEqual(markerByDay[dayKey(14)], IntelligenceEngine.strapRowSource, "the loop's 200 rows")
+        XCTAssertEqual(markerByDay[dayKey(18)], IntelligenceEngine.wearableFoldRowSource,
+                       "another device's heart rate is not the owner's")
     }
 
     // MARK: - Yesterday's calorie fill (review round 4, finding 2)

@@ -1670,14 +1670,11 @@ final class IntelligenceEngine: ObservableObject {
                 else { continue }
                 let from = dayStart - 30 * 3_600
                 let to = min(Int(nextStart.timeIntervalSince1970), now)
-                let owner: String
-                if let sourceContext {
-                    owner = sourceContext.deviceId
-                } else {
-                    owner = await Self.resolveDayOwner(day: row.day, from: from, to: to, store: store,
+                // Review round 6 (1): the owner a production pass resolves, in an exact pass too. The
+                // classification covers the whole history and is stored for good; sourceContext is this pass's.
+                let owner = await Self.resolveDayOwner(day: row.day, from: from, to: to, store: store,
                                                        devices: regDevices, activeId: regActiveId,
                                                        registry: registry, fallbackDeviceId: ownerFallbackId)
-                }
                 let rows = try await store.hrSamples(
                     deviceId: owner, from: from, to: to, limit: Self.legacyStrapNightMinHrRows)
                 let source = rows.count >= Self.legacyStrapNightMinHrRows
