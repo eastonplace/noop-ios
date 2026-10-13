@@ -736,17 +736,23 @@ struct HealthTrendPage: Equatable, Sendable {
 /// What re-builds a trend page. The page is built from the repository's rows once per task, so the key has to move
 /// whenever an input the old per-pass body re-read has moved. For Calories that is more than a repository refresh:
 /// today's figure is a share of the elapsed day (the strap-coverage test and the resting-energy fallback), so the
-/// clock, the strap's worn time and the profile's resting energy all change it with no refresh in between.
+/// clock, the strap's worn time and the profile's resting energy all change it with no refresh in between. The clock
+/// enters in `clockBucketMinutes` steps: the coverage cutoff and the resting-energy accrual (about `bmr / 288` kcal
+/// per step) reach the page on the first body pass in the next bucket, at most one step late, and the build re-runs at
+/// most once per step however many times the repository publishes in between.
 struct HealthTrendPageKey: Hashable {
     let refreshSeq: Int
     let temperature: TemperatureUnit
     /// The canonical read model's presentation revision, which Today and Sleep key their loads on as well.
     let canonicalRevision: Int64
-    /// Calories only: the profile's resting energy, the strap's worn seconds and the local day and hour.
+    /// Calories only: the profile's resting energy, the strap's worn seconds and the local day and clock bucket.
     let bmrKcalPerDay: Double?
     let wornSecondsTotal: Int
     let wornDays: Int
-    let hourBucket: String
+    let clockBucket: String
+
+    /// How coarsely the clock enters the key, in minutes (a divisor of 60, so a bucket never straddles an hour).
+    static let clockBucketMinutes = 5
 
     init(metric: ProductionTrendMetric, refreshSeq: Int, temperature: TemperatureUnit, canonicalRevision: Int64,
          bmrKcalPerDay: Double?, strapWornSecondsByDay: [String: Double], now: Date, calendar: Calendar = .current) {
@@ -757,13 +763,14 @@ struct HealthTrendPageKey: Hashable {
             self.bmrKcalPerDay = bmrKcalPerDay
             wornSecondsTotal = Int(strapWornSecondsByDay.values.reduce(0, +))
             wornDays = strapWornSecondsByDay.count
-            let c = calendar.dateComponents([.year, .month, .day, .hour], from: now)
-            hourBucket = "\(c.year ?? 0)-\(c.month ?? 0)-\(c.day ?? 0)T\(c.hour ?? 0)"
+            let c = calendar.dateComponents([.year, .month, .day, .hour, .minute], from: now)
+            clockBucket = "\(c.year ?? 0)-\(c.month ?? 0)-\(c.day ?? 0)T\(c.hour ?? 0):"
+                + "\((c.minute ?? 0) / Self.clockBucketMinutes)"
         } else {
             self.bmrKcalPerDay = nil
             wornSecondsTotal = 0
             wornDays = 0
-            hourBucket = ""
+            clockBucket = ""
         }
     }
 }

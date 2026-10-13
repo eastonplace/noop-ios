@@ -176,9 +176,30 @@ final class HealthTrendPageTests: XCTestCase {
         XCTAssertNotEqual(base, key(worn: ["2026-10-12": 40_000, "2026-10-13": 600]),
                           "worn time that moved without a refresh")
         XCTAssertNotEqual(base, key(worn: ["2026-10-12": 41_000]))
-        XCTAssertEqual(base, key(now: noon.addingTimeInterval(1_799)), "the same hour keeps the build")
-        XCTAssertNotEqual(base, key(now: noon.addingTimeInterval(3_600)), "the clock moves the figure hour by hour")
+        XCTAssertEqual(base, key(now: noon.addingTimeInterval(299)), "the same five minutes keep the build")
+        XCTAssertNotEqual(base, key(now: noon.addingTimeInterval(300)), "the clock moves the figure every five minutes")
+        XCTAssertNotEqual(base, key(now: noon.addingTimeInterval(3_600)))
         XCTAssertNotEqual(base, key(now: noon.addingTimeInterval(86_400)))
+    }
+
+    /// Today's Calories figure can change with nothing but the clock (strap coverage lapsing, resting energy
+    /// accruing), and the page used to notice only once an hour. It notices within five minutes now, and an idle page
+    /// whose repository keeps publishing still rebuilds no more than once per five minutes.
+    func testTheCaloriesKeyNoticesTheClockWithinFiveMinutesWithoutChurningOnPublishes() {
+        XCTAssertNotEqual(key(now: noon.addingTimeInterval(14 * 60)), key(now: noon.addingTimeInterval(16 * 60 + 40)),
+                          "a change at 12:16 reaches a page built at 12:14 on its first pass after 12:15, not an hour later")
+        // One hour of body passes every 7 seconds with nothing but the clock moving: one build per five minutes.
+        var keys: [HealthTrendPageKey] = []
+        for second in stride(from: 0, to: 3_600, by: 7) { keys.append(key(now: noon.addingTimeInterval(Double(second)))) }
+        XCTAssertEqual(Set(keys).count, 12)
+        var builds = 0
+        var last: HealthTrendPageKey?
+        for k in keys where k != last { builds += 1; last = k }
+        XCTAssertEqual(builds, 12, "each bucket builds once, in order")
+        // Repository publishes that move none of the inputs leave the key alone, whatever the second.
+        let base = key(now: noon.addingTimeInterval(61))
+        XCTAssertEqual(base, key(now: noon.addingTimeInterval(299)))
+        XCTAssertEqual(base, key(refreshSeq: 1, revision: 5, now: noon.addingTimeInterval(120)))
     }
 
     /// Only Calories depends on the worn time, the resting energy and the clock; the other pages are not rebuilt
