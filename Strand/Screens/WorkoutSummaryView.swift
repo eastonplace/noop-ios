@@ -37,6 +37,10 @@ struct WorkoutSummaryView: View {
     @State private var loaded: Loaded?
     @State private var usualStored: Double?
     @State private var showsDetails = false
+    /// How far the page has scrolled under the header, as the opacity of the fade below it (0 at rest, so the top figure is never
+    /// dimmed; 1 once it has scrolled a little), and the position the content rests at, which it is measured against.
+    @State private var topFadeOpacity: CGFloat = 0
+    @State private var restOffset: CGFloat?
 
     private var unitSystem: UnitSystem { UnitSystem(rawValue: unitSystemRaw) ?? .metric }
     private var displayRow: WorkoutRow { loaded?.row ?? row }
@@ -52,6 +56,10 @@ struct WorkoutSummaryView: View {
     private static let sideWidth: CGFloat = 84
     /// How tall the soft black fade above the pinned Done is: what scrolls up under it dissolves instead of being cut.
     private static let footerFade: CGFloat = 40
+    /// The same under the pinned header, and the distance over which it comes in as the page starts to scroll.
+    private static let headerFade: CGFloat = 32
+    private static let headerFadeRamp: CGFloat = 24
+    private static let scrollSpace = "workoutSummaryScroll"
 
     var body: some View {
         ScrollView {
@@ -67,7 +75,18 @@ struct WorkoutSummaryView: View {
             .padding(.top, NoopMetrics.space4)
             // The last thing on the page rests clear of the footer's fade, not under it.
             .padding(.bottom, Self.footerFade)
+            // Where the content's top is, in the scroll view's space: how far it has scrolled is how far it is from where it rests.
+            .onGeometryChange(for: CGFloat.self) { proxy in
+                proxy.frame(in: .named(Self.scrollSpace)).minY
+            } action: { offset in
+                // The content never rests lower than at its first position, so the highest it has been seen at is where it rests.
+                let rest = max(restOffset ?? offset, offset)
+                if rest != restOffset { restOffset = rest }
+                let level = (min(1, max(0, (rest - offset) / Self.headerFadeRamp)) * 10).rounded() / 10
+                if level != topFadeOpacity { topFadeOpacity = level }
+            }
         }
+        .coordinateSpace(.named(Self.scrollSpace))
         .scrollBounceBehavior(.basedOnSize)
         .background(LivePalette.canvas.ignoresSafeArea())
         .safeAreaInset(edge: .top, spacing: 0) { header }
@@ -122,6 +141,16 @@ struct WorkoutSummaryView: View {
         .padding(.top, 2 + NoopMetrics.space2)
         .padding(.bottom, NoopMetrics.space1)
         .background(LivePalette.canvas)
+        // A soft black fade below it once the page has scrolled, so what scrolls up under the header dissolves into it rather
+        // than being cut at its edge. At rest it is clear, so the top figure keeps all of its ink.
+        .overlay(alignment: .bottom) {
+            LinearGradient(colors: [LivePalette.canvas, LivePalette.canvas.opacity(0)], startPoint: .top, endPoint: .bottom)
+                .frame(height: Self.headerFade)
+                .offset(y: Self.headerFade)
+                .opacity(topFadeOpacity)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        }
     }
 
     /// "✓ Saved · 7:42 AM": the word in mint, the clock in grey. At the accessibility sizes it breaks as "Saved" over "7:42 AM",
