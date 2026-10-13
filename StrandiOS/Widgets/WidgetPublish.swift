@@ -195,15 +195,22 @@ extension WidgetSnapshot {
 
     /// Convert verified HRV history into the scalar and sparkline that the widget renders. Invalid values
     /// are omitted without touching Recovery or Strain.
+    ///
+    /// With an `anchorDay` the scalar is the anchor day's own night, or else the freshest earlier night inside
+    /// the window Today carries one for (`CarriedVitalWindow`). Without it the scalar is the newest point.
     static func widgetHRVProjection(
-        from series: [(day: String, value: Double)]
+        from series: [(day: String, value: Double)],
+        anchorDay: CivilDay? = nil
     ) -> (current: Int?, sparkline: [Int]) {
-        let values = series.compactMap { point -> Int? in
+        let points = series.compactMap { point -> (day: String, value: Int)? in
             guard point.value.isFinite else { return nil }
             let rounded = Int(point.value.rounded())
-            return (5...300).contains(rounded) ? rounded : nil
+            return (5...300).contains(rounded) ? (point.day, rounded) : nil
         }
-        return (values.last, Array(values.suffix(12)))
+        let sparkline = Array(points.map(\.value).suffix(12))
+        guard let anchorDay else { return (points.last?.value, sparkline) }
+        let current = points.last { CarriedVitalWindow.permits(day: $0.day, anchorDay: anchorDay.key) }?.value
+        return (current, sparkline)
     }
 
     /// Regression seam for optional enrichment. The returned base is always the immutable verified envelope;
@@ -243,7 +250,7 @@ extension WidgetSnapshot {
         } else {
             hrvSeries = []
         }
-        let hrvProjection = widgetHRVProjection(from: hrvSeries)
+        let hrvProjection = widgetHRVProjection(from: hrvSeries, anchorDay: anchorDay)
         let stress: (hours: [Double?]?, summary: String?)
         if let store = await model.repo.storeHandle(),
            let recordedTimeZoneIdentifier = bundle.widgetCore.recordedTimeZoneIdentifier {
@@ -287,6 +294,10 @@ extension WidgetSnapshot {
     /// alias intentionally unions the current active source, which is unsafe for
     /// a delayed verified generation. The source order captured by the bundle is
     /// the precedence order; the first value for a day wins.
+    ///
+    /// The value is `daily_metrics.avgHrv`, the nightly RMSSD Today shows. The strap pipeline writes it there
+    /// and never to the `hrv` metric series, which only file importers fill. Apple Health is not a source of
+    /// the namespace, so its SDNN can never stand in for it (DL-11).
     static func verifiedHRVSeries(
         store: WhoopStore,
         sourceIds: [String],
@@ -313,15 +324,14 @@ extension WidgetSnapshot {
         var byDay: [String: Double] = [:]
         for sourceId in sourceIds {
             try Task.checkCancellation()
-            let points = try await store.metricSeries(
+            let rows = try await store.dailyMetrics(
                 deviceId: sourceId,
-                key: "hrv",
                 from: firstDay.key,
                 to: anchorDay.key
             )
             try Task.checkCancellation()
-            for point in points where byDay[point.day] == nil {
-                byDay[point.day] = point.value
+            for row in rows where byDay[row.day] == nil {
+                if let hrv = row.avgHrv { byDay[row.day] = hrv }
             }
         }
         return byDay.keys.sorted().compactMap { day in

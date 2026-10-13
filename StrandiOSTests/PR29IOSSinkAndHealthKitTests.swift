@@ -287,16 +287,19 @@ final class PR29IOSSinkAndHealthKitTests: XCTestCase {
 
     func testWidgetHRVEnrichmentUsesOnlyVerifiedSourceOrder() async throws {
         let store = try await WhoopStore.inMemory()
-        try await store.upsertMetricSeries([
-            MetricPoint(day: "2026-08-06", key: "hrv", value: 40),
-            MetricPoint(day: "2026-08-07", key: "hrv", value: 41),
+        func night(_ day: String, _ hrv: Double) -> DailyMetric {
+            DailyMetric(day: day, totalSleepMin: nil, efficiency: nil, deepMin: nil, remMin: nil,
+                        lightMin: nil, disturbances: nil, restingHr: nil, avgHrv: hrv,
+                        recovery: nil, strain: nil, exerciseCount: nil)
+        }
+        try await store.upsertDailyMetrics([
+            night("2026-08-06", 40), night("2026-08-07", 41),
         ], deviceId: "source-a")
-        try await store.upsertMetricSeries([
-            MetricPoint(day: "2026-08-07", key: "hrv", value: 70),
-            MetricPoint(day: "2026-08-08", key: "hrv", value: 71),
+        try await store.upsertDailyMetrics([
+            night("2026-08-07", 70), night("2026-08-08", 71),
         ], deviceId: "source-b")
-        try await store.upsertMetricSeries([
-            MetricPoint(day: "2026-08-08", key: "hrv", value: 999),
+        try await store.upsertDailyMetrics([
+            night("2026-08-08", 999),
         ], deviceId: "my-whoop")
 
         let points = try await WidgetSnapshot.verifiedHRVSeries(
