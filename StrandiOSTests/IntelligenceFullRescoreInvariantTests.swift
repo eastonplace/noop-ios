@@ -29,6 +29,8 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
         let dayKeys: [String]
     }
 
+    private let secondWhoop4Id = "whoop4-second-strap"
+
     private func dayKey(_ index: Int) -> String {
         let formatter = DateFormatter()
         formatter.calendar = Calendar(identifier: .gregorian)
@@ -42,16 +44,25 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
     /// reading is in the future. A day in `lateNights` stays up past midnight instead: awake from 23:00, an hour
     /// of exercise from 00:00, asleep at 01:30. `whoop4` pairs the strap as a WHOOP 4.0, whose skin register
     /// is converted with an anchor each pass learns from its own window; its nightly raws drift up 2 units a
-    /// night, so passes over different windows learn different anchors.
+    /// night, so passes over different windows learn different anchors. `whoop4SwapDay` instead swaps to a
+    /// second WHOOP 4.0 on that day: neither strap drifts, and the second one's register reads 30 units
+    /// (1.5 °C) higher for the same skin.
     private func makeHarness(days: Int, strapDays: Range<Int>? = nil, lateNights: Set<Int> = [],
-                             whoop4: Bool = false) async throws -> Harness {
+                             whoop4: Bool = false, whoop4SwapDay: Int? = nil) async throws -> Harness {
         let store = try await WhoopStore.inMemory()
+        let whoop4 = whoop4 || whoop4SwapDay != nil
         if whoop4 {
             let registry = DeviceRegistryStore(dbQueue: store.registryWriter)
             try registry.add(PairedDevice(
                 id: Repository.whoopSource, brand: "WHOOP", model: "WHOOP 4.0", sourceKind: .liveBLE,
                 capabilities: [.hr, .hrv, .skinTemp, .sleep], status: .active, addedAt: 0, lastSeenAt: 0))
             try registry.setActive(Repository.whoopSource)
+            if whoop4SwapDay != nil {
+                try registry.add(PairedDevice(
+                    id: secondWhoop4Id, brand: "WHOOP", model: "WHOOP 4.0", sourceKind: .liveBLE,
+                    capabilities: [.hr, .hrv, .skinTemp, .sleep], status: .active, addedAt: 0, lastSeenAt: 0))
+                try registry.setActive(secondWhoop4Id)
+            }
         }
         let repository = Repository(deviceId: Repository.whoopSource)
         repository.setStoreForTesting(store)
@@ -74,7 +85,12 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
                 streams.hr.append(HRSample(ts: ts, bpm: 52 + k % 3))
                 streams.gravity.append(GravitySample(ts: ts, x: 0, y: 0, z: 1))
                 if ts % 60 == 0 {
-                    let raw = whoop4 ? 1_300 + 2 * k + (ts / 60) % 3 : 3_450 + (k % 5) * 8
+                    let raw: Int
+                    if let swap = whoop4SwapDay {
+                        raw = (k >= swap ? 1_330 : 1_300) + (ts / 60) % 3
+                    } else {
+                        raw = whoop4 ? 1_300 + 2 * k + (ts / 60) % 3 : 3_450 + (k % 5) * 8
+                    }
                     streams.skinTemp.append(SkinTempSample(ts: ts, raw: raw))
                 }
             }
@@ -92,7 +108,8 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
                 streams.gravity.append(GravitySample(ts: ts, x: wobble, y: 0.3 - wobble, z: 0.8))
                 if !whoop4, ts % 60 == 0 { streams.skinTemp.append(SkinTempSample(ts: ts, raw: 3_300)) }
             }
-            _ = try await store.insert(streams, deviceId: Repository.whoopSource)
+            let strap = whoop4SwapDay.map { k >= $0 ? secondWhoop4Id : Repository.whoopSource }
+            _ = try await store.insert(streams, deviceId: strap ?? Repository.whoopSource)
         }
         let reference = Date(timeIntervalSince1970: TimeInterval(firstDayStart + (days - 1) * 86_400 + 22 * 3_600))
         return Harness(store: store, engine: engine, computedId: Repository.whoopSource + "-noop",
@@ -276,6 +293,32 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
             XCTAssertTrue(narrow)
             let second = try await stored(harness)
             XCTAssertEqual(try XCTUnwrap(second[today]?.skinTempDevC), deviation, accuracy: 0.011)
+        }
+    }
+
+    /// Review round 4 (1): swapping to a second WHOOP 4.0 whose register reads 1.5 °C higher for the same skin
+    /// does not read as a fever. A one-day pass after the swap converts the first strap's stored nights with
+    /// that strap's own anchor, so today's deviation matches the 30-day pass, which converted each strap's
+    /// fresh nights with its own anchor. One anchor for every stored night put the first strap's nights
+    /// 1.5 °C low, and today's deviation jumped up by the share of them in the baseline.
+    func testWhoop4StrapSwapKeepsSkinDeviationsContinuous() async throws {
+        try await withRecalibrationEpochsRestored {
+            let days = 30
+            let harness = try await makeHarness(days: days, whoop4SwapDay: 20)
+            let wide = await pass(harness, maxDays: days)
+            XCTAssertTrue(wide)
+            let first = try await stored(harness)
+            for k in 18..<days {
+                let deviation = try XCTUnwrap(first[dayKey(k)]?.skinTempDevC, "day \(k) has a skin deviation")
+                XCTAssertEqual(deviation, 0, accuracy: 0.3, "day \(k): the swap is continuous")
+            }
+
+            let narrow = await pass(harness, maxDays: 1)
+            XCTAssertTrue(narrow)
+            let second = try await stored(harness)
+            let today = harness.dayKeys[days - 1]
+            XCTAssertEqual(try XCTUnwrap(second[today]?.skinTempDevC),
+                           try XCTUnwrap(first[today]?.skinTempDevC), accuracy: 0.011)
         }
     }
 

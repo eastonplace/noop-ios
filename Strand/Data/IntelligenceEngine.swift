@@ -233,10 +233,13 @@ final class IntelligenceEngine: ObservableObject {
     /// F2: each scored night's raw skin-temperature mean (°C), persisted under the computed id so the skin
     /// baseline folds the whole history, as HRV / resting HR / respiration do from the computed rows.
     nonisolated static let nightlySkinMetricKey = "skin_temp_night_mean_c"
-    /// Review round 3 (B): a WHOOP 4.0 night's mean as a raw register value. Its °C depends on the anchor the
-    /// pass learned from its own window (#938), so it is stored anchor-free and converted with the folding
-    /// pass's anchor: every night in the fold then shares one anchor and the offset cancels in the deviation.
-    nonisolated static let nightlySkinWhoop4RawMetricKey = "skin_temp_night_raw_whoop4"
+    /// Review round 3 (B) and round 4 (1): a WHOOP 4.0 night's mean as a raw register value, keyed by the strap
+    /// that recorded it, with the anchor that night was converted with beside it. The register offset is per
+    /// strap (#938), so each strap's nights are converted with that strap's one anchor: the current pass's
+    /// for a strap this pass read, else the newest one stored for it. The offset cancels within each strap's
+    /// run, and a strap swap stays continuous instead of reading the old strap's nights on the new offset.
+    nonisolated static let nightlySkinWhoop4RawKeyPrefix = "skin_temp_night_raw_whoop4."
+    nonisolated static let nightlySkinWhoop4AnchorKeyPrefix = "skin_temp_night_anchor_whoop4."
 
     private var dayScanCache: [String: CachedDayScan] = [:]
     private var dayScanCacheConfigSignature = ""
@@ -1571,15 +1574,22 @@ final class IntelligenceEngine: ObservableObject {
         // imported values and this pass's fresh values win.
         let computedHist: [DailyMetric]
         let storedNightlySkin: [MetricPoint]
-        let storedNightlySkinWhoop4Raw: [MetricPoint]
+        var storedWhoop4SkinByOwner: [String: (raw: [MetricPoint], anchor: [MetricPoint])] = [:]
         do {
             computedHist = try await store.dailyMetrics(
                 deviceId: computedId, from: "0000-01-01", to: "9999-12-31")
             storedNightlySkin = try await store.metricSeries(
                 deviceId: computedId, key: Self.nightlySkinMetricKey, from: "0000-01-01", to: "9999-12-31")
-            storedNightlySkinWhoop4Raw = try await store.metricSeries(
-                deviceId: computedId, key: Self.nightlySkinWhoop4RawMetricKey, from: "0000-01-01",
-                to: "9999-12-31")
+            for key in try await store.metricKeys(deviceId: computedId)
+            where key.hasPrefix(Self.nightlySkinWhoop4RawKeyPrefix) {
+                let owner = String(key.dropFirst(Self.nightlySkinWhoop4RawKeyPrefix.count))
+                storedWhoop4SkinByOwner[owner] = (
+                    raw: try await store.metricSeries(
+                        deviceId: computedId, key: key, from: "0000-01-01", to: "9999-12-31"),
+                    anchor: try await store.metricSeries(
+                        deviceId: computedId, key: Self.nightlySkinWhoop4AnchorKeyPrefix + owner,
+                        from: "0000-01-01", to: "9999-12-31"))
+            }
         } catch {
             note = String(localized: "Recovery analysis is waiting for the local database.")
             NSLog("IntelligenceEngine: required baseline read failed: \(error)")
@@ -1633,18 +1643,24 @@ final class IntelligenceEngine: ObservableObject {
         // folds the nightly means: this pass's, then the ones earlier passes persisted (F2: a window-only fold
         // left the oldest days of every pass without a usable baseline and wiped their stored deviation).
         var histSkinByDay = nightlySkinByDay
-        Self.mergeNightlyIntoHistory(
-            &histSkinByDay,
-            Dictionary(storedNightlySkin.map { ($0.day, Optional($0.value)) }, uniquingKeysWith: { a, _ in a }))
-        // Review round 3 (B): persisted WHOOP 4.0 nights are raw register values, converted here with the anchor
-        // of this pass's newest WHOOP 4.0 night, the one its fresh nights were converted with.
-        if let anchor = whoop4SkinAnchorByDay.max(by: { $0.key < $1.key })?.value {
+        // Review round 4 (1): persisted WHOOP 4.0 nights are raw register values per strap, each strap's converted
+        // with its own anchor: the one this pass converted that strap's fresh nights with, else the newest
+        // anchor stored for it.
+        var passWhoop4AnchorByOwner: [String: Double] = [:]
+        for (day, anchor) in whoop4SkinAnchorByDay {
+            if let owner = readOwnerByDay[day]?.owner { passWhoop4AnchorByOwner[owner] = anchor }
+        }
+        for (owner, stored) in storedWhoop4SkinByOwner {
+            guard let anchor = passWhoop4AnchorByOwner[owner] ?? stored.anchor.last?.value else { continue }
             Self.mergeNightlyIntoHistory(
                 &histSkinByDay,
-                Dictionary(storedNightlySkinWhoop4Raw.map {
+                Dictionary(stored.raw.map {
                     ($0.day, Optional(Self.whoop4SkinCelsius(raw: $0.value, anchorRaw: anchor)))
                 }, uniquingKeysWith: { a, _ in a }))
         }
+        Self.mergeNightlyIntoHistory(
+            &histSkinByDay,
+            Dictionary(storedNightlySkin.map { ($0.day, Optional($0.value)) }, uniquingKeysWith: { a, _ in a }))
         let skinDayKeys = histSkinByDay.keys.sorted()
         let skinSeq = skinDayKeys.map { histSkinByDay[$0]! }
         // Review round 3 (F): whether the skin fold holds any night from before this pass's window.
@@ -2278,21 +2294,29 @@ final class IntelligenceEngine: ObservableObject {
         }
         // F2: persist each scored night's raw skin mean, so later passes and the v3 chunks fold the skin
         // baseline over the whole history instead of only their own window. A WHOOP 4.0 night is stored as a
-        // raw register value, free of this pass's anchor (review round 3, B).
+        // raw register value under the strap that recorded it, with its anchor (review round 3 B, round 4 1).
         do {
             guard !Task.isCancelled else { performanceChangedRows = persistedMutationCount; return false }
-            let nightlySkinPoints = scoredNights.compactMap { night -> MetricPoint? in
-                guard let mean = night.nightlySkin else { return nil }
-                if let anchor = whoop4SkinAnchorByDay[night.daily.day] {
-                    return MetricPoint(day: night.daily.day, key: Self.nightlySkinWhoop4RawMetricKey,
-                                       value: Self.whoop4SkinRaw(celsius: mean, anchorRaw: anchor))
+            var whoop4Owners = Set(storedWhoop4SkinByOwner.keys)
+            let nightlySkinPoints = scoredNights.flatMap { night -> [MetricPoint] in
+                guard let mean = night.nightlySkin else { return [] }
+                let day = night.daily.day
+                if let anchor = whoop4SkinAnchorByDay[day], let owner = readOwnerByDay[day]?.owner {
+                    whoop4Owners.insert(owner)
+                    return [
+                        MetricPoint(day: day, key: Self.nightlySkinWhoop4RawKeyPrefix + owner,
+                                    value: Self.whoop4SkinRaw(celsius: mean, anchorRaw: anchor)),
+                        MetricPoint(day: day, key: Self.nightlySkinWhoop4AnchorKeyPrefix + owner, value: anchor),
+                    ]
                 }
-                return MetricPoint(day: night.daily.day, key: Self.nightlySkinMetricKey, value: mean)
+                return [MetricPoint(day: day, key: Self.nightlySkinMetricKey, value: mean)]
             }
             persistedMutationCount += try await store.reconcileMetricSeries(
                 nightlySkinPoints,
                 deviceId: computedId,
-                keys: [Self.nightlySkinMetricKey, Self.nightlySkinWhoop4RawMetricKey],
+                keys: [Self.nightlySkinMetricKey] + whoop4Owners.sorted().flatMap {
+                    [Self.nightlySkinWhoop4RawKeyPrefix + $0, Self.nightlySkinWhoop4AnchorKeyPrefix + $0]
+                },
                 from: oldestDay,
                 to: newestDay
             )
