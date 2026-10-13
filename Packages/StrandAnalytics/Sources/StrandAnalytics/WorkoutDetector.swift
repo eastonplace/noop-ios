@@ -550,11 +550,19 @@ public enum Calories {
                                                profile: UserProfile,
                                                hrmax: Double?,
                                                restingHR: Double?) -> Double {
-        let bySecond = Dictionary(hrSamples.map { ($0.ts, $0) },
-                                  uniquingKeysWith: { $0.bpm >= $1.bpm ? $0 : $1 })
-        let sampleKcal = estimateDayCalories(Array(bySecond.values), profile: profile,
-                                             hrmax: hrmax, restingHR: restingHR)
-        let covered = bySecond.keys.reduce(0) { $0 + (fillWindow.contains($1) ? 1 : 0) }
+        // One sample per second in timestamp order, so the sum is the same to the last bit whatever order the
+        // samples arrive in and an unchanged day is never rewritten by a rescan (review round 3, G).
+        var perSecond: [HRSample] = []
+        perSecond.reserveCapacity(hrSamples.count)
+        for sample in hrSamples.sorted(by: { $0.ts < $1.ts }) {
+            if let last = perSecond.last, last.ts == sample.ts {
+                if sample.bpm > last.bpm { perSecond[perSecond.count - 1] = sample }
+            } else {
+                perSecond.append(sample)
+            }
+        }
+        let sampleKcal = estimateDayCalories(perSecond, profile: profile, hrmax: hrmax, restingHR: restingHR)
+        let covered = perSecond.reduce(0) { $0 + (fillWindow.contains($1.ts) ? 1 : 0) }
         let restingRate = restingKcalPerS(resolveCoeffs(profile.sex),
                                           weightKg: profile.weightKg > 0 ? profile.weightKg : 70.0,
                                           heightCm: profile.heightCm > 0 ? profile.heightCm : 170.0,

@@ -111,4 +111,21 @@ final class FullDayCaloriesTests: XCTestCase {
         let doubled = restingAllDay + restingAllDay.prefix(3_600)
         XCTAssertEqual(try total(dayHr: doubled), bmrPerSecond * 86_400, accuracy: 1e-6)
     }
+
+    /// The sum runs in timestamp order, so the same samples give the same total to the last bit whatever order
+    /// they arrive in, and an unchanged past day is never rewritten by a rescan (review round 3, finding 14).
+    func testTotalIsTheChronologicalSumWhateverTheInputOrder() {
+        let samples = worn((dayStart + 8 * 3_600)..<(dayStart + 20 * 3_600), step: 7)
+        let restingRate = Calories.restingKcalPerS(Calories.resolveCoeffs(profile.sex), weightKg: profile.weightKg,
+                                                   heightCm: profile.heightCm, age: profile.age)
+        let chronological = perSample(samples) + Double(86_400 - samples.count) * restingRate
+        let interleaved = stride(from: 0, to: samples.count, by: 2).map { samples[$0] }
+            + stride(from: 1, to: samples.count, by: 2).map { samples[$0] }
+        for (name, order) in [("chronological", samples), ("reversed", Array(samples.reversed())),
+                              ("interleaved", interleaved)] {
+            let kcal = Calories.estimateFullDayCalories(order, fillWindow: utcDay, profile: profile, hrmax: maxHR,
+                                                        restingHR: nil)
+            XCTAssertEqual(kcal, chronological, name)
+        }
+    }
 }
