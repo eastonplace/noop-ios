@@ -64,6 +64,27 @@ final class BLEBackgroundReconnectHandoffTests: XCTestCase {
         XCTAssertEqual(issued, 0)
     }
 
+    /// Review R3b #1/#5: a reconnect with no hold of its own (a failed pending connect, a ladder-timer
+    /// handoff) must not erase a running CLIENT_HELLO hold. Only the series' real ends clear it.
+    func testARunningHandshakeHoldIsNeverShortenedAndOnlyTheSeriesEndsClearIt() throws {
+        let manager = BLEManager(state: LiveState(), collector: nil)
+        let held = Date().addingTimeInterval(60)
+        manager.applyWhoop5HandshakeHoldForTesting(held)
+        manager.applyWhoop5HandshakeHoldForTesting(nil)
+        XCTAssertEqual(manager.whoop5HandshakeHoldForTesting, held)
+        manager.applyWhoop5HandshakeHoldForTesting(Date().addingTimeInterval(10))
+        XCTAssertEqual(manager.whoop5HandshakeHoldForTesting, held)
+        let longer = Date().addingTimeInterval(90)
+        manager.applyWhoop5HandshakeHoldForTesting(longer)
+        XCTAssertEqual(manager.whoop5HandshakeHoldForTesting, longer)
+
+        manager.disconnect()
+        XCTAssertNil(manager.whoop5HandshakeHoldForTesting, "a user disconnect ends the series")
+        manager.applyWhoop5HandshakeHoldForTesting(held)
+        manager.connect()
+        XCTAssertNil(manager.whoop5HandshakeHoldForTesting, "a user Connect starts a fresh series")
+    }
+
     /// End to end through the real target lookup: with no powered-on central (the simulator) there is no
     /// strap to hand off to, so the timer stays armed for when the app comes back.
     func testWithNoReachableStrapTheBackgroundTransitionKeepsTheTimer() {

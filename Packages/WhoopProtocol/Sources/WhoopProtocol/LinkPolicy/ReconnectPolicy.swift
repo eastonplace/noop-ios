@@ -111,6 +111,13 @@ public struct ReconnectPolicy: Equatable, Sendable {
         return .connectNow
     }
 
+    /// F1: a WHOOP 5/MG secure-handshake hold is never shortened. The later of a still-running hold and
+    /// a new one wins; `new == nil` (a reconnect with no delay of its own) keeps the running hold. Only
+    /// the paths that end the series (user Connect, disconnect, forget, secure proof) clear it.
+    public static func laterHandshakeHold(existing: Date?, new: Date?, now: Date) -> Date? {
+        [existing, new].compactMap { $0 }.filter { $0 > now }.max()
+    }
+
     /// F1: the app is leaving the foreground with a reconnect timer armed. A suspended app's timer never
     /// fires and leaves nothing pending to wake it, so the armed retry must become a pending connect now,
     /// unless the user tore the link down, auto-reconnect is paused, there is no known strap, or the strap

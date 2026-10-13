@@ -1543,6 +1543,10 @@ public final class BLEManager: NSObject, ObservableObject {
 
     var reconnectDueAtForTesting: Date? { reconnectWorkDueAt }
 
+    func applyWhoop5HandshakeHoldForTesting(_ hold: Date?) { applyWhoop5HandshakeHold(hold) }
+
+    var whoop5HandshakeHoldForTesting: Date? { whoop5SecureHandshakeNotBefore }
+
     // MARK: Multi-WHOOP (additive — inert on the single-WHOOP path)
 
     /// Pin connections to ONE specific strap by its CBPeripheral.identifier.uuidString. The app sets
@@ -5299,6 +5303,13 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
         performReconnect(action, target: target, secureRecovery: false)
     }
 
+    /// F1: set a secure-handshake hold without ever shortening one that is still running (a failed
+    /// pending connect or a ladder-timer handoff passes no hold of its own).
+    private func applyWhoop5HandshakeHold(_ hold: Date?) {
+        whoop5SecureHandshakeNotBefore = ReconnectPolicy.laterHandshakeHold(
+            existing: whoop5SecureHandshakeNotBefore, new: hold, now: Date())
+    }
+
     /// F1: carry out a `ReconnectPolicy` decision.
     private func performReconnect(_ action: ReconnectPolicy.Action, target: CBPeripheral?, secureRecovery: Bool) {
         switch action {
@@ -5334,7 +5345,7 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
     /// `holdHandshakeUntil` is a WHOOP 5/MG secure-recovery delay enforced after the reconnect instead.
     private func issuePendingReconnect(to p: CBPeripheral, holdHandshakeUntil: Date?) {
         cancelPendingReconnect()
-        whoop5SecureHandshakeNotBefore = holdHandshakeUntil
+        applyWhoop5HandshakeHold(holdHandshakeUntil)
         connectAttemptStartedAt = Date()
         preparePeripheral(p)
         central.connect(p, options: nil)
@@ -6178,6 +6189,7 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
         whoop5NotifyRearmOffPending.removeAll()
         whoop5SecureRecovery.markSecureReady(sessionID: sessionID)
         pendingWhoop5ReconnectDelaySeconds = nil
+        whoop5SecureHandshakeNotBefore = nil   // F1: secure proof ends the recovery series and its hold
         autoReconnectPausedForWhoop5SecureFailure = false
         whoop5FallbackMode = .none
         whoop5PausedNotifyOffPending.removeAll()

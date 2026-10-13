@@ -186,6 +186,27 @@ final class ReconnectPolicyBackgroundTests: XCTestCase {
         XCTAssertEqual(policy.backgroundRetries, 0)
     }
 
+    // MARK: The secure-handshake hold is never shortened (review R3b #1/#5)
+
+    /// A failed pending connect (no delay of its own) or a ladder-timer handoff used to overwrite a running
+    /// hold with nil, so CLIENT_HELLO went out before the secure-recovery deadline.
+    func testARunningHandshakeHoldIsNeverShortened() {
+        let now = Date(timeIntervalSince1970: 1_000)
+        let held = now.addingTimeInterval(60)
+        XCTAssertEqual(ReconnectPolicy.laterHandshakeHold(existing: held, new: nil, now: now), held,
+                       "a reconnect with no hold of its own keeps the running one")
+        XCTAssertEqual(ReconnectPolicy.laterHandshakeHold(existing: held, new: now.addingTimeInterval(10), now: now),
+                       held, "a shorter hold does not cut it short")
+        XCTAssertEqual(ReconnectPolicy.laterHandshakeHold(existing: held, new: now.addingTimeInterval(90), now: now),
+                       now.addingTimeInterval(90), "a longer hold extends it")
+        XCTAssertNil(ReconnectPolicy.laterHandshakeHold(existing: now.addingTimeInterval(-1), new: nil, now: now),
+                     "an expired hold is gone")
+        XCTAssertEqual(ReconnectPolicy.laterHandshakeHold(existing: now.addingTimeInterval(-1),
+                                                          new: now.addingTimeInterval(5), now: now),
+                       now.addingTimeInterval(5))
+        XCTAssertNil(ReconnectPolicy.laterHandshakeHold(existing: nil, new: nil, now: now))
+    }
+
     // MARK: Background handoff of an armed timer (finding #1)
 
     func testAnArmedRetryIsHandedOffWhenTheAppLeavesTheForeground() {
