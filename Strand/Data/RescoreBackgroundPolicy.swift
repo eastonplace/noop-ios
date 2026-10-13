@@ -90,13 +90,22 @@ enum RescoreBackgroundPolicy {
 /// `.inactive` edge), is paused the moment that stops being true, and is cancelled on return to the foreground.
 /// A cancelled chunk never advances the durable cursor (`analyzeRecent` reports non-completion and the
 /// migration throws), so the next grant replays it from the same offset.
+///
+/// A cancelled grant may still be inside the engine, waiting for its next checkpoint. A grant started in that
+/// window waits for it first, so the engine's single-run guard never drops the new grant silently.
 @MainActor
 final class EffortRescoreGrant {
     private var task: Task<Void, Never>?
     private var token: UUID?
+    /// The last cancelled grant, which may still be unwinding. The next `start` runs after it.
+    private var unwinding: Task<Void, Never>?
+    private var unwindingToken: UUID?
 
     /// A grant is pending its start checks or running.
     var isActive: Bool { task != nil }
+
+    /// A cancelled grant has not finished unwinding.
+    var isUnwinding: Bool { unwinding != nil }
 
     /// - Parameters:
     ///   - isBackground: iOS has moved the app to the background. Checked when the grant starts and again
@@ -110,23 +119,35 @@ final class EffortRescoreGrant {
     ) {
         guard task == nil else { return }
         let token = UUID()
+        let previous = unwinding
         self.token = token
+        unwinding = nil
+        unwindingToken = nil
         task = Task(priority: .background) { [weak self] in
-            if isBackground(), mayRun() {
+            await previous?.value
+            if !Task.isCancelled, isBackground(), mayRun() {
                 await run { !isBackground() || !mayRun() }
             }
             self?.finish(token)
         }
     }
 
-    /// Foreground return: stop the in-flight grant. Its chunk unwinds at the next cooperative checkpoint.
+    /// Foreground return: stop the in-flight grant. Its chunk unwinds at the next cooperative checkpoint; a grant
+    /// started before it has finished waits for that.
     func cancel() {
-        task?.cancel()
+        guard let running = task else { return }
+        running.cancel()
+        unwinding = running
+        unwindingToken = token
         task = nil
         token = nil
     }
 
     private func finish(_ finished: UUID) {
+        if unwindingToken == finished {
+            unwinding = nil
+            unwindingToken = nil
+        }
         guard token == finished else { return }
         task = nil
         token = nil

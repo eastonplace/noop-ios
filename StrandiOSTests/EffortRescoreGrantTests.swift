@@ -140,4 +140,53 @@ final class EffortRescoreGrantTests: XCTestCase {
         await waitUntil { probe.runs == 2 }
         XCTAssertEqual(probe.runs, 2, "a cancelled grant replays from the durable cursor on the next background edge")
     }
+
+    /// The user leaves the app again while the cancelled grant is still inside the engine (waiting for its next
+    /// checkpoint, often behind foreground store work). The engine drops a second caller silently while one is
+    /// running, so a grant that started at once would do nothing for the whole stay. It waits for the first.
+    func testAGrantStartedWhileACancelledOneUnwindsWaitsForItInsteadOfNoOpping() async {
+        let grant = EffortRescoreGrant()
+        let probe = Probe()
+        probe.background = true
+        // The first run ignores cancellation until released, like an engine that has not reached a checkpoint.
+        start(grant, probe) { probe, _ in
+            await withCheckedContinuation { probe.resume = $0 }
+        }
+        await waitUntil { probe.resume != nil }
+        grant.cancel()
+        XCTAssertFalse(grant.isActive)
+        XCTAssertTrue(grant.isUnwinding)
+
+        start(grant, probe) { _, _ in }
+        XCTAssertTrue(grant.isActive)
+        await settle()
+        XCTAssertEqual(probe.runs, 1, "the new grant has not entered the engine while the old one is in it")
+
+        probe.resume?.resume()
+        await waitUntil { probe.runs == 2 && !grant.isActive && !grant.isUnwinding }
+        XCTAssertEqual(probe.runs, 2, "then it runs, so the stay does its work")
+        XCTAssertFalse(grant.isActive)
+        XCTAssertFalse(grant.isUnwinding)
+    }
+
+    /// A grant that is cancelled while it waits behind an unwinding one never enters the engine at all.
+    func testAGrantCancelledWhileItWaitsBehindAnUnwindingOneNeverRuns() async {
+        let grant = EffortRescoreGrant()
+        let probe = Probe()
+        probe.background = true
+        start(grant, probe) { probe, _ in
+            await withCheckedContinuation { probe.resume = $0 }
+        }
+        await waitUntil { probe.resume != nil }
+        grant.cancel()
+        start(grant, probe) { _, _ in }
+        grant.cancel()
+        XCTAssertFalse(grant.isActive)
+
+        probe.resume?.resume()
+        await waitUntil { !grant.isUnwinding }
+        await settle()
+        XCTAssertEqual(probe.runs, 1)
+        XCTAssertFalse(grant.isUnwinding)
+    }
 }
