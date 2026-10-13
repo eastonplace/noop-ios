@@ -46,7 +46,9 @@ enum WorkoutSummary {
         let seconds = WorkoutFacts.activeSeconds(row) ?? 0
         let distance = max(0, row.distanceM ?? 0)
         let hasDistance = distance > 0
-        let onFoot = WorkoutCatalog.isOnFoot(WorkoutSource.displaySport(row.sport))
+        // The live screen's own rule (a ride is read as a speed, every other sport a route can record as a pace), so the figure
+        // is the same kind with the same unit on the way out as it was on the way through.
+        let usesSpeed = Glance.sportClass(sport: row.sport, tracksRoute: hasDistance) == .routeSpeed
         let secPerKm: Double? = hasDistance && seconds > 0 ? seconds / (distance / 1000) : nil
         let average = max(0, row.avgHr ?? 0)
         let peak = max(0, row.maxHr ?? 0)
@@ -65,7 +67,7 @@ enum WorkoutSummary {
         var rest: [Figure] = []
         if hasDistance {
             rest.append(figure(.time))
-            let pace = figure(onFoot ? .pace : .speed)
+            let pace = figure(usesSpeed ? .speed : .pace)
             if !pace.value.isMissing { rest.append(pace) }
         }
         if average > 0 { rest.append(figure(.averageHeartRate, zone: zone(of: average))) }

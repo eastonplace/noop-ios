@@ -52,6 +52,20 @@ final class WorkoutSummaryModelTests: XCTestCase {
         XCTAssertFalse(ids(ride).contains("pace"))
     }
 
+    /// The summary reads a workout's pace or speed by the live screen's rule: whatever metric the live layout puts second for the
+    /// sport with a route is the one the summary shows, so rowing, skiing, a swim or a typed "Trail run" are paces as they were live.
+    func testEverySportReadsPaceOrSpeedAsItsLiveLayoutDoes() {
+        for sport in ["Rowing", "Skiing", "Open-water swim", "Trail run", "Running", "Cycling", "Mountain biking"] {
+            let live = LiveWorkoutGlance.layout(for: LiveWorkoutGlance.sportClass(sport: sport, tracksRoute: true)).stack[1]
+            let summary = figures(row(sport, seconds: 3_000, distance: 10_000))
+            XCTAssertEqual(ids(summary).prefix(2), ["time", live.rawValue], sport)
+        }
+        let rowing = figures(row("Rowing", seconds: 3_000, distance: 10_000))
+        XCTAssertEqual(rowing.rest[1].value.unit.last, LiveWorkoutGlance.Units.pace(imperial: false))
+        let skiing = figures(row("Skiing", seconds: 3_000, distance: 10_000))
+        XCTAssertEqual(skiing.rest[1].value.unit.last, LiveWorkoutGlance.Units.pace(imperial: false))
+    }
+
     func testDistanceAndPaceFollowTheUnitSetting() {
         let miles = figures(row(seconds: 2_400, distance: 8_047), imperial: true)
         XCTAssertEqual(miles.focus.value.text, "5.00")
