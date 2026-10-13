@@ -48,6 +48,28 @@ private extension View {
     }
 }
 
+extension Text {
+    /// macOS-13-safe `Text.foregroundStyle(_:)` for a `Color`, kept as `Text` so runs can still be concatenated
+    /// with `+`. `Text.foregroundStyle` is iOS 17 / macOS 14; below that the run falls back to the legacy
+    /// `foregroundColor`. On iOS (deployment target 17) this is exactly `Text.foregroundStyle`.
+    func foregroundStyleCompat(_ color: Color) -> Text {
+        if #available(iOS 17.0, macOS 14.0, *) {
+            return self.foregroundStyle(color)
+        } else {
+            return self.legacyForegroundColor(color)
+        }
+    }
+}
+
+private extension Text {
+    /// The legacy `foregroundColor`, isolated so its deprecation is acknowledged once (see `legacyOnChange`).
+    @available(iOS, introduced: 16.0, deprecated: 17.0)
+    @available(macOS, introduced: 13.0, deprecated: 14.0)
+    func legacyForegroundColor(_ color: Color) -> Text {
+        self.foregroundColor(color)
+    }
+}
+
 #if !os(watchOS)
 public extension ChartProxy {
     /// macOS-13-safe plot rect: the optional `plotFrame` on iOS 17 / macOS 14, the

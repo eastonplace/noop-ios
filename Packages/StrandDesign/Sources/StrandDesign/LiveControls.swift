@@ -340,13 +340,13 @@ public struct LiveStartCircle: View {
         .accessibilityAddTraits(.isButton)
         .accessibilityLabel(Text(verbatim: title))
         .accessibilityAction(.default) { if isEnabled { onTap() } }
-        .onChange(of: isDown) { _, down in
+        .onChangeCompat(of: isDown) { down in
             guard !down else { return }
             // A touch that ended normally has already run `onEnded` by the time this turn comes round. One that was cancelled
             // has not, and would otherwise leave the hold running (and the ring full) with no finger down.
             Task { @MainActor in if touching { endTouch() } }
         }
-        .onChange(of: isEnabled) { _, _ in endTouch() }
+        .onChangeCompat(of: isEnabled) { _ in endTouch() }
         .onDisappear { endTouch() }
     }
 
