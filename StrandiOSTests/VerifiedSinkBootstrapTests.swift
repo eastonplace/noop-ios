@@ -220,6 +220,20 @@ final class VerifiedSinkBootstrapTests: XCTestCase {
         XCTAssertNil(staleDrive.recovery, "the old database's Recovery never reaches the Lock Screen")
     }
 
+    /// A database restored in place, then relaunched before the pipeline published for it: no projection yet, and the
+    /// token names the old database. It can never match again, so it is rotated rather than waited for.
+    func testAtColdLaunchATokenFromAnotherDatabaseIsRotatedNotWaitedFor() throws {
+        let old = try install(contextId: "db-1|p|lineage|v1")
+        let snapshot = WidgetSnapshot(recovery: 71, bpm: nil, batteryPct: nil, bonded: false, updated: Date(),
+                                      verifiedContextId: "db-1|p|lineage|v1", verifiedProjectionGeneration: 3)
+        XCTAssertEqual(VerifiedWidgetEnvelopeStore.commit(
+            token: old, generation: 3, snapshot: snapshot, defaults: defaults), .published)
+
+        XCTAssertEqual(bootstrap(context: "db-2|p|lineage|v1", projection: nil), .activated)
+        XCTAssertEqual(ActiveVerifiedSinkEpochStore.activeToken(defaults: defaults)?.contextId, "db-2|p|lineage|v1")
+        XCTAssertNil(VerifiedWidgetEnvelopeStore.load(defaults: defaults), "the old database's envelope is gone")
+    }
+
     /// Within one database the projection still comes first, whatever else in the snapshot's context moved.
     func testAProjectionFromTheSameDatabaseStillComesFirst() throws {
         let token = try install(contextId: "db-1|profile|lineage-A|v1")

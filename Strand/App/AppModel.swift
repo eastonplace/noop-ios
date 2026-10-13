@@ -981,9 +981,11 @@ final class AppModel: ObservableObject {
         // The snapshot's context stands in for a missing token only. At a cold launch there is no projection yet (the
         // historical pipeline publishes it after this runs), and the token that exists may name the projection the
         // widgets render: rotating it from the snapshot would blank them. It is left alone, and the projection observer
-        // repairs it once a projection loads (`repairVerifiedSinkIfContextMoved`).
+        // repairs it once a projection loads (`repairVerifiedSinkIfContextMoved`). A token naming another database (one
+        // restored in place, then relaunched) can never match again, so it is not waited for: it is rotated below.
         if projectionContextId == nil, let snapshotContextId, let activeToken,
-           activeToken.contextId != snapshotContextId {
+           activeToken.contextId != snapshotContextId,
+           !isFromAnotherDatabase(activeToken.contextId, snapshot: snapshotContextId) {
             return .waitingForProjection
         }
         let expectedContextId = verifiedSinkContextId(projection: projectionContextId, snapshot: snapshotContextId)
