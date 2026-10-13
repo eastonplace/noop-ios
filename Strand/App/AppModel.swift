@@ -161,6 +161,7 @@ final class AppModel: ObservableObject {
             reopenAndMigrate: { [weak self] in
                 guard let self else { return }
                 try await self.repo.reopenStoreAfterRestore()
+                self.bodyClockProfile.invalidate()
                 do {
                     try await self.ble.reopenStoreAfterRestore()
                 } catch {
@@ -318,7 +319,9 @@ final class AppModel: ObservableObject {
     /// The one in-flight v3/settle rescore grant a background edge may start; cancelled on foreground return.
     private let effortRescoreGrant = EffortRescoreGrant()
     /// The body-clock estimate's 14-day hourly HR profile, rebuilt at most hourly (see `CircadianInputsCache`).
-    private var circadianInputsCache: CircadianInputsCache?
+    /// The body-clock profile cache. Anything that changes the heart rate it covers without moving the newest
+    /// timestamp invalidates it: a source delete, archive or select, a restore, a backfill burst, an import.
+    private let bodyClockProfile = BodyClockProfileProvider()
 
     /// A manual workout in progress. `samples` accumulate from the smoothed live `bpm`; `liveStrain`
     /// is updated by an O(1) accumulator so the active card can show strain building in real time.
@@ -843,7 +846,7 @@ final class AppModel: ObservableObject {
                 // freshly-scored history so the Health hub cards read a ready result. Skipped while a run or
                 // lift is active: it is a synchronous bulk SQLite aggregation, and the next tick catches up.
                 if !self.hasActiveWorkoutSession {
-                    await self.refreshV5Signals()
+                    await self.refreshV5Signals(reuseCircadianProfile: true)
                 }
                 // Advance one durable immutable-artifact repair page per idle cadence grant. The keyset
                 // cursor moves past irreparable legacy heads, so later compatible rows cannot starve.
@@ -1867,6 +1870,9 @@ final class AppModel: ObservableObject {
         replacementPeripheralId: String? = nil,
         expectedOldScope: HistoricalCursorScope? = nil
     ) async throws {
+        // Delete, archive, select and replace all change which heart rate the body-clock profile covers, or remove
+        // it, without moving the newest timestamp. Invalidated on every exit, after the data has changed.
+        defer { bodyClockProfile.invalidate() }
         guard let registry = deviceRegistry else {
             throw AppModelSourceTransitionError.registryUnavailable
         }
@@ -3607,9 +3613,9 @@ final class AppModel: ObservableObject {
     /// Recompute the v5 skin-temp suite snapshots (cycle phase + body clock) from the current history.
     /// Called from the analytics pass and when the cycle opt-in flips. Honest-nil throughout: cycle is
     /// nil unless opted in; circadian is nil unless a usable activity profile exists.
-    func refreshV5Signals() async {
+    func refreshV5Signals(reuseCircadianProfile: Bool = false) async {
         await computeCyclePhase()
-        await computeCircadianPhase()
+        await computeCircadianPhase(reuseWithinTheHour: reuseCircadianProfile)
     }
 
     /// Cycle-phase awareness from the nightly skin-temperature shift (+ luteal RHR rise / HRV drop). Each
@@ -3646,43 +3652,24 @@ final class AppModel: ObservableObject {
     /// Body-clock phase estimate. Builds a coarse per-hour activity profile from the last ~14 days of
     /// downsampled HR buckets (HR amplitude is a usable rest/activity rhythm proxy when raw motion isn't
     /// to hand), then fits the cosinor. nil when there isn't enough to read.
-    private func computeCircadianPhase() async {
+    private func computeCircadianPhase(reuseWithinTheHour: Bool) async {
         let nowDate = Date()
         let now = Int(nowDate.timeIntervalSince1970)
         let tz = TimeZone.current.secondsFromGMT()
         let logicalDay = Repository.logicalDayKey(nowDate)
-        let sourceIds = repo.importedReadIds
-        // The 14-day hourly profile is the expensive part: reuse it for up to an hour, and past that only when
-        // newer heart rate has arrived. The fit below runs every call.
-        let inputs: CircadianPhaseInputs?
-        if let cache = circadianInputsCache, await cacheStillFits(cache, logicalDay: logicalDay, tz: tz, sourceIds: sourceIds, now: now) {
-            inputs = cache.inputs
-        } else {
-            // Read the newest timestamp BEFORE the buckets, so a row that lands mid-read counts as newer next time.
-            let newest = await repo.latestHeartRateTimestamp()
-            let buckets = await repo.hrBuckets(from: now - 14 * 86_400, to: now, bucketSeconds: 3_600)
-            inputs = CircadianPhaseInputs.make(from: buckets, timeZoneOffsetSeconds: tz)
-            // An empty or short read is not cached: the store may not be open yet, and a short history is cheap to read.
-            circadianInputsCache = buckets.count >= 24
-                ? CircadianInputsCache(logicalDay: logicalDay, timeZoneOffsetSeconds: tz, sourceIds: sourceIds,
-                                       computedAt: now, newestHeartRateTs: newest, inputs: inputs)
-                : nil
-        }
+        // The 14-day hourly profile is the expensive part. The cadence tick reuses it for up to an hour, and past
+        // that only when newer heart rate has arrived; every other trigger rebuilds it. The fit below runs every call.
+        let inputs = await bodyClockProfile.inputs(
+            now: now, timeZoneOffsetSeconds: tz, logicalDay: logicalDay, reuseWithinTheHour: reuseWithinTheHour,
+            reads: BodyClockProfileProvider.Reads(
+                sourceIds: { [repo] in repo.importedReadIds },
+                newestHeartRate: { [repo] bound in await repo.latestHeartRateTimestamp(atOrBefore: bound) },
+                buckets: { [repo] from, to in await repo.hrBuckets(from: from, to: to, bucketSeconds: 3_600) }))
         guard let inputs else { circadianPhase = nil; return }
         // Habitual wake from the most recent night's banked wake, falling back to a 07:00 default.
         let wakeHour = habitualWakeHour() ?? 7.0
         circadianPhase = CircadianEngine.estimatePhase(
             bins: inputs.bins, daysObserved: inputs.daysObserved, habitualWakeHour: wakeHour)
-    }
-
-    private func cacheStillFits(_ cache: CircadianInputsCache, logicalDay: String, tz: Int,
-                                sourceIds: [String], now: Int) async -> Bool {
-        switch cache.verdict(logicalDay: logicalDay, timeZoneOffsetSeconds: tz, sourceIds: sourceIds, now: now) {
-        case .reuse: return true
-        case .rebuild: return false
-        case .rebuildIfNewerHeartRate:
-            return !cache.hasNewerHeartRate(await repo.latestHeartRateTimestamp())
-        }
     }
 
     /// A coarse habitual wake hour (local) from the most recent banked sleep session's end time, for the
@@ -4159,6 +4146,8 @@ final class AppModel: ObservableObject {
 
     /// Stores the completed import summary (and typed failure flag) on the matching source card.
     private func finishImport(_ source: DataSourceImportKind, summary: String, failed: Bool = false) {
+        // An import can add heart rate older than the newest timestamp the body-clock profile was built against.
+        bodyClockProfile.invalidate()
         switch source {
         case .whoop:
             whoopImportSummary = summary

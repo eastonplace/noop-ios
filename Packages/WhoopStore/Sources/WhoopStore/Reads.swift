@@ -356,6 +356,16 @@ extension WhoopStore {
         }
     }
 
+    /// The newest HR sample timestamp at or before `bound`, or nil if there is none. A reader that windows its own
+    /// reads to `[from, now]` asks for the frontier of that same window: a record stamped in the future (a
+    /// wandering clock is allowed up to a day ahead) must not pin it.
+    public func latestHRSampleTs(deviceId: String, atOrBefore bound: Int) async throws -> Int? {
+        try syncRead { db in
+            try Int.fetchOne(db, sql: Self.latestHRSampleTsAtOrBeforeSQL,
+                             arguments: [deviceId, bound, deviceId, bound])
+        }
+    }
+
     // DL-02: the HR frontier, fingerprint and bounds SQL. Kept as constants so the query-plan tests read the
     // exact text the store runs.
     static let hrFingerprintSQL = """
@@ -386,6 +396,14 @@ extension WhoopStore {
             SELECT MAX(ts) AS m FROM hrSample WHERE deviceId = ?
             UNION ALL
             SELECT MAX(ts) FROM ppgHrSample WHERE deviceId = ?
+        )
+        """
+
+    static let latestHRSampleTsAtOrBeforeSQL = """
+        SELECT MAX(m) FROM (
+            SELECT MAX(ts) AS m FROM hrSample WHERE deviceId = ? AND ts <= ?
+            UNION ALL
+            SELECT MAX(ts) FROM ppgHrSample WHERE deviceId = ? AND ts <= ?
         )
         """
 

@@ -70,3 +70,65 @@ struct CircadianInputsCache: Equatable {
         return newest > (newestHeartRateTs ?? Int.min)
     }
 }
+
+/// Owns the body-clock profile cache and decides when a call may use it. The hourly reuse is for the 15-minute
+/// cadence tick only; every other trigger rebuilds, and anything that changes the heart rate the profile covers
+/// without moving the newest timestamp (a source delete, archive or select, a restore, a backfill, an import)
+/// invalidates it. A build already in flight when that happens does not repopulate the cache.
+@MainActor
+final class BodyClockProfileProvider {
+    /// What a build reads. The store reads are injected so a test counts them.
+    struct Reads {
+        /// The raw-HR sources the profile covers (`Repository.importedReadIds`).
+        var sourceIds: @MainActor () -> [String]
+        /// The newest HR timestamp at or before `bound`: the frontier of the window the buckets read, so a record
+        /// stamped in the future cannot pin it.
+        var newestHeartRate: @MainActor (_ bound: Int) async -> Int?
+        /// Hourly mean HR over `[from, to]`.
+        var buckets: @MainActor (_ from: Int, _ to: Int) async -> [HRBucket]
+    }
+
+    private var cache: CircadianInputsCache?
+    private var generation = 0
+
+    /// Drop the cached profile and any build in flight.
+    func invalidate() {
+        cache = nil
+        generation &+= 1
+    }
+
+    /// - Parameter reuseWithinTheHour: true only for the cadence tick. Anything else (a backfill burst, a user
+    ///   refresh) rebuilds from the store.
+    func inputs(now: Int, timeZoneOffsetSeconds tz: Int, logicalDay: String, reuseWithinTheHour: Bool,
+                reads: Reads) async -> CircadianPhaseInputs? {
+        if !reuseWithinTheHour { invalidate() }
+        let generation = self.generation
+        let sourceIds = reads.sourceIds()
+        if let cache, await fits(cache, logicalDay: logicalDay, tz: tz, sourceIds: sourceIds, now: now, reads: reads),
+           generation == self.generation {
+            return cache.inputs
+        }
+        // The newest timestamp is read BEFORE the buckets, so a row that lands mid-read counts as newer next time.
+        let newest = await reads.newestHeartRate(now)
+        let buckets = await reads.buckets(now - 14 * 86_400, now)
+        let inputs = CircadianPhaseInputs.make(from: buckets, timeZoneOffsetSeconds: tz)
+        // A build that started before an invalidation is stale; an empty or short read is not cached (the store may
+        // not be open yet, and a short history is cheap to read).
+        if generation == self.generation {
+            cache = buckets.count >= 24
+                ? CircadianInputsCache(logicalDay: logicalDay, timeZoneOffsetSeconds: tz, sourceIds: sourceIds,
+                                       computedAt: now, newestHeartRateTs: newest, inputs: inputs)
+                : nil
+        }
+        return inputs
+    }
+
+    private func fits(_ cache: CircadianInputsCache, logicalDay: String, tz: Int, sourceIds: [String], now: Int,
+                      reads: Reads) async -> Bool {
+        switch cache.verdict(logicalDay: logicalDay, timeZoneOffsetSeconds: tz, sourceIds: sourceIds, now: now) {
+        case .reuse: return true
+        case .rebuild: return false
+        case .rebuildIfNewerHeartRate: return !cache.hasNewerHeartRate(await reads.newestHeartRate(now))
+        }
+    }
+}

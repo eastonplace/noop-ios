@@ -850,12 +850,16 @@ final class Repository: ObservableObject {
 
     /// Latest HR-sample ts across the imported union, or nil. The auto-land Today anchor (#597) uses this,
     /// so a re-added strap's live raw AND the canonical history both count toward "the most recent data day".
-    private func unionLatestHRSampleTs(store: WhoopStore) async -> Int? {
+    private func unionLatestHRSampleTs(store: WhoopStore, atOrBefore bound: Int? = nil) async -> Int? {
         var latest: Int?
         for id in importedReadIds {
-            if let ts = (try? await store.latestHRSampleTs(deviceId: id)) ?? nil {
-                latest = max(latest ?? ts, ts)
+            let ts: Int?
+            if let bound {
+                ts = (try? await store.latestHRSampleTs(deviceId: id, atOrBefore: bound)) ?? nil
+            } else {
+                ts = (try? await store.latestHRSampleTs(deviceId: id)) ?? nil
             }
+            if let ts { latest = max(latest ?? ts, ts) }
         }
         return latest
     }
@@ -3097,9 +3101,9 @@ final class Repository: ObservableObject {
 
     /// The newest heart-rate timestamp across the imported union (an indexed seek per source), or nil with no data
     /// or no store yet. The body-clock cache asks whether newer heart rate has arrived since its last read.
-    func latestHeartRateTimestamp() async -> Int? {
+    func latestHeartRateTimestamp(atOrBefore bound: Int? = nil) async -> Int? {
         guard let store = await ensureStore() else { return nil }
-        return await unionLatestHRSampleTs(store: store)
+        return await unionLatestHRSampleTs(store: store, atOrBefore: bound)
     }
 
     /// Downsampled HR (mean bpm per `bucketSeconds`) for the strap, for a Today/24h trend chart.
