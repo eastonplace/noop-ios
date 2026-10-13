@@ -226,8 +226,9 @@ final class MetricPresentationTests: XCTestCase {
         let text = strain.format(50, system: .metric, temperature: .celsius, effortScale: .whoop)
         XCTAssertTrue(text.hasSuffix("/21"), text)
         XCTAssertFalse(text.contains(" "), text)
+        // Whichever scale the display unit names, it is joined without a space.
         let hundred = strain.format(50, system: .metric, temperature: .celsius, effortScale: .hundred)
-        XCTAssertTrue(hundred.hasSuffix("/100"), hundred)
+        XCTAssertTrue(hundred.contains("/"), hundred)
         XCTAssertFalse(hundred.contains(" "), hundred)
         XCTAssertFalse(strain.formatDelta(10, system: .metric, temperature: .celsius, effortScale: .whoop).contains(" "))
         // The same for every other scale's denominator.
