@@ -138,6 +138,7 @@ extension WidgetSnapshot {
         }
         let olderGenerationDay = await publishedLogicalDay(
             model: model, defaults: defaults, token: token, olderThan: verifiedProjection.generation)
+        let steps = await todaySteps(repository: model.repo, bundle: verifiedBundle)
         let now = Date()
         // This is the durable acknowledgement path. It contains only the verified core and in-memory Today
         // fields. HRV history, raw stress scans, and other enrichment run after the caller receives success.
@@ -146,7 +147,8 @@ extension WidgetSnapshot {
             into: WidgetCorePublication.makeCoreSnapshot(
                 model: model,
                 bundle: verifiedBundle,
-                now: now),
+                now: now,
+                steps: steps),
             from: VerifiedWidgetEnvelopeStore.rawActiveEnvelope(defaults: defaults),
             token: token,
             generation: verifiedProjection.generation,
@@ -180,6 +182,21 @@ extension WidgetSnapshot {
         case .failed:
             throw WidgetPublicationError.sinkWriteFailed
         }
+    }
+
+    /// The Steps figure Today shows for the bundle's day. The core carries only the strap's count, and a
+    /// HealthKit step sync never mints a generation, so Today's other two sources are read here, at delivery,
+    /// through the same Repository reads Today loads them with and resolved by the same rule (`TodaySteps`):
+    /// the strap's count, else Apple Health's count for the day, else the `steps_est` estimate.
+    /// The reads cover the last few days only, enough for the bundle's own day; a failed read leaves the core's
+    /// count, never a number from another day.
+    @MainActor
+    static func todaySteps(repository: Repository, bundle: VerifiedExternalProjectionBundle) async -> Int? {
+        let day = bundle.widgetCore.logicalDay.key
+        let phone = await repository.appleDailyRows(days: 3).last(where: { $0.day == day })?.steps
+        let estimate = await repository.exploreSeries(key: "steps_est", source: "my-whoop", days: 3)
+            .last(where: { $0.day == day }).map { Int($0.value.rounded()) }
+        return TodaySteps(daily: bundle.widgetCore.steps, apple: phone, estimate: estimate).value
     }
 
     /// The logical day of the generation the App Group envelope currently holds, when that generation is older

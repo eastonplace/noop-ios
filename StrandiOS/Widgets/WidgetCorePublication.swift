@@ -9,14 +9,16 @@ enum WidgetCorePublication {
     static func makeCoreSnapshot(
         model: AppModel,
         bundle: VerifiedExternalProjectionBundle,
-        now: Date = Date()
+        now: Date = Date(),
+        steps: Int? = nil
     ) -> WidgetSnapshot {
         makeCoreSnapshot(
             bundle: bundle,
             bpm: model.bpm ?? model.live.heartRate,
             batteryPct: model.live.batteryPct,
             bonded: widgetBonded(model.live),
-            now: now
+            now: now,
+            steps: steps
         )
     }
 
@@ -63,12 +65,17 @@ enum WidgetCorePublication {
     }
 
     /// Pure regression seam for the immutable core-to-Widget mapping.
+    ///
+    /// `steps` is the figure Today shows for the day (`TodaySteps`). The core carries only the strap's count,
+    /// so a day Today fills from Apple Health or the estimate would otherwise read as a dash on the widget;
+    /// nil keeps the core's own count.
     static func makeCoreSnapshot(
         bundle: VerifiedExternalProjectionBundle,
         bpm: Int?,
         batteryPct: Double?,
         bonded: Bool,
-        now: Date = Date()
+        now: Date = Date(),
+        steps: Int? = nil
     ) -> WidgetSnapshot {
         let projection = bundle.projection
         let core = bundle.widgetCore
@@ -83,7 +90,7 @@ enum WidgetCorePublication {
             restingHr: core.restingHR,
             recoveryDelta: core.recoveryDelta,
             sleepMinutes: core.sleepMinutes,
-            steps: core.steps,
+            steps: steps ?? core.steps,
             calories: core.calories,
             hourlyStress: nil,
             stressSummary: nil,

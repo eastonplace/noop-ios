@@ -1743,9 +1743,8 @@ struct TodayView: View {
     private var paperGlanceText: String {
         let day = displayDay
         let phoneSteps = appleDays.last(where: { $0.day == selectedDayKey })?.steps
-        let steps = day?.steps.map { intString(Double($0)) }
-            ?? phoneSteps.map { intString(Double($0)) }
-            ?? stepsEstByDay[selectedDayKey].map { intString(Double($0)) } ?? "—"
+        let steps = TodaySteps(daily: day?.steps, apple: phoneSteps, estimate: stepsEstByDay[selectedDayKey])
+            .value.map { intString(Double($0)) } ?? "—"
         let calories = caloriesValue(appleDays.last(where: { $0.day == selectedDayKey }))
         let dayStart = Calendar.current.startOfDay(for: selectedLogicalDay)
         let dayEnd = Calendar.current.date(byAdding: .day, value: 1, to: dayStart) ?? dayStart
@@ -2914,10 +2913,8 @@ struct TodayView: View {
             // #843/#813, same-day real count only (strap @57 or same-day phone import); never the latest
             // imported row or the sparkline tail (both went stale). Else fall through to the estimate.
             let appleStepsForDay = appleDays.last(where: { $0.day == selectedDayKey })?.steps
-            let real = (d?.steps).map { intString(Double($0)) }
-                ?? appleStepsForDay.map { intString(Double($0)) }
-            let est = stepsEstByDay[selectedDayKey].map { intString(Double($0)) }
-            return real ?? est ?? "—"
+            return TodaySteps(daily: d?.steps, apple: appleStepsForDay, estimate: stepsEstByDay[selectedDayKey])
+                .value.map { intString(Double($0)) } ?? "—"
         case .calories:
             return withUnit(caloriesValue(appleDays.last))
         case .stress:
@@ -4014,9 +4011,10 @@ struct TodayView: View {
             // is the most-recent value, not this day's): both froze the tile on an old import. Otherwise
             // fall through to the on-device estimate ("est."). Mirrors Android stepsForDay (#276/#150).
             let appleStepsForDay = appleDays.last(where: { $0.day == selectedDayKey })?.steps
-            let realSteps: String? = (d?.steps).map { intString(Double($0)) }
-                ?? appleStepsForDay.map { intString(Double($0)) }
-            let estSteps = stepsEstByDay[selectedDayKey]
+            let todaySteps = TodaySteps(daily: d?.steps, apple: appleStepsForDay,
+                                        estimate: stepsEstByDay[selectedDayKey])
+            let realSteps: String? = todaySteps.recorded.map { intString(Double($0)) }
+            let estSteps = todaySteps.estimate
             // H6, only an ESTIMATED day (no real strap/phone count, so the on-device estimate filled in)
             // gets the calibration entry; a real measured count needs no calibration.
             let isEstimated = realSteps == nil && estSteps != nil

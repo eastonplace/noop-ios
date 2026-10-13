@@ -267,4 +267,96 @@ final class WidgetStalenessTests: XCTestCase {
         XCTAssertEqual(carried.hrv, 70)
         XCTAssertEqual(carried.hourlyStress?.count, 24)
     }
+
+    // MARK: - M5: the widget shows the Steps figure Today shows
+
+    private func bundle(day: String, steps: Int?, generation: Int64 = 4) throws -> VerifiedExternalProjectionBundle {
+        let civil = try CivilDay(key: day)
+        let projection = try VerifiedHealthProjection(
+            contextId: "ctx", deviceId: "my-whoop", generation: generation, logicalDay: civil, metrics: [:])
+        let core = try VerifiedWidgetCorePayload(
+            contextId: "ctx", projectionGeneration: generation, logicalDay: civil, restingHR: 52,
+            sleepMinutes: 420, steps: steps, calories: nil, recoveryDelta: nil,
+            recordedTimeZoneIdentifier: "America/New_York", enrichmentSourceIds: ["my-whoop", "my-whoop-noop"])
+        return try VerifiedExternalProjectionBundle(projection: projection, widgetCore: core)
+    }
+
+    private func appleDay(_ day: String, steps: Int?) -> AppleDaily {
+        AppleDaily(day: day, steps: steps, activeKcal: nil, basalKcal: nil, vo2max: nil,
+                   avgHr: nil, maxHr: nil, walkingHr: nil, weightKg: nil)
+    }
+
+    func testTodayStepsPrefersAMeasuredCountOverTheEstimate() {
+        let strap = TodaySteps(daily: 5_000, apple: 8_000, estimate: 7_000)
+        XCTAssertEqual(strap.value, 5_000, "the strap's own total wins, as on Today")
+        XCTAssertEqual(strap.recorded, 5_000)
+        XCTAssertFalse(strap.isEstimate)
+
+        let phone = TodaySteps(daily: nil, apple: 8_421, estimate: 7_000)
+        XCTAssertEqual(phone.value, 8_421)
+        XCTAssertFalse(phone.isEstimate)
+
+        let estimated = TodaySteps(daily: nil, apple: nil, estimate: 6_500)
+        XCTAssertEqual(estimated.value, 6_500)
+        XCTAssertTrue(estimated.isEstimate)
+        XCTAssertNil(estimated.recorded)
+
+        let none = TodaySteps(daily: nil, apple: nil, estimate: nil)
+        XCTAssertNil(none.value)
+        XCTAssertFalse(none.isEstimate)
+    }
+
+    func testTheCoreKeepsItsOwnStepsUnlessTodayResolvesAnother() throws {
+        let day = Repository.localDayKey(Date(timeIntervalSince1970: 1_800_000_000))
+        let strapOnly = try bundle(day: day, steps: 3_000)
+        XCTAssertEqual(WidgetCorePublication.makeCoreSnapshot(
+            bundle: strapOnly, bpm: nil, batteryPct: nil, bonded: false).steps, 3_000)
+        XCTAssertEqual(WidgetCorePublication.makeCoreSnapshot(
+            bundle: strapOnly, bpm: nil, batteryPct: nil, bonded: false, steps: 8_421).steps, 8_421)
+
+        let noStrapSteps = try bundle(day: day, steps: nil)
+        XCTAssertNil(WidgetCorePublication.makeCoreSnapshot(
+            bundle: noStrapSteps, bpm: nil, batteryPct: nil, bonded: false).steps)
+    }
+
+    /// A phone-only or WHOOP 4.0 day has no strap total. Today fills it from Apple Health (or the estimate);
+    /// the widget read the strap only, and showed a dash.
+    func testWidgetStepsFollowTodaysFallbackToAppleHealthAndTheEstimate() async throws {
+        let store = try await WhoopStore.inMemory()
+        let repository = Repository(deviceId: Repository.whoopSource)
+        repository.setStoreForTesting(store)
+        let today = Repository.localDayKey(Date())
+        let yesterday = Repository.localDayKey(Repository.dateByAddingCalendarDays(-1, to: Date()))
+
+        // Nothing but an Apple row for another day: no number, never yesterday's.
+        try await store.upsertAppleDaily([appleDay(yesterday, steps: 9_999)], deviceId: Repository.appleHealthSource)
+        let noCount = await WidgetSnapshot.todaySteps(repository: repository, bundle: try bundle(day: today, steps: nil))
+        XCTAssertNil(noCount)
+
+        // The day's phone count fills the missing strap total.
+        try await store.upsertAppleDaily([appleDay(today, steps: 8_421)], deviceId: Repository.appleHealthSource)
+        let phone = await WidgetSnapshot.todaySteps(repository: repository, bundle: try bundle(day: today, steps: nil))
+        XCTAssertEqual(phone, 8_421)
+
+        // A strap total outranks the phone, exactly as the Today tile.
+        let strap = await WidgetSnapshot.todaySteps(repository: repository, bundle: try bundle(day: today, steps: 3_000))
+        XCTAssertEqual(strap, 3_000)
+    }
+
+    func testWidgetStepsUseTheEstimateOnlyWhenNothingWasMeasured() async throws {
+        let store = try await WhoopStore.inMemory()
+        let repository = Repository(deviceId: Repository.whoopSource)
+        repository.setStoreForTesting(store)
+        let today = Repository.localDayKey(Date())
+        try await store.upsertMetricSeries(
+            [MetricPoint(day: today, key: "steps_est", value: 6_499.6)],
+            deviceId: Repository.whoopSource + "-noop")
+
+        let estimated = await WidgetSnapshot.todaySteps(repository: repository, bundle: try bundle(day: today, steps: nil))
+        XCTAssertEqual(estimated, 6_500, "rounded the way Today rounds the estimate")
+
+        try await store.upsertAppleDaily([appleDay(today, steps: 8_421)], deviceId: Repository.appleHealthSource)
+        let measured = await WidgetSnapshot.todaySteps(repository: repository, bundle: try bundle(day: today, steps: nil))
+        XCTAssertEqual(measured, 8_421, "a measured phone count beats the estimate")
+    }
 }
