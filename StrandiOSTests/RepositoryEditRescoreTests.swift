@@ -77,10 +77,34 @@ final class RepositoryEditRescoreTests: XCTestCase {
 
     // MARK: - Background drain
 
+    /// An in-memory queue on a virtual clock: its sleeps (debounce, backoff timer) advance the clock at once.
     private func drainQueue(now: Date, calendar: Calendar,
                             backgrounded: Bool = false) -> EditedDayRescoreQueue {
-        EditedDayRescoreQueue(defaults: nil, debounce: .zero, now: { now }, calendar: { calendar },
-                              isBackgrounded: { backgrounded })
+        let clock = EditedDayAnalyzeRecorder()
+        clock.now = now
+        return virtualClockQueue(clock, calendar: calendar, backgrounded: { backgrounded })
+    }
+
+    private func virtualClockQueue(_ clock: EditedDayAnalyzeRecorder, calendar: Calendar,
+                                   defaults: UserDefaults? = nil, storageKey: String = "queue",
+                                   backgrounded: @escaping @MainActor () -> Bool = { false })
+        -> EditedDayRescoreQueue {
+        EditedDayRescoreQueue(defaults: defaults, storageKey: storageKey, debounce: .zero, now: { clock.now },
+                              calendar: { calendar }, isBackgrounded: backgrounded,
+                              sleep: { clock.now = clock.now.addingTimeInterval(Self.seconds($0)) })
+    }
+
+    private static func seconds(_ duration: Duration) -> TimeInterval {
+        Double(duration.components.seconds) + Double(duration.components.attoseconds) / 1e18
+    }
+
+    /// Waits until no drain is pending or running, following the timers drains arm for each other.
+    private func settle(_ queue: EditedDayRescoreQueue) async {
+        for _ in 0..<50 {
+            await queue.waitForDrain()
+            if !queue.isDraining { return }
+        }
+        XCTFail("the drain never settled")
     }
 
     /// Review finding (unchunked forced batch): an edit months back ran as one forced, uncancellable request
@@ -243,32 +267,26 @@ final class RepositoryEditRescoreTests: XCTestCase {
         let now = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 10, day: 12, hour: 15)))
         let recorder = EditedDayAnalyzeRecorder()
         recorder.now = now
-        let queue = EditedDayRescoreQueue(defaults: nil, debounce: .zero, now: { recorder.now },
-                                          calendar: { calendar }, isBackgrounded: { false })
-        recorder.completes = false
-        queue.register(recorder) { request in
+        let queue = virtualClockQueue(recorder, calendar: calendar)
+        queue.register(recorder) { [unowned queue] request in
             recorder.requests.append(request)
-            return recorder.completes
+            recorder.times.append(recorder.now)
+            if recorder.requests.count == 2 { recorder.snapshot = queue.timestamps }
+            return recorder.requests.count > 1 // the first pass fails
         }
         let edited = try [-6, -1].map {
             Int(try XCTUnwrap(calendar.date(byAdding: .day, value: $0, to: now)).timeIntervalSince1970)
         }
 
         queue.enqueue(edited) { days in recorder.published.append(days) }
-        await queue.waitForDrain()
-
-        XCTAssertEqual(recorder.requests.map(\.maxDays), [7])
-        XCTAssertEqual(queue.timestamps, Set(edited), "a failed pass dropped the edited days")
-        XCTAssertTrue(recorder.published.isEmpty, "nothing was rescored, so nothing publishes")
-
-        recorder.completes = true
-        recorder.now = now.addingTimeInterval(EditedDayRescoreQueue.retryBaseDelay + 1) // past the backoff
-        queue.scheduleDrain()
-        await queue.waitForDrain()
+        await settle(queue)
 
         XCTAssertEqual(recorder.requests.map(\.maxDays), [7, 7])
+        XCTAssertEqual(recorder.snapshot, Set(edited), "a failed pass dropped the edited days")
+        XCTAssertEqual(recorder.times.last?.timeIntervalSince(now), EditedDayRescoreQueue.retryBaseDelay,
+                       "the retry runs when the 2-minute backoff ends, from the drain's own timer")
         XCTAssertTrue(queue.timestamps.isEmpty)
-        XCTAssertEqual(recorder.published, [7])
+        XCTAssertEqual(recorder.published, [7], "only the completed pass publishes")
     }
 
     /// Review finding (failing chunk retried forever): a chunk that kept failing re-ran on every live analysis
@@ -279,39 +297,89 @@ final class RepositoryEditRescoreTests: XCTestCase {
         let defaults = try isolatedDefaults()
         let recorder = EditedDayAnalyzeRecorder()
         recorder.now = start
-        let queue = EditedDayRescoreQueue(defaults: defaults, storageKey: "queue", debounce: .zero,
-                                          now: { recorder.now }, calendar: { calendar }, isBackgrounded: { false })
+        let queue = virtualClockQueue(recorder, calendar: calendar, defaults: defaults)
         queue.register(recorder) { request in
             recorder.requests.append(request)
+            recorder.times.append(recorder.now)
             return request.startOffset == 0 // the old range keeps failing; recent days are fine
         }
         let old = Int(try XCTUnwrap(calendar.date(byAdding: .day, value: -39, to: start)).timeIntervalSince1970)
         let recent = Int(try XCTUnwrap(calendar.date(byAdding: .day, value: -2, to: start)).timeIntervalSince1970)
 
         queue.enqueue([old, recent])
-        await queue.waitForDrain()
-        queue.scheduleDrain() // a live analysis inside the 2-minute backoff
-        await queue.waitForDrain()
-        XCTAssertEqual(recorder.requests.count, 1, "retried inside the backoff")
+        await settle(queue) // no live analysis or manual kick: the drain arms its own timers
 
-        recorder.now = start.addingTimeInterval(121)
-        queue.scheduleDrain()
-        await queue.waitForDrain()
-        recorder.now = start.addingTimeInterval(121 + 241)
-        queue.scheduleDrain()
-        await queue.waitForDrain()
-        XCTAssertEqual(recorder.requests.map(\.startOffset), [10, 10, 10], "three tries of the old chunk")
+        XCTAssertEqual(recorder.requests.map(\.startOffset), [10, 10, 10, 0],
+                       "three tries of the old chunk, then the newer day drains past the parked range")
+        XCTAssertEqual(recorder.times.prefix(3).map { $0.timeIntervalSince(start) }, [0, 120, 360],
+                       "each retry waits out its backoff (2 min, then 4)")
+        XCTAssertEqual(recorder.requests.last?.maxDays, 3)
         XCTAssertEqual(queue.parkedTimestamps, [old])
-
-        queue.scheduleDrain()
-        await queue.waitForDrain()
-        XCTAssertEqual(recorder.requests.last?.maxDays, 3, "the newer day drains past the parked range")
         XCTAssertEqual(queue.timestamps, [old])
-        let relaunched = EditedDayRescoreQueue(defaults: defaults, storageKey: "queue", isBackgrounded: { false })
+        let relaunched = virtualClockQueue(recorder, calendar: calendar, defaults: defaults)
         XCTAssertEqual(relaunched.parkedTimestamps, [old], "the parked state persists")
 
+        queue.cancel()
         queue.enqueue([old]) // a new edit of that night un-parks it
         XCTAssertTrue(queue.parkedTimestamps.isEmpty)
+        queue.cancel()
+    }
+
+    /// Review findings (no wake-up after a backoff): an edit made while an older range backed off waited for an
+    /// unrelated analysis once the backoff ended; a backoff persisted under a clock that later moved back
+    /// blocked every drain until the wall clock caught up.
+    func testAnEditMadeDuringABackoffDrainsWhenTheBackoffEnds() async throws {
+        let calendar = try newYorkCalendar()
+        let start = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 10, day: 12, hour: 15)))
+        let recorder = EditedDayAnalyzeRecorder()
+        recorder.now = start
+        let queue = virtualClockQueue(recorder, calendar: calendar)
+        let workoutDay = Int(try XCTUnwrap(calendar.date(byAdding: .day, value: -1, to: start)).timeIntervalSince1970)
+        queue.register(recorder) { [unowned queue] request in
+            recorder.requests.append(request)
+            recorder.times.append(recorder.now)
+            guard recorder.requests.count == 1 else { return true }
+            queue.enqueue([workoutDay]) // a workout delete lands during the old range's first, failing pass
+            return false
+        }
+        let old = Int(try XCTUnwrap(calendar.date(byAdding: .day, value: -9, to: start)).timeIntervalSince1970)
+
+        queue.enqueue([old])
+        await settle(queue)
+
+        XCTAssertEqual(recorder.times.map { $0.timeIntervalSince(start) }, [0, 120])
+        XCTAssertEqual(recorder.requests.map(\.maxDays), [10, 10], "the retry covers the workout day too")
+        XCTAssertTrue(queue.timestamps.isEmpty)
+    }
+
+    func testABackoffFromAClockThatMovedBackCountsAsExpired() async throws {
+        let calendar = try newYorkCalendar()
+        let start = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 10, day: 12, hour: 15)))
+        let defaults = try isolatedDefaults()
+        let ahead = EditedDayAnalyzeRecorder()
+        ahead.now = start.addingTimeInterval(3 * 86_400) // the device clock ran three days ahead
+        let before = virtualClockQueue(ahead, calendar: calendar, defaults: defaults,
+                                       backgrounded: { ahead.backgrounded })
+        before.register(ahead) { _ in
+            ahead.backgrounded = true // leave the failure and its backoff persisted, nothing more
+            return false
+        }
+        let edited = Int(try XCTUnwrap(calendar.date(byAdding: .day, value: -2, to: start)).timeIntervalSince1970)
+        before.enqueue([edited])
+        await settle(before)
+
+        let corrected = EditedDayAnalyzeRecorder()
+        corrected.now = start
+        let after = virtualClockQueue(corrected, calendar: calendar, defaults: defaults)
+        after.register(corrected) { request in
+            corrected.requests.append(request)
+            corrected.times.append(corrected.now)
+            return true
+        }
+        await settle(after)
+
+        XCTAssertEqual(corrected.times, [start], "a backoff three days out blocked the drain")
+        XCTAssertTrue(after.timestamps.isEmpty)
     }
 
     /// Review finding (re-enqueue erased): the same timestamp enqueued again while its chunk ran (an undo, a
@@ -531,4 +599,6 @@ private final class EditedDayAnalyzeRecorder {
     var completes = true
     var backgrounded = false
     var now = Date()
+    var times: [Date] = []
+    var snapshot: Set<Int> = []
 }

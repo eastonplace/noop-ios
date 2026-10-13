@@ -133,7 +133,10 @@ extension IntelligenceAnalysisRequest {
 ///
 /// A chunk that fails is not retried on every live analysis. Its entries back off (2 min, then 4 min) and
 /// are parked after `maximumFailures`, so newer edited days drain past a range that keeps failing. Parked
-/// entries stay persisted and come back when the same timestamp is enqueued again.
+/// entries stay persisted and come back when the same timestamp is enqueued again. A drain that stops on a
+/// backoff arms one timer for the end of it, and a drain that parks a range reschedules at once for the
+/// newer days, so neither waits for an unrelated analysis. A backoff further out than `retryMaximumDelay`
+/// (a wall clock moved backwards) counts as expired.
 ///
 /// The chunks don't publish one by one: the engine's closing refresh is current-day only, and the DL-01 splice
 /// keeps older cached days, so a rescored older night never reached Home. When the drain stops after at least
@@ -175,6 +178,7 @@ final class EditedDayRescoreQueue {
     private let now: @MainActor () -> Date
     private let calendar: @MainActor () -> Calendar
     private let isBackgrounded: @MainActor () -> Bool
+    private let sleep: @MainActor (Duration) async -> Void
     private weak var analyzer: AnyObject?
     private var analyze: Analyze?
     private var publish: Publish?
@@ -189,7 +193,11 @@ final class EditedDayRescoreQueue {
     private enum DrainEnd {
         /// The queue was empty at a chunk boundary.
         case drained
-        /// Cancelled, backgrounded, a chunk failed, or no engine.
+        /// A chunk failed, or the drain reached an unexpired backoff: one timer for its end.
+        case backedOff
+        /// A failing range just parked; newer entries may drain now.
+        case parked
+        /// Cancelled, backgrounded, or no engine.
         case stopped
     }
 
@@ -216,7 +224,8 @@ final class EditedDayRescoreQueue {
          now: @escaping @MainActor () -> Date = { Date() },
          calendar: @escaping @MainActor () -> Calendar = { .current },
          isBackgrounded: @escaping @MainActor () -> Bool = { EditedDayRescoreQueue.appIsInBackground },
-         activationCenter: NotificationCenter? = nil) {
+         activationCenter: NotificationCenter? = nil,
+         sleep: @escaping @MainActor (Duration) async -> Void = { try? await Task.sleep(for: $0) }) {
         self.defaults = defaults
         self.storageKey = storageKey
         self.debounce = debounce
@@ -228,6 +237,8 @@ final class EditedDayRescoreQueue {
         self.now = now
         self.calendar = calendar
         self.isBackgrounded = isBackgrounded
+        self.sleep = sleep
+        clampStaleBackoff()
         #if os(iOS)
         // A drain paused by the background resumes when the app is active again.
         activationObserver = activationCenter?.addObserver(
@@ -291,15 +302,26 @@ final class EditedDayRescoreQueue {
         rerunRequested = false
         let generation = drainGeneration
         drainTask = Task { @MainActor [weak self] in
-            if delay > .zero { try? await Task.sleep(for: delay) }
+            if delay > .zero { await self?.sleep(delay) }
             guard let self else { return }
             let end = await self.drain(generation: generation)
             guard self.drainGeneration == generation else { return }
             self.drainTask = nil
-            // An edit that landed during the closing publish found this drain still in flight. Never rerun a
-            // drain that stopped (cancelled, backgrounded or failed): that would retry a failing chunk in a loop.
-            if self.rerunRequested, end == .drained, !Task.isCancelled, !self.drainable.isEmpty {
+            guard !Task.isCancelled, !self.drainable.isEmpty else { return }
+            switch end {
+            case .drained:
+                // An edit that landed during the closing publish found this drain still in flight.
+                if self.rerunRequested { self.scheduleDrain(after: self.debounce) }
+            case .backedOff:
+                // One timer for the end of the backoff. Each failure lengthens it and the third parks the
+                // range, so this can't become a loop.
+                guard let retryNotBefore = self.retryNotBefore else { return }
+                let wait = max(1, retryNotBefore.timeIntervalSince(self.now()))
+                self.scheduleDrain(after: .seconds(wait))
+            case .parked:
                 self.scheduleDrain(after: self.debounce)
+            case .stopped:
+                break
             }
         }
         lastDrain = drainTask
@@ -369,6 +391,13 @@ final class EditedDayRescoreQueue {
         }
     }
 
+    /// A backoff further out than the longest one this queue sets came from a wall clock that moved back.
+    private func clampStaleBackoff() {
+        guard let retryNotBefore, retryNotBefore.timeIntervalSince(now()) > Self.retryMaximumDelay else { return }
+        self.retryNotBefore = nil
+        persist()
+    }
+
     /// A chunk didn't complete: its entries (those before `chunkEnd`, or all of them when the chunk reached
     /// today) back off, and park after `maximumFailures`. Entries enqueued again since are left alone.
     private func recordFailure(of taken: [Int: Entry], before chunkEnd: Int?) {
@@ -403,7 +432,11 @@ final class EditedDayRescoreQueue {
                 break
             }
             if Task.isCancelled || isBackgrounded() { break }
-            if let retryNotBefore, now() < retryNotBefore { break }
+            clampStaleBackoff()
+            if let retryNotBefore, now() < retryNotBefore {
+                end = .backedOff
+                break
+            }
             let calendar = calendar()
             guard let chunk = IntelligenceAnalysisRequest.editedDayChunk(
                 containingTimestamps: taken.keys, chunkDays: Self.chunkDays, now: now(), calendar: calendar) else {
@@ -422,6 +455,7 @@ final class EditedDayRescoreQueue {
                             .timeIntervalSince1970)
                     }
                     recordFailure(of: taken, before: chunkEnd)
+                    end = retryNotBefore == nil ? .parked : .backedOff
                 }
                 break
             }
