@@ -839,10 +839,13 @@ public enum AnalyticsEngine {
         let dayHrFiltered = (dayHr ?? hr).filter { tsInDay($0.ts) }
         let fillEnd = nowTs.map { min(dayBounds.upperBound, max(dayBounds.lowerBound, $0)) } ?? dayBounds.upperBound
         let fillWindow = dayBounds.lowerBound..<fillEnd
-        let activeKcalEst: Double? = dayHrFiltered.isEmpty && fillWindow.isEmpty
-            ? nil
-            : Calories.estimateFullDayCalories(dayHrFiltered, fillWindow: fillWindow, profile: profile,
+        // Review round 3 (C): the fill covers the off-wrist time of a day the strap was worn for, before its first
+        // reading too. A day with no valid heart rate at all has no total, so Apple Health's measured active +
+        // basal energy applies instead of a BMR-only number.
+        let activeKcalEst: Double? = dayHrFiltered.contains(where: { HRValidity.isPlausible($0.bpm) })
+            ? Calories.estimateFullDayCalories(dayHrFiltered, fillWindow: fillWindow, profile: profile,
                                                hrmax: effMaxHR, restingHR: restingHRDaily.map(Double.init))
+            : nil
 
         // ── Canonical Strain V2 (sleep-to-sleep physiological day) ───────────
         // The HR-derived whole-day calorie estimate includes resting energy, so it is NOT a valid

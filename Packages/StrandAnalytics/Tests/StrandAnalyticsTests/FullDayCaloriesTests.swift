@@ -34,12 +34,15 @@ final class FullDayCaloriesTests: XCTestCase {
         Calories.estimateDayCalories(samples, profile: profile, hrmax: maxHR, restingHR: nil)
     }
 
+    private func dayTotal(dayHr: [HRSample], dayInterval: Range<Int>? = nil, nowTs: Int? = nil,
+                          day: String? = nil) -> Double? {
+        AnalyticsEngine.analyzeDay(day: day ?? self.day, dayHr: dayHr, profile: profile, maxHROverride: maxHR,
+                                   dayInterval: dayInterval ?? utcDay, nowTs: nowTs).daily.activeKcalEst
+    }
+
     private func total(dayHr: [HRSample], dayInterval: Range<Int>? = nil, nowTs: Int? = nil,
                        day: String? = nil) throws -> Double {
-        let result = AnalyticsEngine.analyzeDay(day: day ?? self.day, dayHr: dayHr, profile: profile,
-                                                maxHROverride: maxHR, dayInterval: dayInterval ?? utcDay,
-                                                nowTs: nowTs)
-        return try XCTUnwrap(result.daily.activeKcalEst)
+        try XCTUnwrap(dayTotal(dayHr: dayHr, dayInterval: dayInterval, nowTs: nowTs, day: day))
     }
 
     /// 16 h worn and 8 h off-wrist: the old per-sample total plus BMR for the 8 hours.
@@ -50,12 +53,18 @@ final class FullDayCaloriesTests: XCTestCase {
         XCTAssertEqual(bmrPerSecond * 8 * 3_600, 592, accuracy: 1, "8 h of BMR for this profile")
     }
 
-    /// A day the strap spent off-wrist (0-bpm rows only) is BMR × 24 h, with no active energy.
-    func testFullyOffWristDayIsBMRForTwentyFourHours() throws {
-        let kcal = try total(dayHr: offWrist(utcDay, step: 10))
-        XCTAssertEqual(kcal, bmrPerSecond * 86_400, accuracy: 1e-6)
-        XCTAssertEqual(kcal, 1_777, accuracy: 1, "this profile's BMR")
-        XCTAssertEqual(try total(dayHr: []), kcal, accuracy: 1e-6, "no rows at all fills the same way")
+    /// A day the strap never read a valid heart rate (off-wrist 0-bpm rows only, no rows, or only the previous
+    /// evening's rows in the read window) has no total, so Apple Health's measured active + basal energy
+    /// applies instead (review round 3, findings 4 and 5). The fill only covers the off-wrist time of a day
+    /// the strap was worn for; on its own it is BMR × 24 h.
+    func testDayWithNoValidHeartRateHasNoTotal() {
+        XCTAssertNil(dayTotal(dayHr: offWrist(utcDay, step: 10)))
+        XCTAssertNil(dayTotal(dayHr: []))
+        XCTAssertNil(dayTotal(dayHr: worn((dayStart - 6 * 3_600)..<dayStart)), "only the evening before")
+        let fill = Calories.estimateFullDayCalories([], fillWindow: utcDay, profile: profile, hrmax: maxHR,
+                                                    restingHR: nil)
+        XCTAssertEqual(fill, bmrPerSecond * 86_400, accuracy: 1e-6)
+        XCTAssertEqual(fill, 1_777, accuracy: 1, "this profile's BMR")
     }
 
     /// The fall-back day is 25 hours long, and the fill covers all of it.
@@ -63,8 +72,7 @@ final class FullDayCaloriesTests: XCTestCase {
         let tz = try XCTUnwrap(TimeZone(identifier: "America/New_York"))
         let civil = try XCTUnwrap(AnalyticsEngine.civilDayInterval(day: "2026-11-01", timeZone: tz))
         XCTAssertEqual(civil.count, 25 * 3_600)
-        let offOnly = try total(dayHr: offWrist(civil, step: 30), dayInterval: civil, day: "2026-11-01")
-        XCTAssertEqual(offOnly, bmrPerSecond * 25 * 3_600, accuracy: 1e-6)
+        XCTAssertNil(dayTotal(dayHr: offWrist(civil, step: 30), dayInterval: civil, day: "2026-11-01"))
 
         let wornHr = stride(from: civil.lowerBound + 3_600, to: civil.lowerBound + 3 * 3_600, by: 1)
             .map { HRSample(ts: $0, bpm: 66) }
@@ -77,7 +85,9 @@ final class FullDayCaloriesTests: XCTestCase {
         let now = dayStart + 10 * 3_600
         let wornHr = worn((dayStart + 8 * 3_600)..<(dayStart + 9 * 3_600))
         let today = try total(dayHr: wornHr, nowTs: now)
+        // Off-wrist time before the first reading fills too.
         XCTAssertEqual(today, perSample(wornHr) + bmrPerSecond * Double(10 * 3_600 - 3_600), accuracy: 1e-6)
+        XCTAssertNil(dayTotal(dayHr: [], nowTs: now), "no reading yet today: no total")
         XCTAssertEqual(try total(dayHr: wornHr, nowTs: dayStart + 30 * 3_600), try total(dayHr: wornHr),
                        accuracy: 1e-6, "a past day (now after its end) fills all 24 hours")
         // A reading stamped after `now` still counts its own energy, and is not filled twice.
