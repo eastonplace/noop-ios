@@ -350,9 +350,9 @@ final class IntelligenceEngine: ObservableObject {
         /// `WatchRecovery` confidence so a watch-only recovery reads "calibrating" until it has enough nights.
         var confidence: ScoreConfidence = .solid
         /// SHARED CONTRACT (engine <-> UI): the ordered "what shaped it" Charge driver list, biggest mover
-        /// first. One row per term that actually fed the score (`RecoveryScorer.chargeDrivers`); empty when
-        /// there is no score (cold-start) or for a non-strap row whose drivers we don't recompute. The UI
-        /// renders one row per driver under the Charge ring and gates gracefully when this is empty.
+        /// first. One row per term that actually fed the score (`RecoveryScorer.chargeDrivers`, or the Apple
+        /// Watch and wearable folds' `WatchRecovery` drivers); empty when there is no score (cold-start). The
+        /// UI renders one row per driver under the Charge ring and gates gracefully when this is empty.
         var drivers: [ChargeDriver] = []
         /// The night's skin temperature expressed as a RELATIVE deviation from the personal baseline
         /// (`RecoveryScorer.skinTempRelative`), or nil when no deviation is available. Surfaced as
