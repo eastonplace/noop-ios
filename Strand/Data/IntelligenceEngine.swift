@@ -29,6 +29,25 @@ final class IntelligenceEngine: ObservableObject {
     @Published var note: String?
 
     private var analysisCompletionSerial = 0
+    /// The HRV, resting-HR and respiration folds the last completed pass scored Charge against (review round 3,
+    /// E). The Charge breakdown sheet reads its baselines here, so its drivers fold exactly the engine's
+    /// history and add up to the ring. Nil until a pass completes.
+    private(set) var chargeBaselineHistory: ChargeBaselineHistory?
+
+    /// One pass's Charge baseline folds: the full history (imported WHOOP rows, then the strap's computed nights
+    /// without the wearable fold's rows) plus the pass's own nights, each with its recalibration epoch.
+    struct ChargeBaselineHistory: Sendable {
+        let hrv: Baselines.Timeline
+        let restingHR: Baselines.Timeline
+        let resp: Baselines.Timeline
+
+        /// `day`'s Charge baselines: the nights before it. Respiration only once usable (honest cold start).
+        func baselines(asOf day: String) -> AnalyticsEngine.ProfileBaselines {
+            let respState = resp.asOf(day)
+            return AnalyticsEngine.ProfileBaselines(hrv: hrv.asOf(day), restingHR: restingHR.asOf(day),
+                                                    resp: respState.usable ? respState : nil)
+        }
+    }
     /// #899 heal bound: true while the last heal already re-armed a rescore, so a heal firing again on
     /// the very next pass cannot re-arm a second time (the Android twin is hard-bounded to exactly one
     /// re-pass; this mirrors it). Reset by any pass whose heal finds nothing, restoring the budget.
@@ -1646,13 +1665,14 @@ final class IntelligenceEngine: ObservableObject {
                                                      baselineEpoch: recoveryEpoch)
         let skinTimeline = Baselines.foldHistoryAsOf(skinSeq, dayKeys: skinDayKeys, cfg: skinCfg,
                                                      baselineEpoch: recoveryEpoch)
+        let chargeHistory = ChargeBaselineHistory(hrv: hrvTimeline, restingHR: rhrTimeline, resp: respTimeline)
         func baselines(asOf day: String) -> AnalyticsEngine.ProfileBaselines {
-            let resp = respTimeline.asOf(day)
+            let charge = chargeHistory.baselines(asOf: day)
             let skin = skinTimeline.asOf(day)
             return AnalyticsEngine.ProfileBaselines(
-                hrv: hrvTimeline.asOf(day),
-                restingHR: rhrTimeline.asOf(day),
-                resp: resp.usable ? resp : nil,
+                hrv: charge.hrv,
+                restingHR: charge.restingHR,
+                resp: charge.resp,
                 skinTemp: skin.usable ? skin : nil)
         }
 
@@ -2708,6 +2728,7 @@ final class IntelligenceEngine: ObservableObject {
         diagnosticSink?("analyzeRecent dayCache reused=\(scanPass.reused)/\(scanPass.eligible) "
             + "size=\(sourceContext == nil ? dayScanCache.count : 0)", nil)
         if !wmKey.isEmpty { UserDefaults.standard.set(wmKey, forKey: Self.analyzeWatermarkKey) }
+        chargeBaselineHistory = chargeHistory
         analysisCompletionSerial += 1
         return true
     }

@@ -186,25 +186,6 @@ public enum RecoveryScorer {
         return (0..<seed).contains(n) ? n : nil
     }
 
-    /// The HRV / resting-HR / respiration baselines a day's Charge is scored against: the nights strictly
-    /// before `day`, with HRV honouring the HRV recalibration epoch and the others the Charge-wide one, as
-    /// IntelligenceEngine scores it (AN-01). A breakdown built from these explains the same number the ring
-    /// shows; a fold that includes the day's own night does not (review F3). `dayKeys` runs parallel to the
-    /// value arrays. nil epochs read the persisted ones.
-    public static func chargeBaselines(asOf day: String, dayKeys: [String], hrv: [Double?],
-                                       restingHR: [Double?], resp: [Double?],
-                                       hrvEpoch: Double? = nil,
-                                       recoveryEpoch: Double? = nil) -> AnalyticsEngine.ProfileBaselines {
-        let recoveryEpoch = recoveryEpoch ?? Baselines.recoveryBaselineEpoch()
-        return AnalyticsEngine.ProfileBaselines(
-            hrv: Baselines.foldHistoryAsOf(hrv, dayKeys: dayKeys, cfg: Baselines.hrvCfg,
-                                           baselineEpoch: hrvEpoch ?? Baselines.hrvBaselineEpoch()).asOf(day),
-            restingHR: Baselines.foldHistoryAsOf(restingHR, dayKeys: dayKeys, cfg: Baselines.restingHRCfg,
-                                                 baselineEpoch: recoveryEpoch).asOf(day),
-            resp: Baselines.foldHistoryAsOf(resp, dayKeys: dayKeys, cfg: Baselines.respCfg,
-                                            baselineEpoch: recoveryEpoch).asOf(day))
-    }
-
     // MARK: - Recovery score
 
     /// A baseline driver: mean + spread (internal abs-dev units, as in BaselineState).

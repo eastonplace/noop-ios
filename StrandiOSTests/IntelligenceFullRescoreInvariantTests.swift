@@ -222,6 +222,37 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
         }
     }
 
+    // MARK: - Charge breakdown baselines (review round 3, findings 8 and 15)
+
+    /// The Charge breakdown sheet reads the engine's own folds. For a strap user with Oura-era history it sees
+    /// the strap-only baseline the ring was scored against, not the Oura nights the wearable fold wrote under
+    /// the computed id: a calibrating night has no usable baseline, and a scored night has one.
+    func testChargeBreakdownBaselinesAreTheOnesTheEngineScoredWith() async throws {
+        try await withRecalibrationEpochsRestored {
+            let days = 36
+            let harness = try await makeHarness(days: days, strapDays: 30..<days)
+            let ouraRows = (0..<30).map { k in
+                DailyMetric(day: dayKey(k), totalSleepMin: 450, efficiency: 0.9, deepMin: 80, remMin: 100,
+                            lightMin: 270, disturbances: nil, restingHr: 50, avgHrv: 130 + Double(k % 3),
+                            recovery: nil, strain: nil, exerciseCount: nil)
+            }
+            _ = try await harness.store.upsertDailyMetrics(ouraRows, deviceId: "oura-import")
+            _ = try await harness.store.upsertDailyMetrics(
+                ouraRows.map { $0.with(recovery: 60, skinTempDevC: nil) }, deviceId: harness.computedId)
+
+            let completed = await pass(harness, maxDays: 6)
+            XCTAssertTrue(completed)
+            let history = try XCTUnwrap(harness.engine.chargeBaselineHistory)
+            let after = try await stored(harness)
+            XCTAssertEqual(history.baselines(asOf: dayKey(31)).hrv?.nValid, 1, "one strap night, no Oura nights")
+            for k in 30..<days {
+                XCTAssertEqual(history.baselines(asOf: dayKey(k)).hrv?.usable == true, after[dayKey(k)]?.recovery != nil,
+                               "day \(k): the sheet's baseline is the ring's")
+            }
+            XCTAssertNotNil(after[dayKey(days - 1)]?.recovery, "the strap scores Charge after four nights")
+        }
+    }
+
     // MARK: - F1
 
     /// Recalibrating on day 30 and then rescoring the whole history leaves every earlier day's Charge as it

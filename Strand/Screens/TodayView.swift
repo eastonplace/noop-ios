@@ -1188,10 +1188,11 @@ struct TodayView: View {
 
     /// The ordered "What shaped it" Charge drivers for the displayed Charge ring. PURE derivation from the
     /// SAME `displayDay` (post-#814 union-read row) the ring already shows, plus the HRV/RHR/resp baselines
-    /// folded from `repo.days` up to the night before the row (the engine's inputs), so a row can NEVER
+    /// the engine scored the row against (its own folds, as of the night before the row), so a row can NEVER
     /// describe a term the ring's number didn't use. This is NOT a second store read: it reads only data
-    /// already resolved into `repo.days`/`displayDay`. Empty for a calibrating / cold-start night (no usable
-    /// HRV baseline or no value), so the sheet gates through to the calibration countdown instead.
+    /// already resolved into `repo.days`/`displayDay` and the engine's last pass. Empty for a calibrating /
+    /// cold-start night (no usable HRV baseline or no value), so the sheet gates through to the calibration
+    /// countdown instead.
     private var chargeDrivers: [ChargeDriver] {
         guard let row = chargeBreakdownRow,
               let hrv = row.avgHrv, let rhr = row.restingHr else { return [] }
@@ -1209,11 +1210,9 @@ struct TodayView: View {
             sleepPerf: sleepPerf, skinTempDev: row.skinTempDevC)
     }
 
-    /// The baselines `day`'s Charge was scored against: the nights before it, as the engine scores (review F3).
+    /// The baselines `day`'s Charge was scored against, from the engine's own folds (review F3, round 3 E).
     private func chargeBaselines(asOf day: String) -> AnalyticsEngine.ProfileBaselines {
-        RecoveryScorer.chargeBaselines(asOf: day, dayKeys: repo.days.map(\.day), hrv: repo.days.map(\.avgHrv),
-                                       restingHR: repo.days.map { $0.restingHr.map(Double.init) },
-                                       resp: repo.days.map(\.respRateBpm))
+        appModel?.intelligence.chargeBaselineHistory?.baselines(asOf: day) ?? AnalyticsEngine.ProfileBaselines()
     }
 
     /// The Charge confidence tier for the displayed row, SURFACED (never recomputed) from the existing
