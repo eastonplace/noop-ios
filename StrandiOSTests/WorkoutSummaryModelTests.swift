@@ -173,4 +173,12 @@ final class WorkoutSummaryModelTests: XCTestCase {
         let expected = AppClock.hourMinute(Date(timeIntervalSince1970: TimeInterval(start + 600)))
         XCTAssertEqual(WorkoutSummary.savedClock(for: run), expected)
     }
+
+    func testTheStateLineSaysWhenItWasSavedNotWhenTheActivityEnded() {
+        // A workout ended while paused is stamped at the moment it was paused; the save came 19 minutes later.
+        let paused = row(seconds: 600)
+        let saved = Date(timeIntervalSince1970: TimeInterval(start + 600 + 19 * 60))
+        XCTAssertEqual(WorkoutSummary.savedClock(for: paused, savedAt: saved), AppClock.hourMinute(saved))
+        XCTAssertNotEqual(WorkoutSummary.savedClock(for: paused, savedAt: saved), WorkoutSummary.savedClock(for: paused))
+    }
 }

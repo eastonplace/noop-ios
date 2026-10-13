@@ -131,6 +131,8 @@ private struct WorkoutJourneyHost: View {
     @EnvironmentObject private var repo: Repository
     #endif
     @State private var phase: WorkoutJourneyPhase
+    /// The moment the summary came up, which is the moment the workout was saved: the summary's state line says it.
+    @State private var savedAt: Date?
     /// Whether the GPS had a lock when Start was pressed, for the countdown to say.
     @State private var gpsLockedAtStart: Bool?
 
@@ -227,10 +229,10 @@ private struct WorkoutJourneyHost: View {
                 .sheetScreenScaffoldEnvironment(onClose: done)
                 .environment(\.workoutJourneyDone, WorkoutJourneyDoneAction(perform: done))
         } else {
-            WorkoutSummaryView(row: row, onDone: done)
+            WorkoutSummaryView(row: row, savedAt: savedAt, onDone: done)
         }
         #else
-        WorkoutSummaryView(row: row, onDone: done)
+        WorkoutSummaryView(row: row, savedAt: savedAt, onDone: done)
         #endif
     }
 
@@ -239,7 +241,10 @@ private struct WorkoutJourneyHost: View {
     private func apply(_ event: WorkoutJourneyEvent) {
         switch WorkoutJourneyPhase.reduce(phase, event) {
         case .phase(let next):
-            if next != phase { phase = next }
+            if next != phase {
+                if case .summary = next { savedAt = Date() }
+                phase = next
+            }
         case .close(let toast):
             if let toast { router.shellToast = toast }
             onClose()

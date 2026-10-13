@@ -133,8 +133,9 @@ enum WorkoutSummary {
         return seconds.firstIndex(of: most)
     }
 
-    /// "Saved", and when: the clock time the workout ended.
-    static func savedClock(for row: WorkoutRow) -> String {
-        AppClock.hourMinute(Date(timeIntervalSince1970: TimeInterval(max(row.endTs, row.startTs))))
+    /// "Saved", and when: the moment of the save. Without one (a summary opened on a workout saved earlier) the clock time the
+    /// workout ended, which for a workout ended while paused is the moment it was paused, not the save.
+    static func savedClock(for row: WorkoutRow, savedAt: Date? = nil) -> String {
+        AppClock.hourMinute(savedAt ?? Date(timeIntervalSince1970: TimeInterval(max(row.endTs, row.startTs))))
     }
 }

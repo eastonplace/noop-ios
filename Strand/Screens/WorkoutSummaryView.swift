@@ -15,6 +15,8 @@ import WhoopStore
 
 struct WorkoutSummaryView: View {
     let row: WorkoutRow
+    /// When the workout was saved, for the state line. nil falls back to the time the workout ended.
+    var savedAt: Date? = nil
     /// Done, or the close circle: the finish has been seen and the journey closes.
     let onDone: () -> Void
 
@@ -128,7 +130,7 @@ struct WorkoutSummaryView: View {
         let layout = typeSize.isAccessibilitySize
             ? AnyLayout(VStackLayout(spacing: 0))
             : AnyLayout(HStackLayout(spacing: 5))
-        let clock = WorkoutSummary.savedClock(for: displayRow)
+        let clock = WorkoutSummary.savedClock(for: displayRow, savedAt: savedAt)
         return layout {
             HStack(spacing: 5) {
                 Image(systemName: "checkmark").font(.system(size: 9, weight: .bold))
