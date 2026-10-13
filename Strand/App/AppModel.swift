@@ -317,6 +317,8 @@ final class AppModel: ObservableObject {
     private var applicationIsActive = true
     /// The one in-flight v3/settle rescore grant a background edge may start; cancelled on foreground return.
     private let effortRescoreGrant = EffortRescoreGrant()
+    /// The body-clock estimate's 14-day hourly HR profile, rebuilt at most hourly (see `CircadianInputsCache`).
+    private var circadianInputsCache: CircadianInputsCache?
 
     /// A manual workout in progress. `samples` accumulate from the smoothed live `bpm`; `liveStrain`
     /// is updated by an O(1) accumulator so the active card can show strain building in real time.
@@ -3607,29 +3609,42 @@ final class AppModel: ObservableObject {
     /// downsampled HR buckets (HR amplitude is a usable rest/activity rhythm proxy when raw motion isn't
     /// to hand), then fits the cosinor. nil when there isn't enough to read.
     private func computeCircadianPhase() async {
-        let now = Int(Date().timeIntervalSince1970)
-        let from = now - 14 * 86_400
-        let buckets = await repo.hrBuckets(from: from, to: now, bucketSeconds: 3_600)
-        guard buckets.count >= 24 else { circadianPhase = nil; return }
+        let nowDate = Date()
+        let now = Int(nowDate.timeIntervalSince1970)
         let tz = TimeZone.current.secondsFromGMT()
-        // Pool HR by LOCAL hour-of-day → mean bpm per hour as the activity proxy (higher HR ≈ more active).
-        var sums = [Double](repeating: 0, count: 24)
-        var counts = [Int](repeating: 0, count: 24)
-        var daySet = Set<Int>()
-        for b in buckets {
-            let local = b.ts + tz
-            let hour = (local % 86_400 + 86_400) % 86_400 / 3_600
-            sums[hour] += b.bpm; counts[hour] += 1
-            daySet.insert(local / 86_400)
+        let logicalDay = Repository.logicalDayKey(nowDate)
+        let sourceIds = repo.importedReadIds
+        // The 14-day hourly profile is the expensive part: reuse it for up to an hour, and past that only when
+        // newer heart rate has arrived. The fit below runs every call.
+        let inputs: CircadianPhaseInputs?
+        if let cache = circadianInputsCache, await cacheStillFits(cache, logicalDay: logicalDay, tz: tz, sourceIds: sourceIds, now: now) {
+            inputs = cache.inputs
+        } else {
+            // Read the newest timestamp BEFORE the buckets, so a row that lands mid-read counts as newer next time.
+            let newest = await repo.latestHeartRateTimestamp()
+            let buckets = await repo.hrBuckets(from: now - 14 * 86_400, to: now, bucketSeconds: 3_600)
+            inputs = CircadianPhaseInputs.make(from: buckets, timeZoneOffsetSeconds: tz)
+            // An empty or short read is not cached: the store may not be open yet, and a short history is cheap to read.
+            circadianInputsCache = buckets.count >= 24
+                ? CircadianInputsCache(logicalDay: logicalDay, timeZoneOffsetSeconds: tz, sourceIds: sourceIds,
+                                       computedAt: now, newestHeartRateTs: newest, inputs: inputs)
+                : nil
         }
-        let bins: [CircadianEngine.ActivityBin] = (0..<24).compactMap { h in
-            counts[h] > 0 ? CircadianEngine.ActivityBin(hour: Double(h), activity: sums[h] / Double(counts[h])) : nil
-        }
-        guard bins.count >= 6 else { circadianPhase = nil; return }
+        guard let inputs else { circadianPhase = nil; return }
         // Habitual wake from the most recent night's banked wake, falling back to a 07:00 default.
         let wakeHour = habitualWakeHour() ?? 7.0
         circadianPhase = CircadianEngine.estimatePhase(
-            bins: bins, daysObserved: daySet.count, habitualWakeHour: wakeHour)
+            bins: inputs.bins, daysObserved: inputs.daysObserved, habitualWakeHour: wakeHour)
+    }
+
+    private func cacheStillFits(_ cache: CircadianInputsCache, logicalDay: String, tz: Int,
+                                sourceIds: [String], now: Int) async -> Bool {
+        switch cache.verdict(logicalDay: logicalDay, timeZoneOffsetSeconds: tz, sourceIds: sourceIds, now: now) {
+        case .reuse: return true
+        case .rebuild: return false
+        case .rebuildIfNewerHeartRate:
+            return !cache.hasNewerHeartRate(await repo.latestHeartRateTimestamp())
+        }
     }
 
     /// A coarse habitual wake hour (local) from the most recent banked sleep session's end time, for the

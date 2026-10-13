@@ -117,32 +117,110 @@ extension WhoopStore {
     /// second wins, and any second with NO hrSample row falls back to its PPG estimate so the chart
     /// stays continuous through v26-heavy stretches. The fallback rows are `bpm REAL` and only appear
     /// where the device genuinely had no measured HR for that second (anti-join), never doubling a beat.
+    ///
+    /// Perf 3: the grouped query (`hrBucketsGroupedSQL`) runs the measured arm and the anti-joined PPG arm
+    /// through a UNION ALL subquery, which SQLite cannot flatten, so a 14-day window materialized about 1.2 M rows
+    /// before the GROUP BY. Background wakes ran it every 15 minutes and one of them hit the CPU limit. A range
+    /// that is a bounded number of buckets wide is now walked bucket by bucket instead: each bucket is one
+    /// aggregate over the `(deviceId, ts)` index range, with no temp table and no sort. A bucket that has any PPG
+    /// fallback second goes through the grouped query restricted to that bucket, so its mean is computed by the
+    /// same SQL over the same rows as before, and every figure is identical to the grouped query's.
     public func hrBuckets(deviceId: String, from: Int, to: Int, bucketSeconds: Int) async throws -> [HRBucket] {
         let bucket = max(1, bucketSeconds)
         return try syncRead { db in
-            // MIN(conf) per bucket: measured rows contribute 1.0, PPG fallback rows their stored
-            // autocorrelation conf — so a bucket touched by ANY weak-optical estimate reads as weak
-            // (conservative), and a purely-measured bucket stays 1.0. Purely additive projection:
-            // the bpm aggregate and the anti-join semantics are byte-identical. (ryanAtriumAi #988)
-            try Row.fetchAll(db, sql: """
-                SELECT (ts / ?) * ? AS bucket, AVG(bpm) AS avgBpm, MIN(conf) AS minConf FROM (
-                    SELECT ts, bpm, 1.0 AS conf FROM hrSample
-                    WHERE deviceId = ? AND ts >= ? AND ts <= ?
-                    UNION ALL
-                    SELECT p.ts, p.bpm, p.conf FROM ppgHrSample p
-                    WHERE p.deviceId = ? AND p.ts >= ? AND p.ts <= ?
-                      AND NOT EXISTS (
-                        SELECT 1 FROM hrSample h
-                        WHERE h.deviceId = p.deviceId AND h.ts = p.ts)
-                )
-                GROUP BY ts / ?
-                ORDER BY bucket ASC
-                """, arguments: [bucket, bucket,
-                                 deviceId, from, to,
-                                 deviceId, from, to,
-                                 bucket])
-                .map { HRBucket(ts: $0["bucket"], bpm: $0["avgBpm"], conf: $0["minConf"] ?? 1.0) }
+            // Negative or very wide windows keep the single grouped query: a bucket walk is only cheaper than
+            // one scan when the range holds a bounded number of buckets.
+            guard from >= 0, to >= from, (to - from) / bucket < Self.hrBucketsWalkLimit else {
+                return try Self.hrBucketsGrouped(db, deviceId: deviceId, from: from, to: to, bucket: bucket)
+            }
+            return try Self.hrBucketsWalk(db, deviceId: deviceId, from: from, to: to, bucket: bucket)
         }
+    }
+
+    /// The widest range (in buckets) the bucket walk takes: 14 days at 5-minute buckets is 4,032.
+    static let hrBucketsWalkLimit = 6_000
+
+    // The grouped query: MIN(conf) per bucket, measured rows contribute 1.0, PPG fallback rows their stored
+    // autocorrelation conf, so a bucket touched by ANY weak-optical estimate reads as weak (conservative) and a
+    // purely-measured bucket stays 1.0 (ryanAtriumAi #988). Kept as a constant so the equivalence tests run the
+    // exact text the store falls back to.
+    static let hrBucketsGroupedSQL = """
+        SELECT (ts / ?) * ? AS bucket, AVG(bpm) AS avgBpm, MIN(conf) AS minConf FROM (
+            SELECT ts, bpm, 1.0 AS conf FROM hrSample
+            WHERE deviceId = ? AND ts >= ? AND ts <= ?
+            UNION ALL
+            SELECT p.ts, p.bpm, p.conf FROM ppgHrSample p
+            WHERE p.deviceId = ? AND p.ts >= ? AND p.ts <= ?
+              AND NOT EXISTS (
+                SELECT 1 FROM hrSample h
+                WHERE h.deviceId = p.deviceId AND h.ts = p.ts)
+        )
+        GROUP BY ts / ?
+        ORDER BY bucket ASC
+        """
+
+    /// One bucket's measured rows: an aggregate over a `(deviceId, ts)` index range.
+    static let hrBucketMeasuredSQL = """
+        SELECT COUNT(*) AS c, AVG(bpm) AS avgBpm FROM hrSample
+        WHERE deviceId = ? AND ts >= ? AND ts <= ?
+        """
+
+    /// Whether a window has any PPG-derived row at all. Almost every install has none, which skips the fallback
+    /// probe for every bucket.
+    static let hrBucketsPpgPresenceSQL = """
+        SELECT EXISTS (SELECT 1 FROM ppgHrSample WHERE deviceId = ? AND ts >= ? AND ts <= ?)
+        """
+
+    /// One bucket's PPG fallback seconds: PPG rows with no measured row at the same second.
+    static let hrBucketFallbackCountSQL = """
+        SELECT COUNT(*) FROM ppgHrSample p
+        WHERE p.deviceId = ? AND p.ts >= ? AND p.ts <= ?
+          AND NOT EXISTS (
+            SELECT 1 FROM hrSample h
+            WHERE h.deviceId = p.deviceId AND h.ts = p.ts)
+        """
+
+    private static func hrBucketsGrouped(_ db: Database, deviceId: String, from: Int, to: Int,
+                                         bucket: Int) throws -> [HRBucket] {
+        try Row.fetchAll(db, sql: hrBucketsGroupedSQL, arguments: [bucket, bucket,
+                                                                   deviceId, from, to,
+                                                                   deviceId, from, to,
+                                                                   bucket])
+            .map { HRBucket(ts: $0["bucket"], bpm: $0["avgBpm"], conf: $0["minConf"] ?? 1.0) }
+    }
+
+    private static func hrBucketsWalk(_ db: Database, deviceId: String, from: Int, to: Int,
+                                      bucket: Int) throws -> [HRBucket] {
+        let hasPpg = try Bool.fetchOne(db, sql: hrBucketsPpgPresenceSQL, arguments: [deviceId, from, to]) ?? false
+        let measured = try db.cachedStatement(sql: hrBucketMeasuredSQL)
+        var fallbackCount: Statement?
+        if hasPpg { fallbackCount = try db.cachedStatement(sql: hrBucketFallbackCountSQL) }
+        var out: [HRBucket] = []
+        var start = (from / bucket) * bucket
+        while start <= to {
+            let lo = max(start, from)
+            let hi = to - start >= bucket - 1 ? start + bucket - 1 : to
+            var measuredCount = 0
+            var measuredMean = 0.0
+            if let row = try Row.fetchOne(measured, arguments: [deviceId, lo, hi]) {
+                measuredCount = row[0]
+                if measuredCount > 0 { measuredMean = row[1] }
+            }
+            var fallbackSeconds = 0
+            if let fallbackCount {
+                fallbackSeconds = try Int.fetchOne(fallbackCount, arguments: [deviceId, lo, hi]) ?? 0
+            }
+            if fallbackSeconds > 0 {
+                // Mixed bucket: the grouped query over just this bucket, so its mean is the one SQLite computed before.
+                out += try hrBucketsGrouped(db, deviceId: deviceId, from: lo, to: hi, bucket: bucket)
+            } else if measuredCount > 0 {
+                out.append(HRBucket(ts: start, bpm: measuredMean, conf: 1.0))
+            }
+            let (next, overflow) = start.addingReportingOverflow(bucket)
+            if overflow { break }
+            start = next
+        }
+        return out
     }
 
     public func rrIntervals(deviceId: String, from: Int, to: Int, limit: Int) async throws -> [RRInterval] {
