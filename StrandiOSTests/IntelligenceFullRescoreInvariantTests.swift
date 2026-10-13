@@ -31,6 +31,7 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
     }
 
     private let secondWhoop4Id = "whoop4-second-strap"
+    private let earlierStrapId = "earlier-strap"
 
     private func dayKey(_ index: Int) -> String {
         let formatter = DateFormatter()
@@ -49,10 +50,20 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
     /// second WHOOP 4.0 on that day: neither strap drifts, and the second one's register reads 30 units
     /// (1.5 °C) higher for the same skin. `whoop4SameIdSwapDay` reads the same way, but the replacement keeps
     /// the registry id: the strap starts on peripheral "strap-A", and the test adopts the replacement's.
+    /// `earlierStrapUntil` records the days before it on an earlier strap, the active one, with the seeded strap
+    /// paired beside it.
     private func makeHarness(days: Int, strapDays: Range<Int>? = nil, lateNights: Set<Int> = [],
                              whoop4: Bool = false, whoop4SwapDay: Int? = nil,
-                             whoop4SameIdSwapDay: Int? = nil) async throws -> Harness {
+                             whoop4SameIdSwapDay: Int? = nil,
+                             earlierStrapUntil: Int? = nil) async throws -> Harness {
         let store = try await WhoopStore.inMemory()
+        if earlierStrapUntil != nil {
+            let registry = DeviceRegistryStore(dbQueue: store.registryWriter)
+            try registry.add(PairedDevice(
+                id: earlierStrapId, brand: "WHOOP", model: "WHOOP", sourceKind: .liveBLE,
+                capabilities: [.hr, .hrv, .skinTemp, .sleep], status: .paired, addedAt: 0, lastSeenAt: 0))
+            try registry.setActive(earlierStrapId)
+        }
         let whoop4 = whoop4 || whoop4SwapDay != nil || whoop4SameIdSwapDay != nil
         if whoop4 {
             let registry = DeviceRegistryStore(dbQueue: store.registryWriter)
@@ -115,6 +126,7 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
                 if !whoop4, ts % 60 == 0 { streams.skinTemp.append(SkinTempSample(ts: ts, raw: 3_300)) }
             }
             let strap = whoop4SwapDay.map { k >= $0 ? secondWhoop4Id : Repository.whoopSource }
+                ?? earlierStrapUntil.map { k < $0 ? earlierStrapId : Repository.whoopSource }
             _ = try await store.insert(streams, deviceId: strap ?? Repository.whoopSource)
         }
         let reference = Date(timeIntervalSince1970: TimeInterval(firstDayStart + (days - 1) * 86_400 + 22 * 3_600))
@@ -123,11 +135,12 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
     }
 
     private func pass(_ harness: Harness, maxDays: Int, startOffset: Int = 0, at reference: Date? = nil,
-                      sourceContext: ExactWorkSourceContext? = nil) async -> Bool {
+                      sourceContext: ExactWorkSourceContext? = nil,
+                      keepUnproducedHistory: Bool = false) async -> Bool {
         await harness.engine.analyzeRecent(
             maxDays: maxDays, startOffset: startOffset, force: true, refreshRepository: false,
             analysisReference: reference ?? harness.reference, analysisCalendar: utcCalendar,
-            sourceContext: sourceContext)
+            sourceContext: sourceContext, keepUnproducedHistory: keepUnproducedHistory)
     }
 
     /// An exact historical pass's source context for `deviceId`'s committed work on `day`.
@@ -140,11 +153,13 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
             recordedTimeZoneIdentifier: "GMT", createdAt: createdAt))
     }
 
-    /// The v3 migration's shape: newest-first 30-day chunks over the whole history.
-    private func chunkedRescore(_ harness: Harness, days: Int) async -> Bool {
+    /// The v3 migration's shape: newest-first 30-day chunks over the whole history. `keepUnproducedHistory` is
+    /// the migration's own safety net; the invariant tests leave it off, so every day they check was produced.
+    private func chunkedRescore(_ harness: Harness, days: Int, keepUnproducedHistory: Bool = false) async -> Bool {
         var ok = true
         for offset in stride(from: 0, to: days, by: IntelligenceEngine.effortRescoreChunkDays) {
-            ok = await pass(harness, maxDays: IntelligenceEngine.effortRescoreChunkDays, startOffset: offset) && ok
+            ok = await pass(harness, maxDays: IntelligenceEngine.effortRescoreChunkDays, startOffset: offset,
+                            keepUnproducedHistory: keepUnproducedHistory) && ok
         }
         return ok
     }
@@ -428,6 +443,142 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
             day: dayKey(k), from: start - 30 * 3_600, to: start + 86_400, store: harness.store,
             devices: devices, activeId: activeId, registry: registry, fallbackDeviceId: Repository.whoopSource,
             completedDay: completed ? window : nil)
+    }
+
+    // MARK: - The v3 rescore keeps every stored completed day (review round 7, 1)
+
+    /// An earlier strap, archived since, still owns the completed days it recorded, so the migration's full-history
+    /// rescore scores them from its rows. Their stored Charge is overwritten first, so only a rescore from the
+    /// earlier strap's readings brings it back. Archived straps used to be left out of the owner: those days
+    /// resolved to the live strap's empty window and the reconcile deleted them.
+    func testAFullHistoryRescoreScoresAnArchivedStrapsDays() async throws {
+        try await withRecalibrationEpochsRestored {
+            let days = 30
+            let harness = try await makeHarness(days: days, earlierStrapUntil: 20)
+            let first = await pass(harness, maxDays: days)
+            XCTAssertTrue(first)
+            let before = try await stored(harness)
+            XCTAssertGreaterThan((0..<20).compactMap { before[dayKey($0)]?.recovery }.count, 10,
+                                 "the earlier strap's days score Charge")
+
+            let registry = DeviceRegistryStore(dbQueue: harness.store.registryWriter)
+            try registry.setActive(Repository.whoopSource)
+            try registry.archive(earlierStrapId)
+            _ = try await harness.store.upsertDailyMetrics(
+                (0..<20).compactMap { before[dayKey($0)]?.with(recovery: 1, skinTempDevC: nil) },
+                deviceId: harness.computedId)
+
+            let rescored = await chunkedRescore(harness, days: days, keepUnproducedHistory: true)
+            XCTAssertTrue(rescored)
+            let after = try await stored(harness)
+            for k in 0..<days {
+                let day = dayKey(k)
+                XCTAssertNotNil(after[day], "day \(k) keeps its row")
+                XCTAssertEqual(after[day]?.recovery, before[day]?.recovery, "day \(k) Charge from its own strap")
+                XCTAssertEqual(after[day]?.restingHr, before[day]?.restingHr, "day \(k)")
+                XCTAssertEqual(after[day]?.avgHrv, before[day]?.avgHrv, "day \(k)")
+                XCTAssertEqual(after[day]?.strain, before[day]?.strain, "day \(k)")
+            }
+            let archivedDay = try await resolvedOwner(harness, day: 10, completed: true)
+            XCTAssertEqual(archivedDay, earlierStrapId)
+            let today = try await resolvedOwner(harness, day: days - 1, completed: false)
+            XCTAssertEqual(today, Repository.whoopSource, "today's priority still leaves archived straps out")
+        }
+    }
+
+    /// A migration chunk that can't produce a stored completed day (no readings left for it) leaves the day's row,
+    /// its metric rows and its detected workout exactly as they were. An ordinary pass keeps the full
+    /// replacement and still drops them.
+    func testAMigrationChunkKeepsADayItCannotProduce() async throws {
+        try await withRecalibrationEpochsRestored {
+            let days = 30
+            let harness = try await makeHarness(days: days, strapDays: 5..<days)
+            let keptDays = [1, 2].map(dayKey)
+            let rows = keptDays.map { day in
+                DailyMetric(day: day, totalSleepMin: 440, efficiency: 0.91, deepMin: 85, remMin: 95,
+                            lightMin: 260, disturbances: 3, restingHr: 51, avgHrv: 70,
+                            recovery: 64, strain: 11.5, exerciseCount: 1)
+            }
+            _ = try await harness.store.upsertDailyMetrics(rows, deviceId: harness.computedId)
+            let keys = [IntelligenceEngine.computedRowSourceMetricKey, IntelligenceEngine.strapWornSecondsMetricKey,
+                        IntelligenceEngine.calorieFillEndMetricKey, IntelligenceEngine.nightlySkinMetricKey]
+                + IntelligenceEngine.chargeBreakdownKeys
+            let points = keptDays.flatMap { day in
+                keys.enumerated().map { MetricPoint(day: day, key: $0.element, value: Double($0.offset) + 0.5) }
+            }
+            _ = try await harness.store.upsertMetricSeries(points, deviceId: harness.computedId)
+            let workoutStart = firstDayStart + 2 * 86_400 + 17 * 3_600
+            let workout = WorkoutRow(startTs: workoutStart, endTs: workoutStart + 3_600, sport: "running",
+                                     source: harness.computedId, durationS: 3_600, energyKcal: 520, avgHr: 138,
+                                     maxHr: 161, strain: 10.2, distanceM: nil, zonesJSON: nil, notes: nil,
+                                     strainVersion: 2)
+            _ = try await harness.store.upsertWorkouts([workout], deviceId: harness.computedId)
+
+            let migration = await pass(harness, maxDays: days, keepUnproducedHistory: true)
+            XCTAssertTrue(migration)
+            let after = try await stored(harness)
+            XCTAssertNotNil(after[dayKey(10)], "the strap days are scored")
+            for row in rows {
+                XCTAssertEqual(after[row.day], row, "\(row.day) keeps its row")
+            }
+            for key in keys {
+                let kept = try await harness.store.metricSeries(
+                    deviceId: harness.computedId, key: key, from: keptDays[0], to: keptDays[1])
+                XCTAssertEqual(kept, points.filter { $0.key == key }, key)
+            }
+            let workouts = try await harness.store.workouts(
+                deviceId: harness.computedId, from: workoutStart, to: workoutStart, limit: 10)
+            XCTAssertEqual(workouts, [workout])
+
+            let ordinary = await pass(harness, maxDays: days)
+            XCTAssertTrue(ordinary)
+            let afterOrdinary = try await stored(harness)
+            XCTAssertNil(afterOrdinary[keptDays[0]], "an ordinary pass keeps the full replacement")
+        }
+    }
+
+    /// Finding 6: after Recalibrate, the wearable fold has no Charge for the first nights after the epoch and
+    /// produces no row for them. The migration's rescore keeps those days' stored rows; an ordinary pass over the
+    /// same window still replaces them.
+    func testAMigrationChunkKeepsFoldDaysAfterARecalibration() async throws {
+        try await withRecalibrationEpochsRestored {
+            let days = 30
+            let harness = try await makeHarness(days: days, strapDays: 24..<days)
+            let ouraRows = (0..<24).map { k in
+                DailyMetric(day: dayKey(k), totalSleepMin: 450, efficiency: 0.9, deepMin: 80, remMin: 100,
+                            lightMin: 270, disturbances: nil, restingHr: 50 + k % 2, avgHrv: 130 + Double(k % 3),
+                            recovery: nil, strain: nil, exerciseCount: nil)
+            }
+            _ = try await harness.store.upsertDailyMetrics(ouraRows, deviceId: "oura-import")
+            let first = await pass(harness, maxDays: days)
+            XCTAssertTrue(first)
+            let before = try await stored(harness)
+            let epochIndex = 10
+            let afterEpoch = (epochIndex + 1)..<(epochIndex + 8)
+            for k in afterEpoch {
+                XCTAssertNotNil(before[dayKey(k)]?.recovery, "fold day \(k) has a Charge before the recalibration")
+            }
+            Baselines.recalibrateRecoveryBaselines(
+                now: TimeInterval(firstDayStart + epochIndex * 86_400 + 14 * 3_600), defaults: .standard)
+
+            let migration = await pass(harness, maxDays: days, keepUnproducedHistory: true)
+            XCTAssertTrue(migration)
+            let after = try await stored(harness)
+            for k in 0..<days where before[dayKey(k)] != nil {
+                XCTAssertNotNil(after[dayKey(k)], "day \(k) keeps a row")
+            }
+
+            // The same window without the safety net shows which days the fold could not produce.
+            let ordinary = await pass(harness, maxDays: days)
+            XCTAssertTrue(ordinary)
+            let afterOrdinary = try await stored(harness)
+            let unproduced = (0..<days).filter { before[dayKey($0)] != nil && afterOrdinary[dayKey($0)] == nil }
+            XCTAssertFalse(unproduced.isEmpty, "the fold has no row for the nights after the epoch")
+            XCTAssertTrue(unproduced.allSatisfy { afterEpoch.contains($0) }, "\(unproduced)")
+            for k in unproduced {
+                XCTAssertEqual(after[dayKey(k)], before[dayKey(k)], "fold day \(k) kept its stored row")
+            }
+        }
     }
 
     // MARK: - Stored Charge breakdown (review round 3 findings 8 and 15, round 4 finding 3)

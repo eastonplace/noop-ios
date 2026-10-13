@@ -144,6 +144,30 @@ final class MetricSeriesStoreTests: XCTestCase {
         XCTAssertEqual(otherDeviceMeans.map(\.value), [99])
     }
 
+    /// Review round 7 (1): a protected day keeps its rows for every reconciled key; an unprotected day in the
+    /// same range is still reconciled.
+    func testReconcileKeepsProtectedDaysRows() async throws {
+        let store = try await WhoopStore.inMemory()
+        try await store.upsertMetricSeries([
+            .init(day: "2026-05-01", key: "shadow_mean", value: 55),
+            .init(day: "2026-05-02", key: "shadow_mean", value: 56),
+            .init(day: "2026-05-02", key: "shadow_count", value: 30),
+            .init(day: "2026-05-03", key: "shadow_mean", value: 57),
+        ], deviceId: "devA")
+
+        try await store.reconcileMetricSeries([
+            .init(day: "2026-05-03", key: "shadow_mean", value: 58),
+        ], deviceId: "devA", keys: ["shadow_mean", "shadow_count"],
+           from: "2026-05-01", to: "2026-05-03", protectedDays: ["2026-05-02"])
+        let means = try await store.metricSeries(
+            deviceId: "devA", key: "shadow_mean", from: "2026-05-01", to: "2026-05-03")
+        let counts = try await store.metricSeries(
+            deviceId: "devA", key: "shadow_count", from: "2026-05-01", to: "2026-05-03")
+        XCTAssertEqual(means, [.init(day: "2026-05-02", key: "shadow_mean", value: 56),
+                               .init(day: "2026-05-03", key: "shadow_mean", value: 58)])
+        XCTAssertEqual(counts, [.init(day: "2026-05-02", key: "shadow_count", value: 30)])
+    }
+
     func testReconcileRejectsRowsOutsideDeclaredScope() async throws {
         let store = try await WhoopStore.inMemory()
         do {

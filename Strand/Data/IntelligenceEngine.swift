@@ -625,7 +625,8 @@ final class IntelligenceEngine: ObservableObject {
                 _ = await self.analyzeRecent(
                     maxDays: chunk,
                     startOffset: offset,
-                    refreshRepository: false
+                    refreshRepository: false,
+                    keepUnproducedHistory: true
                 )
                 guard self.analysisCompletionSerial > before else {
                     throw EffortRescoreMigrationError.chunkDidNotComplete
@@ -754,7 +755,8 @@ final class IntelligenceEngine: ObservableObject {
     func analyzeRecent(maxDays: Int = 21, startOffset: Int = 0, force: Bool = true,
                        refreshRepository: Bool = true, analysisReference: Date? = nil,
                        analysisCalendar: Calendar = .current,
-                       sourceContext: ExactWorkSourceContext? = nil) async -> Bool {
+                       sourceContext: ExactWorkSourceContext? = nil,
+                       keepUnproducedHistory: Bool = false) async -> Bool {
         let performanceTrace = PerformanceTrace.begin("analyze_recent")
         var performanceChangedRows = -1
         defer { PerformanceTrace.end(performanceTrace, changedRows: performanceChangedRows) }
@@ -2371,6 +2373,23 @@ final class IntelligenceEngine: ObservableObject {
         }
         dailies = reconciledDailies
 
+        // Review round 7 (1): a full-history migration chunk (`keepUnproducedHistory`) never deletes a completed
+        // day's stored row, or that day's stored metric rows and detected workouts, unless it produced a
+        // replacement. A day this pass can't score (its raw data unreachable, an epoch-reset fold) keeps what
+        // the owner sees today. Ordinary passes keep the full-replacement reconcile.
+        var historyKeepDays: Set<String> = []
+        if keepUnproducedHistory {
+            do {
+                let stored = try await store.dailyMetrics(deviceId: computedId, from: oldestDay, to: newestDay)
+                historyKeepDays = Set(stored.map(\.day)).subtracting(reconciledDailies.map(\.day))
+                historyKeepDays.subtract(civilDays.filter { $0.nextStart > now }.map(\.day))
+            } catch {
+                note = String(localized: "Recovery history could not be reconciled. NOOP will retry.")
+                NSLog("IntelligenceEngine: migration keep-set read failed: \(error)")
+                return false
+            }
+        }
+
         // Replace the full computed range in one SQLite transaction. Upsert-then-read-then-delete used three
         // separate transactions; any unrelated reader could observe the intermediate generation even when
         // Repository publication was fenced. Manual-Recovery triggers restore protected rows atomically.
@@ -2381,7 +2400,7 @@ final class IntelligenceEngine: ObservableObject {
                 deviceId: computedId,
                 from: oldestDay,
                 to: newestDay,
-                protectedDays: protectedDailyDays
+                protectedDays: protectedDailyDays.union(historyKeepDays)
             )
             // Review round 4 (4): the provenance marker covers exactly the rows reconciled above.
             let rowSourcePoints = Dictionary(reconciledDailies.compactMap { row -> (String, MetricPoint)? in
@@ -2395,7 +2414,8 @@ final class IntelligenceEngine: ObservableObject {
                 deviceId: computedId,
                 keys: [Self.computedRowSourceMetricKey],
                 from: oldestDay,
-                to: newestDay
+                to: newestDay,
+                protectedDays: historyKeepDays
             )
             // Review round 4 (2): how far each row's calorie total was filled.
             let fillEndPoints = Dictionary(reconciledDailies.compactMap { row -> (String, MetricPoint)? in
@@ -2408,7 +2428,8 @@ final class IntelligenceEngine: ObservableObject {
                 deviceId: computedId,
                 keys: [Self.calorieFillEndMetricKey],
                 from: oldestDay,
-                to: newestDay
+                to: newestDay,
+                protectedDays: historyKeepDays
             )
             // Review round 4 (5): and how much of the day the strap covered.
             let wornPoints = Dictionary(reconciledDailies.compactMap { row -> (String, MetricPoint)? in
@@ -2421,7 +2442,8 @@ final class IntelligenceEngine: ObservableObject {
                 deviceId: computedId,
                 keys: [Self.strapWornSecondsMetricKey],
                 from: oldestDay,
-                to: newestDay
+                to: newestDay,
+                protectedDays: historyKeepDays
             )
         } catch {
             note = String(localized: "Recovery history could not be reconciled. NOOP will retry.")
@@ -2465,7 +2487,8 @@ final class IntelligenceEngine: ObservableObject {
                 deviceId: computedId,
                 keys: Self.chargeBreakdownKeys,
                 from: oldestDay,
-                to: newestDay
+                to: newestDay,
+                protectedDays: historyKeepDays
             )
             let storedScores = Dictionary(
                 try await store.metricSeries(deviceId: computedId, key: Self.chargeBreakdownScoreKey,
@@ -2510,7 +2533,8 @@ final class IntelligenceEngine: ObservableObject {
                 deviceId: computedId,
                 keys: reconciledShadowKeys,
                 from: oldestDay,
-                to: newestDay
+                to: newestDay,
+                protectedDays: historyKeepDays
             )
         } catch {
             NSLog("IntelligenceEngine: shadow metric reconciliation failed: \(error)")
@@ -2544,7 +2568,8 @@ final class IntelligenceEngine: ObservableObject {
                     [Self.nightlySkinWhoop4RawKeyPrefix + $0, Self.nightlySkinWhoop4AnchorKeyPrefix + $0]
                 },
                 from: oldestDay,
-                to: newestDay
+                to: newestDay,
+                protectedDays: historyKeepDays
             )
         } catch {
             NSLog("IntelligenceEngine: nightly skin mean persistence failed: \(error)")
@@ -2930,8 +2955,23 @@ final class IntelligenceEngine: ObservableObject {
         // stale rows under the (deviceId,startTs,sport) key), then re-insert.
         do {
             guard !Task.isCancelled else { performanceChangedRows = persistedMutationCount; return false }
+            // Review round 7 (1): a migration chunk keeps the detected workouts of the days it keeps, and of the
+            // older chunk's evening before its window, which that chunk reconciles itself. A stored bout this
+            // pass re-detected (overlapping a produced row) is replaced, not duplicated.
+            var keptWorkoutRows: [WorkoutRow] = []
+            if keepUnproducedHistory {
+                let keptWindows = civilDays.filter { historyKeepDays.contains($0.day) }
+                keptWorkoutRows = try await store.workouts(
+                    deviceId: computedId, from: windowStart, to: windowEnd, limit: 10_000
+                ).filter { row in
+                    (row.source == computedId || row.source == "detected")
+                        && (row.startTs < oldestCivilDay.start
+                            || keptWindows.contains { row.startTs >= $0.start && row.startTs < $0.nextStart })
+                        && !workoutRows.contains { $0.startTs < row.endTs && row.startTs < $0.endTs }
+                }
+            }
             let workoutResult = try await store.reconcileDetectedWorkouts(
-                workoutRows, deviceId: computedId, from: windowStart, to: windowEnd)
+                workoutRows + keptWorkoutRows, deviceId: computedId, from: windowStart, to: windowEnd)
             persistedMutationCount += workoutResult.totalChanged
         } catch {
             NSLog("IntelligenceEngine: detected-workout reconciliation failed: \(error)")
@@ -3069,6 +3109,10 @@ final class IntelligenceEngine: ObservableObject {
     /// this, a new strap's first readings late on the day before a swap made it the owner by priority, and the
     /// day, scored from that sliver, fell below the gate and lost its row. Each count is one indexed aggregate
     /// bounded by the one-day window. When no strap reaches the gate, the priority rule below decides as before.
+    ///
+    /// Review round 7 (1): an archived strap still owns the completed days it recorded, so a full-history
+    /// rescore scores them from its rows instead of from the live strap's empty window. Today's priority rule
+    /// still leaves archived straps out.
     nonisolated static func resolveDayOwner(day: String, from: Int, to: Int, store: WhoopStore,
                                             devices: [PairedDevice], activeId: String,
                                             registry: DeviceRegistryStore,
@@ -3082,6 +3126,9 @@ final class IntelligenceEngine: ObservableObject {
         guard !devices.isEmpty else { return fallbackDeviceId }
 
         let liveDevices = devices.filter { $0.status != .archived }
+        let completedDayStraps = completedDay == nil ? [] : devices.filter {
+            !$0.isImportSource && $0.sourceKind != .activityFile
+        }
         // #970: the default single-WHOOP install has exactly one live device that IS the fallback id, so
         // the owner is a foregone conclusion — the resolver returns that id whether or not it has data in
         // this window (active priority 0 -> its id; or no candidate has data -> nil -> fallbackDeviceId,
@@ -3089,13 +3136,14 @@ final class IntelligenceEngine: ObservableObject {
         // scanned day, so it saves ~maxDays tiny reads per analyzeRecent). Byte-identical to the loop. The
         // guard is deliberately `== fallbackDeviceId`: a lone IMPORT device whose id differs would NOT be
         // byte-identical (no-data -> fallback, not its own id), so it must still take the probe path.
-        if liveDevices.count == 1, liveDevices[0].id == fallbackDeviceId {
+        if liveDevices.count == 1, liveDevices[0].id == fallbackDeviceId,
+           !completedDayStraps.contains(where: { $0.status == .archived }) {
             return fallbackDeviceId
         }
 
         if let completedDay {
             var best: (deviceId: String, rows: Int)?
-            for d in liveDevices where !d.isImportSource && d.sourceKind != .activityFile {
+            for d in completedDayStraps {
                 let rows = (try? await store.hrFingerprint(
                     deviceId: d.id, from: completedDay.start, to: completedDay.nextStart - 1))?.count ?? 0
                 guard rows >= rawLoopMinHrRows else { continue }
