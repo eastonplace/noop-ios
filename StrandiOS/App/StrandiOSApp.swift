@@ -226,7 +226,7 @@ struct StrandiOSApp: App {
                         projection: projection,
                         expectedActiveContextId: expected,
                         recovery: surface.recovery,
-                        effort: surface.effort)
+                        effort: surface.effort(todayStrain: { model.repo.canonicalStrain(for: $0) }))
                 },
                 publishHealthKitWriteOnly: { payload in
                     guard let store = await model.repo.storeHandle() else {
@@ -352,7 +352,7 @@ struct StrandiOSApp: App {
         ).update(
             liveActivity, source: source,
             recovery: externalSurface?.recovery,
-            effort: externalSurface?.effort,
+            effort: externalSurface?.effort(todayStrain: { model.repo.canonicalStrain(for: $0) }),
             verifiedContextId: externalSurface?.contextId,
             verifiedProjectionGeneration: externalSurface?.generation)
     }
@@ -457,7 +457,7 @@ struct StrandiOSApp: App {
         LiveActivityFeed.current(model: model, projections: workoutProjection, liveActivity: liveActivity).update(
             liveActivity, source: .scoring,
             recovery: surface?.recovery,
-            effort: surface?.effort,
+            effort: surface?.effort(todayStrain: { model.repo.canonicalStrain(for: $0) }),
             verifiedContextId: surface?.contextId,
             verifiedProjectionGeneration: surface?.generation)
         _ = await WidgetSnapshot.publish(from: model)
