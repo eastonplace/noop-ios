@@ -239,6 +239,28 @@ final class RepositoryEditRescoreTests: XCTestCase {
         XCTAssertEqual(recorder.published, [7])
     }
 
+    /// Review finding (re-enqueue erased): the same timestamp enqueued again while its chunk ran (an undo, a
+    /// re-edit of the same night) was removed with the chunk's snapshot, although the pass read its inputs before
+    /// that edit.
+    func testAnEditToTheSameNightMidChunkIsRescoredByALaterChunk() async throws {
+        let calendar = try newYorkCalendar()
+        let now = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 10, day: 12, hour: 15)))
+        let queue = drainQueue(now: now, calendar: calendar)
+        let recorder = EditedDayAnalyzeRecorder()
+        let night = Int(try XCTUnwrap(calendar.date(byAdding: .day, value: -6, to: now)).timeIntervalSince1970)
+        queue.register(recorder) { [unowned queue] request in
+            if recorder.requests.isEmpty { queue.enqueue([night]) } // the user taps Undo while the pass runs
+            recorder.requests.append(request)
+            return true
+        }
+
+        queue.enqueue([night])
+        await queue.waitForDrain()
+
+        XCTAssertEqual(recorder.requests.map(\.maxDays), [7, 7], "the undone night was never rescored")
+        XCTAssertTrue(queue.timestamps.isEmpty)
+    }
+
     func testAnEditArrivingMidChunkIsDrainedTooNotDropped() async throws {
         let calendar = try newYorkCalendar()
         let now = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 10, day: 12, hour: 15)))
@@ -303,7 +325,20 @@ final class RepositoryEditRescoreTests: XCTestCase {
 
         XCTAssertEqual(recorder.requests.map(\.maxDays), [3])
         XCTAssertTrue(afterRelaunch.timestamps.isEmpty)
-        XCTAssertEqual(defaults.array(forKey: "queue") as? [Int], [])
+        let afterNextLaunch = EditedDayRescoreQueue(defaults: defaults, storageKey: "queue", debounce: .zero,
+                                                    isBackgrounded: { false })
+        XCTAssertTrue(afterNextLaunch.timestamps.isEmpty, "the drained entry stays drained across launches")
+    }
+
+    func testTheFirstReleasesPersistedQueueStillLoads() throws {
+        let defaults = try isolatedDefaults()
+        defaults.set([1_790_000_000, 1_790_086_400], forKey: "queue") // the original bare [Int] format
+        let upgraded = EditedDayRescoreQueue(defaults: defaults, storageKey: "queue", isBackgrounded: { false })
+        XCTAssertEqual(upgraded.timestamps, [1_790_000_000, 1_790_086_400])
+
+        upgraded.enqueue([1_790_172_800])
+        let reloaded = EditedDayRescoreQueue(defaults: defaults, storageKey: "queue", isBackgrounded: { false })
+        XCTAssertEqual(reloaded.timestamps, [1_790_000_000, 1_790_086_400, 1_790_172_800])
     }
 
     func testEveryWorkoutMutatorQueuesItsDay() async throws {

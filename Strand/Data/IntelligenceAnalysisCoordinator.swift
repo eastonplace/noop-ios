@@ -122,6 +122,10 @@ extension IntelligenceAnalysisRequest {
 /// when cancelled (BG expiry) or once the app is in the background. A chunk that doesn't complete leaves the
 /// whole taken range queued, and edits that arrive mid-chunk stay queued for the next step.
 ///
+/// Every enqueue stamps its timestamps with a new version. A finished chunk removes only the entries whose
+/// version it took, so the same timestamp enqueued again while its chunk runs (an undo, a re-edit of the same
+/// night, a re-saved workout) stays queued: the running pass read its inputs before that edit.
+///
 /// The chunks don't publish one by one: the engine's closing refresh is current-day only, and the DL-01 splice
 /// keeps older cached days, so a rescored older night never reached Home. When the drain stops after at least
 /// one chunk it publishes one refresh covering the rescored range through the closure Repository enqueued with.
@@ -134,7 +138,10 @@ final class EditedDayRescoreQueue {
     /// Republishes the dashboard caches over the last `days` days (oldest rescored day through today).
     typealias Publish = @MainActor (_ days: Int) async -> Void
 
-    private(set) var timestamps: Set<Int>
+    /// Timestamp → version of its latest enqueue.
+    private var entries: [Int: UInt64]
+    private var lastVersion: UInt64
+    var timestamps: Set<Int> { Set(entries.keys) }
     private let defaults: UserDefaults?
     private let storageKey: String
     private let debounce: Duration
@@ -159,7 +166,9 @@ final class EditedDayRescoreQueue {
         self.defaults = defaults
         self.storageKey = storageKey
         self.debounce = debounce
-        self.timestamps = Set((defaults?.array(forKey: storageKey) as? [Int] ?? []).filter { $0 > 0 })
+        let stored = Self.load(from: defaults, key: storageKey)
+        self.entries = stored.entries
+        self.lastVersion = stored.lastVersion
         self.now = now
         self.calendar = calendar
         self.isBackgrounded = isBackgrounded
@@ -170,7 +179,10 @@ final class EditedDayRescoreQueue {
     func enqueue(_ edited: [Int], publish: Publish? = nil) {
         let valid = edited.filter { $0 > 0 }
         guard !valid.isEmpty else { return }
-        timestamps.formUnion(valid)
+        for timestamp in valid {
+            lastVersion &+= 1
+            entries[timestamp] = lastVersion
+        }
         if let publish { self.publish = publish }
         persist()
         scheduleDrain(after: debounce)
@@ -179,11 +191,10 @@ final class EditedDayRescoreQueue {
     /// Removes and returns everything queued and stops any drain. Tests reset the shared queue with it.
     func take() -> Set<Int> {
         cancel()
-        defer {
-            timestamps.removeAll()
-            persist()
-        }
-        return timestamps
+        let taken = timestamps
+        entries.removeAll()
+        persist()
+        return taken
     }
 
     /// The engine that rescores drained chunks, held weakly through `owner`. Registering also restarts a
@@ -225,8 +236,47 @@ final class EditedDayRescoreQueue {
         drainTask = nil
     }
 
+    /// Persisted form. The first release stored a bare `[Int]` under the same key; `load` still reads it.
+    private struct Stored: Codable {
+        struct Entry: Codable {
+            var timestamp: Int
+            var version: UInt64
+        }
+        var lastVersion: UInt64
+        var entries: [Entry]
+    }
+
+    private static func load(from defaults: UserDefaults?, key: String)
+        -> (entries: [Int: UInt64], lastVersion: UInt64) {
+        guard let defaults else { return ([:], 0) }
+        if let data = defaults.data(forKey: key),
+           let stored = try? JSONDecoder().decode(Stored.self, from: data) {
+            var entries: [Int: UInt64] = [:]
+            for entry in stored.entries where entry.timestamp > 0 {
+                entries[entry.timestamp] = max(entries[entry.timestamp] ?? 0, entry.version)
+            }
+            return (entries, max(stored.lastVersion, entries.values.max() ?? 0))
+        }
+        let legacy = (defaults.array(forKey: key) as? [Int] ?? []).filter { $0 > 0 }
+        var entries: [Int: UInt64] = [:]
+        for (index, timestamp) in Set(legacy).sorted().enumerated() { entries[timestamp] = UInt64(index + 1) }
+        return (entries, UInt64(entries.count))
+    }
+
     private func persist() {
-        defaults?.set(timestamps.sorted(), forKey: storageKey)
+        guard let defaults else { return }
+        let stored = Stored(
+            lastVersion: lastVersion,
+            entries: entries.sorted { $0.key < $1.key }.map { Stored.Entry(timestamp: $0.key, version: $0.value) })
+        guard let data = try? JSONEncoder().encode(stored) else { return }
+        defaults.set(data, forKey: storageKey)
+    }
+
+    /// Drops the entries a finished step took, unless they were enqueued again since.
+    private func remove(taken: [Int: UInt64]) {
+        for (timestamp, version) in taken where (entries[timestamp] ?? .max) <= version {
+            entries.removeValue(forKey: timestamp)
+        }
     }
 
     /// Test/diagnostic: waits for the most recent drain to stop, including one that was just cancelled.
@@ -238,10 +288,10 @@ final class EditedDayRescoreQueue {
         var rescoredSpan = 0
         while generation == drainGeneration, !timestamps.isEmpty, let analyze, analyzer != nil {
             if Task.isCancelled || isBackgrounded() { break }
-            let taken = timestamps
+            let taken = entries
             guard let chunk = IntelligenceAnalysisRequest.editedDayChunk(
-                containingTimestamps: taken, chunkDays: Self.chunkDays, now: now(), calendar: calendar()) else {
-                timestamps.subtract(taken)
+                containingTimestamps: taken.keys, chunkDays: Self.chunkDays, now: now(), calendar: calendar()) else {
+                remove(taken: taken)
                 persist()
                 continue
             }
@@ -249,8 +299,11 @@ final class EditedDayRescoreQueue {
                 maxDays: chunk.request.maxDays, startOffset: chunk.request.startOffset, force: true,
                 refreshRepository: publish == nil)
             guard await analyze(request) else { break }
-            timestamps.subtract(taken)
-            if let next = chunk.remainderTimestamp { timestamps.insert(next) }
+            remove(taken: taken)
+            if let next = chunk.remainderTimestamp {
+                lastVersion &+= 1
+                entries[next] = lastVersion
+            }
             persist()
             rescoredSpan = max(rescoredSpan, request.endOffsetExclusive)
         }
