@@ -39,6 +39,50 @@ final class CompareLogicTests: XCTestCase {
         XCTAssertEqual(CompareLogic.spanDays([unreadable]), 0)
     }
 
+    // MARK: What the overlay chart is built from
+
+    private func overlayKey(
+        _ series: [(id: String, colorIndex: Int, rows: [Row])], zone: String = "Europe/Berlin"
+    ) -> String {
+        CompareLogic.overlayKey(series, timeZone: zone)
+    }
+
+    /// The chart is rebuilt for anything that changes what it draws, and for nothing else.
+    func testTheOverlayKeyChangesWithColourReadingsDaysSeriesAndTimeZone() {
+        let steps: [Row] = [("2026-10-10", 4000), ("2026-10-11", 6000), ("2026-10-12", 4000)]
+        let hrv: [Row] = [("2026-10-10", 50), ("2026-10-11", 55), ("2026-10-12", 52)]
+        let base = overlayKey([("hrv", 0, hrv), ("steps", 3, steps)])
+        XCTAssertEqual(base, overlayKey([("hrv", 0, hrv), ("steps", 3, steps)]), "Same inputs, same key")
+
+        // A line takes another colour when an empty metric leaves the selection: same rows, new slot.
+        XCTAssertNotEqual(base, overlayKey([("hrv", 0, hrv), ("steps", 2, steps)]))
+        // A sync changes today's value but not the row count or the first and last day.
+        var synced = steps
+        synced[2].value = 9000
+        XCTAssertEqual(synced.count, steps.count)
+        XCTAssertNotEqual(base, overlayKey([("hrv", 0, hrv), ("steps", 3, synced)]))
+        // A reading moves to another day with the count and the edges unchanged.
+        var moved = steps
+        moved[1].day = "2026-10-09"
+        XCTAssertNotEqual(base, overlayKey([("hrv", 0, hrv), ("steps", 3, moved)]))
+        // The series, their order, and the zone the days are read in.
+        XCTAssertNotEqual(base, overlayKey([("steps", 3, steps), ("hrv", 0, hrv)]))
+        XCTAssertNotEqual(base, overlayKey([("hrv", 0, hrv)]))
+        XCTAssertNotEqual(base, overlayKey([("hrv", 0, hrv), ("steps", 3, steps)], zone: "America/Los_Angeles"))
+    }
+
+    func testAFingerprintSeesEveryReadingAndIsStableForTheSameOnes() {
+        let rows: [Row] = (0..<1100).map { (ExploreDayKey.key(forDayNumber: 20_000 + $0), Double($0 % 97)) }
+        XCTAssertEqual(CompareLogic.fingerprint(rows), CompareLogic.fingerprint(rows))
+        var last = rows
+        last[last.count - 1].value += 0.5
+        XCTAssertNotEqual(CompareLogic.fingerprint(rows), CompareLogic.fingerprint(last))
+        var middle = rows
+        middle[500].value += 0.5
+        XCTAssertNotEqual(CompareLogic.fingerprint(rows), CompareLogic.fingerprint(middle))
+        XCTAssertNotEqual(CompareLogic.fingerprint(rows), CompareLogic.fingerprint(Array(rows.dropFirst())))
+    }
+
     /// A day read off a long window, or from another year, carries its year; a day this year on a short window does not.
     func testTheYearIsShownOnALongWindowOrForADayFromAnotherYear() {
         let gregorian = Calendar(identifier: .gregorian)

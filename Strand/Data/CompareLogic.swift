@@ -36,6 +36,25 @@ enum CompareLogic {
         spanDays > 365 || !calendar.isDate(date, equalTo: now, toGranularity: .year)
     }
 
+    /// A fingerprint of a series' (day, value) pairs: it changes when a reading is added, dropped, moved to another day or
+    /// edited, and not otherwise. Stable within one run, which is all a cache key needs.
+    static func fingerprint(_ rows: [Row]) -> Int {
+        var hasher = Hasher()
+        for row in rows {
+            hasher.combine(row.day)
+            hasher.combine(row.value)
+        }
+        return hasher.finalize()
+    }
+
+    /// Everything the overlay chart is drawn from, as one cache key: which series (in order), the palette slot each line takes,
+    /// a fingerprint of every (day, value) pair, and the time zone the days are read in. Anything that would change a line, its
+    /// colour or the day under the finger changes the key; scrubbing does not.
+    static func overlayKey(_ series: [(id: String, colorIndex: Int, rows: [Row])], timeZone: String) -> String {
+        let parts = series.map { "\($0.id)/\($0.colorIndex)/\($0.rows.count)/\(fingerprint($0.rows))" }
+        return "\(timeZone)|" + parts.joined(separator: "|")
+    }
+
     /// The reading on a day key, or nil when the series has none that day (the latest when a day repeats).
     static func value(in rows: [Row], onDay key: String) -> Double? {
         rows.last { $0.day == key }?.value

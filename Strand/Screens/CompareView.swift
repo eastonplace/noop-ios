@@ -22,15 +22,18 @@ import WhoopStore
 private struct ResolvedCompareSeries: Identifiable {
     let metric: MetricDescriptor
     let color: Color
+    /// The palette slot behind `color`, so a change of colour is a change the overlay's cache key can see.
+    let colorIndex: Int
     let rows: [(day: String, value: Double)]
     let realMin: Double
     let realMax: Double
 
     var id: String { metric.id }
 
-    init(metric: MetricDescriptor, color: Color, rows: [(day: String, value: Double)]) {
+    init(metric: MetricDescriptor, color: Color, colorIndex: Int, rows: [(day: String, value: Double)]) {
         self.metric = metric
         self.color = color
+        self.colorIndex = colorIndex
         self.rows = rows
         let values = rows.map(\.value)
         self.realMin = values.min() ?? 0
@@ -85,12 +88,15 @@ struct CompareView: View {
         return nil
     }
 
-    /// The colour of each selected metric, by id, in pick order.
-    private var seriesColors: [String: Color] {
+    /// The palette slot of each selected metric, by id, in pick order.
+    private var seriesColorIndices: [String: Int] {
         let indices = CompareLogic.colorIndices(
             keys: selected.map(\.key), canonical: Self.canonicalColorIndex, paletteCount: Self.seriesPalette.count)
-        return Dictionary(uniqueKeysWithValues: zip(selected.map(\.id), indices.map { Self.seriesPalette[$0] }))
+        return Dictionary(uniqueKeysWithValues: zip(selected.map(\.id), indices))
     }
+
+    /// The colour of each selected metric, by id, in pick order.
+    private var seriesColors: [String: Color] { seriesColorIndices.mapValues { Self.seriesPalette[$0] } }
 
     /// Default starter selection (falls back gracefully if a key is missing).
     private static let defaultKeys = ["recovery", "sleep_performance"]
@@ -216,11 +222,13 @@ struct CompareView: View {
     /// Selected metrics resolved to windowed rows + stable colours, in pick order.
     private var activeSeries: [ResolvedCompareSeries] {
         let colors = seriesColors
+        let indices = seriesColorIndices
         return selected.map { metric in
             let full = fullSeries[metric.id] ?? []
             return ResolvedCompareSeries(
                 metric: metric,
                 color: colors[metric.id] ?? StrandPalette.textSecondary,
+                colorIndex: indices[metric.id] ?? -1,
                 rows: CompareLogic.slice(full, days: effectiveRange(full).days))
         }
     }
@@ -409,7 +417,7 @@ struct CompareView: View {
             trailing: .text(String(localized: "\(shown.count) series"))
         ) {
             VStack(alignment: .leading, spacing: NoopMetrics.space3) {
-                CompareOverlayBlock(shown: shown, key: correlationKey(shown), format: format)
+                CompareOverlayBlock(shown: shown, key: overlayKey(shown), format: format)
                 ExploreRangeControl(selection: $range)
                 Text(caption.text)
                     .font(StrandFont.micro)
@@ -528,6 +536,12 @@ struct CompareView: View {
             .joined(separator: "|")
     }
 
+    /// What the overlay chart is built from. Wider than `correlationKey`: a line's colour, its readings (a sync that changes
+    /// today's value leaves the count and the edge days alone) and the time zone its days were read in all change what is drawn.
+    private func overlayKey(_ shown: [ResolvedCompareSeries]) -> String {
+        CompareLogic.overlayKey(shown.map { ($0.id, $0.colorIndex, $0.rows) }, timeZone: TimeZone.current.identifier)
+    }
+
     /// Cached accessor used by the body. Returns the memoized scan when the inputs match `pairCacheKey`; otherwise
     /// computes once for THIS render (without mutating state, which would be illegal mid-body) so the visible result is
     /// never stale by a frame. The matching `.onChange`/`.task` then persists the same result into `@State`.
@@ -626,7 +640,8 @@ struct CompareView: View {
 /// scaled, thinned and cut into stretches) is built once per change of series or window, not once per touch step.
 private struct CompareOverlayBlock: View {
     let shown: [ResolvedCompareSeries]
-    /// Identifies the series and their windows; the chart's model is rebuilt only when it changes.
+    /// Identifies the series, their colours and readings, and the time zone (`CompareLogic.overlayKey`); the chart's model is
+    /// rebuilt only when it changes.
     let key: String
     let format: (MetricDescriptor, Double) -> String
 
