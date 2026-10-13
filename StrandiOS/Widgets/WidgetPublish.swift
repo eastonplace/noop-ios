@@ -136,13 +136,22 @@ extension WidgetSnapshot {
               token.contextId == verifiedProjection.contextId else {
             return .superseded
         }
+        let olderGenerationDay = await publishedLogicalDay(
+            model: model, defaults: defaults, token: token, olderThan: verifiedProjection.generation)
         let now = Date()
         // This is the durable acknowledgement path. It contains only the verified core and in-memory Today
         // fields. HRV history, raw stress scans, and other enrichment run after the caller receives success.
-        let snap = WidgetCorePublication.makeCoreSnapshot(
-            model: model,
-            bundle: verifiedBundle,
-            now: now)
+        // What an earlier enrichment already added is carried over, so this commit cannot take it away.
+        let snap = WidgetCorePublication.carryingEnrichment(
+            into: WidgetCorePublication.makeCoreSnapshot(
+                model: model,
+                bundle: verifiedBundle,
+                now: now),
+            from: VerifiedWidgetEnvelopeStore.rawActiveEnvelope(defaults: defaults),
+            token: token,
+            generation: verifiedProjection.generation,
+            logicalDay: verifiedBundle.widgetCore.logicalDay,
+            olderGenerationDay: olderGenerationDay)
         let result = VerifiedWidgetEnvelopeStore.commit(
             token: token,
             generation: verifiedProjection.generation,
@@ -171,6 +180,28 @@ extension WidgetSnapshot {
         case .failed:
             throw WidgetPublicationError.sinkWriteFailed
         }
+    }
+
+    /// The logical day of the generation the App Group envelope currently holds, when that generation is older
+    /// than `generation` and belongs to the same epoch and context. Read from its immutable bundle, because the
+    /// envelope itself does not record a day. nil when there is no such envelope or the bundle is gone, and then
+    /// no enrichment is carried across generations.
+    @MainActor
+    private static func publishedLogicalDay(
+        model: AppModel,
+        defaults: UserDefaults,
+        token: VerifiedSinkToken,
+        olderThan generation: Int64
+    ) async -> (generation: Int64, day: CivilDay)? {
+        guard let existing = VerifiedWidgetEnvelopeStore.rawActiveEnvelope(defaults: defaults),
+              existing.epoch == token.epoch,
+              existing.contextId == token.contextId,
+              existing.generation < generation,
+              let store = await model.repo.storeHandle(),
+              let bundle = try? await store.verifiedExternalProjectionBundle(
+                contextId: existing.contextId,
+                generation: existing.generation) else { return nil }
+        return (existing.generation, bundle.widgetCore.logicalDay)
     }
 
     @MainActor

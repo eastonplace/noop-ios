@@ -8,6 +8,24 @@ import WhoopStore
 /// (HRV, Resting HR, Steps, Stress). Each section is the regression test of one fix.
 @MainActor
 final class WidgetStalenessTests: XCTestCase {
+    private var suite = ""
+    private var defaults: UserDefaults!
+
+    override func setUp() async throws {
+        suite = "noop.widget-staleness.\(UUID().uuidString)"
+        defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+    }
+
+    override func tearDown() async throws {
+        defaults.removePersistentDomain(forName: suite)
+    }
+
+    private func install(contextId: String) throws -> VerifiedSinkToken {
+        let epoch = try XCTUnwrap(ActiveVerifiedSinkEpochStore.beginTransition(defaults: defaults))
+        return try XCTUnwrap(ActiveVerifiedSinkEpochStore.activate(
+            contextId: contextId, epoch: epoch, defaults: defaults))
+    }
+
     // MARK: - M4: HRV is the nightly RMSSD Today shows (daily_metrics.avgHrv)
 
     private func night(_ day: String, hrv: Double?) -> DailyMetric {
@@ -96,5 +114,157 @@ final class WidgetStalenessTests: XCTestCase {
         // Across a month and a year boundary.
         XCTAssertTrue(CarriedVitalWindow.permits(day: "2025-12-31", anchorDay: "2026-01-02"))
         XCTAssertFalse(CarriedVitalWindow.permits(day: "2025-12-30", anchorDay: "2026-01-02"))
+    }
+
+    // MARK: - M3: a core re-commit must not wipe the HRV and Stress enrichment
+
+    private func core(_ context: String, generation: Int64, bpm: Int? = nil) -> WidgetSnapshot {
+        WidgetSnapshot(recovery: 71, bpm: bpm, batteryPct: 80, bonded: true,
+                       updated: Date(timeIntervalSince1970: 1_800_000_000),
+                       effort: 8.4, rest: 77, restingHr: 52, steps: 6_000,
+                       verifiedContextId: context, verifiedProjectionGeneration: generation)
+    }
+
+    private func enriched(_ snapshot: WidgetSnapshot) -> WidgetSnapshot {
+        var value = snapshot
+        value.hrv = 61
+        value.hrvSparkline = [58, 60, 61]
+        value.hourlyStress = (0..<24).map { $0 < 12 ? Double($0 % 3) : nil }
+        value.stressSummary = "Moderate"
+        return value
+    }
+
+    private func envelope(_ token: VerifiedSinkToken, generation: Int64,
+                          snapshot: WidgetSnapshot) throws -> VerifiedWidgetEnvelope {
+        try VerifiedWidgetEnvelope(epoch: token.epoch, contextId: token.contextId,
+                                   generation: generation, snapshot: snapshot)
+    }
+
+    /// The foreground publish, then the background publish of the same generation, is the usual order. The
+    /// second one used to replace the enriched envelope with a bare core, and the enrichment TTL kept it bare.
+    func testACoreRecommitOfTheSameGenerationKeepsTheEnrichment() throws {
+        let token = try install(contextId: "ctx")
+        let day = try CivilDay(key: "2026-08-08")
+        XCTAssertEqual(VerifiedWidgetEnvelopeStore.commit(
+            token: token, generation: 5, snapshot: core("ctx", generation: 5), defaults: defaults), .published)
+        XCTAssertEqual(VerifiedWidgetEnvelopeStore.commit(
+            token: token, generation: 5, snapshot: enriched(core("ctx", generation: 5)), defaults: defaults),
+                       .published)
+
+        // Without the carry, the recommit loses the enrichment.
+        let bare = core("ctx", generation: 5, bpm: 64)
+        XCTAssertNil(bare.hrv)
+        XCTAssertNil(bare.hourlyStress)
+
+        let carried = WidgetCorePublication.carryingEnrichment(
+            into: bare,
+            from: VerifiedWidgetEnvelopeStore.rawActiveEnvelope(defaults: defaults),
+            token: token, generation: 5, logicalDay: day, olderGenerationDay: nil)
+        XCTAssertEqual(VerifiedWidgetEnvelopeStore.commit(
+            token: token, generation: 5, snapshot: carried, defaults: defaults), .published)
+
+        let shown = try XCTUnwrap(VerifiedWidgetEnvelopeStore.rawActiveEnvelope(defaults: defaults)).snapshot
+        XCTAssertEqual(shown.bpm, 64, "the new core's own fields still land")
+        XCTAssertEqual(shown.hrv, 61)
+        XCTAssertEqual(shown.hrvSparkline, [58, 60, 61])
+        XCTAssertEqual(shown.hourlyStress?.count, 24)
+        XCTAssertEqual(shown.stressSummary, "Moderate")
+    }
+
+    /// With the enrichment carried, a repeat of the same core is identical content, so it writes nothing.
+    func testRepeatingTheSameCoreAfterEnrichmentIsAlreadyCurrent() throws {
+        let token = try install(contextId: "ctx")
+        let day = try CivilDay(key: "2026-08-08")
+        XCTAssertEqual(VerifiedWidgetEnvelopeStore.commit(
+            token: token, generation: 5, snapshot: enriched(core("ctx", generation: 5)), defaults: defaults),
+                       .published)
+        let carried = WidgetCorePublication.carryingEnrichment(
+            into: core("ctx", generation: 5),
+            from: VerifiedWidgetEnvelopeStore.rawActiveEnvelope(defaults: defaults),
+            token: token, generation: 5, logicalDay: day, olderGenerationDay: nil)
+        XCTAssertEqual(VerifiedWidgetEnvelopeStore.commit(
+            token: token, generation: 5, snapshot: carried, defaults: defaults), .alreadyCurrent)
+    }
+
+    /// Background passes mint a new generation each time. The new core carries the same day's enrichment, so
+    /// Stress and HRV do not blank in the gap before (or in place of) a background enrichment.
+    func testANewerGenerationOfTheSameDayCarriesTheEnrichment() throws {
+        let token = try install(contextId: "ctx")
+        let day = try CivilDay(key: "2026-08-08")
+        let existing = try envelope(token, generation: 5, snapshot: enriched(core("ctx", generation: 5)))
+
+        let carried = WidgetCorePublication.carryingEnrichment(
+            into: core("ctx", generation: 6), from: existing, token: token, generation: 6,
+            logicalDay: day, olderGenerationDay: (generation: 5, day: day))
+        XCTAssertEqual(carried.hrv, 61)
+        XCTAssertEqual(carried.hrvSparkline, [58, 60, 61])
+        XCTAssertEqual(carried.hourlyStress?.count, 24)
+        XCTAssertEqual(carried.stressSummary, "Moderate")
+        XCTAssertEqual(carried.verifiedProjectionGeneration, 6, "the headline is the new generation's")
+    }
+
+    func testANewerGenerationNeverCarriesAnotherDaysEnrichment() throws {
+        let token = try install(contextId: "ctx")
+        let yesterday = try CivilDay(key: "2026-08-07")
+        let today = try CivilDay(key: "2026-08-08")
+        let existing = try envelope(token, generation: 5, snapshot: enriched(core("ctx", generation: 5)))
+
+        let crossDay = WidgetCorePublication.carryingEnrichment(
+            into: core("ctx", generation: 6), from: existing, token: token, generation: 6,
+            logicalDay: today, olderGenerationDay: (generation: 5, day: yesterday))
+        XCTAssertNil(crossDay.hrv)
+        XCTAssertNil(crossDay.hrvSparkline)
+        XCTAssertNil(crossDay.hourlyStress)
+        XCTAssertNil(crossDay.stressSummary)
+        // The day of the replaced generation is unknown, or belongs to a different generation: carry nothing.
+        for older in [nil, (generation: Int64(4), day: today)] as [(generation: Int64, day: CivilDay)?] {
+            let carried = WidgetCorePublication.carryingEnrichment(
+                into: core("ctx", generation: 6), from: existing, token: token, generation: 6,
+                logicalDay: today, olderGenerationDay: older)
+            XCTAssertNil(carried.hrv)
+            XCTAssertNil(carried.hourlyStress)
+        }
+    }
+
+    func testNothingCarriesAcrossEpochsContextsOrDownwardGenerations() throws {
+        let token = try install(contextId: "ctx")
+        let day = try CivilDay(key: "2026-08-08")
+        let existing = try envelope(token, generation: 7, snapshot: enriched(core("ctx", generation: 7)))
+
+        // A generation below the stored one is superseded by the commit anyway; it must not borrow from it.
+        let downward = WidgetCorePublication.carryingEnrichment(
+            into: core("ctx", generation: 6), from: existing, token: token, generation: 6,
+            logicalDay: day, olderGenerationDay: (generation: 7, day: day))
+        XCTAssertNil(downward.hrv)
+
+        let otherEpoch = VerifiedSinkToken(epoch: token.epoch + 1, contextId: "ctx")
+        let crossEpoch = WidgetCorePublication.carryingEnrichment(
+            into: core("ctx", generation: 7), from: existing, token: otherEpoch, generation: 7,
+            logicalDay: day, olderGenerationDay: nil)
+        XCTAssertNil(crossEpoch.hrv)
+
+        let otherContext = VerifiedSinkToken(epoch: token.epoch, contextId: "other")
+        let crossContext = WidgetCorePublication.carryingEnrichment(
+            into: core("other", generation: 7), from: existing, token: otherContext, generation: 7,
+            logicalDay: day, olderGenerationDay: nil)
+        XCTAssertNil(crossContext.hourlyStress)
+
+        let none = WidgetCorePublication.carryingEnrichment(
+            into: core("ctx", generation: 7), from: nil, token: token, generation: 7,
+            logicalDay: day, olderGenerationDay: nil)
+        XCTAssertNil(none.hrv)
+    }
+
+    /// The core is the source of truth for what it already has; the carry only fills what is missing.
+    func testTheCarryNeverOverwritesAValueTheCoreHas() throws {
+        let token = try install(contextId: "ctx")
+        let day = try CivilDay(key: "2026-08-08")
+        let existing = try envelope(token, generation: 5, snapshot: enriched(core("ctx", generation: 5)))
+        var fresh = core("ctx", generation: 5)
+        fresh.hrv = 70
+        let carried = WidgetCorePublication.carryingEnrichment(
+            into: fresh, from: existing, token: token, generation: 5, logicalDay: day, olderGenerationDay: nil)
+        XCTAssertEqual(carried.hrv, 70)
+        XCTAssertEqual(carried.hourlyStress?.count, 24)
     }
 }
