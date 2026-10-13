@@ -1565,13 +1565,13 @@ public final class BLEManager: NSObject, ObservableObject {
 
     var reconnectDueAtForTesting: Date? { reconnectWorkDueAt }
 
-    func applyWhoop5HandshakeHoldForTesting(_ hold: Date?) { applyWhoop5HandshakeHold(hold) }
+    func beginPendingReconnectForTesting(holdHandshakeUntil: Date?) {
+        beginPendingReconnect(holdHandshakeUntil: holdHandshakeUntil)
+    }
 
     func pauseAutoReconnectForBackgroundCapForTesting() { autoReconnectPausedForBackgroundCap = true }
 
     var autoReconnectPausedForBackgroundCapForTesting: Bool { autoReconnectPausedForBackgroundCap }
-
-    func startWhoop5HoldKeepAliveForTesting(until notBefore: Date) { startWhoop5HoldKeepAlive(until: notBefore) }
 
     var whoop5HoldTimerArmedForTesting: Bool { whoop5HeldClientHelloWork != nil }
 
@@ -2245,7 +2245,7 @@ public final class BLEManager: NSObject, ObservableObject {
         intentional: Bool,
         state: Whoop5SecureSessionState,
         hasSessionID: Bool,
-        helloHeld: Bool = false
+        helloHeld: Bool
     ) -> Bool {
         family == .whoop5
             && !intentional
@@ -2253,6 +2253,18 @@ public final class BLEManager: NSObject, ObservableObject {
             && !helloHeld
             && state != .secureReady
             && state != .disconnected
+    }
+
+    /// F1: whether a drop counts against the WHOOP 5/MG secure series. A drop while the attempt's
+    /// CLIENT_HELLO was still held never reached the secure handshake, so it does not.
+    func disconnectCountsAsSecureFailure(sessionID: Whoop5SecureSessionID?,
+                                         state: Whoop5SecureSessionState) -> Bool {
+        Self.shouldRecordWhoop5PreSecureDisconnect(
+            family: selectedModel.deviceFamily,
+            intentional: intentionalDisconnect,
+            state: state,
+            hasSessionID: sessionID != nil,
+            helloHeld: whoop5HeldClientHello != nil && whoop5HeldClientHello == sessionID)
     }
 
     nonisolated static func shouldAllowWhoop5SystemReconnect(
@@ -5039,15 +5051,9 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
         }
         let disconnectedSecureSessionID = currentWhoop5SecureSessionID
         let disconnectedSecureState = whoop5SecureSession.state
-        // F1: a drop while this attempt's CLIENT_HELLO was held never reached the secure handshake, so it
-        // does not climb the secure series; the rest of the hold carries over to the reconnect instead.
-        let helloWasHeld = whoop5HeldClientHello != nil && whoop5HeldClientHello == disconnectedSecureSessionID
-        if Self.shouldRecordWhoop5PreSecureDisconnect(
-            family: selectedModel.deviceFamily,
-            intentional: intentionalDisconnect,
-            state: disconnectedSecureState,
-            hasSessionID: disconnectedSecureSessionID != nil,
-            helloHeld: helloWasHeld),
+        // F1: a drop while this attempt's CLIENT_HELLO was held does not climb the secure series; the rest
+        // of the hold carries over to the reconnect instead (see disconnectCountsAsSecureFailure).
+        if disconnectCountsAsSecureFailure(sessionID: disconnectedSecureSessionID, state: disconnectedSecureState),
            let disconnectedSecureSessionID {
             _ = recordWhoop5SecureFailure(
                 disconnectedSecureSessionID,
@@ -5402,11 +5408,17 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
     /// restoration) the app when the strap comes back. Mirrors connectCore's targeted-connect branch.
     /// `holdHandshakeUntil` is a WHOOP 5/MG secure-recovery delay enforced after the reconnect instead.
     private func issuePendingReconnect(to p: CBPeripheral, holdHandshakeUntil: Date?) {
+        beginPendingReconnect(holdHandshakeUntil: holdHandshakeUntil)
+        preparePeripheral(p)
+        central.connect(p, options: nil)
+    }
+
+    /// The CoreBluetooth-free half of a pending reconnect: drop the armed timer, set the secure-handshake
+    /// hold without shortening a running one, and stamp the attempt.
+    private func beginPendingReconnect(holdHandshakeUntil: Date?) {
         cancelPendingReconnect()
         applyWhoop5HandshakeHold(holdHandshakeUntil)
         connectAttemptStartedAt = Date()
-        preparePeripheral(p)
-        central.connect(p, options: nil)
     }
 
     /// Whether the app is in the foreground, where a reconnect timer can actually run.

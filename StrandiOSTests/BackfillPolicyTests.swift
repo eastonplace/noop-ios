@@ -235,14 +235,15 @@ final class BackfillPolicyTests: XCTestCase {
                 family: .whoop5,
                 intentional: false,
                 state: state,
-                hasSessionID: true))
+                hasSessionID: true,
+                helloHeld: false))
         }
         XCTAssertFalse(BLEManager.shouldRecordWhoop5PreSecureDisconnect(
-            family: .whoop5, intentional: true, state: .standardOnly, hasSessionID: true))
+            family: .whoop5, intentional: true, state: .standardOnly, hasSessionID: true, helloHeld: false))
         XCTAssertFalse(BLEManager.shouldRecordWhoop5PreSecureDisconnect(
-            family: .whoop5, intentional: false, state: .secureReady, hasSessionID: true))
+            family: .whoop5, intentional: false, state: .secureReady, hasSessionID: true, helloHeld: false))
         XCTAssertFalse(BLEManager.shouldRecordWhoop5PreSecureDisconnect(
-            family: .whoop4, intentional: false, state: .standardOnly, hasSessionID: true))
+            family: .whoop4, intentional: false, state: .standardOnly, hasSessionID: true, helloHeld: false))
     }
 
     func testSixWhoopFiveClientHelloRefusalsKeepTheFullSecureRetrySchedule() {

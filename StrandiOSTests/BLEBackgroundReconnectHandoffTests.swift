@@ -65,38 +65,48 @@ final class BLEBackgroundReconnectHandoffTests: XCTestCase {
         XCTAssertEqual(issued, 0)
     }
 
-    /// Review R3b #1/#5: a reconnect with no hold of its own (a failed pending connect, a ladder-timer
-    /// handoff) must not erase a running CLIENT_HELLO hold. Only the series' real ends clear it.
-    func testARunningHandshakeHoldIsNeverShortenedAndOnlyTheSeriesEndsClearIt() throws {
+    /// Review R3b #1/#5, R3c 3: a pending reconnect with no hold of its own (a failed connect, a
+    /// ladder-timer handoff) must not erase a running CLIENT_HELLO hold. Driven through the pending
+    /// reconnect's own setup (everything but the CoreBluetooth connect). Only the series' ends clear it.
+    func testAPendingReconnectNeverShortensARunningHandshakeHold() throws {
         let manager = BLEManager(state: LiveState(), collector: nil)
         let held = Date().addingTimeInterval(60)
-        manager.applyWhoop5HandshakeHoldForTesting(held)
-        manager.applyWhoop5HandshakeHoldForTesting(nil)
+        manager.beginPendingReconnectForTesting(holdHandshakeUntil: held)
         XCTAssertEqual(manager.whoop5HandshakeHoldForTesting, held)
-        manager.applyWhoop5HandshakeHoldForTesting(Date().addingTimeInterval(10))
-        XCTAssertEqual(manager.whoop5HandshakeHoldForTesting, held)
+        manager.armReconnectForTesting(after: 6, secureRecovery: false)
+        manager.beginPendingReconnectForTesting(holdHandshakeUntil: nil)
+        XCTAssertEqual(manager.whoop5HandshakeHoldForTesting, held, "a reconnect with no hold keeps the running one")
+        XCTAssertFalse(manager.reconnectArmedForTesting, "the pending connect replaces the armed timer")
+        manager.beginPendingReconnectForTesting(holdHandshakeUntil: Date().addingTimeInterval(10))
+        XCTAssertEqual(manager.whoop5HandshakeHoldForTesting, held, "a shorter hold does not cut it short")
         let longer = Date().addingTimeInterval(90)
-        manager.applyWhoop5HandshakeHoldForTesting(longer)
+        manager.beginPendingReconnectForTesting(holdHandshakeUntil: longer)
         XCTAssertEqual(manager.whoop5HandshakeHoldForTesting, longer)
 
         manager.disconnect()
         XCTAssertNil(manager.whoop5HandshakeHoldForTesting, "a user disconnect ends the series")
-        manager.applyWhoop5HandshakeHoldForTesting(held)
+        manager.beginPendingReconnectForTesting(holdHandshakeUntil: held)
         manager.connect()
         XCTAssertNil(manager.whoop5HandshakeHoldForTesting, "a user Connect starts a fresh series")
     }
 
-    /// Review R3b #2/#7: a drop while the attempt's CLIENT_HELLO is still held never reached the secure
-    /// handshake, so it must not climb the secure series toward its sticky pause. Other pre-proof drops
-    /// still count.
+    /// Review R3b #2/#7, R3c 3: a drop while the attempt's CLIENT_HELLO is still held never reached the
+    /// secure handshake, so it must not climb the secure series toward its sticky pause. Driven through the
+    /// same classification didDisconnect uses, with a real held attempt.
     func testADropWhileTheHelloIsHeldIsNotASecureFailure() {
-        XCTAssertFalse(BLEManager.shouldRecordWhoop5PreSecureDisconnect(
-            family: .whoop5, intentional: false, state: .standardOnly, hasSessionID: true, helloHeld: true))
-        XCTAssertTrue(BLEManager.shouldRecordWhoop5PreSecureDisconnect(
-            family: .whoop5, intentional: false, state: .standardOnly, hasSessionID: true, helloHeld: false))
-        XCTAssertTrue(BLEManager.shouldRecordWhoop5PreSecureDisconnect(
-            family: .whoop5, intentional: false, state: .clientHelloPending, hasSessionID: true, helloHeld: false),
-                      "a drop after the hello went out is still a secure failure")
+        let manager = BLEManager(state: LiveState(), collector: nil)
+        manager.connect(model: .whoop5mg)   // selects the 5/MG family; the simulator's Bluetooth is off
+        let held = Whoop5SecureSessionID(peripheralID: UUID(), connectGeneration: 1, attemptEpoch: 1)
+        let other = Whoop5SecureSessionID(peripheralID: UUID(), connectGeneration: 1, attemptEpoch: 2)
+        XCTAssertTrue(manager.disconnectCountsAsSecureFailure(sessionID: held, state: .standardOnly),
+                      "before the hold, a pre-proof drop counts")
+        manager.holdWhoop5ClientHelloForTesting(held, until: Date().addingTimeInterval(30))
+
+        XCTAssertFalse(manager.disconnectCountsAsSecureFailure(sessionID: held, state: .standardOnly),
+                       "the held attempt's drop is not a secure failure")
+        XCTAssertTrue(manager.disconnectCountsAsSecureFailure(sessionID: other, state: .standardOnly),
+                      "another attempt's pre-proof drop still counts")
+        manager.disconnect()
     }
 
     /// Review R3b #3: the background-cap pause means "too many background attempts with no healthy link",
@@ -130,21 +140,27 @@ final class BLEBackgroundReconnectHandoffTests: XCTestCase {
     /// CLIENT_HELLO hold takes a background task for its length, and the task ends with the hold.
     func testAHoldKeepsTheAppRunningUntilTheSeriesEnds() {
         let manager = BLEManager(state: LiveState(), collector: nil)
-        manager.startWhoop5HoldKeepAliveForTesting(until: Date().addingTimeInterval(30))
+        let session = Whoop5SecureSessionID(peripheralID: UUID(), connectGeneration: 1, attemptEpoch: 1)
+        manager.holdWhoop5ClientHelloForTesting(session, until: Date().addingTimeInterval(30))
+        XCTAssertEqual(manager.whoop5HeldClientHelloForTesting, session)
         XCTAssertTrue(manager.whoop5HoldTimerArmedForTesting)
         XCTAssertTrue(manager.whoop5HoldBackgroundTaskActiveForTesting, "a background task covers the hold")
         manager.disconnect()
+        XCTAssertNil(manager.whoop5HeldClientHelloForTesting)
         XCTAssertFalse(manager.whoop5HoldTimerArmedForTesting)
         XCTAssertFalse(manager.whoop5HoldBackgroundTaskActiveForTesting, "the task ends with the hold")
     }
 
     func testTheHoldDeadlineEndsTheBackgroundTask() async throws {
         let manager = BLEManager(state: LiveState(), collector: nil)
-        manager.startWhoop5HoldKeepAliveForTesting(until: Date().addingTimeInterval(0.2))
+        let session = Whoop5SecureSessionID(peripheralID: UUID(), connectGeneration: 1, attemptEpoch: 1)
+        manager.holdWhoop5ClientHelloForTesting(session, until: Date().addingTimeInterval(0.2))
         XCTAssertTrue(manager.whoop5HoldBackgroundTaskActiveForTesting)
         for _ in 0..<50 where manager.whoop5HoldBackgroundTaskActiveForTesting {
             try await Task.sleep(nanoseconds: 100_000_000)
         }
+        XCTAssertNil(manager.whoop5HeldClientHelloForTesting, "the deadline released the hold")
+        XCTAssertNil(manager.whoop5HandshakeHoldForTesting, "a deadline that has passed is cleared")
         XCTAssertFalse(manager.whoop5HoldTimerArmedForTesting)
         XCTAssertFalse(manager.whoop5HoldBackgroundTaskActiveForTesting, "the app is free to suspend once the hold ends")
     }
