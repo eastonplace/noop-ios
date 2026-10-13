@@ -71,10 +71,11 @@ jobs:
           )
           for audit in "${audits[@]}"; do
             echo "::group::$audit"
-            python3 "Tools/qa/$audit" 2>&1 | tee "qa-artifacts/audits/${audit%.py}.txt"
-            rc=${PIPESTATUS[0]}
+            # `shell: bash` runs with -e: a bare failing pipeline would end the step here and hide every later audit.
+            if ! python3 "Tools/qa/$audit" 2>&1 | tee "qa-artifacts/audits/${audit%.py}.txt"; then
+              status=1
+            fi
             echo "::endgroup::"
-            if (( rc != 0 )); then status=1; fi
           done
           exit "$status"
 
@@ -166,10 +167,11 @@ jobs:
           status=0
           for package in NoopPhase34Core WhoopProtocol OuraProtocol WhoopStore StrandAnalytics StrandImport StrandDesign NoopLocalAccess; do
             echo "::group::$package"
-            swift test --package-path "Packages/$package" 2>&1 | tee "qa-artifacts/packages/$package.txt"
-            rc=${PIPESTATUS[0]}
+            # `shell: bash` runs with -e: a bare failing pipeline would end the step here and hide every later package.
+            if ! swift test --package-path "Packages/$package" 2>&1 | tee "qa-artifacts/packages/$package.txt"; then
+              status=1
+            fi
             echo "::endgroup::"
-            if (( rc != 0 )); then status=1; fi
           done
           exit "$status"
 
