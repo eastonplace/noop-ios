@@ -2094,9 +2094,9 @@ struct TodayView: View {
                 .environment(\.screenScaffoldNavigationRole, .detail)
         }
         .navigationDestination(isPresented: $showingDashboardCatalog) {
-            DashboardCatalogView(items: dashboardCatalogItems,
-                                 selectionRaw: $dashboardCardsRaw,
-                                 hydrationEnabled: hydrationEnabled)
+            DashboardCatalogDestination(items: { dashboardCatalogItems },
+                                        selectionRaw: $dashboardCardsRaw,
+                                        hydrationEnabled: hydrationEnabled)
                 .environment(\.screenScaffoldNavigationRole, .detail)
         }
         .navigationDestination(isPresented: $showingDashboardDestination) {
