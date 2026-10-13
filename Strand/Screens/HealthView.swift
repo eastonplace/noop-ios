@@ -145,6 +145,26 @@ private struct HealthFirstRunContent: View {
 /// disabled and the copy explains itself when no strap is connected; while a sync runs it shows the in-progress pill +
 /// the live chunk count (never a fabricated percent — total pending is unknowable from the protocol); otherwise it shows
 /// when history last synced.
+/// How the Health Monitor's Sync status line is coloured. Pure, so the rule is pinned by tests.
+enum SyncStatusTone: Equatable {
+    /// A sync that just worked.
+    case good
+    /// Not connected, waiting or saved history that is still recent: no verdict, quiet ink.
+    case quiet
+    /// A failed sync, or saved history that has gone stale.
+    case attention
+
+    /// Saved history older than this reads as needing attention.
+    static let staleAfter: TimeInterval = 2 * 86_400
+
+    static func of(_ status: HistoricalSyncStatus, newestHistoryAt: TimeInterval?, now: TimeInterval) -> SyncStatusTone {
+        if status.isFailure { return .attention }
+        if status.isCurrentSuccess { return .good }
+        if let newestHistoryAt, now - newestHistoryAt > staleAfter { return .attention }
+        return .quiet
+    }
+}
+
 private struct SyncStatusSection: View {
     @EnvironmentObject var live: LiveState
     @EnvironmentObject var model: AppModel
@@ -220,7 +240,7 @@ private struct SyncStatusSection: View {
         } else {
             let status = syncStatus
             VStack(alignment: .leading, spacing: 6) {
-                statusLabel(Self.localized(status.primary), tone: tone(status))
+                statusLabel(Self.localized(status.primary), color: statusColor(status))
                 // The resolver's primary line IS the saved-history sentence when there is nothing else to say
                 // (`primary: saved ?? ...`), so the detail line only shows when it adds something.
                 if !status.isCurrentSuccess, let saved = status.savedHistory, saved != status.primary {
@@ -236,13 +256,13 @@ private struct SyncStatusSection: View {
     /// A short status ("Not connected") is a pill; a long one ("Showing saved history through Jul 29, 2025 at 5:22 PM",
     /// "History sync waiting for secure link") is a caption in the same colour, which wraps like text instead of
     /// swelling into a multi-line blob. At accessibility sizes every status is a caption.
-    @ViewBuilder private func statusLabel(_ text: String, tone: StrandTone) -> some View {
+    @ViewBuilder private func statusLabel(_ text: String, color: Color) -> some View {
         if Self.showsAsPill(text, accessibilitySize: typeSize.isAccessibilitySize) {
-            ValuePill(text, tint: tone.color)
+            ValuePill(text, tint: color)
         } else {
             Text(verbatim: text)
                 .font(StrandFont.subhead)
-                .foregroundStyle(tone.color)
+                .foregroundStyle(color)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -251,8 +271,16 @@ private struct SyncStatusSection: View {
         !accessibilitySize && text.count <= 24
     }
 
-    private func tone(_ status: HistoricalSyncStatus) -> StrandTone {
-        status.isFailure ? .warning : (status.isCurrentSuccess ? .positive : .accent)
+    /// Mint says good or live, so it is only for a sync that just worked. A strap that is offline or still waiting
+    /// reads in quiet ink, and amber when the newest saved history is more than two days old or a sync failed.
+    private func statusColor(_ status: HistoricalSyncStatus) -> Color {
+        switch SyncStatusTone.of(
+            status, newestHistoryAt: live.historicalDataFrontierAt ?? live.lastSyncedAt,
+            now: Date().timeIntervalSince1970) {
+        case .good: StrandTone.positive.color
+        case .quiet: StrandPalette.textSecondary
+        case .attention: StrandTone.warning.color
+        }
     }
 
     /// The resolver's fixed English sentences, said in the person's language. The ones that carry a time or a count
