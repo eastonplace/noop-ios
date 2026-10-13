@@ -684,13 +684,14 @@ public enum TrendCalendar {
     }
 
     /// Whole calendar days from `start`'s day to `end`'s day, whatever the clock times. A date difference counts a day that
-    /// starts at 01:00 (no midnight) as one hour, and so one day, short; counting the days themselves does not.
+    /// starts at 01:00 (no midnight) as one hour, and so one day, short; so both days are taken at noon, where every day has
+    /// a clock time and the calendar's own day count is exact. (The era ordinal of a day is no help: it drifts by a day across
+    /// a clock change.)
     public static func dayCount(from start: Date, to end: Date, calendar: Calendar) -> Int {
-        if let first = calendar.ordinality(of: .day, in: .era, for: start),
-           let last = calendar.ordinality(of: .day, in: .era, for: end) {
-            return last - first
+        func noon(_ date: Date) -> Date {
+            calendar.date(bySettingHour: 12, minute: 0, second: 0, of: date) ?? calendar.startOfDay(for: date)
         }
-        return calendar.dateComponents([.day], from: calendar.startOfDay(for: start), to: calendar.startOfDay(for: end)).day ?? 0
+        return calendar.dateComponents([.day], from: noon(start), to: noon(end)).day ?? 0
     }
 }
 
