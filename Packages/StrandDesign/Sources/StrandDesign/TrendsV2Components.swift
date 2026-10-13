@@ -460,7 +460,7 @@ public enum TrendCalendar {
         var calendar = sourceCalendar
         calendar.firstWeekday = 2
         let end = calendar.startOfDay(for: referenceDate)
-        guard let start = calendar.date(byAdding: .day, value: -(count - 1), to: end) else { return [] }
+        guard let start = startOfDay(addingDays: -(count - 1), to: end, calendar: calendar) else { return [] }
         return slots(observations: observations, start: start, count: count, calendar: calendar)
     }
 
@@ -496,7 +496,7 @@ public enum TrendCalendar {
     ) -> ClosedRange<Date>? {
         guard count > 0 else { return nil }
         let end = calendar.startOfDay(for: referenceDate)
-        guard let start = calendar.date(byAdding: .day, value: -(count - 1), to: end) else { return nil }
+        guard let start = startOfDay(addingDays: -(count - 1), to: end, calendar: calendar) else { return nil }
         return start...end
     }
 
@@ -511,8 +511,8 @@ public enum TrendCalendar {
     ) -> ClosedRange<Date>? {
         guard count > 0 else { return nil }
         let reference = calendar.startOfDay(for: referenceDate)
-        guard let end = calendar.date(byAdding: .day, value: periodOffset * count, to: reference),
-              let start = calendar.date(byAdding: .day, value: -(count - 1), to: end)
+        guard let end = startOfDay(addingDays: periodOffset * count, to: reference, calendar: calendar),
+              let start = startOfDay(addingDays: -(count - 1), to: end, calendar: calendar)
         else { return nil }
         return start...end
     }
@@ -579,7 +579,7 @@ public enum TrendCalendar {
         calendar.firstWeekday = 2 // Monday
         let today = calendar.startOfDay(for: referenceDate)
         guard let currentMonday = calendar.dateInterval(of: .weekOfYear, for: today)?.start,
-              let firstMonday = calendar.date(byAdding: .day, value: -28, to: currentMonday) else {
+              let firstMonday = startOfDay(addingDays: -28, to: currentMonday, calendar: calendar) else {
             return []
         }
 
@@ -589,7 +589,7 @@ public enum TrendCalendar {
         }
 
         return (0..<35).compactMap { offset in
-            guard let date = calendar.date(byAdding: .day, value: offset, to: firstMonday) else { return nil }
+            guard let date = startOfDay(addingDays: offset, to: firstMonday, calendar: calendar) else { return nil }
             let value = date > today ? nil : (valuesByDate[date] ?? nil)
             return TrendCalendarDay(date: date, value: value)
         }
@@ -667,9 +667,17 @@ public enum TrendCalendar {
             valuesByDate[calendar.startOfDay(for: observation.date)] = observation.value
         }
         return (0..<count).compactMap { offset in
-            guard let date = calendar.date(byAdding: .day, value: offset, to: start) else { return nil }
+            guard let date = startOfDay(addingDays: offset, to: start, calendar: calendar) else { return nil }
             return CalendarMetricDay(date: date, value: valuesByDate[date] ?? nil)
         }
+    }
+
+    /// The first moment of the day `days` calendar days from `date`. Adding whole days keeps the clock time, so where the
+    /// target day has no midnight (the clocks change at 00:00, as in Egypt on 24 April 2026) the sum is 01:00, and every
+    /// day counted on from there would stay at 01:00 while readings are keyed at `startOfDay`. Snapping each result back
+    /// to its day's start keeps slots, domains and lookups on the same instants; on an ordinary day it changes nothing.
+    private static func startOfDay(addingDays days: Int, to date: Date, calendar: Calendar) -> Date? {
+        calendar.date(byAdding: .day, value: days, to: date).map(calendar.startOfDay(for:))
     }
 }
 

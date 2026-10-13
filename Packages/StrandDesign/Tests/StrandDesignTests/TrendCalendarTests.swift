@@ -273,6 +273,93 @@ final class TrendCalendarTests: XCTestCase {
         }
     }
 
+    // MARK: A day with no midnight
+
+    /// Egypt's clocks went from 00:00 to 01:00 on 24 April 2026, so that day starts at 01:00 and a date built by adding days to
+    /// an earlier midnight lands on 01:00 and stays there.
+    private func cairo() throws -> Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.locale = Locale(identifier: "en_US_POSIX")
+        calendar.timeZone = try XCTUnwrap(TimeZone(identifier: "Africa/Cairo"))
+        calendar.firstWeekday = 2
+        let skipped = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 4, day: 24)))
+        try XCTSkipUnless(calendar.component(.hour, from: skipped) == 1, "no midnight clock change for Cairo in this system's time zone data")
+        return calendar
+    }
+
+    /// One reading a day from `first` to `last`, each stamped at the start of its day as the Explorer stamps them.
+    private func dailyReadings(from first: Date, to last: Date, in calendar: Calendar) -> [CalendarMetricDay] {
+        var readings: [CalendarMetricDay] = []
+        var day = first
+        var value = 1.0
+        while day <= last {
+            readings.append(CalendarMetricDay(date: day, value: value))
+            value += 1
+            guard let next = calendar.date(byAdding: .day, value: 1, to: day) else { break }
+            day = calendar.startOfDay(for: next)
+        }
+        return readings
+    }
+
+    /// The whole history from the day with no midnight: every day is a slot with its own reading, and the first slot is the
+    /// domain's first instant.
+    func testAnAllTimeWindowStartingOnTheSkippedMidnightKeepsEveryDay() throws {
+        let calendar = try cairo()
+        let first = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 4, day: 24)))
+        let last = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 6, day: 30)))
+        let readings = dailyReadings(from: first, to: last, in: calendar)
+        XCTAssertEqual(readings.count, 68)
+
+        let days = TrendCalendar.buildRollingWindow(observations: readings, through: last, count: 68, calendar: calendar)
+        XCTAssertEqual(days.count, 68)
+        XCTAssertEqual(days.compactMap(\.value), readings.compactMap(\.value), "Every day keeps its own reading")
+        XCTAssertEqual(days.map(\.date), readings.map(\.date), "Every slot sits at the start of its day")
+        let domain = try XCTUnwrap(TrendCalendar.dateDomain(through: last, count: 68, calendar: calendar))
+        XCTAssertEqual(domain.lowerBound, first)
+        XCTAssertEqual(domain.lowerBound, days.first?.date)
+        XCTAssertEqual(domain.upperBound, days.last?.date)
+    }
+
+    /// A week that ends on the day with no midnight, and one that starts on it.
+    func testAWeekThatEndsOrStartsOnTheSkippedMidnightKeepsEveryDay() throws {
+        let calendar = try cairo()
+        let skipped = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 4, day: 24)))
+        let thirtieth = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 4, day: 30)))
+        let eighteenth = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 4, day: 18)))
+
+        let ending = TrendCalendar.buildRollingWindow(
+            observations: dailyReadings(from: eighteenth, to: skipped, in: calendar), through: skipped, count: 7, calendar: calendar)
+        XCTAssertEqual(ending.compactMap(\.value), [1, 2, 3, 4, 5, 6, 7])
+        XCTAssertEqual(ending.first?.date, eighteenth)
+        XCTAssertEqual(ending.last?.date, skipped)
+
+        let starting = TrendCalendar.buildRollingWindow(
+            observations: dailyReadings(from: skipped, to: thirtieth, in: calendar), through: thirtieth, count: 7, calendar: calendar)
+        XCTAssertEqual(starting.compactMap(\.value), [1, 2, 3, 4, 5, 6, 7])
+        XCTAssertEqual(starting.first?.date, skipped)
+        XCTAssertEqual(try XCTUnwrap(TrendCalendar.dateDomain(through: thirtieth, count: 7, calendar: calendar)).lowerBound, skipped)
+    }
+
+    /// The month grid and the equal-length periods count on from the same instants.
+    func testTheMonthGridAndTheEqualLengthPeriodsSurviveTheSkippedMidnight() throws {
+        let calendar = try cairo()
+        let skipped = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 4, day: 24)))
+        let today = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 8)))
+        let first = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 4, day: 6)))
+        let readings = dailyReadings(from: first, to: today, in: calendar)
+            .map { TrendCalendarDay(date: $0.date, value: $0.value) }
+
+        let grid = TrendCalendar.buildFiveWeekWindow(observations: readings, through: today, calendar: calendar)
+        XCTAssertEqual(grid.count, 35)
+        XCTAssertTrue(grid.map(\.date).allSatisfy { calendar.startOfDay(for: $0) == $0 }, "Every cell starts its day")
+        XCTAssertEqual(try XCTUnwrap(grid.first { $0.date == skipped }).value, 19)
+        XCTAssertEqual(grid.compactMap(\.value).count, 33, "6 April to 8 May, all present")
+
+        let week = try XCTUnwrap(TrendCalendar.equalLengthPeriod(through: skipped, count: 7, periodOffset: 1, calendar: calendar))
+        XCTAssertEqual(week.lowerBound, calendar.startOfDay(for: week.lowerBound))
+        XCTAssertEqual(calendar.component(.day, from: week.lowerBound), 25)
+    }
+
     private func date(_ year: Int, _ month: Int, _ day: Int) throws -> Date {
         try XCTUnwrap(calendar.date(from: DateComponents(year: year, month: month, day: day)))
     }

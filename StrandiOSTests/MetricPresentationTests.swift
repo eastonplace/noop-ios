@@ -107,6 +107,42 @@ final class MetricPresentationTests: XCTestCase {
         XCTAssertEqual(calendar.dateComponents([.day], from: skipped, to: later).day, 6, "Date arithmetic loses the day")
     }
 
+    /// The chart is laid out from the same day keys the window is cut from: through the latest reading, `rangeDays` back. Where a
+    /// day has no midnight, every one of those days must still find its reading (ALL, and a week ending or starting on it).
+    func testTheChartKeepsEveryDayWhereAMidnightIsSkipped() throws {
+        let cairo = try XCTUnwrap(TimeZone(identifier: "Africa/Cairo"))
+        let calendar = ExploreDayKey.calendar(timeZone: cairo)
+        let skipped = try XCTUnwrap(ExploreDayKey.date(for: "2026-04-24", timeZone: cairo))
+        try XCTSkipUnless(calendar.component(.hour, from: skipped) == 1, "no midnight clock change for Cairo in this system's time zone data")
+
+        func chartDays(from first: String, to last: String, count: Int?) throws -> (days: [CalendarMetricDay], rows: Int) {
+            let numbers = try XCTUnwrap(ExploreDayKey.dayNumber(for: first))...XCTUnwrap(ExploreDayKey.dayNumber(for: last))
+            let keys = numbers.map(ExploreDayKey.key(forDayNumber:))
+            let observations = keys.enumerated().compactMap { index, key in
+                ExploreDayKey.date(for: key, timeZone: cairo).map { CalendarMetricDay(date: $0, value: Double(index + 1)) }
+            }
+            let latest = try XCTUnwrap(observations.last?.date)
+            let span = ExploreWindow.spanDays(dayNumbers: Array(numbers))
+            let rangeDays = count ?? max(span + 1, 30)
+            let days = TrendCalendar.buildRollingWindow(observations: observations, through: latest, count: rangeDays, calendar: calendar)
+            let domain = try XCTUnwrap(TrendCalendar.dateDomain(through: latest, count: rangeDays, calendar: calendar))
+            XCTAssertEqual(days.first?.date, domain.lowerBound)
+            XCTAssertEqual(days.last?.date, domain.upperBound)
+            return (days, keys.count)
+        }
+
+        // ALL, from the day with no midnight: 68 days, 68 readings.
+        let all = try chartDays(from: "2026-04-24", to: "2026-06-30", count: nil)
+        XCTAssertEqual(all.days.count, 68)
+        XCTAssertEqual(all.days.compactMap(\.value).count, 68)
+        // Week ending on it.
+        let ending = try chartDays(from: "2026-04-18", to: "2026-04-24", count: 7)
+        XCTAssertEqual(ending.days.compactMap(\.value), [1, 2, 3, 4, 5, 6, 7])
+        // Week starting on it.
+        let starting = try chartDays(from: "2026-04-24", to: "2026-04-30", count: 7)
+        XCTAssertEqual(starting.days.compactMap(\.value), [1, 2, 3, 4, 5, 6, 7])
+    }
+
     func testRangeTitlesNameTheirWindow() {
         XCTAssertEqual(ExploreRange.all.title, String(localized: "All time"))
         XCTAssertEqual(ExploreRange.week.title, String(localized: "Last \(7) days"))
