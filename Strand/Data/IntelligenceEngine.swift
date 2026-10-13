@@ -2483,16 +2483,18 @@ final class IntelligenceEngine: ObservableObject {
         // Upgrade 231: on a strap-swap or re-pair day the new active strap owns the day from its daytime readings
         // alone, so the day is produced with no night. The stored row still holds the night the previous strap
         // recorded. When another completed-day strap, live or archived, has the raw loop's 200 plausible rows in
-        // that day's night window, the produced row keeps the stored overnight fields, the same merge the
-        // still-open day gets, and the day's overnight metric rows (skin, Charge breakdown, shadow) stay with
-        // them. Canonical namespace only: a source-rooted namespace holds one strap's days.
+        // the night span ending on that day (18:00 the evening before to noon, in the day's zone), the produced
+        // row keeps the stored overnight fields, the same merge the still-open day gets, and the day's overnight
+        // metric rows (skin, Charge breakdown, shadow) stay with them. Only the migration's chunks do this (fix
+        // 3): an ordinary or edited-day pass replaces the row in full, so a night the user deleted stays
+        // deleted. Canonical namespace only: a source-rooted namespace holds one strap's days.
         var swapNightKeepDays: Set<String> = []
         let nightlessCompleted = reconciledDailies.indices.filter { index in
             let row = reconciledDailies[index]
             return !Self.hasOvernightFields(row)
                 && civilDays.contains { $0.day == row.day && $0.nextStart <= now }
         }
-        if deviceId == Repository.whoopSource, !nightlessCompleted.isEmpty {
+        if keepUnproducedHistory, deviceId == Repository.whoopSource, !nightlessCompleted.isEmpty {
             do {
                 let storedByDay = Dictionary(
                     try await store.dailyMetrics(deviceId: computedId, from: oldestDay, to: newestDay)
@@ -2507,7 +2509,7 @@ final class IntelligenceEngine: ObservableObject {
                     var nightCovered = false
                     for strap in straps where strap.id != owner {
                         let rows = try await store.plausibleHRCount(
-                            deviceId: strap.id, from: window.start - 30 * 3_600, to: window.nextStart,
+                            deviceId: strap.id, from: window.start - 6 * 3_600, to: window.start + 12 * 3_600,
                             bpmRange: HRValidity.bpmRange, cap: Self.rawLoopMinHrRows)
                         if rows >= Self.rawLoopMinHrRows { nightCovered = true; break }
                     }
@@ -4220,8 +4222,8 @@ extension DailyMetric {
 extension IntelligenceEngine {
     /// A pass over today's incomplete source can refresh daytime fields without replaying the
     /// already-finished sleep window. Keep fresh values whenever present and fill only missing overnight
-    /// columns from the persisted same-day row. The caller limits this helper to current-day work and to
-    /// strap-swap days whose night another strap recorded (upgrade 231).
+    /// columns from the persisted same-day row. The caller limits this helper to current-day work and, in the
+    /// migration's chunks, to strap-swap days whose night another strap recorded (upgrade 231).
     nonisolated static func preservingPriorOvernightFields(
         in fresh: DailyMetric,
         from prior: DailyMetric
