@@ -677,28 +677,28 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
                 if let value { defaults.set(value, forKey: key) } else { defaults.removeObject(forKey: key) }
             }
         }
-        let store = try await WhoopStore.inMemory()
-        let now = Date()
-        let earliest = Int(now.timeIntervalSince1970) - 50 * 86_400
-        var streams = Streams()
-        streams.hr = (0..<300).map { HRSample(ts: earliest + $0 * 30, bpm: 60) }
-        _ = try await store.insert(streams, deviceId: Repository.whoopSource)
-        let computedId = Repository.whoopSource + "-noop"
+        // Review round 8 (2): the fixture's fixed reference and UTC calendar, not the wall clock. Two recorded days
+        // at the start of a 45-day history; day 20 has a stored row and no readings.
+        let harness = try await makeHarness(days: 45, strapDays: 0..<2)
+        let store = harness.store
+        let computedId = harness.computedId
         let unproducible = DailyMetric(
-            day: Repository.localDayKey(now.addingTimeInterval(-40 * 86_400)), totalSleepMin: 430, efficiency: 0.9,
-            deepMin: 80, remMin: 95, lightMin: 255, disturbances: 2, restingHr: 52, avgHrv: 66, recovery: 71,
-            strain: 9.5, exerciseCount: 0)
+            day: dayKey(20), totalSleepMin: 430, efficiency: 0.9, deepMin: 80, remMin: 95, lightMin: 255,
+            disturbances: 2, restingHr: 52, avgHrv: 66, recovery: 71, strain: 9.5, exerciseCount: 0)
         _ = try await store.upsertDailyMetrics([unproducible], deviceId: computedId)
+        let bounds = try await store.hrTimestampBounds(deviceId: Repository.whoopSource)
+        let earliest = try XCTUnwrap(bounds).earliest
         let total = IntelligenceEngine.boundedHistoryDays(
-            earliestTimestamp: earliest, reference: now, calendar: .current, cap: 60)
+            earliestTimestamp: earliest, reference: harness.reference, calendar: utcCalendar, cap: 60)
         XCTAssertGreaterThan(total, IntelligenceEngine.effortRescoreChunkDays, "two chunks per pass")
+        let calendar = utcCalendar
 
         func launchAndRunOneBatch() async {
             let repository = Repository(deviceId: Repository.whoopSource)
             repository.setStoreForTesting(store)
             let engine = IntelligenceEngine(repo: repository, profile: ProfileStore(),
                                             deviceId: Repository.whoopSource)
-            await engine.runEffortRescoreIfNeeded(historyDays: 60)
+            await engine.runEffortRescoreIfNeeded(historyDays: 60, reference: harness.reference, calendar: calendar)
         }
         func progress(_ key: String) async throws -> DurableMigrationProgress? {
             try await store.durableMigrationProgress(key: key)

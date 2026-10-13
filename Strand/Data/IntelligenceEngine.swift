@@ -548,7 +548,11 @@ final class IntelligenceEngine: ObservableObject {
     /// runs exactly once. IMPORTED rows are never rewritten here (the engine only ever writes under the
     /// "-noop" computed source) , those are handled by re-import. A day already on 0–100 is recomputed
     /// from the same raw HR and lands on 0–100 again: UNCHANGED axis (verified by test).
-    func runEffortRescoreIfNeeded(historyDays: Int = 4000, shouldPause: () -> Bool = { false }) async {
+    ///
+    /// Review round 8 (2): `reference` and `calendar` bound the history and date every chunk's analysis (now and
+    /// the device calendar in production), so a test can drive the migration on a fixed fixture.
+    func runEffortRescoreIfNeeded(historyDays: Int = 4000, reference: Date = Date(), calendar: Calendar = .current,
+                                  shouldPause: () -> Bool = { false }) async {
         guard !effortRescoreRunning else { return }
         effortRescoreRunning = true
         defer { effortRescoreRunning = false }
@@ -577,7 +581,8 @@ final class IntelligenceEngine: ObservableObject {
         }
         // Review round 7 (4): v3 complete, the settle pass takes this grant.
         guard persistedProgress.state != .complete else {
-            await runEffortRescoreSettleIfNeeded(store: store, historyDays: historyDays, shouldPause: shouldPause)
+            await runEffortRescoreSettleIfNeeded(store: store, historyDays: historyDays, reference: reference,
+                                                 calendar: calendar, shouldPause: shouldPause)
             return
         }
 
@@ -598,8 +603,8 @@ final class IntelligenceEngine: ObservableObject {
         }
         let effectiveHistoryDays = Self.boundedHistoryDays(
             earliestTimestamp: earliestTimestamp,
-            reference: Date(),
-            calendar: .current,
+            reference: reference,
+            calendar: calendar,
             cap: max(0, historyDays))
 
         let (outcome, durableOffset) = await runFullHistoryRescoreBatch(
@@ -607,6 +612,8 @@ final class IntelligenceEngine: ObservableObject {
             progressKey: Self.effortRescoreDurableProgressKey,
             historyDays: effectiveHistoryDays,
             startOffset: persistedProgress.nextOffset,
+            reference: reference,
+            calendar: calendar,
             shouldPause: shouldPause,
             didCommitOffset: { UserDefaults.standard.set($0, forKey: Self.effortRescoreOffsetKey) }
         )
@@ -631,8 +638,8 @@ final class IntelligenceEngine: ObservableObject {
     /// so it never runs while v3 is incomplete, after an app kill mid-v3 included.
     static let effortRescoreSettleDurableProgressKey = "effort-rescore-v3-settle"
 
-    private func runEffortRescoreSettleIfNeeded(store: WhoopStore, historyDays: Int,
-                                                shouldPause: () -> Bool) async {
+    private func runEffortRescoreSettleIfNeeded(store: WhoopStore, historyDays: Int, reference: Date,
+                                                calendar: Calendar, shouldPause: () -> Bool) async {
         let progress: DurableMigrationProgress
         do {
             guard try await store.durableMigrationProgress(key: Self.effortRescoreDurableProgressKey)?.state
@@ -663,9 +670,11 @@ final class IntelligenceEngine: ObservableObject {
             store: store,
             progressKey: Self.effortRescoreSettleDurableProgressKey,
             historyDays: Self.boundedHistoryDays(
-                earliestTimestamp: earliestTimestamp, reference: Date(), calendar: .current,
+                earliestTimestamp: earliestTimestamp, reference: reference, calendar: calendar,
                 cap: max(0, historyDays)),
             startOffset: progress.nextOffset,
+            reference: reference,
+            calendar: calendar,
             shouldPause: shouldPause,
             didCommitOffset: { _ in }
         )
@@ -701,6 +710,8 @@ final class IntelligenceEngine: ObservableObject {
         progressKey: String,
         historyDays: Int,
         startOffset: Int,
+        reference: Date,
+        calendar: Calendar,
         shouldPause: () -> Bool,
         didCommitOffset: @escaping (Int) -> Void
     ) async -> (outcome: HistoricalMigrationDriver.Outcome, offset: Int) {
@@ -721,6 +732,8 @@ final class IntelligenceEngine: ObservableObject {
                     maxDays: chunk,
                     startOffset: offset,
                     refreshRepository: false,
+                    analysisReference: reference,
+                    analysisCalendar: calendar,
                     keepUnproducedHistory: true
                 )
                 guard self.analysisCompletionSerial > before else {
