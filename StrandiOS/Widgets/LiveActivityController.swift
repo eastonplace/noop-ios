@@ -425,7 +425,8 @@ final class LiveActivityController {
                 logExit("request failed (\(desiredModeIsWorkout ? "workout" : "heart rate")): \(String(describing: error))")
                 trace(input, "request-failed", "error=\(String(describing: error).prefix(120))")
                 resetCachedState()
-                restartPolicy.noteRequestFailed(now: Date())
+                restartPolicy.noteRequestFailed(
+                    now: Date(), wasForeground: UIApplication.shared.applicationState == .active)
                 throw LiveActivityPublicationError.requestFailed
             }
         }

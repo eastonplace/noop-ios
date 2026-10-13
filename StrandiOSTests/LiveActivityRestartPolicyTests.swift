@@ -72,18 +72,33 @@ final class LiveActivityRestartPolicyTests: XCTestCase {
         XCTAssertEqual(policy.systemEnds, 0)
     }
 
-    /// A refused request waits like a system end and counts toward the same cap, instead of being repeated every drive.
+    /// Refused while the app was not in front: it counts, and the first drive with the app in front asks at once, with no
+    /// time backoff to wait out (the person may glance at the app for only a few seconds).
+    func testARequestRefusedInTheBackgroundIsAskedAgainAtTheFirstForegroundDrive() {
+        var policy = LiveActivityRestartPolicy()
+        policy.noteDrive(workoutIsActive: false)
+        policy.noteRequestFailed(now: start, wasForeground: false)
+        XCTAssertEqual(policy.setbacks, 1, "it counts toward the cap")
+        XCTAssertNil(policy.nextRequestAt)
+        XCTAssertEqual(policy.verdict(now: start.addingTimeInterval(5), isForeground: false), .waitingForForeground)
+        XCTAssertEqual(policy.verdict(now: start.addingTimeInterval(10), isForeground: true), .allowed)
+    }
+
+    /// Refused with the app in front, a request waits like a system end and counts toward the same cap, instead of being
+    /// repeated every drive.
     func testARefusedRequestBacksOffAndCountsTowardTheCap() {
         var policy = LiveActivityRestartPolicy()
         policy.noteDrive(workoutIsActive: true)
-        policy.noteRequestFailed(now: start)
+        policy.noteRequestFailed(now: start, wasForeground: true)
         XCTAssertEqual(policy.verdict(now: start.addingTimeInterval(1), isForeground: true), .backoff)
         XCTAssertEqual(policy.verdict(now: start.addingTimeInterval(30), isForeground: true), .allowed)
         policy.noteGone(.system, now: start.addingTimeInterval(40))
         XCTAssertEqual(policy.verdict(now: start.addingTimeInterval(99), isForeground: true), .backoff,
                        "the second setback doubles the wait")
         XCTAssertEqual(policy.verdict(now: start.addingTimeInterval(100), isForeground: true), .allowed)
-        for step in 0..<3 { policy.noteRequestFailed(now: start.addingTimeInterval(1_000 * Double(step + 1))) }
+        for step in 0..<3 {
+            policy.noteRequestFailed(now: start.addingTimeInterval(1_000 * Double(step + 1)), wasForeground: true)
+        }
         XCTAssertEqual(policy.setbacks, 5)
         XCTAssertEqual(policy.verdict(now: start.addingTimeInterval(100_000), isForeground: true), .exhausted)
     }

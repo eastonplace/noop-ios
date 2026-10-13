@@ -59,11 +59,12 @@ struct LiveActivityRestartPolicy: Equatable {
         }
     }
 
-    /// ActivityKit refused the request (from the background, among other reasons). It waits like a system end and counts
-    /// toward the same cap, so a refused request is not repeated on every drive.
-    mutating func noteRequestFailed(now: Date) {
+    /// ActivityKit refused the request. It counts toward the same cap as a system end, so it is not repeated on every
+    /// drive. Refused with the app in front, it also waits the backoff. Refused while the app was not in front (the
+    /// usual reason), only the foreground gate applies: the first drive with the app in front asks again at once.
+    mutating func noteRequestFailed(now: Date, wasForeground: Bool) {
         failedRequests += 1
-        backOff(now: now)
+        if wasForeground { backOff(now: now) }
     }
 
     private mutating func backOff(now: Date) {
