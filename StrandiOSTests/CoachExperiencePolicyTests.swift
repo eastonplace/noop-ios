@@ -185,4 +185,38 @@ final class CoachExperiencePolicyTests: XCTestCase {
             .hasPrefix("2026-02-01 through 2026-02-28"))
     }
 
+    func testFirstPersonSleepQuestionGetsEvidenceBeforeProse() {
+        XCTAssertEqual(CoachEvidencePolicy.plan(for: "How did I sleep last night?", now: now, calendar: calendar),
+                       .read(tool: "sleep_history", days: 1))
+    }
+
+    func testYesterdayAndTodayPreserveBothDays() {
+        let question = "Compare my recovery yesterday and today"
+        XCTAssertEqual(CoachEvidencePolicy.plan(for: question, now: now, calendar: calendar),
+                       .read(tool: "metric_trends", days: 2))
+        let query = CoachEvidencePolicy.readQuery(for: question, days: 2, now: now, calendar: calendar)
+        let f = DateFormatter(); f.calendar = calendar; f.timeZone = calendar.timeZone; f.dateFormat = "yyyy-MM-dd"
+        XCTAssertTrue(query.contains("through " + f.string(from: now)))
+    }
+
+    func testAdjacentRollingComparisonIncludesBothPeriods() {
+        XCTAssertEqual(CoachEvidencePolicy.plan(for: "Compare my last 7 days of sleep with the previous 7 days",
+                                               now: now, calendar: calendar), .read(tool: "sleep_history", days: 14))
+        XCTAssertEqual(CoachEvidencePolicy.plan(for: "Compare my last 21 days with the previous 21 days",
+                                               now: now, calendar: calendar), .needsNarrowerRange)
+    }
+
+    func testNonGregorianDeviceCalendarStillQueriesGregorianKeys() {
+        var buddhist = Calendar(identifier: .buddhist)
+        buddhist.timeZone = calendar.timeZone
+        let query = CoachEvidencePolicy.readQuery(for: "Show my workouts today", days: 1, now: now, calendar: buddhist)
+        let f = DateFormatter(); f.calendar = calendar; f.timeZone = calendar.timeZone; f.dateFormat = "yyyy-MM-dd"
+        XCTAssertTrue(query.hasPrefix(f.string(from: now)))
+        XCTAssertEqual(CoachEvidencePolicy.plan(for: "Show my workouts on 2026-10-01", now: now, calendar: buddhist),
+                       .read(tool: "workout_history", days: 1))
+    }
+    func testFirstPersonRunQuestionReadsWorkoutHistory() {
+        XCTAssertEqual(CoachEvidencePolicy.plan(for: "How far did I run yesterday?", now: now, calendar: calendar),
+                       .read(tool: "workout_history", days: 1))
+    }
 }

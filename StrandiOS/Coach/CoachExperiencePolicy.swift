@@ -16,12 +16,14 @@ enum CoachEvidencePolicy {
         consent && !recordsUpdating
     }
 
-    static func plan(for question: String, now: Date = Date(), calendar: Calendar = .autoupdatingCurrent) -> CoachEvidencePlan {
+    static func plan(for question: String, now: Date = Date(), calendar inputCalendar: Calendar = .autoupdatingCurrent) -> CoachEvidencePlan {
+        let calendar = civilCalendar(inputCalendar)
         let text = question.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: Locale(identifier: "en_US_POSIX"))
         let words = Set(text.split { !$0.isLetter && !$0.isNumber }.map(String.init))
         let personal = !words.isDisjoint(with: ["my", "mine", "recorded", "records"])
             || text.contains("help me plan") || text.contains("should i")
             || text.contains("recent workouts") || text.contains("latest activity")
+            || (words.contains("i") && !words.isDisjoint(with: ["sleep", "slept", "recover", "recovered", "train", "trained", "run", "ran"]))
         guard personal else { return .general }
 
         let window = requestedWindow(in: text, now: now, calendar: calendar)
@@ -39,11 +41,11 @@ enum CoachEvidencePolicy {
             tool = "workout_zones"
         } else if text.contains("training load") || text.contains("overtraining") {
             tool = "training_load"
-        } else if !words.isDisjoint(with: ["workout", "workouts", "training", "activity", "sessions", "runs", "lifting"]) {
+        } else if !words.isDisjoint(with: ["workout", "workouts", "training", "train", "trained", "activity", "sessions", "run", "runs", "ran", "lifting"]) {
             tool = "workout_history"
         } else if !words.isDisjoint(with: ["recovery", "hrv", "rhr", "strain", "trend", "trends"]) {
             tool = words.contains("ready") || words.contains("readiness") ? "readiness" : "metric_trends"
-        } else if !words.isDisjoint(with: ["sleep", "sleeping", "nights"]) {
+        } else if !words.isDisjoint(with: ["sleep", "slept", "sleeping", "nights"]) {
             tool = "sleep_history"
         } else if !words.isDisjoint(with: ["ready", "readiness"]) {
             tool = "readiness"
@@ -56,7 +58,8 @@ enum CoachEvidencePolicy {
     /// Place explicit civil dates before the filter so the engine's byte cap cannot remove them.
     /// The data service understands ISO dates, rather than relative words such as yesterday.
     static func readQuery(for question: String, days: Int, now: Date = Date(),
-                          calendar: Calendar = .autoupdatingCurrent) -> String {
+                          calendar inputCalendar: Calendar = .autoupdatingCurrent) -> String {
+        let calendar = civilCalendar(inputCalendar)
         let pattern = #"\b\d{4}-\d{1,2}-\d{1,2}\b"#
         let dates = matches(pattern, in: question).map { $0[0] }
         let formatter = DateFormatter()
@@ -66,7 +69,7 @@ enum CoachEvidencePolicy {
         formatter.dateFormat = "yyyy-MM-dd"
         var end = calendar.startOfDay(for: now)
         let lower = question.lowercased()
-        if lower.contains("yesterday") {
+        if lower.contains("yesterday") && !lower.contains("today") {
             end = calendar.date(byAdding: .day, value: -1, to: end) ?? end
         }
         var start = calendar.date(byAdding: .day, value: 1 - min(maximumDays, max(1, days)), to: end) ?? end
@@ -107,16 +110,20 @@ enum CoachEvidencePolicy {
                            "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10]
         let durations = matches(durationPattern, in: text)
         if !durations.isEmpty {
-            var largest = 1
+            var windows: [Int] = []
             for groups in durations {
                 guard groups.count == 3, let number = Int(groups[1]) ?? numberWords[groups[1]],
                       (1...maximumDays).contains(number) else { return nil }
                 let multiplier = groups[2].hasPrefix("week") ? 7 : groups[2].hasPrefix("month") ? 31 : groups[2].hasPrefix("year") ? 365 : 1
                 let days = number * multiplier
                 guard days <= maximumDays else { return nil }
-                largest = max(largest, days)
+                windows.append(days)
             }
-            return largest
+            let comparesPrior = (text.contains("compar") || text.contains("versus"))
+                && (text.contains("previous") || text.contains("prior"))
+            let count = comparesPrior ? (windows.count > 1 ? windows.reduce(0, +) : (windows.first ?? 1) * 2)
+                : windows.max() ?? 1
+            return count <= maximumDays ? count : nil
         }
         if text.contains("year") || text.contains("all time") || text.contains("all my history")
             || text.contains("months") || text.contains("quarter") { return nil }
@@ -126,6 +133,7 @@ enum CoachEvidencePolicy {
         }
         if text.contains("month") { return 31 }
         if text.contains("week") { return text.contains("compar") || text.contains("versus") ? 14 : 7 }
+        if text.contains("today") && text.contains("yesterday") { return 2 }
         if text.contains("today") || text.contains("yesterday") || text.contains("last night") { return 1 }
         return 14
     }
@@ -154,6 +162,16 @@ enum CoachEvidencePolicy {
             return month.start...today
         }
         return nil
+    }
+
+    /// Store keys always use Gregorian civil dates, even with another device calendar.
+    private static func civilCalendar(_ input: Calendar) -> Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = input.timeZone
+        calendar.locale = input.locale
+        calendar.firstWeekday = input.firstWeekday
+        calendar.minimumDaysInFirstWeek = input.minimumDaysInFirstWeek
+        return calendar
     }
 
     private static func matches(_ pattern: String, in text: String) -> [[String]] {
