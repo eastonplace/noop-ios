@@ -1,8 +1,6 @@
 #if os(iOS)
 import SwiftUI
 import StrandDesign
-import MarkdownUI
-import CoachPresentation
 import PhotosUI
 
 enum LocalCoachScreen: String, CaseIterable, Identifiable {
@@ -10,7 +8,7 @@ enum LocalCoachScreen: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .home: "Overview"
+        case .home: "Daily overview"
         case .chat: "Conversation"
         case .plan: "Your plan"
         case .memory: "About you"
@@ -18,64 +16,55 @@ enum LocalCoachScreen: String, CaseIterable, Identifiable {
     }
 }
 
-/// All rendered values come from the engine. The separate DEBUG host labels fixture data explicitly.
+/// Chat is the front door. Plans, personal context and native utility sheets remain available in the header menu.
 struct LocalCoachView: View {
     @EnvironmentObject private var coach: LocalCoachEngine
     @Environment(\.scenePhase) private var scenePhase
-    @StateObject private var voice = LocalCoachVoice()
-    @State private var voicePrefix = ""
-    @State private var dictating = false
-    @State private var visible = false
-    @State private var voiceTask: Task<Void, Never>?
-    @State private var photo: PhotosPickerItem?
-    @State private var showPhotos = false
-    @State private var attachmentText = ""
-    @State private var showAttachment = false
-    @State private var attachmentTask: Task<Void, Never>?
-    @State private var attachmentID: UUID?
-    @State private var inputError: String?
-    @State private var showDiagnostics = false
-    @State private var screen: LocalCoachScreen
-    @State private var composer = ""
-    @State private var showLibrary = false
-    @State private var showSettings = false
-    @State private var showSources = false
-    @State private var showPlanBuilder = false
-    @State private var selectedTopic = LocalCoachTopic.today
-    @FocusState private var composerFocused: Bool
-    // The same chrome inputs ScreenScaffold reads, so the pinned header below behaves like every other tab
-    // root: app chrome only in the standard presentation and only at a root (a detail owns a back chevron instead).
     @Environment(\.screenScaffoldNavigationRole) private var navigationRole
     @Environment(\.screenScaffoldPresentation) private var scaffoldPresentation
     @Environment(\.appHeaderChromeVisibility) private var chromeVisibility
     @Environment(\.dismiss) private var dismiss
+    @StateObject private var voice = LocalCoachVoice()
+    @State private var screen: LocalCoachScreen
+    @State private var composer = ""
+    @State private var voicePrefix = ""
+    @State private var dictating = false
+    @State private var visible = false
+    @State private var voiceTask: Task<Void, Never>?
+    @State private var showLibrary = false
+    @State private var showSettings = false
+    @State private var showSources = false
+    @State private var showPlanBuilder = false
+    @State private var showDiagnostics = false
+    @State private var showWorkouts = false
+    @State private var showPhotos = false
+    @State private var photo: PhotosPickerItem?
+    @State private var showAttachment = false
+    @State private var attachmentText = ""
+    @State private var attachmentTask: Task<Void, Never>?
+    @State private var attachmentID: UUID?
+    @State private var inputError: String?
+    @FocusState private var composerFocused: Bool
 
-    init(screen: LocalCoachScreen = .home) { _screen = State(initialValue: screen) }
+    init(screen: LocalCoachScreen = .chat) {
+        // The old shell and capture routes use .home as the default. They now enter the conversation.
+        _screen = State(initialValue: screen == .home ? .chat : screen)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
-            Group {
-                switch screen {
-                case .home: overview
-                case .chat: conversation
-                case .plan: LocalCoachPlanView(onBuild: { showPlanBuilder = true })
-                case .memory: LocalCoachMemoryView()
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            content.frame(maxWidth: .infinity, maxHeight: .infinity)
             statusNote
-            if screen == .home || screen == .chat { composerView }
+            if screen == .chat || screen == .home { composerView }
         }
-        // The header is pinned (not part of any scroll) so the conversation keeps its own scroll view,
-        // scroll-to-bottom and keyboard-avoiding composer exactly as before.
-        .safeAreaInset(edge: .top, spacing: 0) { pinnedHeader }
+        .safeAreaInset(edge: .top, spacing: 0) { header }
         .background(StrandPalette.appCanvas.ignoresSafeArea())
         .foregroundStyle(StrandPalette.textPrimary)
         .tint(StrandPalette.accent)
+        .segmentedPillSelectionStyle(.quiet)
         .toolbar(.hidden, for: .navigationBar)
         .sheet(isPresented: $showLibrary) {
-            LocalCoachLibraryView { screen = .chat }
-                .noopSheetPresentation(largeFirst: true)
+            LocalCoachLibraryView { screen = .chat }.noopSheetPresentation(largeFirst: true)
         }
         .sheet(isPresented: $showSettings) {
             LocalCoachSettingsView().noopSheetPresentation(largeFirst: true)
@@ -85,10 +74,7 @@ struct LocalCoachView: View {
                 .noopSheetPresentation(largeFirst: true)
         }
         .sheet(isPresented: $showPlanBuilder) {
-            LocalCoachPlanBuilder {
-                screen = .plan
-            }
-            .noopSheetPresentation(largeFirst: true)
+            LocalCoachPlanBuilder { screen = .plan }.noopSheetPresentation(largeFirst: true)
         }
         .sheet(isPresented: $showDiagnostics) {
             NavigationStack {
@@ -96,6 +82,12 @@ struct LocalCoachView: View {
                     .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { showDiagnostics = false } } }
             }
             .coachSettingsSheetEnvironment()
+            .noopSheetPresentation(largeFirst: true)
+        }
+        .sheet(isPresented: $showWorkouts) {
+            NavigationStack {
+                WorkoutsView().sheetScreenScaffoldEnvironment(onClose: { showWorkouts = false })
+            }
             .noopSheetPresentation(largeFirst: true)
         }
         .photosPicker(isPresented: $showPhotos, selection: $photo, matching: .images)
@@ -110,122 +102,67 @@ struct LocalCoachView: View {
         .onChange(of: coach.preferences) { _, _ in stopInputs() }
         .onChange(of: coach.snapshot.sourceID) { _, _ in stopInputs() }
         .onChange(of: photo) { _, item in if let item { readPhoto(item) } }
-        .onChange(of: voice.transcript) { _, text in
-            guard dictating else { return }
-            composer = voicePrefix + text
-        }
+        .onChange(of: voice.transcript) { _, text in if dictating { composer = voicePrefix + text } }
         .onChange(of: coach.isResponding) { old, current in
-            if old && !current && visible {
-                if coach.preferences.enabled && coach.preferences.speakReplies && !coach.isPreview && coach.responseSeconds != nil,
-                   let reply = coach.messages.last, reply.role == .assistant, !reply.isInterrupted {
-                    voice.speak(reply.text)
-                }
-                consumeSiriDraft()
+            guard old && !current && visible else { return }
+            if coach.preferences.enabled && coach.preferences.speakReplies && !coach.isPreview,
+               coach.responseSeconds != nil, let reply = coach.messages.last,
+               reply.role == .assistant, !reply.isInterrupted {
+                voice.speak(CoachAnswerExport.text(for: reply))
             }
+            consumeSiriDraft()
         }
-        .onChange(of: coach.preferences.usePersonalData) { _, _ in
-            Task { await coach.refresh() }
-        }
+        .onChange(of: coach.preferences.usePersonalData) { _, _ in Task { await coach.refresh() } }
         .onChange(of: coach.selectedConversationID) { old, new in
             #if DEBUG
-            // A capture that asked for a page (`--noop-coach-page`) stays on it when the saved thread loads.
             if QACoachPage.requested != nil { return }
             #endif
             if old != new, !coach.messages.isEmpty { screen = .chat }
         }
-        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("coach.studio")
     }
 
-    // MARK: Pinned header
-
-    /// Canonical tab-root chrome, pinned: the app header chrome (strap / sync / profile) once, one title
-    /// row, and the section switcher. Compact on purpose: the conversation needs the vertical room, and an
-    /// expanded title would otherwise sit above the keyboard-avoiding composer.
-    private var pinnedHeader: some View {
-        VStack(spacing: 0) {
-            if showsAppChrome { AppHeaderChrome() }
-            VStack(alignment: .leading, spacing: NoopMetrics.space2) {
-                titleHeader
-                    .padding(.horizontal, NoopMetrics.space4)
-                sectionPicker
-            }
-            // No top padding: the title row sits where Today's and Trends' do, directly under the chrome.
-            .padding(.bottom, 6)
-            .background(StrandPalette.appCanvas)
-            .overlay(alignment: .bottom) {
-                Rectangle().fill(StrandPalette.hairline).frame(height: 1).accessibilityHidden(true)
-            }
-        }
-    }
-
-    /// App chrome belongs to a tab root only; a pushed or modal Coach owns its own header instead.
-    private var showsAppChrome: Bool {
-        scaffoldPresentation == .standard && chromeVisibility == .visible && navigationRole == .root
-    }
-
-    /// At the tab root the chrome row already carries the wordmark, so the title is the shared compact title row
-    /// (like Today's and Trends') with the history and settings buttons trailing. Anywhere the chrome is absent
-    /// the canonical compact header supplies the one wordmark and the back chevron.
-    @ViewBuilder private var titleHeader: some View {
-        if showsAppChrome {
-            NoopTabTitleRow("Coach") { coachActions }
-        } else {
-            NoopScreenHeader(
-                title: "Coach",
-                backAction: backAction,
-                style: .compact
-            ) { coachActions }
-        }
-    }
-
-    /// History and settings as compact chip-family icon buttons, the same capsule as Trends' share button.
-    private var coachActions: some View {
-        HStack(spacing: NoopMetrics.space2) {
-            Button { showLibrary = true } label: {
-                WidgetChip(systemImage: "clock.arrow.circlepath", showsChevron: false, overhangs: false)
-                    .chipHitTarget()
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Conversation history")
-            Button { showSettings = true } label: {
-                WidgetChip(systemImage: "slider.horizontal.3", showsChevron: false, overhangs: false)
-                    .chipHitTarget()
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Coach settings")
-        }
-    }
-
-    private var backAction: (() -> Void)? {
-        guard navigationRole == .detail else { return nil }
-        return { dismiss() }
-    }
-
-    /// The canonical segmented control. If the four titles ever outgrow the width (small phones, large
-    /// Dynamic Type) the control scrolls horizontally instead of truncating. It never stacks: this sits in
-    /// the pinned header, and four stacked rows would take the transcript's room.
-    private var sectionPicker: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            SegmentedPillControl(
-                LocalCoachScreen.allCases,
-                selection: Binding(
-                    get: { screen },
-                    set: { item in
-                        composerFocused = false
-                        screen = item
+    @ViewBuilder private var content: some View {
+        switch screen {
+        case .chat:
+            CoachConversationView(
+                messages: coach.messages, activeMessageID: coach.currentResponseMessageID,
+                progress: coach.responseProgress.stage, isPreview: coach.isPreview,
+                snapshot: coach.snapshot, hasConsent: coach.preferences.usePersonalData,
+                availability: availability, onAsk: submit,
+                onEdit: { composer = $0; composerFocused = true },
+                onRetry: { Task { await coach.retryLatestAnswer() } },
+                onSpeak: { message in
+                    guard coach.preferences.enabled, !coach.isPreview else { return }
+                    voice.isSpeaking ? voice.stopSpeaking() : voice.speak(CoachAnswerExport.text(for: message))
+                },
+                onStop: coach.cancel, onSettings: { showSettings = true },
+                onWorkouts: { showWorkouts = true }, onPlan: { showPlanBuilder = true })
+        case .home:
+            ScrollView {
+                VStack(alignment: .leading, spacing: NoopMetrics.space6) {
+                    if coach.isPreview { LocalCoachFixtureLabel() }
+                    FlatSection("Latest context", systemImage: "sun.horizon", tint: .accent,
+                                trailing: CoachRecordDate.trailing(day: coach.snapshot.latestDay)) {
+                        Text(coach.snapshot.summary).font(StrandFont.subhead).lineSpacing(3)
+                            .foregroundStyle(StrandPalette.textSecondary)
+                        if !coach.snapshot.metrics.isEmpty { CoachMetricStrip(metrics: Array(coach.snapshot.metrics.prefix(3))) }
                     }
-                ),
-                stacksAtAccessibilitySizes: false,
-                identifier: { "coach.tab.\($0.rawValue)" },
-                label: { $0.title }
-            )
-            .padding(.horizontal, NoopMetrics.space4)
+                    Button { submit(LocalCoachTopic.today.prompt) } label: {
+                        CoachRow(systemImage: "bubble.left.and.text.bubble.right", title: Text("Ask about today"),
+                                 subtitle: Text("Read the available records before making a plan."))
+                    }.buttonStyle(PaperPressStyle())
+                    Button { showSources = true } label: {
+                        CoachRow(systemImage: "doc.text.magnifyingglass", title: Text("Your source records"))
+                    }.buttonStyle(PaperPressStyle())
+                }
+                .padding(NoopMetrics.space4)
+            }
+        case .plan: LocalCoachPlanView(onBuild: { showPlanBuilder = true })
+        case .memory: LocalCoachMemoryView()
         }
-        .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
     }
 
-    /// The model's state as the screen draws it (a DEBUG launch argument can stand in for it in captures).
     private var availability: LocalCoachAvailability {
         #if DEBUG
         QACoachAvailability.requested ?? coach.availability
@@ -234,494 +171,237 @@ struct LocalCoachView: View {
         #endif
     }
 
-    @ViewBuilder private var statusNote: some View {
-        if let error = inputError ?? voice.errorText ?? coach.errorText ?? LocalCoachIntentBridge.errorText {
-            statusStrip { CoachNotice(error: error) }
-                .accessibilityIdentifier("coach.error")
-        } else if coach.recordsUpdating && (screen == .home || screen == .chat) {
-            statusStrip {
-                CoachNotice(text: Text("Your records are updating. General chat is available."), tone: .info)
-            }
-            .accessibilityIdentifier("coach.recordsUpdating")
-        }
+    private var showsAppChrome: Bool {
+        scaffoldPresentation == .standard && chromeVisibility == .visible && navigationRole == .root
     }
 
-    /// A flat status line over the page foot: canvas ground, one hairline above, no box.
-    private func statusStrip<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
-        content()
-            .padding(.horizontal, NoopMetrics.space4).padding(.vertical, NoopMetrics.space3)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(StrandPalette.appCanvas)
-            .overlay(alignment: .top) {
-                Rectangle().fill(StrandPalette.hairline).frame(height: 1).accessibilityHidden(true)
-            }
-    }
-
-    // MARK: Overview
-
-    private var overview: some View {
-        ScrollView {
+    private var header: some View {
+        VStack(spacing: 0) {
+            if showsAppChrome { AppHeaderChrome() }
             VStack(alignment: .leading, spacing: 0) {
-                if coach.isPreview { LocalCoachFixtureLabel().padding(.bottom, NoopMetrics.space3) }
-                outlook
-                if !coach.snapshot.metrics.isEmpty {
-                    FlatSectionSeparator.coach
-                    CoachMetricStrip(metrics: Array(coach.snapshot.metrics.prefix(3)))
+                if showsAppChrome {
+                    NoopTabTitleRow("Coach") { headerActions }
+                } else {
+                    NoopScreenHeader(title: "Coach", backAction: navigationRole == .detail ? { dismiss() } : nil,
+                                     style: .compact) { headerActions }
                 }
-                if !coach.preferences.usePersonalData {
-                    FlatSectionSeparator.coach
-                    consentSection
+                HStack(spacing: 6) {
+                    Circle().fill(availability == .available ? StrandPalette.accent : StrandPalette.textTertiary)
+                        .frame(width: 5, height: 5).accessibilityHidden(true)
+                    Text(coach.isPreview ? "Synthetic preview" : availability.title)
+                        .font(StrandFont.micro).foregroundStyle(StrandPalette.textSecondary)
+                    Spacer(minLength: 4)
+                    if screen != .chat {
+                        Button("Back to chat", systemImage: "arrow.uturn.backward") { screen = .chat; composerFocused = false }
+                            .font(StrandFont.caption).frame(minHeight: 44)
+                            .accessibilityIdentifier("coach.tab.chat")
+                    }
                 }
-                FlatSectionSeparator.coach
-                topicSection
-                FlatSectionSeparator.coach
-                planEntry
-                FlatSectionSeparator.coach
-                briefSection
-                FlatSectionSeparator.coach
-                sourcesEntry
+                .padding(.bottom, NoopMetrics.space3)
             }
             .padding(.horizontal, NoopMetrics.space4)
-            .padding(.top, CoachRhythm.pageTop)
-            .padding(.bottom, CoachRhythm.pageBottom)
+            Rectangle().fill(StrandPalette.hairline).frame(height: 1).accessibilityHidden(true)
         }
-        .refreshable { await coach.refresh() }
-        .scrollDismissesKeyboard(.interactively)
-        .accessibilityIdentifier("coach.overview")
+        .background(StrandPalette.appCanvas)
     }
 
-    /// The daily outlook: headline, the brief under it, and the model's state as a pill. The record's real date
-    /// sits at the eyebrow's trailing edge, as it does on the Coach cards.
-    private var outlook: some View {
-        FlatSection("Your daily outlook", systemImage: "sun.horizon", tint: .accent,
-                     trailing: CoachRecordDate.trailing(day: coach.snapshot.latestDay)) {
-            VStack(alignment: .leading, spacing: NoopMetrics.space2) {
-                Text(coach.preferences.usePersonalData ? "Your day, in focus." : "Start with your goals.")
-                    .font(StrandFont.title1)
-                    .foregroundStyle(StrandPalette.textPrimary)
-                    .fixedSize(horizontal: false, vertical: true)
-                Text(coach.dailyBrief.hasPrefix("Allow local") ? coach.snapshot.summary : coach.dailyBrief)
-                    .font(StrandFont.subhead).lineSpacing(3)
-                    .foregroundStyle(StrandPalette.textSecondary)
-                    .lineLimit(5)
-            }
-            availabilityPill
-        }
-    }
-
-    private var availabilityPill: some View {
-        let title = coach.isPreview ? "Sample records, no model inference" : availability.title
-        let tone: StrandTone = switch availability {
-        case .available: .accent
-        case .checking: .neutral
-        default: .warning
-        }
-        return StatePill(LocalizedStringKey(title), tone: tone, pulsing: availability == .checking)
-    }
-
-    private var consentSection: some View {
-        FlatSection("Make it personal", systemImage: "lock.shield", tint: .accent) {
-            Text("Allow Coach to read your selected NOOP records on this iPhone. Your local coach does not send them to a cloud model.")
-                .font(StrandFont.subhead).lineSpacing(3)
-                .foregroundStyle(StrandPalette.textSecondary)
-            Button {
-                coach.preferences.usePersonalData = true
-            } label: {
-                Text("Use my local records")
-            }
-            .buttonStyle(PrimaryPillButtonStyle())
-            .accessibilityIdentifier("coach.allowRecords")
-        }
-    }
-
-    private var topicSection: some View {
-        FlatSection("Explore with Coach", systemImage: "bubble.left.and.text.bubble.right", tint: .accent) {
-            CoachChipRow(bleed: NoopMetrics.space4) {
-                ForEach(LocalCoachTopic.allCases) { topic in
-                    let selected = selectedTopic == topic
-                    Button { selectedTopic = topic } label: {
-                        WidgetChip(appTitle: LocalizedStringKey(topic.title), systemImage: topic.symbol,
-                                   showsChevron: false, overhangs: false, isSelected: selected)
-                            .chipHitTarget()
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityAddTraits(selected ? .isSelected : [])
-                }
-            }
-            Button { submit(selectedTopic.prompt) } label: {
-                HStack(alignment: .top, spacing: NoopMetrics.space3) {
-                    Text(selectedTopic.prompt).font(StrandFont.subhead).lineSpacing(3)
-                        .foregroundStyle(StrandPalette.textSecondary).multilineTextAlignment(.leading)
-                    Spacer(minLength: 0)
-                    WidgetChip(appTitle: "Ask", systemImage: "arrow.up", showsChevron: false, overhangs: false)
-                }
-                .frame(minHeight: 44)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .padding(.bottom, -2)
-        }
-    }
-
-    private var planEntry: some View {
-        Button { screen = .plan; if coach.plan == nil { showPlanBuilder = true } } label: {
-            CoachRow(
-                systemImage: "figure.strengthtraining.traditional", tint: .workout,
-                title: Text(LocalizedStringKey(coach.plan?.title ?? "Turn intention into a plan")),
-                subtitle: Text(CoachPlanText.entrySubtitle(sessions: coach.plan?.days.count,
-                                                           saved: coach.plan?.saved ?? false))
-            )
+    private var headerActions: some View {
+        HStack(spacing: 0) {
+            Button { showLibrary = true } label: { headerIcon("clock.arrow.circlepath") }
+                .accessibilityLabel("Conversation history").accessibilityIdentifier("coach.history")
+            Button(action: newConversation) { headerIcon("square.and.pencil") }
+                .accessibilityLabel("New conversation").accessibilityIdentifier("coach.newConversation")
+            Menu {
+                Button("Daily overview", systemImage: "sun.horizon") { screen = .home; composerFocused = false }
+                Button("Your plan", systemImage: "figure.strengthtraining.traditional") { screen = .plan; composerFocused = false }
+                Button("About you", systemImage: "person.crop.circle") { screen = .memory; composerFocused = false }
+                Divider()
+                Button("Your context", systemImage: "doc.text.magnifyingglass") { showSources = true }
+                Button("Coach settings", systemImage: "slider.horizontal.3") { showSettings = true }
+            } label: { headerIcon("ellipsis") }
+            .accessibilityLabel("More Coach options").accessibilityIdentifier("coach.more")
         }
         .buttonStyle(.plain)
     }
 
-    private var briefSection: some View {
-        FlatSection("Your rhythm", systemImage: "calendar.badge.clock", tint: .accent) {
-            Text("A moment to check in")
-                .font(StrandFont.subhead).foregroundStyle(StrandPalette.textSecondary)
-            CoachChipRow(bleed: NoopMetrics.space4) {
-                briefButton("Morning", symbol: "sun.max", kind: .morning)
-                briefButton("Evening", symbol: "moon", kind: .evening)
-                briefButton("This week", symbol: "calendar", kind: .weekly)
-            }
+    private func headerIcon(_ symbol: String) -> some View {
+        Image(systemName: symbol).font(.system(size: 17, weight: .medium))
+            .foregroundStyle(StrandPalette.textSecondary)
+            .frame(width: 44, height: 44).contentShape(Rectangle())
+    }
+
+    @ViewBuilder private var statusNote: some View {
+        if let error = inputError ?? voice.errorText ?? coach.errorText ?? LocalCoachIntentBridge.errorText {
+            CoachNotice(error: error)
+                .padding(.horizontal, NoopMetrics.space4).padding(.vertical, NoopMetrics.space2)
+                .accessibilityIdentifier("coach.error")
+        } else if coach.recordsUpdating && (screen == .home || screen == .chat) {
+            CoachNotice(text: Text("Your records are updating. General chat is available."), tone: .info)
+                .padding(.horizontal, NoopMetrics.space4).padding(.vertical, NoopMetrics.space2)
+                .accessibilityIdentifier("coach.recordsUpdating")
         }
-    }
-
-    private func briefButton(_ title: LocalizedStringKey, symbol: String, kind: LocalCoachBriefKind) -> some View {
-        Button {
-            screen = .chat
-            Task { await coach.generateBrief(kind: kind) }
-        } label: {
-            WidgetChip(appTitle: title, systemImage: symbol, showsChevron: false, overhangs: false)
-                .chipHitTarget()
-        }
-        .buttonStyle(.plain)
-    }
-
-    private var sourcesEntry: some View {
-        Button { showSources = true } label: {
-            CoachRow(systemImage: "checkmark.shield", tint: .accent,
-                     title: Text("See the records behind your coach"))
-        }
-        .buttonStyle(.plain)
-    }
-
-    // MARK: Conversation
-
-    private var conversation: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: NoopMetrics.space5) {
-                    if coach.isPreview { LocalCoachFixtureLabel() }
-                    if coach.messages.isEmpty { emptyConversation }
-                    ForEach(coach.messages) { message in
-                        LocalCoachMessageView(message: message, streaming: coach.isResponding && message.id == coach.messages.last?.id,
-                                              onSpeak: {
-                            guard coach.preferences.enabled, !coach.isPreview else { return }
-                            voice.isSpeaking ? voice.stopSpeaking() : voice.speak(message.text)
-                        })
-                            .id(message.id)
-                    }
-                    if !coach.activeTools.isEmpty {
-                        HStack(spacing: NoopMetrics.space2) {
-                            ProgressView().controlSize(.small)
-                            Text("Reading " + coach.activeTools.map { $0.replacingOccurrences(of: "_", with: " ") }.joined(separator: ", "))
-                                .font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
-                        }.accessibilityIdentifier("coach.toolActivity")
-                    }
-                    Color.clear.frame(height: 1).id("coach.bottom")
-                }
-                .padding(.horizontal, NoopMetrics.space4)
-                .padding(.top, CoachRhythm.pageTop)
-                .padding(.bottom, NoopMetrics.space4)
-            }
-            .scrollDismissesKeyboard(.interactively)
-            .onChange(of: coach.messages.last?.text) { _, _ in proxy.scrollTo("coach.bottom", anchor: .bottom) }
-            .onChange(of: coach.messages.count) { _, _ in
-                withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo("coach.bottom", anchor: .bottom) }
-            }
-            .onChange(of: coach.messages.last?.cards?.count) { _, _ in
-                withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo("coach.bottom", anchor: .bottom) }
-            }
-            .onAppear { if !coach.messages.isEmpty { proxy.scrollTo("coach.bottom", anchor: .bottom) } }
-        }.accessibilityIdentifier("coach.conversation")
-    }
-
-    /// The first thing in a new conversation: a warm lead, the model's state when it cannot answer, and a few
-    /// questions worth asking, each one tap.
-    private var emptyConversation: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: NoopMetrics.space3) {
-                CoachMedallion(systemImage: "bubble.left.and.text.bubble.right")
-                Text("Let’s connect the dots.").font(StrandFont.title1)
-                    .foregroundStyle(StrandPalette.textPrimary)
-                Text("Ask about your sleep, training, recovery or goals. Coach can look at the local records you allow and show its sources.")
-                    .font(StrandFont.subhead).lineSpacing(3)
-                    .foregroundStyle(StrandPalette.textSecondary)
-                if !coach.isPreview && availability != .available { unavailableNotice }
-            }
-            FlatSectionSeparator.coach
-            FlatSection("Try asking", systemImage: "text.bubble", tint: .accent) {
-                VStack(spacing: 0) {
-                    ForEach(Array(Self.starterTopics.enumerated()), id: \.element) { index, topic in
-                        if index > 0 {
-                            Rectangle().fill(StrandPalette.hairline).frame(height: 1).accessibilityHidden(true)
-                        }
-                        Button { submit(topic.prompt) } label: { starterRow(topic) }
-                            .buttonStyle(.plain)
-                    }
-                }
-                // The rows carry their own air; pull them in so the gap under the eyebrow matches the rest.
-                .padding(.vertical, -NoopMetrics.space2)
-            }
-        }
-    }
-
-    private static let starterTopics: [LocalCoachTopic] = [.today, .sleep, .training]
-
-    private func starterRow(_ topic: LocalCoachTopic) -> some View {
-        HStack(spacing: NoopMetrics.space3) {
-            Image(systemName: topic.symbol)
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(topicTint(topic).accent)
-                .frame(width: 30, height: 30)
-                .background(Circle().fill(topicTint(topic).accent.opacity(0.14)))
-                .accessibilityHidden(true)
-            Text(topic.prompt).font(StrandFont.subhead).lineSpacing(2)
-                .foregroundStyle(StrandPalette.textSecondary).multilineTextAlignment(.leading)
-            Spacer(minLength: NoopMetrics.space1)
-            Image(systemName: "arrow.up.right")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(StrandPalette.textTertiary)
-                .accessibilityHidden(true)
-        }
-        .padding(.vertical, NoopMetrics.space3)
-        .frame(minHeight: 44)
-        .contentShape(Rectangle())
-    }
-
-    private func topicTint(_ topic: LocalCoachTopic) -> DomainTint {
-        switch topic {
-        case .today, .goals: .accent
-        case .training: .workout
-        case .sleep: .sleep
-        case .recovery: .custom(StrandPalette.recoveryHigh)
-        case .stress: .stress
-        case .nutrition: .custom(StrandPalette.statusPositive)
-        case .habits: .journal
-        }
-    }
-
-    /// Why Coach cannot answer right now: the model's state as a pill and one plain line about what to do.
-    @ViewBuilder private var unavailableNotice: some View {
-        VStack(alignment: .leading, spacing: NoopMetrics.space2) {
-            StatePill(LocalizedStringKey(availability.title),
-                      tone: availability == .checking ? .neutral : .warning,
-                      pulsing: availability == .checking)
-            switch availability {
-            case .checking:
-                EmptyView()
-            case .disabled:
-                Text("Turn Coach back on in Coach settings to ask a question.")
-                    .font(StrandFont.footnote).foregroundStyle(StrandPalette.textTertiary)
-            default:
-                Text("Local Coach uses Apple’s on-device model. No API key is needed. It never falls back to a cloud model. Apple Intelligence must be enabled and its model downloaded on a supported device.")
-                    .font(StrandFont.footnote).foregroundStyle(StrandPalette.textTertiary)
-            }
-        }
-        .accessibilityElement(children: .combine)
-        .accessibilityIdentifier("coach.unavailable")
-    }
-
-    // MARK: Composer
-
-    private var composerRadius: CGFloat { NoopMetrics.radius5 }
-    private var canSend: Bool {
-        coach.isResponding || !composer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private var composerView: some View {
-        VStack(spacing: NoopMetrics.space2) {
+        VStack(alignment: .leading, spacing: NoopMetrics.space2) {
             if voice.isRecording || voice.isStarting {
                 Label(voice.isStarting ? "Preparing on-device dictation" : "Listening on this iPhone", systemImage: "waveform")
                     .font(StrandFont.caption).foregroundStyle(StrandPalette.accent)
             }
             if attachmentTask != nil {
-                HStack(spacing: NoopMetrics.space2) {
+                HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
-                    Text("Reading workout text on this iPhone")
-                        .font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
-                }
+                    Text("Reading workout text on this iPhone").font(StrandFont.caption)
+                }.foregroundStyle(StrandPalette.textSecondary)
             }
             if visible && LocalCoachIntentBridge.hasPendingRequest {
-                let blocked = !composer.isEmpty || coach.isResponding
-                Button { consumeSiriDraft() } label: {
-                    WidgetChip(appTitle: "Load next Siri question", systemImage: "waveform", showsChevron: false,
-                               overhangs: false)
-                        .chipHitTarget()
+                Button("Load next Siri question", systemImage: "waveform", action: consumeSiriDraft)
+                    .font(StrandFont.caption).frame(minHeight: 44)
+                    .disabled(!composer.isEmpty || coach.isResponding)
+            }
+            HStack(alignment: .bottom, spacing: 0) {
+                attachmentMenu
+                TextField("Ask about your training…", text: $composer, axis: .vertical)
+                    .font(StrandFont.body).lineLimit(1...6)
+                    .padding(.vertical, 13).padding(.leading, 2)
+                    .focused($composerFocused).submitLabel(.send)
+                    .onSubmit { if !coach.isResponding { submit(composer) } }
+                    .disabled(voice.isRecording || voice.isStarting)
+                    .accessibilityIdentifier("coach.composer")
+                Button(action: toggleDictation) {
+                    Image(systemName: voice.isRecording ? "waveform" : "mic")
+                        .font(.system(size: 18, weight: .regular))
+                        .foregroundStyle(voice.isRecording ? StrandPalette.accent : StrandPalette.textSecondary)
+                        .frame(width: 44, height: 48).contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
-                .disabled(blocked)
-                .opacity(blocked ? 0.45 : 1)
+                .disabled(!coach.preferences.enabled || coach.isResponding)
+                .accessibilityLabel(voice.isRecording ? "Stop dictation" : "Dictate a question")
+                .accessibilityIdentifier("coach.microphone")
+                Button {
+                    if coach.isResponding { coach.cancel() } else { submit(composer) }
+                } label: {
+                    Image(systemName: coach.isResponding ? "stop.fill" : "arrow.up")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(canSend ? StrandPalette.onInk : StrandPalette.textTertiary)
+                        .frame(width: 34, height: 34)
+                        .background(canSend ? StrandPalette.ink : StrandPalette.inset, in: Circle())
+                        .frame(width: 46, height: 48).contentShape(Rectangle())
+                }
+                .disabled(!canSend)
+                .accessibilityLabel(coach.isResponding ? "Stop response" : "Send message")
+                .accessibilityIdentifier("coach.send")
             }
-            HStack(alignment: .bottom, spacing: NoopMetrics.space1) {
-                // The 36pt circle sits inside a 44pt tap area; pull it back so its edge meets the page gutter.
-                attachmentMenu.padding(.leading, -NoopMetrics.space1)
-                composerField
-            }
-            HStack(alignment: .firstTextBaseline, spacing: 4) {
-                Image(systemName: "lock.fill").font(.system(size: 9, weight: .semibold)).accessibilityHidden(true)
-                // Wraps between words rather than ending in an ellipsis at the largest text sizes.
-                Text("On this iPhone · private by design")
+            .background(StrandPalette.card, in: RoundedRectangle(cornerRadius: NoopMetrics.radius5, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: NoopMetrics.radius5, style: .continuous)
+                .strokeBorder(composerFocused ? StrandPalette.hairlineStrong : StrandPalette.hairline, lineWidth: 1))
+            HStack(spacing: 5) {
+                Image(systemName: "lock.fill").font(.system(size: 9)).accessibilityHidden(true)
+                Text("On this iPhone · You control what Coach can read")
                     .fixedSize(horizontal: false, vertical: true)
             }
-            .font(StrandFont.micro)
-            .foregroundStyle(StrandPalette.textTertiary)
+            .font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
+            .frame(maxWidth: .infinity, alignment: .center)
         }
-        .padding(.horizontal, NoopMetrics.space4).padding(.top, NoopMetrics.space3).padding(.bottom, NoopMetrics.space2)
+        .buttonStyle(.plain)
+        .padding(.horizontal, NoopMetrics.space4)
+        .padding(.top, NoopMetrics.space3).padding(.bottom, NoopMetrics.space2)
         .background(StrandPalette.appCanvas)
-        .overlay(alignment: .top) {
-            Rectangle().fill(StrandPalette.hairline).frame(height: 1).accessibilityHidden(true)
-        }
     }
 
-    /// The attachment and actions menu as a chip-family circle, same capsule fill and hairline as the other chips.
+    private var canSend: Bool { coach.isResponding || !composer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+
     private var attachmentMenu: some View {
         Menu {
-            Button("New conversation", systemImage: "square.and.pencil") { coach.newConversation(); screen = .chat }
+            Button("New conversation", systemImage: "square.and.pencil", action: newConversation)
             Button("Build a workout", systemImage: "figure.strengthtraining.traditional") { showPlanBuilder = true }
             Button("Review my latest activity", systemImage: "figure.run") {
-                screen = .chat
-                Task { await coach.generateBrief(kind: .activity) }
+                screen = .chat; Task { await coach.generateBrief(kind: .activity) }
             }
-            Button("Your context", systemImage: "doc.text.magnifyingglass") { showSources = true }
+            Divider()
             Button("Read workout photo", systemImage: "photo") { showPhotos = true }
             Button("Paste workout text", systemImage: "doc.text") { attachmentText = ""; showAttachment = true }
+            Button("Your context", systemImage: "doc.text.magnifyingglass") { showSources = true }
             Button("Testing & bug reports", systemImage: "ladybug") { showDiagnostics = true }
             if voice.isSpeaking { Button("Stop reading aloud", systemImage: "speaker.slash") { voice.stopSpeaking() } }
         } label: {
-            Image(systemName: "plus")
-                .font(.system(size: 16, weight: .semibold))
+            Image(systemName: "plus").font(.system(size: 19, weight: .regular))
                 .foregroundStyle(StrandPalette.textSecondary)
-                .frame(width: 36, height: 36)
-                .background(Circle().fill(StrandPalette.chipFill))
-                .overlay(Circle().stroke(StrandPalette.hairline, lineWidth: 1))
-                .frame(width: 44, height: 44)
-                .contentShape(Rectangle())
+                .frame(width: 44, height: 48).contentShape(Rectangle())
         }
         .accessibilityLabel("Coach actions")
     }
 
-    /// The text field with dictation and send inside one rounded surface (the chip fill and hairline, a larger
-    /// radius), so the whole composer reads as one control.
-    private var composerField: some View {
-        HStack(alignment: .bottom, spacing: 0) {
-            TextField("Ask your coach…", text: $composer, axis: .vertical)
-                .font(StrandFont.body).lineLimit(1...5)
-                .padding(.leading, NoopMetrics.space4).padding(.vertical, 11)
-                .focused($composerFocused)
-                .submitLabel(.send).onSubmit { submit(composer) }
-                .disabled(voice.isRecording || voice.isStarting)
-                .accessibilityIdentifier("coach.composer")
-            Button {
-                if voice.isRecording || voice.isStarting {
-                    dictating = false
-                    voiceTask?.cancel()
-                    voice.stop()
-                } else {
-                    inputError = nil
-                    voicePrefix = composer.isEmpty ? "" : composer + " "
-                    dictating = true
-                    voiceTask = Task { await voice.start() }
-                }
-            } label: {
-                Image(systemName: voice.isRecording ? "waveform" : "mic")
-                    .font(.system(size: 17, weight: .regular))
-                    .foregroundStyle(voice.isRecording ? StrandPalette.accent : StrandPalette.textSecondary)
-                    .frame(width: 44, height: 44)
-                    .contentShape(Rectangle())
-            }
-            .disabled(!coach.preferences.enabled || coach.isResponding)
-            .accessibilityLabel(voice.isRecording ? "Stop dictation" : "Dictate a question")
-            .accessibilityIdentifier("coach.microphone")
-            Button {
-                if coach.isResponding { coach.cancel() } else { submit(composer) }
-            } label: {
-                Image(systemName: coach.isResponding ? "stop.fill" : "arrow.up")
-                    .font(.system(size: 15, weight: .bold))
-                    .foregroundStyle(canSend ? StrandPalette.onInk : StrandPalette.textTertiary)
-                    .frame(width: 32, height: 32)
-                    .background(Circle().fill(canSend ? StrandPalette.ink : StrandPalette.chipFill))
-                    .frame(width: 44, height: 44)
-                    .contentShape(Rectangle())
-            }
-            .disabled(!canSend)
-            .accessibilityLabel(coach.isResponding ? "Stop response" : "Send message")
-            .accessibilityIdentifier("coach.send")
-        }
-        .background(RoundedRectangle(cornerRadius: composerRadius, style: .continuous).fill(StrandPalette.chipFill))
-        .overlay(RoundedRectangle(cornerRadius: composerRadius, style: .continuous)
-            .stroke(StrandPalette.hairline, lineWidth: 1))
+    private func newConversation() {
+        stopInputs()
+        coach.newConversation()
+        inputError = nil
+        screen = .chat
+        // Keep a question being composed; the previous thread remains in History.
     }
 
-    private func submit(_ text: String) {
-        let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
+    private func toggleDictation() {
+        if voice.isRecording || voice.isStarting {
+            dictating = false; voiceTask?.cancel(); voice.stop()
+        } else {
+            inputError = nil
+            voicePrefix = composer.isEmpty ? "" : composer + " "
+            dictating = true
+            voiceTask = Task { await voice.start() }
+        }
+    }
+
+    private func submit(_ value: String) {
+        let text = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, !coach.isResponding else { return }
         guard !coach.isPreview else { inputError = "This preview uses sample data. Model calls are disabled."; return }
-        guard coach.preferences.enabled, coach.availability == .available else {
-            inputError = coach.availability.title
-            return
-        }
-        guard text.utf8.count <= 8_000 else {
-            inputError = "This question is too long. Split it into smaller questions before sending."
-            return
-        }
+        guard coach.preferences.enabled, coach.availability == .available else { inputError = coach.availability.title; return }
+        guard text.utf8.count <= 8_000 else { inputError = "This question is too long. Split it into smaller questions before sending."; return }
         inputError = nil
-        dictating = false
-        voiceTask?.cancel()
-        voice.cancel()
-        composer = ""
+        dictating = false; voiceTask?.cancel(); voice.cancel()
+        let wasDraft = text == composer.trimmingCharacters(in: .whitespacesAndNewlines)
+        if wasDraft { composer = "" }
         composerFocused = false
         screen = .chat
-        Task { await coach.send(text) }
+        let originalIDs = Set(coach.messages.map(\.id))
+        let originalContext = coach.recordContextID
+        let originalPreferences = coach.preferences
+        Task {
+            await coach.send(text)
+            // A rejection before appending a user turn must not lose an unsent draft or overwrite a newer one.
+            if wasDraft, composer.isEmpty, originalContext == coach.recordContextID,
+               originalPreferences == coach.preferences,
+               !coach.messages.contains(where: { !originalIDs.contains($0.id) && $0.role == .user && $0.text == text }) {
+                composer = text
+            }
+        }
     }
 
     private func consumeSiriDraft() {
         guard visible, !coach.isPreview, !coach.isResponding, composer.isEmpty,
               !voice.isRecording, LocalCoachIntentBridge.hasPendingRequest,
               let question = LocalCoachIntentBridge.consume() else { return }
-        screen = .chat
-        composer = question
+        screen = .chat; composer = question
     }
 
     private func stopInputs() {
-        dictating = false
-        voiceTask?.cancel()
-        voiceTask = nil
-        voice.cancel()
-        attachmentID = nil
-        attachmentTask?.cancel()
-        attachmentTask = nil
-        photo = nil
+        dictating = false; voiceTask?.cancel(); voiceTask = nil; voice.cancel()
+        attachmentID = nil; attachmentTask?.cancel(); attachmentTask = nil; photo = nil
     }
 
     private func readPhoto(_ item: PhotosPickerItem) {
         attachmentTask?.cancel()
         let token = UUID()
-        attachmentID = token
-        inputError = nil
+        attachmentID = token; inputError = nil
         attachmentTask = Task {
             do {
-                guard let bytes = try await item.loadTransferable(type: Data.self) else {
-                    throw LocalCoachAttachmentError.invalidImage
-                }
+                guard let bytes = try await item.loadTransferable(type: Data.self) else { throw LocalCoachAttachmentError.invalidImage }
                 let text = try await LocalCoachAttachment.extractWorkoutText(from: bytes)
                 guard attachmentID == token, !Task.isCancelled, visible else { return }
-                attachmentText = text
-                showAttachment = true
+                attachmentText = text; showAttachment = true
             } catch {
                 guard attachmentID == token, !(error is CancellationError) else { return }
-                inputError = (error as? LocalCoachAttachmentError)?.localizedDescription ?? "This photo could not be read. Try a smaller workout screenshot."
+                inputError = (error as? LocalCoachAttachmentError)?.localizedDescription
+                    ?? "This photo could not be read. Try a smaller workout screenshot."
             }
             if attachmentID == token { attachmentTask = nil; attachmentID = nil; photo = nil }
         }
@@ -739,10 +419,10 @@ struct LocalCoachView: View {
                     Button("Add reviewed text to my question") {
                         let reviewed = "Help me review this workout text:\n\n" + attachmentText
                         composer = composer.isEmpty ? reviewed : composer + "\n\n" + reviewed
-                        screen = .chat
-                        showAttachment = false
-                    }.disabled(attachmentText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                               || attachmentText.utf8.count > LocalCoachAttachment.maximumTextBytes)
+                        screen = .chat; showAttachment = false
+                    }
+                    .disabled(attachmentText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                              || attachmentText.utf8.count > LocalCoachAttachment.maximumTextBytes)
                 } footer: { Text("Send the question when you are ready. Saving a workout requires a separate plan review.") }
             }
             .navigationTitle("Workout text").navigationBarTitleDisplayMode(.inline)
@@ -752,141 +432,6 @@ struct LocalCoachView: View {
     }
 }
 
-private struct LocalCoachMessageView: View {
-    let message: LocalCoachMessage
-    let streaming: Bool
-    let onSpeak: () -> Void
-    @State private var showEvidence = false
-
-    /// A readable measure on wide screens; on a phone the thread is narrower than this.
-    private static let measure: CGFloat = 640
-
-    var body: some View {
-        Group {
-            if message.role == .user { userTurn } else { assistantTurn }
-        }
-        .sheet(isPresented: $showEvidence) {
-            LocalCoachSourcesView(evidence: message.evidence, title: "Sources for this answer")
-                .noopSheetPresentation(largeFirst: true)
-        }
-    }
-
-    private var timeLabel: String { AppClock.hourMinute(message.createdAt) }
-
-    // MARK: You
-
-    /// The person's own message: a calm bubble on the trailing side, its sender corner a little tighter, the time
-    /// small underneath. No eyebrow: alignment says who spoke.
-    private var userTurn: some View {
-        let shape = UnevenRoundedRectangle(topLeadingRadius: 18, bottomLeadingRadius: 18,
-                                           bottomTrailingRadius: 6, topTrailingRadius: 18, style: .continuous)
-        return VStack(alignment: .trailing, spacing: 4) {
-            Text(message.text)
-                .font(StrandFont.subhead).lineSpacing(2)
-                .foregroundStyle(StrandPalette.textPrimary)
-                .multilineTextAlignment(.leading)
-                .textSelection(.enabled)
-                .padding(.horizontal, 14).padding(.vertical, 10)
-                .background(shape.fill(StrandPalette.inset))
-                .overlay(shape.stroke(StrandPalette.hairline, lineWidth: 1))
-            Text(timeLabel).font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
-                .padding(.trailing, 4)
-        }
-        .padding(.leading, NoopMetrics.space8)
-        .frame(maxWidth: .infinity, alignment: .trailing)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(Text("You. \(message.text)"))
-    }
-
-    // MARK: Coach
-
-    private var assistantTurn: some View {
-        VStack(alignment: .leading, spacing: NoopMetrics.space3) {
-            SectionEyebrow("NOOP Coach", systemImage: "sparkle", tint: .accent, trailing: eyebrowTrailing)
-            if message.text.isEmpty && streaming {
-                HStack(spacing: NoopMetrics.space2) {
-                    CoachTypingDots()
-                    Text("Looking into it…").font(StrandFont.subhead).foregroundStyle(StrandPalette.textTertiary)
-                }
-            } else {
-                Markdown(message.text)
-                    .markdownTheme(.strand)
-                    .textSelection(.enabled)
-            }
-            if let cards = message.cards, !cards.isEmpty {
-                VStack(spacing: 12) {
-                    ForEach(cards) { card in
-                        LocalCoachCardView(card: card)
-                            .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .top)))
-                    }
-                }
-                .animation(.easeOut(duration: 0.25), value: cards.map(\.id))
-            }
-            if !message.toolNames.isEmpty {
-                HStack(alignment: .firstTextBaseline, spacing: 5) {
-                    Image(systemName: "magnifyingglass").font(.system(size: 9, weight: .semibold)).accessibilityHidden(true)
-                    Text(message.toolNames.map { $0.replacingOccurrences(of: "_", with: " ").capitalized }.joined(separator: " · "))
-                }
-                .font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
-            }
-            if message.isInterrupted {
-                StatePill("Response stopped", tone: .neutral, showsDot: false)
-            }
-            footer
-        }
-        .frame(maxWidth: Self.measure, alignment: .leading)
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private var sourcesTitle: LocalizedStringKey { "\(message.evidence.count) source records" }
-
-    private var eyebrowTrailing: EyebrowTrailing {
-        guard streaming else { return .text(timeLabel) }
-        let title: LocalizedStringKey = message.text.isEmpty ? "Thinking" : "Writing"
-        return .custom(AnyView(StatePill(title, tone: .accent, pulsing: true)))
-    }
-
-    /// Sources on the leading side; read-aloud and share as the same icon chips the Coach header uses.
-    @ViewBuilder private var footer: some View {
-        let showsActions = message.role == .assistant && !streaming && !message.text.isEmpty
-        if !message.evidence.isEmpty || showsActions {
-            HStack(spacing: NoopMetrics.space2) {
-                if !message.evidence.isEmpty {
-                    Button { showEvidence = true } label: {
-                        WidgetChip(appTitle: sourcesTitle, systemImage: "doc.text.magnifyingglass", overhangs: false)
-                            .chipHitTarget()
-                    }
-                    .buttonStyle(.plain)
-                }
-                Spacer(minLength: 0)
-                if showsActions {
-                    // Each tap area reaches 9pt past its chip, so 18pt apart they sit edge to edge.
-                    HStack(spacing: 18) {
-                        Button(action: onSpeak) {
-                            WidgetChip(systemImage: "speaker.wave.2", showsChevron: false, overhangs: false)
-                                .iconChipHitTarget()
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Read aloud")
-                        ShareLink(item: message.text) {
-                            WidgetChip(systemImage: "square.and.arrow.up", showsChevron: false, overhangs: false)
-                                .iconChipHitTarget()
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Share")
-                    }
-                }
-            }
-        }
-    }
-}
-
-/// Chrome for Coach's preference-style sheets (settings, sources, history, editors, diagnostics).
-///
-/// These intentionally use the same native grouped-list vocabulary as the Settings tab: the pushed
-/// destinations they reach (Siri & Shortcuts, Test Centre, cloud coach) render with the settings-detail
-/// scaffold presentation and no pinned app chrome, exactly as they do under Settings. The appearance is
-/// not forced here: the app root fixes the whole app dark and sheets inherit it.
 extension View {
     func coachSettingsSheetEnvironment() -> some View {
         environment(\.screenScaffoldPresentation, .settingsDetail)
@@ -897,32 +442,27 @@ extension View {
 
 struct LocalCoachFixtureLabel: View {
     var body: some View {
-        StatePill("Preview with synthetic data", tone: .warning)
-            .accessibilityIdentifier("coach.syntheticPreview")
+        StatePill("Preview with synthetic data", tone: .warning).accessibilityIdentifier("coach.syntheticPreview")
     }
 }
 
 #if DEBUG
 struct LocalCoachPreviewHost: View {
     @StateObject private var coach: LocalCoachEngine
-    private let screen: LocalCoachScreen
-    private let diagnostics: Bool
-    private let deviceCheck: Bool
+    private let screen: String
     init(screen: String) {
-        self.screen = LocalCoachScreen(rawValue: screen) ?? .home
-        self.diagnostics = screen == "diagnostics"
-        self.deviceCheck = screen == "devicecheck"
+        self.screen = screen
         _coach = StateObject(wrappedValue: LocalCoachEngine.preview(screen: screen))
     }
     var body: some View {
         NavigationStack {
-            if deviceCheck { LocalCoachDeviceCheckView().coachSettingsSheetEnvironment() }
-            else if diagnostics { LocalCoachDiagnosticsView().coachSettingsSheetEnvironment() }
-            else { LocalCoachView(screen: screen) }
+            if screen == "devicecheck" { LocalCoachDeviceCheckView().coachSettingsSheetEnvironment() }
+            else if screen == "diagnostics" { LocalCoachDiagnosticsView().coachSettingsSheetEnvironment() }
+            else if screen == "progress" { CoachProgressGallery() }
+            else { LocalCoachView(screen: LocalCoachScreen(rawValue: screen) ?? .chat) }
         }
-            .environmentObject(coach)
-            // Capture scripts scroll the page through the same driver the app shell runs.
-            .task { await QAScrollDriver.run() }
+        .environmentObject(coach)
+        .task { await QAScrollDriver.run() }
     }
 }
 #endif

@@ -21,7 +21,17 @@ extension TrendsView {
     var trainingLoadCard: some View {
         if let snapshot = currentScreenSnapshot {
             trendsSeparator
-            trainingLoadSection(snapshot.trainingLoad)
+            TrainingLoadDetailLink(key: snapshot.key, rangeDays: selectedRange.days) {
+                VStack(alignment: .leading, spacing: NoopMetrics.space3) {
+                    trainingLoadSection(snapshot.trainingLoad)
+                    HStack {
+                        Text("View training load").font(StrandFont.footnote.weight(.medium))
+                        Spacer()
+                        Image(systemName: "arrow.up.right").font(StrandFont.footnote)
+                    }
+                    .foregroundStyle(StrandPalette.link).frame(minHeight: 44)
+                }
+            }
         }
     }
 
@@ -71,7 +81,7 @@ extension TrendsView {
                         chronic: load.chronicSpark,
                         acute: load.acuteSpark,
                         tint: .strain,
-                        startLabel: String(localized: "\(load.acuteSpark.count - 1) days ago"),
+                        startLabel: String(localized: "Recent observed days"),
                         endLabel: String(localized: "Today")
                     )
                 }
@@ -125,10 +135,10 @@ extension TrendsView {
         if load.unavailableReason == .notEnoughContiguousDays {
             let remaining = max(0, 14 - load.contiguousDays)
             return remaining == 1
-                ? String(localized: "Need 1 more contiguous day with an Effort value.")
-                : String(localized: "Need \(remaining) more contiguous days with Effort values.")
+                ? String(localized: "Need 1 more observed day with an Effort value.")
+                : String(localized: "Need \(remaining) more observed days with Effort values.")
         }
-        return String(localized: "NOOP needs a continuous run of daily Effort values to model acute and chronic load.")
+        return String(localized: "NOOP needs recent observed Effort values. Open details to see coverage and the missing-day rule.")
     }
 
     // MARK: - Selected range
@@ -391,6 +401,7 @@ extension TrendsView {
     /// instead of the bare "M".
     private var rangePicker: some View {
         SegmentedPillControl(TrendRange.allCases, selection: $selectedRange) { $0.rawValue }
+            .segmentedPillSelectionStyle(.quiet)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Range")
             .accessibilityValue("\(selectedRange.days) days")

@@ -119,6 +119,7 @@ struct RootTabView: View {
             tab(coachTabRoot, "Coach", "bubble.left.and.text.bubble.right").tag(4)
             tab(sleepTabRoot, "Sleep", "moon").tag(2)
         }
+        .segmentedPillSelectionStyle(.quiet)
         .environment(\.locale, clockLocale)
         .toolbar(.hidden, for: .tabBar)
         .animation(.timingCurve(0.22, 1, 0.36, 1, duration: 0.24), value: selectedTab)
@@ -615,115 +616,9 @@ private struct ActiveSessionAutoPresenter: View {
     }
 }
 
-private enum QuickAction: Int, Identifiable {
+enum QuickAction: Int, Identifiable {
     case menu, live, journal, breathe, intervals
     var id: Int { rawValue }
-}
-
-private struct QuickActionSheet: View {
-    let onPick: (QuickAction) -> Void
-    /// The workout row: `active` is whether a workout is already recording (the row then returns to it).
-    let onWorkout: (_ active: Bool) -> Void
-    /// "Start <last sport>": into the countdown on that sport, without the setup page.
-    let onQuickStart: (_ sport: String) -> Void
-    @Environment(\.dismiss) private var dismiss
-    @EnvironmentObject private var model: AppModel
-    /// The sport the quick row offers, worked out when the sheet appears (never in `body`).
-    @State private var quickStartSport: String?
-
-    var body: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Text("Quick Actions")
-                    .font(StrandFont.title2)
-                    .foregroundStyle(StrandPalette.textPrimary)
-                Spacer()
-                Button { dismiss() } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(StrandPalette.textPrimary)
-                        .frame(width: 32, height: 32)
-                        .background(StrandPalette.inset, in: Circle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Close Quick Actions")
-                .accessibilityIdentifier("quickActions.close")
-            }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 16)
-
-            Divider().overlay(StrandPalette.hairline)
-
-            ScrollView {
-                LazyVStack(spacing: 0) {
-                    row("Live HR", subtitle: "Start live heart rate", icon: "heart.fill",
-                        tint: StrandPalette.liveRed) { onPick(.live) }
-                    if let active = model.activeWorkout {
-                        row("Return to workout", subtitle: "\(WorkoutSource.displaySport(active.sport)) · in progress",
-                            icon: "figure.run", tint: StrandPalette.ink) { onWorkout(true) }
-                    } else {
-                        row("Start workout", subtitle: "Track a workout", icon: "figure.run",
-                            tint: StrandPalette.ink) { onWorkout(false) }
-                        if let sport = quickStartSport {
-                            row("Start \(StartWorkoutChoices.displayTitle(for: sport))", subtitle: "Skips setup",
-                                icon: sportSymbol(sport), tint: StrandPalette.ink) { onQuickStart(sport) }
-                        }
-                    }
-                    row("Log journal", subtitle: "How are you feeling?", icon: "square.and.pencil",
-                        tint: StrandPalette.journalAccent) { onPick(.journal) }
-                    row("Breathe", subtitle: "Guided breathing", icon: "wind",
-                        tint: StrandPalette.chargeAccent) { onPick(.breathe) }
-                    row("Intervals", subtitle: "Run an interval timer", icon: "timer",
-                        tint: StrandPalette.strainAccent) { onPick(.intervals) }
-                }
-            }
-            .scrollIndicators(.hidden)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background(StrandPalette.card.ignoresSafeArea())
-        .onAppear {
-            quickStartSport = WorkoutQuickStart.offer(
-                recents: RecentSportsPrefs.recent(), gps: WorkoutQuickStart.currentGps(),
-                blockedByLift: model.workoutStartBlock != nil)
-        }
-    }
-
-    private func row(
-        _ title: LocalizedStringKey,
-        subtitle: LocalizedStringKey,
-        icon: String,
-        tint: Color,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            HStack(spacing: 14) {
-                Image(systemName: icon)
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(tint)
-                    .frame(width: 38, height: 38)
-                    .background(tint.opacity(0.10), in: Circle())
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title)
-                        .font(StrandFont.body.weight(.semibold))
-                        .foregroundStyle(StrandPalette.textPrimary)
-                    Text(subtitle)
-                        .font(StrandFont.caption)
-                        .foregroundStyle(StrandPalette.textSecondary)
-                }
-                Spacer()
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(StrandPalette.textTertiary)
-            }
-            .padding(.horizontal, 20)
-            .frame(minHeight: 68)
-            .overlay(alignment: .bottom) {
-                Rectangle().fill(StrandPalette.hairline).frame(height: 1).padding(.leading, 52)
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
 }
 
 /// A tab's name: one line, never broken inside a word. The slot is about 60 pt wide, so a long word ("Einstellungen")

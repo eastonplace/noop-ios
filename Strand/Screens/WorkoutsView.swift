@@ -13,7 +13,7 @@ import Foundation
 //  • This week: active time, a bar per day, sessions, calories and (when NOOP scored any) the average Strain,
 //    with the two ways to begin a workout.
 //  • Lift: the last lift, and the routes into the Lift screens.
-//  • Recent: the latest three sessions.
+//  • History first: recent sessions grouped by local start day, after a small seven-day chart.
 //  • Heart rate zones and the latest pace, over the range the history below is showing.
 //  • History: every session, with range, sport, source and search filters, multi-select merge/delete and a row menu.
 //
@@ -39,6 +39,20 @@ struct WorkoutsView: View {
     }
     @State private var historyScope: WorkoutHistoryScope = .current
     @State private var liftDestination: LiftDestination?
+    @State private var showHistoryFilters = false
+    @State private var showTrainingTools = false
+    @State private var expandingHistory = false
+    @State private var loadedSourceIdentity = ""
+    @State private var civilRevision = 0
+
+    private var sourceIdentity: String {
+        repo.todayHealthSnapshotScopeId + "|" + repo.liveSourceState.lineageComponent
+            + "|" + String(repo.externalSurfaceInvalidationEpoch)
+    }
+    private var loadIdentity: String {
+        sourceIdentity + "|" + String(repo.refreshSeq) + "|" + String(civilRevision)
+            + (repo.verifiedExternalSurfaceFenced ? "|updating" : "|ready")
+    }
 
     // Imperial/Metric display preference (D#103). Workout distances are stored in metres; the toggle
     // re-labels them to miles/yards. Display-only — nothing on disk changes.
@@ -86,6 +100,7 @@ struct WorkoutsView: View {
     /// window or the filters change, never in `body`. `.pending` until the first parse reports, so a section that
     /// has not looked yet never claims there is no data.
     @State private var zonesPhase: WorkoutZonesSection.Phase = .pending
+    @State private var publishedZonesKey: ZonesKey?
     /// Bumped whenever `allRows` is replaced, so everything computed from the rows knows they changed, whatever
     /// their count and newest start say.
     @State private var rowsGeneration = 0
@@ -156,6 +171,7 @@ struct WorkoutsView: View {
         // The capture leaf is the only broad observer. Workouts retains only object identity, preventing
         // each active-workout publication from rebuilding the filtered history and summary sections.
         .background(AppModelReferenceCapture(reference: $appModel))
+        .segmentedPillSelectionStyle(.quiet)
     }
 
     /// A pushed hub (or one with no close control of its own) draws a back chevron. The hub at the root of a sheet that
@@ -166,7 +182,7 @@ struct WorkoutsView: View {
     }
 
     private var dashboard: some View {
-        ScreenScaffold(title: "Workouts", subtitle: "Every session, threaded together.",
+        ScreenScaffold(title: "Workouts", subtitle: "Your sessions, newest first.",
                        onRefresh: { _ = await repo.refresh(.currentDay) },
                        // PERF: the column ends in the full history log. On a large imported history the eager
                        // VStack built every section + every row up-front; the LazyVStack path (which is
@@ -179,14 +195,21 @@ struct WorkoutsView: View {
         #if os(iOS)
         .toolbar(.hidden, for: .navigationBar)
         #endif
-        .task(id: repo.refreshSeq) {
+        .onReceive(NotificationCenter.default.publisher(for: .NSCalendarDayChanged)) { _ in civilRevision &+= 1 }
+        .onReceive(NotificationCenter.default.publisher(for: .NSSystemTimeZoneDidChange)) { _ in civilRevision &+= 1 }
+        .task(id: loadIdentity) {
             guard !usesPreviewRows else { return }
             #if DEBUG
             // QA: hold the hub in its loading state so that state can be captured (`--noop-qa-hold-load`).
             if ProcessInfo.processInfo.arguments.contains("--noop-qa-hold-load") { return }
             #endif
             // #797: read only the currently-loaded window (bounded on first paint), not the whole history.
+            let identity = loadIdentity
+            let source = sourceIdentity
+            guard !repo.verifiedExternalSurfaceFenced else { return }
             let r = await repo.workoutRows(days: loadedWindowDays ?? 4000)
+            guard !Task.isCancelled, identity == loadIdentity, !repo.verifiedExternalSurfaceFenced else { return }
+            loadedSourceIdentity = source
             setRows(r)
             let wasLoaded = loaded
             loaded = true
@@ -194,18 +217,22 @@ struct WorkoutsView: View {
                 range = defaultRange(for: r)
                 seededInitialRange = true
             }
-            lastLift = await readLastLift()
+            let lift = await readLastLift()
+            guard !Task.isCancelled, identity == loadIdentity else { return }
+            lastLift = lift
         }
         .task(id: zonesKey) {
             // Before the rows arrive there is nothing to parse, and parsing nothing would report "No zone data" for a
             // history that has some. The generation bump that comes with the rows starts this task again.
             guard loaded else { return }
-            let rows = sessions(for: effectiveRange)
+            let key = zonesKey
+            let rows = WorkoutHistoryScope.filter(sessions(for: effectiveRange), scope: historyScope)
             let summary = await Task.detached(priority: .userInitiated) { WorkoutZones.summary(from: rows) }.value
             // A detached task does not stop with this one. Without the check a parse for rows the person has already
             // filtered away could land after the newer one and replace it.
             guard !Task.isCancelled else { return }
             zonesPhase = .ready(summary)
+            publishedZonesKey = key
         }
         .onAppear {
             // Preview-seeded rows skip `.task`; still choose a range that has data.
@@ -293,7 +320,11 @@ struct WorkoutsView: View {
     /// Keeps the user's current range — only the initial load picks a default — and the auto-widen
     /// (`effectiveRange`) still covers a now-empty window.
     private func reload() async {
-        setRows(await repo.workoutRows(days: loadedWindowDays ?? 4000))
+        let identity = sourceIdentity
+        let rows = await repo.workoutRows(days: loadedWindowDays ?? 4000)
+        guard !Task.isCancelled, identity == sourceIdentity, !repo.verifiedExternalSurfaceFenced else { return }
+        loadedSourceIdentity = identity
+        setRows(rows)
     }
 
     /// Replaces the loaded rows and everything derived from them. The one place `allRows` is assigned.
@@ -322,11 +353,16 @@ struct WorkoutsView: View {
     /// Only a pick of `.all` (or a future range exceeding the loaded window) triggers the one-time full
     /// read, so the common 7D/30D/90D/1Y interactions stay on the already-loaded bounded set.
     private func expandWindowIfNeeded(for picked: Range) async {
-        guard !usesPreviewRows, loadedWindowDays != nil else { return }
-        // A bounded range that fits inside what's already loaded needs no wider read.
+        guard !usesPreviewRows, loadedWindowDays != nil, !expandingHistory else { return }
         if let pickedDays = picked.days, pickedDays <= (loadedWindowDays ?? 0) { return }
+        let identity = loadIdentity
+        expandingHistory = true
+        defer { expandingHistory = false }
+        let rows = await repo.workoutRows(days: 4000)
+        guard !Task.isCancelled, identity == loadIdentity, !repo.verifiedExternalSurfaceFenced else { return }
         loadedWindowDays = nil
-        setRows(await repo.workoutRows(days: 4000))
+        loadedSourceIdentity = sourceIdentity
+        setRows(rows)
     }
 
     /// The finished lift with the latest start, with its working-set count, from the lifting log.
@@ -345,8 +381,8 @@ struct WorkoutsView: View {
     /// Everything the column holds. The rows are windowed and grouped ONCE per body evaluation and threaded into
     /// every section: SwiftUI re-runs `body` on hover, animation and every state change.
     @ViewBuilder private var hub: some View {
-        if !loaded {
-            WorkoutsHubSkeleton()
+        if !loaded || (!usesPreviewRows && (loadedSourceIdentity != sourceIdentity || repo.verifiedExternalSurfaceFenced)) {
+            WorkoutHistorySkeleton()
         } else if allRows.isEmpty {
             emptyHub
         } else {
@@ -356,33 +392,65 @@ struct WorkoutsView: View {
 
     @ViewBuilder private var populatedHub: some View {
         let resolved = effectiveRange
-        let windowRows = sessions(for: resolved)
+        let rows = WorkoutHistoryScope.filter(sessions(for: resolved), scope: historyScope)
         let derived = currentDerived
-        WorkoutsWeekSection(week: derived.week) { actionPills }
-        FlatSectionSeparator()
-        WorkoutsLiftSection(lastLift: lastLift) { liftDestination = $0 }
-        FlatSectionSeparator()
-        WorkoutsRecentSection(rows: Array(allRows.prefix(3)), unitSystem: unitSystem, onOpen: openDetail)
-        FlatSectionSeparator.afterRows
-        WorkoutZonesSection(phase: zonesPhase, zoneSet: zoneSet, windowCaption: resolved.caption)
-        if let paceRow = derived.paceRow, let pace = WorkoutPace.perUnit(paceRow, system: unitSystem) {
-            FlatSectionSeparator()
-            WorkoutPaceSection(row: paceRow, pace: pace, unitSystem: unitSystem)
-        }
+        let anchor = historyScope == .archived
+            ? rows.first.map { Date(timeIntervalSince1970: Double($0.startTs)) } ?? Date() : Date()
+        actionPills.padding(.bottom, NoopMetrics.space3)
+        WorkoutHistoryChart(rows: rows, anchor: Calendar.autoupdatingCurrent.startOfDay(for: anchor))
         FlatSectionSeparator.beforeChipHeader
-        history(rows: WorkoutHistoryScope.filter(windowRows, scope: historyScope), effectiveRange: resolved)
+        history(rows: rows, effectiveRange: resolved)
+        if historyScope == .current {
+            Button("View older workouts", systemImage: "clock.arrow.circlepath") { historyScope = .archived }
+                .buttonStyle(SecondaryPillButtonStyle())
+                .padding(.vertical, NoopMetrics.space4)
+                .accessibilityIdentifier("workouts.olderHistory")
+        }
+        if historyScope == .archived, loadedWindowDays != nil, !expandingHistory {
+            Button("Load older history", systemImage: "arrow.down") {
+                Task { await expandWindowIfNeeded(for: .all) }
+            }
+            .buttonStyle(SecondaryPillButtonStyle()).padding(.vertical, NoopMetrics.space3)
+        }
+        if expandingHistory {
+            HStack { ProgressView(); Text("Loading older workouts…").font(StrandFont.footnote) }
+                .padding(.vertical, NoopMetrics.space3)
+        }
+        FlatSectionSeparator()
+        DisclosureGroup("Training tools and summaries", isExpanded: $showTrainingTools) {
+            WorkoutsWeekSection(week: derived.week) { EmptyView() }
+            FlatSectionSeparator()
+            WorkoutsLiftSection(lastLift: lastLift) { liftDestination = $0 }
+            FlatSectionSeparator()
+            WorkoutZonesSection(phase: publishedZonesKey == zonesKey ? zonesPhase : .pending, zoneSet: zoneSet, windowCaption: resolved.caption)
+            if let paceRow = rows.first(where: { WorkoutPace.perUnit($0, system: unitSystem) != nil }),
+               let pace = WorkoutPace.perUnit(paceRow, system: unitSystem) {
+                FlatSectionSeparator()
+                WorkoutPaceSection(row: paceRow, pace: pace, unitSystem: unitSystem)
+            }
+        }
+        .font(StrandFont.subhead)
+        .padding(.vertical, NoopMetrics.space3)
     }
 
     /// No workouts at all: the week with nothing in it, the ways to begin one, the Lift entry points and a note on
     /// where workouts come from.
     @ViewBuilder private var emptyHub: some View {
-        WorkoutsWeekSection(week: WorkoutWeekSummary.make(rows: [], now: Date())) { actionPills }
+        actionPills.padding(.bottom, NoopMetrics.space3)
+        WorkoutHistoryChart(rows: [], anchor: Calendar.autoupdatingCurrent.startOfDay(for: Date()))
+        FlatSectionSeparator()
+        WorkoutEmptyState(symbol: "figure.run", title: "No workouts in this history",
+                          message: "Add a workout you tracked elsewhere, or check Data Sources for imported sessions.")
+        if !usesPreviewRows, loadedWindowDays != nil {
+            Button("Check older history", systemImage: "clock.arrow.circlepath") {
+                historyScope = .archived
+                Task { await expandWindowIfNeeded(for: .all) }
+            }
+                .buttonStyle(SecondaryPillButtonStyle()).padding(.vertical, NoopMetrics.space3)
+        }
+        if expandingHistory { ProgressView("Loading older workouts…") }
         FlatSectionSeparator()
         WorkoutsLiftSection(lastLift: lastLift) { liftDestination = $0 }
-        FlatSectionSeparator()
-        WorkoutEmptyState(
-            symbol: "figure.run", title: "No workouts yet",
-            message: "They come from your WHOOP and Apple Health history. Import in Data Sources to bring them in, or add one you tracked elsewhere.")
     }
 
     /// Start (or return to) a live workout, and add one tracked elsewhere. Same size, one primary.
@@ -413,11 +481,12 @@ struct WorkoutsView: View {
         let sport: String?
         let source: WorkoutOrigin?
         let search: String
+        let scope: WorkoutHistoryScope
     }
 
     private var zonesKey: ZonesKey {
         ZonesKey(generation: rowsGeneration, range: range,
-                 sport: sportFilter, source: sourceFilter, search: searchText)
+                 sport: sportFilter, source: sourceFilter, search: searchText, scope: historyScope)
     }
 
     // MARK: - Post-log activity-cost note (#439)
@@ -513,10 +582,20 @@ struct WorkoutsView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.vertical, NoopMetrics.space3)
         } else {
-            ForEach(Array(rows.enumerated()), id: \.element.listID) { index, row in
-                VStack(spacing: 0) {
-                    if index > 0 { WorkoutRowSeparator(leadingExtra: selectionMode ? Self.selectionColumnWidth : 0) }
-                    sessionRow(row)
+            ForEach(WorkoutHistoryDay.grouped(rows)) { group in
+                HStack(alignment: .firstTextBaseline) {
+                    Text(WorkoutHistoryDay.title(for: group.day)).font(StrandFont.subhead.weight(.semibold))
+                    Spacer()
+                    Text("\(group.rows.count) sessions").font(StrandFont.micro)
+                        .foregroundStyle(StrandPalette.textTertiary)
+                }
+                .padding(.top, NoopMetrics.space5).padding(.bottom, NoopMetrics.space2)
+                .accessibilityAddTraits(.isHeader)
+                ForEach(Array(group.rows.enumerated()), id: \.element.listID) { index, row in
+                    VStack(spacing: 0) {
+                        if index > 0 { WorkoutRowSeparator(leadingExtra: selectionMode ? Self.selectionColumnWidth : 0) }
+                        sessionRow(row)
+                    }
                 }
             }
         }
@@ -524,26 +603,29 @@ struct WorkoutsView: View {
 
     /// The scope and range pills, the sport and source filters, the search field and the one-line count.
     private func controls(rows: [WorkoutRow], effectiveRange: Range) -> some View {
-        let fellBack = effectiveRange != range
-        return VStack(alignment: .leading, spacing: NoopMetrics.space3) {
-            SegmentedPillControl(WorkoutHistoryScope.allCases, selection: $historyScope) { scope in
-                scope == .current ? String(localized: "Current") : String(localized: "Archived")
+        VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+            HStack(alignment: .center) {
+                SegmentedPillControl(WorkoutHistoryScope.allCases, selection: $historyScope) { scope in
+                    scope == .current ? String(localized: "Recent") : String(localized: "Archived")
+                }
+                Spacer(minLength: 8)
+                Button { showHistoryFilters.toggle() } label: {
+                    Label(filter.isActive ? "Filters on" : "Filters", systemImage: "line.3.horizontal.decrease")
+                        .font(StrandFont.footnote).frame(minHeight: 44)
+                }.buttonStyle(.plain)
+                .accessibilityValue(showHistoryFilters ? "Expanded" : "Collapsed")
             }
-            Text("Current contains the last 90 days. Archived sessions stay saved.")
-                .font(StrandFont.footnote)
-                .foregroundStyle(StrandPalette.textTertiary)
-                .fixedSize(horizontal: false, vertical: true)
-            SegmentedPillControl(Range.allCases, selection: $range) { $0.label }
-            filterBar
             Text(verbatim: rangeCaption(count: rows.count, effectiveRange: effectiveRange))
-                .font(StrandFont.footnote)
-                .foregroundStyle(StrandPalette.textTertiary)
-                .fixedSize(horizontal: false, vertical: true)
-            if fellBack {
+                .font(StrandFont.footnote).foregroundStyle(StrandPalette.textTertiary)
+            if showHistoryFilters {
+                Text("Recent contains the last 90 days. Archived sessions stay saved.")
+                    .font(StrandFont.footnote).foregroundStyle(StrandPalette.textTertiary)
+                SegmentedPillControl(Range.allCases, selection: $range) { $0.label }
+                filterBar
+            }
+            if effectiveRange != range {
                 Text("Few sessions in that range, so this shows \(effectiveRange.caption).")
-                    .font(StrandFont.footnote)
-                    .foregroundStyle(StrandPalette.statusWarning)
-                    .fixedSize(horizontal: false, vertical: true)
+                    .font(StrandFont.footnote).foregroundStyle(StrandPalette.statusWarning)
             }
         }
     }
@@ -880,15 +962,8 @@ struct WorkoutsView: View {
         String(localized: "\(count) sessions · \(effectiveRange.caption)")
     }
 
-    /// Pick the tightest range that still holds ≥2 sessions; otherwise show All.
-    private func defaultRange(for source: [WorkoutRow]) -> Range {
-        guard let last = source.map(\.startTs).max() else { return .all }
-        for r in Range.allCases where r.days != nil {
-            let cutoff = calendarCutoff(anchor: last, daysBack: r.days ?? 0)
-            if source.filter({ $0.startTs >= cutoff }).count >= 2 { return r }
-        }
-        return .all
-    }
+    /// History starts with the full recent window rather than a range containing only two sessions.
+    private func defaultRange(for source: [WorkoutRow]) -> Range { .quarter }
 
     // MARK: - Range model
 
