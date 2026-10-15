@@ -310,6 +310,7 @@ struct RootTabView: View {
             case .breathe: quickAction = .breathe
             case .journal: quickAction = .journal
             case .intervals: quickAction = .intervals
+            case .quickActions: quickAction = .menu
             case .startWorkout: router.beginWorkout()
             case .workoutCountdown: router.quickStartWorkout(sport: "Running")
             case .liveWorkout: router.openActiveWorkout()
