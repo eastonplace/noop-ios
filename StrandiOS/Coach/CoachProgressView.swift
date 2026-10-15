@@ -3,6 +3,8 @@ import SwiftUI
 import StrandDesign
 
 /// The label is event-driven. Only this small ornament animates; it never invents task stages or progress percentages.
+/// Flat like the rest of the transcript (no box): the ornament leads, the stage reads as a row under the Coach eyebrow,
+/// and Stop is the same chip family as the answer actions.
 struct CoachProgressView: View {
     let stage: CoachResponseStage
     var onStop: (() -> Void)? = nil
@@ -13,31 +15,31 @@ struct CoachProgressView: View {
     var body: some View {
         HStack(alignment: .center, spacing: NoopMetrics.space3) {
             ornament.frame(width: 22, height: 22).accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 2) {
                 Text(LocalizedStringKey(stage.title))
-                    .font(StrandFont.footnote.weight(.semibold))
+                    .font(StrandFont.subhead.weight(.semibold))
                     .foregroundStyle(StrandPalette.textPrimary)
+                    .contentTransition(.opacity)
                 if !stage.detail.isEmpty {
-                    Text(LocalizedStringKey(stage.detail)).font(StrandFont.micro)
+                    Text(LocalizedStringKey(stage.detail)).font(StrandFont.footnote)
                         .foregroundStyle(StrandPalette.textTertiary)
                         .fixedSize(horizontal: false, vertical: true)
+                        .contentTransition(.opacity)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: stage)
             if stage.isActive, let onStop {
                 Button(action: onStop) {
-                    Image(systemName: "stop.fill").font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(StrandPalette.textSecondary)
-                        .frame(width: 44, height: 44).contentShape(Rectangle())
-                }.buttonStyle(.plain).accessibilityLabel("Stop response")
+                    WidgetChip(appTitle: "Stop", systemImage: "stop.fill", showsChevron: false, overhangs: false)
+                        .chipHitTarget()
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Stop response")
+                .accessibilityIdentifier("coach.progress.stop")
             }
         }
-        .padding(.leading, 12).padding(.trailing, 4).padding(.vertical, 8)
-        .background(StrandPalette.card, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(alignment: .leading) {
-            RoundedRectangle(cornerRadius: 1).fill(StrandPalette.accent.opacity(0.55))
-                .frame(width: 2).padding(.vertical, 12).accessibilityHidden(true)
-        }
+        .frame(minHeight: 44)
         .onAppear { visible = true }
         .onDisappear { visible = false }
         .accessibilityElement(children: .contain)
@@ -54,8 +56,28 @@ struct CoachProgressView: View {
                 }
             }
         } else {
-            Image(systemName: stage == .complete ? "checkmark" : stage == .failed ? "exclamationmark" : "pause")
-                .font(.system(size: 13, weight: .medium)).foregroundStyle(StrandPalette.textSecondary)
+            Image(systemName: finishedSymbol)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(finishedTint)
+                .frame(width: 22, height: 22)
+                .background(Circle().fill(finishedTint.opacity(0.14)))
+        }
+    }
+
+    /// Finished stages keep their meaning: done is the Coach accent, a failure is a warning, a stop is neutral.
+    private var finishedSymbol: String {
+        switch stage {
+        case .complete: "checkmark"
+        case .failed: "exclamationmark"
+        default: "pause.fill"
+        }
+    }
+
+    private var finishedTint: Color {
+        switch stage {
+        case .complete: StrandPalette.accent
+        case .failed: StrandPalette.statusWarning
+        default: StrandPalette.textSecondary
         }
     }
 
@@ -78,15 +100,22 @@ struct CoachProgressGallery: View {
         .reading(tool: "workout_history", days: 7), .evidenceReady, .writing, .complete, .stopped, .failed]
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                LocalCoachFixtureLabel()
+            VStack(alignment: .leading, spacing: 0) {
+                LocalCoachFixtureLabel().padding(.bottom, NoopMetrics.space3)
                 Text("Response states").font(StrandFont.title1)
                 Text("Synthetic component review. Enable Reduce Motion to compare the still treatment.")
-                    .font(StrandFont.footnote).foregroundStyle(StrandPalette.textSecondary)
+                    .font(StrandFont.subhead).foregroundStyle(StrandPalette.textSecondary)
+                    .padding(.top, NoopMetrics.space2)
                 ForEach(Array(stages.enumerated()), id: \.offset) { index, stage in
-                    CoachProgressView(stage: stage).accessibilityIdentifier("coach.progressFixture.\(index)")
+                    FlatSectionSeparator.coach
+                    // The first stage shows the Stop chip, as a live answer does.
+                    CoachProgressView(stage: stage, onStop: index == 0 ? {} : nil)
+                        .accessibilityIdentifier("coach.progressFixture.\(index)")
                 }
-            }.padding(20)
+            }
+            .padding(.horizontal, NoopMetrics.space4)
+            .padding(.top, NoopMetrics.space5)
+            .padding(.bottom, CoachRhythm.pageBottom)
         }
         .background(StrandPalette.appCanvas)
     }

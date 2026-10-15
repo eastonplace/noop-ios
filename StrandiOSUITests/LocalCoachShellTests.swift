@@ -22,8 +22,8 @@ final class LocalCoachShellTests: XCTestCase {
         XCTAssertTrue(app.buttons.containing(.staticText, identifier: "Start workout").firstMatch.waitForExistence(timeout: 5))
         capture(app, "02-restored-quick-actions")
         app.buttons["quickActions.close"].tap()
-        app.buttons["Coach actions"].tap()
-        app.buttons["New conversation"].tap()
+        // New conversation is a header action (the composer's + menu no longer repeats it).
+        app.buttons["coach.newConversation"].tap()
         composer.tap()
         composer.typeText("This is a software check. Reply with the single word READY.")
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))

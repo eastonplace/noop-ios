@@ -320,10 +320,13 @@ final class LocalCoachEngine: ObservableObject {
         ensureConversation(title: text)
         let requestDate = Date()
         let requestCalendar = Calendar.autoupdatingCurrent
-        let evidencePlan = CoachEvidencePolicy.plan(for: text, now: requestDate, calendar: requestCalendar)
+        // A brief names its own first read; a question is routed by its wording.
+        let evidencePlan = brief.map(Self.briefPlan)
+            ?? CoachEvidencePolicy.plan(for: text, now: requestDate, calendar: requestCalendar)
+        // Permission is consent plus a settled source, whatever the router decided. The router only chooses whether the
+        // app reads first; a question it files as general keeps the person's memories, context and personal tools.
         let personal = CoachEvidencePolicy.permitsPersonalRead(
             consent: preferences.usePersonalData, recordsUpdating: scope.fenced)
-            && evidencePlan != .general
         let request = LocalCoachRequest(
             question: text, history: scope.fenced ? [] : Array(history.suffix(12)),
             memories: personal && preferences.memoryEnabled ? memories.filter(\.enabled) : [],
@@ -341,8 +344,14 @@ final class LocalCoachEngine: ObservableObject {
         let token = startOperation()
         let captured = scope
         let tools = (data?.toolDescriptors ?? []).filter {
-            (personal && evidencePlan != .general) || Self.publicToolNames.contains($0.id)
+            personal || Self.publicToolNames.contains($0.id)
         }
+        // Read first only through a tool this source offers; otherwise the model answers with the tools it has.
+        let firstRead: (name: String, days: Int)? = {
+            guard personal, case .read(let name, let days) = evidencePlan,
+                  tools.contains(where: { $0.id == name }) else { return nil }
+            return (name, days)
+        }()
         let started = Date()
         let task = Task { [weak self] in
             guard let self else { return }
@@ -350,7 +359,8 @@ final class LocalCoachEngine: ObservableObject {
                 try self.requireCurrent(token, scope: captured)
                 self.publishProgress(.checkingAccess, token: token)
                 var preparedRequest = request
-                if evidencePlan == .needsNarrowerRange {
+                // The range limit is a personal-read limit. Without permission there is no read to bound.
+                if personal, evidencePlan == .needsNarrowerRange {
                     if let index = self.messages.firstIndex(where: { $0.id == assistant.id }) {
                         self.messages[index].text = CoachEvidencePolicy.rangeExplanation
                         self.messages[index].evidence = []
@@ -359,7 +369,8 @@ final class LocalCoachEngine: ObservableObject {
                     self.finish(token, started: started)
                     return
                 }
-                if personal, case .read(let name, let days) = evidencePlan {
+                if let firstRead {
+                    let name = firstRead.name, days = firstRead.days
                     // Publish the typed card before requesting prose. No extra data access path or private store.
                     let query = CoachEvidencePolicy.readQuery(for: text, days: days, now: requestDate, calendar: requestCalendar)
                     let result = try await self.readTool(name, query: query, days: days, token: token, scope: captured)
@@ -569,6 +580,16 @@ final class LocalCoachEngine: ObservableObject {
         }
         generation = task
         await withTaskCancellationHandler { await task.value } onCancel: { task.cancel() }
+    }
+
+    /// A brief's prompt names sleep, recovery and training together, so routing it by wording would always read workout
+    /// history first. Each brief starts from the record it is about.
+    private static func briefPlan(_ kind: LocalCoachBriefKind) -> CoachEvidencePlan {
+        switch kind {
+        case .morning, .evening: .read(tool: "current_day", days: 1)
+        case .weekly: .read(tool: "metric_trends", days: 7)
+        case .activity: .read(tool: "workout_history", days: 7)
+        }
     }
 
     func generateBrief(kind: LocalCoachBriefKind) async {
