@@ -128,7 +128,12 @@ try:
         "completion.complete(.missingRuntime)",
         "completion.complete(.cancelled)",
         "completion.complete(.evaluationError)",
-        "completion.complete(.expired)",
+        # Expiration routes through the nonisolated, @Sendable `makeExpirationHandler` seam (build 231): it cancels
+        # the operation and reports `.expired` to the same exactly-once gate.
+        "refreshTask.expirationHandler = makeExpirationHandler(",
+        "complete: { completion.complete($0) }",
+        "nonisolated static func makeExpirationHandler(",
+        "complete(.expired)",
         "refreshTask.setTaskCompleted(success: success)",
         "SmartAlarmRuntimeBackgroundScheduler.requestKey",
         "SmartAlarmRuntimeBackgroundScheduler.clearRequest(ifMatching: request)",
@@ -141,6 +146,10 @@ try:
         "testExpirationWinsOverLateSuccess",
         "testCancellationWinsOverLateFailure",
         "testStateMachineAcceptsOnlyFirstTerminalEvent",
+    )
+    require(
+        "StrandiOSTests/BackgroundTaskExpirationHandlerTests.swift",
+        "testSmartAlarmExpirationRunsOffMainAndReportsExpired",
     )
     require(
         "StrandiOSTests/SmartAlarmBackgroundTaskRegistrarTests.swift",
