@@ -155,6 +155,7 @@ struct CoachConversationView: View {
             }
             .buttonStyle(PaperPressStyle())
         }
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("coach.welcome")
     }
 
@@ -319,6 +320,7 @@ private struct CoachTurnView: View {
                     }
                 }
                 .animation(reduceMotion ? nil : .easeOut(duration: 0.25), value: cards.map(\.id))
+                .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("coach.answer.cards")
             }
             if !message.text.isEmpty {
