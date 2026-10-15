@@ -7,7 +7,7 @@ name: QA simulator screens (PR 58 rig)
 on:
   push:
     branches: [claude/peaceful-ptolemy-2tijd1]
-    paths-ignore: ['qa-shots/**']
+    paths-ignore: ['qa-shots/**', '.github/qa-rig/tests-trigger', '.github/workflows/qa-tests.yml']
   workflow_dispatch:
 
 concurrency:
