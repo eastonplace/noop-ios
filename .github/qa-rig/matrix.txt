@@ -5,6 +5,7 @@
 12-ref-recovery       |          | 10 | --demo-seed --noop-qa-route pillar-recovery
 13-ref-hrv-detail     |          | 10 | --demo-seed --noop-qa-route metric-detail-hrv
 14-ref-settings       |          | 9  | --demo-seed --noop-qa-route settings
+15-ref-hrv-scrolled   |          | 10 | --demo-seed --noop-qa-route metric-detail-hrv @scroll=700
 # --- Coach (UX-03 / AI-01) ---
 20-coach-live         | small xl | 10 | --demo-seed --demo-tab coach
 21-coach-shell-qa     |          | 10 | --noop-coach-shell-qa --demo-tab coach
@@ -12,6 +13,9 @@
 23-coach-notready     |          | 9  | --demo-seed --demo-tab coach --noop-coach-availability notready
 24-coach-disabled     |          | 9  | --demo-seed --demo-tab coach --noop-coach-availability disabled
 25-coach-checking     |          | 9  | --demo-seed --demo-tab coach --noop-coach-availability checking
+26-coach-overview     |          | 7  | --noop-coach-preview home
+27-coach-overview-live|          | 10 | --demo-seed --demo-tab coach --noop-coach-page overview
+28-coach-overview-end |          | 7  | --noop-coach-preview home @scroll=99999
 30-coach-chat         | small xl | 7  | --noop-coach-preview chat
 31-coach-chat-mid     |          | 7  | --noop-coach-preview chat @scroll=700
 32-coach-chat-end     | small    | 7  | --noop-coach-preview chat @scroll=99999
