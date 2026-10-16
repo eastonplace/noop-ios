@@ -17,20 +17,16 @@ extension TrendsView {
 
     // MARK: - Training load
 
+    /// The whole section opens the training load detail, the way a #55 tappable section does: the eyebrow's chevron
+    /// says so, with no extra footer row to break the hairline rhythm. VoiceOver hears one heading with a short summary
+    /// rather than every figure in the section.
     @ViewBuilder
     var trainingLoadCard: some View {
         if let snapshot = currentScreenSnapshot {
             trendsSeparator
-            TrainingLoadDetailLink(key: snapshot.key, rangeDays: selectedRange.days) {
-                VStack(alignment: .leading, spacing: NoopMetrics.space3) {
-                    trainingLoadSection(snapshot.trainingLoad)
-                    HStack {
-                        Text("View training load").font(StrandFont.footnote.weight(.medium))
-                        Spacer()
-                        Image(systemName: "arrow.up.right").font(StrandFont.footnote)
-                    }
-                    .foregroundStyle(StrandPalette.link).frame(minHeight: 44)
-                }
+            TrainingLoadDetailLink(key: snapshot.key, rangeDays: selectedRange.days,
+                                   voiceOverSummary: trainingLoadVoiceOverSummary(snapshot.trainingLoad)) {
+                trainingLoadSection(snapshot.trainingLoad)
             }
         }
     }
@@ -44,7 +40,8 @@ extension TrendsView {
                 trailing: .pill(
                     LocalizedStringKey(load.map(trainingLoadStatus) ?? "Loading"),
                     tone: load?.state == .established ? .positive : .neutral
-                )
+                ),
+                showsChevron: true
             )
             trainingLoadBody(load)
             Text("Based on daily Effort. Descriptive only; it does not change Readiness.")
@@ -104,31 +101,35 @@ extension TrendsView {
         }
     }
 
+    /// The detail's formatting, so the card and the page it opens print the same figures.
     private func trainingLoadNumber(_ value: Double?) -> String {
-        value.map { String(format: "%.1f", $0) } ?? WidgetMetrics.missingValue
+        value.map { DrillInFormat.number($0, fractionDigits: 1) } ?? WidgetMetrics.missingValue
     }
 
+    /// Never "-0.0" or "+0.0": a balance that rounds to nothing reads "0.0".
     private func trainingLoadBalance(_ value: Double?) -> String {
-        value.map { String(format: "%@%.1f", $0 > 0 ? "+" : "", $0) } ?? WidgetMetrics.missingValue
+        value.map { DrillInFormat.signed($0, fractionDigits: 1) } ?? WidgetMetrics.missingValue
     }
 
     private func trainingLoadStatus(_ load: TrainingLoadSnapshot) -> String {
-        switch load.state {
-        case .established: return String(localized: "Established")
-        case .building: return String(localized: "Building \(load.contiguousDays)/42")
-        case .unavailable: return String(localized: "Building")
-        }
+        TrainingLoadCopy.status(load.state, reason: load.unavailableReason, observedDays: load.contiguousDays)
     }
 
     private func trainingLoadUnavailableTitle(_ load: TrainingLoadSnapshot) -> String {
-        switch load.unavailableReason {
-        case .notEnoughContiguousDays:
-            return String(localized: "Building your load history")
-        case .missingTargetDay:
-            return String(localized: "Today's Effort is not ready")
-        default:
-            return String(localized: "Training load is not ready")
+        TrainingLoadCopy.unavailableTitle(load.unavailableReason)
+    }
+
+    /// One short VoiceOver label for the whole tappable section.
+    private func trainingLoadVoiceOverSummary(_ load: TrainingLoadSnapshot?) -> String {
+        guard let load else { return String(localized: "Training load, loading") }
+        let status = trainingLoadStatus(load)
+        guard load.state != .unavailable else {
+            return String(localized: "Training load, \(status). \(trainingLoadUnavailableTitle(load))")
         }
+        let chronic = trainingLoadNumber(load.chronic)
+        let acute = trainingLoadNumber(load.acute)
+        let balance = trainingLoadBalance(load.balance)
+        return String(localized: "Training load, \(status). Chronic \(chronic), acute \(acute), balance \(balance).")
     }
 
     private func trainingLoadUnavailableDetail(_ load: TrainingLoadSnapshot) -> String {
