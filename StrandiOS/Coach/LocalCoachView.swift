@@ -284,7 +284,7 @@ struct LocalCoachView: View {
                         .transition(.opacity)
                     }
                 }
-                .frame(height: 24)
+                .frame(minHeight: 24)
                 .padding(.bottom, NoopMetrics.space3)
             }
             .padding(.horizontal, NoopMetrics.space4)
@@ -460,18 +460,15 @@ struct LocalCoachView: View {
         if wasDraft { composer = "" }
         composerFocused = false
         screen = .chat
-        let originalIDs = Set(coach.messages.map(\.id))
         let originalContext = coach.recordContextID
         let originalPreferences = coach.preferences
-        let originalConversation = coach.selectedConversationID
         Task {
-            await coach.send(text)
-            // A rejection before appending a user turn must not lose an unsent draft or overwrite a newer one. `send`
-            // also returns when New conversation or History stops a reply; that question was sent, so it stays sent.
-            if wasDraft, composer.isEmpty, originalContext == coach.recordContextID,
-               originalPreferences == coach.preferences,
-               coach.selectedConversationID == originalConversation,
-               !coach.messages.contains(where: { !originalIDs.contains($0.id) && $0.role == .user && $0.text == text }) {
+            let accepted = await coach.send(text)
+            // A refusal before the question became a user turn must not lose an unsent draft or overwrite a newer one.
+            // `send` also returns when New conversation or History stops a reply; that question was sent, so it stays
+            // sent, whichever thread is selected now.
+            if !accepted, wasDraft, composer.isEmpty, originalContext == coach.recordContextID,
+               originalPreferences == coach.preferences {
                 composer = text
             }
         }

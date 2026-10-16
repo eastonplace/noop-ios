@@ -371,6 +371,10 @@ private struct CoachTurnView: View {
                 HStack(spacing: NoopMetrics.space2) { footerLinks }
                 if hasAnswer { answerActions }
             }
+            VStack(alignment: .leading, spacing: NoopMetrics.space3) {
+                footerLinks
+                if hasAnswer { answerActions }
+            }
         }
         .padding(.top, NoopMetrics.space1)
     }

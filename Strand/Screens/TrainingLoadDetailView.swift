@@ -59,7 +59,7 @@ enum TrainingLoadCopy {
             switch reason {
             case .notEnoughContiguousDays: return String(localized: "Building")
             case .noData: return String(localized: "No history")
-            default: return String(localized: "Not ready")
+            default: return String(localized: "Building")
             }
         }
     }
@@ -523,6 +523,9 @@ struct TrainingLoadDetailView: View {
         if let loadedTrigger, !trigger.rereads(loadedTrigger) {
             result = nil
             selection = nil
+            // Forget what was loaded too: if the request returns to it before this read finishes, it is read again
+            // rather than skipped as already on screen (with nothing on screen).
+            self.loadedTrigger = nil
         }
         // Only the first read shows the loading state; a refresh re-reads behind the values already on screen.
         if result == nil { failure = nil }
