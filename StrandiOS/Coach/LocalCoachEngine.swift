@@ -306,15 +306,18 @@ final class LocalCoachEngine: ObservableObject {
         }
     }
 
-    func send(_ text: String) async { await respond(text, brief: nil) }
+    /// True once the question became a user turn (whatever happens to the answer); false when it was refused first.
+    @discardableResult
+    func send(_ text: String) async -> Bool { await respond(text, brief: nil) }
 
-    private func respond(_ text: String, brief: LocalCoachBriefKind?) async {
-        guard canOperate() else { return }
+    @discardableResult
+    private func respond(_ text: String, brief: LocalCoachBriefKind?) async -> Bool {
+        guard canOperate() else { return false }
         let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
-        guard text.utf8.count <= 8_000 else { errorText = LocalCoachFailure.inputTooLong.localizedDescription; return }
+        guard !text.isEmpty else { return false }
+        guard text.utf8.count <= 8_000 else { errorText = LocalCoachFailure.inputTooLong.localizedDescription; return false }
         updateAvailability()
-        guard availability == .available, let model else { errorText = availability.title; return }
+        guard availability == .available, let model else { errorText = availability.title; return false }
         cancel()
         errorText = storageError
         ensureConversation(title: text)
@@ -412,6 +415,7 @@ final class LocalCoachEngine: ObservableObject {
         }
         generation = task
         await withTaskCancellationHandler { await task.value } onCancel: { task.cancel() }
+        return true
     }
 
     func cancel() {
@@ -588,7 +592,8 @@ final class LocalCoachEngine: ObservableObject {
         switch kind {
         case .morning, .evening: .read(tool: "current_day", days: 1)
         case .weekly: .read(tool: "metric_trends", days: 7)
-        case .activity: .read(tool: "workout_history", days: 7)
+        // The most recent activity can be more than a week old: read the widest supported window.
+        case .activity: .read(tool: "workout_history", days: CoachEvidencePolicy.maximumDays)
         }
     }
 

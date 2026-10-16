@@ -120,16 +120,18 @@ extension TrendsView {
     }
 
     /// One short VoiceOver label for the whole tappable section.
+    /// Built only from keys the catalog already translates, so every locale hears its own words.
     private func trainingLoadVoiceOverSummary(_ load: TrainingLoadSnapshot?) -> String {
-        guard let load else { return String(localized: "Training load, loading") }
+        let title = String(localized: "Training load")
+        guard let load else { return [title, String(localized: "Loading")].joined(separator: ", ") }
         let status = trainingLoadStatus(load)
         guard load.state != .unavailable else {
-            return String(localized: "Training load, \(status). \(trainingLoadUnavailableTitle(load))")
+            return [title, status, trainingLoadUnavailableTitle(load)].joined(separator: ", ")
         }
-        let chronic = trainingLoadNumber(load.chronic)
-        let acute = trainingLoadNumber(load.acute)
-        let balance = trainingLoadBalance(load.balance)
-        return String(localized: "Training load, \(status). Chronic \(chronic), acute \(acute), balance \(balance).")
+        return [title, status,
+                String(localized: "Chronic · 42d") + " " + trainingLoadNumber(load.chronic),
+                String(localized: "Acute · 7d") + " " + trainingLoadNumber(load.acute),
+                String(localized: "Balance") + " " + trainingLoadBalance(load.balance)].joined(separator: ", ")
     }
 
     private func trainingLoadUnavailableDetail(_ load: TrainingLoadSnapshot) -> String {

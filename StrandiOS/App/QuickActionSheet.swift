@@ -129,7 +129,7 @@ struct QuickActionSheet: View {
 
     private var workoutSubtitle: Text {
         if let active = model.activeWorkout {
-            return Text("\(WorkoutSource.displaySport(active.sport)) · In progress")
+            return Text("\(WorkoutSource.displaySport(active.sport)) · in progress")
         }
         if blockedByLift { return Text("Your lift is recording. Finish it before starting a workout.") }
         return Text("Choose an activity and get started.")
