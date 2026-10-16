@@ -6,6 +6,7 @@
 13-ref-hrv-detail     |          | 10 | --demo-seed --noop-qa-route metric-detail-hrv
 14-ref-settings       |          | 9  | --demo-seed --noop-qa-route settings
 15-ref-hrv-scrolled   |          | 10 | --demo-seed --noop-qa-route metric-detail-hrv @scroll=700
+16-ref-fitness-pin    |          | 10 | --demo-seed --noop-qa-route fitness-age @scroll=20,40,60,80,100,120,140,160
 # --- Coach (UX-03 / AI-01) ---
 20-coach-live         | small xl | 10 | --demo-seed --demo-tab coach
 21-coach-shell-qa     |          | 10 | --noop-coach-shell-qa --demo-tab coach
@@ -32,12 +33,12 @@
 43-training-load      | small xl | 12 | --demo-seed --noop-qa-route training-load
 44-training-load-mid  |          | 12 | --demo-seed --noop-qa-route training-load @scroll=650
 45-training-load-end  |          | 12 | --demo-seed --noop-qa-route training-load @scroll=99999
-46-training-load-pin  |          | 12 | --demo-seed --noop-qa-route training-load @scroll=160
+46-training-load-pin  |          | 12 | --demo-seed --noop-qa-route training-load @scroll=20,40,60,80,100,120,140,160
 # --- Workout history (UX-04) ---
 50-workouts           | small xl | 12 | --demo-seed --noop-qa-route workouts
 51-workouts-mid       |          | 12 | --demo-seed --noop-qa-route workouts @scroll=800
 52-workouts-end       |          | 12 | --demo-seed --noop-qa-route workouts @scroll=99999
-57-workouts-pin       |          | 12 | --demo-seed --noop-qa-route workouts @scroll=160
+57-workouts-pin       |          | 12 | --demo-seed --noop-qa-route workouts @scroll=20,40,60,80,100,120,140,160
 53-today-workouts     | small    | 12 | --demo-seed --noop-qa-route today-workouts
 54-today-workouts-rest|          | 12 | --demo-seed --noop-qa-route today-workouts-rest
 55-coach-workouts-sheet|         | 12 | --demo-seed --noop-qa-route coach-workouts-sheet

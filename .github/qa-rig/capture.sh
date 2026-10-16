@@ -52,7 +52,14 @@ shoot() {
   local pid
   pid=$(xcrun simctl launch --terminate-running-process "$udid" "$bundle" "${launch_args[@]}" 2>&1 < /dev/null | tail -1)
   sleep "$wait"
-  if [[ -n "$scroll" ]]; then echo "$scroll" > "$scroll_file"; sleep 2.5; fi
+  # `@scroll=20,40,...` steps the offset like a finger drag (the driver polls every 0.4 s), so views that only
+  # report geometry while on screen (a lazy stack's title row) see every intermediate offset.
+  if [[ "$scroll" == *,* ]]; then
+    local step steps
+    IFS=',' read -ra steps <<< "$scroll"
+    for step in "${steps[@]}"; do echo "$step" > "$scroll_file"; sleep 0.6; done
+    sleep 1.5
+  elif [[ -n "$scroll" ]]; then echo "$scroll" > "$scroll_file"; sleep 2.5; fi
   local file="$out/$label-$id$suffix.png"
   xcrun simctl io "$udid" screenshot --type=png "$file" >/dev/null 2>&1
   local alive="dead"
