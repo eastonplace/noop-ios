@@ -17,11 +17,17 @@ extension TrendsView {
 
     // MARK: - Training load
 
+    /// The whole section opens the training load detail, the way a #55 tappable section does: the eyebrow's chevron
+    /// says so, with no extra footer row to break the hairline rhythm. VoiceOver hears one heading with a short summary
+    /// rather than every figure in the section.
     @ViewBuilder
     var trainingLoadCard: some View {
         if let snapshot = currentScreenSnapshot {
             trendsSeparator
-            trainingLoadSection(snapshot.trainingLoad)
+            TrainingLoadDetailLink(key: snapshot.key, rangeDays: selectedRange.days,
+                                   voiceOverSummary: trainingLoadVoiceOverSummary(snapshot.trainingLoad)) {
+                trainingLoadSection(snapshot.trainingLoad)
+            }
         }
     }
 
@@ -34,7 +40,8 @@ extension TrendsView {
                 trailing: .pill(
                     LocalizedStringKey(load.map(trainingLoadStatus) ?? "Loading"),
                     tone: load?.state == .established ? .positive : .neutral
-                )
+                ),
+                showsChevron: true
             )
             trainingLoadBody(load)
             Text("Based on daily Effort. Descriptive only; it does not change Readiness.")
@@ -71,7 +78,7 @@ extension TrendsView {
                         chronic: load.chronicSpark,
                         acute: load.acuteSpark,
                         tint: .strain,
-                        startLabel: String(localized: "\(load.acuteSpark.count - 1) days ago"),
+                        startLabel: String(localized: "Recent observed days"),
                         endLabel: String(localized: "Today")
                     )
                 }
@@ -94,41 +101,47 @@ extension TrendsView {
         }
     }
 
+    /// The detail's formatting, so the card and the page it opens print the same figures.
     private func trainingLoadNumber(_ value: Double?) -> String {
-        value.map { String(format: "%.1f", $0) } ?? WidgetMetrics.missingValue
+        value.map { DrillInFormat.number($0, fractionDigits: 1) } ?? WidgetMetrics.missingValue
     }
 
+    /// Never "-0.0" or "+0.0": a balance that rounds to nothing reads "0.0".
     private func trainingLoadBalance(_ value: Double?) -> String {
-        value.map { String(format: "%@%.1f", $0 > 0 ? "+" : "", $0) } ?? WidgetMetrics.missingValue
+        value.map { DrillInFormat.signed($0, fractionDigits: 1) } ?? WidgetMetrics.missingValue
     }
 
     private func trainingLoadStatus(_ load: TrainingLoadSnapshot) -> String {
-        switch load.state {
-        case .established: return String(localized: "Established")
-        case .building: return String(localized: "Building \(load.contiguousDays)/42")
-        case .unavailable: return String(localized: "Building")
-        }
+        TrainingLoadCopy.status(load.state, reason: load.unavailableReason, observedDays: load.contiguousDays)
     }
 
     private func trainingLoadUnavailableTitle(_ load: TrainingLoadSnapshot) -> String {
-        switch load.unavailableReason {
-        case .notEnoughContiguousDays:
-            return String(localized: "Building your load history")
-        case .missingTargetDay:
-            return String(localized: "Today's Effort is not ready")
-        default:
-            return String(localized: "Training load is not ready")
+        TrainingLoadCopy.unavailableTitle(load.unavailableReason)
+    }
+
+    /// One short VoiceOver label for the whole tappable section.
+    /// Built only from keys the catalog already translates, so every locale hears its own words.
+    private func trainingLoadVoiceOverSummary(_ load: TrainingLoadSnapshot?) -> String {
+        let title = String(localized: "Training load")
+        guard let load else { return [title, String(localized: "Loading")].joined(separator: ", ") }
+        let status = trainingLoadStatus(load)
+        guard load.state != .unavailable else {
+            return [title, status, trainingLoadUnavailableTitle(load)].joined(separator: ", ")
         }
+        return [title, status,
+                String(localized: "Chronic · 42d") + " " + trainingLoadNumber(load.chronic),
+                String(localized: "Acute · 7d") + " " + trainingLoadNumber(load.acute),
+                String(localized: "Balance") + " " + trainingLoadBalance(load.balance)].joined(separator: ", ")
     }
 
     private func trainingLoadUnavailableDetail(_ load: TrainingLoadSnapshot) -> String {
         if load.unavailableReason == .notEnoughContiguousDays {
             let remaining = max(0, 14 - load.contiguousDays)
             return remaining == 1
-                ? String(localized: "Need 1 more contiguous day with an Effort value.")
-                : String(localized: "Need \(remaining) more contiguous days with Effort values.")
+                ? String(localized: "Need 1 more observed day with an Effort value.")
+                : String(localized: "Need \(remaining) more observed days with Effort values.")
         }
-        return String(localized: "NOOP needs a continuous run of daily Effort values to model acute and chronic load.")
+        return String(localized: "NOOP needs recent observed Effort values. Open details to see coverage and the missing-day rule.")
     }
 
     // MARK: - Selected range
@@ -391,6 +404,7 @@ extension TrendsView {
     /// instead of the bare "M".
     private var rangePicker: some View {
         SegmentedPillControl(TrendRange.allCases, selection: $selectedRange) { $0.rawValue }
+            .segmentedPillSelectionStyle(.quiet)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Range")
             .accessibilityValue("\(selectedRange.days) days")

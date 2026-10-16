@@ -17,6 +17,7 @@ import WhoopStore
 /// insights, intelligence, scoring-guide, scoring-guide-recovery (the guide opened at its Recovery section, as the
 /// Recovery ⓘ opens it), updates, settings (the Settings sheet; `settings-<page>` lands on one page, named by its
 /// `SettingsRouteID` case: settings-syncbattery, settings-personalprofile), live-hr, breathe, journal, intervals,
+/// quick-actions (the shell's plus menu), training-load (Trends' Training load detail for the default month range),
 /// start-workout, rhythm, smart-alarm,
 /// hydration, fitness-age, coupled, lab-book, trends-report, coach-workouts-sheet (the Workouts hub at the root of a sheet,
 /// as Coach's plan opens it), live-workout (the in-exercise screen over a synthetic workout; pick its state with
@@ -52,6 +53,8 @@ enum QARoute: String, CaseIterable {
     case metricDetail = "metric-detail"
     case compare
     case trendsExplore = "trends-explore"
+    /// Trends' Training load detail, opened with the inputs the Trends card's link captures for the default range.
+    case trainingLoad = "training-load"
     case insights
     case intelligence
     case scoringGuide = "scoring-guide"
@@ -63,6 +66,8 @@ enum QARoute: String, CaseIterable {
     case journal
     case intervals
     case startWorkout = "start-workout"
+    /// The shell's plus menu (Quick Actions).
+    case quickActions = "quick-actions"
     /// The three-second countdown before a workout starts; `--demo-countdown-frozen 3` holds the digit still.
     case workoutCountdown = "workout-countdown"
     case rhythm
@@ -87,7 +92,8 @@ enum QARoute: String, CaseIterable {
 
     /// What the app shell (`RootTabView`) presents itself, for routes that live in its sheets.
     enum ShellTarget {
-        case updates, settings, rhythm, liveHR, breathe, journal, intervals, startWorkout, workoutCountdown, liveWorkout, workoutMinimized
+        case updates, settings, rhythm, liveHR, breathe, journal, intervals, quickActions, startWorkout, workoutCountdown, liveWorkout,
+            workoutMinimized
     }
 
     enum Presentation {
@@ -108,7 +114,7 @@ enum QARoute: String, CaseIterable {
              .workoutDetailManual, .manualWorkout, .coachWorkoutsSheet, .markerEditor, .lift, .liftHistory,
              .liftProgress, .liftRoutines:
             return .sheet(.today)
-        case .metricExplorer, .metricDetailHRV, .compare, .trendsExplore, .insights, .intelligence, .labBook:
+        case .metricExplorer, .metricDetailHRV, .compare, .trendsExplore, .trainingLoad, .insights, .intelligence, .labBook:
             return .push(.trends)
         case .metricDetail:
             return .push(.trends)
@@ -123,6 +129,7 @@ enum QARoute: String, CaseIterable {
         case .breathe: return .shell(.breathe)
         case .journal: return .shell(.journal)
         case .intervals: return .shell(.intervals)
+        case .quickActions: return .shell(.quickActions)
         case .startWorkout: return .shell(.startWorkout)
         case .workoutCountdown: return .shell(.workoutCountdown)
         case .liveWorkout: return .shell(.liveWorkout)
@@ -393,6 +400,7 @@ private struct QARouteHost: ViewModifier {
             if let metric = QAMetric.requested { MetricDetailView(metric: metric) }
         case .compare: CompareView()
         case .trendsExplore: TrendsExploreHubView()
+        case .trainingLoad: QATrainingLoadHost()
         case .insights: InsightsHubView()
         case .intelligence: IntelligenceView()
         case .labBook: LabBookView()
@@ -436,6 +444,26 @@ private struct QARouteHost: ViewModifier {
         case .liftRoutines: LiftLogView(destination: .routines)
         default: EmptyView()
         }
+    }
+}
+
+/// Opens Training load the way the Trends card's link does: the request carries the default month range on today's
+/// civil day and the current Trends revision, so the page reads the same seeded canonical history Trends shows.
+private struct QATrainingLoadHost: View {
+    @EnvironmentObject private var repo: Repository
+
+    var body: some View {
+        let key = TrendsScreenSnapshotKey(
+            revision: Int(truncatingIfNeeded: repo.refreshSeq &+ Int(repo.canonicalHealth.trendsRevision)),
+            anchorDay: Repository.localDayKey(Date()),
+            timeZoneIdentifier: TimeZone.autoupdatingCurrent.identifier,
+            metric: ProductionTrendMetric.recovery.rawValue,
+            range: TrendRange.month.rawValue,
+            weekOffset: 0
+        )
+        TrainingLoadDetailView(request: TrainingLoadDetailRequest(
+            key: key, sourceID: TrainingLoadDetailView.sourceID(repo), rangeDays: TrendRange.month.days))
+            .environment(\.screenScaffoldNavigationRole, .detail)
     }
 }
 
