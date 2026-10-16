@@ -1,0 +1,104 @@
+# QA rig for PR #58 only — lives on claude/peaceful-ptolemy-2tijd1, never on the feature branch or main.
+# Builds NOOPiOS for the simulator, captures the screenshot matrix in .github/qa-rig/matrix.txt on a
+# Pro-size and a small iPhone, and commits the frames back to this branch under qa-shots/ (artifact
+# downloads are not reachable from the review environment).
+name: QA simulator screens (PR 58 rig)
+
+on:
+  push:
+    branches: [claude/peaceful-ptolemy-2tijd1]
+    paths-ignore: ['qa-shots/**', '.github/qa-rig/tests-trigger', '.github/workflows/qa-tests.yml']
+  workflow_dispatch:
+
+concurrency:
+  group: qa-screens
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  capture:
+    # A rig-only push whose message says [no-shots] supersedes (cancels) a queued capture without starting one.
+    if: ${{ !contains(github.event.head_commit.message, '[no-shots]') }}
+    runs-on: macos-26
+    timeout-minutes: 80
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Toolchain and simulators
+        id: sim
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild -version
+          xcrun simctl list runtimes | grep -i ios || true
+          python3 .github/qa-rig/pick_sims.py | tee -a "$GITHUB_OUTPUT"
+
+      - name: Generate project
+        shell: bash
+        run: |
+          set -euo pipefail
+          brew install xcodegen >/dev/null
+          xcodegen generate
+
+      - name: Build for simulator
+        shell: bash
+        run: |
+          set -uo pipefail
+          status=0
+          xcodebuild -scheme NOOPiOS -configuration Debug \
+            -destination "platform=iOS Simulator,id=${{ steps.sim.outputs.primary }}" \
+            -derivedDataPath build/DD CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
+            build > build.log 2>&1 || status=$?
+          echo "::group::compiler diagnostics"
+          grep -E "(error|warning): " build.log | sort -u | head -200 || true
+          echo "::endgroup::"
+          tail -5 build.log
+          exit "$status"
+
+      - name: Capture primary device
+        shell: bash
+        run: |
+          set -uo pipefail
+          app=build/DD/Build/Products/Debug-iphonesimulator/NOOP.app
+          .github/qa-rig/capture.sh "${{ steps.sim.outputs.primary }}" "$app" shots .github/qa-rig/matrix.txt pro primary
+
+      - name: Capture small device
+        if: steps.sim.outputs.small != steps.sim.outputs.primary
+        shell: bash
+        run: |
+          set -uo pipefail
+          app=build/DD/Build/Products/Debug-iphonesimulator/NOOP.app
+          .github/qa-rig/capture.sh "${{ steps.sim.outputs.small }}" "$app" shots .github/qa-rig/matrix.txt small small
+
+      - name: Commit frames to this branch
+        if: always()
+        shell: bash
+        run: |
+          set -uo pipefail
+          ls shots >/dev/null 2>&1 || { echo "no shots"; exit 0; }
+          dest="qa-shots/run-${GITHUB_RUN_NUMBER}-${GITHUB_SHA::7}"
+          mkdir -p "$dest"
+          for f in shots/*.png; do
+            sips -s format jpeg -s formatOptions 82 "$f" --out "$dest/$(basename "${f%.png}").jpg" >/dev/null
+          done
+          {
+            echo "run ${GITHUB_RUN_ID} sha ${GITHUB_SHA}"
+            echo "primary: ${{ steps.sim.outputs.primary_name }}"
+            echo "small: ${{ steps.sim.outputs.small_name }}"
+            xcodebuild -version | head -2
+          } > "$dest/README.txt"
+          git config user.name "qa-rig"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$dest"
+          git commit -q -m "qa-shots: run ${GITHUB_RUN_NUMBER} of ${GITHUB_SHA::7} [skip ci]"
+          branch="${GITHUB_REF_NAME}"
+          for i in 1 2 3 4; do
+            git pull -q --rebase origin "$branch" && git push -q origin "HEAD:$branch" && { echo "pushed $dest"; break; }
+            sleep $((i * 4))
+          done
+          ls -la "$dest" | head -100

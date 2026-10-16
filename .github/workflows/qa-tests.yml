@@ -1,0 +1,77 @@
+# QA rig for PR #58 only — lives on claude/peaceful-ptolemy-2tijd1. Runs NOOPiOSTests on this branch's code and on
+# the base (main + #56 CI port = fix/ci-after-55) side by side, then prints only the failing tests, last in the log,
+# so the result is readable from the job-log tail. Bump .github/qa-rig/tests-trigger to run it.
+name: QA unit tests (PR 58 rig)
+
+on:
+  push:
+    branches: [claude/peaceful-ptolemy-2tijd1]
+    paths: ['.github/qa-rig/tests-trigger']
+
+concurrency:
+  group: qa-tests
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: macos-26
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        lane: [pr, base]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ matrix.lane == 'base' && 'fix/ci-after-55' || github.sha }}
+
+      - name: Generate project and pick simulator
+        id: sim
+        shell: bash
+        run: |
+          set -euo pipefail
+          git log --oneline -1
+          brew install xcodegen >/dev/null
+          xcodegen generate >/dev/null
+          udid=$(xcrun simctl list devices available -j | python3 -c '
+          import json, sys
+          data = json.load(sys.stdin)
+          for name in ("iPhone 17 Pro", "iPhone 16 Pro", "iPhone 17"):
+              for runtime, devices in sorted(data["devices"].items(), reverse=True):
+                  if "iOS" in runtime:
+                      for d in devices:
+                          if d.get("isAvailable") and d["name"] == name:
+                              print(d["udid"]); raise SystemExit(0)
+          raise SystemExit("no simulator")')
+          echo "udid=$udid" >> "$GITHUB_OUTPUT"
+
+      - name: Run NOOPiOSTests
+        shell: bash
+        run: |
+          set -uo pipefail
+          status=0
+          xcodebuild -scheme NOOPiOS -configuration Debug \
+            -destination "platform=iOS Simulator,id=${{ steps.sim.outputs.udid }}" \
+            -resultBundlePath TestResults.xcresult \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO test > test.log 2>&1 || status=$?
+          echo "xcodebuild exit $status" > status.txt
+          tail -3 test.log
+          exit 0
+
+      - name: Failing-test summary
+        if: always()
+        shell: bash
+        run: |
+          set -uo pipefail
+          echo "=== LANE ${{ matrix.lane }} @ $(git rev-parse --short HEAD) ==="
+          cat status.txt || true
+          echo "--- compile errors ---"
+          grep -E ": error: " test.log | sort -u | head -60 || true
+          echo "--- failing test cases ---"
+          grep -E "Test Case '.*' failed|✘ Test|: error: -\[" test.log | sort -u | head -150 || true
+          echo "--- assertion lines ---"
+          grep -E "XCTAssert|#expect|failed - |Issue recorded" test.log | sort -u | head -120 || true
+          echo "--- totals ---"
+          grep -E "Executed [0-9]+ tests|\*\* TEST|Test run with" test.log | tail -6 || true
+          echo "=== END LANE ${{ matrix.lane }} ==="

@@ -1,0 +1,48 @@
+# id | tags | wait seconds | launch args   (tags: small = also on the small iPhone, xl = also at AX-XL text)
+# --- #55 reference screens (unchanged by #58) ---
+10-ref-today          | small    | 10 | --demo-seed --demo-tab today
+11-ref-trends         |          | 10 | --demo-seed --demo-tab trends
+12-ref-recovery       |          | 10 | --demo-seed --noop-qa-route pillar-recovery
+13-ref-hrv-detail     |          | 10 | --demo-seed --noop-qa-route metric-detail-hrv
+14-ref-settings       |          | 9  | --demo-seed --noop-qa-route settings
+15-ref-hrv-scrolled   |          | 10 | --demo-seed --noop-qa-route metric-detail-hrv @scroll=700
+16-ref-fitness-pin    |          | 10 | --demo-seed --noop-qa-route fitness-age @scroll=20,40,60,80,100,120,140,160
+# --- Coach (UX-03 / AI-01) ---
+20-coach-live         | small xl | 10 | --demo-seed --demo-tab coach
+21-coach-shell-qa     |          | 10 | --noop-coach-shell-qa --demo-tab coach
+22-coach-unavailable  |          | 9  | --demo-seed --demo-tab coach --noop-coach-availability unavailable
+23-coach-notready     |          | 9  | --demo-seed --demo-tab coach --noop-coach-availability notready
+24-coach-disabled     |          | 9  | --demo-seed --demo-tab coach --noop-coach-availability disabled
+25-coach-checking     |          | 9  | --demo-seed --demo-tab coach --noop-coach-availability checking
+26-coach-overview     |          | 7  | --noop-coach-preview home
+27-coach-overview-live|          | 10 | --demo-seed --demo-tab coach --noop-coach-page overview
+28-coach-overview-end |          | 7  | --noop-coach-preview home @scroll=99999
+30-coach-chat         | small xl | 7  | --noop-coach-preview chat
+31-coach-chat-mid     |          | 7  | --noop-coach-preview chat @scroll=700
+32-coach-chat-end     | small    | 7  | --noop-coach-preview chat @scroll=99999
+33-coach-progress     | small xl | 6  | --noop-coach-preview progress
+34-coach-progress-end |          | 6  | --noop-coach-preview progress @scroll=99999
+35-coach-plan         |          | 6  | --noop-coach-preview plan
+36-coach-memory       |          | 6  | --noop-coach-preview memory
+37-coach-cards        |          | 7  | --noop-coach-cards-qa
+38-coach-cards-end    |          | 7  | --noop-coach-cards-qa @scroll=99999
+# --- Training load (UX-01) + quiet range controls (UX-06) ---
+40-trends-scroll-1    |          | 10 | --demo-seed --demo-tab trends @scroll=900
+41-trends-scroll-2    |          | 10 | --demo-seed --demo-tab trends @scroll=1800
+42-trends-scroll-3    |          | 10 | --demo-seed --demo-tab trends @scroll=2700
+43-training-load      | small xl | 12 | --demo-seed --noop-qa-route training-load
+44-training-load-mid  |          | 12 | --demo-seed --noop-qa-route training-load @scroll=650
+45-training-load-end  |          | 12 | --demo-seed --noop-qa-route training-load @scroll=99999
+46-training-load-pin  |          | 12 | --demo-seed --noop-qa-route training-load @scroll=20,40,60,80,100,120,140,160
+# --- Workout history (UX-04) ---
+50-workouts           | small xl | 12 | --demo-seed --noop-qa-route workouts
+51-workouts-mid       |          | 12 | --demo-seed --noop-qa-route workouts @scroll=800
+52-workouts-end       |          | 12 | --demo-seed --noop-qa-route workouts @scroll=99999
+57-workouts-pin       |          | 12 | --demo-seed --noop-qa-route workouts @scroll=20,40,60,80,100,120,140,160
+53-today-workouts     | small    | 12 | --demo-seed --noop-qa-route today-workouts
+54-today-workouts-rest|          | 12 | --demo-seed --noop-qa-route today-workouts-rest
+55-coach-workouts-sheet|         | 12 | --demo-seed --noop-qa-route coach-workouts-sheet
+56-workouts-loading   |          | 8  | --demo-seed --noop-qa-route workouts --noop-qa-hold-load
+# --- Quick Actions (UX-05) ---
+60-quick-actions      | small xl | 10 | --demo-seed --noop-qa-route quick-actions
+61-workout-minimized  |          | 16 | --demo-seed --noop-qa-route workout-minimized --demo-tab today
