@@ -259,7 +259,7 @@ struct TrainingLoadDetailView: View {
 
     /// The canonical segmented pill, announced as one adjustable control (the Trends range treatment).
     private var periodPicker: some View {
-        SegmentedPillControl(TrainingLoadLayout.periods, selection: $period) { "\($0)D" }
+        SegmentedPillControl(TrainingLoadLayout.periods, selection: $period) { TrainingLoadLayout.label($0) }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Displayed history")
             .accessibilityValue("\(period) days")
@@ -579,6 +579,18 @@ private enum TrainingLoadLayout {
     /// Room under the plot for the date labels.
     static let axisLabelHeight: CGFloat = 24
     static let periods = [28, 42, 90, 180]
+
+    /// Trends' range vocabulary for the same spans (W, M, 3M, 6M): "180D" wrapped to two lines in a segment. VoiceOver
+    /// still hears the days ("Last 180 days").
+    static func label(_ days: Int) -> String {
+        switch days {
+        case 28: "4W"
+        case 42: "6W"
+        case 90: "3M"
+        case 180: "6M"
+        default: "\(days)D"
+        }
+    }
 }
 
 private struct TrainingLoadDay: Identifiable {
