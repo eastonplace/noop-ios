@@ -698,7 +698,17 @@ final class LocalCoachEngine: ObservableObject {
     /// Reuse a question without truncating conversation history or repeating a saved-plan write.
     func retryLatestAnswer() async {
         guard !isResponding, canOperate(),
-              let question = messages.last(where: { $0.role == .user })?.text else { return }
+              let userIndex = messages.lastIndex(where: { $0.role == .user }) else { return }
+        let question = messages[userIndex].text
+        // Retry replaces a stopped answer: the question is asked again in its place rather than repeated under it. The
+        // stopped turn is only removed once a new answer can start, so a refusal never loses the question.
+        updateAvailability()
+        let replaces = availability == .available && model != nil
+            && messages[(userIndex + 1)...].allSatisfy { $0.role == .assistant && $0.isInterrupted }
+        if replaces {
+            messages.removeSubrange(userIndex...)
+            persistConversation()
+        }
         await respond(question, brief: nil)
     }
 

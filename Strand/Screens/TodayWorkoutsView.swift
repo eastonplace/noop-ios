@@ -13,7 +13,7 @@ enum TodayWorkoutsProjection {
     }
 }
 
-/// Kept for existing day-summary callers and tests. History presentation does not change its arithmetic.
+/// What a day's workouts add up to: sessions, known active time and calories.
 struct TodayWorkoutsSummary: Equatable {
     let sessions: Int
     let activeSeconds: Double
@@ -33,7 +33,7 @@ struct TodayWorkoutsSummary: Equatable {
     }
 }
 
-/// The existing Rings/Today entry now opens the shared history-first hub.
+/// The existing Rings/Today entry now opens the shared history-first hub (UX-04).
 /// The selected Today day intentionally does not narrow the feed to a single day.
 /// `day` remains part of the route contract so existing callers do not need navigation rewrites.
 struct TodayWorkoutsView: View {
