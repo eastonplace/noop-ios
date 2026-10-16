@@ -32,10 +32,12 @@
 43-training-load      | small xl | 12 | --demo-seed --noop-qa-route training-load
 44-training-load-mid  |          | 12 | --demo-seed --noop-qa-route training-load @scroll=650
 45-training-load-end  |          | 12 | --demo-seed --noop-qa-route training-load @scroll=99999
+46-training-load-pin  |          | 12 | --demo-seed --noop-qa-route training-load @scroll=160
 # --- Workout history (UX-04) ---
 50-workouts           | small xl | 12 | --demo-seed --noop-qa-route workouts
 51-workouts-mid       |          | 12 | --demo-seed --noop-qa-route workouts @scroll=800
 52-workouts-end       |          | 12 | --demo-seed --noop-qa-route workouts @scroll=99999
+57-workouts-pin       |          | 12 | --demo-seed --noop-qa-route workouts @scroll=160
 53-today-workouts     | small    | 12 | --demo-seed --noop-qa-route today-workouts
 54-today-workouts-rest|          | 12 | --demo-seed --noop-qa-route today-workouts-rest
 55-coach-workouts-sheet|         | 12 | --demo-seed --noop-qa-route coach-workouts-sheet
