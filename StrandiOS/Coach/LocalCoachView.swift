@@ -160,7 +160,6 @@ struct LocalCoachView: View {
     private var overviewPage: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                if coach.isPreview { LocalCoachFixtureLabel().padding(.bottom, NoopMetrics.space3) }
                 FlatSection("Your daily outlook", systemImage: "sun.horizon", tint: .accent,
                             trailing: CoachRecordDate.trailing(day: coach.snapshot.latestDay)) {
                     VStack(alignment: .leading, spacing: NoopMetrics.space2) {
@@ -171,8 +170,10 @@ struct LocalCoachView: View {
                             .foregroundStyle(StrandPalette.textSecondary)
                             .lineLimit(5)
                     }
-                    StatePill(LocalizedStringKey(coach.isPreview ? "Sample records, no model inference" : availability.title),
-                              tone: availabilityTone, pulsing: availability == .checking)
+                    // Status is shown only when something stands between the person and an answer.
+                    if let problem = availabilityProblem {
+                        StatePill(LocalizedStringKey(problem), tone: .warning)
+                    }
                 }
                 if !coach.snapshot.metrics.isEmpty {
                     FlatSectionSeparator.coach
@@ -210,7 +211,7 @@ struct LocalCoachView: View {
                 .buttonStyle(.plain)
                 FlatSectionSeparator.coach
                 Button { showSources = true } label: {
-                    CoachRow(systemImage: "checkmark.shield", tint: .accent, title: Text("See the records behind your coach"))
+                    CoachRow(systemImage: "checkmark.shield", tint: .neutral, title: Text("See the records behind your coach"))
                 }
                 .buttonStyle(.plain)
             }
@@ -223,11 +224,11 @@ struct LocalCoachView: View {
         .accessibilityIdentifier("coach.overview")
     }
 
-    private var availabilityTone: StrandTone {
+    /// The availability title when Coach cannot answer right now; nil while it can, and while it is still checking.
+    private var availabilityProblem: String? {
         switch availability {
-        case .available: .accent
-        case .checking: .neutral
-        default: .warning
+        case .available, .checking: nil
+        default: availability.title
         }
     }
 
@@ -265,27 +266,6 @@ struct LocalCoachView: View {
                     NoopScreenHeader(title: "Coach", backAction: navigationRole == .detail ? { dismiss() } : nil,
                                      style: .compact) { headerActions }
                 }
-                // One fixed-height line on every page, so leaving the chat never moves the transcript or the page below.
-                HStack(spacing: 6) {
-                    Circle().fill(availability == .available ? StrandPalette.accent : StrandPalette.textTertiary)
-                        .frame(width: 5, height: 5).accessibilityHidden(true)
-                    Text(coach.isPreview ? "Synthetic preview" : availability.title)
-                        .font(StrandFont.micro).foregroundStyle(StrandPalette.textSecondary)
-                        .lineLimit(1)
-                    Spacer(minLength: 4)
-                    if screen != .chat {
-                        Button { show(.chat) } label: {
-                            WidgetChip(appTitle: "Chat", systemImage: "chevron.left", showsChevron: false, overhangs: false)
-                                .chipHitTarget()
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel(Text("Back to chat"))
-                        .accessibilityIdentifier("coach.tab.chat")
-                        .transition(.opacity)
-                    }
-                }
-                .frame(minHeight: 24)
-                .padding(.bottom, NoopMetrics.space3)
             }
             .padding(.horizontal, NoopMetrics.space4)
             Rectangle().fill(StrandPalette.hairline).frame(height: 1).accessibilityHidden(true)
@@ -293,8 +273,35 @@ struct LocalCoachView: View {
         .background(StrandPalette.appCanvas)
     }
 
-    /// History, a new thread and the menu as the #55 icon chips Trends' share button and main's Coach header use.
+    /// History, a new thread and the menu as the #55 icon chips Trends' share button and main's Coach header use. Off
+    /// the chat page a "Chat" chip joins them as the way back, so the header stays one row with no subtitle line.
     private var headerActions: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: NoopMetrics.space2) {
+                chatChip
+                headerIcons
+            }
+            VStack(alignment: .trailing, spacing: NoopMetrics.space1) {
+                chatChip
+                headerIcons
+            }
+        }
+    }
+
+    @ViewBuilder private var chatChip: some View {
+        if screen != .chat {
+            Button { show(.chat) } label: {
+                WidgetChip(appTitle: "Chat", systemImage: "chevron.left", showsChevron: false, overhangs: false)
+                    .chipHitTarget()
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(Text("Back to chat"))
+            .accessibilityIdentifier("coach.tab.chat")
+            .transition(.opacity)
+        }
+    }
+
+    private var headerIcons: some View {
         HStack(spacing: NoopMetrics.space2) {
             Button { showLibrary = true } label: { headerIcon("clock.arrow.circlepath") }
                 .accessibilityLabel("Conversation history").accessibilityIdentifier("coach.history")

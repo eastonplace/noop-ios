@@ -45,32 +45,44 @@ enum CoachRecordDate {
     }
 }
 
-// MARK: Glance row
+// MARK: Hairline
 
-/// An icon circle, a title with an optional line under it, and a chevron: the shape of Today's "Today at a
-/// glance" row. Flat, no surface; the caller wraps it in a `Button`.
+/// The one rule between flat rows and blocks: Today's own hairline colour and weight.
+struct CoachHairline: View {
+    var body: some View {
+        Rectangle().fill(StrandPalette.hairline).frame(height: 1).accessibilityHidden(true)
+    }
+}
+
+// MARK: Flat row
+
+/// A small glyph in the row's metric colour, a title with an optional line under it, and a chevron: the shape of
+/// Today's "Today at a glance" row, flat on the canvas with no disc behind the glyph. The caller wraps it in a
+/// `Button` and draws the hairline between rows.
 struct CoachRow: View {
     let systemImage: String
-    var tint: DomainTint = .accent
+    var tint: DomainTint = .neutral
     let title: Text
     var subtitle: Text?
     var showsChevron = true
+    @ScaledMetric(relativeTo: .subheadline) private var glyphWidth: CGFloat = 20
 
     var body: some View {
         HStack(spacing: NoopMetrics.space3) {
-            Image(systemName: systemImage)
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(tint.accent)
-                .frame(width: 30, height: 30)
-                .background(Circle().fill(tint.accent.opacity(0.14)))
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 2) {
-                title.font(StrandFont.subhead.weight(.semibold)).foregroundStyle(StrandPalette.textPrimary)
-                if let subtitle {
-                    subtitle.font(StrandFont.footnote).foregroundStyle(StrandPalette.textSecondary)
+            HStack(alignment: .firstTextBaseline, spacing: NoopMetrics.space3) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(tint.accent)
+                    .frame(width: glyphWidth)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 2) {
+                    title.font(StrandFont.subhead.weight(.semibold)).foregroundStyle(StrandPalette.textPrimary)
+                    if let subtitle {
+                        subtitle.font(StrandFont.footnote).foregroundStyle(StrandPalette.textSecondary)
+                    }
                 }
+                .multilineTextAlignment(.leading)
             }
-            .multilineTextAlignment(.leading)
             Spacer(minLength: NoopMetrics.space1)
             if showsChevron {
                 Image(systemName: "chevron.right")
@@ -464,24 +476,6 @@ extension View {
     /// other (`chipHitTarget()` reaches 13pt on every side, for a chip with room around it).
     func iconChipHitTarget() -> some View {
         contentShape(CoachGrownRect(dx: 9, dy: 12.5))
-    }
-}
-
-// MARK: Medallion
-
-/// A large symbol on a quiet tinted disc, the lead of an empty state.
-struct CoachMedallion: View {
-    let systemImage: String
-    var tint: DomainTint = .accent
-
-    var body: some View {
-        Image(systemName: systemImage)
-            .font(.system(size: 22, weight: .regular))
-            .foregroundStyle(tint.accent)
-            .frame(width: 52, height: 52)
-            .background(Circle().fill(tint.accent.opacity(0.14)))
-            .overlay(Circle().stroke(tint.accent.opacity(0.28), lineWidth: 1))
-            .accessibilityHidden(true)
     }
 }
 #endif

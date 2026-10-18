@@ -8,7 +8,7 @@ struct LocalCoachPlanView: View {
     @State private var confirmSave = false
     @State private var showWorkouts = false
     @State private var summaryExpanded = false
-    @ScaledMetric(relativeTo: .caption) private var stepDiameter: CGFloat = 24
+    @ScaledMetric(relativeTo: .subheadline) private var glyphWidth: CGFloat = 20
     let onBuild: () -> Void
 
     /// The exercise being tuned and the day it belongs to, so the edit lands on the right session.
@@ -21,7 +21,6 @@ struct LocalCoachPlanView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                if coach.isPreview { LocalCoachFixtureLabel().padding(.bottom, NoopMetrics.space3) }
                 if let plan = coach.plan {
                     planHeader(plan)
                     ForEach(plan.days) { day in
@@ -124,7 +123,7 @@ struct LocalCoachPlanView: View {
                 .labelStyle(.titleAndIcon)
         }
         .buttonStyle(PrimaryPillButtonStyle())
-        .disabled(coach.isResponding || coach.isPreview)
+        .disabled(coach.isResponding)
         .accessibilityIdentifier("coach.savePlan")
     }
 
@@ -179,7 +178,11 @@ struct LocalCoachPlanView: View {
 
     private func exerciseRow(_ exercise: LocalCoachPlannedExercise) -> some View {
         HStack(spacing: NoopMetrics.space3) {
-            CoachExerciseThumbnail(exercise: exercise)
+            Image(systemName: Self.symbol(for: exercise))
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(DomainTint.workout.accent)
+                .frame(width: glyphWidth)
+                .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 3) {
                 Text(exercise.name.capitalized).font(StrandFont.subhead.weight(.semibold))
                     .foregroundStyle(StrandPalette.textPrimary)
@@ -203,13 +206,18 @@ struct LocalCoachPlanView: View {
         .contentShape(Rectangle())
     }
 
+    /// The inline glyph for an exercise: a dumbbell for anything loaded, a figure for bodyweight work.
+    private static func symbol(for exercise: LocalCoachPlannedExercise) -> String {
+        exercise.equipment.lowercased().contains("bodyweight") ? "figure.strengthtraining.functional" : "dumbbell"
+    }
+
     // MARK: Empty
 
     /// No plan yet: an invitation, the one action, and what happens next.
     private var emptyPlan: some View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: NoopMetrics.space3) {
-                CoachMedallion(systemImage: "figure.strengthtraining.traditional", tint: .workout)
+                SectionEyebrow("Your plan", systemImage: "figure.strengthtraining.traditional", tint: .workout)
                 Text("Make room\nfor progress.").font(StrandFont.title1)
                     .foregroundStyle(StrandPalette.textPrimary)
                 Text("Build a training plan around your focus and available time. Review the exercises, adjust the details and save it to your NOOP workouts.")
@@ -233,8 +241,7 @@ struct LocalCoachPlanView: View {
         HStack(spacing: NoopMetrics.space3) {
             Text("\(number)").font(StrandFont.captionNumber)
                 .foregroundStyle(DomainTint.workout.accent)
-                .frame(width: stepDiameter, height: stepDiameter)
-                .background(Circle().fill(DomainTint.workout.accent.opacity(0.14)))
+                .frame(width: glyphWidth)
                 .accessibilityHidden(true)
             Text(title).font(StrandFont.subhead).foregroundStyle(StrandPalette.textSecondary)
         }
@@ -298,66 +305,6 @@ private struct CoachFullHeightKey: PreferenceKey {
 private struct CoachClampedHeightKey: PreferenceKey {
     static let defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
-}
-
-/// Exercise pictures from the catalog: found through an index built once, read and scaled off the main thread, and
-/// kept by exercise. The plan redraws with every streamed token, so a redraw never goes back to the disk.
-@MainActor
-private enum CoachExerciseArt {
-    private static let cache = NSCache<NSString, UIImage>()
-    private static let entriesByID = Dictionary(NoopLiftCatalog.entries.map { ($0.id, $0) },
-                                                uniquingKeysWith: { first, _ in first })
-
-    /// What the picture depends on: the catalog entry the plan names, or the exercise's own name when the plan names
-    /// one the catalog does not have. Exercises with the same key share a picture.
-    static func key(for exercise: LocalCoachPlannedExercise) -> String {
-        entriesByID[exercise.catalogID] != nil ? exercise.catalogID : "name:" + exercise.name.lowercased()
-    }
-
-    static func cached(for exercise: LocalCoachPlannedExercise) -> UIImage? {
-        cache.object(forKey: key(for: exercise) as NSString)
-    }
-
-    static func image(for exercise: LocalCoachPlannedExercise, pixelSize: CGSize) async -> UIImage? {
-        if let hit = cached(for: exercise) { return hit }
-        let entry = entriesByID[exercise.catalogID] ?? NoopLiftCatalog.resolve(name: exercise.name)
-        guard let url = entry?.imageURL else { return nil }
-        let image = await Task.detached(priority: .utility) {
-            UIImage(contentsOfFile: url.path)?.preparingThumbnail(of: pixelSize)
-        }.value
-        if let image { cache.setObject(image, forKey: key(for: exercise) as NSString) }
-        return image
-    }
-}
-
-/// The exercise's picture, or the dumbbell until it has loaded (and for an exercise with no picture).
-private struct CoachExerciseThumbnail: View {
-    let exercise: LocalCoachPlannedExercise
-    @Environment(\.displayScale) private var displayScale
-    @State private var image: UIImage?
-
-    init(exercise: LocalCoachPlannedExercise) {
-        self.exercise = exercise
-        _image = State(initialValue: CoachExerciseArt.cached(for: exercise))
-    }
-
-    var body: some View {
-        // The calm tile Lift draws exercises in: the picture is inset in a dark mat instead of a glaring white square.
-        ExerciseArtTile(size: 54) {
-            if let image {
-                Image(uiImage: image).resizable().scaledToFit()
-                    .background(Color.white)
-            } else {
-                Image(systemName: "dumbbell").font(.system(size: 18, weight: .regular))
-                    .foregroundStyle(DomainTint.workout.accent)
-            }
-        }
-        .task(id: CoachExerciseArt.key(for: exercise)) {
-            image = CoachExerciseArt.cached(for: exercise)
-            image = await CoachExerciseArt.image(
-                for: exercise, pixelSize: CGSize(width: 54 * displayScale, height: 54 * displayScale))
-        }
-    }
 }
 
 struct LocalCoachPlanBuilder: View {

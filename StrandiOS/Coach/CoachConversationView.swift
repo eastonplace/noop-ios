@@ -36,7 +36,6 @@ struct CoachConversationView: View {
             ScrollViewReader { scroll in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: NoopMetrics.space6) {
-                        if isPreview { LocalCoachFixtureLabel() }
                         if messages.isEmpty { welcome }
                         ForEach(messages) { message in
                             CoachTurnView(
@@ -138,45 +137,36 @@ struct CoachConversationView: View {
                 Text("Ask anything. With your permission, Coach reads your records on this iPhone before it answers.")
                     .font(StrandFont.subhead).foregroundStyle(StrandPalette.textSecondary).lineSpacing(3)
                     .fixedSize(horizontal: false, vertical: true)
-                welcomeStatus
             }
             FlatSectionSeparator.coach
+            welcomeStatus
             VStack(spacing: 0) {
-                starter("Plan my day", detail: "Start with my latest recovery and sleep", topic: .today)
-                starterHairline
-                starter("Review my training", detail: "Look at recent sessions and load", topic: .training)
-                starterHairline
-                starter("Understand my sleep", detail: "Compare the nights I have recorded", topic: .sleep)
+                starter("Plan my day", detail: "Start with my latest recovery and sleep", topic: .today, tint: .neutral)
+                CoachHairline()
+                starter("Review my training", detail: "Look at recent sessions and load", topic: .training, tint: .workout)
+                CoachHairline()
+                starter("Understand my sleep", detail: "Compare the nights I have recorded", topic: .sleep, tint: .sleep)
+                CoachHairline()
+                Button(action: onPlan) {
+                    CoachRow(systemImage: "figure.strengthtraining.traditional", tint: .workout,
+                             title: Text("Build a workout plan"), subtitle: Text("Review it before saving."))
+                        .padding(.vertical, NoopMetrics.space2)
+                }
+                .buttonStyle(PaperPressStyle())
             }
-            FlatSectionSeparator.coach
-            Button(action: onPlan) {
-                CoachRow(systemImage: "figure.strengthtraining.traditional", tint: .workout,
-                         title: Text("Build a workout plan"), subtitle: Text("Review it before saving."))
-            }
-            .buttonStyle(PaperPressStyle())
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("coach.welcome")
     }
 
-    /// One line under the welcome copy: what stands between the person and an answer, if anything.
+    /// What stands between the person and an answer, above the starters: the access notice while Coach is available,
+    /// otherwise the state itself. Never a starter.
     @ViewBuilder private var welcomeStatus: some View {
         switch availability {
         case .available:
-            if !hasConsent {
-                Button(action: onSettings) {
-                    CoachRow(systemImage: "lock.shield", title: Text("Choose what Coach can read"),
-                             subtitle: Text("General questions work without personal records."))
-                }
-                .buttonStyle(PaperPressStyle())
-            } else if let day = snapshot.latestDay {
-                Label {
-                    Text("Latest daily record: " + LocalCoachCardFormat.dayLabel(day))
-                        .fixedSize(horizontal: false, vertical: true)
-                } icon: {
-                    Image(systemName: "doc.text.magnifyingglass").foregroundStyle(StrandPalette.accent)
-                }
-                .font(StrandFont.footnote).foregroundStyle(StrandPalette.textTertiary)
+            if !hasConsent || snapshot.latestDay != nil {
+                accessNotice
+                CoachHairline().padding(.top, NoopMetrics.space3)
             }
         case .checking:
             HStack(spacing: NoopMetrics.space2) {
@@ -185,27 +175,69 @@ struct CoachConversationView: View {
                     .foregroundStyle(StrandPalette.textSecondary)
             }
             .frame(minHeight: 24)
+            CoachHairline().padding(.top, NoopMetrics.space3)
         case .disabled:
             CoachNotice(text: Text("Coach is paused. Resume it in Coach settings."), tone: .info)
             Button("Open Coach settings", action: onSettings).buttonStyle(SecondaryPillButtonStyle())
+                .padding(.top, NoopMetrics.space2)
+            CoachHairline().padding(.top, NoopMetrics.space3)
         case .notReady:
             CoachNotice(text: Text("Apple Intelligence is still getting ready on this iPhone. Coach can answer once it finishes."),
                         tone: .info)
+            CoachHairline().padding(.top, NoopMetrics.space3)
         case .unsupported:
             CoachNotice(text: Text("Coach needs Apple Intelligence, which this iPhone does not support."), tone: .warning)
+            CoachHairline().padding(.top, NoopMetrics.space3)
         case .unavailable(let message):
             CoachNotice(text: Text(message), tone: .warning)
+            CoachHairline().padding(.top, NoopMetrics.space3)
         }
     }
 
-    private var starterHairline: some View {
-        // Inset to the text, as list rows are: 30pt disc plus 12pt spacing.
-        Rectangle().fill(StrandPalette.hairline).frame(height: 1).padding(.leading, 42).accessibilityHidden(true)
+    /// Whether Coach may read the person's records, as a compact notice: an ACCESS eyebrow with an Off or On pill, one
+    /// line of copy and a Choose chip that opens Coach settings.
+    private var accessNotice: some View {
+        FlatSection("Access", systemImage: "lock.shield", tint: .neutral,
+                    trailing: .pill(hasConsent ? "On" : "Off", tone: hasConsent ? .positive : .neutral),
+                    contentSpacing: NoopMetrics.space1) {
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .center, spacing: NoopMetrics.space3) {
+                    accessCopy.fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: NoopMetrics.space2)
+                    chooseChip
+                }
+                VStack(alignment: .leading, spacing: NoopMetrics.space1) {
+                    accessCopy.fixedSize(horizontal: false, vertical: true)
+                    chooseChip
+                }
+            }
+        }
+        .accessibilityIdentifier("coach.access")
     }
 
-    private func starter(_ title: String, detail: String, topic: LocalCoachTopic) -> some View {
+    @ViewBuilder private var accessCopy: some View {
+        if !hasConsent {
+            Text("General questions work without personal records.")
+                .font(StrandFont.footnote).foregroundStyle(StrandPalette.textSecondary)
+        } else if let day = snapshot.latestDay {
+            Text("Latest daily record: " + LocalCoachCardFormat.dayLabel(day))
+                .font(StrandFont.footnote).foregroundStyle(StrandPalette.textSecondary)
+        }
+    }
+
+    private var chooseChip: some View {
+        Button(action: onSettings) {
+            WidgetChip(appTitle: "Choose", showsChevron: false, overhangs: false).chipHitTarget()
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text("Choose what Coach can read"))
+        .accessibilityIdentifier("coach.chooseAccess")
+    }
+
+    private func starter(_ title: String, detail: String, topic: LocalCoachTopic, tint: DomainTint) -> some View {
         Button { onAsk(topic.prompt) } label: {
-            CoachRow(systemImage: topic.symbol, title: Text(LocalizedStringKey(title)), subtitle: Text(LocalizedStringKey(detail)))
+            CoachRow(systemImage: topic.symbol, tint: tint, title: Text(LocalizedStringKey(title)),
+                     subtitle: Text(LocalizedStringKey(detail)))
                 .padding(.vertical, NoopMetrics.space2)
         }
         .buttonStyle(PaperPressStyle())
@@ -299,13 +331,17 @@ private struct CoachTurnView: View {
                 CoachProgressView(stage: progress, onStop: onStop)
                     .transition(reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.98, anchor: .top)))
             }
-            // Swift record tools build cards before generation. Their values are never parsed from prose.
+            // Swift record tools build cards before generation. Their values are never parsed from prose. Each card is a
+            // flat block between hairlines, in the same language as Today's sections.
             if !cards.isEmpty {
-                VStack(alignment: .leading, spacing: NoopMetrics.space3) {
+                VStack(alignment: .leading, spacing: 0) {
                     ForEach(showAllCards ? cards : Array(cards.prefix(2))) { card in
+                        CoachHairline()
                         LocalCoachCardView(card: card)
+                            .padding(.vertical, NoopMetrics.space3)
                             .transition(reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.98, anchor: .top)))
                     }
+                    CoachHairline()
                     if cards.count > 2 {
                         Button {
                             withAnimation(reduceMotion ? nil : .easeOut(duration: 0.25)) { showAllCards.toggle() }
@@ -316,6 +352,7 @@ private struct CoachTurnView: View {
                                 .chipHitTarget()
                         }
                         .buttonStyle(.plain)
+                        .padding(.top, NoopMetrics.space3)
                         .accessibilityIdentifier("coach.moreCards")
                     }
                 }
@@ -358,25 +395,24 @@ private struct CoachTurnView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    /// One row under the answer: what it was built from on the leading side, the answer actions as icon chips on the
-    /// trailing side (the #55 chip family the Coach header uses). Two rows only when one would not fit.
+    /// One left-aligned row under the answer: the quiet icon buttons (copy, read aloud, share), then the chips for what
+    /// it was built from. The chips drop under the buttons when one row would not fit.
     private var answerFooter: some View {
         ViewThatFits(in: .horizontal) {
             HStack(spacing: NoopMetrics.space2) {
-                footerLinks
-                Spacer(minLength: NoopMetrics.space2)
                 if hasAnswer { answerActions }
+                footerLinks
+                Spacer(minLength: 0)
             }
-            VStack(alignment: .leading, spacing: NoopMetrics.space3) {
+            VStack(alignment: .leading, spacing: NoopMetrics.space1) {
+                if hasAnswer { answerActions }
                 HStack(spacing: NoopMetrics.space2) { footerLinks }
-                if hasAnswer { answerActions }
             }
             VStack(alignment: .leading, spacing: NoopMetrics.space3) {
-                footerLinks
                 if hasAnswer { answerActions }
+                footerLinks
             }
         }
-        .padding(.top, NoopMetrics.space1)
     }
 
     private var hasAnswer: Bool { !message.text.isEmpty || !cards.isEmpty }
@@ -384,11 +420,12 @@ private struct CoachTurnView: View {
     @ViewBuilder private var footerLinks: some View {
         if !message.evidence.isEmpty {
             Button { showEvidence = true } label: {
-                WidgetChip(appTitle: "\(message.evidence.count) source records", systemImage: "doc.text.magnifyingglass",
-                           overhangs: false)
+                WidgetChip(appTitle: "Sources", systemImage: "doc.text.magnifyingglass",
+                           showsChevron: false, overhangs: false)
                     .chipHitTarget()
             }
             .buttonStyle(.plain)
+            .accessibilityLabel(Text("\(message.evidence.count) source records"))
             .accessibilityIdentifier("coach.answer.sources")
         }
         if cards.contains(where: { $0.kind == "workouts" }) {
@@ -402,8 +439,8 @@ private struct CoachTurnView: View {
     }
 
     private var answerActions: some View {
-        // Each tap area reaches 9pt past its chip, so 18pt apart they sit edge to edge.
-        HStack(spacing: 18) {
+        // Quiet glyphs with a full 44pt tap area each. The row's first glyph sits at the text's left edge.
+        HStack(spacing: 0) {
             Button {
                 UIPasteboard.general.string = CoachAnswerExport.text(for: message)
                 copied = true
@@ -411,19 +448,23 @@ private struct CoachTurnView: View {
                     try? await Task.sleep(for: .seconds(1.6))
                     copied = false
                 }
-            } label: { actionChip(copied ? "checkmark" : "doc.on.doc") }
+            } label: { actionIcon(copied ? "checkmark" : "doc.on.doc") }
             .accessibilityLabel(copied ? "Answer copied" : "Copy answer and records")
-            Button(action: onSpeak) { actionChip("speaker.wave.2") }.accessibilityLabel("Read aloud")
-            ShareLink(item: CoachAnswerExport.text(for: message)) { actionChip("square.and.arrow.up") }
+            Button(action: onSpeak) { actionIcon("speaker.wave.2") }.accessibilityLabel("Read aloud")
+            ShareLink(item: CoachAnswerExport.text(for: message)) { actionIcon("square.and.arrow.up") }
                 .accessibilityLabel("Share answer and records")
         }
         .buttonStyle(.plain)
+        .padding(.leading, -NoopMetrics.space3)
     }
 
-    private func actionChip(_ name: String) -> some View {
-        WidgetChip(systemImage: name, showsChevron: false, overhangs: false)
+    private func actionIcon(_ name: String) -> some View {
+        Image(systemName: name)
+            .font(.system(size: 15, weight: .regular))
+            .foregroundStyle(StrandPalette.textSecondary)
             .contentTransition(.symbolEffect(.replace))
-            .iconChipHitTarget()
+            .frame(width: 44, height: 44)
+            .contentShape(Rectangle())
     }
 }
 
