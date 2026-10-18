@@ -243,7 +243,7 @@ struct TrainingLoadDetailView: View {
     // MARK: Hero
 
     /// Acute load for the scrubbed (or newest) day, with its change against the 42-day baseline beside it. At the
-    /// accessibility sizes the pill drops under the value so neither is squeezed onto a second line.
+    /// accessibility sizes, or whenever the row would not fit, the pill drops under the value so neither is squeezed.
     private func hero(_ focus: TrainingLoadDay?) -> some View {
         let value = HeroValue(value: focus.map { number($0.acute) } ?? WidgetMetrics.missingValue,
                               caption: heroCaption(focus), captionPlacement: .below)
@@ -254,10 +254,16 @@ struct TrainingLoadDetailView: View {
                     deltaPill(focus)
                 }
             } else {
-                HStack(alignment: .firstTextBaseline, spacing: NoopMetrics.space2) {
-                    value
-                    Spacer(minLength: NoopMetrics.space2)
-                    deltaPill(focus)
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .firstTextBaseline, spacing: NoopMetrics.space2) {
+                        value
+                        Spacer(minLength: NoopMetrics.space2)
+                        deltaPill(focus)
+                    }
+                    VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+                        value
+                        deltaPill(focus)
+                    }
                 }
             }
         }
@@ -331,7 +337,7 @@ struct TrainingLoadDetailView: View {
                     .font(StrandFont.footnote)
                     .foregroundStyle(StrandPalette.textTertiary)
             } else {
-                Text("No modeled observation for this day. Missing values stay separate from recorded zero Effort.")
+                Text("No workout data on this day. A day with no data is not the same as zero Effort.")
                     .font(StrandFont.footnote)
                     .foregroundStyle(StrandPalette.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -439,10 +445,10 @@ struct TrainingLoadDetailView: View {
 
     private var loadingState: some View {
         statusSection(trailing: .pill("Loading", tone: .neutral),
-                      caption: String(localized: "Reading dated load history"),
+                      caption: String(localized: "Loading training load"),
                       detail: Text("Using the same source and date as Trends."), showsRail: true)
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel("Reading dated load history")
+            .accessibilityLabel("Loading training load")
     }
 
     private func failedState(_ message: String) -> some View {
@@ -475,7 +481,7 @@ struct TrainingLoadDetailView: View {
         case .notEnoughContiguousDays: TrainingLoadCopy.needsMoreDays(
             TrainingLoadCopy.remainingDays(contiguousDays: result.contiguousDays))
         case .noData: String(localized: "No daily Effort history is available for this source.")
-        default: String(localized: "The source history cannot produce a valid load estimate. Check the records in Trends.")
+        default: String(localized: "Training load cannot be worked out from this history yet.")
         }
     }
 
@@ -635,6 +641,8 @@ private struct TrainingLoadChart: View {
     @Environment(\.dynamicTypeSize) private var typeSize
     /// Room under the plot for the date labels, grown with the text so the plot keeps its height at every size.
     @ScaledMetric(relativeTo: .footnote) private var axisLabelHeight: CGFloat = TrainingLoadLayout.axisLabelHeight
+    /// One line of the rail value text (caption2), so the low plate is only drawn where it fits above the date labels.
+    @ScaledMetric(relativeTo: .caption2) private var railLabelHeight: CGFloat = 14
 
     var body: some View {
         let axisDays = Self.ticks(in: domain, calendar: calendar)
@@ -687,7 +695,7 @@ private struct TrainingLoadChart: View {
         .environment(\.timeZone, calendar.timeZone)
         .frame(height: TrainingLoadLayout.plotHeight + axisLabelHeight)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Acute and chronic load from observed daily Effort")
+        .accessibilityLabel("Acute and chronic load from daily Effort")
         .accessibilityValue(Text(verbatim: summary))
         .accessibilityIdentifier("trends.trainingLoad.chart")
     }
@@ -788,7 +796,7 @@ private struct TrainingLoadChart: View {
             railLabel(rails.high)
                 .frame(width: plot.width, height: max(plot.minY + highY - 2, 0), alignment: .bottomTrailing)
                 .offset(x: plot.minX)
-            if lowY - highY > 16 {
+            if lowY - highY > 16, plot.height - lowY >= railLabelHeight + 4 {
                 railLabel(rails.low)
                     .frame(width: plot.width, height: max(plot.maxY - plot.minY - lowY, 0) + 2, alignment: .topTrailing)
                     .offset(x: plot.minX, y: plot.minY + lowY + 2)

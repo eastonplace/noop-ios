@@ -12,3 +12,8 @@ Load appears after %lld days of recorded Effort and settles after %lld.
 A gap of up to two days is smoothed over and is not drawn as a measurement. A longer gap starts the history again.
 Opens dated training load and how it is calculated
 NOOP needs recent daily Effort values before it can show your load.
+No data · %@
+No workout data on this day. A day with no data is not the same as zero Effort.
+Loading training load
+Acute and chronic load from daily Effort
+Training load cannot be worked out from this history yet.
