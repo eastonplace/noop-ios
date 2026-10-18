@@ -491,6 +491,7 @@ struct RootTabView: View {
             })
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
+            .presentationBackground(StrandPalette.appCanvas)
         case .live:
             quickScreen(LiveView())
         case .journal:

@@ -10,10 +10,10 @@ import Foundation
 // The activity hub, in the widget design language: flat sections on the canvas, one hairline between them, values
 // bright with their units muted.
 //
-//  • The two ways to begin a workout.
+//  • The header: WORKOUTS and the day, with the one solid Start pill (Open while a workout is running).
 //  • Workout minutes: the known recorded minutes of the seven days the feed below covers, as the week's bars.
-//  • History: sessions grouped by local start day, with Recent/Archived, range, sport, source and search filters,
-//    multi-select merge/delete and a row menu.
+//  • History: sessions grouped by local start day, with Add and Select chips, Recent/Archived, range, sport, source and
+//    search filters, multi-select merge/delete and a row context menu.
 //  • Behind "Training tools and summaries": this week, Lift, heart rate zones and the latest pace.
 //
 // The pieces live in WorkoutHistoryChart.swift, WorkoutsHubSections.swift and WorkoutsHubParts.swift; the rules they
@@ -184,18 +184,27 @@ struct WorkoutsView: View {
     }
 
     private var dashboard: some View {
-        ScreenScaffold(title: "Workouts", subtitle: "Your sessions, newest first.",
+        ScreenScaffold(title: "Workouts",
                        onRefresh: { _ = await repo.refresh(.currentDay) },
-                       // PERF: the column ends in the full history log. On a large imported history the eager
-                       // VStack built every section + every row up-front; the LazyVStack path (which is
-                       // byte-identical layout) builds the off-screen sections/rows on demand instead.
-                       lazy: true,
+                       // PERF: the column ends in the full history log, so the hub below is a LazyVStack that builds
+                       // the off-screen sections and rows on demand. The scaffold's own column stays eager: its header
+                       // reports when it has scrolled away (which pins the compact header), and a header inside a
+                       // second lazy stack can be released before it reports.
+                       lazy: false,
                        topBackground: nil,
-                       backAction: dashboardBackAction) {
+                       backAction: dashboardBackAction,
+                       headerContext: DrillInFormat.headerDate(Date()),
+                       trailing: {
+                           WorkoutsStartPill(model: model,
+                                             onStart: { router.beginWorkout() },
+                                             onOpen: { router.openActiveWorkout() })
+                       }) {
             LazyVStack(alignment: .leading, spacing: 0) { hub }
         }
         #if os(iOS)
         .toolbar(.hidden, for: .navigationBar)
+        // Rows scroll under the status bar on a screen whose header has scrolled away; a solid strip keeps them out of it.
+        .modifier(TopSafeAreaScrim())
         #endif
         // Both are posted on whatever thread noticed the change; hop to the main thread before touching view state.
         .onReceive(NotificationCenter.default.publisher(for: .NSCalendarDayChanged)
@@ -317,7 +326,7 @@ struct WorkoutsView: View {
         #endif
     }
 
-    /// Present the read-only detail for a tapped row. The primary affordance; the ••• menu stays the
+    /// Present the read-only detail for a tapped row. The primary affordance; the row's context menu is the
     /// secondary path for edit/relabel/delete.
     private func openDetail(_ row: WorkoutRow) { detail = WorkoutDetailTarget(row: row) }
 
@@ -418,8 +427,6 @@ struct WorkoutsView: View {
         let resolved = effectiveRange
         let rows = WorkoutHistoryScope.filter(sessions(for: resolved), scope: historyScope)
         let derived = currentDerived
-        actionPills
-        FlatSectionSeparator()
         // Nothing in this view (an empty Archived, or filters that match nothing) has nothing to chart: the history
         // below says so, rather than a week of dots that, in Archived, would not even be one of its weeks.
         if !rows.isEmpty {
@@ -428,16 +435,15 @@ struct WorkoutsView: View {
         }
         history(rows: rows, effectiveRange: resolved)
         if historyScope == .current {
-            Button("View older workouts", systemImage: "clock.arrow.circlepath") { historyScope = .archived }
-                .buttonStyle(SecondaryPillButtonStyle())
-                .padding(.vertical, NoopMetrics.space4)
+            chipButton("View older workouts", systemImage: "clock.arrow.circlepath") { historyScope = .archived }
+                .padding(.vertical, NoopMetrics.space2)
                 .accessibilityIdentifier("workouts.olderHistory")
         }
         if historyScope == .archived, loadedWindowDays != nil, !expandingHistory {
-            Button("Load older history", systemImage: "arrow.down") {
+            chipButton("Load older history", systemImage: "arrow.down") {
                 Task { await expandWindowIfNeeded(for: .all) }
             }
-            .buttonStyle(SecondaryPillButtonStyle()).padding(.vertical, NoopMetrics.space3)
+            .padding(.vertical, NoopMetrics.space2)
         }
         if expandingHistory { olderHistoryLoading }
         FlatSectionSeparator()
@@ -467,16 +473,16 @@ struct WorkoutsView: View {
         WorkoutEmptyState(
             symbol: "figure.run", title: "No workouts yet",
             message: "They come from your WHOOP and Apple Health history. Import in Data Sources to bring them in, or add one you tracked elsewhere.")
-        actionPills.frame(maxWidth: .infinity)
-        if !usesPreviewRows, loadedWindowDays != nil {
-            Button("Check older history", systemImage: "clock.arrow.circlepath") {
-                historyScope = .archived
-                Task { await expandWindowIfNeeded(for: .all) }
+        ChipRow {
+            addChip
+            if !usesPreviewRows, loadedWindowDays != nil {
+                chipButton("Check older history", systemImage: "clock.arrow.circlepath") {
+                    historyScope = .archived
+                    Task { await expandWindowIfNeeded(for: .all) }
+                }
             }
-            .buttonStyle(SecondaryPillButtonStyle())
-            .frame(maxWidth: .infinity)
-            .padding(.top, NoopMetrics.space3)
         }
+        .frame(maxWidth: .infinity)
         if expandingHistory { olderHistoryLoading.frame(maxWidth: .infinity) }
         FlatSectionSeparator()
         WorkoutsLiftSection(lastLift: lastLift) { liftDestination = $0 }
@@ -503,19 +509,24 @@ struct WorkoutsView: View {
         return calendar.startOfDay(for: Date(timeIntervalSince1970: TimeInterval(newest)))
     }
 
-    /// Start (or return to) a live workout, and add one tracked elsewhere. Same size, one primary.
-    private var actionPills: some View {
-        ChipRow {
-            WorkoutsActiveWorkoutButtonLeaf(
-                model: model,
-                onStart: { router.beginWorkout() },
-                onOpen: { router.openActiveWorkout() })
-            Button { sheet = WorkoutSheetTarget(editing: nil) } label: {
-                Label("Add workout", systemImage: "plus")
-            }
-            .buttonStyle(SecondaryPillButtonStyle())
-            .accessibilityLabel("Add a workout")
+    /// Add a workout tracked elsewhere: a hairline chip. Starting one is the header's solid pill.
+    private var addChip: some View {
+        Button { sheet = WorkoutSheetTarget(editing: nil) } label: {
+            WidgetChip(appTitle: "Add", systemImage: "plus", showsChevron: false, overhangs: false)
+                .chipHitTarget()
         }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Add a workout")
+        .accessibilityIdentifier("workouts.add")
+    }
+
+    /// A secondary action as a hairline chip.
+    private func chipButton(_ title: LocalizedStringKey, systemImage: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            WidgetChip(appTitle: title, systemImage: systemImage, showsChevron: false, overhangs: false)
+                .chipHitTarget()
+        }
+        .buttonStyle(.plain)
     }
 
     /// The heart-rate zones the hub's zone section describes, from the profile's max heart rate.
@@ -619,7 +630,7 @@ struct WorkoutsView: View {
     @ViewBuilder
     private func history(rows: [WorkoutRow], effectiveRange: Range) -> some View {
         FlatSection("History", systemImage: "list.bullet.rectangle", tint: .workout,
-                    trailing: .custom(AnyView(selectChip(rows: rows)))) {
+                    trailing: .custom(AnyView(historyChips(rows: rows)))) {
             VStack(alignment: .leading, spacing: WidgetMetrics.contentSpacing) {
                 controls(rows: rows, effectiveRange: effectiveRange)
                 if selectionMode { selectionToolbar(rows: rows) }
@@ -636,11 +647,19 @@ struct WorkoutsView: View {
                 dayHeader(group)
                 ForEach(Array(group.rows.enumerated()), id: \.element.listID) { index, row in
                     VStack(spacing: 0) {
-                        if index > 0 { WorkoutRowSeparator(leadingExtra: selectionMode ? Self.selectionColumnWidth : 0) }
+                        if index > 0 { WorkoutFlatRowSeparator(leadingExtra: selectionMode ? Self.selectionColumnWidth : 0) }
                         sessionRow(row)
                     }
                 }
             }
+        }
+    }
+
+    /// The History header's chips: Add, and Select while a row can be selected.
+    private func historyChips(rows: [WorkoutRow]) -> some View {
+        ChipRow {
+            addChip
+            selectChip(rows: rows)
         }
     }
 
@@ -788,8 +807,9 @@ struct WorkoutsView: View {
 
     // MARK: Session rows
 
-    /// One session: tap opens its detail (or toggles it in selection mode), the ••• menu holds the row actions.
-    /// In selection mode a leading checkmark (mergeable rows) or a lock (imported, read-only) replaces the menu.
+    /// One session: tap opens its detail (or toggles it in selection mode); press and hold opens the row actions, which
+    /// VoiceOver offers as the row's actions. In selection mode a leading checkmark (mergeable rows) or a lock (imported,
+    /// read-only) marks each row.
     /// Every row sits under its day header, so it shows its time, not the day again.
     private func sessionRow(_ row: WorkoutRow) -> some View {
         let selectable = WorkoutMerge.isMergeable(row)
@@ -811,7 +831,7 @@ struct WorkoutsView: View {
                         selectionGlyph(selectable: selectable, isSelected: isSelected)
                             .frame(width: Self.selectionColumnWidth)
                     }
-                    WorkoutRowContent(presentation: presentation)
+                    WorkoutFlatRow(presentation: presentation)
                 }
             }
             .buttonStyle(PaperPressStyle())
@@ -821,7 +841,6 @@ struct WorkoutsView: View {
             .accessibilityHint(selectionMode
                 ? (selectable ? Text("Double-tap to select") : Text("Imported history can't be merged"))
                 : Text("Opens workout detail"))
-            if !selectionMode { rowActionsMenu(row) }
         }
         .contextMenu { if !selectionMode { rowMenu(row) } }
     }
@@ -850,23 +869,6 @@ struct WorkoutsView: View {
     private func toggleSelection(_ row: WorkoutRow) {
         let key = selectionKey(row)
         if selected.contains(key) { selected.remove(key) } else { selected.insert(key) }
-    }
-
-    /// The same actions as `rowMenu`, as a tappable ••• button so they are discoverable without a long-press.
-    private func rowActionsMenu(_ row: WorkoutRow) -> some View {
-        Menu {
-            rowMenu(row)
-        } label: {
-            Image(systemName: "ellipsis")
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(StrandPalette.textTertiary)
-                .frame(width: 44, height: 44)
-                .contentShape(Rectangle())
-        }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .fixedSize()
-        .accessibilityLabel("Workout actions")
     }
 
     /// Context-menu actions per row. A DETECTED bout can be re-labelled (becomes a real manual session
@@ -930,7 +932,7 @@ struct WorkoutsView: View {
     }
 
     /// #64: the Merge / Delete / Cancel strip shown above the list in selection mode. Merge needs 2+
-    /// eligible rows; Delete needs 1+.
+    /// eligible rows; Delete needs 1+. Quiet chips: the one solid action on this page is the header's Start.
     private func selectionToolbar(rows: [WorkoutRow]) -> some View {
         let chosen = rows.filter { selected.contains(selectionKey($0)) }
         let canMerge = WorkoutMerge.canMerge(chosen)
@@ -938,25 +940,34 @@ struct WorkoutsView: View {
             Button {
                 beginMerge(chosen)
             } label: {
-                Label(String(localized: "Merge (\(chosen.count))"), systemImage: "arrow.triangle.merge")
+                WidgetChip(verbatimTitle: String(localized: "Merge (\(chosen.count))"),
+                           systemImage: "arrow.triangle.merge", showsChevron: false, isSelected: canMerge)
+                    .chipHitTarget()
             }
-            .buttonStyle(PrimaryPillButtonStyle())
+            .buttonStyle(.plain)
             .disabled(!canMerge)
+            .opacity(canMerge ? 1 : 0.45)
 
             Button(role: .destructive) {
                 let toDelete = chosen
                 selectionMode = false; selected.removeAll()
                 Task { await repo.bulkDeleteWorkouts(toDelete); await reload() }
             } label: {
-                Label(String(localized: "Delete (\(chosen.count))"), systemImage: "trash")
+                WidgetChip(verbatimTitle: String(localized: "Delete (\(chosen.count))"),
+                           systemImage: "trash", showsChevron: false)
+                    .chipHitTarget()
             }
-            .buttonStyle(SecondaryPillButtonStyle())
+            .buttonStyle(.plain)
             .disabled(chosen.isEmpty)
+            .opacity(chosen.isEmpty ? 0.45 : 1)
 
-            Button(String(localized: "Cancel")) {
+            Button {
                 withAnimation(NoopMotion.gated(.easeOut(duration: 0.15), reduced: reduceMotion)) { selectionMode = false; selected.removeAll() }
+            } label: {
+                WidgetChip(appTitle: "Cancel", showsChevron: false, overhangs: false)
+                    .chipHitTarget()
             }
-            .buttonStyle(SecondaryPillButtonStyle())
+            .buttonStyle(.plain)
         }
     }
 
@@ -1083,8 +1094,9 @@ struct WorkoutsView: View {
     }
 }
 
-/// Observes active-workout state only around the one control that renders it.
-private struct WorkoutsActiveWorkoutButtonLeaf: View {
+/// The header's one solid action, Today's Start pill: Start, or Open while a workout is running. It observes
+/// active-workout state itself, so only this control rebuilds when that changes.
+private struct WorkoutsStartPill: View {
     @ObservedObject var model: AppModel
     let onStart: () -> Void
     let onOpen: () -> Void
@@ -1093,14 +1105,15 @@ private struct WorkoutsActiveWorkoutButtonLeaf: View {
 
     var body: some View {
         Button(action: openWorkout) {
-            if hasActiveWorkout {
-                Label("View active workout", systemImage: "timer")
-            } else {
-                Label("Start workout", systemImage: "play.fill")
+            Group {
+                if hasActiveWorkout { Text("Open") } else { Text("Start") }
             }
+            .lineLimit(1)
+            .fixedSize()
         }
-        .buttonStyle(PrimaryPillButtonStyle())
+        .buttonStyle(WorkoutsStartPillStyle())
         .accessibilityLabel(hasActiveWorkout ? "View the active workout" : "Start a workout")
+        .accessibilityIdentifier("workouts.startWorkout")
     }
 
     private func openWorkout() {
@@ -1111,6 +1124,37 @@ private struct WorkoutsActiveWorkoutButtonLeaf: View {
         }
     }
 }
+
+/// Today's Start pill: the brand ink capsule with dark type. The tap area reaches 44pt without growing the header row.
+private struct WorkoutsStartPillStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(StrandFont.caption.weight(.semibold))
+            .foregroundStyle(StrandPalette.appCanvas)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 7)
+            .background(StrandPalette.ink, in: Capsule(style: .continuous))
+            .contentShape(Rectangle().inset(by: -8))
+            .opacity(configuration.isPressed ? 0.78 : 1)
+    }
+}
+
+#if os(iOS)
+/// A solid canvas strip over the status bar's safe area, so rows that scroll up never show through the clock. Nothing
+/// when the screen has no top inset (a sheet).
+private struct TopSafeAreaScrim: ViewModifier {
+    func body(content: Content) -> some View {
+        content.overlay(alignment: .top) {
+            GeometryReader { proxy in
+                StrandPalette.appCanvas.frame(height: proxy.safeAreaInsets.top)
+            }
+            .ignoresSafeArea(edges: .top)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+        }
+    }
+}
+#endif
 
 #if DEBUG
 @MainActor
