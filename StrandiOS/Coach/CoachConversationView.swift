@@ -425,7 +425,8 @@ private struct CoachTurnView: View {
                     .chipHitTarget()
             }
             .buttonStyle(.plain)
-            .accessibilityLabel(Text("\(message.evidence.count) source records"))
+            .accessibilityLabel(Text("Sources"))
+            .accessibilityValue(Text("\(message.evidence.count) source records"))
             .accessibilityIdentifier("coach.answer.sources")
         }
         if cards.contains(where: { $0.kind == "workouts" }) {

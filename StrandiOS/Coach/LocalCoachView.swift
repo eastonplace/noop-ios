@@ -160,7 +160,7 @@ struct LocalCoachView: View {
     private var overviewPage: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                FlatSection("Your daily outlook", systemImage: "sun.horizon", tint: .accent,
+                FlatSection("Your daily outlook", systemImage: "sun.horizon", tint: .neutral,
                             trailing: CoachRecordDate.trailing(day: coach.snapshot.latestDay)) {
                     VStack(alignment: .leading, spacing: NoopMetrics.space2) {
                         Text(coach.preferences.usePersonalData ? "Your day, in focus." : "Start with your goals.")
@@ -181,7 +181,7 @@ struct LocalCoachView: View {
                 }
                 if !coach.preferences.usePersonalData {
                     FlatSectionSeparator.coach
-                    FlatSection("Make it personal", systemImage: "lock.shield", tint: .accent) {
+                    FlatSection("Make it personal", systemImage: "lock.shield", tint: .neutral) {
                         Text("Allow Coach to read your selected NOOP records on this iPhone. Your local coach does not send them to a cloud model.")
                             .font(StrandFont.subhead).lineSpacing(3)
                             .foregroundStyle(StrandPalette.textSecondary)
@@ -191,7 +191,7 @@ struct LocalCoachView: View {
                     }
                 }
                 FlatSectionSeparator.coach
-                FlatSection("Your rhythm", systemImage: "calendar.badge.clock", tint: .accent) {
+                FlatSection("Your rhythm", systemImage: "calendar.badge.clock", tint: .neutral) {
                     Text("A moment to check in")
                         .font(StrandFont.subhead).foregroundStyle(StrandPalette.textSecondary)
                     CoachChipRow(bleed: NoopMetrics.space4) {
@@ -264,7 +264,13 @@ struct LocalCoachView: View {
                     NoopTabTitleRow("Coach") { headerActions }
                 } else {
                     NoopScreenHeader(title: "Coach", backAction: navigationRole == .detail ? { dismiss() } : nil,
-                                     style: .compact) { headerActions }
+                                     style: .compact) { headerIcons }
+                    // The header's trailing slot shares its row with the centred wordmark and the back control, so
+                    // the way back to chat sits on its own quiet row beneath it instead.
+                    if screen != .chat {
+                        HStack(spacing: 0) { chatChip; Spacer(minLength: 0) }
+                            .padding(.bottom, NoopMetrics.space1)
+                    }
                 }
             }
             .padding(.horizontal, NoopMetrics.space4)
@@ -273,8 +279,9 @@ struct LocalCoachView: View {
         .background(StrandPalette.appCanvas)
     }
 
-    /// History, a new thread and the menu as the #55 icon chips Trends' share button and main's Coach header use. Off
-    /// the chat page a "Chat" chip joins them as the way back, so the header stays one row with no subtitle line.
+    /// History, a new thread and the menu as the #55 icon chips Trends' share button and main's Coach header use. On
+    /// the tab title row, off the chat page, a "Chat" chip joins them as the way back; the sheet and detail header has
+    /// no room beside its wordmark, so there the chip gets its own row (see `header`).
     private var headerActions: some View {
         ViewThatFits(in: .horizontal) {
             HStack(spacing: NoopMetrics.space2) {
@@ -340,6 +347,12 @@ struct LocalCoachView: View {
             CoachNotice(text: Text("Your records are updating. General chat is available."), tone: .info)
                 .padding(.horizontal, NoopMetrics.space4).padding(.vertical, NoopMetrics.space2)
                 .accessibilityIdentifier("coach.recordsUpdating")
+        } else if screen == .chat, !coach.messages.isEmpty, let problem = availabilityProblem {
+            // The empty welcome page names the problem itself; a thread with messages needs it here, since Send is
+            // disabled and would otherwise say nothing.
+            CoachNotice(text: Text(LocalizedStringKey(problem)), tone: .warning)
+                .padding(.horizontal, NoopMetrics.space4).padding(.vertical, NoopMetrics.space2)
+                .accessibilityIdentifier("coach.availability")
         }
     }
 

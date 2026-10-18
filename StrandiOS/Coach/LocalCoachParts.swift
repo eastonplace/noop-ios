@@ -71,7 +71,7 @@ struct CoachRow: View {
         HStack(spacing: NoopMetrics.space3) {
             HStack(alignment: .firstTextBaseline, spacing: NoopMetrics.space3) {
                 Image(systemName: systemImage)
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.subheadline.weight(.semibold))
                     .foregroundStyle(tint.accent)
                     .frame(width: glyphWidth)
                     .accessibilityHidden(true)

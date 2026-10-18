@@ -123,7 +123,7 @@ struct LocalCoachPlanView: View {
                 .labelStyle(.titleAndIcon)
         }
         .buttonStyle(PrimaryPillButtonStyle())
-        .disabled(coach.isResponding)
+        .disabled(coach.isResponding || coach.isPreview)
         .accessibilityIdentifier("coach.savePlan")
     }
 
@@ -179,7 +179,7 @@ struct LocalCoachPlanView: View {
     private func exerciseRow(_ exercise: LocalCoachPlannedExercise) -> some View {
         HStack(spacing: NoopMetrics.space3) {
             Image(systemName: Self.symbol(for: exercise))
-                .font(.system(size: 14, weight: .semibold))
+                .font(.subheadline.weight(.semibold))
                 .foregroundStyle(DomainTint.workout.accent)
                 .frame(width: glyphWidth)
                 .accessibilityHidden(true)

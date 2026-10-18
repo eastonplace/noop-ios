@@ -409,7 +409,7 @@ private struct CoachWorkoutRow: View {
 
     private var glyph: some View {
         Image(systemName: sportSymbol(item.sport))
-            .font(.system(size: 14, weight: .semibold))
+            .font(.subheadline.weight(.semibold))
             .foregroundStyle(DomainTint.workout.accent)
             .frame(width: glyphWidth)
             .accessibilityHidden(true)
@@ -460,7 +460,7 @@ private struct CoachStatsCard: View {
     }
 
     var body: some View {
-        CoachCardChrome(symbol: symbol, title: card.title, tint: .accent,
+        CoachCardChrome(symbol: symbol, title: card.title, tint: .neutral,
                         dateLabel: card.day.map { LocalCoachCardFormat.dayLabel($0) }, isStale: card.isStale) {
             // The #55 stat strip: labels over bright values, units muted, hairlines between the columns.
             FactStrip(facts: card.items.prefix(3).map {
