@@ -1778,19 +1778,74 @@ public struct TrendsSummaryRow: View {
 
 /// Acute and chronic load as two lines on one scale: the 42-day line is the quiet backdrop, the 7-day line
 /// the bright one over a wash.
+///
+/// With only the five original parameters this is the Trends card's sparkline, unchanged. The detail page that card
+/// opens zooms the same drawing in: a taller plot, a calendar-true x axis (`timeline`) with a sparse date row, and a
+/// drag-to-scrub `selection` that draws a hairline and a dot on each line.
 public struct TrendsLoadChart: View {
+    /// Calendar placement for a chart that is more than a sparkline. One date per value, so a day that was not
+    /// recorded is a gap in the lines rather than two neighbours drawn side by side.
+    public struct Timeline {
+        public struct AxisLabel: Identifiable {
+            public let date: Date
+            public let text: String
+            public var id: Date { date }
+            public init(date: Date, text: String) {
+                self.date = date
+                self.text = text
+            }
+        }
+
+        public let days: [Date]
+        public let domain: ClosedRange<Date>
+        public let calendar: Calendar
+        /// Sparse date labels, first to last. Only the first and last are drawn at the accessibility text sizes.
+        public let axisLabels: [AxisLabel]
+        /// When set, the plot's highest and lowest values get a hairline and a label, as the #55 trend chart's do.
+        public let valueLabel: ((Double) -> String)?
+
+        public init(days: [Date], domain: ClosedRange<Date>, calendar: Calendar, axisLabels: [AxisLabel],
+                    valueLabel: ((Double) -> String)? = nil) {
+            self.days = days
+            self.domain = domain
+            self.calendar = calendar
+            self.axisLabels = axisLabels
+            self.valueLabel = valueLabel
+        }
+    }
+
     private let chronic: [Double]
     private let acute: [Double]
     private let tint: DomainTint
     private let startLabel: String
     private let endLabel: String
+    private let plotHeight: CGFloat
+    private let timeline: Timeline?
+    private let selection: Binding<Date?>?
+    private let accessibilitySummary: String?
 
-    public init(chronic: [Double], acute: [Double], tint: DomainTint, startLabel: String, endLabel: String) {
+    @Environment(\.dynamicTypeSize) private var typeSize
+    @GestureState private var isScrubbing = false
+
+    /// - Parameters:
+    ///   - plotHeight: the plot's height; the card's sparkline is 76pt.
+    ///   - timeline: places each value on its calendar day and replaces the start and end labels with a sparse date row.
+    ///     Needs one date per value in both arrays.
+    ///   - selection: the day under the finger while scrubbing (one of `timeline.days`), nil when not scrubbing. Has no
+    ///     effect without a `timeline`.
+    ///   - accessibilitySummary: what VoiceOver hears as the chart's value (the selected day's figures).
+    public init(chronic: [Double], acute: [Double], tint: DomainTint, startLabel: String, endLabel: String,
+                plotHeight: CGFloat = 76, timeline: Timeline? = nil, selection: Binding<Date?>? = nil,
+                accessibilitySummary: String? = nil) {
         self.chronic = chronic
         self.acute = acute
         self.tint = tint
         self.startLabel = startLabel
         self.endLabel = endLabel
+        self.plotHeight = plotHeight
+        self.timeline = timeline.flatMap { $0.days.count == acute.count && acute.count == chronic.count ? $0 : nil }
+        self.selection = selection
+        self.accessibilitySummary = accessibilitySummary
     }
 
     public var body: some View {
@@ -1798,14 +1853,18 @@ public struct TrendsLoadChart: View {
             GeometryReader { proxy in
                 plot(size: proxy.size)
             }
-            .frame(height: 76)
-            HStack {
-                Text(verbatim: startLabel)
-                Spacer()
-                Text(verbatim: endLabel)
+            .frame(height: plotHeight)
+            if let timeline {
+                dateRow(timeline)
+            } else {
+                HStack {
+                    Text(verbatim: startLabel)
+                    Spacer()
+                    Text(verbatim: endLabel)
+                }
+                .font(StrandFont.micro)
+                .foregroundStyle(StrandPalette.textTertiary)
             }
-            .font(StrandFont.micro)
-            .foregroundStyle(StrandPalette.textTertiary)
             HStack(spacing: NoopMetrics.space3) {
                 legendKey(title: "Acute · 7-day", opacity: 1)
                 legendKey(title: "Chronic · 42-day", opacity: 0.45)
@@ -1814,6 +1873,8 @@ public struct TrendsLoadChart: View {
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Acute and chronic training load over the last \(acute.count) days")
+        .accessibilityValue(Text(verbatim: accessibilitySummary ?? ""))
+        .modifier(ScrubAccessibility(isEnabled: timeline != nil && selection != nil, step: step))
     }
 
     private func legendKey(title: LocalizedStringKey, opacity: Double) -> some View {
@@ -1832,28 +1893,33 @@ public struct TrendsLoadChart: View {
         let pad = span * 0.12
         let lower = low - pad
         let range = span + pad * 2
-        let chronicPoints = Self.points(chronic, size: size, lower: lower, range: range)
-        let acutePoints = Self.points(acute, size: size, lower: lower, range: range)
 
-        ZStack {
-            if acutePoints.count >= 2 {
-                Self.area(acutePoints, height: size.height)
-                    .fill(LinearGradient(colors: [tint.accent.opacity(0.14), .clear], startPoint: .top, endPoint: .bottom))
-            }
-            if chronicPoints.count >= 2 {
-                Self.line(chronicPoints)
-                    .stroke(tint.accent.opacity(0.45), style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
-            }
-            if acutePoints.count >= 2 {
-                Self.line(acutePoints)
-                    .stroke(tint.accent, style: StrokeStyle(lineWidth: 2.4, lineCap: .round, lineJoin: .round))
-            }
-            if let end = acutePoints.last {
-                Circle()
-                    .fill(tint.accent)
-                    .frame(width: 8, height: 8)
-                    .overlay(Circle().stroke(StrandPalette.appCanvas, lineWidth: 1.5))
-                    .position(end)
+        if let timeline {
+            timelinePlot(timeline, size: size, lower: lower, range: range, low: low, high: high)
+        } else {
+            let chronicPoints = Self.points(chronic, size: size, lower: lower, range: range)
+            let acutePoints = Self.points(acute, size: size, lower: lower, range: range)
+
+            ZStack {
+                if acutePoints.count >= 2 {
+                    Self.area(acutePoints, height: size.height)
+                        .fill(LinearGradient(colors: [tint.accent.opacity(0.14), .clear], startPoint: .top, endPoint: .bottom))
+                }
+                if chronicPoints.count >= 2 {
+                    Self.line(chronicPoints)
+                        .stroke(tint.accent.opacity(0.45), style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
+                }
+                if acutePoints.count >= 2 {
+                    Self.line(acutePoints)
+                        .stroke(tint.accent, style: StrokeStyle(lineWidth: 2.4, lineCap: .round, lineJoin: .round))
+                }
+                if let end = acutePoints.last {
+                    Circle()
+                        .fill(tint.accent)
+                        .frame(width: 8, height: 8)
+                        .overlay(Circle().stroke(StrandPalette.appCanvas, lineWidth: 1.5))
+                        .position(end)
+                }
             }
         }
     }
@@ -1882,6 +1948,200 @@ public struct TrendsLoadChart: View {
             path.closeSubpath()
         }
         return path
+    }
+
+    // MARK: Timeline (the zoomed-in chart)
+
+    /// The same two lines and wash, placed on their calendar days. A calendar gap starts a new run, so no line crosses
+    /// a day that was not recorded, and a run of one day is drawn as a dot.
+    @ViewBuilder
+    private func timelinePlot(_ timeline: Timeline, size: CGSize, lower: Double, range: Double,
+                              low: Double, high: Double) -> some View {
+        let xs = timeline.days.map { Self.x(of: $0, in: timeline, width: size.width) }
+        let ys = { (value: Double) -> CGFloat in size.height * CGFloat(1 - (value - lower) / range) }
+        let runs = Self.runs(timeline)
+        let selectedIndex = selection?.wrappedValue.flatMap { day in
+            timeline.days.firstIndex { timeline.calendar.isDate($0, inSameDayAs: day) }
+        }
+        let selectedX = selection?.wrappedValue.map { Self.x(of: $0, in: timeline, width: size.width) }
+
+        ZStack {
+            if let label = timeline.valueLabel {
+                valueRule(at: ys(high), text: label(high), size: size, above: true)
+                valueRule(at: ys(low), text: label(low), size: size, above: false)
+            }
+            ForEach(runs.indices, id: \.self) { run in
+                let indices = runs[run]
+                let chronicPoints = indices.map { CGPoint(x: xs[$0], y: ys(chronic[$0])) }
+                let acutePoints = indices.map { CGPoint(x: xs[$0], y: ys(acute[$0])) }
+                if acutePoints.count >= 2 {
+                    Self.area(acutePoints, height: size.height)
+                        .fill(LinearGradient(colors: [tint.accent.opacity(0.14), .clear], startPoint: .top, endPoint: .bottom))
+                    Self.line(chronicPoints)
+                        .stroke(tint.accent.opacity(0.45), style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
+                    Self.line(acutePoints)
+                        .stroke(tint.accent, style: StrokeStyle(lineWidth: 2.4, lineCap: .round, lineJoin: .round))
+                } else if let point = acutePoints.first, let base = chronicPoints.first {
+                    Circle().fill(tint.accent.opacity(0.45)).frame(width: 5, height: 5).position(base)
+                    Circle().fill(tint.accent).frame(width: 6, height: 6).position(point)
+                }
+            }
+            if let selectedX {
+                Rectangle()
+                    .fill(StrandPalette.hairlineStrong)
+                    .frame(width: 1, height: size.height)
+                    .position(x: selectedX, y: size.height / 2)
+                if let selectedIndex {
+                    dot(at: CGPoint(x: xs[selectedIndex], y: ys(chronic[selectedIndex])), opacity: 0.45, diameter: 8)
+                    dot(at: CGPoint(x: xs[selectedIndex], y: ys(acute[selectedIndex])), opacity: 1, diameter: 10)
+                }
+            } else if let last = acute.indices.last {
+                dot(at: CGPoint(x: xs[last], y: ys(acute[last])), opacity: 1, diameter: 8)
+            }
+            if selection != nil {
+                // Horizontal drags scrub; a mostly vertical one is the page scrolling and is left alone. The
+                // selection clears when the finger lifts, or when the scroll view takes the touch.
+                Color.clear
+                    .contentShape(Rectangle())
+                    .simultaneousGesture(
+                        DragGesture(minimumDistance: 8, coordinateSpace: .local)
+                            .updating($isScrubbing) { _, state, _ in state = true }
+                            .onChanged { value in
+                                guard abs(value.translation.width) > abs(value.translation.height) else { return }
+                                select(nearestTo: value.location.x, width: size.width, in: timeline)
+                            }
+                    )
+                    .onChangeCompat(of: isScrubbing) { scrubbing in
+                        if !scrubbing { selection?.wrappedValue = nil }
+                    }
+            }
+        }
+    }
+
+    /// A hairline at one of the plot's two extremes with its value at the trailing edge.
+    private func valueRule(at y: CGFloat, text: String, size: CGSize, above: Bool) -> some View {
+        ZStack {
+            Rectangle()
+                .fill(StrandPalette.hairline.opacity(0.6))
+                .frame(height: 1)
+                .position(x: size.width / 2, y: y)
+            Text(verbatim: text)
+                .font(StrandFont.micro)
+                .foregroundStyle(StrandPalette.textTertiary)
+                .frame(width: size.width, alignment: .trailing)
+                .position(x: size.width / 2, y: y + (above ? -8 : 8))
+        }
+        .accessibilityHidden(true)
+    }
+
+    private func dot(at point: CGPoint, opacity: Double, diameter: CGFloat) -> some View {
+        ZStack {
+            Circle().fill(StrandPalette.appCanvas)
+            Circle().fill(tint.accent.opacity(opacity))
+        }
+        .frame(width: diameter, height: diameter)
+        .overlay(Circle().stroke(StrandPalette.appCanvas, lineWidth: 1.5))
+        .position(point)
+    }
+
+    /// The sparse date row under the plot. Reserves one line of text so the row grows with Dynamic Type, then places
+    /// each label at its day: the first starts at its tick and the last ends at it, so neither runs past the plot.
+    private func dateRow(_ timeline: Timeline) -> some View {
+        let labels = shownLabels(timeline.axisLabels)
+        return Text(verbatim: "Mmm 00")
+            .font(StrandFont.micro)
+            .hidden()
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .overlay {
+                GeometryReader { proxy in
+                    ZStack(alignment: .topLeading) {
+                        ForEach(Array(labels.enumerated()), id: \.element.id) { offset, label in
+                            Text(verbatim: label.text)
+                                .font(StrandFont.micro)
+                                .foregroundStyle(StrandPalette.textTertiary)
+                                .fixedSize()
+                                .frame(width: 0, alignment: Self.labelAlignment(offset, of: labels.count))
+                                .offset(x: Self.x(of: label.date, in: timeline, width: proxy.size.width))
+                        }
+                    }
+                }
+            }
+            .accessibilityHidden(true)
+    }
+
+    private func shownLabels(_ labels: [Timeline.AxisLabel]) -> [Timeline.AxisLabel] {
+        guard typeSize.isAccessibilitySize, labels.count > 2, let first = labels.first, let last = labels.last else { return labels }
+        return [first, last]
+    }
+
+    private static func labelAlignment(_ index: Int, of count: Int) -> Alignment {
+        if index == 0 { return .leading }
+        if index == count - 1 { return .trailing }
+        return .center
+    }
+
+    private static func x(of date: Date, in timeline: Timeline, width: CGFloat) -> CGFloat {
+        let span = timeline.domain.upperBound.timeIntervalSince(timeline.domain.lowerBound)
+        guard span > 0 else { return width }
+        let fraction = date.timeIntervalSince(timeline.domain.lowerBound) / span
+        return width * CGFloat(min(max(fraction, 0), 1))
+    }
+
+    /// Indices of consecutive days, split wherever a calendar day has no value between two others.
+    private static func runs(_ timeline: Timeline) -> [[Int]] {
+        var runs: [[Int]] = []
+        var previous: Date?
+        for (index, day) in timeline.days.enumerated() {
+            if let previous, (timeline.calendar.dateComponents([.day], from: previous, to: day).day ?? 0) <= 1, !runs.isEmpty {
+                runs[runs.count - 1].append(index)
+            } else {
+                runs.append([index])
+            }
+            previous = day
+        }
+        return runs
+    }
+
+    private func select(nearestTo x: CGFloat, width: CGFloat, in timeline: Timeline) {
+        guard width > 0, let binding = selection, !timeline.days.isEmpty else { return }
+        let span = timeline.domain.upperBound.timeIntervalSince(timeline.domain.lowerBound)
+        let target = timeline.domain.lowerBound.addingTimeInterval(span * Double(min(max(x / width, 0), 1)))
+        guard let nearest = timeline.days.min(by: {
+            abs($0.timeIntervalSince(target)) < abs($1.timeIntervalSince(target))
+        }) else { return }
+        if binding.wrappedValue != nearest { binding.wrappedValue = nearest }
+    }
+
+    /// VoiceOver's adjustable steps move the selection one recorded day at a time; past the newest day it clears.
+    private func step(_ direction: AccessibilityAdjustmentDirection) {
+        guard let timeline, let binding = selection, !timeline.days.isEmpty else { return }
+        let last = timeline.days.count - 1
+        let current = binding.wrappedValue.flatMap { day in
+            timeline.days.firstIndex { timeline.calendar.isDate($0, inSameDayAs: day) }
+        }
+        switch direction {
+        case .decrement:
+            binding.wrappedValue = timeline.days[max((current ?? last) - 1, 0)]
+        case .increment:
+            guard let current else { return }
+            binding.wrappedValue = current >= last ? nil : timeline.days[current + 1]
+        @unknown default:
+            break
+        }
+    }
+}
+
+/// Makes the scrubbing chart adjustable for VoiceOver, only when it scrubs: the card's sparkline stays a plain element.
+private struct ScrubAccessibility: ViewModifier {
+    let isEnabled: Bool
+    let step: (AccessibilityAdjustmentDirection) -> Void
+
+    func body(content: Content) -> some View {
+        if isEnabled {
+            content.accessibilityAdjustableAction(step)
+        } else {
+            content
+        }
     }
 }
 

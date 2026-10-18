@@ -78,7 +78,7 @@ extension TrendsView {
                         chronic: load.chronicSpark,
                         acute: load.acuteSpark,
                         tint: .strain,
-                        startLabel: String(localized: "Recent observed days"),
+                        startLabel: String(localized: "\(load.acuteSpark.count - 1) days ago"),
                         endLabel: String(localized: "Today")
                     )
                 }
@@ -101,22 +101,41 @@ extension TrendsView {
         }
     }
 
-    /// The detail's formatting, so the card and the page it opens print the same figures.
     private func trainingLoadNumber(_ value: Double?) -> String {
-        value.map { DrillInFormat.number($0, fractionDigits: 1) } ?? WidgetMetrics.missingValue
+        value.map { String(format: "%.1f", $0) } ?? WidgetMetrics.missingValue
     }
 
-    /// Never "-0.0" or "+0.0": a balance that rounds to nothing reads "0.0".
     private func trainingLoadBalance(_ value: Double?) -> String {
-        value.map { DrillInFormat.signed($0, fractionDigits: 1) } ?? WidgetMetrics.missingValue
+        value.map { String(format: "%@%.1f", $0 > 0 ? "+" : "", $0) } ?? WidgetMetrics.missingValue
     }
 
     private func trainingLoadStatus(_ load: TrainingLoadSnapshot) -> String {
-        TrainingLoadCopy.status(load.state, reason: load.unavailableReason, observedDays: load.contiguousDays)
+        switch load.state {
+        case .established: return String(localized: "Established")
+        case .building: return String(localized: "Building \(load.contiguousDays)/42")
+        case .unavailable: return String(localized: "Building")
+        }
     }
 
     private func trainingLoadUnavailableTitle(_ load: TrainingLoadSnapshot) -> String {
-        TrainingLoadCopy.unavailableTitle(load.unavailableReason)
+        switch load.unavailableReason {
+        case .notEnoughContiguousDays:
+            return String(localized: "Building your load history")
+        case .missingTargetDay:
+            return String(localized: "Today's Effort is not ready")
+        default:
+            return String(localized: "Training load is not ready")
+        }
+    }
+
+    private func trainingLoadUnavailableDetail(_ load: TrainingLoadSnapshot) -> String {
+        if load.unavailableReason == .notEnoughContiguousDays {
+            let remaining = max(0, 14 - load.contiguousDays)
+            return remaining == 1
+                ? String(localized: "Need 1 more contiguous day with an Effort value.")
+                : String(localized: "Need \(remaining) more contiguous days with Effort values.")
+        }
+        return String(localized: "NOOP needs a continuous run of daily Effort values to model acute and chronic load.")
     }
 
     /// One short VoiceOver label for the whole tappable section.
@@ -132,16 +151,6 @@ extension TrendsView {
                 String(localized: "Chronic · 42d") + " " + trainingLoadNumber(load.chronic),
                 String(localized: "Acute · 7d") + " " + trainingLoadNumber(load.acute),
                 String(localized: "Balance") + " " + trainingLoadBalance(load.balance)].joined(separator: ", ")
-    }
-
-    private func trainingLoadUnavailableDetail(_ load: TrainingLoadSnapshot) -> String {
-        if load.unavailableReason == .notEnoughContiguousDays {
-            let remaining = max(0, 14 - load.contiguousDays)
-            return remaining == 1
-                ? String(localized: "Need 1 more observed day with an Effort value.")
-                : String(localized: "Need \(remaining) more observed days with Effort values.")
-        }
-        return String(localized: "NOOP needs recent observed Effort values. Open details to see coverage and the missing-day rule.")
     }
 
     // MARK: - Selected range
