@@ -40,7 +40,7 @@ struct TrainingLoadDetailLink<Label: View>: View {
         }
         .buttonStyle(PaperPressStyle())
         .accessibilityAddTraits(.isHeader)
-        .accessibilityHint("Opens dated training load, coverage and calculation details")
+        .accessibilityHint("Opens dated training load and how it is calculated")
         .accessibilityIdentifier("trends.trainingLoad.open")
     }
 }
@@ -68,6 +68,18 @@ enum TrainingLoadCopy {
         state == .established ? .positive : .neutral
     }
 
+    /// How many more days of Effort the model needs before it can show a load estimate.
+    static func remainingDays(contiguousDays: Int) -> Int {
+        max(0, TrainingLoadEngine.Configuration.standard.minimumDays - contiguousDays)
+    }
+
+    /// The one explicit insufficient-history state, shared by the Trends card and the page it opens.
+    static func needsMoreDays(_ remaining: Int) -> String {
+        remaining == 1
+            ? String(localized: "Needs 1 more day of workouts")
+            : String(localized: "Needs \(remaining) more days of workouts")
+    }
+
     /// The one-line reason there is no load estimate.
     static func unavailableTitle(_ reason: TrainingLoadEngine.UnavailableReason?) -> String {
         switch reason {
@@ -80,15 +92,17 @@ enum TrainingLoadCopy {
 
 /// A bounded read of the same canonical Trends projection. TrainingLoadEngine remains the only calculator.
 ///
-/// Flat #55 drill-in: the load section leads with its eyebrow, state pill and the chronic value, then the chart, the
-/// period control, a flat inspector and the dated values; coverage, the method and the workout link follow, one
-/// hairline between each.
+/// Flat #55 drill-in, built like the Recovery trend: the eyebrow carries the state pill, "Last N days" and the quiet
+/// range control sit under it, then the acute hero with its change against the 42-day baseline, the trend chart (acute
+/// in the metric colour, chronic as the grey dashed baseline) and the selected day's Acute | Chronic | Balance strip.
+/// The workout link and two plain-language disclosure rows follow, one hairline above them.
 struct TrainingLoadDetailView: View {
     let request: TrainingLoadDetailRequest
     /// Gregorian, in the Trends source time zone. Built once rather than on every body pass.
     private let calendar: Calendar
     @EnvironmentObject private var repo: Repository
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var typeSize
     @State private var result: TrainingLoadEngine.Result?
     @State private var failure: String?
     /// The read that produced the result on screen. Coming back from Workout history re-runs `.task` with the same
@@ -171,16 +185,18 @@ struct TrainingLoadDetailView: View {
             if result.isAvailable {
                 loadSection(result, points: points)
             } else {
-                statusSection(trailing: eyebrowPill(result),
-                              caption: TrainingLoadCopy.unavailableTitle(result.unavailableReason),
-                              detail: Text(verbatim: unavailableDetail(result)), showsRail: true)
+                unavailableSection(result)
             }
             DrillInSeparator()
-            coverageSection(result)
-            DrillInSeparator()
-            methodSection
-            DrillInSeparator()
-            workoutsLink
+            VStack(alignment: .leading, spacing: 0) {
+                workoutsLink
+                if result.isAvailable {
+                    FlatRowSeparator()
+                    datedValues(points)
+                }
+                FlatRowSeparator()
+                methodSection
+            }
             Text("These values describe recorded daily Effort. They do not change Readiness or provide medical clearance.")
                 .font(StrandFont.micro)
                 .foregroundStyle(StrandPalette.textTertiary)
@@ -193,21 +209,8 @@ struct TrainingLoadDetailView: View {
 
     private func loadSection(_ result: TrainingLoadEngine.Result, points: [TrainingLoadDay]) -> some View {
         let focus = focusDay(in: points)
-        let chronic = result.chronicLoad.map { number(StrainScale.displayValue(fromStored: $0)) }
         return VStack(alignment: .leading, spacing: WidgetMetrics.headerSpacing) {
             SectionEyebrow("Load over time", systemImage: "flame.fill", tint: .effort, trailing: eyebrowPill(result))
-            VStack(alignment: .leading, spacing: NoopMetrics.space2) {
-                HeroValue(value: chronic ?? WidgetMetrics.missingValue,
-                          caption: String(localized: "Chronic · 42d"), captionPlacement: .below)
-                Text("See how recent effort compares with your longer baseline.")
-                    .font(StrandFont.subhead)
-                    .foregroundStyle(StrandPalette.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .accessibilityElement(children: .combine)
-            TrainingLoadChart(points: points, domain: rangeStart...anchor, calendar: calendar, focus: focus,
-                              marker: selectedDay, selection: $selection, summary: chartSummary(focus))
-            legend
             TrendsControlRow(
                 leading: { _ in
                     Text("Last \(period) days")
@@ -217,8 +220,11 @@ struct TrainingLoadDetailView: View {
                 },
                 trailing: { periodPicker }
             )
-            inspector(focus)
-            datedValues(points)
+            hero(focus)
+            TrainingLoadChart(points: points, domain: rangeStart...anchor, calendar: calendar, focus: focus,
+                              marker: selectedDay, selection: $selection, summary: chartSummary(focus))
+            TrainingLoadLegend()
+            dayStrip(focus)
         }
     }
 
@@ -234,26 +240,53 @@ struct TrainingLoadDetailView: View {
         return points.first { calendar.isDate($0.date, inSameDayAs: day) }
     }
 
-    /// The same encoding as the Trends card: acute bright, chronic at 45%.
-    private var legend: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: NoopMetrics.space3) { legendKeys }
-            VStack(alignment: .leading, spacing: NoopMetrics.space1) { legendKeys }
+    // MARK: Hero
+
+    /// Acute load for the scrubbed (or newest) day, with its change against the 42-day baseline beside it. At the
+    /// accessibility sizes the pill drops under the value so neither is squeezed onto a second line.
+    private func hero(_ focus: TrainingLoadDay?) -> some View {
+        let value = HeroValue(value: focus.map { number($0.acute) } ?? WidgetMetrics.missingValue,
+                              caption: heroCaption(focus), captionPlacement: .below)
+        return Group {
+            if typeSize.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+                    value
+                    deltaPill(focus)
+                }
+            } else {
+                HStack(alignment: .firstTextBaseline, spacing: NoopMetrics.space2) {
+                    value
+                    Spacer(minLength: NoopMetrics.space2)
+                    deltaPill(focus)
+                }
+            }
         }
-        .accessibilityHidden(true)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("trends.trainingLoad.hero")
     }
 
-    @ViewBuilder private var legendKeys: some View {
-        legendKey("Acute · 7-day", opacity: 1)
-        legendKey("Chronic · 42-day", opacity: 0.45)
+    private func heroCaption(_ focus: TrainingLoadDay?) -> String {
+        let acute = String(localized: "Acute · 7d")
+        guard let day = selectedDay else { return acute }
+        let label = day.formatted(weekdayFormat)
+        return focus == nil ? String(localized: "No data · \(label)") : "\(acute) · \(label)"
     }
 
-    private func legendKey(_ title: LocalizedStringKey, opacity: Double) -> some View {
-        HStack(spacing: NoopMetrics.space1) {
-            Capsule(style: .continuous)
-                .fill(StrandPalette.strainAccent.opacity(opacity))
-                .frame(width: 12, height: 3)
-            Text(title).font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
+    /// Acute against chronic, from the engine's own balance (chronic minus acute, so the sign flips): up when recent
+    /// effort is above the baseline. Load has no good direction, so the pill stays neutral.
+    @ViewBuilder private func deltaPill(_ focus: TrainingLoadDay?) -> some View {
+        if let focus {
+            let delta = -focus.balance
+            let magnitude = number(abs(delta))
+            if !delta.isFinite || trendsDeltaIsZero(magnitude) {
+                StatePill("Level with 42-day", tone: .neutral, showsDot: false)
+            } else if delta > 0 {
+                StatePill("▲ \(magnitude) vs 42-day", tone: .neutral, showsDot: false)
+                    .accessibilityLabel(Text("up \(magnitude) vs 42-day"))
+            } else {
+                StatePill("▼ \(magnitude) vs 42-day", tone: .neutral, showsDot: false)
+                    .accessibilityLabel(Text("down \(magnitude) vs 42-day"))
+            }
         }
     }
 
@@ -280,30 +313,27 @@ struct TrainingLoadDetailView: View {
             }
     }
 
-    /// The scrubbed (or newest) day, flat: its date, the card's three values in the card's order, and its Effort.
-    private func inspector(_ focus: TrainingLoadDay?) -> some View {
-        let day = selectedDay ?? focus?.date ?? anchor
+    /// The scrubbed (or newest) day under the chart: Acute | Chronic | Balance in the three-column strip, then that
+    /// day's recorded Effort. A day with no observation says so rather than showing zeros.
+    private func dayStrip(_ focus: TrainingLoadDay?) -> some View {
         let missing = WidgetMetrics.missingValue
-        let chronic: String = focus.map { number($0.chronic) } ?? missing
         let acute: String = focus.map { number($0.acute) } ?? missing
+        let chronic: String = focus.map { number($0.chronic) } ?? missing
         let balance: String = focus.map { signed($0.balance) } ?? missing
         return VStack(alignment: .leading, spacing: NoopMetrics.space2) {
-            Text(verbatim: day.formatted(weekdayFormat))
-                .font(StrandFont.footnote.weight(.semibold))
-                .foregroundStyle(StrandPalette.textSecondary)
             StatFooter(items: [
-                (String(localized: "Chronic · 42d"), chronic),
                 (String(localized: "Acute · 7d"), acute),
+                (String(localized: "Chronic · 42d"), chronic),
                 (String(localized: "Balance"), balance),
             ], style: .prominent)
             if let focus {
                 Text("Recorded Effort \(number(StrainScale.displayValue(fromStored: focus.point.load)))")
                     .font(StrandFont.footnote)
-                    .foregroundStyle(StrandPalette.textSecondary)
+                    .foregroundStyle(StrandPalette.textTertiary)
             } else {
                 Text("No modeled observation for this day. Missing values stay separate from recorded zero Effort.")
                     .font(StrandFont.footnote)
-                    .foregroundStyle(StrandPalette.textSecondary)
+                    .foregroundStyle(StrandPalette.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -329,7 +359,7 @@ struct TrainingLoadDetailView: View {
                         Text(verbatim: day.date.formatted(dayFormat))
                             .font(StrandFont.footnote.weight(.semibold))
                             .foregroundStyle(StrandPalette.textPrimary)
-                        Text("Chronic \(number(day.chronic)) · Acute \(number(day.acute)) · Balance \(signed(day.balance))")
+                        Text("Acute \(number(day.acute)) · Chronic \(number(day.chronic)) · Balance \(signed(day.balance))")
                             .font(StrandFont.footnote)
                             .foregroundStyle(StrandPalette.textSecondary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -342,86 +372,31 @@ struct TrainingLoadDetailView: View {
         }
     }
 
-    // MARK: Coverage
-
-    /// Observed days, calendar span and coverage as one flat strip ("—" when nothing was modeled), plus progress
-    /// toward the next threshold while the model is still building.
-    private func coverageSection(_ result: TrainingLoadEngine.Result) -> some View {
-        let modeled = result.spanDays > 0
-        let missing = WidgetMetrics.missingValue
-        let observed: String = modeled ? result.contiguousDays.formatted() : missing
-        let span: String = modeled ? result.spanDays.formatted() : missing
-        var coverage: String = missing
-        if let share = result.coverage { coverage = share.formatted(.percent.precision(.fractionLength(0))) }
-        return VStack(alignment: .leading, spacing: WidgetMetrics.headerSpacing) {
-            SectionEyebrow("History coverage", systemImage: "calendar", tint: .neutral)
-            StatFooter(items: [
-                (String(localized: "Observed days"), observed),
-                (String(localized: "Calendar days"), span),
-                (String(localized: "Coverage"), coverage),
-            ])
-            if let target = thresholdTarget(result) {
-                thresholdProgress(observed: result.contiguousDays, target: target)
-            }
-            Text("The model needs 14 observed days to begin and 42 to reach its established state. Gaps of up to two days can remain in the modeled span.")
-                .font(StrandFont.footnote)
-                .foregroundStyle(StrandPalette.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-    }
-
-    /// The threshold the model is working toward: 14 observed days to begin, 42 to be established. Nil once it is
-    /// established, or when the run itself is not measured (no data, no value on the end date).
-    private func thresholdTarget(_ result: TrainingLoadEngine.Result) -> Int? {
-        let standard = TrainingLoadEngine.Configuration.standard
-        switch result.state {
-        case .established: return nil
-        case .building: return standard.establishedDays
-        case .unavailable: return result.unavailableReason == .notEnoughContiguousDays ? standard.minimumDays : nil
-        }
-    }
-
-    private func thresholdProgress(observed: Int, target: Int) -> some View {
-        let fraction = min(1, max(0, Double(observed) / Double(max(target, 1))))
-        return VStack(alignment: .leading, spacing: NoopMetrics.space2) {
-            Text("Building · \(observed) of \(target) observed days")
-                .font(StrandFont.subhead.weight(.semibold))
-                .foregroundStyle(StrandPalette.textPrimary)
-                .fixedSize(horizontal: false, vertical: true)
-            GeometryReader { proxy in
-                ZStack(alignment: .leading) {
-                    Capsule(style: .continuous).fill(StrandPalette.chipFill)
-                    Capsule(style: .continuous).fill(StrandPalette.strainAccent)
-                        .frame(width: proxy.size.width * CGFloat(fraction))
-                }
-            }
-            .frame(height: 4)
-            .accessibilityHidden(true)
-        }
-        .accessibilityElement(children: .combine)
-    }
-
     // MARK: Method and links
 
+    /// Plain words, no model names. The 14 and 42 are the engine's own thresholds (`Configuration.standard`).
     private var methodSection: some View {
-        TrainingLoadDisclosure("How this is calculated", isExpanded: $showMethod) {
+        let standard = TrainingLoadEngine.Configuration.standard
+        return TrainingLoadDisclosure("How this is calculated", isExpanded: $showMethod) {
             VStack(alignment: .leading, spacing: NoopMetrics.space2) {
-                Text("Both lines use exponentially weighted daily Effort. Recent values carry more weight. Seven and 42 days are model time constants; the chart range does not change them.")
-                Text("Balance is chronic load minus acute load. The first seven observed days seed both lines.")
-                Text("For gaps up to two days, the existing model decays its state with zero load internally. Those gap days are not measurements and have no observed chart point. A longer gap starts a new run.")
+                Text("Acute load is a weighted average of your daily Effort that leans on the last 7 days. Chronic load does the same over about 42 days, so it moves more slowly. Changing the chart range never changes these numbers.")
+                Text("Balance is chronic load minus acute load.")
+                Text("Load appears after \(standard.minimumDays) days of recorded Effort and settles after \(standard.establishedDays).")
+                Text("A gap of up to two days is smoothed over and is not drawn as a measurement. A longer gap starts the history again.")
                 Text("Dates use the Trends source time zone: \(request.key.timeZoneIdentifier)")
             }
             .font(StrandFont.footnote)
             .foregroundStyle(StrandPalette.textSecondary)
             .fixedSize(horizontal: false, vertical: true)
+            .padding(.bottom, NoopMetrics.space2)
         }
     }
 
     private var workoutsLink: some View {
         NavigationLink { WorkoutsView() } label: {
-            HealthLinkRowLabel(title: String(localized: "Workout history"),
-                               subtitle: String(localized: "The sessions behind your daily Effort"),
-                               symbol: "figure.run", tint: .workout)
+            TrainingLoadLinkRow(title: String(localized: "Workout history"),
+                                subtitle: String(localized: "The sessions behind your daily Effort"),
+                                symbol: "figure.run", tint: .workout)
         }
         .buttonStyle(FlatRowPressStyle())
         .accessibilityIdentifier("trends.trainingLoad.workouts")
@@ -442,6 +417,24 @@ struct TrainingLoadDetailView: View {
                 .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// No estimate yet: the load section's shape with "—" and a ghost rail. When it is only a matter of days, say how
+    /// many more (the one explicit insufficient-history state), with a quiet progress rule; otherwise the reason.
+    private func unavailableSection(_ result: TrainingLoadEngine.Result) -> some View {
+        let needsDays = result.unavailableReason == .notEnoughContiguousDays
+        let remaining = TrainingLoadCopy.remainingDays(contiguousDays: result.contiguousDays)
+        let target = TrainingLoadEngine.Configuration.standard.minimumDays
+        return VStack(alignment: .leading, spacing: WidgetMetrics.headerSpacing) {
+            statusSection(trailing: eyebrowPill(result),
+                          caption: TrainingLoadCopy.unavailableTitle(result.unavailableReason),
+                          detail: Text(verbatim: needsDays ? TrainingLoadCopy.needsMoreDays(remaining)
+                                                           : unavailableDetail(result)),
+                          showsRail: true)
+            if needsDays {
+                TrainingLoadProgressRule(fraction: Double(result.contiguousDays) / Double(max(target, 1)))
+            }
+        }
     }
 
     private var loadingState: some View {
@@ -479,7 +472,8 @@ struct TrainingLoadDetailView: View {
     private func unavailableDetail(_ result: TrainingLoadEngine.Result) -> String {
         switch result.unavailableReason {
         case .missingTargetDay: String(localized: "There is no usable Effort value for the selected end date.")
-        case .notEnoughContiguousDays: String(localized: "This history has \(result.contiguousDays) observed days. The model needs 14 before it can show a load estimate.")
+        case .notEnoughContiguousDays: TrainingLoadCopy.needsMoreDays(
+            TrainingLoadCopy.remainingDays(contiguousDays: result.contiguousDays))
         case .noData: String(localized: "No daily Effort history is available for this source.")
         default: String(localized: "The source history cannot produce a valid load estimate. Check the records in Trends.")
         }
@@ -609,8 +603,26 @@ private struct TrainingLoadDay: Identifiable {
     var balance: Double { StrainScale.displayDelta(fromStored: point.balance) }
 }
 
-/// Acute and chronic load in the Trends card's encoding (acute 2.4pt in the strain tint, chronic 2pt at 45% under it),
-/// on hairline axes with at most four date labels. The labels sit in the overlay so the first and last are pinned flush
+/// The two roles, drawn the way the #55 chart draws "the value" and "typical": acute is the metric-coloured line, chronic
+/// the grey dashed baseline. One definition so the Trends card and the page agree.
+private enum TrainingLoadInk {
+    static let acute = StrandPalette.strainAccent
+    static let chronic = StrandPalette.textSecondary.opacity(0.8)
+    static let acuteWidth: CGFloat = 2.4
+    static let chronicWidth: CGFloat = 1.6
+    static let chronicDash: [CGFloat] = [4, 3]
+
+    static var acuteStyle: StrokeStyle { StrokeStyle(lineWidth: acuteWidth, lineCap: .round, lineJoin: .round) }
+    static var chronicStyle: StrokeStyle {
+        StrokeStyle(lineWidth: chronicWidth, lineCap: .butt, lineJoin: .round, dash: chronicDash)
+    }
+    static var wash: LinearGradient {
+        LinearGradient(colors: [acute.opacity(0.14), .clear], startPoint: .top, endPoint: .bottom)
+    }
+}
+
+/// Acute load (metric colour, over a soft wash) against chronic load (grey, dashed), on hairline rails at the recorded high and low with their values on
+/// knocked-out plates, and at most four date labels. The labels sit in the overlay so the first and last are pinned flush
 /// with the plot's edges rather than truncated.
 private struct TrainingLoadChart: View {
     let points: [TrainingLoadDay]
@@ -627,6 +639,7 @@ private struct TrainingLoadChart: View {
     var body: some View {
         let axisDays = Self.ticks(in: domain, calendar: calendar)
         Chart {
+            acuteWash
             chronicLines
             acuteLines
             loneDays
@@ -638,20 +651,16 @@ private struct TrainingLoadChart: View {
         .chartXSelection(value: $selection)
         .chartXAxis {
             AxisMarks(values: axisDays) { _ in
-                AxisGridLine().foregroundStyle(StrandPalette.hairline.opacity(0.4))
                 // Reserves the label row only; the visible labels are drawn in the overlay below.
                 AxisValueLabel {
                     Text(verbatim: "Mmm 00").opacity(0).accessibilityHidden(true)
                 }
-                .font(StrandFont.footnote)
+                .font(StrandFont.micro)
             }
         }
         .chartYAxis {
-            AxisMarks(position: .leading, values: .automatic(desiredCount: 3)) { _ in
-                AxisGridLine().foregroundStyle(StrandPalette.hairline.opacity(0.4))
-                AxisValueLabel()
-                    .foregroundStyle(StrandPalette.textTertiary)
-                    .font(StrandFont.footnote)
+            AxisMarks(position: .leading, values: rails.map { [$0.low, $0.high] } ?? []) { _ in
+                AxisGridLine(stroke: StrokeStyle(lineWidth: 0.7)).foregroundStyle(StrandPalette.hairline.opacity(0.9))
             }
         }
         .chartOverlay { proxy in
@@ -661,13 +670,14 @@ private struct TrainingLoadChart: View {
                     ForEach(shownLabels(axisDays), id: \.index) { item in
                         if let x = proxy.position(forX: item.date) {
                             Text(verbatim: axisLabel(for: item.date))
-                                .font(StrandFont.footnote)
+                                .font(StrandFont.micro)
                                 .foregroundStyle(StrandPalette.textTertiary)
                                 .fixedSize()
                                 .frame(width: 0, alignment: Self.labelAlignment(item.index, of: axisDays.count))
                                 .offset(x: x + plot.minX, y: plot.maxY + 4)
                         }
                     }
+                    railLabels(proxy: proxy, plot: plot)
                 }
             }
             .allowsHitTesting(false)
@@ -682,12 +692,22 @@ private struct TrainingLoadChart: View {
         .accessibilityIdentifier("trends.trainingLoad.chart")
     }
 
+    /// The soft wash under the acute line, as in the #55 chart.
+    @ChartContentBuilder private var acuteWash: some ChartContent {
+        ForEach(points) { day in
+            AreaMark(x: .value("Day", day.date), yStart: .value("Floor", yDomain.lowerBound),
+                     yEnd: .value("Load", day.acute), series: .value("Series", "wash-\(day.run)"))
+                .foregroundStyle(TrainingLoadInk.wash)
+                .interpolationMethod(.monotone)
+        }
+    }
+
     @ChartContentBuilder private var chronicLines: some ChartContent {
         ForEach(points) { day in
             LineMark(x: .value("Day", day.date), y: .value("Load", day.chronic),
                      series: .value("Series", "chronic-\(day.run)"))
-                .foregroundStyle(StrandPalette.strainAccent.opacity(0.45))
-                .lineStyle(StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
+                .foregroundStyle(TrainingLoadInk.chronic)
+                .lineStyle(TrainingLoadInk.chronicStyle)
                 .interpolationMethod(.monotone)
         }
     }
@@ -696,8 +716,8 @@ private struct TrainingLoadChart: View {
         ForEach(points) { day in
             LineMark(x: .value("Day", day.date), y: .value("Load", day.acute),
                      series: .value("Series", "acute-\(day.run)"))
-                .foregroundStyle(StrandPalette.strainAccent)
-                .lineStyle(StrokeStyle(lineWidth: 2.4, lineCap: .round, lineJoin: .round))
+                .foregroundStyle(TrainingLoadInk.acute)
+                .lineStyle(TrainingLoadInk.acuteStyle)
                 .interpolationMethod(.monotone)
         }
     }
@@ -706,15 +726,16 @@ private struct TrainingLoadChart: View {
     @ChartContentBuilder private var loneDays: some ChartContent {
         ForEach(points.filter(\.standsAlone)) { day in
             PointMark(x: .value("Day", day.date), y: .value("Load", day.chronic))
-                .foregroundStyle(StrandPalette.strainAccent.opacity(0.45))
+                .foregroundStyle(TrainingLoadInk.chronic)
                 .symbolSize(18)
             PointMark(x: .value("Day", day.date), y: .value("Load", day.acute))
-                .foregroundStyle(StrandPalette.strainAccent)
+                .foregroundStyle(TrainingLoadInk.acute)
                 .symbolSize(24)
         }
     }
 
-    /// The scrubbed day's rule, and the endpoint dot (with its canvas ring) on the day the inspector reads.
+    /// The scrubbed day's rule, and the endpoint dot (with its canvas ring) on the day the hero reads. While scrubbing,
+    /// the chronic line gets a small dot too, so both strip values can be found on the chart.
     @ChartContentBuilder private var focusMarks: some ChartContent {
         if let marker {
             RuleMark(x: .value("Selected day", marker))
@@ -722,23 +743,75 @@ private struct TrainingLoadChart: View {
                 .lineStyle(StrokeStyle(lineWidth: 1))
         }
         if let focus {
+            if marker != nil {
+                PointMark(x: .value("Day", focus.date), y: .value("Load", focus.chronic))
+                    .foregroundStyle(StrandPalette.appCanvas)
+                    .symbolSize(60)
+                PointMark(x: .value("Day", focus.date), y: .value("Load", focus.chronic))
+                    .foregroundStyle(TrainingLoadInk.chronic)
+                    .symbolSize(26)
+            }
             PointMark(x: .value("Day", focus.date), y: .value("Load", focus.acute))
                 .foregroundStyle(StrandPalette.appCanvas)
                 .symbolSize(110)
             PointMark(x: .value("Day", focus.date), y: .value("Load", focus.acute))
-                .foregroundStyle(StrandPalette.strainAccent)
+                .foregroundStyle(TrainingLoadInk.acute)
                 .symbolSize(56)
         }
     }
 
-    /// The data's own range with some air, never below zero, so the two lines use the plot instead of its top third.
-    private var yDomain: ClosedRange<Double> {
+    // MARK: Scale and rails
+
+    /// The recorded low and high across both lines: where the rails sit.
+    private var rails: (low: Double, high: Double)? {
         let values = points.flatMap { [$0.acute, $0.chronic] }.filter(\.isFinite)
-        guard let low = values.min(), let high = values.max() else { return 0...1 }
-        let pad = max(high - low, 1) * 0.15
-        let lower = max(0, low - pad)
-        return lower...max(lower + 1, high + pad)
+        guard let low = values.min(), let high = values.max() else { return nil }
+        return (low, high)
     }
+
+    /// The data's own range with room above the high rail and below the low rail for their values, never below zero, so
+    /// the lines use the plot instead of its top third.
+    private var yDomain: ClosedRange<Double> {
+        guard let rails else { return 0...1 }
+        let pad = max(rails.high - rails.low, 1) * 0.2
+        let lower = max(0, rails.low - pad)
+        return lower...max(lower + 1, rails.high + pad)
+    }
+
+    /// The high value rides above its rail and the low value under its own, at the trailing edge, so neither lands on a
+    /// line (the data sits between the rails). Hidden at the accessibility sizes, where the plate is as tall as the
+    /// air around the rail; the page's strip and the hero carry the values there.
+    @ViewBuilder
+    private func railLabels(proxy: ChartProxy, plot: CGRect) -> some View {
+        if !typeSize.isAccessibilitySize, let rails,
+           let highY = proxy.position(forY: rails.high), let lowY = proxy.position(forY: rails.low) {
+            railLabel(rails.high)
+                .frame(width: plot.width, height: max(plot.minY + highY - 2, 0), alignment: .bottomTrailing)
+                .offset(x: plot.minX)
+            if lowY - highY > 16 {
+                railLabel(rails.low)
+                    .frame(width: plot.width, height: max(plot.maxY - plot.minY - lowY, 0) + 2, alignment: .topTrailing)
+                    .offset(x: plot.minX, y: plot.minY + lowY + 2)
+            }
+        }
+    }
+
+    private func railLabel(_ value: Double) -> some View {
+        Text(verbatim: DrillInFormat.number(value, fractionDigits: 1))
+            .font(StrandFont.micro)
+            .monospacedDigit()
+            .foregroundStyle(StrandPalette.textTertiary)
+            .fixedSize()
+            .background {
+                RoundedRectangle(cornerRadius: 3, style: .continuous)
+                    .fill(StrandPalette.appCanvas.opacity(0.88))
+                    .padding(.horizontal, -3)
+                    .padding(.vertical, -1)
+            }
+            .padding(.trailing, 10)
+    }
+
+    // MARK: Date axis
 
     /// "Today" for the anchor day when it is today, else "Oct 15", in the Trends source time zone.
     private func axisLabel(for date: Date) -> String {
@@ -776,6 +849,145 @@ private struct TrainingLoadChart: View {
         if index == 0 { return .leading }
         if index == count - 1 { return .trailing }
         return .center
+    }
+}
+
+/// The Trends card's chart: the same two roles as the page's chart, with no axes. Acute in the metric colour over a wash,
+/// chronic grey and dashed. Decorative: the card's one VoiceOver summary carries the figures.
+struct TrainingLoadSparkChart: View {
+    let acute: [Double]
+    let chronic: [Double]
+
+    var body: some View {
+        Chart {
+            ForEach(Array(acute.enumerated()), id: \.offset) { index, value in
+                AreaMark(x: .value("Day", index), yStart: .value("Floor", yDomain.lowerBound),
+                         yEnd: .value("Load", value))
+                    .foregroundStyle(TrainingLoadInk.wash)
+                    .interpolationMethod(.monotone)
+            }
+            ForEach(Array(chronic.enumerated()), id: \.offset) { index, value in
+                LineMark(x: .value("Day", index), y: .value("Load", value), series: .value("Series", "chronic"))
+                    .foregroundStyle(TrainingLoadInk.chronic)
+                    .lineStyle(TrainingLoadInk.chronicStyle)
+                    .interpolationMethod(.monotone)
+            }
+            ForEach(Array(acute.enumerated()), id: \.offset) { index, value in
+                LineMark(x: .value("Day", index), y: .value("Load", value), series: .value("Series", "acute"))
+                    .foregroundStyle(TrainingLoadInk.acute)
+                    .lineStyle(TrainingLoadInk.acuteStyle)
+                    .interpolationMethod(.monotone)
+            }
+            if let last = acute.last {
+                PointMark(x: .value("Day", acute.count - 1), y: .value("Load", last))
+                    .foregroundStyle(StrandPalette.appCanvas)
+                    .symbolSize(90)
+                PointMark(x: .value("Day", acute.count - 1), y: .value("Load", last))
+                    .foregroundStyle(TrainingLoadInk.acute)
+                    .symbolSize(44)
+            }
+        }
+        .chartXScale(domain: 0...max(acute.count - 1, 1))
+        .chartYScale(domain: yDomain)
+        .chartLegend(.hidden)
+        .chartXAxis(.hidden)
+        .chartYAxis(.hidden)
+        .frame(height: 76)
+        .accessibilityHidden(true)
+    }
+
+    private var yDomain: ClosedRange<Double> {
+        let values = (acute + chronic).filter(\.isFinite)
+        guard let low = values.min(), let high = values.max() else { return 0...1 }
+        let pad = max(high - low, 1) * 0.12
+        let lower = max(0, low - pad)
+        return lower...max(lower + 1, high + pad)
+    }
+}
+
+/// What the two lines are: a solid metric-coloured key and a dashed grey one, so they read apart before a word is read.
+struct TrainingLoadLegend: View {
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: NoopMetrics.space3) { keys }
+            VStack(alignment: .leading, spacing: NoopMetrics.space1) { keys }
+        }
+        .accessibilityHidden(true)
+    }
+
+    @ViewBuilder private var keys: some View {
+        key("Acute · 7-day", dashed: false)
+        key("Chronic · 42-day", dashed: true)
+    }
+
+    private func key(_ title: LocalizedStringKey, dashed: Bool) -> some View {
+        HStack(spacing: NoopMetrics.space1) {
+            Path { path in
+                path.move(to: CGPoint(x: 1, y: 1.5))
+                path.addLine(to: CGPoint(x: 15, y: 1.5))
+            }
+            .stroke(dashed ? TrainingLoadInk.chronic : TrainingLoadInk.acute,
+                    style: dashed ? TrainingLoadInk.chronicStyle : TrainingLoadInk.acuteStyle)
+            .frame(width: 16, height: 3)
+            Text(title).font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
+        }
+    }
+}
+
+/// A thin rule filling toward the days a load estimate needs. Decorative: the line of words beside it says the same.
+private struct TrainingLoadProgressRule: View {
+    let fraction: Double
+
+    var body: some View {
+        let shown = min(1, max(0, fraction))
+        GeometryReader { proxy in
+            ZStack(alignment: .leading) {
+                Capsule(style: .continuous).fill(StrandPalette.chipFill)
+                Capsule(style: .continuous).fill(StrandPalette.strainAccent)
+                    .frame(width: proxy.size.width * CGFloat(shown))
+            }
+        }
+        .frame(height: 4)
+        .accessibilityHidden(true)
+    }
+}
+
+/// A flat row that opens another page: an inline glyph in its metric colour (no disc), a title and what is behind it, and
+/// a chevron, on a row at least 44pt tall. Reads as one element to VoiceOver.
+private struct TrainingLoadLinkRow: View {
+    let title: String
+    let subtitle: String
+    let symbol: String
+    var tint: DomainTint = .accent
+
+    var body: some View {
+        HStack(alignment: .center, spacing: NoopMetrics.space3) {
+            Image(systemName: symbol)
+                .font(StrandFont.caption)
+                .foregroundStyle(tint.accent)
+                .frame(width: WidgetMetrics.metricIconWidth)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(verbatim: title)
+                    .font(StrandFont.subhead.weight(.semibold))
+                    .foregroundStyle(StrandPalette.textPrimary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(verbatim: subtitle)
+                    .font(StrandFont.footnote)
+                    .foregroundStyle(StrandPalette.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: NoopMetrics.space2)
+            Image(systemName: "chevron.right")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(StrandPalette.textTertiary)
+                .accessibilityHidden(true)
+        }
+        .padding(.vertical, NoopMetrics.space2)
+        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(verbatim: "\(title). \(subtitle)"))
     }
 }
 

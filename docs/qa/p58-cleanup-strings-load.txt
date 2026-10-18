@@ -1,0 +1,14 @@
+▲ %@ vs 42-day
+▼ %@ vs 42-day
+Level with 42-day
+up %@ vs 42-day
+down %@ vs 42-day
+Needs 1 more day of workouts
+Needs %lld more days of workouts
+Acute %@ · Chronic %@ · Balance %@
+Acute load is a weighted average of your daily Effort that leans on the last 7 days. Chronic load does the same over about 42 days, so it moves more slowly. Changing the chart range never changes these numbers.
+Balance is chronic load minus acute load.
+Load appears after %lld days of recorded Effort and settles after %lld.
+A gap of up to two days is smoothed over and is not drawn as a measurement. A longer gap starts the history again.
+Opens dated training load and how it is calculated
+NOOP needs recent daily Effort values before it can show your load.
