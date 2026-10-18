@@ -1,0 +1,1 @@
+# workouts lane: no new user-facing strings. Every string used already exists in the code at the lane base (Start, Open, Add, Close Quick Actions, Merge (N), Delete (N), Cancel and the rest).
