@@ -4467,7 +4467,9 @@ struct TodayView: View {
         // `async let`, then await each where its result is first used, same data, same derivations, same
         // assignment order as before. (The Sleep score + provenance resolves moved to loadDayScoped, #755.)
         async let stepsEstSeriesA    = repo.exploreSeries(key: "steps_est", source: "my-whoop")
-        async let workoutsA          = repo.workoutRows()
+        // Only the six newest workout tiles read reconciled HR/Effort; the count, source filter, day filter and
+        // spans never touch those fields, so reconcile just the head instead of up to 300 HR range reads.
+        async let workoutsA          = repo.workoutRows(reconcileLimit: 6)
         async let appleDaysA         = repo.appleDailyRows()
         async let xStepsA            = repo.series(key: "steps", source: "xiaomi-band")
         async let xSleepA            = repo.series(key: "sleep_total_min", source: "xiaomi-band")
