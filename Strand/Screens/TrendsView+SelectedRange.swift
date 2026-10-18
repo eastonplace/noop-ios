@@ -67,20 +67,15 @@ extension TrendsView {
             VStack(alignment: .leading, spacing: WidgetMetrics.contentSpacing) {
                 StatFooter(
                     items: [
-                        (String(localized: "Chronic · 42d"), trainingLoadNumber(load.chronic)),
                         (String(localized: "Acute · 7d"), trainingLoadNumber(load.acute)),
+                        (String(localized: "Chronic · 42d"), trainingLoadNumber(load.chronic)),
                         (String(localized: "Balance"), trainingLoadBalance(load.balance)),
                     ],
                     style: .prominent
                 )
                 if load.chronicSpark.count > 1, load.acuteSpark.count > 1 {
-                    TrendsLoadChart(
-                        chronic: load.chronicSpark,
-                        acute: load.acuteSpark,
-                        tint: .strain,
-                        startLabel: String(localized: "Recent observed days"),
-                        endLabel: String(localized: "Today")
-                    )
+                    TrainingLoadSparkChart(acute: load.acuteSpark, chronic: load.chronicSpark)
+                    TrainingLoadLegend()
                 }
             }
         } else {
@@ -129,19 +124,16 @@ extension TrendsView {
             return [title, status, trainingLoadUnavailableTitle(load)].joined(separator: ", ")
         }
         return [title, status,
-                String(localized: "Chronic · 42d") + " " + trainingLoadNumber(load.chronic),
                 String(localized: "Acute · 7d") + " " + trainingLoadNumber(load.acute),
+                String(localized: "Chronic · 42d") + " " + trainingLoadNumber(load.chronic),
                 String(localized: "Balance") + " " + trainingLoadBalance(load.balance)].joined(separator: ", ")
     }
 
     private func trainingLoadUnavailableDetail(_ load: TrainingLoadSnapshot) -> String {
         if load.unavailableReason == .notEnoughContiguousDays {
-            let remaining = max(0, 14 - load.contiguousDays)
-            return remaining == 1
-                ? String(localized: "Need 1 more observed day with an Effort value.")
-                : String(localized: "Need \(remaining) more observed days with Effort values.")
+            return TrainingLoadCopy.needsMoreDays(TrainingLoadCopy.remainingDays(contiguousDays: load.contiguousDays))
         }
-        return String(localized: "NOOP needs recent observed Effort values. Open details to see coverage and the missing-day rule.")
+        return String(localized: "NOOP needs recent daily Effort values before it can show your load.")
     }
 
     // MARK: - Selected range
