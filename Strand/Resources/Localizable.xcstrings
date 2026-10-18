@@ -205217,6 +205217,206 @@
           }
         }
       }
+    },
+    "Access": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Access"
+          }
+        }
+      }
+    },
+    "Sources": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sources"
+          }
+        }
+      }
+    },
+    "▲ %@ vs 42-day": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "▲ %@ vs 42-day"
+          }
+        }
+      }
+    },
+    "▼ %@ vs 42-day": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "▼ %@ vs 42-day"
+          }
+        }
+      }
+    },
+    "Level with 42-day": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Level with 42-day"
+          }
+        }
+      }
+    },
+    "up %@ vs 42-day": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "up %@ vs 42-day"
+          }
+        }
+      }
+    },
+    "down %@ vs 42-day": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "down %@ vs 42-day"
+          }
+        }
+      }
+    },
+    "Needs 1 more day of workouts": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Needs 1 more day of workouts"
+          }
+        }
+      }
+    },
+    "Needs %lld more days of workouts": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Needs %lld more days of workouts"
+          }
+        }
+      }
+    },
+    "Acute %@ · Chronic %@ · Balance %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Acute %@ · Chronic %@ · Balance %@"
+          }
+        }
+      }
+    },
+    "Acute load is a weighted average of your daily Effort that leans on the last 7 days. Chronic load does the same over about 42 days, so it moves more slowly. Changing the chart range never changes these numbers.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Acute load is a weighted average of your daily Effort that leans on the last 7 days. Chronic load does the same over about 42 days, so it moves more slowly. Changing the chart range never changes these numbers."
+          }
+        }
+      }
+    },
+    "Balance is chronic load minus acute load.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Balance is chronic load minus acute load."
+          }
+        }
+      }
+    },
+    "Load appears after %lld days of recorded Effort and settles after %lld.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Load appears after %lld days of recorded Effort and settles after %lld."
+          }
+        }
+      }
+    },
+    "A gap of up to two days is smoothed over and is not drawn as a measurement. A longer gap starts the history again.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A gap of up to two days is smoothed over and is not drawn as a measurement. A longer gap starts the history again."
+          }
+        }
+      }
+    },
+    "Opens dated training load and how it is calculated": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opens dated training load and how it is calculated"
+          }
+        }
+      }
+    },
+    "NOOP needs recent daily Effort values before it can show your load.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NOOP needs recent daily Effort values before it can show your load."
+          }
+        }
+      }
+    },
+    "No workout data on this day. A day with no data is not the same as zero Effort.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No workout data on this day. A day with no data is not the same as zero Effort."
+          }
+        }
+      }
+    },
+    "Loading training load": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Loading training load"
+          }
+        }
+      }
+    },
+    "Acute and chronic load from daily Effort": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Acute and chronic load from daily Effort"
+          }
+        }
+      }
+    },
+    "Training load cannot be worked out from this history yet.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Training load cannot be worked out from this history yet."
+          }
+        }
+      }
     }
   },
   "version": "1.0"
