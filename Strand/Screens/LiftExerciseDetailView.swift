@@ -42,9 +42,14 @@ struct LiftExerciseDetailView: View {
                         }
                     }
                 }
-                Picker("Exercise details", selection: $tab) {
-                    Text("Progress").tag("Progress"); Text("History").tag("History"); Text("How to").tag("How to")
-                }.pickerStyle(.segmented)
+                SegmentedPillControl(["Progress", "History", "How to"], selection: $tab) { tab in
+                    switch tab {
+                    case "History": String(localized: "History")
+                    case "How to": String(localized: "How to")
+                    default: String(localized: "Progress")
+                    }
+                }
+                .accessibilityLabel("Exercise details")
                 if tab == "How to" {
                     NoopCard {
                         VStack(alignment: .leading, spacing: 16) {
@@ -66,9 +71,10 @@ struct LiftExerciseDetailView: View {
                                 Spacer()
                                 Text("\(Set(working.map(\.sessionId)).count) sessions").font(.caption)
                             }
-                            Picker("Progress metric", selection: $metric) {
-                                Text("Strength").tag("Strength"); Text("Volume").tag("Volume")
-                            }.pickerStyle(.segmented)
+                            SegmentedPillControl(["Strength", "Volume"], selection: $metric) { metric in
+                                metric == "Volume" ? String(localized: "Volume") : String(localized: "Strength")
+                            }
+                            .accessibilityLabel("Progress metric")
                             LiftProgressChart(points: points, unit: LiftFormat.weightUnit(system), isVolume: metric == "Volume")
                             Text(metric == "Volume" ? "Total weight × reps per session. Warm-ups are excluded." : "Estimated from logged working sets of 1–12 reps. This is an estimate, not a measured maximum.")
                                 .font(.caption).foregroundStyle(StrandPalette.textSecondary)

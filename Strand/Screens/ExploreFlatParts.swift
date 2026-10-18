@@ -306,12 +306,14 @@ struct CorrelationTrailing: View {
     }
 }
 
-/// The W / M / 3M / 6M / 1Y / ALL control and the window it picks ("Last 30 days"). At the accessibility sizes six chips
+/// The W / M / 3M / 6M / 1Y / ALL control (flat tabs, like every range control in the app) and the window it picks ("Last 30 days"). At the accessibility sizes six chips
 /// would stack into a column taller than the chart above them, so one menu chip names the range and changes it. A range
 /// `isEnabled` says no to stays visible but dimmed and inert (the Metric Explorer's #943 locking).
 struct ExploreRangeControl: View {
     @Binding var selection: ExploreRange
     var isEnabled: (ExploreRange) -> Bool = { _ in true }
+    /// The metric colour for the selected range when the control sits under a metric widget; nil keeps the neutral look.
+    var tint: DomainTint? = nil
     @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
@@ -335,6 +337,7 @@ struct ExploreRangeControl: View {
     private var picker: some View {
         let ranges = ExploreRange.allCases
         return SegmentedPillControl(ranges, selection: $selection, isEnabled: isEnabled) { $0.label }
+            .segmentedPillTint(tint?.accent)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Range")
             .accessibilityValue(selection.title)

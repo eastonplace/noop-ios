@@ -1,3 +1,4 @@
+import SwiftUI
 import XCTest
 @testable import StrandDesign
 
@@ -139,6 +140,22 @@ final class DesignLabAtomTests: XCTestCase {
         )
 
         XCTAssertEqual(callbackCount, 0)
+    }
+
+    func testFlatSegmentThumbFollowsTheTintAndTheSelectionStyle() {
+        let tint = Color.orange
+        let tinted = SegmentedPillSelectionAppearance.resolve(tint: tint, style: .solid)
+        XCTAssertEqual(tinted.fill, tint.opacity(0.18))
+        XCTAssertEqual(tinted.label, tint)
+        // With a tint the two styles draw the same thumb.
+        XCTAssertEqual(SegmentedPillSelectionAppearance.resolve(tint: tint, style: .quiet), tinted)
+
+        let quiet = SegmentedPillSelectionAppearance.resolve(tint: nil, style: .quiet)
+        XCTAssertEqual(quiet.fill, StrandPalette.ink.opacity(0.12))
+        XCTAssertEqual(quiet.label, StrandPalette.textPrimary)
+        let solid = SegmentedPillSelectionAppearance.resolve(tint: nil, style: .solid)
+        XCTAssertEqual(solid.fill, StrandPalette.ink.opacity(0.22))
+        XCTAssertEqual(solid.label, StrandPalette.textPrimary)
     }
 
     func testHypnogramHighlightUsesContractOpacityWithoutChangingHoverRule() {

@@ -59,11 +59,11 @@ final class DrillInAccessibilityTests: XCTestCase {
     }
 
     func testAPillSegmentIsFortyFourPointsTallToAFinger() {
-        let touch = SegmentTouchShape().path(in: CGRect(x: 0, y: 0, width: 50, height: 32)).boundingRect
+        let touch = SegmentTouchShape().path(in: CGRect(x: 0, y: 0, width: 50, height: 30)).boundingRect
         XCTAssertEqual(touch.height, 44, accuracy: 0.001)
         // Its own width, so neighbouring segments never fight over a touch.
         XCTAssertEqual(touch.width, 50, accuracy: 0.001)
-        XCTAssertEqual(touch.minY, -6, accuracy: 0.001)
+        XCTAssertEqual(touch.minY, -7, accuracy: 0.001)
     }
 
     func testBandHoursAreSpokenAsDurationsSoOneHourIsSingular() {

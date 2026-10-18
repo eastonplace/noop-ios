@@ -303,8 +303,8 @@ public extension View {
 
 // MARK: - Chips
 
-/// The label of the metric menu: the metric's symbol in its domain colour, its name and the up-down chevron,
-/// on the same inset capsule as the segmented control it sits beside.
+/// The label of the metric menu: the metric's symbol in its domain colour, its name and the up-down chevron, on a
+/// hairline-outlined capsule with no fill, so it reads as one row with the flat range control it sits beside.
 public struct TrendsMenuChipLabel: View {
     private let title: String
     private let systemImage: String
@@ -344,8 +344,7 @@ public struct TrendsMenuChipLabel: View {
                 .foregroundStyle(StrandPalette.textTertiary)
         }
         .padding(.horizontal, 12)
-        .frame(height: 38)
-        .background(StrandPalette.surfaceInset, in: Capsule(style: .continuous))
+        .frame(height: 32)
         .overlay(Capsule(style: .continuous).strokeBorder(StrandPalette.hairline, lineWidth: 1))
         .frame(minHeight: 44)
         .contentShape(Capsule(style: .continuous))

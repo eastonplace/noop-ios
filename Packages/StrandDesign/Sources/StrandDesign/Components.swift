@@ -553,9 +553,10 @@ public struct InsightCard: View {
 
 // MARK: - Range control (the ONE segmented pill control, used everywhere)
 
-/// How the selected segment of a `SegmentedPillControl` is drawn. Solid ink (the default) is the app-wide selected chrome. A
-/// screen with its own single solid control (the live workout journey's Start circle) asks for `quiet`: a 15% tint of the same
-/// colour behind words in that colour, so the one solid control stays the only one.
+/// How the selected segment of a `SegmentedPillControl` is drawn. The control is flat tabs: no track, text-only segments, and a
+/// small rounded thumb behind the selected label. Both styles draw that same look. `solid` (the default) uses a stronger
+/// neutral fill when no `segmentedPillTint` is set; `quiet` uses the lighter one, for a screen with its own single solid
+/// control (the live workout journey's Start circle). With a tint set the two are identical.
 public enum SegmentedPillSelectionStyle: Sendable {
     case solid
     case quiet
@@ -572,10 +573,45 @@ extension EnvironmentValues {
     }
 }
 
+private struct SegmentedPillTintKey: EnvironmentKey {
+    static let defaultValue: Color? = nil
+}
+
+extension EnvironmentValues {
+    var segmentedPillTint: Color? {
+        get { self[SegmentedPillTintKey.self] }
+        set { self[SegmentedPillTintKey.self] = newValue }
+    }
+}
+
 public extension View {
     /// Draws the selected segment of every `SegmentedPillControl` below this view in `style`.
     func segmentedPillSelectionStyle(_ style: SegmentedPillSelectionStyle) -> some View {
         environment(\.segmentedPillSelectionStyle, style)
+    }
+
+    /// Tints the selected segment of every `SegmentedPillControl` below this view: a soft fill of `color` behind a label in
+    /// `color`. Pass the metric colour for a control that sits under a metric widget; pass nil (the default) for the neutral
+    /// look used by generic controls.
+    func segmentedPillTint(_ color: Color?) -> some View {
+        environment(\.segmentedPillTint, color)
+    }
+}
+
+/// The fill behind the selected segment and the colour of its label, resolved from the tint and the selection style.
+/// Kept apart from the view so the rule is testable.
+struct SegmentedPillSelectionAppearance: Equatable {
+    let fill: Color
+    let label: Color
+
+    static func resolve(tint: Color?, style: SegmentedPillSelectionStyle) -> SegmentedPillSelectionAppearance {
+        if let tint {
+            return SegmentedPillSelectionAppearance(fill: tint.opacity(0.18), label: tint)
+        }
+        return SegmentedPillSelectionAppearance(
+            fill: StrandPalette.ink.opacity(style == .solid ? 0.22 : 0.12),
+            label: StrandPalette.textPrimary
+        )
     }
 }
 
@@ -595,6 +631,7 @@ public struct SegmentedPillControl<T: Hashable>: View {
     @Namespace private var selectionThumb
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.segmentedPillSelectionStyle) private var selectionStyle
+    @Environment(\.segmentedPillTint) private var tint
     public init(_ items: [T], selection: Binding<T>, stacksAtAccessibilitySizes: Bool = true,
                 label: @escaping (T) -> String) {
         self.init(items, selection: selection, stacksAtAccessibilitySizes: stacksAtAccessibilitySizes,
@@ -621,22 +658,18 @@ public struct SegmentedPillControl<T: Hashable>: View {
         // stack, one full-width row each, and a label may take as many lines as it needs. A control inside a sideways
         // scroll view opts out and keeps its single row.
         let stacked = stacksAtAccessibilitySizes && typeSize.isAccessibilitySize
+        // Flat tabs: no track and no border, so the control's trailing edge is the section's content edge.
         Group {
             if stacked {
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: 2) {
                     ForEach(items, id: \.self) { item in segment(item, stacked: true) }
                 }
             } else {
-                HStack(spacing: 4) {
+                HStack(spacing: 2) {
                     ForEach(items, id: \.self) { item in segment(item, stacked: false) }
                 }
             }
         }
-        .padding(3)
-        // A rounded rectangle whose radius clamps to half its height is the capsule; stacked rows get a firm corner.
-        .background(StrandPalette.surfaceInset, in: RoundedRectangle(cornerRadius: stacked ? 24 : 1000, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: stacked ? 24 : 1000, style: .continuous)
-            .strokeBorder(StrandPalette.hairline, lineWidth: 1))
         .accessibilityElement(children: .contain)
         .strandHaptic(.selection, trigger: selection)
     }
@@ -644,6 +677,7 @@ public struct SegmentedPillControl<T: Hashable>: View {
     @ViewBuilder private func segment(_ item: T, stacked: Bool) -> some View {
         let sel = item == selection
         let enabled = isEnabled(item)
+        let appearance = SegmentedPillSelectionAppearance.resolve(tint: tint, style: selectionStyle)
         Button {
             SegmentedPillSelection.perform(
                 current: selection,
@@ -657,26 +691,27 @@ public struct SegmentedPillControl<T: Hashable>: View {
                 feedback: playSelectionFallback
             )
         } label: {
+            // The semibold label sets the segment's width, so choosing a segment never nudges its neighbours.
             Text(label(item))
-                .font(StrandFont.captionNumber)
-                // Active segment is SELECTION CHROME, so it follows the accent: on dark a
-                // Canonical selected chrome is scheme-invariant ink. Disabled segments
-                // drop to a fainter tertiary so the lock reads at a glance.
-                .foregroundStyle(sel ? (selectionStyle == .quiet ? StrandPalette.ink : StrandPalette.onInk)
-                                     : StrandPalette.textTertiary.opacity(enabled ? 1 : 0.35))
-                .multilineTextAlignment(.center)
-                // Fill the segment height so the selected pill has EQUAL margins to the track
-                // on every side. (The old compact pill inside a taller 44pt touch frame left
-                // more vertical margin than horizontal — it read as off-centre.)
+                .font(StrandFont.captionNumber.weight(.semibold))
+                .hidden()
+                .overlay {
+                    Text(label(item))
+                        .font(sel ? StrandFont.captionNumber.weight(.semibold) : StrandFont.captionNumber)
+                        // Disabled segments drop to a fainter tertiary so the lock reads at a glance.
+                        .foregroundStyle(sel ? appearance.label
+                                             : StrandPalette.textTertiary.opacity(enabled ? 1 : 0.35))
+                        .multilineTextAlignment(.center)
+                }
                 // (Stacked rows are only as tall as their label: a greedy height would stretch a pinned header.)
                 .frame(minWidth: 26, maxWidth: stacked ? .infinity : nil, maxHeight: stacked ? nil : .infinity)
-                .padding(.horizontal, 9)
+                .padding(.horizontal, 10)
                 .padding(.vertical, stacked ? 10 : 0)
                 .background(
                     Group {
                         if sel {
-                            Capsule(style: .continuous)
-                                .fill(selectionStyle == .quiet ? StrandPalette.ink.opacity(0.15) : StrandPalette.ink)
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .fill(appearance.fill)
                                 .matchedGeometryEffect(
                                     id: "selected-segment",
                                     in: selectionThumb
@@ -684,8 +719,8 @@ public struct SegmentedPillControl<T: Hashable>: View {
                         }
                     }
                 )
-                // Side by side, a finger gets 44 pt of height though the segment is drawn 32: the touch shape reaches 6 pt
-                // above and below it, which changes nothing in the layout. Stacked rows are 44 pt already and sit 4 pt
+                // Side by side, a finger gets 44 pt of height though the segment is drawn 30: the touch shape reaches 7 pt
+                // above and below it, which changes nothing in the layout. Stacked rows are 44 pt already and sit 2 pt
                 // apart, so they keep their own bounds and neighbouring touch areas never overlap.
                 .contentShape(stacked ? AnyShape(Rectangle()) : AnyShape(SegmentTouchShape()))
         }
@@ -697,14 +732,14 @@ public struct SegmentedPillControl<T: Hashable>: View {
         .modifier(SegmentIdentifier(identifier: identifier?(item)))
     }
 
-    /// 32pt (44pt to the finger) side by side; as tall as the label needs, at least 44pt, when stacked.
+    /// 30pt (44pt to the finger) side by side; as tall as the label needs, at least 44pt, when stacked.
     private struct SegmentHeight: ViewModifier {
         let stacked: Bool
         @ViewBuilder func body(content: Content) -> some View {
             if stacked {
                 content.frame(minHeight: 44)
             } else {
-                content.frame(height: 32)   // segment height; the pill fills it for an even inset
+                content.frame(height: 30)   // segment height; the thumb fills it
             }
         }
     }
@@ -720,11 +755,11 @@ public struct SegmentedPillControl<T: Hashable>: View {
     }
 }
 
-/// The touch area of a pill segment: its own width, and 6 pt more above and below it, so a segment drawn 32 pt tall
+/// The touch area of a pill segment: its own width, and 7 pt more above and below it, so a segment drawn 30 pt tall
 /// is 44 pt tall to a finger without growing the control.
 struct SegmentTouchShape: Shape {
     func path(in rect: CGRect) -> Path {
-        Path(rect.insetBy(dx: 0, dy: -6))
+        Path(rect.insetBy(dx: 0, dy: -7))
     }
 }
 
