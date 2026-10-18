@@ -807,8 +807,9 @@ struct WorkoutsView: View {
 
     // MARK: Session rows
 
-    /// One session: tap opens its detail (or toggles it in selection mode); press and hold opens the row actions, which
-    /// VoiceOver offers as the row's actions. In selection mode a leading checkmark (mergeable rows) or a lock (imported,
+    /// One session: tap opens its detail (or toggles it in selection mode). The row actions are a long-press menu, a quiet
+    /// ••• on rows that have edit paths (manual and detected: the only visible way to Edit or Re-label), and named
+    /// VoiceOver actions on the row itself. In selection mode a leading checkmark (mergeable rows) or a lock (imported,
     /// read-only) marks each row.
     /// Every row sits under its day header, so it shows its time, not the day again.
     private func sessionRow(_ row: WorkoutRow) -> some View {
@@ -841,8 +842,49 @@ struct WorkoutsView: View {
             .accessibilityHint(selectionMode
                 ? (selectable ? Text("Double-tap to select") : Text("Imported history can't be merged"))
                 : Text("Opens workout detail"))
+            .accessibilityActions { if !selectionMode { rowAccessibilityActions(row) } }
+            if !selectionMode, selectable { rowActionsMenu(row) }
         }
         .contextMenu { if !selectionMode { rowMenu(row) } }
+    }
+
+    /// A quiet ••• for the rows whose actions (Edit, Re-label, Dismiss, Delete) have no other visible path. Imported rows
+    /// have only Duplicate, which stays a long-press and a VoiceOver action, so they carry no extra control.
+    private func rowActionsMenu(_ row: WorkoutRow) -> some View {
+        Menu {
+            rowMenu(row)
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(StrandPalette.textTertiary)
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .accessibilityLabel("Workout actions")
+    }
+
+    /// The same actions as `rowMenu`, as named VoiceOver actions on the row (a context menu adds none, and a sub-menu
+    /// cannot be opened from an action, so each re-label sport is its own action).
+    @ViewBuilder
+    private func rowAccessibilityActions(_ row: WorkoutRow) -> some View {
+        switch WorkoutSource.classify(row.source) {
+        case .detected:
+            ForEach(Self.relabelSports, id: \.self) { sport in
+                Button { relabel(row, to: sport) } label: {
+                    Text(verbatim: "\(String(localized: "Re-label as")) \(sport)")
+                }
+            }
+            Button("Edit details…") { editWorkout(row) }
+            Button("Dismiss (not a workout)") { dismiss(row) }
+        case .manual:
+            Button("Edit…") { editWorkout(row) }
+            Button("Delete") { delete(row) }
+        case .whoop, .apple, .lifting, .activityFile:
+            Button("Duplicate as manual…") { editWorkout(asManualCopy(row)) }
+        }
     }
 
     /// The width of the selection glyph's column, which the separators between rows start after.
@@ -917,7 +959,7 @@ struct WorkoutsView: View {
             } label: {
                 Group {
                     if selectionMode {
-                        WidgetChip(appTitle: "Done", showsChevron: false, overhangs: false, isSelected: true)
+                        WidgetChip(appTitle: "Done", showsChevron: false, overhangs: false)
                     } else {
                         WidgetChip(appTitle: "Select", showsChevron: false, overhangs: false)
                     }
@@ -932,7 +974,7 @@ struct WorkoutsView: View {
     }
 
     /// #64: the Merge / Delete / Cancel strip shown above the list in selection mode. Merge needs 2+
-    /// eligible rows; Delete needs 1+. Quiet chips: the one solid action on this page is the header's Start.
+    /// eligible rows; Delete needs 1+. Plain hairline chips: the header's Start is the one solid control on this page.
     private func selectionToolbar(rows: [WorkoutRow]) -> some View {
         let chosen = rows.filter { selected.contains(selectionKey($0)) }
         let canMerge = WorkoutMerge.canMerge(chosen)
@@ -941,7 +983,7 @@ struct WorkoutsView: View {
                 beginMerge(chosen)
             } label: {
                 WidgetChip(verbatimTitle: String(localized: "Merge (\(chosen.count))"),
-                           systemImage: "arrow.triangle.merge", showsChevron: false, isSelected: canMerge)
+                           systemImage: "arrow.triangle.merge", showsChevron: false)
                     .chipHitTarget()
             }
             .buttonStyle(.plain)
@@ -1111,7 +1153,7 @@ private struct WorkoutsStartPill: View {
             .lineLimit(1)
             .fixedSize()
         }
-        .buttonStyle(WorkoutsStartPillStyle())
+        .buttonStyle(WorkoutStartPillStyle())
         .accessibilityLabel(hasActiveWorkout ? "View the active workout" : "Start a workout")
         .accessibilityIdentifier("workouts.startWorkout")
     }
@@ -1125,17 +1167,25 @@ private struct WorkoutsStartPill: View {
     }
 }
 
-/// Today's Start pill: the brand ink capsule with dark type. The tap area reaches 44pt without growing the header row.
-private struct WorkoutsStartPillStyle: ButtonStyle {
+/// Today's Start pill: the brand ink capsule with dark type. The one definition for this screen and the Quick Actions
+/// sheet (the Today original is private to StrandDesign). The tap area reaches 44pt without growing the header row.
+struct WorkoutStartPillStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(StrandFont.caption.weight(.semibold))
+            .workoutStartPillChrome()
+            .contentShape(Rectangle().inset(by: -8))
+            .opacity(configuration.isPressed ? 0.78 : 1)
+    }
+}
+
+extension View {
+    /// The Start pill's look: caption-semibold dark type on a brand-ink capsule.
+    func workoutStartPillChrome() -> some View {
+        self.font(StrandFont.caption.weight(.semibold))
             .foregroundStyle(StrandPalette.appCanvas)
             .padding(.horizontal, 12)
             .padding(.vertical, 7)
             .background(StrandPalette.ink, in: Capsule(style: .continuous))
-            .contentShape(Rectangle().inset(by: -8))
-            .opacity(configuration.isPressed ? 0.78 : 1)
     }
 }
 
@@ -1145,12 +1195,10 @@ private struct WorkoutsStartPillStyle: ButtonStyle {
 private struct TopSafeAreaScrim: ViewModifier {
     func body(content: Content) -> some View {
         content.overlay(alignment: .top) {
-            GeometryReader { proxy in
-                StrandPalette.appCanvas.frame(height: proxy.safeAreaInsets.top)
-            }
-            .ignoresSafeArea(edges: .top)
-            .allowsHitTesting(false)
-            .accessibilityHidden(true)
+            // Painted into the top inset with no measuring; zero height, so a sheet (no inset) shows nothing.
+            StrandPalette.appCanvas.ignoresSafeArea(edges: .top).frame(height: 0)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
         }
     }
 }

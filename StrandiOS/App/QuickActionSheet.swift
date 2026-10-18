@@ -100,10 +100,7 @@ struct QuickActionSheet: View {
             let pill = Group {
                 if active || blockedByLift { Text("Open") } else { Text("Start") }
             }
-            .font(StrandFont.caption.weight(.semibold))
-            .foregroundStyle(StrandPalette.appCanvas)
-            .padding(.horizontal, 14).padding(.vertical, 8)
-            .background(StrandPalette.ink, in: Capsule(style: .continuous))
+            .workoutStartPillChrome()
             .accessibilityHidden(true)
             Group {
                 if typeSize.isAccessibilitySize {
