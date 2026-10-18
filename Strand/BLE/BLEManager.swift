@@ -6767,6 +6767,9 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
                     guard Whoop5ProtectedFrameAdmission.evaluate(
                         secureReady: whoop5SecureReady,
                         integrityValid: integrityValid) == .routeCurrentSession else {
+                        // A dropped CRC-invalid frame during an offload may have held history records. Tell
+                        // the Backfiller so it refuses to commit/ACK the incomplete chunk (strap re-sends).
+                        if backfilling, whoop5SecureReady { backfiller?.noteInvalidInboundFrame() }
                         continue
                     }
                     lastDataAt = Date()
