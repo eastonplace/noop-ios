@@ -1,15 +1,15 @@
-# QA rig for PR #58 only — lives on claude/peaceful-ptolemy-2tijd1. Runs NOOPiOSTests on this branch's code and on
+# QA rig for PR #58 only — lives on qa/p58-cleanup. Runs NOOPiOSTests on this branch's code and on
 # the base (main + #56 CI port = fix/ci-after-55) side by side, then prints only the failing tests, last in the log,
 # so the result is readable from the job-log tail. Bump .github/qa-rig/tests-trigger to run it.
 name: QA unit tests (PR 58 rig)
 
 on:
   push:
-    branches: [claude/peaceful-ptolemy-2tijd1]
+    branches: [qa/p58-cleanup]
     paths: ['.github/qa-rig/tests-trigger']
 
 concurrency:
-  group: qa-tests
+  group: qa-tests-p58c
   cancel-in-progress: true
 
 jobs:

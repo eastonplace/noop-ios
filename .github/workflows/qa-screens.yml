@@ -1,4 +1,4 @@
-# QA rig for PR #58 only — lives on claude/peaceful-ptolemy-2tijd1, never on the feature branch or main.
+# QA rig for PR #58 only — lives on qa/p58-cleanup, never on the feature branch or main.
 # Builds NOOPiOS for the simulator, captures the screenshot matrix in .github/qa-rig/matrix.txt on a
 # Pro-size and a small iPhone, and commits the frames back to this branch under qa-shots/ (artifact
 # downloads are not reachable from the review environment).
@@ -6,12 +6,12 @@ name: QA simulator screens (PR 58 rig)
 
 on:
   push:
-    branches: [claude/peaceful-ptolemy-2tijd1]
+    branches: [qa/p58-cleanup]
     paths-ignore: ['qa-shots/**', '.github/qa-rig/tests-trigger', '.github/workflows/qa-tests.yml']
   workflow_dispatch:
 
 concurrency:
-  group: qa-screens
+  group: qa-screens-p58c
   cancel-in-progress: true
 
 permissions:
