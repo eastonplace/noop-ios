@@ -1313,4 +1313,76 @@ final class BackfillerHistoricalCommitReceiptTests: XCTestCase {
         XCTAssertEqual(ackCount, 1)
         XCTAssertEqual(backfiller.whoop5Admission, liveAdmission)
     }
+
+    @MainActor
+    func testDroppedInvalidFrameMidChunkFailsClosedWithoutCommitOrAck() async {
+        let store = SourceCaptureStore()
+        let peripheral = UUID(uuidString: "99999999-2222-3333-4444-555555555555")!
+        let admission = Whoop5HistoricalSessionAdmission(
+            peripheralID: peripheral, connectGeneration: 3, attemptEpoch: 4)
+        var ackCount = 0
+        var failures: [BackfillFailure] = []
+        let scope = HistoricalCursorScope(
+            deviceId: "strap-a", lineage: "registry-A", cursorEpoch: 5)
+        let backfiller = Backfiller(
+            store: store,
+            deviceId: "strap-a",
+            ackTrim: { _, _, _ in false },
+            onFailure: { failures.append($0) },
+            isWhoop5AdmissionCurrent: { $0 == admission },
+            ackTrimForWhoop5Admission: { _, _, _, _ in ackCount += 1; return true },
+            extract: { _, _, _, _, _, _ in Streams() })
+        XCTAssertTrue(backfiller.begin(
+            family: .whoop5, historicalCursorScope: scope, whoop5Admission: admission))
+
+        // BLEManager dropped a CRC-invalid frame (and the frame it swallowed) mid-chunk; a valid END follows.
+        await backfiller.ingest(whoop5V18Frame(unix: 1_781_557_000), admittedBy: admission)
+        backfiller.noteInvalidInboundFrame()
+        await backfiller.ingest(whoop5HistoryEndFrame, admittedBy: admission)
+
+        let ids = await store.deviceIds()
+        XCTAssertEqual(ids, [], "an incomplete chunk must never commit")
+        XCTAssertEqual(ackCount, 0, "an incomplete chunk must never be ACKed (the strap would trim it)")
+        XCTAssertEqual(failures.count, 1)
+        guard case .integrity = failures.first else { return XCTFail("expected .integrity, got \(failures)") }
+        XCTAssertTrue(backfiller.persistStalled)
+
+        // The flag is consumed: a re-sent clean session commits and ACKs normally.
+        XCTAssertTrue(backfiller.begin(
+            family: .whoop5, historicalCursorScope: scope, whoop5Admission: admission))
+        await backfiller.ingest(whoop5V18Frame(unix: 1_781_557_000), admittedBy: admission)
+        await backfiller.ingest(whoop5HistoryEndFrame, admittedBy: admission)
+        let idsAfterResend = await store.deviceIds()
+        XCTAssertEqual(idsAfterResend, ["strap-a"])
+        XCTAssertEqual(ackCount, 1)
+    }
+
+    /// The invalid-frame marker is ordered with the frames (BLEManager queues it behind START). A START ingested
+    /// BEFORE the marker must not erase it, and the marker must fail the chunk at the next END.
+    @MainActor
+    func testInvalidMarkerAppliedAfterStartBeforeEndFailsClosed() async {
+        let store = SourceCaptureStore()
+        var ackCount = 0
+        var failures: [BackfillFailure] = []
+        let backfiller = Backfiller(
+            store: store,
+            deviceId: "strap-a",
+            ackTrim: { _, _, _ in ackCount += 1; return true },
+            onFailure: { failures.append($0) },
+            extract: { _, _, _, _, _, _ in Streams() })
+        backfiller.begin(
+            family: .whoop4,
+            historicalCursorScope: HistoricalCursorScope(
+                deviceId: "strap-a", lineage: "registry-A", cursorEpoch: 5))
+
+        await backfiller.ingest(frameFromPayload([], type: 49, seq: 0, cmd: 1))
+        backfiller.noteInvalidInboundFrame()
+        await backfiller.ingest(frameFromPayload([0x01, 0x02, 0x03], type: 47))
+        await backfiller.ingest(historyEndFrame(trim: 123))
+
+        let ids = await store.deviceIds()
+        XCTAssertEqual(ids, [])
+        XCTAssertEqual(ackCount, 0)
+        XCTAssertEqual(failures.count, 1)
+    }
 }
