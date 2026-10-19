@@ -133,7 +133,7 @@ struct DrillInTrendSection: View {
                         .foregroundStyle(StrandPalette.textSecondary)
                         .lineLimit(1)
                 },
-                trailing: { rangePicker(days: rangeDays, earliest: earliest) }
+                trailing: { rangePicker(days: rangeDays, earliest: earliest, tint: tint) }
             )
             // One lone day is a dot, not a trend: say so instead of drawing an empty plot and a footer that repeats it.
             if values.count >= 2,
@@ -212,8 +212,9 @@ struct DrillInTrendSection: View {
 
     /// The canonical segmented pill, announced as one adjustable "Range" control so VoiceOver reads "30 days"
     /// instead of the bare "M" (the same treatment the Trends tab gives it).
-    private func rangePicker(days: Int, earliest: Date?) -> some View {
+    private func rangePicker(days: Int, earliest: Date?, tint: DomainTint) -> some View {
         SegmentedPillControl(ranges, selection: $range) { $0.rawValue }
+            .segmentedPillTint(domain: tint)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Range")
             .accessibilityValue(range == .all ? String(localized: "All time") : String(localized: "\(days) days"))

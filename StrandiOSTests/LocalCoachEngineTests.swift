@@ -84,11 +84,13 @@ final class LocalCoachEngineTests: XCTestCase {
         await gate.waitUntilEntered()
         engine.preferences.enabled = false
         gate.release()
-        await task.value
+        let accepted = await task.value
+        XCTAssertTrue(accepted)
         XCTAssertFalse(engine.isResponding)
         XCTAssertEqual(engine.availability, .disabled)
         XCTAssertFalse(engine.messages.contains { $0.text.contains("late private text") })
-        await engine.send("Another")
+        let acceptedWhileDisabled = await engine.send("Another")
+        XCTAssertFalse(acceptedWhileDisabled)
         XCTAssertEqual(model.calls, 1)
     }
 
@@ -107,7 +109,8 @@ final class LocalCoachEngineTests: XCTestCase {
         await gate.waitUntilEntered()
         engine.preferences.usePersonalData = false
         gate.release()
-        await task.value
+        let accepted = await task.value
+        XCTAssertTrue(accepted)
         XCTAssertFalse(engine.messages.contains { $0.text.contains("private result") || !$0.evidence.isEmpty })
         XCTAssertTrue(engine.snapshot.evidence.isEmpty)
     }
@@ -124,7 +127,8 @@ final class LocalCoachEngineTests: XCTestCase {
         scope.value = .init(storageID: "b", dataSourceID: "b", revision: "2")
         await engine.refresh()
         gate.release()
-        await task.value
+        let accepted = await task.value
+        XCTAssertTrue(accepted)
         XCTAssertTrue(engine.messages.isEmpty)
         XCTAssertTrue(engine.conversations.isEmpty)
     }
@@ -201,7 +205,8 @@ final class LocalCoachEngineTests: XCTestCase {
         scope.value.fenced = false
         await engine.refresh()
         gate.release()
-        await task.value
+        let accepted = await task.value
+        XCTAssertTrue(accepted)
         XCTAssertEqual(engine.messages.last?.text, "Completed general reply")
         XCTAssertFalse(engine.messages.last?.isInterrupted ?? true)
         XCTAssertFalse(engine.isResponding)
@@ -353,7 +358,8 @@ final class LocalCoachEngineTests: XCTestCase {
         await gate.waitUntilEntered()
         engine.preferences.usePersonalData = false
         gate.release()
-        await task.value
+        let accepted = await task.value
+        XCTAssertTrue(accepted)
         XCTAssertFalse(engine.messages.contains { !($0.cards ?? []).isEmpty })
     }
 

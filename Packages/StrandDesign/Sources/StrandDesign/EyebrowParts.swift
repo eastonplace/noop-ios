@@ -83,7 +83,8 @@ public extension EnvironmentValues {
 /// label (a titled chip reads its title) and a 44pt tap area with `chipHitTarget()`.
 ///
 /// A chip that is one of a set of choices (a topic filter) passes `isSelected`: the capsule fills with the brand
-/// ink and the label turns to dark ink, the same selected look as `SegmentedPillControl`. The caller adds the
+/// ink and the label turns to dark ink. That solid fill is deliberately a different, stronger state than the flat tabs of
+/// `SegmentedPillControl` (a soft thumb behind a coloured label): a chip filter is a set of independent toggles, not a range. The caller adds the
 /// `.isSelected` accessibility trait to the button that wraps it.
 public struct WidgetChip: View {
     private let title: LocalizedStringKey?

@@ -553,6 +553,8 @@ struct StrandiOSApp: App {
                 #endif
             }
                 .contentSurfacePresentation(.flat)
+                // UX-06: the quiet selection everywhere, including the shell's sheets and covers outside the tab view.
+                .segmentedPillSelectionStyle(.quiet)
                 .background(StrandPalette.appCanvas.ignoresSafeArea())
                 .personalHRZones(model.profile)
                 .environmentObject(model)
