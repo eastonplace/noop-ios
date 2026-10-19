@@ -156,11 +156,36 @@ enum DataBackup {
         }
     }
 
+    private struct SnapshotFailure: LocalizedError {
+        let complaint: String
+        var errorDescription: String? {
+            String(localized: "couldn't take a consistent snapshot of the NOOP database (SQLite reports: \(complaint)).")
+        }
+    }
+
+    /// Zips a point-in-time snapshot, never the live file. The live `whoop.sqlite` keeps changing
+    /// (BLE flushes, backfill commits, WAL auto-checkpoints) while a multi-second deflate reads it,
+    /// and a checkpoint that was blocked by a reader leaves committed frames in the -wal. The SQLite
+    /// online-backup API reads through the WAL, so the snapshot carries every committed row, and
+    /// `quick_check` then runs on the exact bytes that are zipped.
     private static func writeVerifiedBackupZip(dbURL: URL, to dest: URL, settingsJSON: Data?) throws {
-        if let complaint = DatabaseIntegrity.quickCheckFailure(atPath: dbURL.path) {
+        let snapshot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("noop-snapshot-\(UUID().uuidString).sqlite")
+        defer {
+            for suffix in ["", "-wal", "-shm", "-journal"] {
+                removeIfPresent(URL(fileURLWithPath: snapshot.path + suffix))
+            }
+        }
+        do { try onlineBackup(fromDatabaseAt: dbURL.path, to: snapshot.path) }
+        catch RestoreFailure.sqliteBackup(let complaint) { throw SnapshotFailure(complaint: complaint) }
+        if let complaint = DatabaseIntegrity.quickCheckFailure(atPath: snapshot.path) {
             throw ExportIntegrityFailure(complaint: complaint)
         }
-        try writeBackupZipAtomically(dbURL: dbURL, to: dest, settingsJSON: settingsJSON)
+        try writeBackupZipAtomically(dbURL: snapshot, to: dest, settingsJSON: settingsJSON)
+    }
+
+    static func writeVerifiedBackupForTesting(databaseAt dbURL: URL, to dest: URL) throws {
+        try writeVerifiedBackupZip(dbURL: dbURL, to: dest, settingsJSON: nil)
     }
 
     private static func writeBackupZipAtomically(

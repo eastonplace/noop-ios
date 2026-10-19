@@ -178,6 +178,25 @@ public actor WhoopStore {
         try dbWriter.write(block)
     }
 
+    /// `syncWrite` whose commit is fsynced before it returns (`synchronous = FULL` for just this
+    /// transaction; connections otherwise run NORMAL, where a WAL commit is only in the OS page cache).
+    /// Use for a write the caller acknowledges to the strap right after: the strap frees its only
+    /// copy of the history on that ACK, so a kernel panic / hard reset must not roll the commit back.
+    /// `PRAGMA synchronous` is a no-op inside a transaction, so it is set around `inTransaction`.
+    @inline(__always)
+    func syncWriteDurable<T>(_ block: (Database) throws -> T) throws -> T {
+        try dbWriter.writeWithoutTransaction { db in
+            try db.execute(sql: "PRAGMA synchronous = FULL")
+            defer { try? db.execute(sql: "PRAGMA synchronous = NORMAL") }
+            var result: T?
+            try db.inTransaction {
+                result = try block(db)
+                return .commit
+            }
+            return result!
+        }
+    }
+
     // MARK: - Maintenance
 
     /// Fully checkpoint the WAL into the main database file and truncate the -wal file.

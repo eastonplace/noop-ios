@@ -845,7 +845,8 @@ extension WhoopStore {
             try WhoopStore.zlibCompressWithLength(WhoopStore.packFrames($0.frames))
         }
 
-        return try syncWrite { db in
+        // Durable commit: the Backfiller ACKs (strap trims its only copy) as soon as this returns.
+        return try syncWriteDurable { db in
             let databaseInstanceId = try WhoopStore.databaseInstanceId(in: db)
             let resolvedScope = try WhoopStore.historicalCursorScope(
                 deviceId: deviceId,
