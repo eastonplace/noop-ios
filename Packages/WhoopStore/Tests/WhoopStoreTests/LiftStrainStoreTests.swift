@@ -319,7 +319,7 @@ final class LiftStrainStoreTests: XCTestCase {
         XCTAssertTrue(loads.isEmpty)
     }
 
-    func testRekeyManualWorkoutWritesHROnlyAndDetaches() async throws {
+    func testRekeyManualWorkoutMovesTheLiftAndRecombinesOnTheHROnlyValue() async throws {
         let store = try await newStore()
         try await seedBasicLift(store)
         _ = try await apply(store)
@@ -327,23 +327,34 @@ final class LiftStrainStoreTests: XCTestCase {
         XCTAssertEqual(combined, Pair(50, 2))
 
         let newStart = startA + 7_200
+        let settle = LiftStrainRekeySettle(
+            canonicalComputedDeviceId: canonical, newDayKey: dayA, oldDayKey: dayA, now: 2_000, combine: combine)
         try await store.rekeyManualWorkout(
             deviceId: owner,
             old: workout(startA, strain: 50, version: 2),
-            new: workout(newStart, strain: 50, version: 2))
+            new: workout(newStart, strain: 50, version: 2),
+            settle: settle)
 
         let oldRow = try await workoutPair(store, startA)
         let newRow = try await workoutPair(store, newStart)
         XCTAssertNil(oldRow, "the old key is gone")
-        XCTAssertEqual(newRow, Pair(30, 2), "logged sets never stay in an HR-labelled value")
+        XCTAssertEqual(newRow, Pair(50, 2), "built on the heart-rate value 30, not on the already combined 50")
         let oldTargets = try await rows(store, """
             SELECT 1 FROM liftStrainTarget WHERE kind = 'workout' AND keyTs = ?
             """, [startA])
         XCTAssertTrue(oldTargets.isEmpty)
+        let newTarget = try await rows(store, """
+            SELECT hrOnlyStrain, writtenStrain FROM liftStrainTarget WHERE kind = 'workout' AND keyTs = ?
+            """, [newStart])
+        XCTAssertEqual(newTarget.count, 1)
+        XCTAssertEqual(newTarget.first?["hrOnlyStrain"] as Double?, 30)
+        XCTAssertEqual(newTarget.first?["writtenStrain"] as Double?, 50)
         let row = try await liftRow(store, "L1")
-        XCTAssertEqual(row?.state, .detached)
-        XCTAssertEqual(row?.appliedMuscularLoad, 0)
-        XCTAssertNil(row?.combinedStrain)
+        XCTAssertEqual(row?.state, .applied)
+        XCTAssertEqual(row?.workoutStartTs, newStart, "the lift follows its workout")
+        XCTAssertEqual(row?.appliedMuscularLoad, 10)
+        let d = try await dayPair(store, dayA)
+        XCTAssertEqual(d, Pair(60, 2))
     }
 
     func testRekeyOfAnUnrelatedWorkoutIsThePlainDeleteAndUpsert() async throws {
@@ -352,7 +363,8 @@ final class LiftStrainStoreTests: XCTestCase {
         try await store.rekeyManualWorkout(
             deviceId: owner,
             old: workout(startA, strain: 12, version: 2, sport: "Run"),
-            new: workout(startA + 600, strain: 12, version: 2, sport: "Run"))
+            new: workout(startA + 600, strain: 12, version: 2, sport: "Run"),
+            settle: LiftStrainRekeySettle(canonicalComputedDeviceId: canonical, newDayKey: dayA, now: 1_000, combine: combine))
         let oldRow = try await workoutPair(store, startA)
         let newRow = try await workoutPair(store, startA + 600)
         XCTAssertNil(oldRow)
@@ -362,52 +374,58 @@ final class LiftStrainStoreTests: XCTestCase {
     }
 
     func testRekeySettlesBothDaysInTheSameTransaction() async throws {
-        // A6. Lift 1 starts on day A, lift 2 is already applied on day B.
-        for settleInTransaction in [true, false] {
+        // A6. Lift 1 starts on day A and its workout is moved onto day B. Day B either has no other lift, so
+        // the new day can only include L1's own load, or already carries lift 2.
+        for otherLiftOnNewDay in [false, true] {
             let store = try await newStore()
-            try await store.upsertWorkouts([workout(startA, strain: 30, version: 2),
-                                            workout(startB, strain: 20, version: 2)], deviceId: owner)
+            var workouts = [workout(startA, strain: 30, version: 2)]
+            var lifts = [computed("L1", start: startA, day: dayA, load: 10)]
+            if otherLiftOnNewDay {
+                workouts.append(workout(startB, strain: 20, version: 2))
+                lifts.append(computed("L2", start: startB, day: dayB, load: 5))
+            }
+            try await store.upsertWorkouts(workouts, deviceId: owner)
             try await store.upsertDailyMetrics([day(dayA, strain: 40.123456789, version: 2),
                                                 day(dayB, strain: 50, version: 2)], deviceId: canonical)
-            try await store.upsertLiftStrainComputed(deviceId: owner, rows: [
-                computed("L1", start: startA, day: dayA, load: 10),
-                computed("L2", start: startB, day: dayB, load: 5)], now: 500)
+            try await store.upsertLiftStrainComputed(deviceId: owner, rows: lifts, now: 500)
             _ = try await apply(store)
             let before = try await dayPair(store, dayA)
             XCTAssertEqual(before, Pair(min(100, 40.123456789 + 20), 2))
             let dayBBefore = try await dayPair(store, dayB)
-            XCTAssertEqual(dayBBefore, Pair(60, 2))
+            XCTAssertEqual(dayBBefore, otherLiftOnNewDay ? Pair(60, 2) : Pair(50, 2))
 
-            // Lift 1's workout is moved onto day B by the Workouts tab.
             let newStart = startB + 3_600
             let settle = LiftStrainRekeySettle(
                 canonicalComputedDeviceId: canonical, newDayKey: dayB, oldDayKey: dayA, now: 2_000, combine: combine)
-            try await store.rekeyManualWorkout(
+            let rekey = try await store.rekeyManualWorkout(
                 deviceId: owner,
                 old: workout(startA, strain: 50, version: 2),
                 new: workout(newStart, strain: 50, version: 2),
-                settle: settleInTransaction ? settle : nil)
+                settle: settle)
 
-            if !settleInTransaction {
-                let unsettled = try await dayPair(store, dayA)
-                XCTAssertEqual(unsettled, before, "without a settle the old day waits for the next apply")
-                _ = try await apply(store, now: 3_000)
-            }
-
+            let label = otherLiftOnNewDay ? "with lift 2 on the new day" : "alone on the new day"
+            XCTAssertEqual(rekey.dayWrites, 2, label)
             let oldDay = try await dayPair(store, dayA)
-            XCTAssertEqual(oldDay, Pair(40.123456789, 2), "the old day returns to its heart-rate value bit-identically")
+            XCTAssertEqual(oldDay, Pair(40.123456789, 2), "the old day returns to its heart-rate value bit-identically (\(label))")
             let newDay = try await dayPair(store, dayB)
-            XCTAssertEqual(newDay, Pair(60, 2), "the new day is settled with the load that is attached to it")
+            XCTAssertEqual(newDay, otherLiftOnNewDay ? Pair(50 + 2 * 15, 2) : Pair(50 + 2 * 10, 2),
+                           "the new day includes the moved lift's load (\(label))")
             let moved = try await workoutPair(store, newStart)
-            XCTAssertEqual(moved, Pair(30, 2))
+            XCTAssertEqual(moved, Pair(50, 2), label)
             let l1 = try await liftRow(store, "L1")
-            XCTAssertEqual(l1?.state, .detached)
-            // Everything is settled: another apply changes nothing at all.
+            XCTAssertEqual(l1?.state, .applied, label)
+            XCTAssertEqual(l1?.dayKey, dayB, label)
+            let loads = try await store.liftStrainAppliedLoads(dayKey: dayB)
+            XCTAssertEqual(loads.map(\.muscularLoad).sorted(), otherLiftOnNewDay ? [5, 10] : [10], label)
+            let oldLoads = try await store.liftStrainAppliedLoads(dayKey: dayA)
+            XCTAssertTrue(oldLoads.isEmpty, label)
+
+            // Everything is settled in the rekey transaction: an apply changes nothing at all.
             let dump = try await trackingDump(store)
             let again = try await apply(store, now: 4_000)
-            XCTAssertEqual(again.workoutWrites + again.dayWrites, 0)
+            XCTAssertEqual(again.workoutWrites + again.dayWrites, 0, label)
             let dumpAfter = try await trackingDump(store)
-            XCTAssertEqual(dump, dumpAfter, settleInTransaction ? "settled in the rekey transaction" : "settled by one apply")
+            XCTAssertEqual(dump, dumpAfter, label)
         }
     }
 
@@ -877,6 +895,35 @@ final class LiftStrainStoreTests: XCTestCase {
         XCTAssertEqual(healed.dayWrites, 1)
         let primaryAfter = try await dayPair(store, dayA)
         XCTAssertEqual(primaryAfter, Pair(65, 2))
+    }
+
+    func testOwnerNoopRowCreatedAfterTheFirstSettleIsSettled() async throws {
+        // A "<owner>-noop" day row (the transient engine) that appears after the day was first settled has no
+        // target and no dirty lift behind it. Step C still picks the day, so the dashboard never sees an HR-only day.
+        let store = try await newStore()
+        let repaired = "whoop-abc"
+        try await store.upsertWorkouts([workout(startA, strain: 30, version: 2)], deviceId: repaired)
+        try await store.upsertDailyMetrics([day(dayA, strain: 40, version: 2)], deviceId: canonical)
+        try await store.upsertLiftStrainComputed(deviceId: repaired, rows: [computed("L1", start: startA)], now: 500)
+        let first = try await apply(store)
+        XCTAssertEqual(first.dayWrites, 1)
+        let settled = try await dayPair(store, dayA)
+        XCTAssertEqual(settled, Pair(60, 2))
+
+        try await store.upsertDailyMetrics([day(dayA, strain: 41, version: 2)], deviceId: "whoop-abc-noop")
+        let second = try await apply(store, now: 2_000)
+
+        XCTAssertEqual(second.rowsVisited, 0, "no lift row is dirty")
+        XCTAssertEqual(second.dayWrites, 1)
+        let primary = try await dayPair(store, dayA)
+        let transient = try await dayPair(store, dayA, device: "whoop-abc-noop")
+        XCTAssertEqual(primary, Pair(60, 2))
+        XCTAssertEqual(transient, Pair(61, 2))
+        let dump = try await trackingDump(store)
+        let third = try await apply(store, now: 3_000)
+        XCTAssertEqual(third.workoutWrites + third.dayWrites, 0)
+        let dumpAfter = try await trackingDump(store)
+        XCTAssertEqual(dump, dumpAfter)
     }
 
     func testDayLoadSumsAcrossOwners() async throws {

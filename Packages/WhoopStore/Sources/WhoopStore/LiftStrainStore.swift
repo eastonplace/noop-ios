@@ -651,11 +651,14 @@ extension WhoopStore {
 
     /// Moves a manually edited workout from `old` to `new` in one transaction, replacing the separate
     /// delete-then-upsert. When the old row still holds the value the apply wrote, the new row gets the
-    /// heart-rate-only value instead, so logged sets never stay in a value labelled heart rate; the lift row
-    /// for the old key is detached. With `settle`, the old and the new day are settled in the same transaction.
+    /// heart-rate-only value first, so logged sets never stay in a value labelled heart rate. Lifts attached
+    /// to the old key follow the workout (A6): their rows are repointed to the new key and the new day, reset
+    /// to `pending`, and the apply in this same transaction recombines the new row. The old and the new day
+    /// are both settled in this transaction, so the old day returns to its heart-rate value bit for bit and the
+    /// new day includes the moved lift's load. `settle` is required: a rekey never leaves a day for a later pass.
     @discardableResult
     public func rekeyManualWorkout(deviceId: String, old: WorkoutRow, new: WorkoutRow,
-                                   settle: LiftStrainRekeySettle? = nil) async throws -> LiftStrainApplyResult {
+                                   settle: LiftStrainRekeySettle) async throws -> LiftStrainApplyResult {
         try syncWrite { db in
             guard old.startTs != new.startTs || old.sport != new.sport else {
                 _ = try Self.upsertWorkoutRows(db: db, rows: [new], deviceId: deviceId)
@@ -693,13 +696,15 @@ extension WhoopStore {
             try db.execute(sql: """
                 DELETE FROM liftStrainTarget WHERE deviceId = ? AND kind = 'workout' AND keyTs = ? AND keyText = ?
                 """, arguments: [deviceId, old.startTs, old.sport])
-            let now = settle?.now ?? Int(Date().timeIntervalSince1970)
+            // The lifts follow the workout: same session, new key and day, nothing applied yet. The apply below
+            // visits them as pending and builds the new target on the heart-rate-only value written above.
             try db.execute(sql: """
-                UPDATE liftStrain SET state = 'detached', appliedMuscularLoad = 0, combinedStrain = NULL, updatedAt = ?
-                WHERE deviceId = ? AND workoutStartTs = ? AND workoutSport = ?
-                """, arguments: [now, deviceId, old.startTs, old.sport])
+                UPDATE liftStrain
+                   SET workoutStartTs = ?, workoutSport = ?, dayKey = ?, state = 'pending', hrOnlyStrain = NULL,
+                       appliedMuscularLoad = 0, combinedStrain = NULL, updatedAt = ?
+                 WHERE deviceId = ? AND workoutStartTs = ? AND workoutSport = ?
+                """, arguments: [new.startTs, new.sport, settle.newDayKey, settle.now, deviceId, old.startTs, old.sport])
 
-            guard let settle else { return LiftStrainApplyResult() }
             guard target != nil || !liftDays.isEmpty else { return LiftStrainApplyResult() }
             var days = Set(liftDays)
             days.insert(settle.newDayKey)
@@ -973,13 +978,17 @@ extension WhoopStore {
              WHERE t.kind = 'day' AND (d.strain IS NOT t.writtenStrain OR d.strainVersion IS NOT t.writtenStrainVersion)
             """))
 
-        // Applied lift days that still have no canonical day target (and a canonical day row to build one on).
+        // Applied lift days that have a day row without a day target. Every row the dashboard can pick is a
+        // candidate: the canonical computed row and each lift owner's own "<owner>-noop" row, so a row written
+        // after the first settle of the day (for example by a transient engine) is settled on the next apply.
         days.formUnion(try String.fetchAll(db, sql: """
-            SELECT DISTINCT ls.dayKey FROM liftStrain ls
-              JOIN dailyMetric d ON d.deviceId = ?1 AND d.day = ls.dayKey
-             WHERE ls.state = 'applied' AND ls.appliedMuscularLoad > 0
-               AND NOT EXISTS (SELECT 1 FROM liftStrainTarget t
-                                WHERE t.deviceId = ?1 AND t.kind = 'day' AND t.keyText = ls.dayKey)
+            SELECT DISTINCT ls.dayKey \(appliedLoadJoin)
+               AND EXISTS (SELECT 1 FROM dailyMetric d
+                            WHERE d.day = ls.dayKey
+                              AND (d.deviceId = ?1 OR d.deviceId = ls.deviceId || '-noop')
+                              AND NOT EXISTS (SELECT 1 FROM liftStrainTarget t
+                                               WHERE t.deviceId = d.deviceId AND t.kind = 'day'
+                                                 AND t.keyTs = 0 AND t.keyText = ls.dayKey))
             """, arguments: [canonical]))
 
         // Orphan sweep (A5): a day target that recorded a muscular load (or whose written value differs from the
