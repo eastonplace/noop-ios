@@ -1,5 +1,4 @@
 import SwiftUI
-import Charts
 import StrandDesign
 import StrandAnalytics
 import WhoopStore
@@ -47,49 +46,71 @@ struct TrainingLoadDetailLink<Label: View>: View {
 
 /// The words the Trends card and the detail share for each model state, so the card and the page it opens agree.
 enum TrainingLoadCopy {
-    /// The eyebrow pill: "Established", "Building 20/42", or why there is no estimate yet.
-    static func status(_ state: TrainingLoadEngine.State, reason: TrainingLoadEngine.UnavailableReason?,
-                       observedDays: Int) -> String {
+    /// The eyebrow pill: "Established · 180 days", "Building · 20/42", or why there is no estimate yet. The 42 is the
+    /// engine's own constant, never typed here.
+    static func status(state: TrainingLoadEngine.State, gap: TrainingLoadPageModel.Gap?, observedDays: Int,
+                       configuration: TrainingLoadEngine.Configuration = .standard) -> String {
         switch state {
         case .established:
-            return String(localized: "Established")
+            return String(localized: "Established · \(observedDays) days")
         case .building:
-            return String(localized: "Building \(observedDays)/42")
+            return String(localized: "Building · \(observedDays)/\(configuration.establishedDays)")
         case .unavailable:
-            switch reason {
-            case .notEnoughContiguousDays: return String(localized: "Building")
-            case .noData: return String(localized: "No history")
-            default: return String(localized: "Building")
+            switch gap {
+            case .noHistory?: return String(localized: "No history")
+            case .needsMoreDays?:
+                return observedDays > 0
+                    ? String(localized: "Building · \(observedDays)/\(configuration.establishedDays)")
+                    : String(localized: "Building")
+            case .effortNotReady?, .unusable?, nil: return String(localized: "Not ready")
             }
         }
     }
 
-    static func tone(_ state: TrainingLoadEngine.State) -> StrandTone {
-        state == .established ? .positive : .neutral
-    }
+    static func tone(_ state: TrainingLoadEngine.State) -> StrandTone { .neutral }
 
     /// The one-line reason there is no load estimate.
-    static func unavailableTitle(_ reason: TrainingLoadEngine.UnavailableReason?) -> String {
-        switch reason {
-        case .notEnoughContiguousDays: return String(localized: "Building your load history")
-        case .missingTargetDay: return String(localized: "Today's Effort is not ready")
-        default: return String(localized: "Training load is not ready")
+    static func unavailableTitle(_ gap: TrainingLoadPageModel.Gap?) -> String {
+        switch gap {
+        case .noHistory?: return String(localized: "No Effort history yet")
+        case .needsMoreDays(let remaining)?:
+            return remaining == 1
+                ? String(localized: "Needs 1 more day of daily Effort")
+                : String(localized: "Needs \(remaining) more days of daily Effort")
+        case .effortNotReady?: return String(localized: "Today's Effort is not ready")
+        case .unusable?, nil: return String(localized: "Training load is not ready")
+        }
+    }
+
+    static func unavailableDetail(_ gap: TrainingLoadPageModel.Gap?,
+                                  configuration: TrainingLoadEngine.Configuration = .standard) -> String {
+        switch gap {
+        case .noHistory?: return String(localized: "No daily Effort history is available for this source.")
+        case .needsMoreDays?:
+            return String(localized: "Training load starts after \(configuration.minimumDays) days of recorded Effort.")
+        case .effortNotReady?: return String(localized: "There is no usable Effort value for the selected end date.")
+        case .unusable?, nil:
+            return String(localized: "The source history cannot produce a valid load estimate. Check the records in Trends.")
         }
     }
 }
 
 /// A bounded read of the same canonical Trends projection. TrainingLoadEngine remains the only calculator.
 ///
-/// Flat #55 drill-in: the Trends training load card, zoomed in. Its eyebrow, prominent Chronic | Acute | Balance strip
-/// and chart in the card's order (the strip reads the day under the finger), the range control, the recorded Effort
-/// each day, the workout link, and the dated values and method behind disclosures, one hairline between each.
+/// The Training load page: a headline and gauge for where recent load sits against the fitness base, the three numbers
+/// explained, where tomorrow could land, the load over time (scrubbable, with the daily Effort that feeds it), the last
+/// six weeks, what drove this week, where the load came from, the last four weeks against the four before, and the
+/// method. Every derived number comes from `TrainingLoadPageModel`; this view reads, lays out and draws.
 struct TrainingLoadDetailView: View {
     let request: TrainingLoadDetailRequest
-    /// Gregorian, in the Trends source time zone. Built once rather than on every body pass.
+    /// Gregorian, in the Trends source time zone, with the person's first weekday. Built once rather than on every body pass.
     private let calendar: Calendar
     @EnvironmentObject private var repo: Repository
     @Environment(\.dismiss) private var dismiss
     @State private var result: TrainingLoadEngine.Result?
+    @State private var model: TrainingLoadPageModel?
+    /// Why there is no estimate, when there is none.
+    @State private var gap: TrainingLoadPageModel.Gap?
     @State private var failure: String?
     /// The read that produced the result on screen. Coming back from Workout history re-runs `.task` with the same
     /// trigger, which keeps the page (and its scroll position) instead of flashing the loading state.
@@ -100,11 +121,14 @@ struct TrainingLoadDetailView: View {
     @State private var showRows = false
     @State private var readID = UUID()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @AppStorage(UnitPrefs.systemKey) private var unitSystemRaw = UnitSystem.metric.rawValue
 
     init(request: TrainingLoadDetailRequest) {
         self.request = request
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(identifier: request.key.timeZoneIdentifier) ?? .autoupdatingCurrent
+        // Weeks start where this person's calendar starts them; a day's bucket is still the source time zone's.
+        calendar.firstWeekday = Calendar.autoupdatingCurrent.firstWeekday
         self.calendar = calendar
     }
 
@@ -127,6 +151,7 @@ struct TrainingLoadDetailView: View {
                     timeZoneIdentifier: request.key.timeZoneIdentifier, rangeDays: request.rangeDays,
                     weekOffset: request.key.weekOffset)
     }
+    private var unitSystem: UnitSystem { UnitSystem(rawValue: unitSystemRaw) ?? .metric }
     private var dayFormat: Date.FormatStyle {
         .init(date: .abbreviated, time: .omitted, locale: .autoupdatingCurrent,
               calendar: calendar, timeZone: calendar.timeZone)
@@ -135,6 +160,11 @@ struct TrainingLoadDetailView: View {
     private var weekdayFormat: Date.FormatStyle {
         Date.FormatStyle(locale: .autoupdatingCurrent, calendar: calendar, timeZone: calendar.timeZone)
             .weekday(.abbreviated).month(.abbreviated).day()
+    }
+    /// "Oct 15".
+    private var monthDayFormat: Date.FormatStyle {
+        Date.FormatStyle(locale: .autoupdatingCurrent, calendar: calendar, timeZone: calendar.timeZone)
+            .month(.abbreviated).day()
     }
     private var headerContext: String? {
         date(request.key.anchorDay).map { $0.formatted(weekdayFormat) }
@@ -169,22 +199,42 @@ struct TrainingLoadDetailView: View {
     @ViewBuilder private func content(_ result: TrainingLoadEngine.Result) -> some View {
         let points = loadDays(result)
         VStack(alignment: .leading, spacing: 0) {
-            if result.isAvailable {
-                loadSection(result, points: points)
+            if result.isAvailable, let model {
+                heroSection(model, result: result)
                 DrillInSeparator()
-                effortSection(points)
+                TrainingLoadNumbers(model: model)
+                DrillInSeparator()
+                tomorrowSection(model)
+                DrillInSeparator()
+                loadSection(model, points: points)
+                if !model.weeks.isEmpty {
+                    DrillInSeparator()
+                    weeksSection(model)
+                }
+                if !model.workouts.isEmpty {
+                    DrillInSeparator()
+                    driversSection(model)
+                    if let mix = mixSlices(model) {
+                        DrillInSeparator()
+                        mixSection(mix)
+                    }
+                }
+                if let cells = comparisonCells(model) {
+                    DrillInSeparator()
+                    compareSection(cells)
+                }
             } else {
                 unavailableSection(result)
             }
             DrillInSeparator()
-            workoutsLink
+            methodSection
             if result.isAvailable {
-                DrillInSeparator()
+                FlatRowSeparator()
                 datedValues(points)
             }
             FlatRowSeparator()
-            methodSection
-            Text("These values describe recorded daily Effort. They do not change Readiness or provide medical clearance.")
+            workoutsLink
+            Text("Descriptive only. Training load never changes your Readiness score.")
                 .font(StrandFont.micro)
                 .foregroundStyle(StrandPalette.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -192,41 +242,74 @@ struct TrainingLoadDetailView: View {
         }
     }
 
-    // MARK: Load
+    /// One titled section: the #55 eyebrow, then its content.
+    private func section<Content: View>(_ title: LocalizedStringKey, symbol: String, trailing: EyebrowTrailing = .none,
+                                        spacing: CGFloat = WidgetMetrics.headerSpacing,
+                                        @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: spacing) {
+            SectionEyebrow(title, systemImage: symbol, tint: .strain, trailing: trailing)
+            content()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
 
-    /// The Trends card, zoomed in: its eyebrow, its prominent Chronic | Acute | Balance strip and its chart, in the
-    /// same order, each reading the day under the finger (the newest day until the chart is touched).
-    private func loadSection(_ result: TrainingLoadEngine.Result, points: [TrainingLoadDay]) -> some View {
-        let focus = focusDay(in: points)
-        return VStack(alignment: .leading, spacing: WidgetMetrics.headerSpacing) {
-            SectionEyebrow(title: eyebrowTitle(focus), systemImage: "flame.fill", tint: .strain,
-                           trailing: eyebrowPill(result))
-            VStack(alignment: .leading, spacing: WidgetMetrics.contentSpacing) {
-                hero(focus)
-                loadChart(points, focus: focus)
-            }
-            TrendsControlRow(
-                leading: { _ in
-                    Text("Last \(period) days")
-                        .font(StrandFont.caption)
-                        .foregroundStyle(StrandPalette.textSecondary)
-                        .lineLimit(1)
-                },
-                trailing: { periodPicker }
-            )
+    // MARK: Hero
+
+    private func heroSection(_ model: TrainingLoadPageModel, result: TrainingLoadEngine.Result) -> some View {
+        VStack(alignment: .leading, spacing: WidgetMetrics.headerSpacing) {
+            SectionEyebrow(title: heroEyebrow, systemImage: "flame.fill", tint: .strain, trailing: eyebrowPill(result))
+            TrainingLoadHero(model: model)
         }
     }
 
-    /// "Today" for the newest day, else the scrubbed day ("Fri, Oct 9").
-    private func eyebrowTitle(_ focus: TrainingLoadDay?) -> String {
-        let day = selectedDay ?? focus?.date ?? anchor
+    /// "Today" for the newest day, else the day it is ("Fri, Oct 9").
+    private var heroEyebrow: String {
+        let day = model?.latest?.date ?? anchor
         return calendar.isDateInToday(day) ? String(localized: "Today") : day.formatted(weekdayFormat)
     }
 
     private func eyebrowPill(_ result: TrainingLoadEngine.Result) -> EyebrowTrailing {
-        .pill(LocalizedStringKey(TrainingLoadCopy.status(result.state, reason: result.unavailableReason,
-                                                         observedDays: result.contiguousDays)),
+        .pill(LocalizedStringKey(TrainingLoadCopy.status(state: result.state, gap: gap, observedDays: result.contiguousDays)),
               tone: TrainingLoadCopy.tone(result.state))
+    }
+
+    // MARK: Tomorrow
+
+    private func tomorrowSection(_ model: TrainingLoadPageModel) -> some View {
+        section("Where tomorrow could land", symbol: "sun.max", spacing: 6) {
+            TrainingLoadTomorrow(projections: model.projections)
+        }
+        .accessibilityIdentifier("trends.trainingLoad.tomorrow")
+    }
+
+    // MARK: Load over time
+
+    /// The scrub readout, the chart, the daily Effort that feeds it, the key and the range, in the mockup's order.
+    private func loadSection(_ model: TrainingLoadPageModel, points: [TrainingLoadDay]) -> some View {
+        let focus = focusDay(in: points)
+        return section("Load over time", symbol: "chart.xyaxis.line", trailing: .text(String(localized: "Effort, 0–21")),
+                       spacing: 0) {
+            VStack(alignment: .leading, spacing: 0) {
+                readout(focus)
+                    .padding(.top, 12)
+                loadChart(points, focus: focus)
+                    .padding(.top, 10)
+                effortStrip(points)
+                    .padding(.top, 16)
+                TrendsLoadLegend(tint: .strain)
+                    .padding(.top, 12)
+                TrendsControlRow(
+                    leading: { _ in
+                        Text("Last \(period) days")
+                            .font(StrandFont.caption)
+                            .foregroundStyle(StrandPalette.textSecondary)
+                            .lineLimit(1)
+                    },
+                    trailing: { periodPicker }
+                )
+                .padding(.top, 16)
+            }
+        }
     }
 
     /// The scrubbed day when it has a modeled value, else the newest modeled day while nothing is scrubbed.
@@ -235,26 +318,26 @@ struct TrainingLoadDetailView: View {
         return points.first { calendar.isDate($0.date, inSameDayAs: day) }
     }
 
-    /// The card's strip, with its values changing in place while the chart is scrubbed.
-    private func hero(_ focus: TrainingLoadDay?) -> some View {
+    /// Selected / Effort / Recent / Base for the day under the finger (the newest day until the chart is touched).
+    private func readout(_ focus: TrainingLoadDay?) -> some View {
         let missing = WidgetMetrics.missingValue
-        let chronic: String = focus.map { number($0.chronic) } ?? missing
-        let acute: String = focus.map { number($0.acute) } ?? missing
-        let balance: String = focus.map { signed($0.balance) } ?? missing
-        return StatFooter(items: [
-            (String(localized: "Chronic · 42d"), chronic),
-            (String(localized: "Acute · 7d"), acute),
-            (String(localized: "Balance"), balance),
-        ], style: .prominent)
-            .contentTransition(reduceMotion ? .identity : .numericText())
-            .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: focus?.id)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(Text(verbatim: chartSummary(focus)))
-            .accessibilityIdentifier("trends.trainingLoad.inspector")
+        let day = focus?.date ?? selectedDay ?? anchor
+        let dayText = calendar.isDateInToday(day) ? String(localized: "Today") : day.formatted(weekdayFormat)
+        return TrainingLoadReadout(cells: [
+            .init(id: 0, label: "Selected", value: dayText, color: StrandPalette.textPrimary),
+            .init(id: 1, label: "Effort", value: focus.map { number($0.effort) } ?? missing, color: StrandPalette.textPrimary),
+            .init(id: 2, label: "Recent", value: focus.map { number($0.acute) } ?? missing, color: TrainingLoadInk.recent),
+            .init(id: 3, label: "Base", value: focus.map { number($0.chronic) } ?? missing, color: TrainingLoadInk.baseText),
+        ])
+        .contentTransition(reduceMotion ? .identity : .numericText())
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: focus?.id)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(verbatim: chartSummary(focus)))
+        .accessibilityIdentifier("trends.trainingLoad.inspector")
     }
 
-    /// The Trends card's chart (acute solid over a wash, chronic at 45%), taller, on the real calendar and scrubbable.
+    /// The Trends card's chart (recent solid over a wash where it is above the base, base at 45%), taller, on the real
+    /// calendar and scrubbable.
     private func loadChart(_ points: [TrainingLoadDay], focus: TrainingLoadDay?) -> some View {
         let axis = Self.ticks(in: rangeStart...anchor, calendar: calendar).map {
             TrendsLoadChart.Timeline.AxisLabel(date: $0, text: axisLabel(for: $0))
@@ -264,17 +347,65 @@ struct TrainingLoadDetailView: View {
         return TrendsLoadChart(chronic: points.map(\.chronic), acute: points.map(\.acute), tint: .strain,
                                startLabel: "", endLabel: "", plotHeight: TrainingLoadLayout.plotHeight,
                                timeline: timeline, selection: snappedSelection,
-                               // The strip above already speaks the newest day; the chart speaks once a day is picked.
-                               accessibilitySummary: selectedDay == nil ? nil : chartSummary(focus))
+                               // The readout above already speaks the newest day; the chart speaks once a day is picked.
+                               accessibilitySummary: selectedDay == nil ? nil : chartSummary(focus),
+                               showsLegend: false)
             .accessibilityIdentifier("trends.trainingLoad.chart")
     }
 
-    /// Half a day of air on each side, so the first and last days' bars below are whole.
+    /// What feeds the load: each day's recorded Effort on the chart's own days. A recorded zero is a rest day (a small
+    /// dot); a day with nothing recorded has no mark.
+    private func effortStrip(_ points: [TrainingLoadDay]) -> some View {
+        let marks = points.map { TrainingLoadDailyStrip.Mark(date: $0.date, effort: $0.effort) }
+        let highlight = selectedDay
+        let spoken: String = {
+            guard let day = highlight ?? points.last?.date else { return "" }
+            let name = day.formatted(weekdayFormat)
+            guard let effort = points.first(where: { calendar.isDate($0.date, inSameDayAs: day) })?.effort else {
+                return String(localized: "\(name): no Effort recorded")
+            }
+            if effort <= 0 { return String(localized: "\(name): rest day, no Effort") }
+            return name + ", " + String(localized: "Recorded Effort \(number(effort))")
+        }()
+        return VStack(alignment: .leading, spacing: 6) {
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .firstTextBaseline) {
+                    stripHeading
+                    Spacer(minLength: 8)
+                    stripNote
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    stripHeading
+                    stripNote
+                }
+            }
+            .accessibilityHidden(true)
+            TrainingLoadDailyStrip(marks: marks, domain: chartDomain, calendar: calendar, highlight: highlight, summary: spoken)
+        }
+    }
+
+    private var stripHeading: some View {
+        Text("Daily effort · what feeds it")
+            .font(.system(size: 11.5, weight: .semibold))
+            .tracking(1)
+            .textCase(.uppercase)
+            .foregroundStyle(StrandPalette.textTertiary)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private var stripNote: some View {
+        Text("dot = rest day")
+            .font(.system(size: 11.5))
+            .foregroundStyle(StrandPalette.textTertiary)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    /// Half a day of air on each side, so the first and last days' marks are whole.
     private var chartDomain: ClosedRange<Date> {
         rangeStart.addingTimeInterval(-TrainingLoadLayout.halfDay)...anchor.addingTimeInterval(TrainingLoadLayout.halfDay)
     }
 
-    /// Both charts scrub the same day: this binding reads the snapped day and writes whatever either chart picks.
+    /// The chart scrubs this day: this binding reads the snapped day and writes whatever the chart picks.
     private var snappedSelection: Binding<Date?> {
         Binding(get: { selectedDay }, set: { selection = $0 })
     }
@@ -305,15 +436,14 @@ struct TrainingLoadDetailView: View {
 
     private func chartSummary(_ focus: TrainingLoadDay?) -> String {
         guard let focus else { return String(localized: "No observation on the selected day") }
-        let day = focus.date.formatted(weekdayFormat)
-        return String(localized: "\(day): chronic \(number(focus.chronic)), acute \(number(focus.acute)), balance \(signed(focus.balance))")
+        let day = calendar.isDateInToday(focus.date) ? String(localized: "Today") : focus.date.formatted(weekdayFormat)
+        return String(localized: "\(day): Effort \(number(focus.effort)), recent load \(number(focus.acute)), fitness base \(number(focus.chronic)), form \(signed(focus.balance))")
     }
 
     /// "Today" for the anchor day when it is today, else "Oct 15", in the Trends source time zone.
     private func axisLabel(for date: Date) -> String {
         if calendar.isDateInToday(date) { return String(localized: "Today") }
-        return date.formatted(Date.FormatStyle(locale: .autoupdatingCurrent, calendar: calendar,
-                                               timeZone: calendar.timeZone).month(.abbreviated).day())
+        return date.formatted(monthDayFormat)
     }
 
     /// At most `WidgetMetrics.maxXAxisLabels` days, spread evenly from the first day to the last, each on a midnight.
@@ -332,31 +462,133 @@ struct TrainingLoadDetailView: View {
         return ticks
     }
 
-    // MARK: Daily effort
+    // MARK: Weeks
 
-    /// What the load is built from: each day's recorded Effort over the same range, on the same days as the chart
-    /// above, sharing its scrub. Only values this page already read; a day with none is a faint tick.
-    private func effortSection(_ points: [TrainingLoadDay]) -> some View {
-        let byDay = Dictionary(points.map { ($0.date, $0.effort) }, uniquingKeysWith: { _, last in last })
-        let bars: [TrainingLoadEffortBars.Bar] = (0..<period).compactMap { offset in
-            guard let day = calendar.date(byAdding: .day, value: offset, to: rangeStart) else { return nil }
-            return .init(date: day, effort: byDay[day])
+    private func weeksSection(_ model: TrainingLoadPageModel) -> some View {
+        let entries = model.weeks.map {
+            TrainingLoadWeeks.Entry(id: $0.start, label: $0.start.formatted(monthDayFormat), isCurrent: $0.isCurrent,
+                                    average: $0.averageEffort, base: $0.baseAtEnd)
         }
-        let average: Double? = points.isEmpty ? nil : points.map(\.effort).reduce(0, +) / Double(points.count)
-        let highlight = selectedDay ?? points.last?.date
-        let spoken: String = {
-            guard let day = highlight else { return "" }
-            let name = day.formatted(weekdayFormat)
-            guard let effort = byDay.first(where: { calendar.isDate($0.key, inSameDayAs: day) })?.value else {
-                return String(localized: "\(name): no Effort recorded")
+        return section("Week by week", symbol: "calendar", trailing: .text(String(localized: "avg Effort per day")),
+                       spacing: 14) {
+            TrainingLoadWeeks(entries: entries)
+        }
+    }
+
+    // MARK: Drivers
+
+    private func driversSection(_ model: TrainingLoadPageModel) -> some View {
+        let end = selectedDay ?? model.latest?.date ?? anchor
+        let week = model.driverWeek(endingOn: end)
+        let isLatest = model.latest.map { calendar.isDate($0.date, inSameDayAs: end) } ?? true
+        let range = Date.IntervalFormatStyle(locale: .autoupdatingCurrent, calendar: calendar, timeZone: calendar.timeZone)
+            .month(.abbreviated).day()
+        let rangeText = week.first < week.last ? (week.first..<week.last).formatted(range) : week.last.formatted(monthDayFormat)
+        let weekday = Date.FormatStyle(locale: .autoupdatingCurrent, calendar: calendar, timeZone: calendar.timeZone).weekday(.abbreviated)
+        let dayNumber = Date.FormatStyle(locale: .autoupdatingCurrent, calendar: calendar, timeZone: calendar.timeZone).day()
+        let rows = week.drivers.enumerated().map { index, driver in
+            TrainingLoadDrivers.Row(
+                id: index, weekday: driver.workout.start.formatted(weekday), dayNumber: driver.workout.start.formatted(dayNumber),
+                title: driver.workout.sport, symbol: sportSymbol(driver.workout.sport), meta: driverMeta(driver.workout),
+                fraction: driver.fraction, effort: driver.effort)
+        }
+        return section(isLatest ? "What drove this week" : "What drove the week to the selected day", symbol: "bolt.fill",
+                       trailing: .text(rangeText), spacing: 6) {
+            if rows.isEmpty {
+                Text(isLatest ? "No scored workouts this week." : "No scored workouts in these 7 days.")
+                    .font(StrandFont.footnote)
+                    .foregroundStyle(StrandPalette.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.vertical, NoopMetrics.space2)
+            } else {
+                TrainingLoadDrivers(rows: rows, trainingDaysText: trainingDaysText(week.trainingDays, isLatest: isLatest))
             }
-            return name + ", " + String(localized: "Recorded Effort \(number(effort))")
-        }()
-        return VStack(alignment: .leading, spacing: WidgetMetrics.headerSpacing) {
-            SectionEyebrow("Daily effort", systemImage: "flame.fill", tint: .strain,
-                           trailing: average.map { EyebrowTrailing.text(String(localized: "avg \(number($0))")) } ?? .none)
-            TrainingLoadEffortBars(bars: bars, domain: chartDomain, calendar: calendar, highlight: highlight,
-                                   selection: $selection, summary: spoken)
+        }
+        .accessibilityIdentifier("trends.trainingLoad.drivers")
+    }
+
+    private func trainingDaysText(_ count: Int, isLatest: Bool) -> String {
+        switch (count, isLatest) {
+        case (0, true): String(localized: "No training days this week")
+        case (1, true): String(localized: "1 training day this week")
+        case (_, true): String(localized: "\(count) training days this week")
+        case (0, false): String(localized: "No training days in these 7 days")
+        case (1, false): String(localized: "1 training day in these 7 days")
+        default: String(localized: "\(count) training days in these 7 days")
+        }
+    }
+
+    /// Duration, energy and distance when the session has them, never a placeholder for one it lacks.
+    private func driverMeta(_ workout: TrainingLoadPageModel.Workout) -> String {
+        var facts: [String] = []
+        if let seconds = workout.durationSeconds { facts.append(WorkoutFormat.duration(seconds)) }
+        if let kcal = workout.energyKcal { facts.append(WorkoutFormat.energy(kcal)) }
+        if let meters = workout.distanceMeters { facts.append(UnitFormatter.distanceFromMeters(meters, system: unitSystem)) }
+        return WorkoutFormat.joined(facts)
+    }
+
+    // MARK: Mix
+
+    private func mixSlices(_ model: TrainingLoadPageModel) -> [TrainingLoadMix.Slice]? {
+        let shares = model.sportMix()
+        guard !shares.isEmpty else { return nil }
+        return shares.enumerated().map { index, share in
+            TrainingLoadMix.Slice(
+                id: index, name: share.isOther ? String(localized: "Other") : share.name, fraction: share.fraction,
+                percent: share.percent,
+                color: share.isOther ? TrainingLoadMix.colors[3] : TrainingLoadMix.colors[min(index, 2)])
+        }
+    }
+
+    private func mixSection(_ slices: [TrainingLoadMix.Slice]) -> some View {
+        section("Where the load came from", symbol: "square.grid.2x2", trailing: .text(String(localized: "last 6 weeks")),
+                spacing: 16) {
+            TrainingLoadMix(slices: slices)
+        }
+    }
+
+    // MARK: Compare
+
+    private func comparisonCells(_ model: TrainingLoadPageModel) -> [TrainingLoadComparisonStrip.Cell]? {
+        guard let comparison = model.comparison else { return nil }
+        let missing = WidgetMetrics.missingValue
+        let average = comparison.averageDelta
+        let averageDelta: TrainingLoadComparisonStrip.Delta = (abs(average) * 10).rounded() > 0
+            ? .change(up: average > 0, text: number(abs(average)))
+            : .plain(String(localized: "No change"))
+        let biggestDay = comparison.biggestDay.date.formatted(weekdayFormat)
+
+        var days = TrainingLoadComparisonStrip.Cell(
+            id: 1, label: String(localized: "Training days"), value: comparison.trainingDays.map(String.init) ?? missing,
+            delta: nil, spoken: String(localized: "Training days"))
+        if let current = comparison.trainingDays, let change = comparison.trainingDaysDelta {
+            let delta: TrainingLoadComparisonStrip.Delta = change == 0
+                ? .plain(String(localized: "No change"))
+                : .change(up: change > 0, text: String(abs(change)))
+            days = .init(id: 1, label: String(localized: "Training days"), value: String(current), delta: delta,
+                         spoken: String(localized: "Training days \(current), \(spokenChange(Double(change), whole: true)) from the 4 weeks before"))
+        }
+        return [
+            .init(id: 0, label: String(localized: "Avg Effort / day"), value: number(comparison.averageEffort), delta: averageDelta,
+                  spoken: String(localized: "Average Effort per day \(number(comparison.averageEffort)), \(spokenChange(average, whole: false)) from the 4 weeks before")),
+            days,
+            .init(id: 2, label: String(localized: "Biggest day"), value: number(comparison.biggestDay.effort),
+                  delta: .plain(biggestDay),
+                  spoken: String(localized: "Biggest day, Effort \(number(comparison.biggestDay.effort)), \(biggestDay)")),
+        ]
+    }
+
+    /// "up 1.4", "down 2", "no change": how VoiceOver says a delta.
+    private func spokenChange(_ delta: Double, whole: Bool) -> String {
+        let magnitude = abs(delta)
+        guard (magnitude * (whole ? 1 : 10)).rounded() > 0 else { return String(localized: "no change") }
+        let value = whole ? String(Int(magnitude.rounded())) : number(magnitude)
+        return delta > 0 ? String(localized: "up \(value)") : String(localized: "down \(value)")
+    }
+
+    private func compareSection(_ cells: [TrainingLoadComparisonStrip.Cell]) -> some View {
+        section("Compared with the 4 weeks before", symbol: "clock.arrow.circlepath", spacing: 14) {
+            TrainingLoadComparisonStrip(cells: cells)
         }
     }
 
@@ -372,24 +604,10 @@ struct TrainingLoadDetailView: View {
 
     // MARK: Method and links
 
-    /// In plain words, and checked against `TrainingLoadEngine`: both lines are exponentially weighted averages of
-    /// daily Effort with 7- and 42-day time constants, seeded by the mean of the first seven recorded days;
-    /// balance is chronic minus acute; once those seven days are in, up to two missing days in a row decay the lines
-    /// as zero-load days (inside them a gap day is skipped).
     private var methodSection: some View {
         TrainingLoadDisclosure("How this is calculated", isExpanded: $showMethod) {
-            VStack(alignment: .leading, spacing: NoopMetrics.space2) {
-                Text("Both lines are running averages of your daily Effort. Each new day pulls the line toward it and older days fade gradually, so recent days count most.")
-                Text("Acute fades over about a week and reacts quickly. Chronic fades over about six weeks and moves slowly. The range you pick changes what is drawn, never these numbers.")
-                Text("Balance is chronic minus acute. Above zero, recent effort is lighter than your longer-term level; below zero, it is heavier.")
-                Text("The first seven recorded days are averaged to start both lines, which begin on the seventh. Load appears after 14 recorded days and is marked Established at 42.")
-                Text("After the first seven days, up to two missing days in a row count as zero Effort and are not drawn. A longer gap starts the history over. A recorded zero is a real rest day.")
-                Text("Based on daily Effort. Descriptive only; it does not change Readiness.")
-                Text("Dates use the Trends source time zone: \(request.key.timeZoneIdentifier)")
-            }
-            .font(StrandFont.footnote)
-            .foregroundStyle(StrandPalette.textSecondary)
-            .fixedSize(horizontal: false, vertical: true)
+            TrainingLoadMethod(configuration: model?.configuration ?? .standard,
+                               timeZoneIdentifier: request.key.timeZoneIdentifier)
         }
     }
 
@@ -428,15 +646,16 @@ struct TrainingLoadDetailView: View {
 
     // MARK: States
 
-    /// Not enough history: one explicit state in the card's own eyebrow, in place of the numbers and the charts.
+    /// Not enough history: one explicit state in the page's own eyebrow, in place of the numbers and the charts. The
+    /// words come from the same place the Trends card's do, so the card and this page agree.
     private func unavailableSection(_ result: TrainingLoadEngine.Result) -> some View {
         VStack(alignment: .leading, spacing: WidgetMetrics.headerSpacing) {
             SectionEyebrow("Training load", systemImage: "flame.fill", tint: .strain, trailing: eyebrowPill(result))
             VStack(alignment: .leading, spacing: 4) {
-                Text(verbatim: unavailableTitle(result))
+                Text(verbatim: TrainingLoadCopy.unavailableTitle(gap))
                     .font(StrandFont.subhead.weight(.semibold))
                     .foregroundStyle(StrandPalette.textPrimary)
-                Text(verbatim: unavailableDetail(result))
+                Text(verbatim: TrainingLoadCopy.unavailableDetail(gap))
                     .font(StrandFont.footnote)
                     .foregroundStyle(StrandPalette.textSecondary)
             }
@@ -444,25 +663,6 @@ struct TrainingLoadDetailView: View {
             .accessibilityElement(children: .combine)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private func unavailableTitle(_ result: TrainingLoadEngine.Result) -> String {
-        guard result.unavailableReason == .notEnoughContiguousDays else {
-            return TrainingLoadCopy.unavailableTitle(result.unavailableReason)
-        }
-        let remaining = max(1, TrainingLoadEngine.Configuration.standard.minimumDays - result.contiguousDays)
-        return remaining == 1
-            ? String(localized: "Needs 1 more day of workouts")
-            : String(localized: "Needs \(remaining) more days of workouts")
-    }
-
-    private func unavailableDetail(_ result: TrainingLoadEngine.Result) -> String {
-        switch result.unavailableReason {
-        case .missingTargetDay: String(localized: "There is no usable Effort value for the selected end date.")
-        case .notEnoughContiguousDays: String(localized: "Training load starts after 14 days of recorded Effort.")
-        case .noData: String(localized: "No daily Effort history is available for this source.")
-        default: String(localized: "The source history cannot produce a valid load estimate. Check the records in Trends.")
-        }
     }
 
     /// Loading and error keep the load section's shape: the eyebrow and pill, "—" for the value, a ghost rail where
@@ -540,8 +740,22 @@ struct TrainingLoadDetailView: View {
         return calendar.date(from: DateComponents(year: values[0], month: values[1], day: values[2]))
     }
     private func number(_ value: Double) -> String { DrillInFormat.number(value, fractionDigits: 1) }
-    /// Never "-0.0" or "+0.0": a balance that rounds to nothing reads "0.0".
+    /// Never "-0.0" or "+0.0": a form that rounds to nothing reads "0.0".
     private func signed(_ value: Double) -> String { DrillInFormat.signed(value, fractionDigits: 1) }
+
+    /// The six-plus-two weeks of sessions the page needs (the 28 days against the 28 before, the 42 of the mix, the week of
+    /// drivers all sit inside it), read once, with the sport named the way the Workouts screens name it.
+    @MainActor private func readWorkouts() async -> [TrainingLoadPageModel.Workout] {
+        let days = TrainingLoadPageModel.comparisonWindowDays * 2
+        guard let first = calendar.date(byAdding: .day, value: 1 - days, to: anchor),
+              let end = calendar.date(byAdding: .day, value: 1, to: anchor) else { return [] }
+        let rows = await repo.workoutRows(from: Int(first.timeIntervalSince1970), to: Int(end.timeIntervalSince1970),
+                                          reconcileHR: false)
+        return rows.map { row in
+            TrainingLoadPageModel.Workout(
+                row: row, sportName: WorkoutCatalog.sport(named: row.sport)?.name ?? WorkoutSource.displaySport(row.sport))
+        }
+    }
 
     @MainActor private func load() async {
         let trigger = self.trigger
@@ -549,6 +763,8 @@ struct TrainingLoadDetailView: View {
         // Another source, day, zone, range or week is a different page: its old values never sit under the new header.
         if let loadedTrigger, !trigger.rereads(loadedTrigger) {
             result = nil
+            model = nil
+            gap = nil
             selection = nil
             // Forget what was loaded too: if the request returns to it before this read finishes, it is read again
             // rather than skipped as already on screen (with nothing on screen).
@@ -577,8 +793,29 @@ struct TrainingLoadDetailView: View {
             return
         }
         let history = Array(data.canonicalDays.filter { $0.day <= request.key.anchorDay }.suffix(TrainingLoadTrendsWindow.days))
-        result = TrainingLoadEngine.evaluate(days: history.map { .init(day: $0.day, load: $0.strain) },
-                                             through: request.key.anchorDay)
+        let loads = history.map { TrainingLoadEngine.DailyLoad(day: $0.day, load: $0.strain) }
+        let evaluated = TrainingLoadEngine.evaluate(days: loads, through: request.key.anchorDay)
+        let evaluatedGap = TrainingLoadPageModel.gap(result: evaluated, history: loads, targetDay: request.key.anchorDay)
+
+        var built: TrainingLoadPageModel?
+        if evaluated.isAvailable {
+            // The one workouts read, in this same load path, then the model off the main actor.
+            let workouts = await readWorkouts()
+            guard !Task.isCancelled, trigger == self.trigger, sourceIsCurrent else { return }
+            let modelDays: [TrainingLoadPageModel.Day] = evaluated.points.compactMap { point in
+                date(point.day).map {
+                    .init(date: $0, acute: point.acuteLoad, chronic: point.chronicLoad, load: point.load)
+                }
+            }
+            let modelCalendar = calendar
+            built = await Task.detached(priority: .userInitiated) {
+                TrainingLoadPageModel(days: modelDays, workouts: workouts, calendar: modelCalendar)
+            }.value
+            guard !Task.isCancelled, trigger == self.trigger, sourceIsCurrent else { return }
+        }
+        result = evaluated
+        model = built
+        gap = evaluatedGap
         failure = nil
         loadedTrigger = trigger
     }
@@ -606,7 +843,6 @@ struct TrainingLoadDetailView: View {
 private enum TrainingLoadLayout {
     /// The Trends card's chart, zoomed in: about 200pt against the card's 76.
     static let plotHeight: CGFloat = 200
-    static let barsHeight: CGFloat = 96
     static let halfDay: TimeInterval = 12 * 60 * 60
     static let periods = [28, 42, 90, 180]
 
@@ -638,58 +874,108 @@ private struct TrainingLoadDay: Identifiable {
     var effort: Double { StrainScale.displayValue(fromStored: point.load) }
 }
 
-/// One bar per calendar day of the range, in the strain colour: the day the strip above reads is solid, the rest are
-/// quiet, and a day with no Effort is a faint tick on the baseline. Drag to scrub, sharing the chart above's selection.
-private struct TrainingLoadEffortBars: View {
-    struct Bar: Identifiable {
-        let date: Date
-        /// Display-scale Effort, nil when nothing was recorded that day.
-        let effort: Double?
-        var id: Date { date }
+/// Selected / Effort / Recent / Base for the day under the finger, in one quiet box. Two by two at the accessibility sizes.
+private struct TrainingLoadReadout: View {
+    struct Cell: Identifiable {
+        let id: Int
+        let label: LocalizedStringKey
+        let value: String
+        let color: Color
     }
 
-    let bars: [Bar]
-    let domain: ClosedRange<Date>
-    let calendar: Calendar
-    let highlight: Date?
-    @Binding var selection: Date?
-    let summary: String
-
-    /// A bar is 70% of its day, centred on it, so it sits exactly under that day's point on the chart above.
-    private let halfBar: TimeInterval = 0.35 * 24 * 60 * 60
+    let cells: [Cell]
+    @Environment(\.dynamicTypeSize) private var typeSize
+    @ScaledMetric(relativeTo: .callout) private var valueSize: CGFloat = 16
 
     var body: some View {
-        let top = max(bars.compactMap(\.effort).max() ?? 1, 1) * 1.08
-        let tick = top * 0.035
-        Chart {
-            RuleMark(y: .value("Baseline", 0))
-                .foregroundStyle(StrandPalette.hairline)
-                .lineStyle(StrokeStyle(lineWidth: 1))
-            ForEach(bars) { bar in
-                let isHighlighted = highlight.map { calendar.isDate(bar.date, inSameDayAs: $0) } ?? false
-                if let effort = bar.effort, effort > 0 {
-                    RectangleMark(xStart: .value("Day", bar.date.addingTimeInterval(-halfBar)),
-                                  xEnd: .value("Day end", bar.date.addingTimeInterval(halfBar)),
-                                  yStart: .value("Floor", 0), yEnd: .value("Effort", effort))
-                        .cornerRadius(1.5)
-                        .foregroundStyle(StrandPalette.strainAccent.opacity(isHighlighted ? 1 : 0.4))
-                } else {
-                    RectangleMark(xStart: .value("Day", bar.date.addingTimeInterval(-halfBar)),
-                                  xEnd: .value("Day end", bar.date.addingTimeInterval(halfBar)),
-                                  yStart: .value("Floor", 0), yEnd: .value("Tick", tick))
-                        .foregroundStyle(isHighlighted ? StrandPalette.textTertiary : StrandPalette.hairlineStrong)
+        Group {
+            if typeSize.isAccessibilitySize {
+                LazyVGrid(columns: [GridItem(.flexible(), alignment: .leading), GridItem(.flexible(), alignment: .leading)],
+                          alignment: .leading, spacing: NoopMetrics.space3) {
+                    ForEach(cells) { cell in column(cell) }
+                }
+            } else {
+                HStack(alignment: .top, spacing: NoopMetrics.space2) {
+                    ForEach(cells) { cell in
+                        column(cell)
+                        if cell.id != cells.last?.id { Spacer(minLength: 0) }
+                    }
                 }
             }
         }
-        .chartXScale(domain: domain)
-        .chartYScale(domain: 0...top)
-        .chartLegend(.hidden)
-        .chartXAxis(.hidden)
-        .chartYAxis(.hidden)
-        .chartXSelection(value: $selection)
-        .environment(\.calendar, calendar)
-        .environment(\.timeZone, calendar.timeZone)
-        .frame(height: TrainingLoadLayout.barsHeight)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(StrandPalette.card))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(StrandPalette.hairline, lineWidth: 1))
+    }
+
+    private func column(_ cell: Cell) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(cell.label)
+                .font(.system(size: 11.5, weight: .medium))
+                .foregroundStyle(StrandPalette.textTertiary)
+                .lineLimit(1)
+            Text(verbatim: cell.value)
+                .font(.system(size: min(valueSize, 28), weight: .semibold).monospacedDigit())
+                .foregroundStyle(cell.value == WidgetMetrics.missingValue ? StrandPalette.textTertiary : cell.color)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+        }
+    }
+}
+
+/// What feeds the load, one mark per recorded day on the chart's own days: a bar scaled against the 0...21 Effort range
+/// (orange from 18, full strain blue from 14, translucent below), a small grey dot for a recorded zero (a rest day), and
+/// nothing for a day with no Effort recorded. Inset like the chart above it, so each mark sits under its day.
+private struct TrainingLoadDailyStrip: View {
+    struct Mark {
+        let date: Date
+        /// Display-scale Effort. Zero is a recorded rest day.
+        let effort: Double
+    }
+
+    let marks: [Mark]
+    let domain: ClosedRange<Date>
+    let calendar: Calendar
+    /// The scrubbed day, drawn as a hairline; nil when nothing is scrubbed.
+    let highlight: Date?
+    let summary: String
+
+    static let height: CGFloat = 44
+
+    var body: some View {
+        Canvas { context, size in
+            let width = max(size.width - TrendsLoadChart.valueAxisInset, 1)
+            let span = domain.upperBound.timeIntervalSince(domain.lowerBound)
+            guard span > 0 else { return }
+            let x = { (date: Date) -> CGFloat in
+                width * CGFloat(min(max(date.timeIntervalSince(domain.lowerBound) / span, 0), 1))
+            }
+            let perDay = width * CGFloat(86_400 / span)
+            let barWidth = max(1.5, min(4.6, perDay * 0.6))
+            let usable = size.height - 4
+            if let highlight {
+                var line = Path()
+                line.move(to: CGPoint(x: x(highlight), y: 0))
+                line.addLine(to: CGPoint(x: x(highlight), y: size.height))
+                context.stroke(line, with: .color(StrandPalette.textPrimary.opacity(0.35)), lineWidth: 1)
+            }
+            for mark in marks {
+                let centre = x(mark.date)
+                if mark.effort <= 0 {
+                    let dot = CGRect(x: centre - 1.6, y: size.height - 2 - 1.6, width: 3.2, height: 3.2)
+                    context.fill(Path(ellipseIn: dot), with: .color(StrandPalette.textTertiary))
+                    continue
+                }
+                let barHeight = max(CGFloat(min(mark.effort / 21, 1)) * usable, 2)
+                let rect = CGRect(x: centre - barWidth / 2, y: size.height - barHeight, width: barWidth, height: barHeight)
+                let color: Color = mark.effort >= 18 ? TrainingLoadInk.spike
+                    : mark.effort >= 14 ? TrainingLoadInk.recent : TrainingLoadInk.recent.opacity(0.5)
+                context.fill(Path(roundedRect: rect, cornerRadius: min(1.6, barWidth / 2)), with: .color(color))
+            }
+        }
+        .frame(height: Self.height)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Daily Effort over the selected range")
         .accessibilityValue(Text(verbatim: summary))
@@ -763,7 +1049,7 @@ private struct TrainingLoadDatedRows: View, Equatable {
                     Text(verbatim: day.date.formatted(dayFormat))
                         .font(StrandFont.footnote.weight(.semibold))
                         .foregroundStyle(StrandPalette.textPrimary)
-                    Text("Chronic \(DrillInFormat.number(day.chronic, fractionDigits: 1)) · Acute \(DrillInFormat.number(day.acute, fractionDigits: 1)) · Balance \(DrillInFormat.signed(day.balance, fractionDigits: 1))")
+                    Text("Recent load \(DrillInFormat.number(day.acute, fractionDigits: 1)) · Fitness base \(DrillInFormat.number(day.chronic, fractionDigits: 1)) · Form \(DrillInFormat.signed(day.balance, fractionDigits: 1))")
                         .font(StrandFont.footnote)
                         .foregroundStyle(StrandPalette.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)

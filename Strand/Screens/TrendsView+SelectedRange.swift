@@ -39,7 +39,7 @@ extension TrendsView {
                 tint: .strain,
                 trailing: .pill(
                     LocalizedStringKey(load.map(trainingLoadStatus) ?? "Loading"),
-                    tone: load?.state == .established ? .positive : .neutral
+                    tone: load.map { TrainingLoadCopy.tone($0.state) } ?? .neutral
                 ),
                 showsChevron: true
             )
@@ -55,10 +55,10 @@ extension TrendsView {
     private func trainingLoadBody(_ load: TrainingLoadSnapshot?) -> some View {
         if let load, load.state == .unavailable {
             VStack(alignment: .leading, spacing: 4) {
-                Text(trainingLoadUnavailableTitle(load))
+                Text(TrainingLoadCopy.unavailableTitle(load.gap))
                     .font(StrandFont.subhead.weight(.semibold))
                     .foregroundStyle(StrandPalette.textPrimary)
-                Text(trainingLoadUnavailableDetail(load))
+                Text(TrainingLoadCopy.unavailableDetail(load.gap))
                     .font(StrandFont.footnote)
                     .foregroundStyle(StrandPalette.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -67,9 +67,9 @@ extension TrendsView {
             VStack(alignment: .leading, spacing: WidgetMetrics.contentSpacing) {
                 StatFooter(
                     items: [
-                        (String(localized: "Chronic · 42d"), trainingLoadNumber(load.chronic)),
-                        (String(localized: "Acute · 7d"), trainingLoadNumber(load.acute)),
-                        (String(localized: "Balance"), trainingLoadBalance(load.balance)),
+                        (String(localized: "Recent load"), trainingLoadNumber(load.acute)),
+                        (String(localized: "Fitness base"), trainingLoadNumber(load.chronic)),
+                        (String(localized: "Form"), trainingLoadBalance(load.balance)),
                     ],
                     style: .prominent
                 )
@@ -78,7 +78,7 @@ extension TrendsView {
                         chronic: load.chronicSpark,
                         acute: load.acuteSpark,
                         tint: .strain,
-                        startLabel: String(localized: "\(load.acuteSpark.count - 1) days ago"),
+                        startLabel: String(localized: "\(load.sparkSpanDays) days ago"),
                         endLabel: String(localized: "Today")
                     )
                 }
@@ -109,33 +109,9 @@ extension TrendsView {
         value.map { DrillInFormat.signed($0, fractionDigits: 1) } ?? WidgetMetrics.missingValue
     }
 
+    /// The same pill the detail page shows, from the same words.
     private func trainingLoadStatus(_ load: TrainingLoadSnapshot) -> String {
-        switch load.state {
-        case .established: return String(localized: "Established")
-        case .building: return String(localized: "Building \(load.contiguousDays)/42")
-        case .unavailable: return String(localized: "Building")
-        }
-    }
-
-    private func trainingLoadUnavailableTitle(_ load: TrainingLoadSnapshot) -> String {
-        switch load.unavailableReason {
-        case .notEnoughContiguousDays:
-            return String(localized: "Building your load history")
-        case .missingTargetDay:
-            return String(localized: "Today's Effort is not ready")
-        default:
-            return String(localized: "Training load is not ready")
-        }
-    }
-
-    private func trainingLoadUnavailableDetail(_ load: TrainingLoadSnapshot) -> String {
-        if load.unavailableReason == .notEnoughContiguousDays {
-            let remaining = max(0, 14 - load.contiguousDays)
-            return remaining == 1
-                ? String(localized: "Need 1 more contiguous day with an Effort value.")
-                : String(localized: "Need \(remaining) more contiguous days with Effort values.")
-        }
-        return String(localized: "NOOP needs a continuous run of daily Effort values to model acute and chronic load.")
+        TrainingLoadCopy.status(state: load.state, gap: load.gap, observedDays: load.contiguousDays)
     }
 
     /// One short VoiceOver label for the whole tappable section.
@@ -145,12 +121,12 @@ extension TrendsView {
         guard let load else { return [title, String(localized: "Loading")].joined(separator: ", ") }
         let status = trainingLoadStatus(load)
         guard load.state != .unavailable else {
-            return [title, status, trainingLoadUnavailableTitle(load)].joined(separator: ", ")
+            return [title, status, TrainingLoadCopy.unavailableTitle(load.gap)].joined(separator: ", ")
         }
         return [title, status,
-                String(localized: "Chronic · 42d") + " " + trainingLoadNumber(load.chronic),
-                String(localized: "Acute · 7d") + " " + trainingLoadNumber(load.acute),
-                String(localized: "Balance") + " " + trainingLoadBalance(load.balance)].joined(separator: ", ")
+                String(localized: "Recent load") + " " + trainingLoadNumber(load.acute),
+                String(localized: "Fitness base") + " " + trainingLoadNumber(load.chronic),
+                String(localized: "Form") + " " + trainingLoadBalance(load.balance)].joined(separator: ", ")
     }
 
     // MARK: - Selected range

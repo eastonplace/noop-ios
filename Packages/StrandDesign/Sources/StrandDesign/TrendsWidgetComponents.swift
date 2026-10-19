@@ -1775,8 +1775,8 @@ public struct TrendsSummaryRow: View {
 
 // MARK: - Training load chart
 
-/// Acute and chronic load as two lines on one scale: the 42-day line is the quiet backdrop, the 7-day line
-/// the bright one over a wash.
+/// Recent load (the 7-day line) and fitness base (the 42-day line) on one scale: the base is the quiet backdrop, the
+/// recent line the bright one, with a wash between the two wherever recent load sits above the base.
 ///
 /// With only the five original parameters this is the Trends card's sparkline, unchanged. The detail page that card
 /// opens zooms the same drawing in: a taller plot, a calendar-true x axis (`timeline`) with a sparse date row, and a
@@ -1822,6 +1822,7 @@ public struct TrendsLoadChart: View {
     private let timeline: Timeline?
     private let selection: Binding<Date?>?
     private let accessibilitySummary: String?
+    private let showsLegend: Bool
 
     @Environment(\.dynamicTypeSize) private var typeSize
     @GestureState private var isScrubbing = false
@@ -1835,9 +1836,10 @@ public struct TrendsLoadChart: View {
     ///   - selection: the day under the finger while scrubbing (one of `timeline.days`), nil when not scrubbing. Has no
     ///     effect without a `timeline`.
     ///   - accessibilitySummary: what VoiceOver hears as the chart's value (the selected day's figures).
+    ///   - showsLegend: draws the key under the plot; a page that places `TrendsLoadLegend` itself turns it off.
     public init(chronic: [Double], acute: [Double], tint: DomainTint, startLabel: String, endLabel: String,
                 plotHeight: CGFloat = 76, timeline: Timeline? = nil, selection: Binding<Date?>? = nil,
-                accessibilitySummary: String? = nil) {
+                accessibilitySummary: String? = nil, showsLegend: Bool = true) {
         self.chronic = chronic
         self.acute = acute
         self.tint = tint
@@ -1847,6 +1849,7 @@ public struct TrendsLoadChart: View {
         self.timeline = timeline.flatMap { $0.days.count == acute.count && acute.count == chronic.count ? $0 : nil }
         self.selection = selection
         self.accessibilitySummary = accessibilitySummary
+        self.showsLegend = showsLegend
     }
 
     public var body: some View {
@@ -1866,18 +1869,7 @@ public struct TrendsLoadChart: View {
                 .font(StrandFont.micro)
                 .foregroundStyle(StrandPalette.textTertiary)
             }
-            // Side by side while both keys fit; stacked at the accessibility text sizes, where they would wrap.
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: NoopMetrics.space3) {
-                    legendKey(title: "Acute · 7-day", opacity: 1)
-                    legendKey(title: "Chronic · 42-day", opacity: 0.45)
-                    Spacer(minLength: 0)
-                }
-                VStack(alignment: .leading, spacing: NoopMetrics.space1) {
-                    legendKey(title: "Acute · 7-day", opacity: 1)
-                    legendKey(title: "Chronic · 42-day", opacity: 0.45)
-                }
-            }
+            if showsLegend { TrendsLoadLegend(tint: tint) }
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityTitle)
@@ -1885,19 +1877,12 @@ public struct TrendsLoadChart: View {
         .modifier(ScrubAccessibility(isEnabled: timeline != nil && selection != nil, step: step))
     }
 
-    private func legendKey(title: LocalizedStringKey, opacity: Double) -> some View {
-        HStack(spacing: 5) {
-            Capsule(style: .continuous).fill(tint.accent.opacity(opacity)).frame(width: 12, height: 3)
-            Text(title).font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary).lineLimit(1)
-        }
-    }
-
     /// The sparkline names how many days it draws. A calendar chart cannot: the days it holds are only the recorded
     /// ones inside a range the page, not the chart, chose.
     private var accessibilityTitle: LocalizedStringKey {
         timeline == nil
-            ? "Acute and chronic training load over the last \(acute.count) days"
-            : "Acute and chronic training load"
+            ? "Recent load and fitness base over the last \(acute.count) days"
+            : "Recent load and fitness base"
     }
 
     @ViewBuilder
@@ -1917,17 +1902,16 @@ public struct TrendsLoadChart: View {
             let acutePoints = Self.points(acute, size: size, lower: lower, range: range)
 
             ZStack {
-                if acutePoints.count >= 2 {
-                    Self.area(acutePoints, height: size.height)
-                        .fill(LinearGradient(colors: [tint.accent.opacity(0.14), .clear], startPoint: .top, endPoint: .bottom))
+                if acutePoints.count >= 2, chronicPoints.count >= 2 {
+                    aboveBaseWash(acute: acutePoints, chronic: chronicPoints, height: size.height)
                 }
                 if chronicPoints.count >= 2 {
                     Self.line(chronicPoints)
-                        .stroke(tint.accent.opacity(0.45), style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
+                        .stroke(tint.accent.opacity(0.45), style: StrokeStyle(lineWidth: 2.2, lineCap: .round, lineJoin: .round))
                 }
                 if acutePoints.count >= 2 {
                     Self.line(acutePoints)
-                        .stroke(tint.accent, style: StrokeStyle(lineWidth: 2.4, lineCap: .round, lineJoin: .round))
+                        .stroke(tint.accent, style: StrokeStyle(lineWidth: 2.6, lineCap: .round, lineJoin: .round))
                 }
                 if let end = acutePoints.last {
                     Circle()
@@ -1966,6 +1950,33 @@ public struct TrendsLoadChart: View {
         return path
     }
 
+    /// The region above a curve, out to the top edge.
+    private static func areaAbove(_ points: [CGPoint]) -> Path {
+        var path = line(points)
+        if let first = points.first, let last = points.last {
+            path.addLine(to: CGPoint(x: last.x, y: -1))
+            path.addLine(to: CGPoint(x: first.x, y: -1))
+            path.closeSubpath()
+        }
+        return path
+    }
+
+    /// A wash between the two lines wherever recent load is above the base, and nowhere else. It is the part of the
+    /// region under the recent line that also lies above the base line, so it follows both curves exactly, including
+    /// where they cross.
+    private func aboveBaseWash(acute: [CGPoint], chronic: [CGPoint], height: CGFloat) -> some View {
+        Self.area(acute, height: height)
+            .fill(tint.accent.opacity(TrendsLoadChart.washOpacity))
+            .mask(Self.areaAbove(chronic).fill(Color.black))
+    }
+
+    /// The strength of the "above base" wash, shared with its legend key.
+    static let washOpacity: Double = 0.16
+
+    /// Room kept at the plot's trailing edge for the value labels of a calendar chart (one that has a `valueLabel`).
+    /// A page that draws something under the chart on the same days (a per-day strip) keeps the same inset so both line up.
+    public static let valueAxisInset: CGFloat = 26
+
     // MARK: Timeline (the zoomed-in chart)
 
     /// The same two lines and wash, placed on their calendar days. A calendar gap starts a new run, so no line crosses
@@ -1973,30 +1984,35 @@ public struct TrendsLoadChart: View {
     @ViewBuilder
     private func timelinePlot(_ timeline: Timeline, size: CGSize, lower: Double, range: Double,
                               low: Double, high: Double) -> some View {
-        let xs = timeline.days.map { Self.x(of: $0, in: timeline, width: size.width) }
+        // The plot keeps a strip at its trailing edge for the value labels; the lines, the scrub and the date row
+        // all use the narrower width, so a per-day strip under the chart can inset the same amount and line up.
+        let labelled = timeline.valueLabel != nil
+        let width = max(size.width - (labelled ? Self.valueAxisInset : 0), 1)
+        let xs = timeline.days.map { Self.x(of: $0, in: timeline, width: width) }
         let ys = { (value: Double) -> CGFloat in size.height * CGFloat(1 - (value - lower) / range) }
         let runs = Self.runs(timeline)
         let selectedIndex = selection?.wrappedValue.flatMap { day in
             timeline.days.firstIndex { timeline.calendar.isDate($0, inSameDayAs: day) }
         }
-        let selectedX = selection?.wrappedValue.map { Self.x(of: $0, in: timeline, width: size.width) }
+        let selectedX = selection?.wrappedValue.map { Self.x(of: $0, in: timeline, width: width) }
 
         ZStack {
             if let label = timeline.valueLabel {
-                valueRule(at: ys(high), text: label(high), size: size, above: true)
-                valueRule(at: ys(low), text: label(low), size: size, above: false)
+                ForEach(Self.gridValues(lower: lower, upper: lower + range), id: \.self) { value in
+                    gridLine(at: ys(value), text: Self.gridLabel(value, step: Self.gridStep(range: range), format: label),
+                             plotWidth: width, size: size)
+                }
             }
             ForEach(runs.indices, id: \.self) { run in
                 let indices = runs[run]
                 let chronicPoints = indices.map { CGPoint(x: xs[$0], y: ys(chronic[$0])) }
                 let acutePoints = indices.map { CGPoint(x: xs[$0], y: ys(acute[$0])) }
                 if acutePoints.count >= 2 {
-                    Self.area(acutePoints, height: size.height)
-                        .fill(LinearGradient(colors: [tint.accent.opacity(0.14), .clear], startPoint: .top, endPoint: .bottom))
+                    aboveBaseWash(acute: acutePoints, chronic: chronicPoints, height: size.height)
                     Self.line(chronicPoints)
-                        .stroke(tint.accent.opacity(0.45), style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
+                        .stroke(tint.accent.opacity(0.45), style: StrokeStyle(lineWidth: 2.2, lineCap: .round, lineJoin: .round))
                     Self.line(acutePoints)
-                        .stroke(tint.accent, style: StrokeStyle(lineWidth: 2.4, lineCap: .round, lineJoin: .round))
+                        .stroke(tint.accent, style: StrokeStyle(lineWidth: 2.6, lineCap: .round, lineJoin: .round))
                 } else if let point = acutePoints.first, let base = chronicPoints.first {
                     Circle().fill(tint.accent.opacity(0.45)).frame(width: 5, height: 5).position(base)
                     Circle().fill(tint.accent).frame(width: 6, height: 6).position(point)
@@ -2028,7 +2044,7 @@ public struct TrendsLoadChart: View {
                                 }
                                 // A drag that begins at the leading edge is the back swipe's, not a scrub.
                                 guard dragAxis == .horizontal, value.startLocation.x > Self.leadingEdgeInset else { return }
-                                select(nearestTo: value.location.x, width: size.width, in: timeline)
+                                select(nearestTo: value.location.x, width: width, in: timeline)
                             }
                     )
                     .onChangeCompat(of: isScrubbing) { scrubbing in
@@ -2043,20 +2059,53 @@ public struct TrendsLoadChart: View {
 
     private static let leadingEdgeInset: CGFloat = 16
 
-    /// A hairline at one of the plot's two extremes with its value at the trailing edge.
-    private func valueRule(at y: CGFloat, text: String, size: CGSize, above: Bool) -> some View {
+    /// A hairline across the plot at one value, with the value in the strip kept free at the trailing edge.
+    private func gridLine(at y: CGFloat, text: String, plotWidth: CGFloat, size: CGSize) -> some View {
         ZStack {
             Rectangle()
                 .fill(StrandPalette.hairline.opacity(0.6))
-                .frame(height: 1)
-                .position(x: size.width / 2, y: y)
+                .frame(width: plotWidth + 4, height: 1)
+                .position(x: (plotWidth + 4) / 2, y: y)
             Text(verbatim: text)
                 .font(StrandFont.micro)
                 .foregroundStyle(StrandPalette.textTertiary)
+                .lineLimit(1)
+                .fixedSize()
                 .frame(width: size.width, alignment: .trailing)
-                .position(x: size.width / 2, y: y + (above ? -8 : 8))
+                .position(x: size.width / 2, y: y)
         }
         .accessibilityHidden(true)
+    }
+
+    /// A round step (1, 2, 2.5, 5 times a power of ten) that puts about four lines across the span.
+    private static func gridStep(range: Double) -> Double {
+        guard range.isFinite, range > 0 else { return 1 }
+        let raw = range / 4
+        let magnitude = pow(10, floor(log10(raw)))
+        let normalised = raw / magnitude
+        let step: Double = normalised <= 1 ? 1 : normalised <= 2 ? 2 : normalised <= 2.5 ? 2.5 : normalised <= 5 ? 5 : 10
+        return step * magnitude
+    }
+
+    /// The round values inside the plot, ascending. The edge ones are left out so a label never sits on the plot's edge.
+    private static func gridValues(lower: Double, upper: Double) -> [Double] {
+        let step = gridStep(range: upper - lower)
+        guard step > 0 else { return [] }
+        let margin = (upper - lower) * 0.06
+        var value = (lower / step).rounded(.up) * step
+        var values: [Double] = []
+        while value <= upper, values.count < 12 {
+            if value >= lower + margin, value <= upper - margin { values.append(value) }
+            value += step
+        }
+        return values
+    }
+
+    /// Whole numbers when the step is whole, else the caller's own format (one decimal).
+    private static func gridLabel(_ value: Double, step: Double, format: (Double) -> String) -> String {
+        step >= 1 && step.rounded() == step
+            ? value.rounded().formatted(.number.precision(.fractionLength(0)))
+            : format(value)
     }
 
     private func dot(at point: CGPoint, opacity: Double, diameter: CGFloat) -> some View {
@@ -2086,7 +2135,8 @@ public struct TrendsLoadChart: View {
                                 .foregroundStyle(StrandPalette.textTertiary)
                                 .fixedSize()
                                 .frame(width: 0, alignment: Self.labelAlignment(offset, of: labels.count))
-                                .offset(x: Self.x(of: label.date, in: timeline, width: proxy.size.width))
+                                .offset(x: Self.x(of: label.date, in: timeline,
+                                                  width: proxy.size.width - (timeline.valueLabel != nil ? Self.valueAxisInset : 0)))
                         }
                     }
                 }
@@ -2166,6 +2216,50 @@ private struct ScrubAccessibility: ViewModifier {
             content.accessibilityAdjustableAction(step)
         } else {
             content
+        }
+    }
+}
+
+/// The key under the training load chart: the recent line, the base line and the wash between them.
+///
+/// Side by side while the keys fit; stacked at the accessibility text sizes, where they would wrap.
+public struct TrendsLoadLegend: View {
+    private let tint: DomainTint
+
+    public init(tint: DomainTint = .strain) {
+        self.tint = tint
+    }
+
+    public var body: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: NoopMetrics.space4) {
+                keys
+                Spacer(minLength: 0)
+            }
+            VStack(alignment: .leading, spacing: NoopMetrics.space1) { keys }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Chart key: recent load, fitness base, and where recent load is above the base")
+    }
+
+    @ViewBuilder private var keys: some View {
+        key(title: "Recent load") {
+            Capsule(style: .continuous).fill(tint.accent).frame(width: 16, height: 3)
+        }
+        key(title: "Fitness base") {
+            Capsule(style: .continuous).fill(tint.accent.opacity(0.45)).frame(width: 16, height: 3)
+        }
+        key(title: "Above base") {
+            RoundedRectangle(cornerRadius: 3, style: .continuous)
+                .fill(tint.accent.opacity(TrendsLoadChart.washOpacity))
+                .frame(width: 12, height: 12)
+        }
+    }
+
+    private func key<Swatch: View>(title: LocalizedStringKey, @ViewBuilder swatch: () -> Swatch) -> some View {
+        HStack(spacing: 6) {
+            swatch()
+            Text(title).font(StrandFont.micro).foregroundStyle(StrandPalette.textSecondary).lineLimit(1)
         }
     }
 }

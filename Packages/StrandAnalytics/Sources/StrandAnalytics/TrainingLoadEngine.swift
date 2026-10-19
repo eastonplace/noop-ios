@@ -216,8 +216,8 @@ public enum TrainingLoadEngine {
         let seedDay = observed[configuration.primeDays - 1]
         let seed = observed.prefix(configuration.primeDays).reduce(0.0) { $0 + $1.load }
             / Double(configuration.primeDays)
-        let alphaChronic = 1 - exp(-1 / configuration.chronicTimeConstantDays)
-        let alphaAcute = 1 - exp(-1 / configuration.acuteTimeConstantDays)
+        let alphaChronic = smoothingFactor(timeConstantDays: configuration.chronicTimeConstantDays)
+        let alphaAcute = smoothingFactor(timeConstantDays: configuration.acuteTimeConstantDays)
 
         var chronic = seed
         var acute = seed
@@ -228,8 +228,8 @@ public enum TrainingLoadEngine {
 
         for item in ordered where item.ordinal > seedDay.ordinal {
             let load = item.load ?? 0
-            chronic += alphaChronic * (load - chronic)
-            acute += alphaAcute * (load - acute)
+            (acute, chronic) = advance(acute: acute, chronic: chronic, load: load,
+                                       alphaAcute: alphaAcute, alphaChronic: alphaChronic)
             if let observedLoad = item.load {
                 points.append(Point(day: dayString(ordinal: item.ordinal), load: observedLoad,
                                     chronicLoad: chronic, acuteLoad: acute, balance: chronic - acute))
@@ -245,6 +245,29 @@ public enum TrainingLoadEngine {
             endDay: endDay,
             points: points
         )
+    }
+
+    // MARK: - One step of the model
+
+    /// The per-day smoothing factor `alpha = 1 - exp(-1 / tau)` for a time constant in days. `evaluate` and `step` both
+    /// read it here, so a projection can never drift from the model it projects.
+    public static func smoothingFactor(timeConstantDays: Double) -> Double {
+        1 - exp(-1 / timeConstantDays)
+    }
+
+    /// The model's own one-day update, for a projection: the acute and chronic state after a day with `load`, in the
+    /// same units as the state. This is exactly the step `evaluate` takes for every day after the seed, so a "what if
+    /// tomorrow" built on it reuses the engine's math instead of restating it. Pure; nothing is stored.
+    public static func step(acute: Double, chronic: Double, load: Double,
+                            configuration: Configuration = .standard) -> (acute: Double, chronic: Double) {
+        advance(acute: acute, chronic: chronic, load: load,
+                alphaAcute: smoothingFactor(timeConstantDays: configuration.acuteTimeConstantDays),
+                alphaChronic: smoothingFactor(timeConstantDays: configuration.chronicTimeConstantDays))
+    }
+
+    private static func advance(acute: Double, chronic: Double, load: Double,
+                                alphaAcute: Double, alphaChronic: Double) -> (acute: Double, chronic: Double) {
+        (acute + alphaAcute * (load - acute), chronic + alphaChronic * (load - chronic))
     }
 
     /// Convenience for already-dense load arrays used by analytics tests and non-calendar callers. Day

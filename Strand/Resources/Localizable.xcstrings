@@ -322,6 +322,16 @@
         }
       }
     },
+    "%@ %@, %@, %@, Effort %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ %@, %@, %@, Effort %@"
+          }
+        }
+      }
+    },
     "%@ (Beta)": {
       "localizations": {
         "de": {
@@ -1237,6 +1247,26 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ 摘要"
+          }
+        }
+      }
+    },
+    "%@ this week": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ this week"
+          }
+        }
+      }
+    },
+    "%@ vs %lld days ago": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ vs %lld days ago"
           }
         }
       }
@@ -5109,6 +5139,16 @@
         }
       }
     },
+    "%@, %lld percent": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@, %lld percent"
+          }
+        }
+      }
+    },
     "%@, 24 hours": {
       "localizations": {
         "de": {
@@ -6803,6 +6843,26 @@
         }
       }
     },
+    "%@: Effort %@, recent load %@, fitness base %@, form %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: Effort %@, recent load %@, fitness base %@, form %@"
+          }
+        }
+      }
+    },
+    "%@: Effort %@, recent load %@, ratio %@, %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: Effort %@, recent load %@, ratio %@, %@"
+          }
+        }
+      }
+    },
     "%@: estimated %lld steps, phone %lld steps, %lld percent difference": {
       "localizations": {
         "de": {
@@ -6929,6 +6989,16 @@
         }
       }
     },
+    "%@: no Effort recorded": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: no Effort recorded"
+          }
+        }
+      }
+    },
     "%@: not loadable. Nearest %@. Bar %@.": {
       "localizations": {
         "de": {
@@ -7005,6 +7075,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@：每側 %@。槓鈴桿 %@。"
+          }
+        }
+      }
+    },
+    "%@: rest day, no Effort": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: rest day, no Effort"
           }
         }
       }
@@ -12488,6 +12568,26 @@
         }
       }
     },
+    "%lld training days in these 7 days": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld training days in these 7 days"
+          }
+        }
+      }
+    },
+    "%lld training days this week": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld training days this week"
+          }
+        }
+      }
+    },
     "%lld type-0x2F historical-offload frames seen outside our sync. These are history (e.g. another app pulling the strap's backlog), not a live R22 stream (#494).": {
       "localizations": {
         "de": {
@@ -15829,6 +15929,26 @@
         }
       }
     },
+    "1 training day in these 7 days": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 training day in these 7 days"
+          }
+        }
+      }
+    },
+    "1 training day this week": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 training day this week"
+          }
+        }
+      }
+    },
     "1 type-0x2F historical-offload frame seen outside our sync. These are history (e.g. another app pulling the strap's backlog), not a live R22 stream (#494).": {
       "localizations": {
         "de": {
@@ -17653,6 +17773,26 @@
         }
       }
     },
+    "= weighted average, about 1 week": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "= weighted average, about 1 week"
+          }
+        }
+      }
+    },
+    "= weighted average, about 6 weeks": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "= weighted average, about 6 weeks"
+          }
+        }
+      }
+    },
     "A %@ tonight tends to line up with about %@ higher on tomorrow’s %@ for you, based on %lld of your %@ days.": {
       "localizations": {
         "de": {
@@ -17977,6 +18117,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "來自手環的 60 秒逐拍（R-R）間期快照，在計算 RMSSD 之前經過清洗（範圍和異位搏動過濾），計算方式與你的夜間 HRV 相同。"
+          }
+        }
+      }
+    },
+    "A day with no Effort recorded counts as a rest day for up to %lld days in a row. Longer gaps restart the history.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A day with no Effort recorded counts as a rest day for up to %lld days in a row. Longer gaps restart the history."
           }
         }
       }
@@ -19957,6 +20107,16 @@
         }
       }
     },
+    "Above base": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Above base"
+          }
+        }
+      }
+    },
     "Accepted flags": {
       "localizations": {
         "de": {
@@ -20565,6 +20725,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "所有匯入內容都保留在這部裝置上，你的資料絕不會被上傳。匯入什麼由你決定。"
+          }
+        }
+      }
+    },
+    "All out": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All out"
           }
         }
       }
@@ -22491,6 +22661,46 @@
         }
       }
     },
+    "Average daily Effort by week": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Average daily Effort by week"
+          }
+        }
+      }
+    },
+    "average Effort %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "average Effort %@"
+          }
+        }
+      }
+    },
+    "Average Effort %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Average Effort %@"
+          }
+        }
+      }
+    },
+    "Average Effort per day %@, %@ from the 4 weeks before": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Average Effort per day %@, %@ from the 4 weeks before"
+          }
+        }
+      }
+    },
     "AVG": {
       "localizations": {
         "de": {
@@ -22567,6 +22777,26 @@
           "stringUnit": {
             "state": "translated",
             "value": "平均時長"
+          }
+        }
+      }
+    },
+    "Avg Effort / day": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avg Effort / day"
+          }
+        }
+      }
+    },
+    "avg Effort per day": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "avg Effort per day"
           }
         }
       }
@@ -30363,6 +30593,16 @@
         }
       }
     },
+    "Back to Trends": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Back to Trends"
+          }
+        }
+      }
+    },
     "Back Up Now": {
       "localizations": {
         "de": {
@@ -31043,6 +31283,36 @@
         }
       }
     },
+    "base": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "base"
+          }
+        }
+      }
+    },
+    "Base": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Base"
+          }
+        }
+      }
+    },
+    "Based on daily Effort. Descriptive only; it does not change Readiness.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Based on daily Effort. Descriptive only; it does not change Readiness."
+          }
+        }
+      }
+    },
     "baseline": {
       "localizations": {
         "de": {
@@ -31451,6 +31721,16 @@
         }
       }
     },
+    "Below zero: training above your base. Above zero: fresher.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Below zero: training above your base. Above zero: fresher."
+          }
+        }
+      }
+    },
     "Big number": {
       "localizations": {
         "de": {
@@ -31603,6 +31883,26 @@
           "stringUnit": {
             "state": "translated",
             "value": "盡力提前喚醒：一旦今晚的睡眠需求已滿足，會在 %lld 分鐘的時間範圍內喚醒。手環的準確時間鬧鐘仍保持啟用，作為備援；提前喚醒在 iOS 上僅為盡力而為，不保證一定生效。"
+          }
+        }
+      }
+    },
+    "Biggest day": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Biggest day"
+          }
+        }
+      }
+    },
+    "Biggest day, Effort %@, %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Biggest day, Effort %@, %@"
           }
         }
       }
@@ -37073,6 +37373,26 @@
         }
       }
     },
+    "Building · %lld/%lld": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Building · %lld/%lld"
+          }
+        }
+      }
+    },
+    "Building, in the sweet spot": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Building, in the sweet spot"
+          }
+        }
+      }
+    },
     "Building, moves as you do": {
       "localizations": {
         "de": {
@@ -38825,6 +39145,16 @@
         }
       }
     },
+    "Chart key: recent load, fitness base, and where recent load is above the base": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chart key: recent load, fitness base, and where recent load is above the base"
+          }
+        }
+      }
+    },
     "charts": {
       "localizations": {
         "de": {
@@ -39968,6 +40298,16 @@
         }
       }
     },
+    "Compared with the 4 weeks before": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compared with the 4 weeks before"
+          }
+        }
+      }
+    },
     "COMPLETE": {
       "localizations": {
         "de": {
@@ -40556,6 +40896,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "控制中心"
+          }
+        }
+      }
+    },
+    "Could not read this history": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not read this history"
           }
         }
       }
@@ -51110,6 +51460,26 @@
         }
       }
     },
+    "Daily Effort over the selected range": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Daily Effort over the selected range"
+          }
+        }
+      }
+    },
+    "Daily effort · what feeds it": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Daily effort · what feeds it"
+          }
+        }
+      }
+    },
     "Daily strap-log export": {
       "localizations": {
         "de": {
@@ -51676,6 +52046,26 @@
           "stringUnit": {
             "state": "translated",
             "value": "出生日期"
+          }
+        }
+      }
+    },
+    "Dated values": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dated values"
+          }
+        }
+      }
+    },
+    "Dates use the Trends source time zone: %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dates use the Trends source time zone: %@"
           }
         }
       }
@@ -52262,6 +52652,16 @@
         }
       }
     },
+    "Descriptive only. Training load never changes your Readiness score.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Descriptive only. Training load never changes your Readiness score."
+          }
+        }
+      }
+    },
     "DESCRIPTIVE STATS": {
       "localizations": {
         "de": {
@@ -52810,6 +53210,16 @@
         }
       }
     },
+    "Displayed history": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Displayed history"
+          }
+        }
+      }
+    },
     "DIST": {
       "localizations": {
         "de": {
@@ -52938,6 +53348,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "完成"
+          }
+        }
+      }
+    },
+    "dot = rest day": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "dot = rest day"
           }
         }
       }
@@ -53094,6 +53514,36 @@
           "stringUnit": {
             "state": "translated",
             "value": "輕點兩下的動作"
+          }
+        }
+      }
+    },
+    "down %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "down %@"
+          }
+        }
+      }
+    },
+    "down %@ since %lld days ago": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "down %@ since %lld days ago"
+          }
+        }
+      }
+    },
+    "down %@ this week": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "down %@ this week"
           }
         }
       }
@@ -57710,6 +58160,36 @@
         }
       }
     },
+    "Easing": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Easing"
+          }
+        }
+      }
+    },
+    "Easing off": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Easing off"
+          }
+        }
+      }
+    },
+    "Easing, under 0.8×": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Easing, under 0.8×"
+          }
+        }
+      }
+    },
     "Edit wake alarm": {
       "localizations": {
         "de": {
@@ -57758,6 +58238,36 @@
           "stringUnit": {
             "state": "translated",
             "value": "編輯起床鬧鐘"
+          }
+        }
+      }
+    },
+    "Effort": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Effort"
+          }
+        }
+      }
+    },
+    "Effort %@ → recent %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Effort %@ → recent %@"
+          }
+        }
+      }
+    },
+    "Effort, 0–21": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Effort, 0–21"
           }
         }
       }
@@ -58246,6 +58756,16 @@
         }
       }
     },
+    "Established · %lld days": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Established · %lld days"
+          }
+        }
+      }
+    },
     "estimate": {
       "localizations": {
         "de": {
@@ -58478,6 +58998,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "每個動作和提醒都使用現有的正式環境儲存空間。"
+          }
+        }
+      }
+    },
+    "Every day's **Effort** (the 0–21 score on Today) feeds two running averages. Recent days count more than older ones.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Every day's **Effort** (the 0–21 score on Today) feeds two running averages. Recent days count more than older ones."
           }
         }
       }
@@ -65334,6 +65864,46 @@
         }
       }
     },
+    "Fitness base": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fitness base"
+          }
+        }
+      }
+    },
+    "fitness base %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fitness base %@"
+          }
+        }
+      }
+    },
+    "Fitness base %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fitness base %@"
+          }
+        }
+      }
+    },
+    "Fitness base · 6 weeks": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fitness base · 6 weeks"
+          }
+        }
+      }
+    },
     "Focus": {
       "localizations": {
         "de": {
@@ -65646,6 +66216,36 @@
         }
       }
     },
+    "Form": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Form"
+          }
+        }
+      }
+    },
+    "Form equals base minus recent": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Form equals base minus recent"
+          }
+        }
+      }
+    },
+    "Form · base minus recent": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Form · base minus recent"
+          }
+        }
+      }
+    },
     "Frame integrity failed": {
       "localizations": {
         "de": {
@@ -65798,6 +66398,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "釋放"
+          }
+        }
+      }
+    },
+    "fresher than base": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fresher than base"
           }
         }
       }
@@ -70832,6 +71442,16 @@
         }
       }
     },
+    "Holding steady": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Holding steady"
+          }
+        }
+      }
+    },
     "How & Presence": {
       "localizations": {
         "de": {
@@ -70884,6 +71504,16 @@
         }
       }
     },
+    "How hard you've trained lately. Reacts within days.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How hard you've trained lately. Reacts within days."
+          }
+        }
+      }
+    },
     "how NOOP works": {
       "localizations": {
         "de": {
@@ -70932,6 +71562,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "NOOP 如何運作"
+          }
+        }
+      }
+    },
+    "How this is calculated": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How this is calculated"
           }
         }
       }
@@ -82827,6 +83467,16 @@
         }
       }
     },
+    "last 6 weeks": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "last 6 weeks"
+          }
+        }
+      }
+    },
     "Last backup": {
       "localizations": {
         "de": {
@@ -82967,6 +83617,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "昨晚"
+          }
+        }
+      }
+    },
+    "level with base": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "level with base"
           }
         }
       }
@@ -83895,6 +84555,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "即時消耗"
+          }
+        }
+      }
+    },
+    "Load over time": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Load over time"
           }
         }
       }
@@ -95103,6 +95773,16 @@
         }
       }
     },
+    "Moderate session": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Moderate session"
+          }
+        }
+      }
+    },
     "Moment marked.": {
       "localizations": {
         "de": {
@@ -96533,6 +97213,36 @@
         }
       }
     },
+    "Near spike": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Near spike"
+          }
+        }
+      }
+    },
+    "Needs %lld more days of daily Effort": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Needs %lld more days of daily Effort"
+          }
+        }
+      }
+    },
+    "Needs 1 more day of daily Effort": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Needs 1 more day of daily Effort"
+          }
+        }
+      }
+    },
     "Needs a few more scored nights of Recovery to forecast tonight (%lld of %lld so far).": {
       "localizations": {
         "de": {
@@ -96877,6 +97587,16 @@
         }
       }
     },
+    "No base to compare yet": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No base to compare yet"
+          }
+        }
+      }
+    },
     "No current partner": {
       "localizations": {
         "de": {
@@ -96913,6 +97633,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "目前無配對"
+          }
+        }
+      }
+    },
+    "No daily Effort history is available for this source.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No daily Effort history is available for this source."
           }
         }
       }
@@ -96971,6 +97701,36 @@
           "stringUnit": {
             "state": "translated",
             "value": "無資料"
+          }
+        }
+      }
+    },
+    "No Effort history yet": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Effort history yet"
+          }
+        }
+      }
+    },
+    "no Effort recorded": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "no Effort recorded"
+          }
+        }
+      }
+    },
+    "No Effort recorded": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Effort recorded"
           }
         }
       }
@@ -97263,6 +98023,16 @@
         }
       }
     },
+    "No observation on the selected day": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No observation on the selected day"
+          }
+        }
+      }
+    },
     "No reading": {
       "localizations": {
         "de": {
@@ -97311,6 +98081,26 @@
           "stringUnit": {
             "state": "translated",
             "value": "無讀數"
+          }
+        }
+      }
+    },
+    "No scored workouts in these 7 days.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No scored workouts in these 7 days."
+          }
+        }
+      }
+    },
+    "No scored workouts this week.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No scored workouts this week."
           }
         }
       }
@@ -97467,6 +98257,26 @@
           "stringUnit": {
             "state": "translated",
             "value": "暫無目標 · 恢復尚未評分"
+          }
+        }
+      }
+    },
+    "No training days in these 7 days": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No training days in these 7 days"
+          }
+        }
+      }
+    },
+    "No training days this week": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No training days this week"
           }
         }
       }
@@ -97675,6 +98485,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "NOOP %@ 來了。點擊查看新功能。"
+          }
+        }
+      }
+    },
+    "NOOP is reading up to 180 days of daily Effort before showing your load.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NOOP is reading up to 180 days of daily Effort before showing your load."
           }
         }
       }
@@ -107272,6 +108092,16 @@
         }
       }
     },
+    "Not ready": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not ready"
+          }
+        }
+      }
+    },
     "Not recorded": {
       "localizations": {
         "de": {
@@ -112860,6 +113690,16 @@
         }
       }
     },
+    "Opens the load chart, daily effort and how it is calculated": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opens the load chart, daily effort and how it is calculated"
+          }
+        }
+      }
+    },
     "Opens this workout": {
       "localizations": {
         "de": {
@@ -113940,6 +114780,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Oura、Fitbit 或 Garmin 匯出"
+          }
+        }
+      }
+    },
+    "Out of date": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Out of date"
           }
         }
       }
@@ -121953,6 +122803,16 @@
         }
       }
     },
+    "Reading dated load history": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reading dated load history"
+          }
+        }
+      }
+    },
     "recalibrate": {
       "localizations": {
         "de": {
@@ -122241,6 +123101,66 @@
         }
       }
     },
+    "recent": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "recent"
+          }
+        }
+      }
+    },
+    "Recent load": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recent load"
+          }
+        }
+      }
+    },
+    "Recent load %@ · Fitness base %@ · Form %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recent load %@ · Fitness base %@ · Form %@"
+          }
+        }
+      }
+    },
+    "Recent load and fitness base": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recent load and fitness base"
+          }
+        }
+      }
+    },
+    "Recent load and fitness base over the last %lld days": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recent load and fitness base over the last %lld days"
+          }
+        }
+      }
+    },
+    "Recent load · 7 days": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recent load · 7 days"
+          }
+        }
+      }
+    },
     "Record puffin frames": {
       "localizations": {
         "de": {
@@ -122289,6 +123209,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "記錄 puffin 影格"
+          }
+        }
+      }
+    },
+    "Recorded Effort %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recorded Effort %@"
           }
         }
       }
@@ -123990,6 +124920,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "已安排使用目前的解碼器重試。"
+          }
+        }
+      }
+    },
+    "Return to Trends and open Training load again to use the current records.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Return to Trends and open Training load again to use the current records."
           }
         }
       }
@@ -135047,6 +135987,16 @@
         }
       }
     },
+    "Same math as above, one day forward. Not a recommendation.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Same math as above, one day forward. Not a recommendation."
+          }
+        }
+      }
+    },
     "Save exercise": {
       "localizations": {
         "de": {
@@ -138568,6 +139518,36 @@
         }
       }
     },
+    "Spike": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spike"
+          }
+        }
+      }
+    },
+    "Spike, above 1.3×": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spike, above 1.3×"
+          }
+        }
+      }
+    },
+    "Spiking above your base": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spiking above your base"
+          }
+        }
+      }
+    },
     "SPORT": {
       "localizations": {
         "de": {
@@ -140350,6 +141330,36 @@
           "stringUnit": {
             "state": "translated",
             "value": "替換動作"
+          }
+        }
+      }
+    },
+    "Sweet spot": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sweet spot"
+          }
+        }
+      }
+    },
+    "Sweet spot 0.8–1.3×": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sweet spot 0.8–1.3×"
+          }
+        }
+      }
+    },
+    "Sweet spot, 0.8–1.3×": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sweet spot, 0.8–1.3×"
           }
         }
       }
@@ -155622,6 +156632,46 @@
         }
       }
     },
+    "That is a sharper jump than your base is used to.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That is a sharper jump than your base is used to."
+          }
+        }
+      }
+    },
+    "That is a steady build.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That is a steady build."
+          }
+        }
+      }
+    },
+    "That is close to the load your body is used to.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That is close to the load your body is used to."
+          }
+        }
+      }
+    },
+    "That is lighter than the load your body is used to.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That is lighter than the load your body is used to."
+          }
+        }
+      }
+    },
     "That weight cannot be made with these plates.": {
       "localizations": {
         "de": {
@@ -155750,6 +156800,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "基礎資訊"
+          }
+        }
+      }
+    },
+    "The first %lld recorded days are averaged to start both lines. Load appears after %lld recorded days and is marked Established at %lld.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The first %lld recorded days are averaged to start both lines. Load appears after %lld recorded days and is marked Established at %lld."
           }
         }
       }
@@ -155894,6 +156954,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "關聯的訓練計劃已不存在"
+          }
+        }
+      }
+    },
+    "The load your body is used to. Moves slowly.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The load your body is used to. Moves slowly."
           }
         }
       }
@@ -156318,6 +157388,16 @@
         }
       }
     },
+    "The returned history belongs to another range. Return to Trends and try again.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The returned history belongs to another range. Return to Trends and try again."
+          }
+        }
+      }
+    },
     "The selected exact archive was deleted. Its receipt remains.": {
       "localizations": {
         "de": {
@@ -156474,6 +157554,16 @@
         }
       }
     },
+    "The sessions behind your daily Effort": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The sessions behind your daily Effort"
+          }
+        }
+      }
+    },
     "The sets you’ve logged will be lost. This can’t be undone.": {
       "localizations": {
         "de": {
@@ -156510,6 +157600,26 @@
           "stringUnit": {
             "state": "translated",
             "value": "已記錄的組數將會遺失，且無法復原。"
+          }
+        }
+      }
+    },
+    "The source history cannot produce a valid load estimate. Check the records in Trends.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The source history cannot produce a valid load estimate. Check the records in Trends."
+          }
+        }
+      }
+    },
+    "The source records changed": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The source records changed"
           }
         }
       }
@@ -156810,6 +157920,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "起床鬧鐘可在手環確認已就緒後，透過手環韌體讓你的手腕震動。手機上的備用通知無法保證送達：專注模式、靜音模式或被拒絕的通知權限都可能使其無法提醒你。請保留手機內建「時鐘」鬧鐘作為可靠的備用。"
+          }
+        }
+      }
+    },
+    "There is no usable Effort value for the selected end date.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "There is no usable Effort value for the selected end date."
           }
         }
       }
@@ -157282,6 +158402,16 @@
         }
       }
     },
+    "This wk": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This wk"
+          }
+        }
+      }
+    },
     "TIME": {
       "localizations": {
         "de": {
@@ -157370,6 +158500,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "各區間用時"
+          }
+        }
+      }
+    },
+    "Today's Effort is not ready": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Today's Effort is not ready"
           }
         }
       }
@@ -157478,6 +158618,46 @@
         }
       }
     },
+    "training above base": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "training above base"
+          }
+        }
+      }
+    },
+    "Training days": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Training days"
+          }
+        }
+      }
+    },
+    "Training days %lld, %@ from the 4 weeks before": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Training days %lld, %@ from the 4 weeks before"
+          }
+        }
+      }
+    },
+    "Training load starts after %lld days of recorded Effort.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Training load starts after %lld days of recorded Effort."
+          }
+        }
+      }
+    },
     "Training plan": {
       "localizations": {
         "de": {
@@ -157578,6 +158758,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "觸發條件"
+          }
+        }
+      }
+    },
+    "Try reading the selected source again.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Try reading the selected source again."
           }
         }
       }
@@ -167042,6 +168232,36 @@
         }
       }
     },
+    "up %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "up %@"
+          }
+        }
+      }
+    },
+    "up %@ since %lld days ago": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "up %@ since %lld days ago"
+          }
+        }
+      }
+    },
+    "up %@ this week": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "up %@ this week"
+          }
+        }
+      }
+    },
     "Upcoming": {
       "localizations": {
         "de": {
@@ -168222,6 +169442,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "正在使用訓練計劃設定"
+          }
+        }
+      }
+    },
+    "Using the same source and date as Trends.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Using the same source and date as Trends."
           }
         }
       }
@@ -170162,6 +171392,16 @@
         }
       }
     },
+    "Week by week": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Week by week"
+          }
+        }
+      }
+    },
     "weekdays": {
       "localizations": {
         "de": {
@@ -170366,6 +171606,26 @@
           "stringUnit": {
             "state": "translated",
             "value": "體重 · %@"
+          }
+        }
+      }
+    },
+    "What drove the week to the selected day": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "What drove the week to the selected day"
+          }
+        }
+      }
+    },
+    "What drove this week": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "What drove this week"
           }
         }
       }
@@ -170692,6 +171952,16 @@
         }
       }
     },
+    "When recent load sits **0.8–1.3×** your base, you're building steadily. Well above that is a spike. Well below means you're easing off.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When recent load sits **0.8–1.3×** your base, you're building steadily. Well above that is a spike. Well below means you're easing off."
+          }
+        }
+      }
+    },
     "WHERE IT'S LIGHTER THAN A STRAP": {
       "localizations": {
         "de": {
@@ -170728,6 +171998,26 @@
           "stringUnit": {
             "state": "translated",
             "value": "在哪些方面比手環更薄弱"
+          }
+        }
+      }
+    },
+    "Where the load came from": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Where the load came from"
+          }
+        }
+      }
+    },
+    "Where tomorrow could land": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Where tomorrow could land"
           }
         }
       }
@@ -179008,6 +180298,16 @@
         }
       }
     },
+    "You · %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You · %@"
+          }
+        }
+      }
+    },
     "YOUR DAILY SCORES": {
       "localizations": {
         "de": {
@@ -179096,6 +180396,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "你的資料已還原，可以使用。"
+          }
+        }
+      }
+    },
+    "Your fitness base is too small to compare recent load against yet.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your fitness base is too small to compare recent load against yet."
           }
         }
       }
@@ -180214,6 +181524,36 @@
           "stringUnit": {
             "state": "translated",
             "value": "你從週一到週日的情況，一眼看懂。"
+          }
+        }
+      }
+    },
+    "Your recent load is **%lld%% above** your fitness base.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your recent load is **%lld%% above** your fitness base."
+          }
+        }
+      }
+    },
+    "Your recent load is **%lld%% below** your fitness base.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your recent load is **%lld%% below** your fitness base."
+          }
+        }
+      }
+    },
+    "Your recent load is **level with** your fitness base.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your recent load is **level with** your fitness base."
           }
         }
       }
