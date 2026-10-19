@@ -196,19 +196,30 @@ struct LiveNoticeSlot: View {
             isJustStarted: now.timeIntervalSince(workout.start) < LiveWorkoutSlotNotice.locationNoticeSeconds)
     }
 
+    /// A warning notice is the neutral pill with an amber dot (colour lives in the dot); a plain notice keeps the grey fill.
+    @ViewBuilder private func noticeLabel(_ notice: LiveWorkoutSlotNotice) -> some View {
+        let text = Text(notice.title)
+            .liveText(14, weight: .semibold, maxSize: 20, lines: 3)
+            .multilineTextAlignment(.center)
+        if notice.tone == .neutral {
+            text
+                .foregroundStyle(LivePalette.quietAction)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .background(Capsule(style: .continuous).fill(LivePalette.fill))
+        } else {
+            text
+                .foregroundStyle(StrandPalette.textPrimary)
+                .statePillChrome(tint: LivePalette.amber)
+        }
+    }
+
     @ViewBuilder private func pill(_ pending: [LiveWorkoutSlotNotice]) -> some View {
         if let first = pending.first {
             HStack(spacing: NoopMetrics.space2) {
                 // The pill is about 34 pt tall; the tap area reaches the 44 pt a moving thumb needs.
                 Button { toggle(first) } label: {
-                    Text(first.title)
-                        .foregroundStyle(first.tone == .neutral ? LivePalette.quietAction : LivePalette.amber)
-                        .liveText(14, weight: .semibold, maxSize: 20, lines: 3)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 8)
-                        .background(Capsule(style: .continuous)
-                            .fill(first.tone == .neutral ? LivePalette.fill : LivePalette.amber.opacity(0.16)))
+                    noticeLabel(first)
                         .chipHitTarget()
                 }
                 .buttonStyle(.plain)
