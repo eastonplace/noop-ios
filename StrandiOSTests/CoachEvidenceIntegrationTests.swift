@@ -97,6 +97,21 @@ final class CoachEvidenceIntegrationTests: XCTestCase {
         XCTAssertEqual(data.writes, 0)
         XCTAssertEqual(engine.messages.filter { $0.role == .user }.count, 2)
     }
+
+    func testRetryOfAnInterruptedBriefKeepsItsKindAndUpdatesTheDailyBrief() async {
+        let data = EvidenceData(), driver = EvidenceDriver()
+        driver.additionalReads = 3
+        let engine = makeEngine(data: data, driver: driver)
+        await engine.generateBrief(kind: .morning)
+        XCTAssertTrue(engine.messages.last?.isInterrupted ?? false)
+        driver.additionalReads = 0
+        let stale = engine.dailyBrief
+        await engine.retryLatestAnswer()
+        XCTAssertEqual(data.reads.suffix(1), ["current_day"], "a retried brief starts from its own record, not its wording")
+        XCTAssertEqual(engine.messages.last?.text, "Synthetic explanation")
+        XCTAssertNotEqual(engine.dailyBrief, stale)
+        XCTAssertEqual(engine.dailyBrief, "Synthetic explanation")
+    }
 }
 
 @MainActor
@@ -105,7 +120,8 @@ private final class EvidenceData: LocalCoachDataAccess {
     var writes = 0
     var afterRead: (() -> Void)?
     var toolDescriptors: [LocalCoachToolDescriptor] {
-        [.init(id: "workout_history", title: "Workouts", description: "Read synthetic workout records", symbol: "figure.run")]
+        [.init(id: "workout_history", title: "Workouts", description: "Read synthetic workout records", symbol: "figure.run"),
+         .init(id: "current_day", title: "Current day", description: "Read synthetic daily records", symbol: "sun.horizon")]
     }
     func snapshot() async throws -> LocalCoachSnapshot { .empty }
     func query(_ name: String, query: String, days: Int) async throws -> LocalCoachToolResult {

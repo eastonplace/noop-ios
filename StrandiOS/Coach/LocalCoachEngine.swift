@@ -149,6 +149,8 @@ final class LocalCoachEngine: ObservableObject {
     private var readCount = 0
     private var runningTools: [String: Int] = [:]
     private var lastAutoBriefDay: String?
+    /// The brief that started the latest turn, so Try again replays it as a brief rather than as a plain question.
+    private var lastBrief: (question: String, kind: LocalCoachBriefKind)?
 
     var recordsUpdating: Bool { scope.fenced }
     /// What the page re-reads its snapshot for: the source, whether its records are being updated, and whether new
@@ -319,6 +321,7 @@ final class LocalCoachEngine: ObservableObject {
         updateAvailability()
         guard availability == .available, let model else { errorText = availability.title; return false }
         cancel()
+        lastBrief = brief.map { (question: text, kind: $0) }
         errorText = storageError
         ensureConversation(title: text)
         let requestDate = Date()
@@ -714,7 +717,7 @@ final class LocalCoachEngine: ObservableObject {
             messages.removeSubrange(userIndex...)
             persistConversation()
         }
-        await respond(question, brief: nil)
+        await respond(question, brief: lastBrief?.question == question ? lastBrief?.kind : nil)
     }
 
     private func finish(_ token: UUID, started: Date?) {
@@ -760,6 +763,7 @@ final class LocalCoachEngine: ObservableObject {
             // createPlan/updatePlan/savePlan still require current consent at their call boundaries.
             dailyBrief = "Allow local data to build an outlook from your records."
             lastAutoBriefDay = nil
+            lastBrief = nil
             messages = []
             selectedConversationID = nil
         }
@@ -806,6 +810,7 @@ final class LocalCoachEngine: ObservableObject {
             ? "Ask a question about your latest records."
             : "Allow local data to build an outlook from your records."
         lastAutoBriefDay = nil
+        lastBrief = nil
         errorText = storageError
         loadSource()
     }
