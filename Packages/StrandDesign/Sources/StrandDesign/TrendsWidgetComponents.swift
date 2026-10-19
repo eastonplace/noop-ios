@@ -1826,6 +1826,8 @@ public struct TrendsLoadChart: View {
 
     @Environment(\.dynamicTypeSize) private var typeSize
     @GestureState private var isScrubbing = false
+    /// Which way the current drag went on its first movement; it stays that way until the finger lifts.
+    @State private var dragAxis: Axis?
 
     /// - Parameters:
     ///   - plotHeight: the plot's height; the card's sparkline is 76pt.
@@ -1865,14 +1867,21 @@ public struct TrendsLoadChart: View {
                 .font(StrandFont.micro)
                 .foregroundStyle(StrandPalette.textTertiary)
             }
-            HStack(spacing: NoopMetrics.space3) {
-                legendKey(title: "Acute · 7-day", opacity: 1)
-                legendKey(title: "Chronic · 42-day", opacity: 0.45)
-                Spacer(minLength: 0)
+            // Side by side while both keys fit; stacked at the accessibility text sizes, where they would wrap.
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: NoopMetrics.space3) {
+                    legendKey(title: "Acute · 7-day", opacity: 1)
+                    legendKey(title: "Chronic · 42-day", opacity: 0.45)
+                    Spacer(minLength: 0)
+                }
+                VStack(alignment: .leading, spacing: NoopMetrics.space1) {
+                    legendKey(title: "Acute · 7-day", opacity: 1)
+                    legendKey(title: "Chronic · 42-day", opacity: 0.45)
+                }
             }
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Acute and chronic training load over the last \(acute.count) days")
+        .accessibilityLabel(accessibilityTitle)
         .accessibilityValue(Text(verbatim: accessibilitySummary ?? ""))
         .modifier(ScrubAccessibility(isEnabled: timeline != nil && selection != nil, step: step))
     }
@@ -1880,8 +1889,16 @@ public struct TrendsLoadChart: View {
     private func legendKey(title: LocalizedStringKey, opacity: Double) -> some View {
         HStack(spacing: 5) {
             Capsule(style: .continuous).fill(tint.accent.opacity(opacity)).frame(width: 12, height: 3)
-            Text(title).font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
+            Text(title).font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary).lineLimit(1)
         }
+    }
+
+    /// The sparkline names how many days it draws. A calendar chart cannot: the days it holds are only the recorded
+    /// ones inside a range the page, not the chart, chose.
+    private var accessibilityTitle: LocalizedStringKey {
+        timeline == nil
+            ? "Acute and chronic training load over the last \(acute.count) days"
+            : "Acute and chronic training load"
     }
 
     @ViewBuilder
@@ -2007,16 +2024,25 @@ public struct TrendsLoadChart: View {
                         DragGesture(minimumDistance: 8, coordinateSpace: .local)
                             .updating($isScrubbing) { _, state, _ in state = true }
                             .onChanged { value in
-                                guard abs(value.translation.width) > abs(value.translation.height) else { return }
+                                if dragAxis == nil {
+                                    dragAxis = abs(value.translation.width) > abs(value.translation.height) ? .horizontal : .vertical
+                                }
+                                // A drag that begins at the leading edge is the back swipe's, not a scrub.
+                                guard dragAxis == .horizontal, value.startLocation.x > Self.leadingEdgeInset else { return }
                                 select(nearestTo: value.location.x, width: size.width, in: timeline)
                             }
                     )
                     .onChangeCompat(of: isScrubbing) { scrubbing in
-                        if !scrubbing { selection?.wrappedValue = nil }
+                        if !scrubbing {
+                            dragAxis = nil
+                            selection?.wrappedValue = nil
+                        }
                     }
             }
         }
     }
+
+    private static let leadingEdgeInset: CGFloat = 16
 
     /// A hairline at one of the plot's two extremes with its value at the trailing edge.
     private func valueRule(at y: CGFloat, text: String, size: CGSize, above: Bool) -> some View {

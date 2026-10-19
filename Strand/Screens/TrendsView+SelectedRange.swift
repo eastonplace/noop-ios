@@ -102,11 +102,11 @@ extension TrendsView {
     }
 
     private func trainingLoadNumber(_ value: Double?) -> String {
-        value.map { String(format: "%.1f", $0) } ?? WidgetMetrics.missingValue
+        value.map { DrillInFormat.number($0, fractionDigits: 1) } ?? WidgetMetrics.missingValue
     }
 
     private func trainingLoadBalance(_ value: Double?) -> String {
-        value.map { String(format: "%@%.1f", $0 > 0 ? "+" : "", $0) } ?? WidgetMetrics.missingValue
+        value.map { DrillInFormat.signed($0, fractionDigits: 1) } ?? WidgetMetrics.missingValue
     }
 
     private func trainingLoadStatus(_ load: TrainingLoadSnapshot) -> String {

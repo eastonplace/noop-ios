@@ -264,7 +264,8 @@ struct TrainingLoadDetailView: View {
         return TrendsLoadChart(chronic: points.map(\.chronic), acute: points.map(\.acute), tint: .strain,
                                startLabel: "", endLabel: "", plotHeight: TrainingLoadLayout.plotHeight,
                                timeline: timeline, selection: snappedSelection,
-                               accessibilitySummary: chartSummary(focus))
+                               // The strip above already speaks the newest day; the chart speaks once a day is picked.
+                               accessibilitySummary: selectedDay == nil ? nil : chartSummary(focus))
             .accessibilityIdentifier("trends.trainingLoad.chart")
     }
 
@@ -363,23 +364,9 @@ struct TrainingLoadDetailView: View {
 
     private func datedValues(_ points: [TrainingLoadDay]) -> some View {
         TrainingLoadDisclosure("Dated values", isExpanded: $showRows) {
-            VStack(alignment: .leading, spacing: 0) {
-                ForEach(Array(points.reversed().enumerated()), id: \.element.id) { index, day in
-                    if index > 0 { FlatRowSeparator() }
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(verbatim: day.date.formatted(dayFormat))
-                            .font(StrandFont.footnote.weight(.semibold))
-                            .foregroundStyle(StrandPalette.textPrimary)
-                        Text("Chronic \(number(day.chronic)) · Acute \(number(day.acute)) · Balance \(signed(day.balance))")
-                            .font(StrandFont.footnote)
-                            .foregroundStyle(StrandPalette.textSecondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.vertical, NoopMetrics.space2)
-                    .accessibilityElement(children: .combine)
-                }
-            }
+            // Its own equatable view, so a scrub (which rewrites `selection` on every tick) does not rebuild up to
+            // 180 rows that did not change.
+            TrainingLoadDatedRows(points: points, dayFormat: dayFormat).equatable()
         }
     }
 
@@ -387,15 +374,16 @@ struct TrainingLoadDetailView: View {
 
     /// In plain words, and checked against `TrainingLoadEngine`: both lines are exponentially weighted averages of
     /// daily Effort with 7- and 42-day time constants, seeded by the mean of the first seven recorded days;
-    /// balance is chronic minus acute; up to two missing days in a row decay the lines as zero-load days.
+    /// balance is chronic minus acute; once those seven days are in, up to two missing days in a row decay the lines
+    /// as zero-load days (inside them a gap day is skipped).
     private var methodSection: some View {
         TrainingLoadDisclosure("How this is calculated", isExpanded: $showMethod) {
             VStack(alignment: .leading, spacing: NoopMetrics.space2) {
                 Text("Both lines are running averages of your daily Effort. Each new day pulls the line toward it and older days fade gradually, so recent days count most.")
                 Text("Acute fades over about a week and reacts quickly. Chronic fades over about six weeks and moves slowly. The range you pick changes what is drawn, never these numbers.")
                 Text("Balance is chronic minus acute. Above zero, recent effort is lighter than your longer-term level; below zero, it is heavier.")
-                Text("The first seven recorded days are averaged to start both lines. Load appears after 14 recorded days and is marked Established at 42.")
-                Text("Up to two missing days in a row count as zero Effort and are not drawn. A longer gap starts the history over. A recorded zero is a real rest day.")
+                Text("The first seven recorded days are averaged to start both lines, which begin on the seventh. Load appears after 14 recorded days and is marked Established at 42.")
+                Text("After the first seven days, up to two missing days in a row count as zero Effort and are not drawn. A longer gap starts the history over. A recorded zero is a real rest day.")
                 Text("Based on daily Effort. Descriptive only; it does not change Readiness.")
                 Text("Dates use the Trends source time zone: \(request.key.timeZoneIdentifier)")
             }
@@ -750,6 +738,39 @@ private struct TrainingLoadDisclosure<Content: View>: View {
                 content()
                     .padding(.bottom, NoopMetrics.space1)
                     .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .top)))
+            }
+        }
+    }
+}
+
+/// The dated rows, newest first. Equal when they would show the same days and figures.
+private struct TrainingLoadDatedRows: View, Equatable {
+    let points: [TrainingLoadDay]
+    let dayFormat: Date.FormatStyle
+
+    nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.dayFormat == rhs.dayFormat && lhs.points.count == rhs.points.count
+            && zip(lhs.points, rhs.points).allSatisfy {
+                $0.id == $1.id && $0.acute == $1.acute && $0.chronic == $1.chronic
+            }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(points.reversed().enumerated()), id: \.element.id) { index, day in
+                if index > 0 { FlatRowSeparator() }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(verbatim: day.date.formatted(dayFormat))
+                        .font(StrandFont.footnote.weight(.semibold))
+                        .foregroundStyle(StrandPalette.textPrimary)
+                    Text("Chronic \(DrillInFormat.number(day.chronic, fractionDigits: 1)) · Acute \(DrillInFormat.number(day.acute, fractionDigits: 1)) · Balance \(DrillInFormat.signed(day.balance, fractionDigits: 1))")
+                        .font(StrandFont.footnote)
+                        .foregroundStyle(StrandPalette.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, NoopMetrics.space2)
+                .accessibilityElement(children: .combine)
             }
         }
     }
