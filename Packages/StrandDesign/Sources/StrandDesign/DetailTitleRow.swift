@@ -12,19 +12,27 @@ public struct NoopDetailTitleRow<Trailing: View>: View {
     private let title: LocalizedStringKey
     private let context: String?
     private let backAction: () -> Void
+    private let backLabel: LocalizedStringKey
+    private let backIdentifier: String?
     @ViewBuilder private let trailing: () -> Trailing
 
     private static var chipSize: CGFloat { 32 }
 
+    /// `backLabel` names where the chip goes when "Back" alone would say too little ("Back to chat");
+    /// `backIdentifier` is the chip's UI-test identifier.
     public init(
         _ title: LocalizedStringKey,
         context: String? = nil,
         backAction: @escaping () -> Void,
+        backLabel: LocalizedStringKey = "Back",
+        backIdentifier: String? = nil,
         @ViewBuilder trailing: @escaping () -> Trailing
     ) {
         self.title = title
         self.context = context
         self.backAction = backAction
+        self.backLabel = backLabel
+        self.backIdentifier = backIdentifier
         self.trailing = trailing
     }
 
@@ -61,7 +69,15 @@ public struct NoopDetailTitleRow<Trailing: View>: View {
                 .contentShape(Rectangle().inset(by: -6))
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Back")
+        .accessibilityLabel(backLabel)
+        .modifier(BackIdentifier(identifier: backIdentifier))
+    }
+
+    private struct BackIdentifier: ViewModifier {
+        let identifier: String?
+        @ViewBuilder func body(content: Content) -> some View {
+            if let identifier { content.accessibilityIdentifier(identifier) } else { content }
+        }
     }
 
     private func titleText(lines: Int) -> some View {

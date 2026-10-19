@@ -414,6 +414,9 @@ extension TrendsView {
     private var rangePicker: some View {
         SegmentedPillControl(TrendRange.allCases, selection: $selectedRange) { $0.rawValue }
             .segmentedPillSelectionStyle(.quiet)
+            // The selected tab takes the metric's colour, the one the metric chip beside it wears (stable for Recovery:
+            // a red band is a state, not a selection).
+            .segmentedPillTint(domain: selectedMetric.domainTint(latest: currentScreenSnapshot?.selectedPoints.last?.value))
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Range")
             .accessibilityValue("\(selectedRange.days) days")

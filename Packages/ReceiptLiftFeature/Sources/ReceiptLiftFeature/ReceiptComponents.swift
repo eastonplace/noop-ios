@@ -278,9 +278,9 @@ struct ReceiptSectionLabel: View {
   }
 }
 
-/// An exercise's illustration. The pictures are drawn on white, so on the dark canvas it sits in a calm tile (see
-/// `ExerciseArtTile`); `.paper` keeps the bare picture for the printed receipt's cream and white stocks, where the white
-/// is the paper.
+/// An exercise's illustration. The catalog pictures are background-removed cutouts, so on the dark canvas the figure
+/// sits straight on the surface (`.tile`, no tile: a soft shadow lifts it); `.paper` draws it bare on the printed
+/// receipt's cream and white stocks.
 struct LiftExerciseThumb: View {
   enum Style { case tile, paper }
 
@@ -302,7 +302,10 @@ struct LiftExerciseThumb: View {
 
   var body: some View {
     switch style {
-    case .tile: ExerciseArtTile(size: size) { art }
+    case .tile:
+      art.frame(width: size, height: size)
+        .shadow(color: .black.opacity(0.4), radius: max(2, size * 0.05), x: 0, y: max(2, size * 0.05))
+        .accessibilityHidden(true)
     case .paper: art.frame(width: size, height: size)
     }
   }

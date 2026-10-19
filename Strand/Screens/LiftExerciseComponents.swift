@@ -3,6 +3,8 @@ import Charts
 import StrandDesign
 
 /// Shared linked artwork. Missing custom-exercise art stays explicit instead of showing another move.
+/// The catalog's pictures are background-removed cutouts: the figure sits straight on whatever dark surface is behind
+/// it (no tile), lifted by a soft shadow.
 struct NoopLiftExerciseArtwork: View {
     let name: String
     var size: CGFloat = 64
@@ -10,11 +12,13 @@ struct NoopLiftExerciseArtwork: View {
     private var url: URL? { NoopLiftCatalog.resolve(name: name)?.imageURL }
     var body: some View {
         Group {
-            if let artwork { artwork.resizable().scaledToFit() }
+            if let artwork {
+                artwork.resizable().interpolation(.high).scaledToFit()
+                    .shadow(color: .black.opacity(0.4), radius: max(2, size * 0.05), x: 0, y: max(2, size * 0.05))
+            }
             else { fallback }
         }
-        .frame(width: size, height: size).background(Color.white, in: RoundedRectangle(cornerRadius: 12))
-        .clipShape(RoundedRectangle(cornerRadius: 12)).accessibilityHidden(true)
+        .frame(width: size, height: size).accessibilityHidden(true)
         .task(id: url) {
             artwork = nil
             guard let url else { return }
@@ -29,7 +33,7 @@ struct NoopLiftExerciseArtwork: View {
         }
     }
     private var fallback: some View {
-        Image(systemName: "dumbbell.fill").font(.system(size: size * 0.3)).foregroundStyle(Color.gray)
+        Image(systemName: "dumbbell.fill").font(.system(size: size * 0.3)).foregroundStyle(StrandPalette.textTertiary)
     }
 }
 
