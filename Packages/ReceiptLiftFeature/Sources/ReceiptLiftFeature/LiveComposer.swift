@@ -113,7 +113,7 @@ struct LiveComposerSection: View {
         onPresentSuperset(exercise)
       }
       if let label = store.supersetLabel(for: exercise.id) {
-        LiftTag(text: LocalizedStringKey(label))
+        LiftTag(text: LocalizedStringKey(label), systemImage: "link")
       }
     }
   }
@@ -360,7 +360,7 @@ struct SupersetPairingSheet: View {
         LiftFlatSection("Paired", systemImage: "link") {
           VStack(alignment: .leading, spacing: NoopMetrics.space3) {
             HStack(spacing: NoopMetrics.space3) {
-              LiftTag(text: LocalizedStringKey(label))
+              LiftTag(text: LocalizedStringKey(label), systemImage: "link")
               Text(verbatim: currentPartnerText)
                 .font(StrandFont.subhead)
                 .foregroundStyle(StrandPalette.textPrimary)

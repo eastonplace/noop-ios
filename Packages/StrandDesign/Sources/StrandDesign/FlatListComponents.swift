@@ -196,10 +196,10 @@ public struct ExerciseArtTile<Art: View>: View {
 
 // MARK: Choice chips
 
-/// A chip that is one of a set of choices or a switch: the shared `WidgetChip` with a 44pt tap area, filled with the
-/// brand ink while `isSelected` and carrying the selected accessibility trait. A titled chip reads its title.
+/// A chip that is one of a set of choices or a switch: the shared `ChoiceChip` (34pt, hairline; solid light with a dark
+/// label while `isSelected`) with a 44pt tap area, carrying the selected accessibility trait. A titled chip reads its title.
 public struct ChoiceChipButton: View {
-    private let chip: WidgetChip
+    private let chip: ChoiceChip
     private let label: Text
     private let hint: LocalizedStringKey?
     private let isSelected: Bool
@@ -213,8 +213,7 @@ public struct ChoiceChipButton: View {
         accessibilityHint: LocalizedStringKey? = nil,
         action: @escaping () -> Void
     ) {
-        self.chip = WidgetChip(appTitle: title, systemImage: systemImage, showsChevron: false, overhangs: false,
-                               isSelected: isSelected)
+        self.chip = ChoiceChip(title, systemImage: systemImage, isSelected: isSelected)
         self.label = Text(title)
         self.hint = accessibilityHint
         self.isSelected = isSelected
@@ -230,8 +229,7 @@ public struct ChoiceChipButton: View {
         accessibilityHint: LocalizedStringKey? = nil,
         action: @escaping () -> Void
     ) {
-        self.chip = WidgetChip(verbatimTitle: verbatimTitle, systemImage: systemImage, showsChevron: false,
-                               overhangs: false, isSelected: isSelected)
+        self.chip = ChoiceChip(verbatimTitle: verbatimTitle, systemImage: systemImage, isSelected: isSelected)
         self.label = accessibilityLabel ?? Text(verbatim: verbatimTitle)
         self.hint = accessibilityHint
         self.isSelected = isSelected
@@ -239,7 +237,10 @@ public struct ChoiceChipButton: View {
     }
 
     public var body: some View {
-        Button(action: action) { chip.chipHitTarget() }
+        // Drawn 34pt; the tap area reaches 44pt without the layout growing.
+        Button(action: action) {
+            chip.contentShape(Rectangle().inset(by: -(ChoiceChipMetrics.hitTarget - ChoiceChipMetrics.height) / 2))
+        }
             .buttonStyle(.plain)
             .accessibilityLabel(label)
             .accessibilityAddTraits(isSelected ? .isSelected : [])

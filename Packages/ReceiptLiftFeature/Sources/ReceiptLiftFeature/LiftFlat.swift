@@ -414,20 +414,17 @@ struct LiftRowList<Item: Identifiable, Row: View>: View {
   }
 }
 
-/// The small tonal badge beside a personal record.
+/// The small tag beside a personal record or a paired exercise: the shared `PillTag` (neutral `tagFill`, radius 6, bold
+/// 0.6-tracked label). Colour is only the optional icon: the PR star is `signalYellow`, Superset takes a link icon.
 struct LiftTag: View {
   let text: LocalizedStringKey
-  var tint: Color = StrandPalette.accent
+  /// The leading SF Symbol, if any.
+  var systemImage: String?
+  /// The icon's colour.
+  var tint: Color = StrandPalette.textSecondary
 
   var body: some View {
-    Text(text)
-      .font(StrandFont.micro.weight(.semibold))
-      .foregroundStyle(tint)
-      .lineLimit(1)
-      .padding(.horizontal, 9)
-      .frame(height: 24)
-      .background(tint.opacity(0.14), in: Capsule(style: .continuous))
-      .fixedSize()
+    PillTag(text, systemImage: systemImage, iconTint: tint)
   }
 }
 

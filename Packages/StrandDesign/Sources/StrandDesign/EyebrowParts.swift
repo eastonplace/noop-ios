@@ -82,8 +82,8 @@ public extension EnvironmentValues {
 /// it, so a title row can carry "Explore" and a share glyph as one family. The caller supplies the accessibility
 /// label (a titled chip reads its title) and a 44pt tap area with `chipHitTarget()`.
 ///
-/// A chip that is one of a set of choices (a topic filter) passes `isSelected`: the capsule fills with the brand
-/// ink and the label turns to dark ink. That solid fill is deliberately a different, stronger state than the flat tabs of
+/// A chip that is one of a set of choices (a topic filter) passes `isSelected`: the capsule fills with the light
+/// fill (#F2F4F5, or the page's metric tint softly) and the label turns dark. That solid fill is deliberately a different, stronger state than the flat tabs of
 /// `SegmentedPillControl` (a soft thumb behind a coloured label): a chip filter is a set of independent toggles, not a range. The caller adds the
 /// `.isSelected` accessibility trait to the button that wraps it.
 public struct WidgetChip: View {
@@ -100,6 +100,8 @@ public struct WidgetChip: View {
 
     /// The height of one line of the chip's title, so an icon-only chip is as tall as a titled one.
     @ScaledMetric(relativeTo: .caption2) private var lineHeight: CGFloat = 13
+    /// Set above a row of chips on a metric page, so a selected chip takes the metric colour softly like the range control.
+    @Environment(\.segmentedPillTint) private var metricTint
 
     private init(title: LocalizedStringKey?, verbatimTitle: String? = nil, bundle: Bundle?, systemImage: String?,
                  showsChevron: Bool, chevronSymbol: String = "chevron.right", overhangs: Bool, isSelected: Bool) {
@@ -135,6 +137,10 @@ public struct WidgetChip: View {
                   overhangs: overhangs, isSelected: isSelected)
     }
 
+    private var appearance: ChoiceChipAppearance {
+        ChoiceChipAppearance.resolve(isSelected: isSelected, tint: metricTint)
+    }
+
     public var body: some View {
         HStack(spacing: 4) {
             if let systemImage {
@@ -160,11 +166,11 @@ public struct WidgetChip: View {
             }
         }
         .frame(minHeight: title == nil && verbatimTitle == nil && systemImage != nil ? lineHeight : nil)
-        .foregroundStyle(isSelected ? StrandPalette.onInk : StrandPalette.textSecondary)
+        .foregroundStyle(appearance.label)
         .padding(.horizontal, 8)
         .padding(.vertical, 3)
-        .background(Capsule(style: .continuous).fill(isSelected ? StrandPalette.ink : StrandPalette.chipFill))
-        .overlay(Capsule(style: .continuous).stroke(isSelected ? Color.clear : StrandPalette.hairline, lineWidth: 1))
+        .background(Capsule(style: .continuous).fill(appearance.fill))
+        .overlay(Capsule(style: .continuous).stroke(appearance.stroke, lineWidth: 1))
         .padding(.vertical, overhangs ? -2 : 0)
     }
 }

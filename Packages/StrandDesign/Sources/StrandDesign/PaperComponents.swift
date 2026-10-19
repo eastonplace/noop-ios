@@ -319,7 +319,8 @@ public struct StatusBadge: View {
         .foregroundStyle(StrandPalette.textPrimary)
         .padding(.horizontal, 9)
         .frame(height: 24)
-        .background(color.opacity(0.10), in: Capsule(style: .continuous))
+        .background(Capsule(style: .continuous).fill(StrandPalette.pillFill))
+        .overlay(Capsule(style: .continuous).stroke(StrandPalette.pillStroke, lineWidth: 1))
         .accessibilityElement(children: .combine)
     }
 }

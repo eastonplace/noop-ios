@@ -52,7 +52,7 @@ public struct StatePill: View {
             Text(title)
                 .statePillLabel()
         }
-        .statePillChrome(tint: tone.color)
+        .neutralPillChrome()
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(title)
     }
@@ -71,13 +71,38 @@ extension View {
         modifier(StatePillLabelFit(lines: lines))
     }
 
-    /// The state pill's chip: 10 / 5pt padding, a 12% wash and a 1pt 28% hairline of the tone. `StatePill`
-    /// and every pill that must match it (Live HR zone, Stress value) share this one definition.
-    public func statePillChrome(tint: Color) -> some View {
+    /// The neutral pill: 10 / 5pt padding on the `pillFill` wash with a 1pt `pillStroke` edge. Colour is never in the
+    /// pill; a pill that carries a state brings its own 7pt dot (`StatePill`, `ScoreStatePill`) or uses `statePillChrome`.
+    public func neutralPillChrome() -> some View {
         self.padding(.horizontal, StatePillMetrics.horizontalPadding)
             .padding(.vertical, StatePillMetrics.verticalPadding)
-            .background(Capsule(style: .continuous).fill(tint.opacity(0.12)))
-            .overlay(Capsule(style: .continuous).stroke(tint.opacity(0.28), lineWidth: 1))
+            .background(Capsule(style: .continuous).fill(StrandPalette.pillFill))
+            .overlay(Capsule(style: .continuous).stroke(StrandPalette.pillStroke, lineWidth: 1))
+    }
+
+    /// The state pill's chip: a leading 7pt dot in `tint` and then the neutral chrome. `StatePill` and every pill that
+    /// must match it (Live HR zone, Stress value) share this one definition. The tint is the dot only, so a red or amber
+    /// state is told apart by its dot and its word, never by a coloured pill.
+    public func statePillChrome(tint: Color) -> some View {
+        HStack(spacing: StatePillMetrics.dotSpacing) {
+            PillToneDot(color: tint)
+            self
+        }
+        .neutralPillChrome()
+    }
+}
+
+/// The 7pt tone dot at the leading edge of a pill. Scales a little with Dynamic Type and is hidden from VoiceOver (the
+/// pill's word carries the state).
+struct PillToneDot: View {
+    let color: Color
+    @ScaledMetric(relativeTo: .caption2) private var diameter: CGFloat = StatePillMetrics.dotDiameter
+
+    var body: some View {
+        Circle()
+            .fill(color)
+            .frame(width: diameter, height: diameter)
+            .accessibilityHidden(true)
     }
 }
 
@@ -106,6 +131,8 @@ private struct StatePillLabelFit: ViewModifier {
 enum StatePillMetrics {
     static let horizontalPadding: CGFloat = 10
     static let verticalPadding: CGFloat = 5
+    static let dotDiameter: CGFloat = 7
+    static let dotSpacing: CGFloat = 6
 }
 
 // MARK: - ConnectionDot

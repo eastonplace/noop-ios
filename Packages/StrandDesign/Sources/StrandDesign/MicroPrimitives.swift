@@ -17,20 +17,25 @@ public struct MicroBadge: View {
     }
 
     public var body: some View {
+        // A neutral pill: the tint is a leading icon, or (with no icon) a 6pt dot, never the capsule.
         HStack(spacing: 5) {
             if let systemImage {
                 Image(systemName: systemImage)
                     .font(.system(size: 8, weight: .bold))
+                    .foregroundStyle(tint)
                     .accessibilityHidden(true)
+            } else if tint != StrandPalette.textPrimary {
+                Circle().fill(tint).frame(width: 6, height: 6).accessibilityHidden(true)
             }
             Text(title).textCase(.uppercase)
         }
         .font(StrandFont.micro.weight(.bold))
         .tracking(0.5)
-        .foregroundStyle(tint)
+        .foregroundStyle(StrandPalette.textPrimary)
         .padding(.horizontal, 8)
         .frame(height: 26)
-        .background(tint.opacity(0.09), in: Capsule(style: .continuous))
+        .background(Capsule(style: .continuous).fill(StrandPalette.pillFill))
+        .overlay(Capsule(style: .continuous).stroke(StrandPalette.pillStroke, lineWidth: 1))
         .accessibilityElement(children: .combine)
     }
 }
