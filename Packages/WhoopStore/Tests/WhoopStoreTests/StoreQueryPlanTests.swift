@@ -66,6 +66,17 @@ final class StoreQueryPlanTests: XCTestCase {
         }
     }
 
+    /// The window-bounded frontier the body-clock cache asks for stays two index seeks.
+    func testBoundedHeartRateFrontierSearchesTheTsIndex() async throws {
+        let store = try await WhoopStore.inMemory()
+        let writer = await store.dbWriter
+        try await writer.read { db in
+            let detail = try plan(db, WhoopStore.latestHRSampleTsAtOrBeforeSQL, ["d", 1_000, "d", 1_000])
+            XCTAssertTrue(detail.contains("SEARCH"), detail)
+            XCTAssertFalse(scansTable(detail, ["hrSample", "ppgHrSample"]), detail)
+        }
+    }
+
     func testGlobalMetricSeriesDeletesSearchTheKeyDayIndex() async throws {
         let store = try await WhoopStore.inMemory()
         let writer = await store.dbWriter

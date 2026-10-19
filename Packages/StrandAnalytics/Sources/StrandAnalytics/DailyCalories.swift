@@ -109,8 +109,14 @@ public enum DailyCalories {
     /// `day`'s length and, when `now` falls inside it, the seconds elapsed, in `timeZone`.
     public static func dayTiming(day: String, timeZone: TimeZone, now: Date) -> (daySeconds: Double,
                                                                                 elapsedSeconds: Double?)? {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = timeZone
+        dayTiming(day: day, calendar: gregorianCalendar(in: timeZone), now: now)
+    }
+
+    /// The same, with the Gregorian calendar built once by the caller. A series of days (the Calories card, the
+    /// Calories page, Explore) otherwise built a `Calendar` and a time-zone copy per day, which was most of the cost
+    /// of resolving a multi-year Apple Health history.
+    public static func dayTiming(day: String, calendar: Calendar, now: Date) -> (daySeconds: Double,
+                                                                                elapsedSeconds: Double?)? {
         let parts = day.split(separator: "-").compactMap { Int($0) }
         guard parts.count == 3,
               let start = calendar.date(from: DateComponents(year: parts[0], month: parts[1], day: parts[2])),
@@ -118,5 +124,12 @@ public enum DailyCalories {
         let daySeconds = next.timeIntervalSince(start)
         let elapsed = now >= start && now < next ? now.timeIntervalSince(start) : nil
         return (daySeconds, elapsed)
+    }
+
+    /// A Gregorian calendar in `timeZone`: the calendar `dayTiming(day:timeZone:now:)` measures a civil day with.
+    public static func gregorianCalendar(in timeZone: TimeZone) -> Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+        return calendar
     }
 }
