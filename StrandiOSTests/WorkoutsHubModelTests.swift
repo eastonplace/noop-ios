@@ -311,4 +311,59 @@ final class WorkoutsHubModelTests: XCTestCase {
         let unvisited = try XCTUnwrap(zones[1].accessibilityLabel)
         XCTAssertTrue(unvisited.contains("no time"), unvisited)
     }
+
+    // MARK: Glance rows (the redesigned list)
+
+    func testAGlanceRowIsOneLineAndStillSpeaksEveryFact() {
+        let run = row(at: date(2026, 10, 8, 18), minutes: 45, sport: "Running", kcal: 400, avgHr: 150, distanceM: 8_000)
+        let glance = WorkoutRowPresentation.make(
+            run, unitSystem: .metric, when: .time, detail: .glance, includesSource: true, now: now, calendar: calendar)
+        XCTAssertEqual(glance.lines.count, 1)
+        XCTAssertTrue(glance.lines[0].contains(WorkoutFormat.unbreakable("45m")))
+        // What the line leaves out is still read to VoiceOver.
+        XCTAssertTrue(glance.accessibilityLabel.contains("150 beats per minute"), glance.accessibilityLabel)
+        XCTAssertTrue(glance.accessibilityLabel.contains("per kilometer"), glance.accessibilityLabel)
+    }
+
+    func testOnlyAGlanceRowCarriesTheZoneBar() {
+        let zoned = WorkoutRow(startTs: 1_000, endTs: 2_800, sport: "Running", source: "manual", durationS: 1_800,
+                               energyKcal: 200, avgHr: 140, maxHr: nil, strain: nil, distanceM: nil,
+                               zonesJSON: #"{"z1":10,"z2":40,"z3":30,"z4":15,"z5":5}"#, notes: nil, strainVersion: nil)
+        XCTAssertNotNil(WorkoutRowPresentation.make(zoned, unitSystem: .metric, when: .time, detail: .glance).zones)
+        XCTAssertNil(WorkoutRowPresentation.make(zoned, unitSystem: .metric, when: .time, detail: .full).zones)
+        XCTAssertNil(WorkoutRowPresentation.make(row(at: date(2026, 10, 8, 18)), unitSystem: .metric, when: .time,
+                                                 detail: .glance).zones)
+    }
+
+    func testZoneSharesAreFractionsOfTheSessionWithTheRemainderBelowZoneOne() throws {
+        let shares = try XCTUnwrap(WorkoutZoneShares.make(zonesJSON: #"{"z1":10,"z2":40,"z3":30,"z4":15,"z5":0}"#))
+        for (share, expected) in zip(shares.zones, [0.10, 0.40, 0.30, 0.15, 0.0]) {
+            XCTAssertEqual(share, expected, accuracy: 0.0001)
+        }
+        XCTAssertEqual(shares.belowZone1, 0.05, accuracy: 0.0001)
+        // An empty zone and a sliver draw nothing.
+        XCTAssertEqual(shares.segments.map(\.zone), [0, 1, 2, 3, 4])
+        let sliver = try XCTUnwrap(WorkoutZoneShares.make(zonesJSON: #"{"z1":0.5,"z2":99.5}"#))
+        XCTAssertEqual(sliver.segments.map(\.zone), [2])
+    }
+
+    func testAZoneSplitAddingToMoreThanTheSessionIsScaledBack() throws {
+        let shares = try XCTUnwrap(WorkoutZoneShares.make(zonesJSON: #"{"z1":50,"z2":50,"z3":50,"z4":0,"z5":0}"#))
+        XCTAssertEqual(shares.zones.reduce(0, +), 1, accuracy: 0.0001)
+        XCTAssertEqual(shares.belowZone1, 0, accuracy: 0.0001)
+        XCTAssertNil(WorkoutZoneShares.make(zonesJSON: nil))
+        XCTAssertNil(WorkoutZoneShares.make(zonesJSON: "not json"))
+    }
+
+    func testWeekStatsAddUpSessionsEnergyAndTheAverageOfScoredStrain() throws {
+        let hard = row(at: date(2026, 10, 5, 7), kcal: 300, strain: 60, version: 2)
+        let easy = row(at: date(2026, 10, 6, 7), kcal: 100, strain: 20, version: 2)
+        let unscored = row(at: date(2026, 10, 7, 7), kcal: nil, strain: nil)
+        let stats = WorkoutWeekStats.make(rows: [hard, easy, unscored])
+        XCTAssertEqual(stats.sessions, 3)
+        XCTAssertEqual(stats.energyKcal, 400)
+        XCTAssertEqual(try XCTUnwrap(stats.averageStrainStored), 40, accuracy: 0.0001)
+        XCTAssertNil(WorkoutWeekStats.make(rows: [unscored]).averageStrainStored)
+    }
 }
+

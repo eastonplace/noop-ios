@@ -4,9 +4,10 @@ import WhoopStore
 
 // MARK: - Workouts history pieces
 //
-// The day groups of the history feed, the seven-day "Workout minutes" section above it, the disclosure row both the
-// section and the hub use, and the hub's loading skeleton. The grouping and the week arithmetic are
-// `WorkoutTimelinePolicy`'s (Foundation-only and unit-tested); these only map rows in and draw.
+// The day groups of the history feed, the "This week" section above it (the seven days' active time as the hero and
+// as bars, then the week's sessions, Strain and calories), the disclosure row the hub uses, and the hub's loading
+// skeleton. The grouping and the week arithmetic are `WorkoutTimelinePolicy`'s (Foundation-only and unit-tested); these
+// only map rows in and draw.
 
 extension WorkoutTimelineItem {
     /// A row as the timeline policy reads it: its list identity, its start and its known length (nil when it has none,
@@ -66,19 +67,24 @@ struct WorkoutsDisclosureRow: View {
     }
 }
 
-// MARK: Workout minutes
+// MARK: This week
 
-/// The seven days ending on `anchor`, from the rows the feed below shows, as the week's bars: a bar for a day's known
-/// recorded minutes, today on its quiet lane, a dot for a day with no known minutes. A day whose sessions carry no
-/// duration is a dot (and spoken as its session count), never a zero bar; an empty day is not called a rest day.
+/// The seven days ending on `anchor`, from the rows the feed below shows: the week's known active time as the hero, a
+/// bar for a day's known recorded minutes (the busiest labelled, today's day in the primary ink), a dot for a day with
+/// no known minutes, then the week's sessions, average Strain and calories. A day whose sessions carry no duration is a
+/// dot (and spoken as its session count), never a zero bar; an empty day is not called a rest day.
 struct WorkoutHistoryChart: View {
     private let days: [WorkoutTimelineDay]
     private let interval: DateInterval?
     private let today: Date
-    @State private var showsDailyTotals = false
+    private let stats: WorkoutWeekStats
+    @Binding private var showsDailyTotals: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @ScaledMetric(relativeTo: .largeTitle) private var heroSize: CGFloat = 42
 
-    init(rows: [WorkoutRow], anchor: Date, now: Date = Date(), calendar: Calendar = .current) {
+    /// `showsDailyTotals` opens the day-by-day list under the bars; the hub's menu owns it.
+    init(rows: [WorkoutRow], anchor: Date, showsDailyTotals: Binding<Bool>, now: Date = Date(),
+         calendar: Calendar = .current) {
         let interval = WorkoutTimelinePolicy.weekInterval(through: anchor, calendar: calendar)
         // Only the seven days are handed to the policy, so a long history is not sorted on every pass.
         let inWeek: [WorkoutRow] = interval.map { week in
@@ -87,13 +93,17 @@ struct WorkoutHistoryChart: View {
         } ?? []
         self.init(days: WorkoutTimelinePolicy.week(items: inWeek.map(WorkoutTimelineItem.init(row:)),
                                                    through: anchor, calendar: calendar),
-                  interval: interval, today: calendar.startOfDay(for: now))
+                  interval: interval, today: calendar.startOfDay(for: now),
+                  stats: WorkoutWeekStats.make(rows: inWeek), showsDailyTotals: showsDailyTotals)
     }
 
-    private init(days: [WorkoutTimelineDay], interval: DateInterval?, today: Date) {
+    private init(days: [WorkoutTimelineDay], interval: DateInterval?, today: Date, stats: WorkoutWeekStats,
+                 showsDailyTotals: Binding<Bool>) {
         self.days = days
         self.interval = interval
         self.today = today
+        self.stats = stats
+        self._showsDailyTotals = showsDailyTotals
     }
 
     /// A plausible week for the loading skeleton: the section's real shape before any row is read. Drawn redacted and
@@ -106,67 +116,91 @@ struct WorkoutHistoryChart: View {
                                sessions: sample[index % sample.count] > 0 ? 1 : 0, missingDurations: 0)
         }
         return WorkoutHistoryChart(days: days, interval: WorkoutTimelinePolicy.weekInterval(through: now, calendar: calendar),
-                                   today: calendar.startOfDay(for: now))
+                                   today: calendar.startOfDay(for: now),
+                                   stats: WorkoutWeekStats(sessions: 5, energyKcal: 1_900, averageStrainStored: 55),
+                                   showsDailyTotals: .constant(false))
     }
 
     var body: some View {
         let totals = WorkoutTimelinePolicy.totals(days)
-        FlatSection("Workout minutes", systemImage: "chart.bar.fill", tint: .workout, trailing: trailing) {
-            VStack(alignment: .leading, spacing: WidgetMetrics.contentSpacing) {
+        FlatSection(endsToday ? "This week" : "7 days", systemImage: "flame.fill", tint: .strain,
+                    trailing: trailing, contentSpacing: NoopMetrics.space2) {
+            VStack(alignment: .leading, spacing: 0) {
                 hero(totals)
                 WorkoutWeekBars(days: bars)
+                    .padding(.top, NoopMetrics.space4)
                     .accessibilityElement(children: .contain)
                     .accessibilityIdentifier("workouts.historyChart")
-                VStack(alignment: .leading, spacing: NoopMetrics.space1) {
-                    if totals.missingDurations > 0 {
-                        Text("Sessions without a recorded duration aren't counted.")
-                            .font(StrandFont.footnote)
-                            .foregroundStyle(StrandPalette.textSecondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    Text("Recorded minutes from the sessions below.")
-                        .font(StrandFont.micro)
-                        .foregroundStyle(StrandPalette.textTertiary)
+                if totals.missingDurations > 0 {
+                    Text("Sessions without a recorded duration aren't counted.")
+                        .font(StrandFont.footnote)
+                        .foregroundStyle(StrandPalette.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
-                        .accessibilityLabel(Text("Recorded minutes from the sessions below. A day without sessions is not confirmed as a rest day."))
+                        .padding(.top, NoopMetrics.space2)
                 }
-                VStack(alignment: .leading, spacing: 0) {
-                    WorkoutsDisclosureRow(title: "Daily totals", isExpanded: $showsDailyTotals)
-                    if showsDailyTotals {
-                        dailyTotals.transition(.softCard(reduced: reduceMotion))
-                    }
+                WorkoutWeekStrip(facts: facts(totals))
+                    .padding(.top, 14)
+                if showsDailyTotals {
+                    dailyTotals
+                        .padding(.top, NoopMetrics.space2)
+                        .transition(.softCard(reduced: reduceMotion))
                 }
             }
         }
+        .padding(.top, 14)
     }
 
     /// The span the seven days cover ("Oct 9 – 15"), so a week that does not end today says which it is.
     private var trailing: EyebrowTrailing {
         guard let interval else { return .none }
-        return .text(WorkoutFormat.weekRange(interval))
+        return .custom(AnyView(
+            Text(verbatim: WorkoutFormat.weekRange(interval))
+                .font(.system(size: 13.5))
+                .foregroundStyle(StrandPalette.textSecondary)
+                .lineLimit(1)))
     }
 
     /// Whether the seven days end today (rather than on an earlier day the hub is focused on, or the newest archived day).
     private var endsToday: Bool { days.last?.day == today }
 
-    /// The week's known minutes as the hero. A week with no session, or whose sessions carry no duration, reads "—",
+    /// The week's known active time as the hero. A week with no session, or whose sessions carry no duration, reads "—",
     /// never a measured zero. One spoken element.
     @ViewBuilder private func hero(_ totals: WorkoutTimelineTotals) -> some View {
         let caption = endsToday ? String(localized: "Last 7 days") : String(localized: "7 days")
         if let minutes = totals.knownMinutes {
             let shown = Self.shownMinutes(minutes)
-            HeroValue(value: WorkoutFormat.grouped(shown), unit: String(localized: "min"),
-                      caption: caption, captionPlacement: .below)
+            Text(verbatim: shown > 0 ? WorkoutFormat.duration(shown * 60) : WorkoutFormat.grouped(shown))
+                .font(StrandFont.number(heroSize, weight: .semibold))
+                .tracking(-1)
+                .foregroundStyle(StrandPalette.textPrimary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(Text("Workout minutes, \(caption)"))
                 .accessibilityValue(Text(verbatim: shown > 0
                     ? WorkoutFormat.spokenDuration(shown * 60) : WorkoutFormat.grouped(shown)))
+                .accessibilityHint(Text("Recorded minutes from the sessions below. A day without sessions is not confirmed as a rest day."))
         } else {
-            HeroValue(value: WidgetMetrics.missingValue, caption: caption, captionPlacement: .below)
+            Text(verbatim: WidgetMetrics.missingValue)
+                .font(StrandFont.number(heroSize, weight: .semibold))
+                .foregroundStyle(StrandPalette.textTertiary)
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(Text("Workout minutes, \(caption)"))
                 .accessibilityValue(totals.sessions > 0 ? Text("Not recorded") : Text("No workouts"))
         }
+    }
+
+    /// Sessions, average Strain (NOOP's own scores only, so a week of imported WHOOP sessions has none) and calories.
+    private func facts(_ totals: WorkoutTimelineTotals) -> [WorkoutWeekStrip.Fact] {
+        [
+            .init(label: "Sessions", value: totals.sessions.formatted()),
+            .init(label: "Avg strain",
+                  value: stats.averageStrainStored.map { StrainScale.formatted($0) } ?? WidgetMetrics.missingValue,
+                  tint: DomainTint.strain.accent),
+            .init(label: "Calories",
+                  value: stats.energyKcal > 0 ? WorkoutFormat.grouped(stats.energyKcal) : WidgetMetrics.missingValue,
+                  spokenValue: stats.energyKcal > 0 ? WorkoutFormat.spokenEnergy(stats.energyKcal) : nil),
+        ]
     }
 
     /// Whole minutes as shown: a session under a minute still reads as one, never as zero.
@@ -203,6 +237,7 @@ struct WorkoutHistoryChart: View {
                 .accessibilityValue(Text(verbatim: value.spoken))
             }
         }
+        .accessibilityIdentifier("workouts.dailyTotals")
     }
 
     private func dailyValue(_ day: WorkoutTimelineDay) -> (shown: String, spoken: String, isKnown: Bool) {
@@ -219,34 +254,25 @@ struct WorkoutHistoryChart: View {
 
 // MARK: Loading
 
-/// The hub before its rows have been read: the action pills, the minutes section, the History header and a day of rows
-/// in their real shape, as quiet placeholders.
+/// The hub before its rows have been read: the week section, the sport chips and a day of rows in their real shape, as
+/// quiet placeholders. The header row above it is the real one.
 struct WorkoutHistorySkeleton: View {
     private static let rows = (0..<3).map { _ in
         WorkoutRowPresentation(
-            title: "Running", symbol: "figure.run", primary: "5.0 km", lines: [["7:10 AM", "Recorded"], ["30m", "300 kcal"]],
+            title: "Running", symbol: "figure.run", primary: "5.0 km", lines: [["7:10 AM", "30m", "Recorded"]],
             strain: .noop("10.0"))
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: NoopMetrics.space2) {
-                Capsule(style: .continuous).fill(StrandPalette.chipFill).frame(width: 150, height: 40)
-                Capsule(style: .continuous).fill(StrandPalette.chipFill).frame(width: 140, height: 40)
-            }
-            FlatSectionSeparator()
             WorkoutHistoryChart.placeholder()
-            FlatSectionSeparator.beforeChipHeader
-            FlatSection("History", systemImage: "list.bullet.rectangle", tint: .workout) {
-                VStack(alignment: .leading, spacing: NoopMetrics.space2) {
-                    Capsule(style: .continuous).fill(StrandPalette.chipFill).frame(width: 170, height: 38)
-                    Text(verbatim: "74 sessions · last 90 days").font(StrandFont.footnote)
+            HStack(spacing: NoopMetrics.space2) {
+                ForEach([60, 110, 120, 100], id: \.self) { width in
+                    Capsule(style: .continuous).fill(StrandPalette.chipFill).frame(width: CGFloat(width), height: 34)
                 }
             }
-            Text(verbatim: "Today")
-                .font(StrandFont.subhead.weight(.semibold))
-                .padding(.top, NoopMetrics.space4)
-                .padding(.bottom, NoopMetrics.space1)
+            .padding(.top, 16)
+            WorkoutDayHeader(title: "Today", sessions: 3)
             ForEach(Array(Self.rows.enumerated()), id: \.offset) { index, presentation in
                 if index > 0 { WorkoutRowSeparator() }
                 WorkoutRowContent(presentation: presentation)

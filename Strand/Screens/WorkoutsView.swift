@@ -7,14 +7,14 @@ import Foundation
 
 // MARK: - Workouts
 //
-// The activity hub, in the widget design language: flat sections on the canvas, one hairline between them, values
-// bright with their units muted.
+// The activity hub, in the widget design language: flat sections on the canvas, values bright with their units muted.
 //
-//  • The two ways to begin a workout.
-//  • Workout minutes: the known recorded minutes of the seven days the feed below covers, as the week's bars.
-//  • History: sessions grouped by local start day, with Recent/Archived, range, sport, source and search filters,
-//    multi-select merge/delete and a row menu.
-//  • Behind "Training tools and summaries": this week, Lift, heart rate zones and the latest pace.
+//  • A pinned header: back, the tracked title, the date and the one primary action, Start (or Resume).
+//  • This week: the seven days' active time as the hero and as bars, then sessions, average Strain and calories.
+//  • Sport chips (All and one per sport), with a "More" menu holding Add workout, Select, Filters and Daily totals.
+//  • History: sessions grouped by local start day, two lines a row, the row actions on a long press. Recent/Archived,
+//    range, source and search live under Filters; merge/delete run in Select mode.
+//  • Behind "Training tools and summaries": the calendar week, Lift, heart rate zones and the latest pace.
 //
 // The pieces live in WorkoutHistoryChart.swift, WorkoutsHubSections.swift and WorkoutsHubParts.swift; the rules they
 // draw from in WorkoutTimelinePolicy.swift (day groups, the seven days) and WorkoutsHubModel.swift (which Strain a row
@@ -42,6 +42,7 @@ struct WorkoutsView: View {
     @State private var historyScope: WorkoutHistoryScope = .current
     @State private var liftDestination: LiftDestination?
     @State private var showHistoryFilters = false
+    @State private var showsDailyTotals = false
     @State private var showTrainingTools = false
     @State private var expandingHistory = false
     @State private var loadedSourceIdentity = ""
@@ -184,16 +185,21 @@ struct WorkoutsView: View {
     }
 
     private var dashboard: some View {
-        ScreenScaffold(title: "Workouts", subtitle: "Your sessions, newest first.",
-                       onRefresh: { _ = await repo.refresh(.currentDay) },
-                       // PERF: the column ends in the full history log. On a large imported history the eager
-                       // VStack built every section + every row up-front; the LazyVStack path (which is
-                       // byte-identical layout) builds the off-screen sections/rows on demand instead.
-                       lazy: true,
-                       topBackground: nil,
-                       backAction: dashboardBackAction) {
-            LazyVStack(alignment: .leading, spacing: 0) { hub }
+        VStack(spacing: 0) {
+            headerRow
+            // The header above is the screen's own (back, title, date, Start), so the scaffold draws none.
+            ScreenScaffold(title: nil,
+                           onRefresh: { _ = await repo.refresh(.currentDay) },
+                           // PERF: the column ends in the full history log. On a large imported history the eager
+                           // VStack built every section + every row up-front; the LazyVStack path (which is
+                           // byte-identical layout) builds the off-screen sections/rows on demand instead.
+                           lazy: true,
+                           topBackground: nil,
+                           backAction: dashboardBackAction) {
+                LazyVStack(alignment: .leading, spacing: 0) { hub }
+            }
         }
+        .background(StrandPalette.appCanvas.ignoresSafeArea())
         #if os(iOS)
         .toolbar(.hidden, for: .navigationBar)
         #endif
@@ -418,15 +424,16 @@ struct WorkoutsView: View {
         let resolved = effectiveRange
         let rows = WorkoutHistoryScope.filter(sessions(for: resolved), scope: historyScope)
         let derived = currentDerived
-        actionPills
-        FlatSectionSeparator()
         // Nothing in this view (an empty Archived, or filters that match nothing) has nothing to chart: the history
         // below says so, rather than a week of dots that, in Archived, would not even be one of its weeks.
         if !rows.isEmpty {
-            WorkoutHistoryChart(rows: rows, anchor: chartAnchor(rows: rows))
-            FlatSectionSeparator.beforeChipHeader
+            WorkoutHistoryChart(rows: rows, anchor: chartAnchor(rows: rows), showsDailyTotals: $showsDailyTotals)
         }
-        history(rows: rows, effectiveRange: resolved)
+        sportFilterRow(rows: rows)
+        historyNote(rows: rows, effectiveRange: resolved)
+        if showHistoryFilters { filterPanel(effectiveRange: resolved) }
+        if selectionMode { selectionToolbar(rows: rows).padding(.top, NoopMetrics.space2) }
+        history(rows: rows)
         if historyScope == .current {
             Button("View older workouts", systemImage: "clock.arrow.circlepath") { historyScope = .archived }
                 .buttonStyle(SecondaryPillButtonStyle())
@@ -461,13 +468,18 @@ struct WorkoutsView: View {
         }
     }
 
-    /// No workouts at all: the empty state leads (nothing to chart, so no chart), then the ways to add one, a look
-    /// further back when only the first-paint window was read, and the Lift entry points.
+    /// No workouts at all: the empty state leads (nothing to chart, so no chart), then the way to add one (the header
+    /// carries Start), a look further back when only the first-paint window was read, and the Lift entry points.
     @ViewBuilder private var emptyHub: some View {
         WorkoutEmptyState(
             symbol: "figure.run", title: "No workouts yet",
             message: "They come from your WHOOP and Apple Health history. Import in Data Sources to bring them in, or add one you tracked elsewhere.")
-        actionPills.frame(maxWidth: .infinity)
+        Button { sheet = WorkoutSheetTarget(editing: nil) } label: {
+            Label("Add workout", systemImage: "plus")
+        }
+        .buttonStyle(SecondaryPillButtonStyle())
+        .accessibilityLabel("Add a workout")
+        .frame(maxWidth: .infinity)
         if !usesPreviewRows, loadedWindowDays != nil {
             Button("Check older history", systemImage: "clock.arrow.circlepath") {
                 historyScope = .archived
@@ -503,18 +515,28 @@ struct WorkoutsView: View {
         return calendar.startOfDay(for: Date(timeIntervalSince1970: TimeInterval(newest)))
     }
 
-    /// Start (or return to) a live workout, and add one tracked elsewhere. Same size, one primary.
-    private var actionPills: some View {
-        ChipRow {
+    // MARK: - Header
+
+    /// What the leading round button does: go back, or (at the root of a sheet that supplies its own close action, where
+    /// there is nothing to go back to) close the sheet.
+    private var leadingAction: (symbol: String, label: LocalizedStringKey, perform: () -> Void) {
+        if let back = dashboardBackAction { return ("chevron.left", "Back", back) }
+        return ("xmark", "Close", { sheetCloseAction?.perform() })
+    }
+
+    /// Back, the tracked title, the date, and Start (or Resume). Start and resume behave as they always did; adding a
+    /// workout by hand moved to the More menu under the sport chips.
+    private var headerRow: some View {
+        let leading = leadingAction
+        return WorkoutsHeaderRow(
+            title: "Workouts",
+            date: Date().formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day()),
+            leadingSymbol: leading.symbol, leadingLabel: leading.label, onLeading: leading.perform
+        ) { compact in
             WorkoutsActiveWorkoutButtonLeaf(
-                model: model,
+                model: model, compact: compact,
                 onStart: { router.beginWorkout() },
                 onOpen: { router.openActiveWorkout() })
-            Button { sheet = WorkoutSheetTarget(editing: nil) } label: {
-                Label("Add workout", systemImage: "plus")
-            }
-            .buttonStyle(SecondaryPillButtonStyle())
-            .accessibilityLabel("Add a workout")
         }
     }
 
@@ -613,18 +635,157 @@ struct WorkoutsView: View {
 
     // MARK: - History
 
-    /// The history: a header with its controls, then one lazily-built child per session. The rows are children of
-    /// the page's own lazy stack, not a lazy stack of their own: a lazy stack inside a lazy stack mis-measures the
-    /// section above its rows, and a long history only builds the rows on screen this way.
-    @ViewBuilder
-    private func history(rows: [WorkoutRow], effectiveRange: Range) -> some View {
-        FlatSection("History", systemImage: "list.bullet.rectangle", tint: .workout,
-                    trailing: .custom(AnyView(selectChip(rows: rows)))) {
-            VStack(alignment: .leading, spacing: WidgetMetrics.contentSpacing) {
-                controls(rows: rows, effectiveRange: effectiveRange)
-                if selectionMode { selectionToolbar(rows: rows) }
+    /// The sport chips: "All" and one per sport (most-logged first) in a row that scrolls out past the screen edge, and
+    /// the More menu pinned at its end. Choosing a sport narrows the week above and the sessions below to it.
+    private func sportFilterRow(rows: [WorkoutRow]) -> some View {
+        HStack(spacing: NoopMetrics.space2) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: NoopMetrics.space2) {
+                    WorkoutSportFilterChip(title: String(localized: "All"), symbol: nil, isSelected: sportFilter == nil) {
+                        sportFilter = nil
+                    }
+                    .accessibilityIdentifier("workouts.sport.all")
+                    ForEach(availableSports, id: \.self) { sport in
+                        WorkoutSportFilterChip(title: sport, symbol: sportSymbol(sport), isSelected: sportFilter == sport) {
+                            sportFilter = sportFilter == sport ? nil : sport
+                        }
+                    }
+                    // The scope's other half: the Recent feed is the default, Archived is one chip away.
+                    WorkoutSportFilterChip(title: String(localized: "Archived"), symbol: "archivebox",
+                                           isSelected: historyScope == .archived) {
+                        historyScope = historyScope == .archived ? .current : .archived
+                    }
+                    .accessibilityIdentifier("workouts.scope.archived")
+                }
+                .padding(.leading, NoopMetrics.space4)
             }
+            // The chips start at the page margin but scroll out past the screen's left edge, and fade out before the
+            // More button rather than being cut by it.
+            .padding(.leading, -NoopMetrics.space4)
+            .mask(LinearGradient(
+                stops: [.init(color: .black, location: 0), .init(color: .black, location: 0.92),
+                        .init(color: .clear, location: 1)],
+                startPoint: .leading, endPoint: .trailing))
+            moreMenu(rows: rows)
         }
+        .padding(.top, 11)
+        .padding(.bottom, -1)
+    }
+
+    /// Add workout, Select (merge or delete), Filters (Recent/Archived, range, source, search) and Daily totals: what the
+    /// old header pills, History header and Daily totals row held, in one quiet menu.
+    private func moreMenu(rows: [WorkoutRow]) -> some View {
+        Menu {
+            Button { sheet = WorkoutSheetTarget(editing: nil) } label: {
+                Label("Add workout", systemImage: "plus")
+            }
+            if rows.contains(where: WorkoutMerge.isMergeable) {
+                Button { toggleSelectionMode() } label: {
+                    if selectionMode {
+                        Label("Done", systemImage: "checkmark.circle.fill")
+                    } else {
+                        Label("Select sessions", systemImage: "checkmark.circle")
+                    }
+                }
+            }
+            Button {
+                withAnimation(NoopMotion.gated(StrandMotion.interactive, reduced: reduceMotion)) {
+                    showHistoryFilters.toggle()
+                }
+            } label: {
+                if showHistoryFilters {
+                    Label("Hide filters", systemImage: "line.3.horizontal.decrease.circle.fill")
+                } else {
+                    Label("Filters", systemImage: "line.3.horizontal.decrease")
+                }
+            }
+            if !rows.isEmpty {
+                Button {
+                    withAnimation(NoopMotion.gated(StrandMotion.interactive, reduced: reduceMotion)) {
+                        showsDailyTotals.toggle()
+                    }
+                } label: {
+                    if showsDailyTotals {
+                        Label("Hide daily totals", systemImage: "list.bullet.circle.fill")
+                    } else {
+                        Label("Daily totals", systemImage: "list.bullet")
+                    }
+                }
+            }
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(StrandPalette.textSecondary)
+                .frame(width: 34, height: 34)
+                .background(Circle().strokeBorder(StrandPalette.hairlineStrong, lineWidth: 1))
+                .overlay(alignment: .topTrailing) {
+                    // A source or search filter is easy to forget once the panel is shut.
+                    if sourceFilter != nil || !searchText.isEmpty {
+                        Circle().fill(StrandPalette.ink).frame(width: 8, height: 8).offset(x: 1, y: -1)
+                    }
+                }
+                .padding(5)
+                .contentShape(Rectangle())
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .accessibilityLabel("More")
+        .accessibilityValue(sourceFilter != nil || !searchText.isEmpty ? Text("Filters on") : Text(verbatim: ""))
+        .accessibilityIdentifier("workouts.more")
+    }
+
+    /// Under the chips, only when the view is not the plain recent feed: how many sessions it holds and over what span
+    /// (with the way back from Archived), and a warning when the range had to widen to find any.
+    @ViewBuilder
+    private func historyNote(rows: [WorkoutRow], effectiveRange: Range) -> some View {
+        let widened = effectiveRange != range
+        if historyScope == .archived || filter.isActive || widened {
+            VStack(alignment: .leading, spacing: NoopMetrics.space1) {
+                HStack(alignment: .firstTextBaseline, spacing: NoopMetrics.space2) {
+                    Text(verbatim: rangeCaption(count: rows.count, effectiveRange: effectiveRange))
+                        .font(StrandFont.footnote).foregroundStyle(StrandPalette.textTertiary)
+                    Spacer(minLength: NoopMetrics.space2)
+                    if historyScope == .archived {
+                        Button("Back to recent") { historyScope = .current }
+                            .font(StrandFont.footnote.weight(.semibold))
+                            .foregroundStyle(StrandPalette.ink)
+                            .buttonStyle(.plain)
+                            .frame(minHeight: 44)
+                            .contentShape(Rectangle())
+                    }
+                }
+                if widened {
+                    Text("Few sessions in that range, so this shows \(effectiveRange.caption).")
+                        .font(StrandFont.footnote).foregroundStyle(StrandPalette.statusWarning)
+                }
+            }
+            .padding(.top, NoopMetrics.space2)
+        }
+    }
+
+    /// The Filters panel the More menu opens: the Recent/Archived scope, the range, the source menu and the search field.
+    private func filterPanel(effectiveRange: Range) -> some View {
+        // At accessibility sizes the scope control takes a line of its own, so it is never squeezed.
+        VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+            SegmentedPillControl(WorkoutHistoryScope.allCases, selection: $historyScope) { scope in
+                scope == .current ? String(localized: "Recent") : String(localized: "Archived")
+            }
+            Text("Recent contains the last 90 days. Archived sessions stay saved.")
+                .font(StrandFont.footnote).foregroundStyle(StrandPalette.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
+            SegmentedPillControl(Range.allCases, selection: $range) { $0.label }
+            filterBar
+        }
+        .padding(.top, NoopMetrics.space3)
+        .transition(.softCard(reduced: reduceMotion))
+    }
+
+    /// The history: one lazily-built child per session under its day's header. The rows are children of the page's own
+    /// lazy stack, not a lazy stack of their own: a lazy stack inside a lazy stack mis-measures the section above its
+    /// rows, and a long history only builds the rows on screen this way.
+    @ViewBuilder
+    private func history(rows: [WorkoutRow]) -> some View {
         if rows.isEmpty {
             Text("No sessions in this view")
                 .font(StrandFont.footnote)
@@ -633,7 +794,7 @@ struct WorkoutsView: View {
                 .padding(.vertical, NoopMetrics.space3)
         } else {
             ForEach(WorkoutHistoryDay.grouped(rows)) { group in
-                dayHeader(group)
+                WorkoutDayHeader(title: WorkoutFormat.day(group.day), sessions: group.rows.count)
                 ForEach(Array(group.rows.enumerated()), id: \.element.listID) { index, row in
                     VStack(spacing: 0) {
                         if index > 0 { WorkoutRowSeparator(leadingExtra: selectionMode ? Self.selectionColumnWidth : 0) }
@@ -644,83 +805,11 @@ struct WorkoutsView: View {
         }
     }
 
-    /// A day's header in the feed: the day in the one format rows and sections use ("Today", "Yesterday",
-    /// "Mon, Oct 12", the year only for an earlier year) and its session count. One spoken heading.
-    private func dayHeader(_ group: WorkoutHistoryDay) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: NoopMetrics.space2) {
-            Text(verbatim: WorkoutFormat.day(group.day))
-                .font(StrandFont.subhead.weight(.semibold))
-                .foregroundStyle(StrandPalette.textPrimary)
-            Spacer(minLength: NoopMetrics.space2)
-            Text("\(group.rows.count) sessions")
-                .font(StrandFont.micro)
-                .foregroundStyle(StrandPalette.textTertiary)
-        }
-        .padding(.top, NoopMetrics.space4)
-        .padding(.bottom, NoopMetrics.space1)
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(.isHeader)
-    }
-
-    /// The scope and range pills, the sport and source filters, the search field and the one-line count.
-    private func controls(rows: [WorkoutRow], effectiveRange: Range) -> some View {
-        // At accessibility sizes the scope control and the Filters chip each take a line, so neither is squeezed.
-        let scopeLayout = typeSize.isAccessibilitySize
-            ? AnyLayout(VStackLayout(alignment: .leading, spacing: NoopMetrics.space3))
-            : AnyLayout(HStackLayout(alignment: .center, spacing: NoopMetrics.space2))
-        return VStack(alignment: .leading, spacing: NoopMetrics.space2) {
-            scopeLayout {
-                SegmentedPillControl(WorkoutHistoryScope.allCases, selection: $historyScope) { scope in
-                    scope == .current ? String(localized: "Recent") : String(localized: "Archived")
-                }
-                if !typeSize.isAccessibilitySize { Spacer(minLength: NoopMetrics.space2) }
-                Button {
-                    withAnimation(NoopMotion.gated(StrandMotion.interactive, reduced: reduceMotion)) {
-                        showHistoryFilters.toggle()
-                    }
-                } label: {
-                    WidgetChip(appTitle: filter.isActive ? "Filters on" : "Filters",
-                               systemImage: "line.3.horizontal.decrease", showsChevron: false, overhangs: false)
-                        .chipHitTarget()
-                }
-                .buttonStyle(.plain)
-                .accessibilityValue(showHistoryFilters ? Text("Expanded") : Text("Collapsed"))
-            }
-            Text(verbatim: rangeCaption(count: rows.count, effectiveRange: effectiveRange))
-                .font(StrandFont.footnote).foregroundStyle(StrandPalette.textTertiary)
-            if showHistoryFilters {
-                VStack(alignment: .leading, spacing: NoopMetrics.space2) {
-                    Text("Recent contains the last 90 days. Archived sessions stay saved.")
-                        .font(StrandFont.footnote).foregroundStyle(StrandPalette.textTertiary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    SegmentedPillControl(Range.allCases, selection: $range) { $0.label }
-                    filterBar
-                }
-                .transition(.softCard(reduced: reduceMotion))
-            }
-            if effectiveRange != range {
-                Text("Few sessions in that range, so this shows \(effectiveRange.caption).")
-                    .font(StrandFont.footnote).foregroundStyle(StrandPalette.statusWarning)
-            }
-        }
-    }
-
-    /// #64: filter controls: a Sport menu, a Source menu, a search field, and a Clear chip that appears only when a
-    /// filter is active. The predicate is the pure `WorkoutFilter`; these controls only drive its state.
+    /// #64: filter controls: a Source menu, a search field, and a Clear chip that appears only when a filter is active.
+    /// The sport filter is the chip row. The predicate is the pure `WorkoutFilter`; these controls only drive its state.
     private var filterBar: some View {
         VStack(alignment: .leading, spacing: NoopMetrics.space2) {
             ChipRow {
-                filterMenu(
-                    title: sportFilter ?? String(localized: "All sports"),
-                    active: sportFilter != nil,
-                    a11y: String(localized: "Filter by sport")
-                ) {
-                    Button(String(localized: "All sports")) { sportFilter = nil }
-                    Divider()
-                    ForEach(availableSports, id: \.self) { s in
-                        Button(s) { sportFilter = s }
-                    }
-                }
                 filterMenu(
                     title: sourceFilter.map(Self.sourceFilterLabel) ?? String(localized: "All sources"),
                     active: sourceFilter != nil,
@@ -788,42 +877,59 @@ struct WorkoutsView: View {
 
     // MARK: Session rows
 
-    /// One session: tap opens its detail (or toggles it in selection mode), the ••• menu holds the row actions.
-    /// In selection mode a leading checkmark (mergeable rows) or a lock (imported, read-only) replaces the menu.
+    /// One session: tap opens its detail (or toggles it in selection mode); the actions (edit, re-label, dismiss, delete,
+    /// duplicate) live in the long-press menu and, for VoiceOver, in the row's actions. In selection mode a leading
+    /// checkmark (mergeable rows) or a lock (imported, read-only) sits before the row.
     /// Every row sits under its day header, so it shows its time, not the day again.
     private func sessionRow(_ row: WorkoutRow) -> some View {
         let selectable = WorkoutMerge.isMergeable(row)
         let isSelected = selected.contains(selectionKey(row))
         let presentation = WorkoutRowPresentation.make(
-            row, unitSystem: unitSystem, when: .time, detail: .full, includesSource: true)
-        return HStack(spacing: 0) {
-            Button {
-                if selectionMode {
-                    guard selectable else { return }
-                    withAnimation(NoopMotion.gated(.easeOut(duration: 0.12), reduced: reduceMotion)) { toggleSelection(row) }
-                } else {
-                    openDetail(row)
-                }
-            } label: {
-                // The glyph is part of the button, so tapping the checkmark selects the row like tapping its text.
-                HStack(spacing: 0) {
-                    if selectionMode {
-                        selectionGlyph(selectable: selectable, isSelected: isSelected)
-                            .frame(width: Self.selectionColumnWidth)
-                    }
-                    WorkoutRowContent(presentation: presentation)
-                }
+            row, unitSystem: unitSystem, when: .time, detail: .glance, includesSource: true)
+        return Button {
+            if selectionMode {
+                guard selectable else { return }
+                withAnimation(NoopMotion.gated(.easeOut(duration: 0.12), reduced: reduceMotion)) { toggleSelection(row) }
+            } else {
+                openDetail(row)
             }
-            .buttonStyle(PaperPressStyle())
-            .accessibilityValue(selectionMode
-                ? (isSelected ? Text("Selected") : Text("Not selected"))
-                : Text(verbatim: ""))
-            .accessibilityHint(selectionMode
-                ? (selectable ? Text("Double-tap to select") : Text("Imported history can't be merged"))
-                : Text("Opens workout detail"))
-            if !selectionMode { rowActionsMenu(row) }
+        } label: {
+            // The glyph is part of the button, so tapping the checkmark selects the row like tapping its text.
+            HStack(spacing: 0) {
+                if selectionMode {
+                    selectionGlyph(selectable: selectable, isSelected: isSelected)
+                        .frame(width: Self.selectionColumnWidth)
+                }
+                WorkoutRowContent(presentation: presentation)
+            }
         }
+        .buttonStyle(PaperPressStyle())
+        .accessibilityValue(selectionMode
+            ? (isSelected ? Text("Selected") : Text("Not selected"))
+            : Text(verbatim: ""))
+        .accessibilityHint(selectionMode
+            ? (selectable ? Text("Double-tap to select") : Text("Imported history can't be merged"))
+            : Text("Opens workout detail"))
+        .accessibilityActions { if !selectionMode { rowAccessibilityActions(row) } }
         .contextMenu { if !selectionMode { rowMenu(row) } }
+    }
+
+    /// The row menu's actions for VoiceOver (which cannot open a context menu), with the re-label sub-menu flattened.
+    @ViewBuilder
+    private func rowAccessibilityActions(_ row: WorkoutRow) -> some View {
+        switch WorkoutSource.classify(row.source) {
+        case .detected:
+            ForEach(Self.relabelSports, id: \.self) { sport in
+                Button(String(localized: "Re-label as \(sport)")) { relabel(row, to: sport) }
+            }
+            Button("Edit details…") { editWorkout(row) }
+            Button("Dismiss (not a workout)") { dismiss(row) }
+        case .manual:
+            Button("Edit…") { editWorkout(row) }
+            Button("Delete") { delete(row) }
+        case .whoop, .apple, .lifting, .activityFile:
+            Button("Duplicate as manual…") { editWorkout(asManualCopy(row)) }
+        }
     }
 
     /// The width of the selection glyph's column, which the separators between rows start after.
@@ -850,23 +956,6 @@ struct WorkoutsView: View {
     private func toggleSelection(_ row: WorkoutRow) {
         let key = selectionKey(row)
         if selected.contains(key) { selected.remove(key) } else { selected.insert(key) }
-    }
-
-    /// The same actions as `rowMenu`, as a tappable ••• button so they are discoverable without a long-press.
-    private func rowActionsMenu(_ row: WorkoutRow) -> some View {
-        Menu {
-            rowMenu(row)
-        } label: {
-            Image(systemName: "ellipsis")
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(StrandPalette.textTertiary)
-                .frame(width: 44, height: 44)
-                .contentShape(Rectangle())
-        }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .fixedSize()
-        .accessibilityLabel("Workout actions")
     }
 
     /// Context-menu actions per row. A DETECTED bout can be re-labelled (becomes a real manual session
@@ -902,30 +991,12 @@ struct WorkoutsView: View {
 
     // MARK: Selection (#64)
 
-    /// The "Select" chip in the History header toggles multi-select mode. Only shown when at least one row is
-    /// selectable (manual / detected); a pure-imported list has nothing to merge or bulk-delete.
-    @ViewBuilder
-    private func selectChip(rows: [WorkoutRow]) -> some View {
-        if rows.contains(where: WorkoutMerge.isMergeable) {
-            Button {
-                withAnimation(NoopMotion.gated(.easeOut(duration: 0.15), reduced: reduceMotion)) {
-                    selectionMode.toggle()
-                    if !selectionMode { selected.removeAll() }
-                }
-            } label: {
-                Group {
-                    if selectionMode {
-                        WidgetChip(appTitle: "Done", showsChevron: false, overhangs: false, isSelected: true)
-                    } else {
-                        WidgetChip(appTitle: "Select", showsChevron: false, overhangs: false)
-                    }
-                }
-                .chipHitTarget()
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(selectionMode
-                ? Text("Finish selecting")
-                : Text("Select sessions to merge or delete"))
+    /// The More menu's Select entry toggles multi-select mode. Only offered when at least one row is selectable
+    /// (manual / detected); a pure-imported list has nothing to merge or bulk-delete.
+    private func toggleSelectionMode() {
+        withAnimation(NoopMotion.gated(.easeOut(duration: 0.15), reduced: reduceMotion)) {
+            selectionMode.toggle()
+            if !selectionMode { selected.removeAll() }
         }
     }
 
@@ -1086,6 +1157,8 @@ struct WorkoutsView: View {
 /// Observes active-workout state only around the one control that renders it.
 private struct WorkoutsActiveWorkoutButtonLeaf: View {
     @ObservedObject var model: AppModel
+    /// The glyph alone, when the header has no room for the label.
+    let compact: Bool
     let onStart: () -> Void
     let onOpen: () -> Void
 
@@ -1094,13 +1167,20 @@ private struct WorkoutsActiveWorkoutButtonLeaf: View {
     var body: some View {
         Button(action: openWorkout) {
             if hasActiveWorkout {
-                Label("View active workout", systemImage: "timer")
+                HStack(spacing: 6) {
+                    Image(systemName: "timer").font(.system(size: 12, weight: .bold))
+                    if !compact { Text("View active workout").lineLimit(1) }
+                }
             } else {
-                Label("Start workout", systemImage: "play.fill")
+                HStack(spacing: 6) {
+                    Image(systemName: "play.fill").font(.system(size: 12, weight: .bold))
+                    if !compact { Text("Start").lineLimit(1) }
+                }
             }
         }
-        .buttonStyle(PrimaryPillButtonStyle())
+        .buttonStyle(WorkoutStartPillStyle(compact: compact))
         .accessibilityLabel(hasActiveWorkout ? "View the active workout" : "Start a workout")
+        .accessibilityIdentifier("workouts.start")
     }
 
     private func openWorkout() {

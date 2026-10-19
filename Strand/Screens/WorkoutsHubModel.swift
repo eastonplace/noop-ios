@@ -178,6 +178,62 @@ enum WorkoutRowDetail: Equatable {
     case compact
     /// Every supporting fact the row has.
     case full
+    /// The history feed's row: one line under the title ("5:40 PM · 34m · Recorded"). The pace, energy and heart rate the
+    /// line no longer draws are still read aloud.
+    case glance
+}
+
+/// How a workout's time divides between the heart-rate zones, as the shares drawn in the hairline bar under its row.
+///
+/// It reads the zone split an import carries (`WorkoutRow.zonesJSON`, percent of the session per zone); nothing is
+/// measured or fetched here. An import does not export the time below zone 1, so whatever the five zones leave out of
+/// the session is that time.
+struct WorkoutZoneShares: Equatable {
+    /// Share of the session (0...1) spent below zone 1.
+    let belowZone1: Double
+    /// Shares of zones 1...5, in order.
+    let zones: [Double]
+
+    /// Shares smaller than this draw as a sliver no wider than the gap between segments, so they are left out.
+    static let visibleThreshold = 0.01
+
+    /// Nil when the row carries no usable zone split.
+    static func make(zonesJSON: String?) -> WorkoutZoneShares? {
+        guard let percents = WorkoutZones.percents(zonesJSON) else { return nil }
+        let total = percents.reduce(0, +)
+        // A split that adds up to more than the session (rounding in an export) is scaled back to it.
+        let scale = total > 100 ? 100 / total : 1
+        let zones = percents.map { $0 * scale / 100 }
+        return WorkoutZoneShares(belowZone1: max(0, 1 - zones.reduce(0, +)), zones: zones)
+    }
+
+    /// The bar's segments in order, easiest first: the zone (0 for time below zone 1) and its share. Empty ones drop out.
+    var segments: [(zone: Int, share: Double)] {
+        var all: [(zone: Int, share: Double)] = [(zone: 0, share: belowZone1)]
+        for (index, share) in zones.enumerated() { all.append((zone: index + 1, share: share)) }
+        return all.filter { $0.share >= Self.visibleThreshold }
+    }
+}
+
+/// What the sessions of one run of days add up to, for the "This week" strip: how many, how hard on average, how much
+/// energy. The average counts NOOP's own scores only, like `WorkoutWeekSummary`'s.
+struct WorkoutWeekStats: Equatable {
+    let sessions: Int
+    let energyKcal: Double
+    /// Mean of the NOOP-scored (canonical) Strain on the stored 0...100 axis, or nil when no session carries one.
+    let averageStrainStored: Double?
+
+    static func make(rows: [WorkoutRow]) -> WorkoutWeekStats {
+        var strains: [Double] = []
+        var kcal = 0.0
+        for row in rows {
+            kcal += max(0, row.energyKcal ?? 0)
+            if let stored = StrainResolver.canonicalWorkout(row)?.storedValue { strains.append(stored) }
+        }
+        return WorkoutWeekStats(
+            sessions: rows.count, energyKcal: kcal,
+            averageStrainStored: strains.isEmpty ? nil : strains.reduce(0, +) / Double(strains.count))
+    }
 }
 
 /// A workout row, ready to draw.
@@ -191,11 +247,13 @@ struct WorkoutRowPresentation: Equatable {
     /// lines ("338 kcal" keeps its number and its unit together).
     let lines: [[String]]
     let strain: WorkoutStrainBadge?
-    /// What VoiceOver reads for each fact, in the same order as `facts`: a duration shown as "45m" is read as "45
-    /// minutes", not as metres. Empty means the facts read as shown.
+    /// What VoiceOver reads for each fact, in the same order as `facts` (a glance row then adds the facts it does not
+    /// draw): a duration shown as "45m" is read as "45 minutes", not as metres. Empty means the facts read as shown.
     var spokenFacts: [String] = []
     /// What VoiceOver reads for `primary`.
     var spokenPrimary: String?
+    /// The session's time in each heart-rate zone, for the bar under a glance row. Nil when the row has no zone split.
+    var zones: WorkoutZoneShares?
 
     /// Every fact the lines carry, in reading order.
     var facts: [String] { lines.flatMap { $0 } }
@@ -262,18 +320,19 @@ struct WorkoutRowPresentation: Equatable {
         if lead != .duration, let seconds = WorkoutFacts.activeSeconds(row) {
             supporting.append(Fact(WorkoutFormat.duration(seconds), spoken: WorkoutFormat.spokenDuration(seconds)))
         }
-        if detail == .full, lead == .distance, let pace = WorkoutPace.perUnit(row, system: unitSystem) {
+        if detail != .compact, lead == .distance, let pace = WorkoutPace.perUnit(row, system: unitSystem) {
             supporting.append(Fact(WorkoutFormat.pace(pace, system: unitSystem),
                                    spoken: WorkoutFormat.spokenPace(pace, system: unitSystem)))
         }
         if lead != .energy, let kcal = row.energyKcal, kcal > 0 {
             supporting.append(Fact(WorkoutFormat.energy(kcal), spoken: WorkoutFormat.spokenEnergy(kcal)))
         }
-        if detail == .full, let hr = row.avgHr, hr > 0 {
+        if detail != .compact, let hr = row.avgHr, hr > 0 {
             supporting.append(Fact(String(localized: "\(hr) bpm"), spoken: String(localized: "\(hr) beats per minute")))
         }
 
         let lines: [[Fact]]
+        var unseen: [Fact] = []
         switch detail {
         case .compact:
             // One line: when, and the one fact that says most.
@@ -282,13 +341,22 @@ struct WorkoutRowPresentation: Equatable {
             // Two lines: when it was and where it came from, then what it came to.
             if includesSource { first.append(Fact(WorkoutFormat.sourceName(for: row))) }
             lines = supporting.isEmpty ? [first] : [first, supporting]
+        case .glance:
+            // One line: when, how long (unless the length already leads) and where it came from. The length is the first
+            // supporting fact whenever the row has one to show, so what follows it is what the line leaves out.
+            let showsLength = lead != .duration && WorkoutFacts.activeSeconds(row) != nil
+            first += supporting.prefix(showsLength ? 1 : 0)
+            if includesSource { first.append(Fact(WorkoutFormat.sourceName(for: row))) }
+            lines = [first]
+            unseen = Array(supporting.dropFirst(showsLength ? 1 : 0))
         }
 
         return WorkoutRowPresentation(
             title: WorkoutSource.displaySport(row.sport), symbol: sportSymbol(row.sport),
             primary: primary?.shown, lines: lines.map { $0.map { WorkoutFormat.unbreakable($0.shown) } },
             strain: WorkoutStrainBadge.make(for: row),
-            spokenFacts: lines.flatMap { $0.map(\.spoken) }, spokenPrimary: primary?.spoken)
+            spokenFacts: (lines.flatMap { $0 } + unseen).map(\.spoken), spokenPrimary: primary?.spoken,
+            zones: detail == .glance ? WorkoutZoneShares.make(zonesJSON: row.zonesJSON) : nil)
     }
 }
 
