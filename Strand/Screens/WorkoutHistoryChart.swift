@@ -33,6 +33,145 @@ struct WorkoutHistoryDay: Identifiable {
     }
 }
 
+// MARK: Session row
+
+/// One session of the history feed in the flat language: the sport as an inline glyph in the workout colour (no disc),
+/// the sport over the lead number, then one quiet line of "time · source · one stat" over the Strain. At most two
+/// lines. The row is one spoken element that reads everything the presentation knows, not only what fits on screen.
+/// From the largest standard text size up it stacks, so nothing is cut short.
+struct WorkoutFlatRow: View {
+    let presentation: WorkoutRowPresentation
+    @Environment(\.dynamicTypeSize) private var typeSize
+    @ScaledMetric(relativeTo: .body) private var leadSize: CGFloat = 17
+    @ScaledMetric(relativeTo: .body) private var glyphSize: CGFloat = 16
+    @ScaledMetric(relativeTo: .body) private var glyphColumn: CGFloat = WorkoutFlatRowMetrics.baseColumn
+
+    /// The facts of the second line: when it was and where it came from, then the one stat that says most.
+    private var metaFacts: [String] {
+        let first = presentation.lines.first ?? []
+        let stat = presentation.lines.dropFirst().first?.prefix(1) ?? []
+        return first + stat
+    }
+
+    var body: some View {
+        Group {
+            if WorkoutRowLayout.stacks(typeSize) { stacked } else { inline }
+        }
+        .padding(.vertical, NoopMetrics.space3)
+        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(presentation.accessibilityLabel)
+    }
+
+    private var glyph: some View {
+        Image(systemName: presentation.symbol)
+            .font(.system(size: glyphSize, weight: .semibold))
+            .foregroundStyle(DomainTint.workout.accent)
+            .frame(width: WorkoutFlatRowMetrics.column(scaled: glyphColumn))
+            .accessibilityHidden(true)
+    }
+
+    private var inline: some View {
+        HStack(alignment: .firstTextBaseline, spacing: WorkoutFlatRowMetrics.spacing) {
+            glyph
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(alignment: .firstTextBaseline, spacing: NoopMetrics.space2) {
+                    title.layoutPriority(1)
+                    Spacer(minLength: NoopMetrics.space2)
+                    primary
+                }
+                HStack(alignment: .center, spacing: NoopMetrics.space2) {
+                    WorkoutFactLine(facts: metaFacts).layoutPriority(1)
+                    Spacer(minLength: NoopMetrics.space2)
+                    if let strain = presentation.strain { WorkoutFlatStrainBadge(badge: strain) }
+                }
+            }
+        }
+    }
+
+    private var stacked: some View {
+        VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+            HStack(alignment: .firstTextBaseline, spacing: WorkoutFlatRowMetrics.spacing) {
+                glyph
+                title
+            }
+            Text(verbatim: WorkoutFormat.joined(metaFacts))
+                .font(StrandFont.footnote)
+                .foregroundStyle(StrandPalette.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: NoopMetrics.space3) {
+                primary
+                if let strain = presentation.strain { WorkoutFlatStrainBadge(badge: strain) }
+            }
+        }
+    }
+
+    private var title: some View {
+        Text(verbatim: presentation.title)
+            .font(StrandFont.body.weight(.semibold))
+            .foregroundStyle(StrandPalette.textPrimary)
+            .lineLimit(2)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    @ViewBuilder private var primary: some View {
+        if let primary = presentation.primary {
+            Text(verbatim: primary)
+                .font(StrandFont.number(leadSize))
+                .foregroundStyle(StrandPalette.textPrimary)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+        }
+    }
+}
+
+enum WorkoutFlatRowMetrics {
+    /// The glyph column's width at the default text size, and the gap after it.
+    static let baseColumn: CGFloat = 24
+    static let spacing: CGFloat = NoopMetrics.space3
+
+    /// The column follows the text size up to a ceiling, so a very large size never gives the glyph more room than the
+    /// words beside it.
+    static func column(scaled: CGFloat) -> CGFloat { min(scaled, 34) }
+}
+
+/// A workout's Strain on a small capsule: one look for every source, the number alone. Whose number it is, is said by
+/// the source in the row's second line and by VoiceOver, never by a second badge style.
+struct WorkoutFlatStrainBadge: View {
+    let badge: WorkoutStrainBadge
+    @ScaledMetric(relativeTo: .caption) private var valueSize: CGFloat = 12
+
+    var body: some View {
+        Text(verbatim: badge.text)
+            .font(StrandFont.number(valueSize, weight: .semibold))
+            .foregroundStyle(StrandPalette.textPrimary)
+            .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: false)
+            .statePillChrome(tint: DomainTint.strain.accent)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(badge.isWhoop
+                ? String(localized: "WHOOP strain \(badge.text)")
+                : String(localized: "Strain \(badge.text)"))
+    }
+}
+
+/// The hairline between two rows, starting under the row's text. `leadingExtra` is whatever the list puts before the
+/// row (the selection column).
+struct WorkoutFlatRowSeparator: View {
+    var leadingExtra: CGFloat = 0
+    @Environment(\.dynamicTypeSize) private var typeSize
+    @ScaledMetric(relativeTo: .body) private var glyphColumn: CGFloat = WorkoutFlatRowMetrics.baseColumn
+
+    private var inset: CGFloat {
+        let glyph = WorkoutRowLayout.stacks(typeSize) ? 0
+            : WorkoutFlatRowMetrics.column(scaled: glyphColumn) + WorkoutFlatRowMetrics.spacing
+        return glyph + leadingExtra
+    }
+
+    var body: some View { FlatRowSeparator(leadingInset: inset) }
+}
+
 // MARK: Disclosure row
 
 /// A row that shows or hides what follows it: a subhead-semibold title and a tertiary chevron that turns down when
@@ -219,8 +358,8 @@ struct WorkoutHistoryChart: View {
 
 // MARK: Loading
 
-/// The hub before its rows have been read: the action pills, the minutes section, the History header and a day of rows
-/// in their real shape, as quiet placeholders.
+/// The hub before its rows have been read: the minutes section, the History header and a day of rows in their real
+/// shape, as quiet placeholders.
 struct WorkoutHistorySkeleton: View {
     private static let rows = (0..<3).map { _ in
         WorkoutRowPresentation(
@@ -230,11 +369,6 @@ struct WorkoutHistorySkeleton: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: NoopMetrics.space2) {
-                Capsule(style: .continuous).fill(StrandPalette.chipFill).frame(width: 150, height: 40)
-                Capsule(style: .continuous).fill(StrandPalette.chipFill).frame(width: 140, height: 40)
-            }
-            FlatSectionSeparator()
             WorkoutHistoryChart.placeholder()
             FlatSectionSeparator.beforeChipHeader
             FlatSection("History", systemImage: "list.bullet.rectangle", tint: .workout) {
@@ -248,8 +382,8 @@ struct WorkoutHistorySkeleton: View {
                 .padding(.top, NoopMetrics.space4)
                 .padding(.bottom, NoopMetrics.space1)
             ForEach(Array(Self.rows.enumerated()), id: \.offset) { index, presentation in
-                if index > 0 { WorkoutRowSeparator() }
-                WorkoutRowContent(presentation: presentation)
+                if index > 0 { WorkoutFlatRowSeparator() }
+                WorkoutFlatRow(presentation: presentation)
             }
         }
         .redacted(reason: .placeholder)

@@ -9,31 +9,28 @@ struct QuickActionSheet: View {
     let onQuickStart: (_ sport: String) -> Void
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var typeSize
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var router: NavRouter
     @State private var quickStartSport: String?
     @State private var actionSelected = false
+    /// The glyph column of every row, so the text of all rows starts on one line. It follows the text size up to a ceiling.
+    @ScaledMetric(relativeTo: .body) private var scaledGlyphColumn: CGFloat = 24
+
+    private var glyphColumn: CGFloat { min(scaledGlyphColumn, 34) }
+    private var rowSpacing: CGFloat { NoopMetrics.space3 }
+    /// Where a row's text begins: after the glyph column and its gap.
+    private var textInset: CGFloat { glyphColumn + rowSpacing }
 
     private var blockedByLift: Bool { model.activeWorkout == nil && model.workoutStartBlock == .liftActive }
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(alignment: .center) {
-                Text("Quick Actions").font(StrandFont.title2)
-                    .accessibilityAddTraits(.isHeader)
-                Spacer()
-                Button { dismiss() } label: {
-                    Image(systemName: "xmark").font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(StrandPalette.textSecondary)
-                        .frame(width: 32, height: 32)
-                        .background(StrandPalette.inset, in: Circle())
-                        .frame(width: 44, height: 44).contentShape(Rectangle())
-                }
-                .accessibilityLabel("Close Quick Actions")
-                .accessibilityIdentifier("quickActions.close")
+            NoopSheetTitleRow("Quick Actions") {
+                HeaderChipButton("xmark", accessibilityLabel: "Close Quick Actions") { dismiss() }
+                    .accessibilityIdentifier("quickActions.close")
             }
-            .padding(.horizontal, NoopMetrics.space5).padding(.top, NoopMetrics.space4)
-            .padding(.bottom, NoopMetrics.space2)
+            .padding(.horizontal, 16).padding(.top, NoopMetrics.space3)
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     workoutAction
@@ -47,15 +44,15 @@ struct QuickActionSheet: View {
                                 Text("Skips setup").font(StrandFont.micro)
                                     .foregroundStyle(StrandPalette.textTertiary)
                             }
-                            // On the text column of the row above (38pt disc plus 16pt spacing).
-                            .padding(.leading, 54)
+                            // On the text column of the row above.
+                            .padding(.leading, textInset)
                             .frame(minHeight: 44).contentShape(Rectangle())
                         }
                         .accessibilityHint("Starts the countdown using the eligible recent sport")
                         .accessibilityIdentifier("quickActions.recentSport")
                         .padding(.bottom, NoopMetrics.space3)
                     }
-                    Rectangle().fill(StrandPalette.hairline).frame(height: 1).accessibilityHidden(true)
+                    FlatRowSeparator()
                     action("Log journal", detail: "Record how you feel", symbol: "square.and.pencil",
                            tint: StrandPalette.journalAccent, id: "journal") { onPick(.journal) }
                     action("Live HR", detail: "See your heart rate now", symbol: "heart.fill",
@@ -66,14 +63,14 @@ struct QuickActionSheet: View {
                     action("Breathe", detail: "Open guided breathing", symbol: "wind",
                            tint: StrandPalette.chargeAccent, id: "breathe") { onPick(.breathe) }
                 }
-                .padding(.horizontal, NoopMetrics.space5).padding(.bottom, NoopMetrics.space5)
+                .padding(.horizontal, 16).padding(.bottom, NoopMetrics.space5)
             }
             .scrollIndicators(.hidden)
             .scrollBounceBehavior(.basedOnSize)
         }
         .buttonStyle(.plain)
         .foregroundStyle(StrandPalette.textPrimary)
-        .background(StrandPalette.card.ignoresSafeArea())
+        .background(StrandPalette.appCanvas.ignoresSafeArea())
         // One pick per presentation: later taps land nowhere while the sheet closes, without dimming the rows.
         .allowsHitTesting(!actionSelected)
         .onAppear {
@@ -84,7 +81,7 @@ struct QuickActionSheet: View {
     }
 
     /// The primary row. It starts a workout, returns to the one in progress, or, while a lift is recording, returns to
-    /// the lift (a workout cannot start under it).
+    /// the lift (a workout cannot start under it). The one solid action of the sheet: Today's Start pill at its end.
     private var workoutAction: some View {
         let active = model.activeWorkout != nil
         return Button {
@@ -92,33 +89,47 @@ struct QuickActionSheet: View {
                 if blockedByLift { router.openActiveLift() } else { onWorkout(active) }
             }
         } label: {
-            HStack(alignment: .center, spacing: NoopMetrics.space4) {
-                Image(systemName: blockedByLift ? "dumbbell.fill" : "figure.run")
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(StrandPalette.accent)
-                    .frame(width: 38, height: 38)
-                    .background(StrandPalette.accent.opacity(0.14), in: Circle())
-                    .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: NoopMetrics.space1) {
-                    Text(workoutTitle)
-                        .font(StrandFont.title2).fixedSize(horizontal: false, vertical: true)
-                    workoutSubtitle.font(StrandFont.footnote)
-                        .foregroundStyle(StrandPalette.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
+            let glyph = glyph(blockedByLift ? "dumbbell.fill" : "figure.run", tint: DomainTint.workout.accent)
+            let texts = VStack(alignment: .leading, spacing: NoopMetrics.space1) {
+                Text(workoutTitle)
+                    .font(StrandFont.headline).fixedSize(horizontal: false, vertical: true)
+                workoutSubtitle.font(StrandFont.footnote)
+                    .foregroundStyle(StrandPalette.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            let pill = Group {
+                if active || blockedByLift { Text("Open") } else { Text("Start") }
+            }
+            .workoutStartPillChrome()
+            .accessibilityHidden(true)
+            Group {
+                if typeSize.isAccessibilitySize {
+                    VStack(alignment: .leading, spacing: NoopMetrics.space3) {
+                        HStack(alignment: .firstTextBaseline, spacing: rowSpacing) { glyph; texts }
+                        pill
+                    }
+                } else {
+                    HStack(alignment: .center, spacing: rowSpacing) {
+                        glyph
+                        texts.frame(maxWidth: .infinity, alignment: .leading)
+                        pill
+                    }
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                Image(systemName: active || blockedByLift ? "arrow.up.right" : "arrow.right")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(StrandPalette.onInk)
-                    .frame(width: 38, height: 38)
-                    .background(StrandPalette.ink, in: Circle())
-                    .accessibilityHidden(true)
             }
             .padding(.vertical, NoopMetrics.space4).contentShape(Rectangle())
         }
         .buttonStyle(QuickActionPressStyle(reduceMotion: reduceMotion))
         .accessibilityIdentifier(active ? "quickActions.resumeWorkout"
                                  : blockedByLift ? "quickActions.returnToLift" : "quickActions.startWorkout")
+    }
+
+    /// A row's symbol, inline in its metric colour (no disc), centred in the shared glyph column.
+    private func glyph(_ symbol: String, tint: Color) -> some View {
+        Image(systemName: symbol)
+            .font(.system(size: 17, weight: .semibold))
+            .foregroundStyle(tint)
+            .frame(width: glyphColumn)
+            .accessibilityHidden(true)
     }
 
     private var workoutTitle: LocalizedStringKey {
@@ -138,12 +149,8 @@ struct QuickActionSheet: View {
     private func action(_ title: LocalizedStringKey, detail: LocalizedStringKey, symbol: String, tint: Color,
                         id: String, action: @escaping () -> Void) -> some View {
         Button { perform(action) } label: {
-            HStack(spacing: NoopMetrics.space4) {
-                Image(systemName: symbol).font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(tint)
-                    .frame(width: 38, height: 38)
-                    .background(tint.opacity(0.14), in: Circle())
-                    .accessibilityHidden(true)
+            HStack(alignment: .firstTextBaseline, spacing: rowSpacing) {
+                glyph(symbol, tint: tint)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title).font(StrandFont.subhead.weight(.semibold))
                     Text(detail).font(StrandFont.footnote)
@@ -153,10 +160,8 @@ struct QuickActionSheet: View {
                 Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(StrandPalette.textTertiary).accessibilityHidden(true)
             }
-            .padding(.vertical, NoopMetrics.space3).frame(minHeight: 68).contentShape(Rectangle())
-            .overlay(alignment: .bottom) {
-                Rectangle().fill(StrandPalette.hairline).frame(height: 1).padding(.leading, 54).accessibilityHidden(true)
-            }
+            .padding(.vertical, NoopMetrics.space3).frame(minHeight: 56).contentShape(Rectangle())
+            .overlay(alignment: .bottom) { FlatRowSeparator(leadingInset: textInset) }
         }
         .buttonStyle(QuickActionPressStyle(reduceMotion: reduceMotion))
         .accessibilityIdentifier("quickActions.\(id)")
