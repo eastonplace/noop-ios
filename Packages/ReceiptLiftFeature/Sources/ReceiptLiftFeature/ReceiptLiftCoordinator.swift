@@ -114,6 +114,11 @@ public final class ReceiptLiftCoordinator: ObservableObject {
     private var observation: AnyCancellable?
     private var backgroundSaveTask: Task<Void, Never>?
     private var backgroundLease: UIBackgroundTaskIdentifier = .invalid
+    /// UIKit seam so a test can fire the expiration handler and watch the lease end. Production uses `UIApplication`.
+    var beginBackgroundTask: (String, @escaping @MainActor @Sendable () -> Void) -> UIBackgroundTaskIdentifier = { name, expiration in
+        UIApplication.shared.beginBackgroundTask(withName: name, expirationHandler: expiration)
+    }
+    var endBackgroundTask: (UIBackgroundTaskIdentifier) -> Void = { UIApplication.shared.endBackgroundTask($0) }
     public var hasActiveSession: Bool { store.activeSession != nil }
     public var saveError: String? { store.databaseSaveError }
 
@@ -145,8 +150,10 @@ public final class ReceiptLiftCoordinator: ObservableObject {
 
     public func applicationDidEnterBackground() {
         guard backgroundSaveTask == nil else { return }
-        backgroundLease = UIApplication.shared.beginBackgroundTask(withName: "Save Lift workout") { [weak self] in
-            Task { @MainActor in self?.endBackgroundLease() }
+        // iOS kills the app if the task is still open when this handler returns, so end it inline rather than
+        // hopping to a later actor turn. The save Task keeps running; its own end is then a no-op.
+        backgroundLease = beginBackgroundTask("Save Lift workout") { [weak self] in
+            self?.endBackgroundLease()
         }
         store.applicationDidEnterBackground()
         backgroundSaveTask = Task { [weak self] in
@@ -159,7 +166,7 @@ public final class ReceiptLiftCoordinator: ObservableObject {
 
     private func endBackgroundLease() {
         guard backgroundLease != .invalid else { return }
-        UIApplication.shared.endBackgroundTask(backgroundLease)
+        endBackgroundTask(backgroundLease)
         backgroundLease = .invalid
     }
 

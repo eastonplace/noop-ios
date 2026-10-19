@@ -50,7 +50,7 @@ single `DatabaseQueue` and applies these PRAGMAs before any query runs:
 | PRAGMA | Value | Why |
 | --- | --- | --- |
 | `journal_mode` | `WAL` | Two handles to the same file (the BLE collector and the metrics repository) can read/write without deadlocking. |
-| `synchronous` | `NORMAL` | Durable pairing with WAL — only an OS crash or power loss can lose the last transaction. |
+| `synchronous` | `NORMAL` (`FULL` for the historical chunk commit) | NORMAL is the WAL pairing — only an OS crash or power loss can lose the last transaction. `commitHistoricalChunkResult` runs its transaction at `FULL` (`syncWriteDurable`) because the strap trims its only copy on the ACK that follows. |
 | `cache_size` | `-16000` | ~16 MB page cache for multi-thousand-row import/backfill writes. |
 | `mmap_size` | `268435456` | 256 MB memory-mapped I/O. |
 | `temp_store` | `MEMORY` | In-memory temp tables. |

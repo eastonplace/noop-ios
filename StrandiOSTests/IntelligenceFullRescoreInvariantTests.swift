@@ -618,6 +618,28 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
         }
     }
 
+    /// The ordinary today-only pass reconciles detected workouts over a window reaching 30 h back, but it only
+    /// detects bouts inside today. Last evening's stored detected workout is outside what it can reproduce, so
+    /// it must survive the first pass after midnight.
+    func testATodayOnlyPassKeepsLastEveningsDetectedWorkout() async throws {
+        try await withRecalibrationEpochsRestored {
+            let days = 3
+            let harness = try await makeHarness(days: days)
+            let workoutStart = firstDayStart + 1 * 86_400 + 19 * 3_600
+            let workout = WorkoutRow(startTs: workoutStart, endTs: workoutStart + 1_800, sport: "detected",
+                                     source: harness.computedId, durationS: 1_800, energyKcal: 240, avgHr: 142,
+                                     maxHr: 160, strain: 7.4, distanceM: nil, zonesJSON: nil, notes: nil,
+                                     strainVersion: 2)
+            _ = try await harness.store.upsertWorkouts([workout], deviceId: harness.computedId)
+
+            let ordinary = await pass(harness, maxDays: 1)
+            XCTAssertTrue(ordinary)
+            let kept = try await harness.store.workouts(
+                deviceId: harness.computedId, from: workoutStart, to: workoutStart, limit: 10)
+            XCTAssertEqual(kept, [workout], "a today-only pass cannot reproduce last evening's workout")
+        }
+    }
+
     /// Finding 6: after Recalibrate, the wearable fold has no Charge for the first nights after the epoch and
     /// produces no row for them. The migration's rescore keeps those days' stored rows; an ordinary pass over the
     /// same window still replaces them.

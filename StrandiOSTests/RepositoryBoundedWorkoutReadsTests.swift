@@ -1,4 +1,5 @@
 import XCTest
+import WhoopProtocol
 import WhoopStore
 @testable import NOOP
 
@@ -59,5 +60,40 @@ final class RepositoryBoundedWorkoutReadsTests: XCTestCase {
             deviceId: "xiaomi-band")
         let sleeps = await repository.sleepSessionCount(deviceId: "xiaomi-band")
         XCTAssertEqual(sleeps, 1)
+    }
+
+    /// Perf: Today passes `reconcileLimit: 6`. The head must come back byte-identical to a full reconcile
+    /// (same rows, same order, same Avg/Max HR), the tail must pass through unreconciled, and the HR reads
+    /// must stop at the limit instead of covering every eligible row.
+    func testReconcileLimitMatchesTheHeadOfAFullReconcileAndLeavesTheTailVerbatim() async throws {
+        let store = try await WhoopStore.inMemory()
+        let repository = Repository(deviceId: Repository.whoopSource)
+        repository.setStoreForTesting(store)
+        // Imported rows with no Avg HR are reconcile-eligible; the strap trace covers every window.
+        let now = Int(Date().timeIntervalSince1970)
+        var rows: [WorkoutRow] = []
+        var hr: [HRSample] = []
+        for i in 0..<8 {
+            let start = now - (i + 1) * 86_400
+            rows.append(WorkoutRow(startTs: start, endTs: start + 600, sport: "running", source: "apple-health",
+                                   durationS: 600, energyKcal: 100, avgHr: nil, maxHr: nil, strain: nil,
+                                   distanceM: nil, zonesJSON: nil, notes: nil))
+            for t in 0..<600 { hr.append(HRSample(ts: start + t, bpm: 100 + i)) }
+        }
+        try await store.upsertWorkouts(rows, deviceId: Repository.appleHealthSource)
+        _ = try await store.insert(Streams(hr: hr), deviceId: Repository.whoopSource)
+
+        let full = await repository.workoutRows()
+        XCTAssertEqual(full.count, 8)
+        XCTAssertTrue(full.allSatisfy { $0.avgHr != nil }, "a full pass reconciles every eligible row")
+
+        let limit = 3
+        let bounded = await repository.workoutRows(reconcileLimit: limit)
+        XCTAssertEqual(bounded.map(\.startTs), full.map(\.startTs), "same rows, same order")
+        XCTAssertEqual(Array(bounded.prefix(limit)), Array(full.prefix(limit)), "head is byte-identical")
+        XCTAssertTrue(bounded.dropFirst(limit).allSatisfy { $0.avgHr == nil }, "tail is not reconciled")
+
+        let unreconciled = await repository.workoutRows(reconcileHR: false)
+        XCTAssertEqual(Array(bounded.dropFirst(limit)), Array(unreconciled.dropFirst(limit)))
     }
 }

@@ -68,6 +68,22 @@ final class WindDownPerDayOverrideTests: XCTestCase {
         XCTAssertEqual(WindDownNudge.nudgeMinuteOfDay(forWeekday: 3), expectedDefault)
     }
 
+    func testNudgeWeekday_wrapsToPreviousEveningWhenNudgeCrossesMidnight() {
+        WindDownNudge.setWakeMinutes(7 * 60)
+        // Monday (2) wake 06:30: raw = 390 - need - lead < 0 → nudge is Sunday (1) evening.
+        WindDownNudge.setWakeOverride(weekday: 2, minutes: 6 * 60 + 30)
+        let need = WindDownNudge.sleepNeedMinutes, lead = WindDownNudge.leadMinutes
+        XCTAssertLessThan(6 * 60 + 30 - need - lead, 0)
+        XCTAssertEqual(WindDownNudge.nudgeWeekday(forWeekday: 2), 1)
+        // Sunday (1) wraps back to Saturday (7).
+        WindDownNudge.setWakeOverride(weekday: 1, minutes: 6 * 60 + 30)
+        XCTAssertEqual(WindDownNudge.nudgeWeekday(forWeekday: 1), 7)
+        // A late wake that does not wrap stays on its own weekday.
+        WindDownNudge.setWakeOverride(weekday: 7, minutes: 12 * 60)
+        XCTAssertGreaterThanOrEqual(12 * 60 - need - lead, 0)
+        XCTAssertEqual(WindDownNudge.nudgeWeekday(forWeekday: 7), 7)
+    }
+
     func testOverrideMinutesAreClamped() {
         WindDownNudge.setWakeOverride(weekday: 4, minutes: 5_000)   // way past a day
         XCTAssertEqual(WindDownNudge.wakeMinutes(forWeekday: 4), 24 * 60 - 1)

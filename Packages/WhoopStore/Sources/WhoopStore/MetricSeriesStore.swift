@@ -168,8 +168,8 @@ extension WhoopStore {
 
     /// Points for a single `key` on days in [from, to] (lexicographic YYYY-MM-DD compare),
     /// oldest day first. Served index-only by idx_metricSeries_device_key_day.
-    public func metricSeries(deviceId: String, key: String, from: String, to: String) async throws -> [MetricPoint] {
-        try syncRead { db in
+    public nonisolated func metricSeries(deviceId: String, key: String, from: String, to: String) async throws -> [MetricPoint] {
+        try await poolRead { db in
             try Row.fetchAll(db, sql: """
                 SELECT day, key, value FROM metricSeries
                 WHERE deviceId = ? AND key = ? AND day >= ? AND day <= ?

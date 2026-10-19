@@ -38,6 +38,42 @@ final class BackupArchiveHardeningTests: XCTestCase {
         )
     }
 
+    func testVerifiedBackupCapturesRowsStillInWAL() throws {
+        let url = temporaryDirectory.appendingPathComponent("wal-\(UUID().uuidString).sqlite")
+        var db: OpaquePointer?
+        XCTAssertEqual(sqlite3_open(url.path, &db), SQLITE_OK)
+        defer { sqlite3_close(db) }
+        // Keep every commit in the -wal (no auto-checkpoint), as when a reader blocks a checkpoint.
+        XCTAssertEqual(
+            sqlite3_exec(db, """
+                PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0;
+                CREATE TABLE grdb_migrations(identifier TEXT PRIMARY KEY);
+                CREATE TABLE t(x INTEGER);
+                INSERT INTO t VALUES (42);
+                """, nil, nil, nil),
+            SQLITE_OK
+        )
+        let walBytes = (try FileManager.default.attributesOfItem(atPath: url.path + "-wal")[.size] as? NSNumber)?.intValue ?? 0
+        XCTAssertGreaterThan(walBytes, 0, "fixture must leave committed rows in the WAL")
+
+        let archiveURL = temporaryDirectory.appendingPathComponent("wal.noopbak")
+        try DataBackup.writeVerifiedBackupForTesting(databaseAt: url, to: archiveURL)
+
+        let archive = try Archive(url: archiveURL, accessMode: .read)
+        let entry = try XCTUnwrap(archive.first(where: { $0.path == "noop-backup.sqlite" }))
+        let extracted = temporaryDirectory.appendingPathComponent("extracted.sqlite")
+        _ = try archive.extract(entry, to: extracted)
+
+        var copy: OpaquePointer?
+        XCTAssertEqual(sqlite3_open_v2(extracted.path, &copy, SQLITE_OPEN_READONLY, nil), SQLITE_OK)
+        defer { sqlite3_close(copy) }
+        var stmt: OpaquePointer?
+        XCTAssertEqual(sqlite3_prepare_v2(copy, "SELECT x FROM t", -1, &stmt, nil), SQLITE_OK)
+        defer { sqlite3_finalize(stmt) }
+        XCTAssertEqual(sqlite3_step(stmt), SQLITE_ROW, "rows committed to the WAL must be in the backup")
+        XCTAssertEqual(sqlite3_column_int(stmt, 0), 42)
+    }
+
     func testExportOutcomeWarnsOnlyAboveDatabaseRestoreCeiling() throws {
         let database = try makeValidDatabase()
         let destination = temporaryDirectory.appendingPathComponent("export.noopbak")
