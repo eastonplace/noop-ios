@@ -214,7 +214,7 @@ struct DrillInTrendSection: View {
     /// instead of the bare "M" (the same treatment the Trends tab gives it).
     private func rangePicker(days: Int, earliest: Date?, tint: DomainTint) -> some View {
         SegmentedPillControl(ranges, selection: $range) { $0.rawValue }
-            .segmentedPillTint(tint.accent)
+            .segmentedPillTint(domain: tint)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Range")
             .accessibilityValue(range == .all ? String(localized: "All time") : String(localized: "\(days) days"))

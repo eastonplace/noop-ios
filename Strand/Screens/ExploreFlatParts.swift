@@ -337,7 +337,7 @@ struct ExploreRangeControl: View {
     private var picker: some View {
         let ranges = ExploreRange.allCases
         return SegmentedPillControl(ranges, selection: $selection, isEnabled: isEnabled) { $0.label }
-            .segmentedPillTint(tint?.accent)
+            .segmentedPillTint(domain: tint)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Range")
             .accessibilityValue(selection.title)

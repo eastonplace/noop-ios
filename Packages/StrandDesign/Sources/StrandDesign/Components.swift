@@ -596,6 +596,40 @@ public extension View {
     func segmentedPillTint(_ color: Color?) -> some View {
         environment(\.segmentedPillTint, color)
     }
+
+    /// `segmentedPillTint` for a control under a metric widget, from the widget's `DomainTint`. Uses the tint's stable
+    /// metric colour (`DomainTint.rangeControlAccent`), never a data-dependent band, so a low-recovery day does not turn
+    /// the selected range tab red.
+    func segmentedPillTint(domain: DomainTint?) -> some View {
+        environment(\.segmentedPillTint, domain?.rangeControlAccent)
+    }
+}
+
+extension DomainTint {
+    /// The colour a range control takes from this tint, or nil for the neutral look.
+    /// - Recovery uses its stable data colour: the score band (green / yellow / red) is state, and a red "selected" tab reads
+    ///   as a warning.
+    /// - A tint that resolves to a grey (`neutral`, or a recovery with no score) gives nil: grey on grey would leave the
+    ///   selected label the same colour as the unselected ones.
+    public var rangeControlAccent: Color? {
+        switch self {
+        case .recovery: return StrandPalette.recoveryData
+        case .neutral: return nil
+        default:
+            let color = accent
+            return (color == StrandPalette.textTertiary || color == StrandPalette.textSecondary) ? nil : color
+        }
+    }
+}
+
+extension Color {
+    /// This colour mixed toward white by `amount` (0...1), in sRGB.
+    func lightened(by amount: Double) -> Color {
+        let c = rgbaComponents
+        let t = min(max(amount, 0), 1)
+        return Color(.sRGB, red: c.r + (1 - c.r) * t, green: c.g + (1 - c.g) * t, blue: c.b + (1 - c.b) * t,
+                     opacity: c.a)
+    }
 }
 
 /// The fill behind the selected segment and the colour of its label, resolved from the tint and the selection style.
@@ -604,9 +638,18 @@ struct SegmentedPillSelectionAppearance: Equatable {
     let fill: Color
     let label: Color
 
+    /// How far the label's colour is lightened toward white. The thumb carries the pure tint (at 0.18); the small semibold
+    /// label sits on that thumb over the card, and the pure metric colours (HRV purple, low-recovery red, strain blue) miss
+    /// 4.5:1 there. At 0.4 every metric tint reaches at least 5:1 on the thumb over both the canvas and the card.
+    static let tintedLabelLightening = 0.4
+
     static func resolve(tint: Color?, style: SegmentedPillSelectionStyle) -> SegmentedPillSelectionAppearance {
-        if let tint {
-            return SegmentedPillSelectionAppearance(fill: tint.opacity(0.18), label: tint)
+        // A grey tint (a metric with no colour yet) would leave the selected label the same colour as the unselected ones.
+        if let tint, tint != StrandPalette.textTertiary, tint != StrandPalette.textSecondary {
+            return SegmentedPillSelectionAppearance(
+                fill: tint.opacity(0.18),
+                label: tint.lightened(by: tintedLabelLightening)
+            )
         }
         return SegmentedPillSelectionAppearance(
             fill: StrandPalette.ink.opacity(style == .solid ? 0.22 : 0.12),
@@ -701,10 +744,12 @@ public struct SegmentedPillControl<T: Hashable>: View {
                         // Disabled segments drop to a fainter tertiary so the lock reads at a glance.
                         .foregroundStyle(sel ? appearance.label
                                              : StrandPalette.textTertiary.opacity(enabled ? 1 : 0.35))
-                        .multilineTextAlignment(.center)
+                        // Stacked rows have no track to frame them, so their labels line up on the leading edge like a list.
+                        .multilineTextAlignment(stacked ? .leading : .center)
                 }
                 // (Stacked rows are only as tall as their label: a greedy height would stretch a pinned header.)
-                .frame(minWidth: 26, maxWidth: stacked ? .infinity : nil, maxHeight: stacked ? nil : .infinity)
+                .frame(minWidth: 26, maxWidth: stacked ? .infinity : nil, maxHeight: stacked ? nil : .infinity,
+                       alignment: stacked ? .leading : .center)
                 .padding(.horizontal, 10)
                 .padding(.vertical, stacked ? 10 : 0)
                 .background(

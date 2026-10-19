@@ -146,7 +146,7 @@ final class DesignLabAtomTests: XCTestCase {
         let tint = Color.orange
         let tinted = SegmentedPillSelectionAppearance.resolve(tint: tint, style: .solid)
         XCTAssertEqual(tinted.fill, tint.opacity(0.18))
-        XCTAssertEqual(tinted.label, tint)
+        XCTAssertEqual(tinted.label, tint.lightened(by: SegmentedPillSelectionAppearance.tintedLabelLightening))
         // With a tint the two styles draw the same thumb.
         XCTAssertEqual(SegmentedPillSelectionAppearance.resolve(tint: tint, style: .quiet), tinted)
 
@@ -156,6 +156,48 @@ final class DesignLabAtomTests: XCTestCase {
         let solid = SegmentedPillSelectionAppearance.resolve(tint: nil, style: .solid)
         XCTAssertEqual(solid.fill, StrandPalette.ink.opacity(0.22))
         XCTAssertEqual(solid.label, StrandPalette.textPrimary)
+    }
+
+    /// WCAG relative luminance and contrast of sRGB colours, for the label-on-thumb check below.
+    private func luminance(_ c: (r: Double, g: Double, b: Double, a: Double)) -> Double {
+        func lin(_ v: Double) -> Double { v <= 0.03928 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4) }
+        return 0.2126 * lin(c.r) + 0.7152 * lin(c.g) + 0.0722 * lin(c.b)
+    }
+
+    private func contrast(_ a: Double, _ b: Double) -> Double { (max(a, b) + 0.05) / (min(a, b) + 0.05) }
+
+    func testTintedSelectedLabelReachesTextContrastOnTheThumb() {
+        let tints: [(String, Color)] = [
+            ("hrv purple", StrandPalette.metricPurple), ("recovery red", Color(hex: "#FF0026")),
+            ("strain", StrandPalette.strainAccent), ("sleep", StrandPalette.sleepAccent),
+            ("recovery data", StrandPalette.recoveryData),
+        ]
+        for (name, tint) in tints {
+            let appearance = SegmentedPillSelectionAppearance.resolve(tint: tint, style: .solid)
+            let label = luminance(appearance.label.rgbaComponents)
+            let thumb = tint.rgbaComponents
+            for background in [StrandPalette.canvas, StrandPalette.card] {
+                let bg = background.rgbaComponents
+                // The thumb is the tint at 0.18 over the surface it sits on.
+                let blended = (r: bg.r + (thumb.r - bg.r) * 0.18, g: bg.g + (thumb.g - bg.g) * 0.18,
+                               b: bg.b + (thumb.b - bg.b) * 0.18, a: 1.0)
+                XCTAssertGreaterThanOrEqual(contrast(label, luminance(blended)), 4.5, name)
+            }
+        }
+    }
+
+    func testGreyTintsFallBackToTheNeutralLook() {
+        let neutral = SegmentedPillSelectionAppearance.resolve(tint: nil, style: .solid)
+        XCTAssertEqual(SegmentedPillSelectionAppearance.resolve(tint: StrandPalette.textTertiary, style: .solid), neutral)
+        XCTAssertEqual(SegmentedPillSelectionAppearance.resolve(tint: StrandPalette.textSecondary, style: .solid), neutral)
+        XCTAssertNil(DomainTint.neutral.rangeControlAccent)
+    }
+
+    func testRecoveryRangeTintIsStableAcrossScoreBands() {
+        XCTAssertEqual(DomainTint.recovery(score: 12).rangeControlAccent, StrandPalette.recoveryData)
+        XCTAssertEqual(DomainTint.recovery(score: 95).rangeControlAccent, StrandPalette.recoveryData)
+        XCTAssertEqual(DomainTint.recovery(score: nil).rangeControlAccent, StrandPalette.recoveryData)
+        XCTAssertEqual(DomainTint.strain.rangeControlAccent, StrandPalette.strainAccent)
     }
 
     func testHypnogramHighlightUsesContractOpacityWithoutChangingHoverRule() {

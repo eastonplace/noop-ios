@@ -344,8 +344,8 @@ public struct TrendsMenuChipLabel: View {
                 .foregroundStyle(StrandPalette.textTertiary)
         }
         .padding(.horizontal, 12)
-        .frame(height: 32)
-        .overlay(Capsule(style: .continuous).strokeBorder(StrandPalette.hairline, lineWidth: 1))
+        .frame(minHeight: 32)
+        .overlay(Capsule(style: .continuous).strokeBorder(StrandPalette.hairlineStrong, lineWidth: 1))
         .frame(minHeight: 44)
         .contentShape(Capsule(style: .continuous))
     }

@@ -67,10 +67,10 @@ struct DesignLabAtomGallery: View {
                                 title: "Strain", systemImage: "flame.fill", tint: DomainTint.strain.accent)
                             Spacer(minLength: 8)
                             SegmentedPillControl(Range.allCases, selection: $strainRange) { $0.rawValue }
-                                .segmentedPillTint(DomainTint.strain.accent)
+                                .segmentedPillTint(domain: .strain)
                         }
                         SegmentedPillControl(Range.allCases, selection: $recoveryRange) { $0.rawValue }
-                            .segmentedPillTint(DomainTint.recovery(score: 72).accent)
+                            .segmentedPillTint(domain: .recovery(score: 72))
                     }
                 }
 

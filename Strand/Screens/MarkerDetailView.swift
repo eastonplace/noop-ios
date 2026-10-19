@@ -221,7 +221,7 @@ struct MarkerDetailView: View {
                     leading: { _ in signalMenu },
                     trailing: {
                         SegmentedPillControl(LabWindow.allCases, selection: $window) { $0.label }
-                            .segmentedPillTint(accent.accent)
+                            .segmentedPillTint(domain: accent)
                             .accessibilityLabel("Trailing window")
                     })
                 Text("side by side · \(window.phrase) before each reading")
