@@ -429,6 +429,68 @@ final class LiftStrainStoreTests: XCTestCase {
         }
     }
 
+    func testResaveToTheOldKeyAfterARekeyFreesTheMovedWorkoutAndSettlesTheOldKey() async throws {
+        // A6 follow-up. After a rekey, a re-save of the session (or a backfill re-run) sends the lift back to the
+        // start it had before the move. The workout at the new key must not keep the combined value for good.
+        for oldWorkoutRecreated in [false, true] {
+            let label = oldWorkoutRecreated ? "old-key workout exists again" : "old-key workout is absent"
+            let store = try await newStore()
+            try await seedBasicLift(store)
+            _ = try await apply(store)
+
+            let newStart = startA + 7_200
+            try await store.rekeyManualWorkout(
+                deviceId: owner,
+                old: workout(startA, strain: 50, version: 2),
+                new: workout(newStart, strain: 50, version: 2),
+                settle: LiftStrainRekeySettle(
+                    canonicalComputedDeviceId: canonical, newDayKey: dayA, oldDayKey: dayA, now: 2_000, combine: combine))
+            let movedBefore = try await workoutPair(store, newStart)
+            XCTAssertEqual(movedBefore, Pair(50, 2), label)
+
+            if oldWorkoutRecreated {
+                try await store.upsertWorkouts([workout(startA, strain: 30, version: 2)], deviceId: owner)
+            }
+            // The re-save: computed columns only, the old start and day again.
+            try await store.upsertLiftStrainComputed(
+                deviceId: owner, rows: [computed("L1", start: startA, day: dayA, load: 10)], now: 3_000)
+            let result = try await apply(store, now: 4_000)
+
+            let moved = try await workoutPair(store, newStart)
+            XCTAssertEqual(moved, Pair(30, 2), "the moved workout is back to its heart-rate value bit-identically (\(label))")
+            let movedTargets = try await rows(store, """
+                SELECT 1 FROM liftStrainTarget WHERE kind = 'workout' AND keyTs = ?
+                """, [newStart])
+            XCTAssertTrue(movedTargets.isEmpty, "no orphaned target at the new key (\(label))")
+
+            let l1 = try await liftRow(store, "L1")
+            XCTAssertEqual(l1?.workoutStartTs, startA, label)
+            let oldKey = try await workoutPair(store, startA)
+            let d = try await dayPair(store, dayA)
+            if oldWorkoutRecreated {
+                XCTAssertEqual(l1?.state, .applied, label)
+                XCTAssertEqual(l1?.appliedMuscularLoad, 10, label)
+                XCTAssertEqual(oldKey, Pair(50, 2), "the re-created old-key workout is combined (\(label))")
+                XCTAssertEqual(d, Pair(60, 2), "the day carries the lift once (\(label))")
+                XCTAssertGreaterThanOrEqual(result.workoutWrites, 2, label)
+            } else {
+                XCTAssertEqual(l1?.state, .detached, label)
+                XCTAssertEqual(l1?.appliedMuscularLoad, 0, label)
+                XCTAssertNil(oldKey, label)
+                XCTAssertEqual(d, Pair(40, 2), "the day is back to its heart-rate value (\(label))")
+            }
+
+            // Settled: a further apply writes nothing at all.
+            let dump = try await trackingDump(store)
+            let again = try await apply(store, now: 6_000)
+            XCTAssertEqual(again.workoutWrites + again.dayWrites, 0, label)
+            let dumpAfter = try await trackingDump(store)
+            XCTAssertEqual(dump, dumpAfter, label)
+            let movedAfter = try await workoutPair(store, newStart)
+            XCTAssertEqual(movedAfter, Pair(30, 2), label)
+        }
+    }
+
     func testOnlyStrainColumnsChange() async throws {
         let store = try await newStore()
         // Targeted rows plus bystanders: another day, a non-lift workout, a sleep session and metric series.

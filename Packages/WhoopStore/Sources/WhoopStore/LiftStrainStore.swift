@@ -798,6 +798,9 @@ extension WhoopStore {
             }
         }
 
+        // Step B sweep: workout targets that no live lift row points at any more.
+        try sweepOrphanWorkoutTargets(db: db, now: now, result: &result)
+
         // Step C: choose days.
         try collectLiftStrainDays(db: db, canonical: canonicalComputedDeviceId, disabled: disabled, into: &dayKeys)
 
@@ -854,6 +857,17 @@ extension WhoopStore {
                 SELECT ls.* FROM liftStrain ls WHERE ls.state = 'detached'
                    AND EXISTS (SELECT 1 FROM workout w WHERE w.deviceId = ls.deviceId
                                AND w.startTs = ls.workoutStartTs AND w.sport = ls.workoutSport)
+                """))
+            // (d) an applied or provisional row that points at a key with no workout target: a re-save or a
+            // backfill re-run sent the row back to a key it was re-keyed away from. Visiting it re-attaches it
+            // (the workout exists) or detaches it (the workout is gone), and the sweep below then frees the
+            // target the move left behind.
+            add(try Row.fetchAll(db, sql: """
+                SELECT ls.* FROM liftStrain ls
+                 WHERE ls.state IN ('applied', 'notScored')
+                   AND NOT EXISTS (SELECT 1 FROM liftStrainTarget t
+                                    WHERE t.deviceId = ls.deviceId AND t.kind = 'workout'
+                                      AND t.keyTs = ls.workoutStartTs AND t.keyText = ls.workoutSport)
                 """))
         }
         return byKey.values.sorted {
@@ -958,6 +972,55 @@ extension WhoopStore {
             written: LiftStrainPair(strain: r["writtenStrain"], version: r["writtenStrainVersion"]),
             orig: LiftStrainPair(strain: r["origStrain"], version: r["origStrainVersion"]),
             applied: r["appliedMuscularLoad"])
+    }
+
+    /// Workout targets that recorded a combined value (or a muscular load) while no non-detached lift row points
+    /// at their key: the lift was re-keyed away, re-saved at another start, or deleted. When the stored pair is
+    /// still the one the apply wrote, the heart-rate-only value goes back with a guarded update; a value someone
+    /// rewrote since is already a heart-rate value and is kept. The target is then dropped: a later lift at that
+    /// key snapshots it afresh. The day of the workout is re-settled by Step C's orphan sweep.
+    private static func sweepOrphanWorkoutTargets(db: Database, now: Int,
+                                                  result: inout LiftStrainApplyResult) throws {
+        let orphans = try Row.fetchAll(db, sql: """
+            SELECT t.* FROM liftStrainTarget t
+             WHERE t.kind = 'workout' AND (t.appliedMuscularLoad > 0 OR t.writtenStrain IS NOT t.hrOnlyStrain)
+               AND NOT EXISTS (SELECT 1 FROM liftStrain ls
+                                WHERE ls.deviceId = t.deviceId AND ls.workoutStartTs = t.keyTs
+                                  AND ls.workoutSport = t.keyText AND ls.state != 'detached')
+            """)
+        for t in orphans {
+            let deviceId: String = t["deviceId"]
+            let keyTs: Int = t["keyTs"]
+            let keyText: String = t["keyText"]
+            if let w = try Row.fetchOne(db, sql: """
+                SELECT strain, strainVersion FROM workout WHERE deviceId = ? AND startTs = ? AND sport = ?
+                """, arguments: [deviceId, keyTs, keyText]) {
+                let current = LiftStrainPair(strain: w["strain"], version: w["strainVersion"])
+                let written = LiftStrainPair(strain: t["writtenStrain"], version: t["writtenStrainVersion"])
+                if current.same(written) {
+                    let orig = LiftStrainPair(strain: t["origStrain"], version: t["origStrainVersion"])
+                    let hrOnly: Double? = t["hrOnlyStrain"]
+                    // Same rule as the revert: never a version-2 NULL, and the original pair when it is the
+                    // heart-rate value.
+                    let restored: LiftStrainPair
+                    if let hrOnly, !LiftStrainBits.same(hrOnly, orig.strain) {
+                        restored = LiftStrainPair(strain: hrOnly, version: 2)
+                    } else {
+                        restored = orig
+                    }
+                    if !restored.same(current) {
+                        try db.execute(sql: """
+                            UPDATE workout SET strain = ?, strainVersion = ?
+                             WHERE deviceId = ? AND startTs = ? AND sport = ? AND strain IS ?
+                            """, arguments: [restored.strain, restored.version, deviceId, keyTs, keyText, current.strain])
+                        if db.changesCount > 0 { result.workoutWrites += 1 } else { result.conflicts += 1 }
+                    }
+                }
+            }
+            try db.execute(sql: """
+                DELETE FROM liftStrainTarget WHERE deviceId = ? AND kind = 'workout' AND keyTs = ? AND keyText = ?
+                """, arguments: [deviceId, keyTs, keyText])
+        }
     }
 
     /// The applied-lift join behind M_day: a lift counts only while its workout still holds the value we wrote.
