@@ -230,6 +230,49 @@ final class DatabasePoolConcurrencyTests: XCTestCase {
         XCTAssertEqual(inserted.hr, 1)
     }
 
+    /// Reading a CLOSED store must throw, never crash. `poolRead` (F8) used to call the async
+    /// `DatabaseWriter.read` on the in-memory `DatabaseQueue`; GRDB 6.29.3's `DatabaseQueue.asyncRead`
+    /// then ran `endReadOnly()` after a failed `beginReadOnly()` (closed connection), driving its
+    /// read-only depth to -1 and tripping "Database.swift: unbalanced endReadOnly()". The queue-backed
+    /// store now reads synchronously on the actor, and the second read proves the depth stayed balanced.
+    func testReadingClosedInMemoryStoreThrowsWithoutTrippingGRDBAssertion() async throws {
+        let store = try await WhoopStore.inMemory()
+        _ = try await store.insert(Streams(hr: [HRSample(ts: 10, bpm: 60)]), deviceId: "dev")
+        let open = try await store.hrSamples(deviceId: "dev", from: 0, to: 100, limit: 10)
+        XCTAssertEqual(open.map(\.ts), [10], "queue-backed reads must still return committed rows")
+
+        try await store.close()
+
+        for attempt in 1...2 {
+            do {
+                _ = try await store.hrSamples(deviceId: "dev", from: 0, to: 100, limit: 10)
+                XCTFail("read #\(attempt) of a closed in-memory store must throw")
+            } catch {
+                XCTAssertFalse(error.localizedDescription.isEmpty)
+            }
+        }
+    }
+
+    /// The production path (file-backed `DatabasePool`) keeps its off-actor read and still fails
+    /// cleanly once the shared pool is closed.
+    func testReadingClosedFileBackedStoreThrows() async throws {
+        let path = tempPath()
+        defer { removeDB(path) }
+
+        let store = try await WhoopStore(path: path)
+        _ = try await store.insert(Streams(hr: [HRSample(ts: 10, bpm: 60)]), deviceId: "dev")
+        let open = try await store.hrSamples(deviceId: "dev", from: 0, to: 100, limit: 10)
+        XCTAssertEqual(open.map(\.ts), [10])
+
+        try await store.close()
+        do {
+            _ = try await store.hrSamples(deviceId: "dev", from: 0, to: 100, limit: 10)
+            XCTFail("a closed pool-backed store must throw")
+        } catch {
+            XCTAssertFalse(error.localizedDescription.isEmpty)
+        }
+    }
+
     /// Local performance guard for the shared writer owner. Alternating handles exercises the same
     /// BLEManager/Repository route as production without adding a second SQLite writer connection.
     func testSharedPoolCommitLatencyBenchmark() async throws {

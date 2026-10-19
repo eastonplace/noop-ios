@@ -177,8 +177,17 @@ public actor WhoopStore {
     /// a GRDB pool reader thread (a WAL snapshot) instead of the actor's serial executor: the read no
     /// longer queues behind in-flight writes or other reads. Same SQL, same committed data, so every
     /// result is identical. Reads that must stay atomic with a write inside one actor method keep `syncRead`.
+    ///
+    /// Only the production `DatabasePool` takes the off-actor path. The in-memory `DatabaseQueue` (tests
+    /// only) must NOT: GRDB 6.29.3's `DatabaseQueue.asyncRead` runs `defer { try? db.endReadOnly() }`
+    /// even when `beginReadOnly()` itself threw (a closed connection fails `PRAGMA query_only = 1`
+    /// before the depth is incremented), driving the depth to -1 and tripping GRDB's
+    /// "unbalanced endReadOnly()" assertion. A queue funnels everything through one serial executor
+    /// anyway, so it keeps the synchronous read on the actor (the pre-F8 behaviour), which throws
+    /// `connectionIsClosed` cleanly.
     nonisolated func poolRead<T: Sendable>(_ block: @Sendable @escaping (Database) throws -> T) async throws -> T {
-        try await dbWriter.read(block)
+        if let pool = sharedPool { return try await pool.read(block) }
+        return try await syncRead(block)
     }
 
     @inline(__always)
