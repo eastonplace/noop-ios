@@ -19,7 +19,7 @@ final class LocalCoachShellTests: XCTestCase {
         capture(app, "01-full-shell-composer")
 
         quickActions.tap()
-        XCTAssertTrue(app.buttons.containing(.staticText, identifier: "Start workout").firstMatch.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["quickActions.startWorkout"].waitForExistence(timeout: 5))
         capture(app, "02-restored-quick-actions")
         app.buttons["quickActions.close"].tap()
         // New conversation is a header action (the composer's + menu no longer repeats it).
