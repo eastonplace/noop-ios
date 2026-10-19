@@ -871,7 +871,10 @@ struct PaperPillarDetailView: View {
             stepTicksPerStep: profile.stepTicksPerStep,
             sleepMinutes: basis?.totalSleepMin,
             heroTenths: latest.map { Int(($0 * 10).rounded()) },
-            refreshSeq: repo.refreshSeq)
+            refreshSeq: repo.refreshSeq,
+            liftLoads: await repo.liftStrainAppliedLoads(dayKey: anchorDayKey).map {
+                StrainDayLiftLoad(endTs: $0.workoutEndTs, muscularLoad: $0.muscularLoad)
+            })
         // A pass from earlier paints at once; the new one replaces it when it lands.
         if strainDay == nil, let kept = StrainDayCache.shared.entry(for: anchorDayKey) { strainDay = kept.result }
         if let fresh = await StrainDayLoader.load(request, repo: repo) { strainDay = fresh }
@@ -940,7 +943,8 @@ struct PaperPillarDetailView: View {
         StrainThroughDaySection(
             result: strainDay, hero: latest, target: strainTarget, workouts: strainWorkouts,
             sleepMinutes: strainDay?.sleepMinutes ?? latestDay?.totalSleepMin, isToday: isToday)
-        if let parts = strainDay.flatMap({ StrainScoreParts.make($0.analysis.components, hero: latest) }) {
+        if let parts = strainDay.flatMap({ StrainScoreParts.make(
+            $0.analysis.components, hero: latest, liftLoad: $0.analysis.liftMuscularLoad) }) {
             DrillInSeparator()
             // The steps the pass scored, so the row's line and its spoken text agree with its number; the calendar
             // day's total only before a pass has landed.

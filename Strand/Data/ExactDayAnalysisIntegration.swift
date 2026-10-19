@@ -213,6 +213,9 @@ extension IntelligenceEngine {
             deviceId: request.namespace.rawDeviceId
         )
         try CooperativeAnalysisCancellation.checkpoint()
+        // Strength Strain: the transient engine above rewrites lift workouts and day rows heart-rate only. Settle
+        // on the primary engine (this one) before the commit publishes, so the generation never shows them bare.
+        _ = await settleLiftStrain()
         return try await ExactAnalysisMutationCommitter.commit(
             work: work,
             result: ExactAnalysisPersistedResult(

@@ -164,6 +164,9 @@ struct StrainScorePartsSection: View {
             return String(localized: "\(steps) steps")
         case .energy:
             return String(localized: "Active energy")
+        case .lifting:
+            let add = DrillInFormat.number(parts.rows.first(where: { $0.kind == .lifting })?.value ?? 0, fractionDigits: 1)
+            return String(localized: "Logged working sets add \(add)")
         }
     }
 }
@@ -199,6 +202,7 @@ private struct StrainScoreRowView: View {
         case .cardio: return String(localized: "Cardio")
         case .steps: return String(localized: "Steps")
         case .energy: return String(localized: "Active energy")
+        case .lifting: return String(localized: "Lifting")
         }
     }
 
@@ -207,11 +211,15 @@ private struct StrainScoreRowView: View {
         case .cardio: return "heart.fill"
         case .steps: return "figure.walk"
         case .energy: return "bolt.fill"
+        case .lifting: return "dumbbell.fill"
         }
     }
 
     private var valueText: String {
-        row.value.map { DrillInFormat.number($0, fractionDigits: 1) } ?? WidgetMetrics.missingValue
+        guard let value = row.value else { return WidgetMetrics.missingValue }
+        let number = DrillInFormat.number(value, fractionDigits: 1)
+        // The Lifting row is what the sets add to the score, not a part of its own out of 21.
+        return row.kind == .lifting ? "+\(number)" : number
     }
 
     private var pill: some View {
@@ -280,7 +288,7 @@ private struct StrainScoreRowView: View {
             Text(valueText)
                 .font(StrandFont.bodyNumber)
                 .foregroundStyle(row.value == nil ? StrandPalette.textTertiary : StrandPalette.textPrimary)
-            if row.value != nil {
+            if row.value != nil, row.kind != .lifting {
                 Text("of 21").font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
             }
         }
@@ -306,6 +314,7 @@ private struct StrainScoreRowView: View {
     private var spoken: String {
         guard let value = row.value else { return String(localized: "\(label), \(detail)") }
         let number = DrillInFormat.number(value, fractionDigits: 1)
+        if row.kind == .lifting { return String(localized: "\(label), adds \(number)") }
         return row.setsScore
             ? String(localized: "\(label), \(number) of 21, \(detail), sets the score")
             : String(localized: "\(label), \(number) of 21, \(detail)")

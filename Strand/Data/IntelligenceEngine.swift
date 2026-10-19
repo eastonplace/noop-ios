@@ -28,7 +28,193 @@ final class IntelligenceEngine: ObservableObject {
     @Published var computing = false
     @Published var note: String?
 
-    private var analysisCompletionSerial = 0
+    private(set) var analysisCompletionSerial = 0
+
+    // MARK: Strength Strain (primary engine only)
+
+    private var strengthBackfillRunning = false
+    private(set) var strengthBackfillDone = false
+
+    /// In-pass apply: called while `computing == true`. Returns the workout and day writes.
+    private func applyLiftStrainInPass(store: WhoopStore) async -> Int {
+        do {
+            let r = try await store.applyLiftStrain(
+                canonicalComputedDeviceId: deviceId + "-noop", now: Int(Date().timeIntervalSince1970),
+                combine: StrengthStrainIntegration.combine)
+            let writes = r.workoutWrites + r.dayWrites
+            if writes > 0 { NotificationCenter.default.post(name: .liftStrainDidChange, object: nil) }
+            return writes
+        } catch {
+            NSLog("[strength-strain] apply failed: %@", "\(error)")
+            return 0
+        }
+    }
+
+    /// Puts the settled stored day Strain of every lift day into this pass's results (A4). Days with no lift target
+    /// keep the pass's own value untouched.
+    private func overlaySettledLiftStrain(on computed: [Computed], store: WhoopStore, computedId: String) async -> [Computed] {
+        guard let oldest = computed.map(\.day).min(), let newest = computed.map(\.day).max(),
+              let targets = try? await store.liftStrainDayTargets(
+                computedDeviceIds: [computedId], fromDay: oldest, toDay: newest),
+              !targets.isEmpty,
+              let stored = try? await store.dailyMetrics(deviceId: computedId, from: oldest, to: newest)
+        else { return computed }
+        let liftDays = Set(targets.map(\.dayKey))
+        let storedByDay = Dictionary(stored.map { ($0.day, $0) }, uniquingKeysWith: { _, last in last })
+        return computed.map { item in
+            guard liftDays.contains(item.day), let row = storedByDay[item.day],
+                  row.strainVersion == 2, let value = row.strain else { return item }
+            var copy = item
+            copy.strain = value
+            return copy
+        }
+    }
+
+    /// Cheap, idempotent and primary-only. Safe to call at any time; returns nil when skipped. A running pass
+    /// settles at its own end, so this never overlaps one.
+    @discardableResult
+    func settleLiftStrain() async -> LiftStrainApplyResult? {
+        guard isPrimary, !computing, let store = await repo.storeHandle() else { return nil }
+        let result: LiftStrainApplyResult
+        do {
+            result = try await store.applyLiftStrain(
+                canonicalComputedDeviceId: deviceId + "-noop", now: Int(Date().timeIntervalSince1970),
+                combine: StrengthStrainIntegration.combine)
+        } catch {
+            NSLog("[strength-strain] settle failed: %@", "\(error)")
+            return nil
+        }
+        // Honours the inherited refresh disposition (never forces `.allow`), so the exact-day barrier holds.
+        if result.workoutWrites + result.dayWrites > 0 { _ = await repo.refresh(.currentDay) }
+        NotificationCenter.default.post(name: .liftStrainDidChange, object: nil)
+        kickStrengthStrainBackfillIfNeeded()
+        return result
+    }
+
+    func kickStrengthStrainBackfillIfNeeded() {
+        guard isPrimary, !strengthBackfillDone, !strengthBackfillRunning else { return }
+        Task { @MainActor [weak self] in await self?.runStrengthStrainBackfillIfNeeded() }
+    }
+
+    func runStrengthStrainBackfillIfNeeded() async {
+        guard isPrimary, !strengthBackfillRunning, !strengthBackfillDone else { return }
+        strengthBackfillRunning = true
+        defer { strengthBackfillRunning = false }
+        // The body and its completion refresh must never inherit a `.suppress` from the pass that kicked them.
+        await RepositoryRefreshContext.$disposition.withValue(.allow) {
+            await runStrengthStrainBackfillBody()
+        }
+    }
+
+    /// One durable, resumable job per owner and formula version. Writes only `strain`/`strainVersion` of lift
+    /// workouts and lift days, never calls `analyzeRecent`, and publishes once at the end.
+    private func runStrengthStrainBackfillBody() async {
+        guard let store = await repo.storeHandle() else { return }
+        do {
+            if try await store.liftStrainDisabled() { strengthBackfillDone = true; return }
+            let owners = try await store.liftStrainOwnerIds()
+            let canonical = deviceId + "-noop"
+            var pendingRefresh: [String] = []
+            var allSettled = true
+            var applied = 0, skipped = 0, days = 0, conflicts = 0
+            ownerLoop: for owner in owners {
+                let jobKey = "strength-strain-backfill-v\(StrengthStrain.version):\(owner)"
+                let existing = try await store.liftStrainJob(jobKey: jobKey)
+                if let existing {
+                    switch existing.state {
+                    case .reverted: continue ownerLoop
+                    case .complete:
+                        if existing.refreshedAt == nil { pendingRefresh.append(jobKey) }
+                        continue ownerLoop
+                    case .running: break
+                    }
+                } else {
+                    try await store.startLiftStrainJob(
+                        jobKey: jobKey, deviceId: owner, formulaVersion: StrengthStrain.version,
+                        upperDay: Repository.logicalDayKey(Date()), now: Int(Date().timeIntervalSince1970))
+                }
+                let scope: HistoricalCursorScope
+                do { scope = try await store.liftStrainOwnerScope(deviceId: owner) } catch {
+                    NSLog("[strength-strain] backfill skipped owner %@: %@", owner, "\(error)")
+                    allSettled = false
+                    continue ownerLoop
+                }
+                guard let data = try await store.loadReceiptLiftState(deviceId: owner) else {
+                    if try await store.completeLiftStrainJob(jobKey: jobKey, now: Int(Date().timeIntervalSince1970)) {
+                        pendingRefresh.append(jobKey)
+                    }
+                    continue ownerLoop
+                }
+                let frozen = try await store.liftStrainBodyweights(deviceId: owner)
+                let profileKg = ProfileStore.storedWeightKg()
+                let cursor = existing?.cursorDay
+                let chunks: [LiftStrainChunkInput]
+                do {
+                    chunks = try await Task.detached(priority: .utility) {
+                        try StrengthStrainBackfill.plan(
+                            stateData: data, cursorDay: cursor, frozen: frozen, profileKg: profileKg)
+                    }.value
+                } catch {
+                    NSLog("[strength-strain] backfill decode failed for %@: %@", owner, "\(error)")
+                    allSettled = false
+                    continue ownerLoop
+                }
+                var ownerCompleted = true
+                for chunk in chunks {
+                    guard !computing else { allSettled = false; break ownerLoop }
+                    computing = true
+                    let result: LiftStrainApplyResult?
+                    do {
+                        result = try await store.applyLiftStrainBackfillChunk(
+                            sourceOwner: scope, canonicalComputedDeviceId: canonical, chunk: chunk, jobKey: jobKey,
+                            now: Int(Date().timeIntervalSince1970), combine: StrengthStrainIntegration.combine)
+                    } catch {
+                        NSLog("[strength-strain] backfill chunk failed for %@: %@", owner, "\(error)")
+                        result = nil
+                    }
+                    computing = false
+                    guard let result else { allSettled = false; ownerCompleted = false; break }
+                    applied += result.applied
+                    skipped += result.notScored
+                    days += result.dayWrites
+                    conflicts += result.conflicts
+                    await Task.yield()
+                }
+                guard ownerCompleted else { continue ownerLoop }
+                if try await store.completeLiftStrainJob(jobKey: jobKey, now: Int(Date().timeIntervalSince1970)) {
+                    pendingRefresh.append(jobKey)
+                }
+            }
+            if !pendingRefresh.isEmpty {
+                // A backfill can change only days older than the dashboard window, which the refresh diff never
+                // sees, so the caches keyed on the refresh counter are dropped before the refresh runs.
+                repo.invalidateCachesAfterLiftStrainBackfill()
+                _ = await repo.refresh(.fullHistoryMigration)
+                let refreshed = await repo.refresh(.recentDashboard(days: 30))
+                if refreshed {
+                    try? await store.markLiftStrainJobsRefreshed(
+                        jobKeys: pendingRefresh, now: Int(Date().timeIntervalSince1970))
+                } else {
+                    allSettled = false
+                }
+                NotificationCenter.default.post(name: .liftStrainDidChange, object: nil)
+                NSLog("[strength-strain] backfill v%d: owners=%d applied=%d skipped=%d days=%d conflicts=%d refreshed=%d",
+                      StrengthStrain.version, owners.count, applied, skipped, days, conflicts, refreshed ? 1 : 0)
+            }
+            strengthBackfillDone = allSettled
+        } catch {
+            NSLog("[strength-strain] backfill failed: %@", "\(error)")
+        }
+    }
+
+    /// Fitness Age and VO2max read heart-rate Strain only: lift days are fed the value the heart rate produced.
+    func liftStrainHROnlyForFitnessAge(_ days: [DailyMetric], fromDay: String, toDay: String) async -> [DailyMetric] {
+        guard let store = await repo.storeHandle(),
+              let targets = try? await store.liftStrainDayTargets(
+                computedDeviceIds: repo.computedReadIds, fromDay: fromDay, toDay: toDay)
+        else { return days }
+        return LiftStrainFitnessAgeOverlay.hrOnly(days: days, targets: targets)
+    }
     /// Review round 4 (3): one day's persisted Charge breakdown: the Charge the drivers were built against, its
     /// confidence, and the drivers, biggest mover first. The engine writes it beside the Charge each fold (strap,
     /// Apple Watch, wearable import) stores; the breakdown sheet displays it and recomputes nothing.
@@ -434,7 +620,8 @@ final class IntelligenceEngine: ObservableObject {
     struct Computed: Identifiable {
         let day: String
         let recovery: Double?
-        let strain: Double?
+        /// Stored 0...100. `var` only so the settled lift-day value can be overlaid before `results` publishes.
+        var strain: Double?
         let sleepMin: Double?
         let hrv: Double?
         let rhr: Int?
@@ -473,8 +660,12 @@ final class IntelligenceEngine: ObservableObject {
     /// persistence phase. A test cancels the pass from here to prove what a mid-write cancel leaves behind.
     var afterDailyReconcileForTesting: (() -> Void)?
 
-    init(repo: Repository, profile: ProfileStore, deviceId: String) {
-        self.repo = repo; self.profile = profile; self.deviceId = deviceId
+    /// Only the engine `AppModel` owns applies Strength Strain and runs its one-time backfill. A transient engine
+    /// (exact-day analysis) and the tests keep the default `false`, so they can never write a combined value.
+    let isPrimary: Bool
+
+    init(repo: Repository, profile: ProfileStore, deviceId: String, isPrimary: Bool = false) {
+        self.repo = repo; self.profile = profile; self.deviceId = deviceId; self.isPrimary = isPrimary
     }
 
     /// Apply the user's pre-sleep-feedback consent boundary. Enabling forces a fresh normal scan.
@@ -589,8 +780,10 @@ final class IntelligenceEngine: ObservableObject {
         let civilDays = Self.civilDayWindows(
             reference: referenceNow, startOffset: 0, count: maxDays, calendar: .current)
         guard let newestDay = civilDays.first?.day, let oldestDay = civilDays.last?.day else { return false }
-        let gate7 = Array((await repo.dailyMetrics(fromDay: oldestDay, toDay: newestDay))
-            .sorted { $0.day < $1.day }.suffix(7))
+        // Fitness Age stays heart-rate only: a lift day contributes the Strain its heart rate produced.
+        let gateDays = await liftStrainHROnlyForFitnessAge(
+            await repo.dailyMetrics(fromDay: oldestDay, toDay: newestDay), fromDay: oldestDay, toDay: newestDay)
+        let gate7 = Array(gateDays.sorted { $0.day < $1.day }.suffix(7))
         let rows = Self.fitnessAgeRows(
             gateDays: gate7, age: profile.age, sex: profile.sex, waistCm: profile.waistCm,
             heightCm: profile.heightCm, weightKg: profile.weightKg, computedId: computedId,
@@ -2495,7 +2688,8 @@ final class IntelligenceEngine: ObservableObject {
         // accumulated view the readiness card + dashboard read (incl. IMPORTED Apple Health / Health Connect
         // resting HR, which the engine's computed-only `dailies` never carries). Captured here so the
         // Fitness Age gate can't be undercut by this pass's own scoring/eviction. Windowed to the range.
-        let faPriorDaily = await repo.dailyMetrics(fromDay: oldestDay, toDay: newestDay)
+        let faPriorDaily = await liftStrainHROnlyForFitnessAge(
+            await repo.dailyMetrics(fromDay: oldestDay, toDay: newestDay), fromDay: oldestDay, toDay: newestDay)
 
         // Any pass for the still-open civil day can contain only post-sleep daytime samples. This includes
         // exact receipt work and the ordinary dashboard refresh that follows a completed backfill. Such a pass
@@ -3365,6 +3559,14 @@ final class IntelligenceEngine: ObservableObject {
             dailyRestingHR: measuredRestingHRByDay
         )
 
+        // Strength Strain: the primary pass folds logged sets into the lift workouts and the lift days right after the
+        // heart-rate rescore, so the refresh below publishes them. The readers that run off `results` (By-Day cards,
+        // the Charge forecast, Smart Alarm) then see the settled stored day Strain, not this pass's heart-rate value.
+        if isPrimary && sourceContext == nil {
+            persistedMutationCount += await applyLiftStrainInPass(store: store)
+            out = await overlaySettledLiftStrain(on: out, store: store, computedId: computedId)
+        }
+
         results = out
         note = out.isEmpty
             ? "No scored nights yet. Wear the strap with NOOP connected overnight and the engine will score your recovery, effort and rest itself, no WHOOP cloud required."
@@ -3392,6 +3594,8 @@ final class IntelligenceEngine: ObservableObject {
         diagnosticSink?("analyzeRecent dayCache reused=\(scanPass.reused)/\(scanPass.eligible) "
             + "size=\(sourceContext == nil ? dayScanCache.count : 0)", nil)
         if !wmKey.isEmpty { UserDefaults.standard.set(wmKey, forKey: Self.analyzeWatermarkKey) }
+        // No `await` follows, so the backfill task this spawns runs after `computing` resets.
+        if isPrimary && sourceContext == nil { kickStrengthStrainBackfillIfNeeded() }
         analysisCompletionSerial += 1
         return true
     }

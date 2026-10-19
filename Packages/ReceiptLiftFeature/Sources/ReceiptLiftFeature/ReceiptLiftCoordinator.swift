@@ -127,6 +127,8 @@ actor ReceiptLiftDatabase {
 public final class ReceiptLiftCoordinator: ObservableObject {
     let store: LiftStore
     private let database: ReceiptLiftDatabase
+    /// The host's Strain numbers for Lift's screens; nil when the host has none (previews, tests).
+    public var strainProvider: (any LiftStrainProviding)?
     private var observation: AnyCancellable?
     private var backgroundSaveTask: Task<Void, Never>?
     private var backgroundLease: UIBackgroundTaskIdentifier = .invalid
