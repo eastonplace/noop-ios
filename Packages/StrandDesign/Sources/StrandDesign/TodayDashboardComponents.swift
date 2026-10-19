@@ -236,16 +236,16 @@ public struct TodayHeroCard: View {
     }
 }
 
-/// The Start / Open pill: the brand green with dark ink, the same capsule, type size and padding as ever.
+/// The Start / Open pill: the solid light primary (`solidFill`, dark label), the same capsule, type size and padding as ever.
 /// The whole padded pill is the button (and dips a touch while pressed), not just its label.
 private struct TodayWorkoutPillStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(StrandFont.caption.weight(.semibold))
-            .foregroundStyle(StrandPalette.appCanvas)
+            .foregroundStyle(StrandPalette.onLightFill)
             .padding(.horizontal, 12)
             .padding(.vertical, 7)
-            .background(StrandPalette.ink, in: Capsule())
+            .background(StrandPalette.solidFill, in: Capsule())
             .opacity(configuration.isPressed ? 0.78 : 1)
     }
 }

@@ -90,11 +90,11 @@ public struct PaperToast: View {
                     } label: {
                         Text(actionTitle)
                             .font(.system(size: 11, weight: .bold, design: .rounded))
-                            .foregroundStyle(StrandPalette.accent)
+                            .foregroundStyle(StrandPalette.textPrimary)
                             .padding(.horizontal, 10)
                             .padding(.vertical, 6)
+                            .overlay(Capsule(style: .continuous).strokeBorder(StrandPalette.hairlineStrong, lineWidth: 1))
                             .frame(minWidth: 44, minHeight: 44)
-                            .background(Capsule(style: .continuous).fill(StrandPalette.accent.opacity(0.1)))
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)

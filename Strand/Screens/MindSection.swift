@@ -88,9 +88,9 @@ struct MindSection: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    /// One tappable face. Selection reads via a calm Sleep STROKE + soft fill —
-    /// deliberately the same neutral, non-valenced treatment for every face (no red
-    /// for low mood; the indigo carries no good/bad signal, it just marks the choice).
+    /// One tappable face. Selection reads via a neutral STROKE + soft fill —
+    /// deliberately the same non-valenced treatment for every face (no red
+    /// for low mood; the stroke carries no good/bad signal, it just marks the choice).
     private func faceButton(_ value: Int) -> some View {
         let selected = todayMood == value
         return Button {
@@ -100,10 +100,9 @@ struct MindSection: View {
                 .font(StrandFont.number(24))
                 .padding(.vertical, 8)
                 .frame(maxWidth: .infinity)
-                .background(Capsule().fill(
-                    selected ? StrandPalette.restColor.opacity(0.16) : StrandPalette.surfaceInset))
+                .background(Capsule().fill(selected ? StrandPalette.pillFill : Color.clear))
                 .overlay(Capsule().strokeBorder(
-                    selected ? StrandPalette.restBright : StrandPalette.hairline,
+                    selected ? StrandPalette.textPrimary : StrandPalette.hairlineStrong,
                     lineWidth: selected ? 1.5 : 1))
         }
         // Liquid tap response: the same physical settle-inward every tappable liquid control gets.

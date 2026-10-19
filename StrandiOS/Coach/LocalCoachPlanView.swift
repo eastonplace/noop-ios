@@ -177,7 +177,7 @@ struct LocalCoachPlanView: View {
         let showsFocus = !focus.isEmpty && focus.caseInsensitiveCompare(day.title) != .orderedSame
         return VStack(alignment: .leading, spacing: 0) {
             SectionEyebrow(title: "\(weekday) · \(monthDay)", systemImage: "dumbbell", tint: .workout,
-                           trailing: isToday ? .pill("Today", tone: .accent) : .none)
+                           trailing: isToday ? .pill("Today", tone: .neutral) : .none)
                 .padding(.horizontal, gutter)
                 .padding(.top, isFirst ? 22 : 0)
             dayTitle(day)
@@ -317,7 +317,7 @@ private struct CoachBottomFade: View {
     }
 }
 
-/// The page's one primary action: a full-width solid ink pill, 56pt tall, with a soft ink glow. Disabled it takes the
+/// The page's one primary action: a full-width solid light pill (`solidFill`), 56pt tall. Disabled it takes the
 /// standard quiet look rather than a dimmed accent.
 private struct CoachSolidPillButtonStyle: ButtonStyle {
     @Environment(\.isEnabled) private var isEnabled
@@ -325,12 +325,11 @@ private struct CoachSolidPillButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(Font.system(.body, design: .default).weight(.bold))
-            .foregroundStyle(isEnabled ? StrandPalette.onInk : StrandPalette.textTertiary)
+            .foregroundStyle(isEnabled ? StrandPalette.onLightFill : StrandPalette.textTertiary)
             .multilineTextAlignment(.center)
             .frame(maxWidth: .infinity, minHeight: 56)
             .padding(.horizontal, NoopMetrics.space4)
-            .background(isEnabled ? StrandPalette.ink : StrandPalette.chipFill, in: Capsule(style: .continuous))
-            .shadow(color: isEnabled ? StrandPalette.ink.opacity(0.25) : .clear, radius: 15, x: 0, y: 10)
+            .background(isEnabled ? StrandPalette.solidFill : StrandPalette.chipFill, in: Capsule(style: .continuous))
             .contentShape(Capsule(style: .continuous))
             .opacity(isEnabled && configuration.isPressed ? 0.85 : 1)
     }
