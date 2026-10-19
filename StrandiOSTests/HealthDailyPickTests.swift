@@ -281,6 +281,160 @@ final class HealthDailyPickTests: XCTestCase {
         XCTAssertEqual(rows.map(\.day), ["2026-10-09"])
     }
 
+    // MARK: the card resolves its window, not the whole history (Perf 4)
+
+    private struct ReferenceDay { let day: String; let value: Double; let isStrap: Bool }
+
+    /// The card as it was before the window: every day of the history resolved through `DailyCalories` with the
+    /// per-day calendar, filtered to the day shown. Built from `DailyCalories` directly, so it shares nothing with
+    /// the windowed path or the shared-calendar overload under test.
+    private func referenceCard(
+        _ dayKey: String, strap: [DailyMetric], phone: [AppleDaily], context: HealthDailyPick.CalorieContext,
+        window: Int = 14
+    ) -> HealthDailyPick.CaloriesCard {
+        let strapByDay = Dictionary(strap.map { ($0.day, $0.activeKcalEst) }, uniquingKeysWith: { _, last in last })
+            .compactMapValues { $0 }
+        let phoneByDay = Dictionary(phone.map { ($0.day, $0) }, uniquingKeysWith: { _, last in last })
+        let days: [ReferenceDay] = Set(strapByDay.keys).union(phoneByDay.keys).sorted().compactMap { day in
+            let timing = DailyCalories.dayTiming(day: day, timeZone: context.timeZone, now: context.now)
+            return DailyCalories.resolve(
+                strapKcal: strapByDay[day], strapWornSeconds: context.strapWornSecondsByDay[day],
+                appleActiveKcal: phoneByDay[day]?.activeKcal, appleBasalKcal: phoneByDay[day]?.basalKcal,
+                bmrKcalPerDay: context.bmrKcalPerDay,
+                daySeconds: timing?.daySeconds, elapsedSeconds: timing?.elapsedSeconds
+            ).map { ReferenceDay(day: day, value: $0.kcal, isStrap: $0.source == .strap) }
+        }.filter { $0.day <= dayKey }
+        let shown = days.last(where: { $0.day == dayKey })
+        return HealthDailyPick.CaloriesCard(
+            value: shown?.value, isStrapEstimate: shown?.isStrap ?? false, sparkline: days.suffix(window).map(\.value))
+    }
+
+    /// `count` consecutive civil days from `first`, as `yyyy-MM-dd`.
+    private func dayKeys(from first: String, count: Int) -> [String] {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let parts = first.split(separator: "-").compactMap { Int($0) }
+        let start = calendar.date(from: DateComponents(year: parts[0], month: parts[1], day: parts[2]))!
+        return (0..<count).map { offset in
+            let c = calendar.dateComponents([.year, .month, .day], from: calendar.date(byAdding: .day, value: offset, to: start)!)
+            return String(format: "%04d-%02d-%02d", c.year!, c.month!, c.day!)
+        }
+    }
+
+    /// A multi-year history with every kind of day: strap only, phone only, both, a strap sliver, active energy with
+    /// no basal, an empty phone row, and gaps. Deterministic.
+    private func longHistory(days: Int, keepStrap: Int = 7, keepPhone: Int = 6)
+        -> (strap: [DailyMetric], phone: [AppleDaily], worn: [String: Double]) {
+        let keys = dayKeys(from: "2023-09-01", count: days)
+        var strap: [DailyMetric] = []
+        var phone: [AppleDaily] = []
+        var worn: [String: Double] = [:]
+        for (i, day) in keys.enumerated() {
+            if (i * 31) % 10 < keepStrap {
+                strap.append(strapDay(day, total: i % 23 == 0 ? nil : 1_900 + Double((i * 37) % 600)))
+                worn[day] = i % 5 == 0 ? shortStrapDay : coveredStrapDay
+            }
+            if (i * 17) % 10 < keepPhone {
+                let active: Double? = i % 11 == 0 ? nil : Double((i * 13) % 700)
+                let basal: Double? = i % 4 == 0 ? nil : 1_600 + Double((i * 29) % 150)
+                phone.append(phoneDay(day, active: active, basal: basal))
+            }
+        }
+        return (strap, phone, worn)
+    }
+
+    func testTheWindowedCardIsTheFullHistorysCardOnEveryDay() {
+        let history = longHistory(days: 1_150)
+        let ctx = context(worn: history.worn, bmr: 1_700)
+        let keys = dayKeys(from: "2023-08-20", count: 1_190)        // starts before the data, ends after it
+        for key in keys.enumerated().filter({ $0.offset % 3 == 0 || $0.offset > 1_150 }).map(\.element) {
+            let windowed = HealthDailyPick.caloriesCard(dayKey: key, strap: history.strap, phone: history.phone, context: ctx)
+            XCTAssertEqual(windowed, referenceCard(key, strap: history.strap, phone: history.phone, context: ctx), key)
+        }
+        // Today, with its elapsed half day, the first day, and a day well past the data.
+        for key in ["2026-10-20", "2023-09-01", "2026-12-31", "2023-01-01"] {
+            XCTAssertEqual(
+                HealthDailyPick.caloriesCard(dayKey: key, strap: history.strap, phone: history.phone, context: ctx),
+                referenceCard(key, strap: history.strap, phone: history.phone, context: ctx), key)
+        }
+    }
+
+    func testASparseHistoryResolvesBeyondTheWindowAndStillMatches() {
+        // Roughly one numbered day in ten: the 45-day window holds about five, fewer than the sparkline's 14, so the
+        // card must reach back past it.
+        let history = longHistory(days: 900, keepStrap: 1, keepPhone: 1)
+        let ctx = context(worn: history.worn, bmr: 1_700)
+        for key in dayKeys(from: "2024-06-01", count: 200).enumerated().filter({ $0.offset % 5 == 0 }).map(\.element) {
+            let card = HealthDailyPick.caloriesCard(dayKey: key, strap: history.strap, phone: history.phone, context: ctx)
+            XCTAssertEqual(card, referenceCard(key, strap: history.strap, phone: history.phone, context: ctx), key)
+            XCTAssertGreaterThan(card.sparkline.count, 0)
+        }
+        // And the shortest history, wholly inside the window: nothing older was left out, so nothing is missing.
+        let short = [strapDay("2026-10-18", total: 2_000), strapDay("2026-10-20", total: 2_100)]
+        XCTAssertEqual(
+            HealthDailyPick.caloriesCard(dayKey: "2026-10-20", strap: short, phone: [], context: context()),
+            referenceCard("2026-10-20", strap: short, phone: [], context: context()))
+    }
+
+    func testTheWindowedCardMatchesAcrossDaylightSavingInAZoneWithTheShift() {
+        let zone = TimeZone(identifier: "America/New_York")!
+        let history = longHistory(days: 1_150)
+        let ctx = HealthDailyPick.CalorieContext(
+            strapWornSecondsByDay: history.worn, bmrKcalPerDay: 1_700, timeZone: zone,
+            now: Date(timeIntervalSince1970: 1_773_000_000))
+        for key in ["2024-03-10", "2024-11-03", "2025-03-09", "2025-11-02", "2026-03-08", "2026-03-09", "2026-04-20"] {
+            XCTAssertEqual(
+                HealthDailyPick.caloriesCard(dayKey: key, strap: history.strap, phone: history.phone, context: ctx),
+                referenceCard(key, strap: history.strap, phone: history.phone, context: ctx), key)
+        }
+    }
+
+    func testTheCardsValueIsDailyCaloriesOwnNumberForTheDay() throws {
+        let strap = [strapDay("2026-10-12", total: 2_227)]
+        let phone = [phoneDay("2026-10-12", active: 141, basal: 1_650)]
+        let ctx = context(worn: ["2026-10-12": shortStrapDay])
+        let timing = DailyCalories.dayTiming(day: "2026-10-12", timeZone: ctx.timeZone, now: ctx.now)
+        let expected = try XCTUnwrap(DailyCalories.total(
+            strapKcal: 2_227, strapWornSeconds: shortStrapDay, appleActiveKcal: 141, appleBasalKcal: 1_650,
+            bmrKcalPerDay: nil, daySeconds: timing?.daySeconds, elapsedSeconds: timing?.elapsedSeconds))
+        XCTAssertEqual(HealthDailyPick.caloriesCard(dayKey: "2026-10-12", strap: strap, phone: phone, context: ctx).value,
+                       expected)
+    }
+
+    func testTheWindowStartIsCivilDateArithmetic() {
+        XCTAssertEqual(HealthDailyPick.dayKey("2026-03-01", minusDays: 1), "2026-02-28")
+        XCTAssertEqual(HealthDailyPick.dayKey("2024-03-01", minusDays: 1), "2024-02-29")
+        XCTAssertEqual(HealthDailyPick.dayKey("2026-01-10", minusDays: 44), "2025-11-27")
+        XCTAssertEqual(HealthDailyPick.dayKey("2026-03-09", minusDays: 44), "2026-01-24")
+        XCTAssertEqual(HealthDailyPick.dayKey("2026-10-20", minusDays: 0), "2026-10-20")
+        XCTAssertNil(HealthDailyPick.dayKey("not-a-day", minusDays: 3))
+        XCTAssertNil(HealthDailyPick.dayKey("2026-10", minusDays: 3))
+    }
+
+    // MARK: the All metrics Calories row is resolved off the main actor (Perf 7)
+
+    /// `exploreSeries(energy_kcal)` hands its inputs to a detached task and resolves them there. The row it returns
+    /// is the one the pure resolver gives for the same inputs.
+    @MainActor
+    func testTheAllMetricsCaloriesRowFromTheRepositoryEqualsTheResolverOnTheSameInputs() async throws {
+        let store = try await WhoopStore.inMemory()
+        let repository = Repository(deviceId: Repository.whoopSource)
+        repository.setStoreForTesting(store)
+        let phone = [phoneDay("2026-09-28", active: 300, basal: 1_700), phoneDay("2026-09-29", active: 410, basal: nil),
+                     phoneDay("2026-10-02", active: 380, basal: 1_650)]
+        _ = try await store.upsertAppleDaily(phone, deviceId: Repository.appleHealthSource)
+        repository.days = [strapDay("2026-09-27", total: 2_050), strapDay("2026-09-29", total: 2_300),
+                           strapDay("2026-10-01", total: 2_200)]
+        let now = Date(timeIntervalSince1970: 1_792_497_600)
+        let rows = await repository.exploreSeries(key: "energy_kcal", source: "my-whoop", now: now)
+        let expected = Repository.exploreCaloriesSeries(
+            layeredStrapKcal: [:], dailyRows: repository.days, apple: phone,
+            context: HealthDailyPick.calorieContext(repo: repository), from: "0000-01-01", to: "9999-12-31")
+        XCTAssertFalse(expected.isEmpty)
+        XCTAssertEqual(rows.map(\.day), expected.map(\.day))
+        XCTAssertEqual(rows.map(\.value), expected.map(\.value))
+    }
+
     // MARK: Steps
 
     func testStepsTakeTheStrapThenThePhoneThenTheEstimate() {

@@ -660,6 +660,13 @@ struct TodayView: View {
         return days.last(where: { $0.day == selectedDayKey })
     }
 
+    /// The phone-imported steps for exactly `dayKey`: the last row with that day, nil when there is none. The key is a
+    /// parameter so a caller reads `selectedDayKey` once; evaluated inside the `last(where:)` closure it was rebuilt
+    /// for every one of up to 4,000 rows, on the main thread, on every body pass.
+    nonisolated static func phoneSteps(on dayKey: String, in appleDays: [AppleDaily]) -> Int? {
+        appleDays.last(where: { $0.day == dayKey })?.steps
+    }
+
     /// A replaced `.task(id:)` may finish its actor-bound reads after SwiftUI has cancelled it. Keep every
     /// day-scoped state mutation behind one identity check, so a result for an old refresh or day cannot
     /// repaint the current screen while its replacement is still loading.
@@ -1600,7 +1607,10 @@ struct TodayView: View {
             .map { index, point in
                 HRTrackPoint(id: index, t: point.date.timeIntervalSince(midnight), bpm: point.value)
             }
-        let tiles = enabledDashboardCards.map { healthDashboardTile($0, day: day) }
+        // The Calories card resolves its day and sparkline once per snapshot build: the glance line, the tile value
+        // and the tile sparkline all read it, and each used to resolve it again.
+        let calories = caloriesCard
+        let tiles = enabledDashboardCards.map { healthDashboardTile($0, day: day, calories: calories) }
         let stressTargetDay = day?.day ?? selectedDayKey
         let stressDaily = selectedDayOffset == 0
             ? stressToday
@@ -1627,7 +1637,7 @@ struct TodayView: View {
             intraday: stressIntraday
         )
         return TodayScreenSnapshot(
-            hero: .init(pillars: pillars, glance: paperGlanceText,
+            hero: .init(pillars: pillars, glance: paperGlanceText(calories: calories),
                         showsWorkoutAction: selectedDayOffset == 0),
             heart: .init(samples: heartSamples, restingHR: day?.restingHr.map(Double.init)),
             stress: .init(
@@ -1734,12 +1744,14 @@ struct TodayView: View {
         }
     }
 
-    private var paperGlanceText: String {
+    private func paperGlanceText(calories card: HealthDailyPick.CaloriesCard) -> String {
         let day = displayDay
-        let phoneSteps = appleDays.last(where: { $0.day == selectedDayKey })?.steps
-        let steps = TodaySteps(daily: day?.steps, apple: phoneSteps, estimate: stepsEstByDay[selectedDayKey])
+        // `selectedDayKey` builds Dates, Calendars and a String(format:) per read: take it once, never per element.
+        let dayKey = selectedDayKey
+        let phoneSteps = Self.phoneSteps(on: dayKey, in: appleDays)
+        let steps = TodaySteps(daily: day?.steps, apple: phoneSteps, estimate: stepsEstByDay[dayKey])
             .value.map { intString(Double($0)) } ?? "—"
-        let calories = caloriesText
+        let calories = caloriesString(card)
         let dayStart = Calendar.current.startOfDay(for: selectedLogicalDay)
         let dayEnd = Calendar.current.date(byAdding: .day, value: 1, to: dayStart) ?? dayStart
         let workoutCount = workouts.filter {
@@ -1837,15 +1849,17 @@ struct TodayView: View {
         }
     }
 
-    private func healthDashboardTile(_ card: DashboardCard, day: DailyMetric?) -> HealthDashboardTileModel {
+    private func healthDashboardTile(
+        _ card: DashboardCard, day: DailyMetric?, calories: HealthDailyPick.CaloriesCard? = nil
+    ) -> HealthDashboardTileModel {
         let skinTemperature = card == .skinTemp ? resolvedSkinTemperaturePresentation(for: day) : nil
-        let fullValue = dashboardValue(card, day: day, skinTemperature: skinTemperature?.current)
+        let fullValue = dashboardValue(card, day: day, skinTemperature: skinTemperature?.current, calories: calories)
         let unit = card.unit.isEmpty ? nil : card.unit
         let value = unit.map { fullValue.replacingOccurrences(of: " \($0)", with: "") } ?? fullValue
         return HealthDashboardTileModel(
             id: card.id, icon: card.icon, label: card.title, value: value, unit: unit,
             detail: skinTemperature.flatMap { Self.skinTemperatureAgeLabel(ageDays: $0.current.ageDays) },
-            spark: dashboardSpark(card, day: day, skinTemperature: skinTemperature),
+            spark: dashboardSpark(card, day: day, skinTemperature: skinTemperature, calories: calories),
             rail: dashboardRail(card, day: day, skinTemperature: skinTemperature), accent: dashboardTint(card)
         )
     }
@@ -1866,7 +1880,8 @@ struct TodayView: View {
     private func dashboardSpark(
         _ card: DashboardCard,
         day: DailyMetric? = nil,
-        skinTemperature: DatedHealthMetricPresentation? = nil
+        skinTemperature: DatedHealthMetricPresentation? = nil,
+        calories: HealthDailyPick.CaloriesCard? = nil
     ) -> [Double] {
         switch card {
         case .hrv: return sparks["hrv"] ?? []
@@ -1879,7 +1894,7 @@ struct TodayView: View {
                 ?? []
         case .sleep: return sparks["sleep_total_min"] ?? []
         case .steps: return sparks["steps"] ?? []
-        case .calories: return caloriesCard.sparkline
+        case .calories: return (calories ?? caloriesCard).sparkline
         default: return []
         }
     }
@@ -2079,9 +2094,9 @@ struct TodayView: View {
                 .environment(\.screenScaffoldNavigationRole, .detail)
         }
         .navigationDestination(isPresented: $showingDashboardCatalog) {
-            DashboardCatalogView(items: dashboardCatalogItems,
-                                 selectionRaw: $dashboardCardsRaw,
-                                 hydrationEnabled: hydrationEnabled)
+            DashboardCatalogDestination(items: { dashboardCatalogItems },
+                                        selectionRaw: $dashboardCardsRaw,
+                                        hydrationEnabled: hydrationEnabled)
                 .environment(\.screenScaffoldNavigationRole, .detail)
         }
         .navigationDestination(isPresented: $showingDashboardDestination) {
@@ -2907,7 +2922,8 @@ struct TodayView: View {
     private func dashboardValue(
         _ card: DashboardCard,
         day: DailyMetric? = nil,
-        skinTemperature: DatedHealthMetricValue? = nil
+        skinTemperature: DatedHealthMetricValue? = nil,
+        calories: HealthDailyPick.CaloriesCard? = nil
     ) -> String {
         let d = day ?? displayDay
         func withUnit(_ s: String) -> String {
@@ -2938,11 +2954,12 @@ struct TodayView: View {
         case .steps:
             // #843/#813, same-day real count only (strap @57 or same-day phone import); never the latest
             // imported row or the sparkline tail (both went stale). Else fall through to the estimate.
-            let appleStepsForDay = appleDays.last(where: { $0.day == selectedDayKey })?.steps
-            return TodaySteps(daily: d?.steps, apple: appleStepsForDay, estimate: stepsEstByDay[selectedDayKey])
+            let dayKey = selectedDayKey
+            let appleStepsForDay = Self.phoneSteps(on: dayKey, in: appleDays)
+            return TodaySteps(daily: d?.steps, apple: appleStepsForDay, estimate: stepsEstByDay[dayKey])
                 .value.map { intString(Double($0)) } ?? "—"
         case .calories:
-            return withUnit(caloriesText)
+            return withUnit(calories.map(caloriesString) ?? caloriesText)
         case .stress:
             #if DEBUG
             // DEBUG promo harness: pin the Stress card (0–3) to the active frame's value. No-op otherwise.
@@ -4036,9 +4053,10 @@ struct TodayView: View {
             // Never the latest imported Apple-Health row (it can be days stale) or the sparkline tail (that
             // is the most-recent value, not this day's): both froze the tile on an old import. Otherwise
             // fall through to the on-device estimate ("est."). Mirrors Android stepsForDay (#276/#150).
-            let appleStepsForDay = appleDays.last(where: { $0.day == selectedDayKey })?.steps
+            let dayKey = selectedDayKey
+            let appleStepsForDay = Self.phoneSteps(on: dayKey, in: appleDays)
             let todaySteps = TodaySteps(daily: d?.steps, apple: appleStepsForDay,
-                                        estimate: stepsEstByDay[selectedDayKey])
+                                        estimate: stepsEstByDay[dayKey])
             let realSteps: String? = todaySteps.recorded.map { intString(Double($0)) }
             let estSteps = todaySteps.estimate
             // H6, only an ESTIMATED day (no real strap/phone count, so the on-device estimate filled in)
@@ -5017,7 +5035,11 @@ struct TodayView: View {
     }
 
     private var caloriesText: String {
-        caloriesCard.value.map { intString($0) } ?? "—"
+        caloriesString(caloriesCard)
+    }
+
+    private func caloriesString(_ card: HealthDailyPick.CaloriesCard) -> String {
+        card.value.map { intString($0) } ?? "—"
     }
 
     private func workoutDuration(_ w: WorkoutRow) -> String {

@@ -161,6 +161,7 @@ final class AppModel: ObservableObject {
             reopenAndMigrate: { [weak self] in
                 guard let self else { return }
                 try await self.repo.reopenStoreAfterRestore()
+                self.bodyClockProfile.invalidate()
                 do {
                     try await self.ble.reopenStoreAfterRestore()
                 } catch {
@@ -315,6 +316,15 @@ final class AppModel: ObservableObject {
         didSet { if !gpsHadTerminatedGap { gpsGapRestoredAt = nil; gpsGapNoticeShownAt = nil } }
     }
     private var applicationIsActive = true
+    /// Whether UIApplication reports the app in the background. A property so a test can stand in for it: a
+    /// unit-test host is always active.
+    var isGenuinelyBackground: @MainActor () -> Bool = { RescoreBackgroundPolicy.isGenuinelyBackground }
+    var isLowPowerModeEnabled: @MainActor () -> Bool = { ProcessInfo.processInfo.isLowPowerModeEnabled }
+    /// The one in-flight v3/settle rescore grant a background edge may start; cancelled on foreground return.
+    private let effortRescoreGrant = EffortRescoreGrant()
+    /// The body-clock estimate's 14-day hourly HR profile cache (see `CircadianInputsCache`). Anything that changes the heart rate it covers without moving the newest
+    /// timestamp invalidates it: a source delete, archive or select, a restore, a backfill burst, an import.
+    private let bodyClockProfile = BodyClockProfileProvider()
 
     /// A manual workout in progress. `samples` accumulate from the smoothed live `bpm`; `liveStrain`
     /// is updated by an O(1) accumulator so the active card can show strain building in real time.
@@ -839,7 +849,7 @@ final class AppModel: ObservableObject {
                 // freshly-scored history so the Health hub cards read a ready result. Skipped while a run or
                 // lift is active: it is a synchronous bulk SQLite aggregation, and the next tick catches up.
                 if !self.hasActiveWorkoutSession {
-                    await self.refreshV5Signals()
+                    await self.refreshV5Signals(reuseCircadianProfile: true)
                 }
                 // Advance one durable immutable-artifact repair page per idle cadence grant. The keyset
                 // cursor moves past irreparable legacy heads, so later compatible rows cannot starve.
@@ -1863,6 +1873,9 @@ final class AppModel: ObservableObject {
         replacementPeripheralId: String? = nil,
         expectedOldScope: HistoricalCursorScope? = nil
     ) async throws {
+        // Delete, archive, select and replace all change which heart rate the body-clock profile covers, or remove
+        // it, without moving the newest timestamp. Invalidated on every exit, after the data has changed.
+        defer { bodyClockProfile.invalidate() }
         guard let registry = deviceRegistry else {
             throw AppModelSourceTransitionError.registryUnavailable
         }
@@ -2737,6 +2750,53 @@ final class AppModel: ObservableObject {
         return gpsCommitted && workoutCommitted
     }
 
+    /// The gates a history-rescore chunk needs: the repository loaded, Today painted (a foreground concern, so
+    /// the processing task skips it: it has no screen), the app not active, and no import, strap backfill or
+    /// workout in progress.
+    private func effortRescoreMayRun(requiresFirstPaint: Bool) -> Bool {
+        // `applicationIsActive` only changes on a scene-phase edge, and a process iOS launches in the background (the
+        // rescore processing task, Bluetooth restoration) gets none: it keeps its initial `true`. The scene-edge
+        // grant is started by such an edge. The processing-task path has none, so UIApplication's own state decides
+        // for it as well. The flag's initial value stays: full-history repair admission and the live-strain poll read it.
+        let notActive = !applicationIsActive || (!requiresFirstPaint && isGenuinelyBackground())
+        return repo.loaded
+            && (!requiresFirstPaint || repo.todayHealthSnapshot != nil)
+            && notActive
+            && !hasActiveImport
+            && !live.backfilling
+            && !hasActiveWorkoutSession
+    }
+
+    private func startEffortRescoreGrant(requiresFirstPaint: Bool) {
+        effortRescoreGrant.start(
+            isBackground: { [weak self] in self?.isGenuinelyBackground() ?? false },
+            mayRun: { [weak self] in self?.effortRescoreMayRun(requiresFirstPaint: requiresFirstPaint) ?? false },
+            run: { [weak self] shouldPause in
+                await self?.intelligence.runEffortRescoreIfNeeded(shouldPause: shouldPause)
+            })
+    }
+
+    /// True while the v3 or settle rescore has chunks left.
+    func effortRescoreIsPending() async -> Bool {
+        await intelligence.effortRescoreIsPending()
+    }
+
+    #if os(iOS)
+    /// The history rescore's share of one processing-task wake: up to `maxChunks` 30-day chunks, one grant each
+    /// (the same grant the scene edge starts, so a foreground return, an import, a backfill or a workout stops it
+    /// and a scene-edge grant already running is joined, never doubled). Expiry cancels the waiting worker, which
+    /// cancels the grant; a chunk that was cut off leaves its durable cursor where it was. Low Power Mode skips it.
+    func runEffortRescoreForBackgroundTask(maxChunks: Int = 4) async {
+        guard !isLowPowerModeEnabled() else { return }
+        for _ in 0..<maxChunks {
+            guard !Task.isCancelled, effortRescoreMayRun(requiresFirstPaint: false),
+                  await intelligence.effortRescoreIsPending() else { return }
+            startEffortRescoreGrant(requiresFirstPaint: false)
+            await effortRescoreGrant.waitUntilIdle()
+        }
+    }
+    #endif
+
     func setApplicationActive(_ active: Bool) {
         applicationIsActive = active
         if !active {
@@ -2744,21 +2804,23 @@ final class AppModel: ObservableObject {
                 refreshWorkoutDurabilityWarning()
             }
             // Effort history migration is maintenance work. Run one 30-day batch only after Today first
-            // paint and only while the app is inactive. Every batch persists its cursor before yielding.
-            Task(priority: .background) { [weak self] in
-                guard let self,
-                      self.repo.loaded,
-                      self.repo.todayHealthSnapshot != nil,
-                      !self.applicationIsActive,
-                      !self.hasActiveImport,
-                      !self.live.backfilling,
-                      !self.hasActiveWorkoutSession else { return }
-                await self.intelligence.runEffortRescoreIfNeeded {
-                    self.applicationIsActive || self.hasActiveImport
-                        || self.live.backfilling || self.hasActiveWorkoutSession
-                }
+            // paint and only once iOS has really moved the app to the background: an `.inactive` edge
+            // (Control Center, the app switcher) would otherwise run a full-history chunk in the foreground,
+            // holding the analysis lock and the store queue. Every batch persists its cursor before yielding,
+            // and returning to the foreground cancels the grant (see below).
+            startEffortRescoreGrant(requiresFirstPaint: true)
+            #if os(iOS)
+            // iOS ends the grant's background-execution assertion after a short stay, but the grant keeps running:
+            // it freezes with the process and resumes on the next Bluetooth wake. While the history rescore is
+            // unfinished, also keep the processing task armed, so the remaining chunks get a stay of their own.
+            Task { [weak self] in
+                guard let self, await self.intelligence.effortRescoreIsPending() else { return }
+                HistoricalScoringBackgroundTaskRegistrar.schedule()
             }
+            #endif
         } else {
+            // The chunk is idempotent and replays from its durable cursor, so a foreground return simply stops it.
+            effortRescoreGrant.cancel()
             // A GPS run keeps recording through a screen lock. On return, make sure CoreLocation is still
             // streaming and that the background session is live (no-op unless a route is recording).
             gpsRecorder.resumeUpdatesIfNeeded()
@@ -3559,9 +3621,9 @@ final class AppModel: ObservableObject {
     /// Recompute the v5 skin-temp suite snapshots (cycle phase + body clock) from the current history.
     /// Called from the analytics pass and when the cycle opt-in flips. Honest-nil throughout: cycle is
     /// nil unless opted in; circadian is nil unless a usable activity profile exists.
-    func refreshV5Signals() async {
+    func refreshV5Signals(reuseCircadianProfile: Bool = false) async {
         await computeCyclePhase()
-        await computeCircadianPhase()
+        await computeCircadianPhase(reuseWithinTheHour: reuseCircadianProfile)
     }
 
     /// Cycle-phase awareness from the nightly skin-temperature shift (+ luteal RHR rise / HRV drop). Each
@@ -3598,30 +3660,24 @@ final class AppModel: ObservableObject {
     /// Body-clock phase estimate. Builds a coarse per-hour activity profile from the last ~14 days of
     /// downsampled HR buckets (HR amplitude is a usable rest/activity rhythm proxy when raw motion isn't
     /// to hand), then fits the cosinor. nil when there isn't enough to read.
-    private func computeCircadianPhase() async {
-        let now = Int(Date().timeIntervalSince1970)
-        let from = now - 14 * 86_400
-        let buckets = await repo.hrBuckets(from: from, to: now, bucketSeconds: 3_600)
-        guard buckets.count >= 24 else { circadianPhase = nil; return }
+    private func computeCircadianPhase(reuseWithinTheHour: Bool) async {
+        let nowDate = Date()
+        let now = Int(nowDate.timeIntervalSince1970)
         let tz = TimeZone.current.secondsFromGMT()
-        // Pool HR by LOCAL hour-of-day → mean bpm per hour as the activity proxy (higher HR ≈ more active).
-        var sums = [Double](repeating: 0, count: 24)
-        var counts = [Int](repeating: 0, count: 24)
-        var daySet = Set<Int>()
-        for b in buckets {
-            let local = b.ts + tz
-            let hour = (local % 86_400 + 86_400) % 86_400 / 3_600
-            sums[hour] += b.bpm; counts[hour] += 1
-            daySet.insert(local / 86_400)
-        }
-        let bins: [CircadianEngine.ActivityBin] = (0..<24).compactMap { h in
-            counts[h] > 0 ? CircadianEngine.ActivityBin(hour: Double(h), activity: sums[h] / Double(counts[h])) : nil
-        }
-        guard bins.count >= 6 else { circadianPhase = nil; return }
+        let logicalDay = Repository.logicalDayKey(nowDate)
+        // The 14-day hourly profile is the expensive part. The cadence tick reuses it for up to an hour, and past
+        // that only when newer heart rate has arrived; every other trigger rebuilds it. The fit below runs every call.
+        let inputs = await bodyClockProfile.inputs(
+            now: now, timeZoneOffsetSeconds: tz, logicalDay: logicalDay, reuseWithinTheHour: reuseWithinTheHour,
+            reads: BodyClockProfileProvider.Reads(
+                sourceIds: { [repo] in repo.importedReadIds },
+                newestHeartRate: { [repo] bound in await repo.latestHeartRateTimestamp(atOrBefore: bound) },
+                buckets: { [repo] from, to in await repo.hrBuckets(from: from, to: to, bucketSeconds: 3_600) }))
+        guard let inputs else { circadianPhase = nil; return }
         // Habitual wake from the most recent night's banked wake, falling back to a 07:00 default.
         let wakeHour = habitualWakeHour() ?? 7.0
         circadianPhase = CircadianEngine.estimatePhase(
-            bins: bins, daysObserved: daySet.count, habitualWakeHour: wakeHour)
+            bins: inputs.bins, daysObserved: inputs.daysObserved, habitualWakeHour: wakeHour)
     }
 
     /// A coarse habitual wake hour (local) from the most recent banked sleep session's end time, for the
@@ -4098,6 +4154,8 @@ final class AppModel: ObservableObject {
 
     /// Stores the completed import summary (and typed failure flag) on the matching source card.
     private func finishImport(_ source: DataSourceImportKind, summary: String, failed: Bool = false) {
+        // An import can add heart rate older than the newest timestamp the body-clock profile was built against.
+        bodyClockProfile.invalidate()
         switch source {
         case .whoop:
             whoopImportSummary = summary

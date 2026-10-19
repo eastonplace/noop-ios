@@ -850,12 +850,16 @@ final class Repository: ObservableObject {
 
     /// Latest HR-sample ts across the imported union, or nil. The auto-land Today anchor (#597) uses this,
     /// so a re-added strap's live raw AND the canonical history both count toward "the most recent data day".
-    private func unionLatestHRSampleTs(store: WhoopStore) async -> Int? {
+    private func unionLatestHRSampleTs(store: WhoopStore, atOrBefore bound: Int? = nil) async -> Int? {
         var latest: Int?
         for id in importedReadIds {
-            if let ts = (try? await store.latestHRSampleTs(deviceId: id)) ?? nil {
-                latest = max(latest ?? ts, ts)
+            let ts: Int?
+            if let bound {
+                ts = (try? await store.latestHRSampleTs(deviceId: id, atOrBefore: bound)) ?? nil
+            } else {
+                ts = (try? await store.latestHRSampleTs(deviceId: id)) ?? nil
             }
+            if let ts { latest = max(latest ?? ts, ts) }
         }
         return latest
     }
@@ -3095,6 +3099,13 @@ final class Repository: ObservableObject {
         return Self.logicalDayStart(Date(timeIntervalSince1970: TimeInterval(ts)))
     }
 
+    /// The newest heart-rate timestamp across the imported union (an indexed seek per source), or nil with no data
+    /// or no store yet. The body-clock cache asks whether newer heart rate has arrived since its last read.
+    func latestHeartRateTimestamp(atOrBefore bound: Int? = nil) async -> Int? {
+        guard let store = await ensureStore() else { return nil }
+        return await unionLatestHRSampleTs(store: store, atOrBefore: bound)
+    }
+
     /// Downsampled HR (mean bpm per `bucketSeconds`) for the strap, for a Today/24h trend chart.
     /// Aggregated in SQL so a full day never loads the raw ~1 Hz rows.
     func hrBuckets(from: Int, to: Int, bucketSeconds: Int = 300) async -> [HRBucket] {
@@ -4323,9 +4334,17 @@ final class Repository: ObservableObject {
         // active-only row.
         if key == "energy_kcal" {
             let apple = await appleDailyRows()
-            return Self.exploreCaloriesSeries(
-                layeredStrapKcal: byDay, dailyRows: self.days, apple: apple,
-                context: HealthDailyPick.calorieContext(repo: self), from: from, to: to)
+            // The resolver is pure and walks every day Apple Health covers (up to 4,000), and this runs on the
+            // main actor once per metric the Explore probe, a correlation scan or Compare asks about: take the
+            // inputs here, resolve elsewhere.
+            let layered = byDay
+            let dailyRows = self.days
+            let context = HealthDailyPick.calorieContext(repo: self)
+            return await Task.detached(priority: .userInitiated) {
+                Self.exploreCaloriesSeries(
+                    layeredStrapKcal: layered, dailyRows: dailyRows, apple: apple,
+                    context: context, from: from, to: to)
+            }.value
         }
         return byDay.sorted { $0.key < $1.key }.map { (day: $0.key, value: $0.value) }
     }

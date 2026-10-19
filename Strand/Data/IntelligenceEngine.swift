@@ -268,6 +268,98 @@ final class IntelligenceEngine: ObservableObject {
     /// window (review round 6).
     nonisolated static let rawLoopMinHrRows = 200
 
+    /// One civil day of the WHOOP 4.0 steps estimate's motion volume, with what it was computed from. A later pass
+    /// reuses `motion` only while the day's resolved owner, read window and gravity fingerprint (row count and newest
+    /// timestamp, answered from the index) are all unchanged, so an insert, a delete, a timestamp heal or an owner
+    /// change re-reads the day and a cached day can never differ from a fresh read.
+    struct StepMotionCacheEntry: Sendable, Equatable {
+        let owner: String
+        let from: Int
+        let to: Int
+        let rowCount: Int
+        let maxTs: Int
+        let motion: Double
+
+        func matches(owner: String, from: Int, to: Int, fingerprint: (count: Int, maxTs: Int)) -> Bool {
+            self.owner == owner && self.from == from && self.to == to
+                && rowCount == fingerprint.count && maxTs == fingerprint.maxTs
+        }
+    }
+
+    /// What the 60-day steps-calibration gather returns across the detached task: the phone's reference steps and the
+    /// strap's motion volume by day, the refreshed motion cache, and how many days it answered.
+    struct StepsCalibrationGather: Sendable {
+        let refSteps: [String: Double]
+        let motion: [String: Double]
+        let motionCache: [String: StepMotionCacheEntry]
+        let cacheHits: Int
+    }
+
+    /// Per-day motion volume for the steps estimate, kept in memory between normal passes (at most 60 days).
+    private var stepMotionCache: [String: StepMotionCacheEntry] = [:]
+    /// Days the motion cache has answered since launch; a test reads it to prove a pass skipped the gravity read.
+    private(set) var stepMotionCacheHits = 0
+
+    /// The steps estimate runs on a normal pass only: window starting today, no source context, and not a
+    /// full-history rescore chunk. See the call site.
+    nonisolated static func runsStepsCalibration(startOffset: Int, keepUnproducedHistory: Bool,
+                                                 hasSourceContext: Bool) -> Bool {
+        startOffset == 0 && !keepUnproducedHistory && !hasSourceContext
+    }
+
+    /// The calibration a pass that does not fit one applies: the manual override when the owner set one, else the
+    /// coefficient the last normal pass fitted and mirrored to the profile. nil until there is one (the estimate is
+    /// inert before then, as it always was).
+    ///
+    /// A mirror still flagged `manual` while the override is off is the owner's old manual value, left there until the
+    /// next normal pass refits (or clears) it. It is not a fit, so a gated pass ignores it, exactly as the normal pass
+    /// (which reads the override live) no longer applies it.
+    ///
+    /// A gated pass deliberately never fits in-pass: it applies the LAST normal pass's persisted coefficient, so a day
+    /// it scores can get a slightly different estimate than an in-pass fit over its own span would have given (a
+    /// rescore chunk's span is days 31 to 59 back, which fits locally or not at all). The fit needs the 60-day
+    /// window's gravity and phone steps, which is the cost the gate exists to avoid. The normal pass's coefficient is
+    /// the one every figure on screen uses, so a gated day agrees with them; the coefficient is at most one normal
+    /// pass behind, and the normal pass's own 60-day window rewrites those days with the fresh fit the next time the
+    /// app is opened.
+    nonisolated static func persistedStepsCalibration(
+        manualOverride: Double?, coefficient: Double, sampleDays: Int, confidence: Double, manual: Bool
+    ) -> StepsEstimateEngine.Calibration? {
+        if let k = manualOverride, k > 0 {
+            return StepsEstimateEngine.Calibration(coefficient: k, sampleDays: sampleDays, confidence: 1.0, manual: true)
+        }
+        guard coefficient > 0, !manual else { return nil }
+        return StepsEstimateEngine.Calibration(
+            coefficient: coefficient, sampleDays: sampleDays, confidence: confidence, manual: false)
+    }
+
+    /// One civil day's motion volume for the steps estimate, answered from `cached` when the day's owner, read
+    /// window and gravity fingerprint are unchanged, else read from the owner's gravity stream. The fingerprint is
+    /// read BEFORE the rows, so a row that lands in between only makes the next pass's fingerprint differ (a re-read),
+    /// never a stale hit. A failed gravity read is not cached: it counts as an empty day, as it always did.
+    nonisolated static func stepMotion(
+        for civilDay: CivilDayWindow, now: Int, cached: StepMotionCacheEntry?, store: WhoopStore,
+        devices: [PairedDevice], activeId: String, registry: DeviceRegistryStore, fallbackDeviceId: String
+    ) async throws -> (motion: Double, entry: StepMotionCacheEntry?, hit: Bool) {
+        let dayEnd = civilDay.nextStart - 1
+        let owner = await resolveDayOwner(
+            day: civilDay.day, from: civilDay.start, to: dayEnd, store: store,
+            devices: devices, activeId: activeId, registry: registry, fallbackDeviceId: fallbackDeviceId,
+            completedDay: civilDay.nextStart <= now ? civilDay : nil)
+        let fingerprint = try? await store.gravityFingerprint(deviceId: owner, from: civilDay.start, to: dayEnd)
+        if let fingerprint, let hit = cached,
+           hit.matches(owner: owner, from: civilDay.start, to: dayEnd, fingerprint: fingerprint) {
+            return (hit.motion, hit, true)
+        }
+        let grav = try? await store.gravitySamples(deviceId: owner, from: civilDay.start, to: dayEnd, limit: 200_000)
+        try CooperativeAnalysisCancellation.checkpoint()
+        let motion = StepsEstimateEngine.dayMotionIntensity(grav ?? [])
+        guard let fingerprint, grav != nil else { return (motion, nil, false) }
+        return (motion, StepMotionCacheEntry(
+            owner: owner, from: civilDay.start, to: dayEnd,
+            rowCount: fingerprint.count, maxTs: fingerprint.maxTs, motion: motion), false)
+    }
+
     private var dayScanCache: [String: CachedDayScan] = [:]
     private var dayScanCacheConfigSignature = ""
     private var analyzeRecentCacheTestingSeams: AnalyzeRecentCacheTestingSeams?
@@ -376,6 +468,10 @@ final class IntelligenceEngine: ObservableObject {
     /// `AppModel` wires it to `live.append(log:domain:)`. Each line is a concise, counts-only summary,
     /// optionally tagged with the TestDomain so the Sleep/Battery emitters land under their profile tag.
     var diagnosticSink: ((String, TestDomain?) -> Void)?
+
+    /// Test seam: runs on the main actor right after the daily-row reconcile commits, before the rest of the
+    /// persistence phase. A test cancels the pass from here to prove what a mid-write cancel leaves behind.
+    var afterDailyReconcileForTesting: (() -> Void)?
 
     init(repo: Repository, profile: ProfileStore, deviceId: String) {
         self.repo = repo; self.profile = profile; self.deviceId = deviceId
@@ -535,6 +631,24 @@ final class IntelligenceEngine: ObservableObject {
         return min(cap, max(1, span + 1))
     }
     private var effortRescoreRunning = false
+
+    /// True while the v3 rescore or its settle pass still has chunks to run (or has not started). The scene-edge
+    /// grant and the rescore BGProcessingTask use it to decide whether another wake is worth arming. It reads the
+    /// same durable progress rows `runEffortRescoreIfNeeded` writes, so an install with nothing to rescore settles to
+    /// false after one run.
+    func effortRescoreIsPending() async -> Bool {
+        guard let store = await repo.storeHandle() else { return false }
+        let v3 = try? await store.durableMigrationProgress(key: Self.effortRescoreDurableProgressKey)
+        if let v3 {
+            guard v3.state == .complete else { return true }
+        } else if !UserDefaults.standard.bool(forKey: Self.effortRescoreFlagKey) {
+            return true   // v3 has not started
+        }
+        guard let settle = try? await store.durableMigrationProgress(key: Self.effortRescoreSettleDurableProgressKey) else {
+            return true
+        }
+        return settle.state != .complete
+    }
 
     /// One-shot, on-upgrade FULL-history Effort rescore (#313 PART B). The Effort hero gauge + numbers
     /// moved from the old 0–21 axis to NOOP's own 0–100 axis. On-device computed rows since v2.6.1
@@ -1740,6 +1854,9 @@ final class IntelligenceEngine: ObservableObject {
             NSLog("IntelligenceEngine: required baseline read failed: \(error)")
             return false
         }
+        // Cancellation checkpoint (a background grant ended or the app came back to the foreground): nothing has
+        // been persisted yet, and every read below is whole-history work that should not outlive the grant.
+        guard !Task.isCancelled else { performanceChangedRows = 0; return false }
         // N2-UPG-2: the wearable fold below writes Oura / Fitbit / Garmin / Health Connect rows under the
         // computed id on days the strap did not score, and those rows carry that device's HRV and resting HR,
         // not the strap's, so they stay out of the strap baseline (#459 device-scale mix). Read once; the
@@ -1756,6 +1873,7 @@ final class IntelligenceEngine: ObservableObject {
                 return false
             }
         }
+        guard !Task.isCancelled else { performanceChangedRows = 0; return false }
         // Review round 4 (4): only the rows the fold wrote are left out, by the marker each pass persists beside
         // its rows. A row from before the marker is classified once and the result persisted: on a day a
         // wearable import with vitals covers, it is a strap night if the raw loop would have scored the day (its
@@ -2021,6 +2139,7 @@ final class IntelligenceEngine: ObservableObject {
         // The WHOLE apple-health daily history, chronological. Used both as a key-presence set for the
         // By-Day badge AND as the SDNN+RHR input for the Apple-Watch recovery fold below (a watch-only user
         // has these daily aggregates but no raw stream, so the raw-HR scoring loop never touched them).
+        guard !Task.isCancelled else { return false }
         let appleRows: [DailyMetric]
         do {
             appleRows = try await store.dailyMetrics(
@@ -2546,6 +2665,13 @@ final class IntelligenceEngine: ObservableObject {
         // Replace the full computed range in one SQLite transaction. Upsert-then-read-then-delete used three
         // separate transactions; any unrelated reader could observe the intermediate generation even when
         // Repository publication was fenced. Manual-Recovery triggers restore protected rows atomically.
+        // A migration chunk (`keepUnproducedHistory`: the v3 and settle rescores) is cancelled when the app returns
+        // to the foreground, but only up to its first durable write. From the daily reconcile to the end of the
+        // persistence phase it runs to completion: the writes are separate transactions, so stopping between them
+        // left a day with the new daily row beside its old Rest score, sleep sessions and detected workouts, and
+        // no later pass rewrites those days until the same chunk replays. The write phase is short next to the scan.
+        // Ordinary passes keep stopping at every checkpoint.
+        let writesStopOnCancel = !keepUnproducedHistory
         do {
             guard !Task.isCancelled else { performanceChangedRows = persistedMutationCount; return false }
             persistedMutationCount += try await store.reconcileDailyMetrics(
@@ -2603,13 +2729,14 @@ final class IntelligenceEngine: ObservableObject {
             NSLog("IntelligenceEngine: computed daily reconciliation failed: \(error)")
             return false
         }
+        afterDailyReconcileForTesting?()
         // Review round 4 (3): each day's Charge breakdown, persisted beside the Charge it explains for every fold.
         // In the window: the strap and wearable-fold days whose reconciled row carries exactly the Charge the
         // drivers were built against, and the Apple Watch days no computed Charge overrides. The Apple fold
         // rescores the whole history, so its days outside the window are rewritten only where their Charge
         // changed.
         do {
-            guard !Task.isCancelled else { performanceChangedRows = persistedMutationCount; return false }
+            guard !(writesStopOnCancel && Task.isCancelled) else { performanceChangedRows = persistedMutationCount; return false }
             let reconciledRecoveryByDay = Dictionary(reconciledDailies.map { ($0.day, $0.recovery) },
                                                      uniquingKeysWith: { _, last in last })
             var windowBreakdowns: [String: StoredChargeBreakdown] = [:]
@@ -2674,7 +2801,7 @@ final class IntelligenceEngine: ObservableObject {
             return false
         }
         do {
-            guard !Task.isCancelled else { performanceChangedRows = persistedMutationCount; return false }
+            guard !(writesStopOnCancel && Task.isCancelled) else { performanceChangedRows = persistedMutationCount; return false }
             // Exact committed work is source-maintenance, not a consent owner. It must still reconcile
             // validation-only primary-session RHR for the exact raw source, but it cannot interpret the
             // deliberately absent pre-sleep observations as deletion. Those five rows belong exclusively
@@ -2699,7 +2826,7 @@ final class IntelligenceEngine: ObservableObject {
         // raw register value under the strap that recorded it, with its anchor (review round 3 B, round 4 1), keyed
         // by the strap's physical identity (review round 5, 4).
         do {
-            guard !Task.isCancelled else { performanceChangedRows = persistedMutationCount; return false }
+            guard !(writesStopOnCancel && Task.isCancelled) else { performanceChangedRows = persistedMutationCount; return false }
             var whoop4Identities = Set(storedWhoop4SkinByIdentity.keys)
             let nightlySkinPoints = scoredNights.flatMap { night -> [MetricPoint] in
                 guard let mean = night.nightlySkin else { return [] }
@@ -2731,7 +2858,7 @@ final class IntelligenceEngine: ObservableObject {
         }
         if !restPoints.isEmpty {
             do {
-                guard !Task.isCancelled else { performanceChangedRows = persistedMutationCount; return false }
+                guard !(writesStopOnCancel && Task.isCancelled) else { performanceChangedRows = persistedMutationCount; return false }
                 persistedMutationCount += try await store.upsertMetricSeries(restPoints, deviceId: computedId)
             } catch {
                 NSLog("IntelligenceEngine: Rest series persistence failed: \(error)")
@@ -2740,7 +2867,7 @@ final class IntelligenceEngine: ObservableObject {
         }
         if !sleepV2Points.isEmpty {
             do {
-                guard !Task.isCancelled else { performanceChangedRows = persistedMutationCount; return false }
+                guard !(writesStopOnCancel && Task.isCancelled) else { performanceChangedRows = persistedMutationCount; return false }
                 persistedMutationCount += try await store.upsertMetricSeries(
                     sleepV2Points, deviceId: computedId)
             } catch {
@@ -2775,7 +2902,7 @@ final class IntelligenceEngine: ObservableObject {
             heightCm: profile.heightCm, weightKg: profile.weightKg, computedId: computedId,
             satKey: IntelligenceEngine.saturdayKey(onOrBefore: newestDay))
         if !faPts.isEmpty {
-            guard !Task.isCancelled else { performanceChangedRows = persistedMutationCount; return false }
+            guard !(writesStopOnCancel && Task.isCancelled) else { performanceChangedRows = persistedMutationCount; return false }
             persistedMutationCount += (try? await store.upsertMetricSeries(
                 faPts, deviceId: computedId)) ?? 0
         }
@@ -2798,7 +2925,7 @@ final class IntelligenceEngine: ObservableObject {
             steps: vSteps.isEmpty ? nil : vSteps.reduce(0, +) / Double(vSteps.count))
         if let vRes = VitalityEngine.compute(vInputs) {
             let satKey = IntelligenceEngine.saturdayKey(onOrBefore: newestDay)
-            guard !Task.isCancelled else { performanceChangedRows = persistedMutationCount; return false }
+            guard !(writesStopOnCancel && Task.isCancelled) else { performanceChangedRows = persistedMutationCount; return false }
             persistedMutationCount += (try? await store.upsertMetricSeries([
                 MetricPoint(day: satKey, key: "vitality", value: vRes.vitality),
                 MetricPoint(day: satKey, key: "body_age", value: vRes.bodyAge),
@@ -2819,122 +2946,207 @@ final class IntelligenceEngine: ObservableObject {
         // both-have days accumulate to fit. Reference steps = the apple-health daily `steps` value
         // (the same source the dashboard's `steps` metric reads, Repository.swift). Motion = the
         // [localMidnight, +24h) gravity volume, the same calendar-day window the daily totals use.
-        let stepsCalDays = 60
-        let stepCivilDays = Self.civilDayWindows(
-            reference: referenceNow, startOffset: 0, count: stepsCalDays, calendar: analysisCalendar)
-        let calOldest = stepCivilDays.last?.day ?? oldestDay
-        // ── FIX 2 (main-actor jank): hoist the 60-day steps-calibration STORE READS off the main actor ──
-        // Same residual stall FIX 1 fixed, smaller scale: this class is `@MainActor`, so each `await store.…`
-        // below resumes its continuation ON the main actor , the apple-health read + 60 per-day
-        // owner-resolve/gravity reads add 60+ read-resumes of main-actor contention every analyzeRecent.
-        // The reads touch NO `@Published`/`profile`/`registry`-isolated state , only the captured immutable
-        // inputs (calOldest/newestDay/stepCivilDays/regDevices/regActiveId), the `WhoopStore`
-        // actor, the nonisolated `registry`, the nonisolated-static `resolveDayOwner`, and the pure static
-        // `StepsEstimateEngine.dayMotionIntensity`. So we hoist the whole gather into ONE
-        // `Task.detached(priority:.utility)` whose continuations resume OFF the main actor, returning two
-        // plain `[String: Double]` value types (fully Sendable , even cleaner than FIX 1's [DayScan]). The
-        // pure `StepsEstimateEngine.calibrate/estimate/status` fit + the `profile.*` assignments stay on the
-        // main actor below, consuming those dictionaries. Same per-day inputs (same window, same owner
-        // resolution, same `m > 0` / `steps > 0` filters), same outputs , only the executor the reads resume
-        // on changes. Bind `deviceId` (a MainActor instance `let`) to a local Sendable `String` so the
-        // @Sendable detached closure captures the VALUE, never `self`, exactly as FIX 1's `ownerFallbackId`.
-        let stepsFallbackId = deviceId
-        let gatheredStepsCalibration: ([String: Double], [String: Double])
-        do {
-            gatheredStepsCalibration = try await CooperativeAnalysisCancellation.runDetached {
-                try CooperativeAnalysisCancellation.checkpoint()
-            // Phone reference steps per day, from the apple-health daily rows (steps > 0 only).
-            // #693: read `appleDaily`, NOT `dailyMetrics`. Apple-Health import writes the phone step count into
-            // `appleDaily.steps` (Int?), never into a dailyMetric `steps` row , so the old `dailyMetrics` read
-            // was always empty and the calibration never advanced past "Need 3 more days" (Android already reads
-            // appleDaily here, IntelligenceEngine.kt:676). `store.appleDaily(deviceId:from:to:)` already exists.
-            let appleRows = (try? await store.appleDaily(deviceId: Repository.appleHealthSource,
-                                                         from: calOldest, to: newestDay)) ?? []
-            var refSteps: [String: Double] = [:]
-            for r in appleRows { if let s = r.steps, s > 0 { refSteps[r.day] = Double(s) } }
-            // Per-day motion volume over the calibration window, read from the owner-resolved strap streams.
-            // (Owner resolution mirrors the scoring loop; one device installs resolve to `deviceId`.)
-            var motion: [String: Double] = [:]
-            for civilDay in stepCivilDays {
-                try CooperativeAnalysisCancellation.checkpoint()
-                let dayEnd = civilDay.nextStart - 1
-                let owner = await Self.resolveDayOwner(
-                    day: civilDay.day, from: civilDay.start, to: dayEnd, store: store,
-                                                       devices: regDevices, activeId: regActiveId,
-                                                       registry: registry, fallbackDeviceId: stepsFallbackId,
-                                                       completedDay: civilDay.nextStart <= now ? civilDay : nil)
-                let grav = (try? await store.gravitySamples(deviceId: owner, from: civilDay.start, to: dayEnd,
-                                                            limit: 200_000)) ?? []
-                try CooperativeAnalysisCancellation.checkpoint()
-                let m = StepsEstimateEngine.dayMotionIntensity(grav)
-                if m > 0 { motion[civilDay.day] = m }
+        // Normal passes only. The estimate's inputs are the LATEST 60 days whatever window the pass scores, so a
+        // rescore chunk (`startOffset > 0`, `keepUnproducedHistory`) or an exact-day receipt pass (`sourceContext`)
+        // would re-read the same 60 days of gravity a normal pass reads and store the same answer. Every v3 and
+        // settle chunk used to repeat that gather, and the unpaced 60-day read was the cause of a background CPU kill
+        // (cpu_resource_fatal, build 227). The 15-minute and post-sync passes still estimate and mirror the fit.
+        if Self.runsStepsCalibration(startOffset: startOffset, keepUnproducedHistory: keepUnproducedHistory,
+                                     hasSourceContext: sourceContext != nil) {
+            let stepsCalDays = 60
+            let stepCivilDays = Self.civilDayWindows(
+                reference: referenceNow, startOffset: 0, count: stepsCalDays, calendar: analysisCalendar)
+            let calOldest = stepCivilDays.last?.day ?? oldestDay
+            // ── FIX 2 (main-actor jank): hoist the 60-day steps-calibration STORE READS off the main actor ──
+            // Same residual stall FIX 1 fixed, smaller scale: this class is `@MainActor`, so each `await store.…`
+            // below resumes its continuation ON the main actor , the apple-health read + 60 per-day
+            // owner-resolve/gravity reads add 60+ read-resumes of main-actor contention every analyzeRecent.
+            // The reads touch NO `@Published`/`profile`/`registry`-isolated state , only the captured immutable
+            // inputs (calOldest/newestDay/stepCivilDays/regDevices/regActiveId), the `WhoopStore`
+            // actor, the nonisolated `registry`, the nonisolated-static `resolveDayOwner`, and the pure static
+            // `StepsEstimateEngine.dayMotionIntensity`. So we hoist the whole gather into ONE
+            // `Task.detached(priority:.utility)` whose continuations resume OFF the main actor, returning two
+            // plain `[String: Double]` value types (fully Sendable , even cleaner than FIX 1's [DayScan]). The
+            // pure `StepsEstimateEngine.calibrate/estimate/status` fit + the `profile.*` assignments stay on the
+            // main actor below, consuming those dictionaries. Same per-day inputs (same window, same owner
+            // resolution, same `m > 0` / `steps > 0` filters), same outputs , only the executor the reads resume
+            // on changes. Bind `deviceId` (a MainActor instance `let`) to a local Sendable `String` so the
+            // @Sendable detached closure captures the VALUE, never `self`, exactly as FIX 1's `ownerFallbackId`.
+            let stepsFallbackId = deviceId
+            // Per-day motion cache (see `StepMotionCacheEntry`): a normal pass re-read 60 full days of gravity every
+            // time. A day whose owner, window and gravity fingerprint are unchanged keeps its motion volume.
+            let motionCacheIn = stepMotionCache
+            let gatheredStepsCalibration: StepsCalibrationGather
+            do {
+                gatheredStepsCalibration = try await CooperativeAnalysisCancellation.runDetached {
+                    try CooperativeAnalysisCancellation.checkpoint()
+                // Phone reference steps per day, from the apple-health daily rows (steps > 0 only).
+                // #693: read `appleDaily`, NOT `dailyMetrics`. Apple-Health import writes the phone step count into
+                // `appleDaily.steps` (Int?), never into a dailyMetric `steps` row , so the old `dailyMetrics` read
+                // was always empty and the calibration never advanced past "Need 3 more days" (Android already reads
+                // appleDaily here, IntelligenceEngine.kt:676). `store.appleDaily(deviceId:from:to:)` already exists.
+                let appleRows = (try? await store.appleDaily(deviceId: Repository.appleHealthSource,
+                                                             from: calOldest, to: newestDay)) ?? []
+                var refSteps: [String: Double] = [:]
+                for r in appleRows { if let s = r.steps, s > 0 { refSteps[r.day] = Double(s) } }
+                // Per-day motion volume over the calibration window, read from the owner-resolved strap streams.
+                // (Owner resolution mirrors the scoring loop; one device installs resolve to `deviceId`.)
+                var motion: [String: Double] = [:]
+                var motionCache: [String: StepMotionCacheEntry] = [:]
+                var cacheHits = 0
+                for civilDay in stepCivilDays {
+                    try CooperativeAnalysisCancellation.checkpoint()
+                    let day = try await Self.stepMotion(
+                        for: civilDay, now: now, cached: motionCacheIn[civilDay.day], store: store,
+                        devices: regDevices, activeId: regActiveId, registry: registry,
+                        fallbackDeviceId: stepsFallbackId)
+                    if let entry = day.entry { motionCache[civilDay.day] = entry }
+                    if day.hit { cacheHits += 1 }
+                    if day.motion > 0 { motion[civilDay.day] = day.motion }
+                }
+                return StepsCalibrationGather(refSteps: refSteps, motion: motion,
+                                              motionCache: motionCache, cacheHits: cacheHits)
+                }
+            } catch is CancellationError {
+                performanceChangedRows = 0
+                return false
+            } catch {
+                gatheredStepsCalibration = StepsCalibrationGather(refSteps: [:], motion: [:], motionCache: [:], cacheHits: 0)
             }
-            return (refSteps, motion)
-            }
-        } catch is CancellationError {
-            performanceChangedRows = 0
-            return false
-        } catch {
-            gatheredStepsCalibration = ([:], [:])
-        }
-        let (refStepsByDay, motionByDay) = gatheredStepsCalibration
-        // Build calibration points only for days with BOTH a motion volume and a real phone step count.
-        let calPoints = motionByDay.compactMap { (day, motion) -> StepsEstimateEngine.CalibrationPoint? in
-            guard let s = refStepsByDay[day] else { return nil }
-            return StepsEstimateEngine.CalibrationPoint(motion: motion, steps: s)
-        }
-        if let cal = StepsEstimateEngine.calibrate(calPoints, manualOverride: profile.stepsManualOverride) {
-            // Estimate + upsert for each recent scored day that has motion but NO real phone step count.
-            // (Days the phone DID count keep their real value , surfaced directly by the Today tile, not
-            // overwritten by an estimate.) This runs AFTER any timestamp-heal upstream, so the motion it
-            // reads is the healed-day motion, never pre-heal.
-            var estPts: [MetricPoint] = []
-            for dm in dailies where refStepsByDay[dm.day] == nil {
-                guard let motion = motionByDay[dm.day],
-                      let est = StepsEstimateEngine.estimate(motion: motion, calibration: cal) else { continue }
-                estPts.append(MetricPoint(day: dm.day, key: "steps_est", value: Double(est)))
-            }
-            if !estPts.isEmpty {
-                guard !Task.isCancelled else { performanceChangedRows = persistedMutationCount; return false }
-                persistedMutationCount += (try? await store.upsertMetricSeries(
-                    estPts, deviceId: computedId)) ?? 0
-            }
-            // Mirror the fit into ProfileStore so the Settings/Steps screen can show + adjust it.
-            profile.stepsCalibrationCoefficient = cal.coefficient
-            profile.stepsCalibrationSampleDays = cal.sampleDays
-            profile.stepsCalibrationConfidence = cal.confidence
-            profile.stepsCalibrationManual = cal.manual
-        } else {
-            // Not yet calibrated (too few overlapping phone-counted days, no manual override). Classify the
-            // STATE (#589) and persist the PROGRESS so the Today tile/Settings can say how many more days are
-            // needed rather than going silently blank. `status` uses the SAME usable-day filter the fit does.
-            // Coefficient stays 0 (the "not calibrated" gate the UI already keys off); sampleDays carries the
-            // usable-day count so the message can compute "need N more".
-            let stepsStatus = StepsEstimateEngine.status(calPoints, manualOverride: profile.stepsManualOverride)
-            if case let .needsMoreDays(have, _) = stepsStatus {
-                profile.stepsCalibrationCoefficient = 0
-                profile.stepsCalibrationSampleDays = have
-                profile.stepsCalibrationConfidence = 0
-                profile.stepsCalibrationManual = false
-            }
-        }
-
-        // Steps test mode: emit the WHOOP-4 motion-volume calibration trace (per-day points + the fitted /
-        // manual / withheld calibration state) and a per-day estimate line, tagged `.steps`. Only when the
-        // mode is on (the gate was read once before the scan loop), so the default path emits zero `.steps`
-        // lines here. The trace reuses StepsEstimateEngine.calibrate/estimate VERBATIM, so it cannot diverge
-        // from the coefficient + steps_est just written above.
-        if stepsTraceActive {
-            for line in StepsEstimateEngine.calibrationTrace(points: calPoints,
-                                                             manualOverride: profile.stepsManualOverride) {
-                diagnosticSink?(line, .steps)
+            stepMotionCache = gatheredStepsCalibration.motionCache
+            stepMotionCacheHits &+= gatheredStepsCalibration.cacheHits
+            let refStepsByDay = gatheredStepsCalibration.refSteps
+            let motionByDay = gatheredStepsCalibration.motion
+            // Build calibration points only for days with BOTH a motion volume and a real phone step count.
+            let calPoints = motionByDay.compactMap { (day, motion) -> StepsEstimateEngine.CalibrationPoint? in
+                guard let s = refStepsByDay[day] else { return nil }
+                return StepsEstimateEngine.CalibrationPoint(motion: motion, steps: s)
             }
             if let cal = StepsEstimateEngine.calibrate(calPoints, manualOverride: profile.stepsManualOverride) {
+                // Estimate + upsert for each recent scored day that has motion but NO real phone step count.
+                // (Days the phone DID count keep their real value , surfaced directly by the Today tile, not
+                // overwritten by an estimate.) This runs AFTER any timestamp-heal upstream, so the motion it
+                // reads is the healed-day motion, never pre-heal.
+                var estPts: [MetricPoint] = []
                 for dm in dailies where refStepsByDay[dm.day] == nil {
                     guard let motion = motionByDay[dm.day],
                           let est = StepsEstimateEngine.estimate(motion: motion, calibration: cal) else { continue }
-                    diagnosticSink?("stepsEst day=\(dm.day) steps=\(est) "
-                        + "motion=\((motion * 100).rounded() / 100) (motion-volume estimate)", .steps)
+                    estPts.append(MetricPoint(day: dm.day, key: "steps_est", value: Double(est)))
+                }
+                if !estPts.isEmpty {
+                    guard !(writesStopOnCancel && Task.isCancelled) else { performanceChangedRows = persistedMutationCount; return false }
+                    persistedMutationCount += (try? await store.upsertMetricSeries(
+                        estPts, deviceId: computedId)) ?? 0
+                }
+                // Mirror the fit into ProfileStore so the Settings/Steps screen can show + adjust it.
+                profile.stepsCalibrationCoefficient = cal.coefficient
+                profile.stepsCalibrationSampleDays = cal.sampleDays
+                profile.stepsCalibrationConfidence = cal.confidence
+                profile.stepsCalibrationManual = cal.manual
+            } else {
+                // Not yet calibrated (too few overlapping phone-counted days, no manual override). Classify the
+                // STATE (#589) and persist the PROGRESS so the Today tile/Settings can say how many more days are
+                // needed rather than going silently blank. `status` uses the SAME usable-day filter the fit does.
+                // Coefficient stays 0 (the "not calibrated" gate the UI already keys off); sampleDays carries the
+                // usable-day count so the message can compute "need N more".
+                let stepsStatus = StepsEstimateEngine.status(calPoints, manualOverride: profile.stepsManualOverride)
+                if case let .needsMoreDays(have, _) = stepsStatus {
+                    profile.stepsCalibrationCoefficient = 0
+                    profile.stepsCalibrationSampleDays = have
+                    profile.stepsCalibrationConfidence = 0
+                    profile.stepsCalibrationManual = false
+                }
+            }
+
+            // Steps test mode: emit the WHOOP-4 motion-volume calibration trace (per-day points + the fitted /
+            // manual / withheld calibration state) and a per-day estimate line, tagged `.steps`. Only when the
+            // mode is on (the gate was read once before the scan loop), so the default path emits zero `.steps`
+            // lines here. The trace reuses StepsEstimateEngine.calibrate/estimate VERBATIM, so it cannot diverge
+            // from the coefficient + steps_est just written above.
+            if stepsTraceActive {
+                for line in StepsEstimateEngine.calibrationTrace(points: calPoints,
+                                                                 manualOverride: profile.stepsManualOverride) {
+                    diagnosticSink?(line, .steps)
+                }
+                if let cal = StepsEstimateEngine.calibrate(calPoints, manualOverride: profile.stepsManualOverride) {
+                    for dm in dailies where refStepsByDay[dm.day] == nil {
+                        guard let motion = motionByDay[dm.day],
+                              let est = StepsEstimateEngine.estimate(motion: motion, calibration: cal) else { continue }
+                        diagnosticSink?("stepsEst day=\(dm.day) steps=\(est) "
+                            + "motion=\((motion * 100).rounded() / 100) (motion-volume estimate)", .steps)
+                    }
+                }
+            }
+        } else if let calibration = Self.persistedStepsCalibration(
+            manualOverride: profile.stepsManualOverride, coefficient: profile.stepsCalibrationCoefficient,
+            sampleDays: profile.stepsCalibrationSampleDays, confidence: profile.stepsCalibrationConfidence,
+            manual: profile.stepsCalibrationManual) {
+            // A pass that skips the 60-day fit (an exact-day receipt pass, a repair, a rescore chunk) still estimates
+            // the days IT scored: the exact-day pipeline is the only thing that scores a completed day while the app
+            // is in the background, and nothing else rewrites `steps_est`. The estimate needs only each own day's
+            // motion volume (read through the same per-day cache, so a day a normal pass already read costs one
+            // index probe) and the last fitted or manual coefficient. The fit and the profile mirror stay with the
+            // normal pass. Days older than the 60-day window were never estimated, so none are now.
+            let stepCivilDays = Self.civilDayWindows(
+                reference: referenceNow, startOffset: 0, count: 60, calendar: analysisCalendar)
+            let ownDays = Set(dailies.map(\.day))
+            let ownWindows = stepCivilDays.filter { ownDays.contains($0.day) }
+            if let ownNewest = ownWindows.first?.day, let ownOldest = ownWindows.last?.day {
+                let stepsFallbackId = deviceId
+                let motionCacheIn = stepMotionCache
+                let gather: @Sendable () async throws -> StepsCalibrationGather = {
+                    try CooperativeAnalysisCancellation.checkpoint()
+                    let appleRows = (try? await store.appleDaily(deviceId: Repository.appleHealthSource,
+                                                                 from: ownOldest, to: ownNewest)) ?? []
+                    var refSteps: [String: Double] = [:]
+                    for r in appleRows { if let s = r.steps, s > 0 { refSteps[r.day] = Double(s) } }
+                    var motion: [String: Double] = [:]
+                    var motionCache: [String: StepMotionCacheEntry] = [:]
+                    var cacheHits = 0
+                    for civilDay in ownWindows where refSteps[civilDay.day] == nil {
+                        try CooperativeAnalysisCancellation.checkpoint()
+                        let day = try await Self.stepMotion(
+                            for: civilDay, now: now, cached: motionCacheIn[civilDay.day], store: store,
+                            devices: regDevices, activeId: regActiveId, registry: registry,
+                            fallbackDeviceId: stepsFallbackId)
+                        if let entry = day.entry { motionCache[civilDay.day] = entry }
+                        if day.hit { cacheHits += 1 }
+                        if day.motion > 0 { motion[civilDay.day] = day.motion }
+                    }
+                    return StepsCalibrationGather(refSteps: refSteps, motion: motion,
+                                                  motionCache: motionCache, cacheHits: cacheHits)
+                }
+                let gathered: StepsCalibrationGather
+                do {
+                    if writesStopOnCancel {
+                        gathered = try await CooperativeAnalysisCancellation.runDetached(operation: gather)
+                    } else {
+                        // A migration chunk is past its first write here and runs to completion (see
+                        // `writesStopOnCancel`), so its gather is not cancelled with the grant.
+                        gathered = try await Task.detached(priority: .utility, operation: gather).value
+                    }
+                } catch is CancellationError {
+                    performanceChangedRows = persistedMutationCount
+                    return false
+                } catch {
+                    gathered = StepsCalibrationGather(refSteps: [:], motion: [:], motionCache: [:], cacheHits: 0)
+                }
+                stepMotionCache.merge(gathered.motionCache) { _, new in new }
+                stepMotionCacheHits &+= gathered.cacheHits
+                var estPts: [MetricPoint] = []
+                for dm in dailies where gathered.refSteps[dm.day] == nil {
+                    guard let motion = gathered.motion[dm.day],
+                          let est = StepsEstimateEngine.estimate(motion: motion, calibration: calibration) else { continue }
+                    estPts.append(MetricPoint(day: dm.day, key: "steps_est", value: Double(est)))
+                    if stepsTraceActive {
+                        diagnosticSink?("stepsEst day=\(dm.day) steps=\(est) "
+                            + "motion=\((motion * 100).rounded() / 100) (motion-volume estimate)", .steps)
+                    }
+                }
+                if !estPts.isEmpty {
+                    guard !(writesStopOnCancel && Task.isCancelled) else { performanceChangedRows = persistedMutationCount; return false }
+                    persistedMutationCount += (try? await store.upsertMetricSeries(
+                        estPts, deviceId: computedId)) ?? 0
                 }
             }
         }
@@ -2979,7 +3191,7 @@ final class IntelligenceEngine: ObservableObject {
         }
         if !cachedSleepKept.isEmpty {
             do {
-                guard !Task.isCancelled else { performanceChangedRows = persistedMutationCount; return false }
+                guard !(writesStopOnCancel && Task.isCancelled) else { performanceChangedRows = persistedMutationCount; return false }
                 persistedMutationCount += try await store.upsertSleepSessions(
                     cachedSleepKept, deviceId: computedId)
             } catch {
@@ -3054,7 +3266,7 @@ final class IntelligenceEngine: ObservableObject {
         }
         let healDropped = SleepSessionDedup.dedupe(healable, freshStarts: keptStarts).dropped
         do {
-            guard !Task.isCancelled else { performanceChangedRows = persistedMutationCount; return false }
+            guard !(writesStopOnCancel && Task.isCancelled) else { performanceChangedRows = persistedMutationCount; return false }
             let auxResult = try await store.applySleepAuxiliaryMutations(
                 deviceId: computedId,
                 motionByStart: motionByStart,
@@ -3108,7 +3320,7 @@ final class IntelligenceEngine: ObservableObject {
         // scored window (a bout's startTs can drift as more HR arrives, which would otherwise orphan
         // stale rows under the (deviceId,startTs,sport) key), then re-insert.
         do {
-            guard !Task.isCancelled else { performanceChangedRows = persistedMutationCount; return false }
+            guard !(writesStopOnCancel && Task.isCancelled) else { performanceChangedRows = persistedMutationCount; return false }
             // Review round 7 (1): a migration chunk keeps the detected workouts of the days it keeps, and of the
             // older chunk's evening before its window, which that chunk reconciles itself. A stored bout this
             // pass re-detected (overlapping a produced row) is replaced, not duplicated.
@@ -3135,7 +3347,7 @@ final class IntelligenceEngine: ObservableObject {
         // #137: a manually-started workout is scored from sparse live HR at save time , near-zero
         // calories/strain on a 5/MG. Now that offloaded HR may cover the window, re-score the
         // under-sampled ones from that denser data.
-        guard !Task.isCancelled else { performanceChangedRows = persistedMutationCount; return false }
+        guard !(writesStopOnCancel && Task.isCancelled) else { performanceChangedRows = persistedMutationCount; return false }
         let measuredRestingHRByDay: [ManualWorkoutRescore.DailyRestingHR] = civilDays.compactMap { window in
             guard let restingHR = out.first(where: { $0.day == window.day })?.rhr,
                   let owner = readOwnerByDay[window.day]?.owner else { return nil }
@@ -3161,7 +3373,7 @@ final class IntelligenceEngine: ObservableObject {
         // pass (#899 dedup deleted stale session rows but no daily changed) must refresh too, so the
         // Sleep tab stops showing the removed duplicates right away.
         if persistedMutationCount > 0 && refreshRepository {
-            guard !Task.isCancelled else { performanceChangedRows = persistedMutationCount; return false }
+            guard !(writesStopOnCancel && Task.isCancelled) else { performanceChangedRows = persistedMutationCount; return false }
             _ = await repo.refresh(.currentDay)
         }
         performanceChangedRows = persistedMutationCount
@@ -3169,7 +3381,7 @@ final class IntelligenceEngine: ObservableObject {
         // #836: record the raw-HR fingerprint this run scored against, so a later NON-forced tick can
         // short-circuit while it's unchanged. Written ONLY here at the end of a completed run (never on an
         // early guard-return), so an interrupted/failed run can't advance the watermark past unscored data.
-        guard !Task.isCancelled else { performanceChangedRows = persistedMutationCount; return false }
+        guard !(writesStopOnCancel && Task.isCancelled) else { performanceChangedRows = persistedMutationCount; return false }
         if sourceContext == nil {
             // Pruning happens only here, after the complete pass: `nextCache` contains exactly the eligible
             // days in this active civil-day window. A failed/cancelled pass leaves the prior cache untouched.
