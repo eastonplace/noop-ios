@@ -30287,6 +30287,16 @@
         }
       }
     },
+    "Back to recent": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Back to recent"
+          }
+        }
+      }
+    },
     "Back Up Now": {
       "localizations": {
         "de": {
@@ -51075,6 +51085,16 @@
         }
       }
     },
+    "Daily totals": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Daily totals"
+          }
+        }
+      }
+    },
     "Daily wake times": {
       "localizations": {
         "de": {
@@ -65165,6 +65185,26 @@
         }
       }
     },
+    "Filters": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Filters"
+          }
+        }
+      }
+    },
+    "Filters on": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Filters on"
+          }
+        }
+      }
+    },
     "Finish your lift first": {
       "localizations": {
         "de": {
@@ -70399,6 +70439,26 @@
           "stringUnit": {
             "state": "translated",
             "value": "HF 功率"
+          }
+        }
+      }
+    },
+    "Hide daily totals": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide daily totals"
+          }
+        }
+      }
+    },
+    "Hide filters": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide filters"
           }
         }
       }
@@ -121543,6 +121603,16 @@
         }
       }
     },
+    "Re-label as %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Re-label as %@"
+          }
+        }
+      }
+    },
     "Re-nudge every %lld min": {
       "localizations": {
         "de": {
@@ -136129,6 +136199,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "安全 · 傳輸中"
+          }
+        }
+      }
+    },
+    "Select sessions": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Select sessions"
           }
         }
       }
