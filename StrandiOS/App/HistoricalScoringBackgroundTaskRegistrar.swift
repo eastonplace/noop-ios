@@ -38,6 +38,8 @@ enum HistoricalScoringBackgroundTaskRegistrar {
     typealias HealthScoringPending = @MainActor @Sendable () -> Bool
     typealias Run = @MainActor @Sendable () async -> HistoricalPipelineRuntimeResult?
     typealias Cancel = @MainActor @Sendable () async -> Void
+    typealias RunEffortRescore = @MainActor @Sendable () async -> Void
+    typealias EffortRescorePending = @MainActor @Sendable () async -> Bool
 
     private static var drainHealthImport: DrainHealthImport?
     private static var drainHealthScoring: DrainHealthScoring?
@@ -45,6 +47,8 @@ enum HistoricalScoringBackgroundTaskRegistrar {
     private static var healthScoringPending: HealthScoringPending?
     private static var runHistorical: Run?
     private static var cancelWork: Cancel?
+    private static var runEffortRescore: RunEffortRescore?
+    private static var effortRescorePending: EffortRescorePending?
     private static var registered = false
 
     @discardableResult
@@ -54,7 +58,9 @@ enum HistoricalScoringBackgroundTaskRegistrar {
         healthImportPending: @escaping HealthImportPending,
         healthScoringPending: @escaping HealthScoringPending,
         runHistorical: @escaping Run,
-        cancelWork: @escaping Cancel
+        cancelWork: @escaping Cancel,
+        runEffortRescore: RunEffortRescore? = nil,
+        effortRescorePending: EffortRescorePending? = nil
     ) -> Bool {
         self.drainHealthImport = drainHealthImport
         self.drainHealthScoring = drainHealthScoring
@@ -62,6 +68,8 @@ enum HistoricalScoringBackgroundTaskRegistrar {
         self.healthScoringPending = healthScoringPending
         self.runHistorical = runHistorical
         self.cancelWork = cancelWork
+        self.runEffortRescore = runEffortRescore
+        self.effortRescorePending = effortRescorePending
         guard !registered else { return true }
 
         let taskIdentifier = identifier
@@ -97,14 +105,17 @@ enum HistoricalScoringBackgroundTaskRegistrar {
                 let result = await runBackgroundWork(
                     drainHealthImport: drainHealthImport,
                     drainHealthScoring: drainHealthScoring,
-                    runHistorical: runHistorical
+                    runHistorical: runHistorical,
+                    runEffortRescore: Self.runEffortRescore
                 )
                 guard !Task.isCancelled else { return }
 
+                let rescorePending = await Self.effortRescorePending?() ?? false
                 switch completionDisposition(
                     for: result,
                     healthImportPending: healthImportPending(),
-                    healthScoringPending: healthScoringPending()
+                    healthScoringPending: healthScoringPending(),
+                    effortRescorePending: rescorePending
                 ) {
                 case .complete:
                     cancelPendingRequest()
@@ -190,10 +201,26 @@ enum HistoricalScoringBackgroundTaskRegistrar {
         )
     }
 
+    static func completionDisposition(
+        for result: HistoricalPipelineRuntimeResult?,
+        healthImportPending: Bool,
+        healthScoringPending: Bool,
+        effortRescorePending: Bool
+    ) -> CompletionDisposition {
+        // The v3/settle rescore keeps the same request armed until its last chunk lands.
+        guard !effortRescorePending else { return .retry }
+        return completionDisposition(
+            for: result,
+            healthImportPending: healthImportPending,
+            healthScoringPending: healthScoringPending
+        )
+    }
+
     static func runBackgroundWork(
         drainHealthImport: @escaping DrainHealthImport,
         drainHealthScoring: @escaping @MainActor @Sendable () async -> Bool,
-        runHistorical: @escaping Run
+        runHistorical: @escaping Run,
+        runEffortRescore: RunEffortRescore? = nil
     ) async -> HistoricalPipelineRuntimeResult? {
         // A locked HealthKit database can leave the import journal pending while already-committed local
         // rows still need Recovery publication. Try the import first, but do not strand scoring when the
@@ -205,7 +232,13 @@ enum HistoricalScoringBackgroundTaskRegistrar {
         // next foreground. A pending journal still makes the completion policy retry.
         _ = await drainHealthScoring()
         guard !Task.isCancelled else { return nil }
-        return await runHistorical()
+        let result = await runHistorical()
+        // The history rescore (v3, then its settle pass) goes last: it is the long, paced job, and the scoring above
+        // is what the owner is waiting on. Expiry cancels the worker, which stops the rescore at its next checkpoint
+        // and leaves its durable cursor where the last finished chunk put it.
+        guard !Task.isCancelled else { return result }
+        await runEffortRescore?()
+        return result
     }
 
     /// Keep one best-effort request armed. The durable pipeline remains authoritative if iOS discards it.

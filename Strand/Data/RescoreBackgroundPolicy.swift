@@ -39,6 +39,18 @@ enum RescoreBackgroundPolicy {
         #endif
     }
 
+    /// True only once iOS has actually moved the app to the background. `isBackgrounded` also counts
+    /// `.inactive` (Control Center, the notification shade, the app switcher, an incoming call), where the user
+    /// is still looking at the app and a full-history chunk would run flat out in the foreground.
+    @MainActor
+    static var isGenuinelyBackground: Bool {
+        #if os(iOS)
+        UIApplication.shared.applicationState == .background
+        #else
+        false
+        #endif
+    }
+
     /// Rest after each accumulated work quantum while iOS keeps the process alive in the background. The
     /// throwing sleep is deliberate: BG task expiration must cancel the detached analysis and return its
     /// durable lease to pending instead of letting CPU work continue after the grant ends.
@@ -68,5 +80,166 @@ enum RescoreBackgroundPolicy {
         case .cadenceBackstop:
             return .skip
         }
+    }
+}
+
+
+/// The background-execution assertion a rescore grant holds while it runs. Without one nothing keeps the process
+/// alive: iOS suspends it a few seconds after the app leaves the screen, a grant that is frozen when the owner
+/// comes back is cancelled, and its chunk replays from the same durable offset, so history that needs several
+/// uninterrupted background stays may never finish. In production this is `UIApplication.beginBackgroundTask`.
+struct BackgroundExecutionAssertion {
+    /// Begins the assertion. `onExpiry` runs on the main actor when iOS is about to end the background time: the
+    /// holder must call `end` before it returns. nil: iOS granted none.
+    let begin: @MainActor (_ onExpiry: @escaping @MainActor () -> Void) -> Int?
+    /// Ends an assertion `begin` returned.
+    let end: @MainActor (_ id: Int) -> Void
+
+    static let uiApplication = BackgroundExecutionAssertion(
+        begin: { onExpiry in
+            #if os(iOS)
+            let id = UIApplication.shared.beginBackgroundTask(withName: "NOOP history rescore") { onExpiry() }
+            return id == .invalid ? nil : id.rawValue
+            #else
+            return nil
+            #endif
+        },
+        end: { id in
+            #if os(iOS)
+            UIApplication.shared.endBackgroundTask(UIBackgroundTaskIdentifier(rawValue: id))
+            #endif
+        })
+}
+
+/// Owns the one maintenance rescore grant a scene edge may start. The v3/settle chunks are full-history work:
+/// while one runs it holds `IntelligenceEngine.computing` and the store queue, which blocks post-sync scoring,
+/// refreshes and edits. So a grant starts only when the app is genuinely in the background (not on an
+/// `.inactive` edge), is paused the moment that stops being true, and is cancelled on return to the foreground.
+/// A cancelled chunk never advances the durable cursor (`analyzeRecent` reports non-completion and the
+/// migration throws), so the next grant replays it from the same offset.
+///
+/// A running grant holds a background-execution assertion, so the process stays alive for the start of the chunk
+/// (see `BackgroundExecutionAssertion`). The assertion is ended exactly once, by whichever comes first: the grant
+/// finishing, a cancel, or iOS calling the expiration handler.
+///
+/// Expiry ends the assertion and nothing else. The grant keeps running: its Task freezes with the process when iOS
+/// suspends it and resumes on the next wake (a Bluetooth wake, for an owner wearing the strap), so a long stay still
+/// finishes the chunk, as it did before the assertion existed. Cancelling at the ~30 s expiry would throw away a
+/// partial scan the paced work needs several wakes to finish. Only a foreground return cancels the grant. The
+/// processing-task entry cancels it when its own task expires, through `waitUntilIdle`.
+///
+/// A cancelled grant may still be inside the engine, waiting for its next checkpoint. A grant started in that
+/// window waits for it first, so the engine's single-run guard never drops the new grant silently. It takes its
+/// assertion before it waits, so the cancelled grant's write tail is protected, and ends it if it then does not run.
+@MainActor
+final class EffortRescoreGrant {
+    /// One grant's assertion: begun at most once, ended at most once, never begun after it ended.
+    @MainActor
+    private final class Hold {
+        private let assertion: BackgroundExecutionAssertion
+        private var id: Int?
+        private var ended = false
+
+        init(_ assertion: BackgroundExecutionAssertion) { self.assertion = assertion }
+
+        func begin(onExpiry: @escaping @MainActor () -> Void) {
+            guard id == nil, !ended else { return }
+            id = assertion.begin(onExpiry)
+        }
+
+        func end() {
+            guard !ended else { return }
+            ended = true
+            guard let id else { return }
+            self.id = nil
+            assertion.end(id)
+        }
+    }
+
+    private let assertion: BackgroundExecutionAssertion
+    private var task: Task<Void, Never>?
+    private var token: UUID?
+    private var hold: Hold?
+    /// The last cancelled grant, which may still be unwinding. The next `start` runs after it.
+    private var unwinding: Task<Void, Never>?
+    private var unwindingToken: UUID?
+
+    init(assertion: BackgroundExecutionAssertion = .uiApplication) {
+        self.assertion = assertion
+    }
+
+    /// A grant is pending its start checks or running.
+    var isActive: Bool { task != nil }
+
+    /// A cancelled grant has not finished unwinding.
+    var isUnwinding: Bool { unwinding != nil }
+
+    /// - Parameters:
+    ///   - isBackground: iOS has moved the app to the background. Checked when the grant starts and again
+    ///     before every chunk (through `shouldPause`), which is after the first `await` of the migration.
+    ///   - mayRun: the other gates (first paint done, no import, no strap backfill, no workout, not active).
+    ///   - run: the migration. It must poll the `shouldPause` it is handed between chunks.
+    func start(
+        isBackground: @escaping @MainActor () -> Bool,
+        mayRun: @escaping @MainActor () -> Bool,
+        run: @escaping @MainActor (_ shouldPause: () -> Bool) async -> Void
+    ) {
+        guard task == nil else { return }
+        let token = UUID()
+        let hold = Hold(assertion)
+        let previous = unwinding
+        self.token = token
+        self.hold = hold
+        unwinding = nil
+        unwindingToken = nil
+        task = Task(priority: .background) { [weak self] in
+            // iOS calling the expiration handler ends the assertion before it returns; the grant itself carries on.
+            let begin = { hold.begin { hold.end() } }
+            // A cancelled grant still unwinding runs its uncancellable write tail (the rows a migration chunk has begun
+            // writing, see `IntelligenceEngine.analyzeRecent`) while this one waits. Its own assertion ended at the
+            // cancel, so take this grant's now, or nothing keeps the process alive for that tail.
+            if previous != nil, isBackground() { begin() }
+            await previous?.value
+            if !Task.isCancelled, isBackground(), mayRun() {
+                begin()
+                await run { !isBackground() || !mayRun() }
+            }
+            hold.end()
+            self?.finish(token)
+        }
+    }
+
+    /// Foreground return: stop the in-flight grant and release its assertion. Its chunk unwinds at the next
+    /// cooperative checkpoint; a grant started before it has finished waits for that.
+    func cancel() {
+        guard let running = task else { return }
+        running.cancel()
+        unwinding = running
+        unwindingToken = token
+        task = nil
+        token = nil
+        hold?.end()
+        hold = nil
+    }
+
+    /// Suspends until the live grant, or one still unwinding, has finished. Cancelling the caller cancels the grant.
+    func waitUntilIdle() async {
+        guard let running = task ?? unwinding else { return }
+        await withTaskCancellationHandler {
+            await running.value
+        } onCancel: {
+            Task { @MainActor [weak self] in self?.cancel() }
+        }
+    }
+
+    private func finish(_ finished: UUID) {
+        if unwindingToken == finished {
+            unwinding = nil
+            unwindingToken = nil
+        }
+        guard token == finished else { return }
+        task = nil
+        token = nil
+        hold = nil
     }
 }

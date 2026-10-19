@@ -211,6 +211,54 @@ final class HistoricalScoringBackgroundTaskRegistrarTests: XCTestCase {
             "the parked journal still keeps the request armed")
     }
 
+    /// The processing task used to run import, scoring and the historical pipeline only; the v3/settle history
+    /// rescore had no wake of its own. It now runs last, after the owner-facing scoring, and keeps the request armed
+    /// until the rescore's last chunk lands.
+    func testTheHistoryRescoreRunsLastInTheProcessingTaskAndKeepsTheRequestArmedWhilePending() async {
+        let completed = HistoricalPipelineRuntimeResult(
+            admittedReceipts: 0, completedWork: 1, deferredWork: 0, pendingWork: 0, alreadyRunning: false)
+        var order: [String] = []
+
+        let result = await HistoricalScoringBackgroundTaskRegistrar.runBackgroundWork(
+            drainHealthImport: { order.append("health-import"); return true },
+            drainHealthScoring: { order.append("health-scoring"); return true },
+            runHistorical: { order.append("historical"); return completed },
+            runEffortRescore: { order.append("rescore") }
+        )
+
+        XCTAssertEqual(result, completed)
+        XCTAssertEqual(order, ["health-import", "health-scoring", "historical", "rescore"])
+        XCTAssertEqual(
+            HistoricalScoringBackgroundTaskRegistrar.completionDisposition(
+                for: result, healthImportPending: false, healthScoringPending: false, effortRescorePending: true),
+            .retry,
+            "an unfinished history rescore keeps the shared recovery wake armed")
+        XCTAssertEqual(
+            HistoricalScoringBackgroundTaskRegistrar.completionDisposition(
+                for: result, healthImportPending: false, healthScoringPending: false, effortRescorePending: false),
+            .complete)
+    }
+
+    func testAnExpiredProcessingTaskDoesNotStartTheHistoryRescore() async {
+        let completed = HistoricalPipelineRuntimeResult(
+            admittedReceipts: 0, completedWork: 1, deferredWork: 0, pendingWork: 0, alreadyRunning: false)
+        var rescoreRan = false
+        let worker = Task { @MainActor in
+            await HistoricalScoringBackgroundTaskRegistrar.runBackgroundWork(
+                drainHealthImport: { true },
+                drainHealthScoring: { true },
+                runHistorical: {
+                    // The expiration handler cancels the worker while the pipeline is still running.
+                    withUnsafeCurrentTask { $0?.cancel() }
+                    return completed
+                },
+                runEffortRescore: { rescoreRan = true }
+            )
+        }
+        _ = await worker.value
+        XCTAssertFalse(rescoreRan)
+    }
+
     func testCancelledBackgroundDrainKeepsHealthKitJournalReleasesFenceAndSkipsHistorical() async {
         let window = HealthKitSyncWindow(
             start: Date(timeIntervalSince1970: 300),
