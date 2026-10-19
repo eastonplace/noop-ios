@@ -498,7 +498,7 @@ struct AppleHealthView: View {
     private var loadingState: some View {
         PaperCard {
             HStack(spacing: 10) {
-                ConnectionDot(tone: .accent, pulsing: true)
+                ConnectionDot(tone: .neutral, pulsing: true)
                 Text("Reading your Apple Health history…")
                     .font(StrandFont.subhead).foregroundStyle(StrandPalette.textSecondary)
             }

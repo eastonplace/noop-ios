@@ -316,12 +316,11 @@ struct CaffeineLogCard: View {
         Button(action: action) {
             Text(label)
                 .font(StrandFont.footnote)
-                .foregroundStyle(selected ? StrandPalette.surfaceBase : StrandPalette.textSecondary)
+                .foregroundStyle(selected ? StrandPalette.onLightFill : StrandPalette.textSecondary)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 5)
-                .background(selected ? StrandPalette.textPrimary : StrandPalette.surfaceInset, in: Capsule())
-                .overlay(Capsule().stroke(selected ? StrandPalette.textPrimary : StrandPalette.hairline,
-                                          lineWidth: 1))
+                .background(selected ? StrandPalette.solidFill : Color.clear, in: Capsule())
+                .overlay(Capsule().stroke(selected ? StrandPalette.solidFill : StrandPalette.hairlineStrong, lineWidth: 1))
         }
         .buttonStyle(.plain)
     }

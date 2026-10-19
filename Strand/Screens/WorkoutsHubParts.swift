@@ -364,7 +364,7 @@ struct WorkoutsHeaderRow<Action: View>: View {
     }
 }
 
-/// The header's one primary action: a solid brand-ink capsule with a dark label, 34pt tall. Compact it is only the
+/// The header's one primary action: a solid light capsule (`solidFill`) with a dark label, 34pt tall. Compact it is only the
 /// glyph, in a 38pt circle.
 struct WorkoutStartPillStyle: ButtonStyle {
     let compact: Bool
@@ -373,11 +373,11 @@ struct WorkoutStartPillStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.system(size: textSize, weight: .bold))
-            .foregroundStyle(StrandPalette.onInk)
+            .foregroundStyle(StrandPalette.onLightFill)
             .padding(.leading, compact ? 0 : 12)
             .padding(.trailing, compact ? 0 : 14)
             .frame(width: compact ? 38 : nil, height: compact ? 38 : 34)
-            .background(Capsule(style: .continuous).fill(StrandPalette.ink))
+            .background(Capsule(style: .continuous).fill(StrandPalette.solidFill))
             // The capsule is 34pt tall; the tap area still reaches 44pt.
             .contentShape(Rectangle().inset(by: -5))
             .opacity(configuration.isPressed ? 0.82 : 1)
@@ -394,29 +394,12 @@ struct WorkoutSportFilterChip: View {
     var symbol: String?
     let isSelected: Bool
     let action: () -> Void
-    @ScaledMetric(relativeTo: .subheadline) private var textSize: CGFloat = 14
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 6) {
-                if let symbol {
-                    Image(systemName: symbol)
-                        .font(.system(size: textSize + 1, weight: .medium))
-                        .accessibilityHidden(true)
-                }
-                Text(verbatim: title)
-                    .font(StrandFont.sized(textSize, weight: .semibold))
-                    .lineLimit(1)
-                    .fixedSize(horizontal: true, vertical: false)
-            }
-            .foregroundStyle(isSelected ? StrandPalette.appCanvas : StrandPalette.textSecondary)
-            .padding(.horizontal, 13)
-            .frame(minHeight: 34)
-            .background(Capsule(style: .continuous).fill(isSelected ? StrandPalette.textPrimary : Color.clear))
-            .overlay(Capsule(style: .continuous)
-                .strokeBorder(isSelected ? Color.clear : StrandPalette.hairlineStrong, lineWidth: 1))
-            .padding(.vertical, 5)
-            .contentShape(Rectangle())
+            ChoiceChip(verbatimTitle: title, systemImage: symbol, isSelected: isSelected)
+                .padding(.vertical, 5)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(Text(verbatim: title))

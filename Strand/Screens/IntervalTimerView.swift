@@ -121,7 +121,13 @@ struct IntervalTimerView: View {
             if currentRound > rounds { currentRound = rounds }
             if !running { resetToStart() }
         }
-        .onAppear { if remaining == 0 { resetToStart() } }
+        .onAppear {
+            if remaining == 0 { resetToStart() }
+            #if DEBUG
+            // QA: `--noop-qa-intervals-running` starts the timer once so the running state can be captured.
+            if ProcessInfo.processInfo.arguments.contains("--noop-qa-intervals-running"), !running { toggleRunning() }
+            #endif
+        }
         // Keep the screen awake while a session runs (no-op on macOS). One onChange covers
         // every running→false transition — manual pause, auto-finish, and reset — and the
         // onDisappear is a safety net so navigating away mid-run never leaves the idle timer

@@ -45,11 +45,11 @@ public struct GlanceActionButtonStyle: ButtonStyle {
 
     private var fill: Color {
         guard isEnabled else { return StrandPalette.chipFill }
-        return kind == .primary ? StrandPalette.ink : StrandPalette.chipFill
+        return kind == .primary ? StrandPalette.solidFill : StrandPalette.chipFill
     }
 
     private var foreground: Color {
         guard isEnabled else { return StrandPalette.textTertiary }
-        return kind == .primary ? StrandPalette.onInk : StrandPalette.textPrimary
+        return kind == .primary ? StrandPalette.onLightFill : StrandPalette.textPrimary
     }
 }

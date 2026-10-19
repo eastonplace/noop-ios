@@ -249,7 +249,7 @@ private struct WorkoutSetupContent: View {
         return VStack(alignment: .leading, spacing: NoopMetrics.space2) {
             sectionTitle("Recent")
             if !sports.isEmpty {
-                WorkoutRecentSportChips(sports: sports, selected: selected, quietSelection: true) { selected = $0 }
+                WorkoutRecentSportChips(sports: sports, selected: selected) { selected = $0 }
             }
             WidgetChipButton(title: "All activities", systemImage: "square.grid.2x2", showsChevron: true,
                              accessibilityLabel: "All activities") { showsActivities = true }
@@ -424,11 +424,9 @@ private struct WorkoutSetupContent: View {
 
     private var liftBlockPill: some View {
         Text("Finish your lift first")
-            .foregroundStyle(LivePalette.amber)
+            .foregroundStyle(StrandPalette.textPrimary)
             .liveText(14, weight: .semibold, maxSize: 20, lines: 2)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 8)
-            .background(Capsule(style: .continuous).fill(LivePalette.amber.opacity(0.16)))
+            .statePillChrome(tint: LivePalette.amber)
     }
 
     private var liftBlockAction: some View {

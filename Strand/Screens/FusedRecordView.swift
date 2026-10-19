@@ -377,7 +377,7 @@ private struct ContributorRow: View {
                     SourceBadge(LocalizedStringKey(contrib.source.displayName),
                                 tint: isWinner ? StrandPalette.accent : StrandPalette.textTertiary)
                     if isWinner {
-                        StatePill("Using", tone: .accent, showsDot: true)
+                        StatePill("Using", tone: .neutral, showsDot: true)
                     }
                 }
                 Text(contrib.reason)

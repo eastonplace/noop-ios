@@ -474,13 +474,11 @@ struct JournalLogCard: View {
         Button(action: action) {
             Text(label)
                 .font(StrandFont.footnote)
-                .foregroundStyle(selected ? StrandPalette.surfaceBase : StrandPalette.textSecondary)
+                .foregroundStyle(selected ? StrandPalette.onLightFill : StrandPalette.textSecondary)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 5)
-                .background(selected ? StrandPalette.textPrimary : StrandPalette.surfaceInset,
-                            in: Capsule())
-                .overlay(Capsule().stroke(selected ? StrandPalette.textPrimary : StrandPalette.hairline,
-                                          lineWidth: 1))
+                .background(selected ? StrandPalette.solidFill : Color.clear, in: Capsule())
+                .overlay(Capsule().stroke(selected ? StrandPalette.solidFill : StrandPalette.hairlineStrong, lineWidth: 1))
         }
         .buttonStyle(.plain)
     }
@@ -1397,9 +1395,11 @@ struct CoachingQuickAddView: View {
                     .lineLimit(2).frame(maxWidth: .infinity, minHeight: 48, alignment: .topLeading)
                 Text(membership.coachingGroup).font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
                 Button(logged ? "Added" : "Add") { Task { await add(membership) } }
-                    .font(StrandFont.caption.weight(.semibold)).foregroundStyle(StrandPalette.textPrimary)
+                    .font(StrandFont.caption.weight(.semibold))
+                    .foregroundStyle(logged ? StrandPalette.onLightFill : StrandPalette.textPrimary)
                     .frame(maxWidth: .infinity).frame(height: 36)
-                    .background(StrandPalette.journalAccent.opacity(logged ? 0.18 : 0.10), in: Capsule())
+                    .background(logged ? StrandPalette.solidFill : Color.clear, in: Capsule())
+                    .overlay(Capsule().stroke(logged ? Color.clear : StrandPalette.hairlineStrong, lineWidth: 1))
                     .buttonStyle(.plain)
             }
         }

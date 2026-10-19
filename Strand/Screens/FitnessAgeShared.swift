@@ -167,7 +167,7 @@ struct FitnessAgeReadinessList: View {
     @ViewBuilder private var confidence: some View {
         switch readiness.confidence {
         case .ready: StatePill("Ready", tone: .positive, showsDot: false)
-        case .estimate: StatePill("Estimate (partial data)", tone: .accent, showsDot: false)
+        case .estimate: StatePill("Estimate (partial data)", tone: .neutral, showsDot: false)
         case .notReady: StatePill("Not enough data yet", tone: .warning, showsDot: false)
         }
     }
