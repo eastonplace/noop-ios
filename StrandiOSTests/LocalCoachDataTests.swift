@@ -378,6 +378,25 @@ final class LocalCoachDataTests: XCTestCase {
         XCTAssertTrue(LocalCoachDataService.workoutsCard([], window: window).isEmpty)
     }
 
+    func testCoachWorkoutsCollapseStrapAndAppleHealthTwinsLikeTheWorkoutsScreen() {
+        func row(_ start: Int, _ end: Int, _ sport: String, _ source: String, hr: Int?) -> WorkoutRow {
+            WorkoutRow(startTs: start, endTs: end, sport: sport, source: source, durationS: Double(end - start),
+                       energyKcal: nil, avgHr: hr, maxHr: nil, strain: nil, distanceM: nil, zonesJSON: nil, notes: nil)
+        }
+        let strap = row(10_000, 13_000, "Running", "whoop", hr: 150)
+        let twin = row(10_060, 13_000, "Running", "apple-health", hr: nil)
+        let other = row(50_000, 52_000, "Cycling", "apple-health", hr: nil)
+        let items: [LocalCoachDataService.OwnedWorkout] = [
+            .init(owner: "my-whoop", row: strap), .init(owner: "apple-health", row: twin), .init(owner: "apple-health", row: other)
+        ]
+        let kept = LocalCoachDataService.collapseCrossSourceTwins(items)
+        XCTAssertEqual(kept.map(\.row), WorkoutSource.dedupCrossSource(items.map(\.row)),
+                       "The Coach must keep exactly what the Workouts screen keeps")
+        XCTAssertEqual(kept.count, 2, "One session recorded by strap and Apple Health is one workout, not two")
+        XCTAssertEqual(kept.map(\.owner), ["my-whoop", "apple-health"])
+        XCTAssertEqual(kept.first?.row, strap, "The richer strap row wins, keeping its owner label")
+    }
+
     func testCoverageAndNutritionStatsCardsNeverMixDatesOrInventValues() throws {
         let window = try makeWindow()
         guard case .stats(let coverage)? = LocalCoachDataService.coverageCard(
