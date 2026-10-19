@@ -15,6 +15,10 @@ struct RootTabView: View {
 
     /// Which quick-action screen the centre FAB is presenting (nil = sheet closed).
     @State private var quickAction: QuickAction?
+    /// The Quick Actions fan: true from the tap on the + that opens it until the tap that closes it.
+    @State private var fanOpen = false
+    /// The fan is in the view tree from just before it opens until its closing animation has finished.
+    @State private var fanMounted = false
     /// Presents the Devices manager (pair / switch bands) when a screen asks the shell to open it.
     @State private var showDevices = false
     /// Presents the Lift flow. Owned here, not by `LiftResumeCard`, so the shell can open it on its own after a
@@ -31,8 +35,6 @@ struct RootTabView: View {
     /// The workout journey (setup, live, summary), presented once as a full-screen cover that cannot be swiped away. nil =
     /// closed. Every screen asks for it through `NavRouter.beginWorkout()` / `openActiveWorkout()`.
     @State private var journey: WorkoutJourneyEntry?
-    /// What Quick Actions asked for; presented once its sheet has fully gone, never while it is still dismissing.
-    @State private var pendingJourneyAfterQuickActions: WorkoutJourneyStart?
     /// A destination requested while the journey is up (Updates, Devices, Trends, Settings): it never presents underneath
     /// the cover, it waits for it to close.
     @State private var pendingDestinationAfterJourney: NavRouter.Destination?
@@ -112,6 +114,7 @@ struct RootTabView: View {
     }
 
     var body: some View {
+        ZStack(alignment: .bottom) {
         VStack(spacing: 0) {
         TabView(selection: $selectedTab) {
             tab(todayTabRoot, "Today", "square.grid.2x2").tag(0)
@@ -125,18 +128,35 @@ struct RootTabView: View {
         .animation(.timingCurve(0.22, 1, 0.36, 1, duration: 0.24), value: selectedTab)
         // Give the bar its own layout space. A TabView can forward an outer safe-area inset
         // inconsistently to nested NavigationStacks, covering a bottom-aligned composer.
-            VStack(spacing: 0) {
             WorkoutResumeBarHost(coverIsUp: journey != nil)
             LiftResumeCard(onResume: { showLift = true }).padding(.horizontal, 16)
-            PaperTabBar(selection: $selectedTab, onReselect: { tab in
-                // Only Today owns a current-day data refresh. Reselecting Trends, Coach, or Sleep
-                // must not wake the store or rebuild unrelated health state.
-                guard tab == 0 else { return }
-                Task { _ = await repo.refresh(.currentDay) }
-            }, onQuickActions: {
-                withAnimation(Self.sheetEase) { quickAction = .menu }
-            })
-            }
+            // The tab bar is drawn after the Quick Actions scrim so it stays above it; this is the layout space it takes.
+            Color.clear.frame(height: PaperTabBar.height).accessibilityHidden(true)
+        }
+        if fanMounted {
+            QuickActionFan(isOpen: fanOpen, frozenProgress: fanFrozenProgress, onClose: { closeFan() },
+                onPick: { picked in
+                    closeFan()
+                    quickAction = picked
+                }, onWorkout: { active in
+                    // The journey is the shell's; the fan only asks for it and goes. "Return to workout" goes through
+                    // `openActiveWorkout()` like the resume bar, so the auto-present policy counts it as a request and
+                    // does not bring the workout back after it is minimized.
+                    closeFan()
+                    if active { router.openActiveWorkout() } else { router.workoutJourneyRequest = .setup(initialSport: nil) }
+                }, onQuickStart: { sport in
+                    closeFan()
+                    router.workoutJourneyRequest = .quickStart(sport: sport)
+                })
+        }
+        PaperTabBar(selection: $selectedTab, fanOpen: fanOpen, fanProgress: fanProgress, onReselect: { tab in
+            // Only Today owns a current-day data refresh. Reselecting Trends, Coach, or Sleep
+            // must not wake the store or rebuild unrelated health state.
+            guard tab == 0 else { return }
+            Task { _ = await repo.refresh(.currentDay) }
+        }, onQuickActions: {
+            if fanOpen { closeFan() } else { openFan() }
+        })
         }
         .background(StrandPalette.appCanvas.ignoresSafeArea(.container, edges: .bottom))
         .background {
@@ -146,7 +166,7 @@ struct RootTabView: View {
         }
         .background {
             ActiveSessionAutoPresenter(
-                otherPresentationActive: journey != nil || quickAction != nil || showDevices || routedPillar != nil || showLift
+                otherPresentationActive: journey != nil || quickAction != nil || fanOpen || showDevices || routedPillar != nil || showLift
                     || settingsSheet != nil || settingsClosing,
                 presentRun: autoPresentJourney,
                 presentLift: { showLift = true })
@@ -168,15 +188,7 @@ struct RootTabView: View {
                 await FolderBackup.catchUpIfDue(checkpoint: { await backupRepo.checkpointForBackup() })
             }
         }
-        .sheet(item: $quickAction, onDismiss: {
-            // The journey presents only after the sheet is fully gone, so the two never compete for the root.
-            if let pending = pendingJourneyAfterQuickActions {
-                pendingJourneyAfterQuickActions = nil
-                // "Return to workout" goes through `openActiveWorkout()` like the resume bar, so the auto-present policy
-                // counts it as a request and does not bring the workout back after it is minimized.
-                if pending == .live { router.openActiveWorkout() } else { router.workoutJourneyRequest = pending }
-            }
-        }) { action in
+        .sheet(item: $quickAction) { action in
             quickActionDestination(action)
         }
         .sheet(isPresented: $showDevices) {
@@ -263,7 +275,7 @@ struct RootTabView: View {
         }
         .onChange(of: router.quickActionsRequested) { _, requested in
             if requested {
-                withAnimation(Self.sheetEase) { quickAction = .menu }
+                openFan()
                 router.quickActionsRequested = false
             }
         }
@@ -295,7 +307,7 @@ struct RootTabView: View {
             try? await Task.sleep(for: .milliseconds(attempt == 0 ? 1800 : 3500))
             // The workout routes are presented by the journey cover, whatever else (the lift flow the demo data resumes) is up.
             let isJourney = target == .startWorkout || target == .workoutCountdown || target == .liveWorkout
-            let presented = isJourney ? journey != nil : QARoute.modalIsPresented
+            let presented = isJourney ? journey != nil : target == .quickActions ? fanOpen : QARoute.modalIsPresented
             if presented { route.logPresented(); return }
             if !isJourney {
                 quickAction = nil
@@ -310,7 +322,7 @@ struct RootTabView: View {
             case .breathe: quickAction = .breathe
             case .journal: quickAction = .journal
             case .intervals: quickAction = .intervals
-            case .quickActions: quickAction = .menu
+            case .quickActions: openFan()
             case .startWorkout: router.beginWorkout()
             case .workoutCountdown: router.quickStartWorkout(sport: "Running")
             case .liveWorkout: router.openActiveWorkout()
@@ -334,6 +346,7 @@ struct RootTabView: View {
             ShellModalCollapse.run(
                 clearShellState: {
                     quickAction = nil
+                    closeFan(animated: false)
                     showDevices = false
                     routedPillar = nil
                     showLift = false
@@ -384,6 +397,7 @@ struct RootTabView: View {
         guard !showLift else { return }
         let shellSheetWasUp = quickAction != nil || showDevices || routedPillar != nil || settingsSheet != nil
         quickAction = nil
+        closeFan(animated: false)
         showDevices = false
         routedPillar = nil
         settingsSheet = nil
@@ -406,6 +420,7 @@ struct RootTabView: View {
         }
         let shellSheetWasUp = quickAction != nil || showDevices || routedPillar != nil || showLift || settingsSheet != nil
         quickAction = nil
+        closeFan(animated: false)
         showDevices = false
         routedPillar = nil
         showLift = false
@@ -472,25 +487,50 @@ struct RootTabView: View {
 
     private static let sheetEase = Animation.timingCurve(0.22, 1, 0.36, 1, duration: 0.42)
 
+    // MARK: Quick Actions fan
+
+    /// How the fan's pieces move, which the + button follows: a spring, or a short fade under Reduce Motion.
+    private static let fanSpring = Animation.spring(response: 0.38, dampingFraction: 0.62)
+
+    /// The + button's progress between + (0) and × (1). QA can hold it part way through the spring.
+    private var fanProgress: CGFloat { fanOpen ? (fanFrozenProgress ?? 1) : 0 }
+
+    private var fanFrozenProgress: CGFloat? {
+        #if DEBUG
+        QAFan.frozenProgress
+        #else
+        nil
+        #endif
+    }
+
+    private func openFan() {
+        guard !fanOpen else { return }
+        // The one tactile cue the app already gives a state change like this.
+        StrandHaptic.light.play()
+        // Mounted closed first, so the next frame has something to spring from.
+        fanMounted = true
+        DispatchQueue.main.async {
+            withAnimation(Self.fanSpring) { fanOpen = true }
+        }
+    }
+
+    private func closeFan(animated: Bool = true) {
+        guard fanOpen || fanMounted else { return }
+        guard animated else {
+            fanOpen = false
+            fanMounted = false
+            return
+        }
+        withAnimation(Self.fanSpring) { fanOpen = false }
+        // Unmounted once the springs have settled, unless it was opened again meanwhile.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+            if !fanOpen { fanMounted = false }
+        }
+    }
+
     @ViewBuilder
     private func quickActionDestination(_ action: QuickAction) -> some View {
         switch action {
-        case .menu:
-            QuickActionSheet(onPick: { picked in
-                quickAction = nil
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                    withAnimation(Self.sheetEase) { quickAction = picked }
-                }
-            }, onWorkout: { active in
-                // The journey opens after this sheet is gone (`.sheet(item:onDismiss:)` above).
-                pendingJourneyAfterQuickActions = active ? .live : .setup(initialSport: nil)
-                quickAction = nil
-            }, onQuickStart: { sport in
-                pendingJourneyAfterQuickActions = .quickStart(sport: sport)
-                quickAction = nil
-            })
-            .presentationDetents([.medium, .large])
-            .presentationDragIndicator(.visible)
         case .live:
             quickScreen(LiveView())
         case .journal:
@@ -617,8 +657,9 @@ private struct ActiveSessionAutoPresenter: View {
     }
 }
 
+/// The screens the Quick Actions fan opens as sheets.
 enum QuickAction: Int, Identifiable {
-    case menu, live, journal, breathe, intervals
+    case live, journal, breathe, intervals
     var id: Int { rawValue }
 }
 
@@ -642,10 +683,18 @@ struct PaperTabLabel: View {
 }
 
 private struct PaperTabBar: View {
+    /// The bar's own height: the hairline over its row. The shell leaves this much room under the tab content.
+    static let height = NoopMetrics.navBarHeight + 1
+
     @Binding var selection: Int
+    /// The Quick Actions fan is open: the bar is see-through, the tabs recede to 30% and the + has turned into a ×.
+    var fanOpen = false
+    /// 0 + ... 1 ×, so a QA capture can hold the turn half way.
+    var fanProgress: CGFloat = 0
     var onReselect: (Int) -> Void = { _ in }
     var onQuickActions: () -> Void = {}
     @Environment(\.dynamicTypeSize) private var typeSize
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private struct Item: Identifiable {
         let title: LocalizedStringKey
@@ -663,7 +712,7 @@ private struct PaperTabBar: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Rectangle().fill(StrandPalette.hairline).frame(height: 1)
+            Rectangle().fill(StrandPalette.hairline).frame(height: 1).opacity(1 - Double(fanProgress))
             // Every size short of the accessibility sizes keeps five equal slots (four tabs and the quick-actions
             // button, which sits in the middle). At the accessibility sizes the labels are larger, and a long one
             // would be squeezed to half size in an equal slot, so the slots are shared out by what their labels need
@@ -679,7 +728,8 @@ private struct PaperTabBar: View {
             // depend on the user's text size; the large content viewer carries the full-size label.
             .frame(height: NoopMetrics.navBarHeight)
         }
-        .background(StrandPalette.card)
+        .background(StrandPalette.card.opacity(1 - Double(fanProgress)))
+        .animation(reduceMotion ? .easeInOut(duration: 0.2) : .easeOut(duration: 0.25), value: fanOpen)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("app.bottomNavigation")
     }
@@ -690,25 +740,44 @@ private struct PaperTabBar: View {
         ForEach(nav.dropFirst(2)) { tabButton($0) }
     }
 
+    /// The mint + of the mockup: 54pt with a soft glow. Opening the fan turns its glyph 135 degrees into a × while the fill
+    /// settles to a neutral raised surface; with Reduce Motion the glyph swaps with a fade instead of turning.
     private var quickActionsButton: some View {
-        Button(action: onQuickActions) {
-            Image(systemName: "plus")
-                .font(.system(size: 20, weight: .semibold))
-                .foregroundStyle(StrandPalette.onInk)
-                .frame(width: 44, height: 44)
-                .background(StrandPalette.ink, in: Circle())
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .contentShape(Rectangle())
+        let p = Double(fanProgress)
+        return Button(action: onQuickActions) {
+            ZStack {
+                Circle()
+                    .fill(StrandPalette.ink.blended(into: StrandPalette.inset, by: p))
+                    .shadow(color: StrandPalette.ink.opacity(0.25 * (1 - p)), radius: 11, y: 6)
+                ZStack {
+                    Image(systemName: "plus")
+                        .rotationEffect(.degrees(reduceMotion ? 0 : 135 * p))
+                        .opacity(reduceMotion ? 1 - p : 1)
+                    if reduceMotion {
+                        Image(systemName: "xmark").opacity(p)
+                    }
+                }
+                .font(.system(size: 26, weight: .semibold))
+                .foregroundStyle(StrandPalette.onInk.blended(into: StrandPalette.textPrimary, by: p))
+            }
+            .frame(width: 54, height: 54)
+            .animation(reduceMotion ? .easeInOut(duration: 0.2) : .spring(response: 0.38, dampingFraction: 0.62),
+                       value: fanOpen)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Quick Actions")
+        .accessibilityLabel(fanOpen ? "Close Quick Actions" : "Quick Actions")
         .accessibilityIdentifier("app.quickActions")
     }
 
     private func tabButton(_ item: Item) -> some View {
         let active = selection == item.tag
         return Button {
-            if active {
+            if fanOpen {
+                // The tabs are dimmed behind the scrim: a tap on one is a tap outside the fan.
+                onQuickActions()
+            } else if active {
                 onReselect(item.tag)
             } else {
                 withAnimation(.timingCurve(0.22, 1, 0.36, 1, duration: 0.24)) {
@@ -722,11 +791,13 @@ private struct PaperTabBar: View {
                 PaperTabLabel(title: item.title, isActive: active)
             }
             .foregroundStyle(active ? StrandPalette.ink : StrandPalette.textTertiary)
+            .opacity(1 - 0.7 * Double(fanProgress))
             .frame(maxWidth: .infinity)
             .frame(maxHeight: .infinity)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityHidden(fanOpen)
         .accessibilityLabel(item.title)
         .accessibilityShowsLargeContentViewer { Label(item.title, systemImage: item.icon) }
         .accessibilityIdentifier("app.tab.\(item.tag)")
@@ -818,6 +889,33 @@ enum TabSlotWidths {
         }
     }
 }
+
+private extension Color {
+    /// This colour moved `amount` (0...1) of the way to `other`, in sRGB. For a fill that follows an animation's progress.
+    func blended(into other: Color, by amount: Double) -> Color {
+        let amount = min(max(amount, 0), 1)
+        var from: (CGFloat, CGFloat, CGFloat, CGFloat) = (0, 0, 0, 0)
+        var to: (CGFloat, CGFloat, CGFloat, CGFloat) = (0, 0, 0, 0)
+        UIColor(self).getRed(&from.0, green: &from.1, blue: &from.2, alpha: &from.3)
+        UIColor(other).getRed(&to.0, green: &to.1, blue: &to.2, alpha: &to.3)
+        let t = CGFloat(amount)
+        return Color(.sRGB, red: Double(from.0 + (to.0 - from.0) * t), green: Double(from.1 + (to.1 - from.1) * t),
+                     blue: Double(from.2 + (to.2 - from.2) * t), opacity: Double(from.3 + (to.3 - from.3) * t))
+    }
+}
+
+#if DEBUG
+/// `--noop-qa-fan-progress <0...1>` holds the Quick Actions fan part way through its spring, so a capture can show the
+/// frame between closed and open. Pair it with `--noop-qa-route quick-actions`.
+enum QAFan {
+    static let frozenProgress: CGFloat? = {
+        let arguments = ProcessInfo.processInfo.arguments
+        guard let index = arguments.firstIndex(of: "--noop-qa-fan-progress"), arguments.indices.contains(index + 1),
+              let value = Double(arguments[index + 1]) else { return nil }
+        return CGFloat(min(max(value, 0), 1))
+    }()
+}
+#endif
 #endif
 
 /// When a request that needs the whole screen (a routed pillar, the Devices sheet, the live workout, Coach) may be made
