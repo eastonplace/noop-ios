@@ -8,7 +8,49 @@ struct LiftSevenDaySummary: Equatable, Sendable {
   static let zero = LiftSevenDaySummary(workoutCount: 0, workingSetCount: 0, volume: 0)
 }
 
+/// The THIS WEEK card: the calendar week the date falls in, never a rolling seven days.
+struct LiftWeekSummary: Equatable, Sendable {
+  let interval: DateInterval
+  let workouts: Int
+  /// Workouts scheduled inside the week, finished or not.
+  let plannedThisWeek: Int
+  let workingSets: Int
+  /// Working sets this week minus last week's.
+  let workingSetsDeltaVsLastWeek: Int
+  /// Total volume in pounds, warm-ups included, the same figure `LiftSession.totalVolume` reports.
+  let volume: Double
+}
+
 enum LiftTodayMath {
+  nonisolated static func weekSummary(
+    in sessions: [LiftSession],
+    scheduled: [ScheduledWorkout],
+    asOf date: Date,
+    calendar: Calendar
+  ) -> LiftWeekSummary {
+    let interval = calendar.dateInterval(of: .weekOfYear, for: date) ?? DateInterval(start: date, duration: 7 * 86_400)
+    let lastWeekStart = calendar.date(byAdding: .weekOfYear, value: -1, to: interval.start) ?? interval.start
+    let lastWeek = DateInterval(start: lastWeekStart, end: interval.start)
+
+    var workouts = 0
+    var workingSets = 0
+    var lastWeekSets = 0
+    var volume = 0.0
+    for session in sessions where session.endedAt != nil {
+      if interval.contains(session.startedAt) {
+        workouts += 1
+        volume += session.totalVolume
+        workingSets += session.workingSets.count
+      } else if lastWeek.contains(session.startedAt) {
+        lastWeekSets += session.workingSets.count
+      }
+    }
+    let planned = scheduled.filter { interval.contains($0.plannedAt) }.count
+    return LiftWeekSummary(
+      interval: interval, workouts: workouts, plannedThisWeek: planned, workingSets: workingSets,
+      workingSetsDeltaVsLastWeek: workingSets - lastWeekSets, volume: volume)
+  }
+
   nonisolated static func sevenDaySummary(
     in sessions: [LiftSession],
     asOf date: Date,

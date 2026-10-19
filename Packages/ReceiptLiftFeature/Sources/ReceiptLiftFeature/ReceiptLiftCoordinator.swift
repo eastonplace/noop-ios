@@ -135,6 +135,11 @@ public final class ReceiptLiftCoordinator: ObservableObject {
         UIApplication.shared.beginBackgroundTask(withName: name, expirationHandler: expiration)
     }
     var endBackgroundTask: (UIBackgroundTaskIdentifier) -> Void = { UIApplication.shared.endBackgroundTask($0) }
+    /// Where Strength home, live logging and the summary read Strain from. Nil until the host provides one; the screens
+    /// then show their own placeholder states.
+    public var strainProvider: (any LiftStrainProviding)? {
+        didSet { objectWillChange.send() }
+    }
     public var hasActiveSession: Bool { store.activeSession != nil }
     public var saveError: String? { store.databaseSaveError }
 
@@ -149,6 +154,9 @@ public final class ReceiptLiftCoordinator: ObservableObject {
         store = LiftStore(database: database, canStart: canStart)
         store.setWeightUnit(weightUnit)
         observation = store.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
+        #if DEBUG
+        strainProvider = DemoLiftStrainProvider.fromLaunchArguments()
+        #endif
     }
 
     public func load() async { await store.loadAndWait() }

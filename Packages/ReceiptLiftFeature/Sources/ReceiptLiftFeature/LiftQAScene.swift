@@ -7,7 +7,8 @@ import SwiftUI
 ///
 /// Scenes: `routine-preview`, `routine-editor`, `routine-edit`, `schedule-editor`, `library`, `library-detail`,
 /// `exercise`, `exercise-info`, `settings`, `receipt`, `receipt-settled`, `live-rest-options`, `live-receipt`,
-/// `live-plates`, `live-warmup`, `live-pr`, `live-library`, `live-superset`, `live-exercise`.
+/// `live-plates`, `live-warmup`, `live-pr`, `live-library`, `live-superset`, `live-exercise`, `live-composer`, `summary`,
+/// `summary-history`, `exercise-receipt`.
 enum LiftQAScene {
   #if DEBUG
   static let requested: String? = {

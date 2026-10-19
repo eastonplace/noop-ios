@@ -15,6 +15,7 @@ struct HistoryView: View {
   @State private var referenceNow = Date()
   @State private var showingExercisePicker = false
   @State private var selectedExerciseID: UUID?
+  @State private var qaSummarySessionID: UUID?
   @State private var months: [LiftReceiptMonth] = []
   private let progressOnly: Bool
 
@@ -60,7 +61,16 @@ struct HistoryView: View {
           .environmentObject(store)
       }
     }
-    .liftQAScene("exercise", "exercise-info") {
+    .navigationDestination(item: $qaSummarySessionID) { id in
+      if let session = store.sessions.first(where: { $0.id == id }) {
+        LiftSessionSummaryView(session: session, context: .history)
+          .environmentObject(store)
+      }
+    }
+    .liftQAScene("summary-history") {
+      qaSummarySessionID = LiftTodayMath.recentCompletedSessions(in: store.sessions, limit: 1).first?.id
+    }
+    .liftQAScene("exercise", "exercise-info", "exercise-receipt") {
       selectedExerciseID = store.progressSnapshot(for: selectedRange, now: referenceNow, calendar: .current)
         .topExercises.first?.exerciseID ?? store.preferredExerciseID
     }
@@ -103,7 +113,7 @@ struct HistoryView: View {
         ) {
           LiftRowList(items: month.sessions) { session, _ in
             NavigationLink {
-              CompletedReceiptView(session: session, presentation: .settled)
+              LiftSessionSummaryView(session: session, context: .history)
             } label: {
               receiptRow(session)
             }

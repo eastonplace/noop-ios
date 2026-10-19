@@ -49,6 +49,8 @@ struct MiniRestBar: View {
     if let endDate = store.restTimerEndDate {
       MiniRestTimeline(
         endDate: endDate,
+        lastCompletedAt: store.activeSession?.sets.map(\.completedAt).max(),
+        defaultRestSeconds: store.defaultRestSeconds,
         onPresentOptions: onPresentOptions,
         onAdjust: store.adjustRestTimer,
         onSkip: store.skipRestTimer,
@@ -123,6 +125,8 @@ struct MiniRestOptionsSheet: View {
 private struct MiniRestTimeline: View {
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   let endDate: Date
+  let lastCompletedAt: Date?
+  let defaultRestSeconds: TimeInterval
   let onPresentOptions: () -> Void
   let onAdjust: (TimeInterval) -> Void
   let onSkip: () -> Void
@@ -138,10 +142,12 @@ private struct MiniRestTimeline: View {
           MiniRestBarContent(
             endDate: endDate,
             now: context.date,
+            display: LiftRestDisplay.make(
+              restTimerEndDate: endDate, lastCompletedAt: lastCompletedAt,
+              defaultRestSeconds: defaultRestSeconds, now: context.date),
             onPresentOptions: onPresentOptions,
-            onSubtract: { onAdjust(-15) },
             onSkip: skip,
-            onAdd: { onAdjust(15) }
+            onAdd: { onAdjust(30) }
           )
           .transition(
             reduceMotion
@@ -176,51 +182,69 @@ private struct MiniRestTimeline: View {
   }
 }
 
-/// The running rest: the countdown (a tap opens the presets) and the three ways to change it. Side by side below the
-/// largest standard text size; from that size (xxxLarge) up it stacks, the same rule the Workouts hub rows follow
-/// (`WorkoutRowLayout`), so the countdown keeps its whole width.
+/// The REST card: the countdown over the rest it was meant to be ("1:24 / 2:00", a tap opens the presets), "+30s" and
+/// Skip, and a bar that fills as the rest runs out. From the accessibility text sizes up the controls take a row of
+/// their own so the countdown keeps its whole width.
 private struct MiniRestBarContent: View {
   let endDate: Date
   let now: Date
+  let display: LiftRestDisplay?
   let onPresentOptions: () -> Void
-  let onSubtract: () -> Void
   let onSkip: () -> Void
   let onAdd: () -> Void
 
   @Environment(\.dynamicTypeSize) private var typeSize
   @Environment(\.liftFormat) private var format
-  @ScaledMetric(relativeTo: .title) private var timerSize: CGFloat = 34
+  @ScaledMetric(relativeTo: .title) private var timerSize: CGFloat = 26
+  @ScaledMetric(relativeTo: .caption) private var labelSize: CGFloat = 12
 
   var body: some View {
-    Group {
-      if typeSize >= .xxxLarge {
-        VStack(alignment: .leading, spacing: NoopMetrics.space2) {
-          identity
-          controls
-        }
+    VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+      if typeSize.isAccessibilitySize {
+        identity
+        controls
       } else {
-        HStack(alignment: .center, spacing: NoopMetrics.space3) {
+        HStack(alignment: .center, spacing: NoopMetrics.space2) {
           identity
           Spacer(minLength: NoopMetrics.space2)
           controls
         }
       }
+      bar
     }
+    .padding(.horizontal, 14)
+    .padding(.vertical, 10)
     .frame(maxWidth: .infinity, alignment: .leading)
+    .background(StrandPalette.card, in: RoundedRectangle(cornerRadius: NoopMetrics.radius2, style: .continuous))
+    .overlay(RoundedRectangle(cornerRadius: NoopMetrics.radius2, style: .continuous).strokeBorder(StrandPalette.hairline, lineWidth: 1))
     .accessibilityElement(children: .contain)
   }
 
   private var identity: some View {
     Button(action: onPresentOptions) {
-      VStack(alignment: .leading, spacing: 0) {
-        Text("Rest timer").font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
-        Text(timerInterval: now...endDate, countsDown: true, showsHours: false)
-          .font(StrandFont.number(timerSize, weight: .bold))
+      HStack(alignment: .firstTextBaseline, spacing: 10) {
+        Text("Rest timer")
+          .textCase(.uppercase)
+          .tracking(1.6)
+          .font(StrandFont.sized(labelSize, weight: .bold))
+          .foregroundStyle(StrandPalette.textTertiary)
+          .lineLimit(1)
+          .minimumScaleFactor(0.7)
+        Text(timerInterval: now...max(endDate, now), countsDown: true, showsHours: false)
+          .font(StrandFont.sized(timerSize, weight: .bold))
+          .monospacedDigit()
           .foregroundStyle(StrandPalette.textPrimary)
           .lineLimit(1)
           .minimumScaleFactor(0.7)
+        if let display {
+          Text(verbatim: "/ " + LiftFormat.duration(TimeInterval(display.totalSeconds)))
+            .font(StrandFont.subhead)
+            .monospacedDigit()
+            .foregroundStyle(StrandPalette.textSecondary)
+            .lineLimit(1)
+        }
       }
-      .frame(minWidth: 72, minHeight: 44, alignment: .leading)
+      .frame(minHeight: 44, alignment: .leading)
       .contentShape(Rectangle())
     }
     .buttonStyle(.plain)
@@ -231,14 +255,21 @@ private struct MiniRestBarContent: View {
 
   private var controls: some View {
     HStack(spacing: NoopMetrics.space2) {
-      restChip("−15", accessibilityLabel: "Subtract 15 seconds", action: onSubtract)
-      restChip(String(localized: "Skip"), accessibilityLabel: "Skip rest", action: onSkip)
-      restChip("+15", accessibilityLabel: "Add 15 seconds", action: onAdd)
+      LiftTimerPill(title: "+30s", accessibilityLabel: Text("Add 30 seconds"), action: onAdd)
+      LiftTimerPill(title: String(localized: "Skip"), accessibilityLabel: Text("Skip rest"), action: onSkip)
     }
   }
 
-  private func restChip(_ title: String, accessibilityLabel: LocalizedStringKey, action: @escaping () -> Void) -> some View {
-    LiftTimerPill(title: title, accessibilityLabel: Text(accessibilityLabel), action: action)
+  private var bar: some View {
+    GeometryReader { proxy in
+      ZStack(alignment: .leading) {
+        Capsule(style: .continuous).fill(StrandPalette.surfaceInset)
+        Capsule(style: .continuous).fill(StrandPalette.solidFill)
+          .frame(width: proxy.size.width * CGFloat(display?.fraction ?? 0))
+      }
+    }
+    .frame(height: 4)
+    .accessibilityHidden(true)
   }
 }
 
