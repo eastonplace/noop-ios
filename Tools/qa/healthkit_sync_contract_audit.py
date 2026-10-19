@@ -201,11 +201,14 @@ try:
     app = "StrandiOS/App/StrandiOSApp.swift"
     require(
         app,
-        "HealthKitScoringCoordinator.shared.runAndWait(",
+        # The singleton is bound to a local so the drain can read `scoring.pending` after the coordinator-owned run.
+        "let scoring = HealthKitScoringCoordinator.shared",
+        "await scoring.runAndWait(",
+        "return scoring.pending == nil",
         "analyze: { window in",
         "analyzeRecentForPublication(",
         "IntelligenceRecoveryPersistenceReceipt.verify(",
-        "publish: { window in",
+        "publish: { _ in",
         "guard await model.repo.refresh(days: 1) else { return false }",
         "await health.foregroundCatchUp()",
         "await drainCommittedHealthScoring()",
@@ -214,6 +217,16 @@ try:
         app,
         "_ = HealthKitScoringCoordinator.shared",
         "let model = AppModel()",
+    )
+    # The publish phase must actually call the helper that holds the refresh guard. Without this order, a stubbed
+    # `publish: { _ in true }` would leave the helper behind as dead code that still satisfies the guard marker.
+    require_order(
+        app,
+        "await scoring.runAndWait(",
+        "publish: { _ in",
+        "await publishCommittedHealthScoring(",
+        "private static func publishCommittedHealthScoring(",
+        "guard await model.repo.refresh(days: 1) else { return false }",
     )
     forbid(
         app,

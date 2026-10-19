@@ -936,8 +936,15 @@ private final class AppleLocalCoachModelDriver: LocalCoachModelDriver {
         }
         try Task.checkCancellation()
         let session = LanguageModelSession(model: model, tools: tools, instructions: fixedInstructions)
+        // `toolCallingMode` exists only in the iOS 27 SDK (Xcode 27, Swift 6.4). `#available` is a runtime check, so an
+        // older SDK still has to compile the member; the compiler version gates it. The arms declare `options`
+        // separately so a toolchain that skips the mutation never sees a `var` nothing mutates (warnings are errors here).
+        #if compiler(>=6.4)
         var options = GenerationOptions(temperature: 0.3, maximumResponseTokens: responseTokens)
         if #available(iOS 27.0, macOS 27.0, *) { options.toolCallingMode = tools.isEmpty ? .disallowed : .allowed }
+        #else
+        let options = GenerationOptions(temperature: 0.3, maximumResponseTokens: responseTokens)
+        #endif
         for try await update in session.streamResponse(to: Prompt(prompt), options: options) {
             try Task.checkCancellation()
             receive(update.content)

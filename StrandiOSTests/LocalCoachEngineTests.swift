@@ -591,6 +591,7 @@ final class LocalCoachEngineTests: XCTestCase {
             source: { .init(storageID: "a", dataSourceID: "a", revision: "1") })
         engine.preferences.usePersonalData = true
         await engine.send("This is an app test with synthetic records. Use the read_sleep tool to read the latest record, then tell me the recorded sleep duration and record date.")
+        if LocalCoachModelAssets.areMissing(engineError: engine.errorText) { throw XCTSkip(LocalCoachModelAssets.skipReason) }
         let reply = try XCTUnwrap(engine.messages.last)
         print("LIVE_MODEL_TEST seconds=\(engine.responseSeconds ?? -1) tools=\(reply.toolNames) reply=\(reply.text)")
         XCTAssertNil(engine.errorText, engine.errorText ?? "")
