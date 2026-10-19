@@ -311,6 +311,27 @@
         }
       }
     },
+    "%@ %@ vs avg": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ %@ vs avg"
+          }
+        }
+      }
+    },
+    "%@ %@, %@, %@, Strain %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ %@, %@, %@, Strain %@"
+          }
+        }
+      }
+    },
     "%@ (Beta)": {
       "localizations": {
         "de": {
@@ -743,6 +764,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ Cohen's d %@。具統計顯著性。"
+          }
+        }
+      }
+    },
+    "%@ efficiency": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ efficiency"
           }
         }
       }
@@ -1215,6 +1247,26 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ 摘要"
+          }
+        }
+      }
+    },
+    "%@ this week": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ this week"
+          }
+        }
+      }
+    },
+    "%@ vs %lld days ago": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ vs %lld days ago"
           }
         }
       }
@@ -5087,6 +5139,16 @@
         }
       }
     },
+    "%@, %lld percent": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@, %lld percent"
+          }
+        }
+      }
+    },
     "%@, 24 hours": {
       "localizations": {
         "de": {
@@ -6781,6 +6843,26 @@
         }
       }
     },
+    "%@: Strain %@, recent load %@, fitness base %@, form %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: Strain %@, recent load %@, fitness base %@, form %@"
+          }
+        }
+      }
+    },
+    "%@: Strain %@, recent load %@, ratio %@, %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: Strain %@, recent load %@, ratio %@, %@"
+          }
+        }
+      }
+    },
     "%@: estimated %lld steps, phone %lld steps, %lld percent difference": {
       "localizations": {
         "de": {
@@ -6907,6 +6989,16 @@
         }
       }
     },
+    "%@: no Strain recorded": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: no Strain recorded"
+          }
+        }
+      }
+    },
     "%@: not loadable. Nearest %@. Bar %@.": {
       "localizations": {
         "de": {
@@ -6983,6 +7075,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@：每側 %@。槓鈴桿 %@。"
+          }
+        }
+      }
+    },
+    "%@: rest day, no Strain": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: rest day, no Strain"
           }
         }
       }
@@ -12229,6 +12331,17 @@
         }
       }
     },
+    "%lld sources": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld sources"
+          }
+        }
+      }
+    },
     "%lld sports": {
       "localizations": {
         "de": {
@@ -12455,6 +12568,26 @@
         }
       }
     },
+    "%lld training days in these 7 days": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld training days in these 7 days"
+          }
+        }
+      }
+    },
+    "%lld training days this week": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld training days this week"
+          }
+        }
+      }
+    },
     "%lld type-0x2F historical-offload frames seen outside our sync. These are history (e.g. another app pulling the strap's backlog), not a live R22 stream (#494).": {
       "localizations": {
         "de": {
@@ -12677,6 +12810,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "%lld 次鍛鍊"
+          }
+        }
+      }
+    },
+    "%lld workouts had no Strain score": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld workouts had no Strain score"
           }
         }
       }
@@ -15705,6 +15848,17 @@
         }
       }
     },
+    "1 source": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 source"
+          }
+        }
+      }
+    },
     "1 source record": {
       "localizations": {
         "de": {
@@ -15785,6 +15939,26 @@
         }
       }
     },
+    "1 training day in these 7 days": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 training day in these 7 days"
+          }
+        }
+      }
+    },
+    "1 training day this week": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 training day this week"
+          }
+        }
+      }
+    },
     "1 type-0x2F historical-offload frame seen outside our sync. These are history (e.g. another app pulling the strap's backlog), not a live R22 stream (#494).": {
       "localizations": {
         "de": {
@@ -15821,6 +15995,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "在我們的同步之外偵測到 1 個 type-0x2F 歷史卸載幀。這些是歷史資料（例如另一個應用程式正在拉取手環的積存資料），而非即時 R22 串流（#494）。"
+          }
+        }
+      }
+    },
+    "1 workout had no Strain score": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 workout had no Strain score"
           }
         }
       }
@@ -17609,6 +17793,26 @@
         }
       }
     },
+    "= weighted average, about 1 week": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "= weighted average, about 1 week"
+          }
+        }
+      }
+    },
+    "= weighted average, about 6 weeks": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "= weighted average, about 6 weeks"
+          }
+        }
+      }
+    },
     "A %@ tonight tends to line up with about %@ higher on tomorrow’s %@ for you, based on %lld of your %@ days.": {
       "localizations": {
         "de": {
@@ -17933,6 +18137,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "來自手環的 60 秒逐拍（R-R）間期快照，在計算 RMSSD 之前經過清洗（範圍和異位搏動過濾），計算方式與你的夜間 HRV 相同。"
+          }
+        }
+      }
+    },
+    "A day with no Strain recorded counts as a rest day for up to %lld days in a row. Longer gaps restart the history.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A day with no Strain recorded counts as a rest day for up to %lld days in a row. Longer gaps restart the history."
           }
         }
       }
@@ -19913,6 +20127,16 @@
         }
       }
     },
+    "Above base": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Above base"
+          }
+        }
+      }
+    },
     "Accepted flags": {
       "localizations": {
         "de": {
@@ -20521,6 +20745,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "所有匯入內容都保留在這部裝置上，你的資料絕不會被上傳。匯入什麼由你決定。"
+          }
+        }
+      }
+    },
+    "All out": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All out"
           }
         }
       }
@@ -21905,6 +22139,28 @@
         }
       }
     },
+    "Ask a follow-up": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ask a follow-up"
+          }
+        }
+      }
+    },
+    "Ask Coach": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ask Coach"
+          }
+        }
+      }
+    },
     "Ask your coach": {
       "localizations": {
         "de": {
@@ -22425,6 +22681,46 @@
         }
       }
     },
+    "Average daily Strain by week": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Average daily Strain by week"
+          }
+        }
+      }
+    },
+    "average Strain %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "average Strain %@"
+          }
+        }
+      }
+    },
+    "Average Strain %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Average Strain %@"
+          }
+        }
+      }
+    },
+    "Average Strain per day %@, %@ from the 4 weeks before": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Average Strain per day %@, %@ from the 4 weeks before"
+          }
+        }
+      }
+    },
     "AVG": {
       "localizations": {
         "de": {
@@ -22501,6 +22797,26 @@
           "stringUnit": {
             "state": "translated",
             "value": "平均時長"
+          }
+        }
+      }
+    },
+    "Avg Strain / day": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avg Strain / day"
+          }
+        }
+      }
+    },
+    "avg Strain per day": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "avg Strain per day"
           }
         }
       }
@@ -30287,6 +30603,26 @@
         }
       }
     },
+    "Back to recent": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Back to recent"
+          }
+        }
+      }
+    },
+    "Back to Trends": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Back to Trends"
+          }
+        }
+      }
+    },
     "Back Up Now": {
       "localizations": {
         "de": {
@@ -30967,6 +31303,36 @@
         }
       }
     },
+    "base": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "base"
+          }
+        }
+      }
+    },
+    "Base": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Base"
+          }
+        }
+      }
+    },
+    "Based on daily Strain. Descriptive only; it does not change Readiness.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Based on daily Strain. Descriptive only; it does not change Readiness."
+          }
+        }
+      }
+    },
     "baseline": {
       "localizations": {
         "de": {
@@ -31375,6 +31741,16 @@
         }
       }
     },
+    "Below zero: training above your base. Above zero: fresher.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Below zero: training above your base. Above zero: fresher."
+          }
+        }
+      }
+    },
     "Big number": {
       "localizations": {
         "de": {
@@ -31527,6 +31903,26 @@
           "stringUnit": {
             "state": "translated",
             "value": "盡力提前喚醒：一旦今晚的睡眠需求已滿足，會在 %lld 分鐘的時間範圍內喚醒。手環的準確時間鬧鐘仍保持啟用，作為備援；提前喚醒在 iOS 上僅為盡力而為，不保證一定生效。"
+          }
+        }
+      }
+    },
+    "Biggest day": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Biggest day"
+          }
+        }
+      }
+    },
+    "Biggest day, Strain %@, %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Biggest day, Strain %@, %@"
           }
         }
       }
@@ -36997,6 +37393,26 @@
         }
       }
     },
+    "Building · %lld/%lld": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Building · %lld/%lld"
+          }
+        }
+      }
+    },
+    "Building, in the sweet spot": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Building, in the sweet spot"
+          }
+        }
+      }
+    },
     "Building, moves as you do": {
       "localizations": {
         "de": {
@@ -38749,6 +39165,16 @@
         }
       }
     },
+    "Chart key: recent load, fitness base, and where recent load is above the base": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chart key: recent load, fitness base, and where recent load is above the base"
+          }
+        }
+      }
+    },
     "charts": {
       "localizations": {
         "de": {
@@ -39881,6 +40307,27 @@
         }
       }
     },
+    "Compare recent nights": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compare recent nights"
+          }
+        }
+      }
+    },
+    "Compared with the 4 weeks before": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compared with the 4 weeks before"
+          }
+        }
+      }
+    },
     "COMPLETE": {
       "localizations": {
         "de": {
@@ -40469,6 +40916,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "控制中心"
+          }
+        }
+      }
+    },
+    "Could not read this history": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not read this history"
           }
         }
       }
@@ -46735,6 +47192,16 @@
         }
       }
     },
+    "Compares your 7-day and 28-day average workload. Around 0.8 to 1.3 is the usual range. This is separate from the Training load page, which weights recent days differently.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compares your 7-day and 28-day average workload. Around 0.8 to 1.3 is the usual range. This is separate from the Training load page, which weights recent days differently."
+          }
+        }
+      }
+    },
     "Compares your heart rate before sleep with your recent nights": {
       "localizations": {
         "de": {
@@ -51023,6 +51490,26 @@
         }
       }
     },
+    "Daily Strain over the selected range": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Daily Strain over the selected range"
+          }
+        }
+      }
+    },
+    "Daily strain · what feeds it": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Daily strain · what feeds it"
+          }
+        }
+      }
+    },
     "Daily strap-log export": {
       "localizations": {
         "de": {
@@ -51071,6 +51558,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "每日匯出手環日誌"
+          }
+        }
+      }
+    },
+    "Daily totals": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Daily totals"
           }
         }
       }
@@ -51579,6 +52076,26 @@
           "stringUnit": {
             "state": "translated",
             "value": "出生日期"
+          }
+        }
+      }
+    },
+    "Dated values": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dated values"
+          }
+        }
+      }
+    },
+    "Dates use the Trends source time zone: %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dates use the Trends source time zone: %@"
           }
         }
       }
@@ -52165,6 +52682,16 @@
         }
       }
     },
+    "Descriptive only. Training load never changes your Readiness score.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Descriptive only. Training load never changes your Readiness score."
+          }
+        }
+      }
+    },
     "DESCRIPTIVE STATS": {
       "localizations": {
         "de": {
@@ -52713,6 +53240,16 @@
         }
       }
     },
+    "Displayed history": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Displayed history"
+          }
+        }
+      }
+    },
     "DIST": {
       "localizations": {
         "de": {
@@ -52841,6 +53378,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "完成"
+          }
+        }
+      }
+    },
+    "dot = rest day": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "dot = rest day"
           }
         }
       }
@@ -52997,6 +53544,36 @@
           "stringUnit": {
             "state": "translated",
             "value": "輕點兩下的動作"
+          }
+        }
+      }
+    },
+    "down %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "down %@"
+          }
+        }
+      }
+    },
+    "down %@ since %lld days ago": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "down %@ since %lld days ago"
+          }
+        }
+      }
+    },
+    "down %@ this week": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "down %@ this week"
           }
         }
       }
@@ -57613,6 +58190,36 @@
         }
       }
     },
+    "Easing": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Easing"
+          }
+        }
+      }
+    },
+    "Easing off": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Easing off"
+          }
+        }
+      }
+    },
+    "Easing, under 0.8×": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Easing, under 0.8×"
+          }
+        }
+      }
+    },
     "Edit wake alarm": {
       "localizations": {
         "de": {
@@ -57661,6 +58268,26 @@
           "stringUnit": {
             "state": "translated",
             "value": "編輯起床鬧鐘"
+          }
+        }
+      }
+    },
+    "Strain %@ → recent %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Strain %@ → recent %@"
+          }
+        }
+      }
+    },
+    "Strain, 0–21": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Strain, 0–21"
           }
         }
       }
@@ -58149,6 +58776,16 @@
         }
       }
     },
+    "Established · %lld days": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Established · %lld days"
+          }
+        }
+      }
+    },
     "estimate": {
       "localizations": {
         "de": {
@@ -58381,6 +59018,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "每個動作和提醒都使用現有的正式環境儲存空間。"
+          }
+        }
+      }
+    },
+    "Every day's **Strain** (the 0–21 score on Today) feeds two running averages. Recent days count more than older ones.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Every day's **Strain** (the 0–21 score on Today) feeds two running averages. Recent days count more than older ones."
           }
         }
       }
@@ -65165,6 +65812,26 @@
         }
       }
     },
+    "Filters": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Filters"
+          }
+        }
+      }
+    },
+    "Filters on": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Filters on"
+          }
+        }
+      }
+    },
     "Finish your lift first": {
       "localizations": {
         "de": {
@@ -65213,6 +65880,46 @@
           "stringUnit": {
             "state": "translated",
             "value": "請先結束力量訓練"
+          }
+        }
+      }
+    },
+    "Fitness base": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fitness base"
+          }
+        }
+      }
+    },
+    "fitness base %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fitness base %@"
+          }
+        }
+      }
+    },
+    "Fitness base %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fitness base %@"
+          }
+        }
+      }
+    },
+    "Fitness base · 6 weeks": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fitness base · 6 weeks"
           }
         }
       }
@@ -65529,6 +66236,36 @@
         }
       }
     },
+    "Form": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Form"
+          }
+        }
+      }
+    },
+    "Form equals base minus recent": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Form equals base minus recent"
+          }
+        }
+      }
+    },
+    "Form · base minus recent": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Form · base minus recent"
+          }
+        }
+      }
+    },
     "Frame integrity failed": {
       "localizations": {
         "de": {
@@ -65681,6 +66418,27 @@
           "stringUnit": {
             "state": "translated",
             "value": "釋放"
+          }
+        }
+      }
+    },
+    "fresher than base": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fresher than base"
+          }
+        }
+      }
+    },
+    "From %@%% recovery": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "From %@%% recovery"
           }
         }
       }
@@ -68327,6 +69085,39 @@
         }
       }
     },
+    "Good afternoon.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Good afternoon."
+          }
+        }
+      }
+    },
+    "Good evening.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Good evening."
+          }
+        }
+      }
+    },
+    "Good morning.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Good morning."
+          }
+        }
+      }
+    },
     "GPS": {
       "localizations": {
         "de": {
@@ -70403,6 +71194,26 @@
         }
       }
     },
+    "Hide daily totals": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide daily totals"
+          }
+        }
+      }
+    },
+    "Hide filters": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide filters"
+          }
+        }
+      }
+    },
     "HIGH": {
       "localizations": {
         "de": {
@@ -70651,6 +71462,16 @@
         }
       }
     },
+    "Holding steady": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Holding steady"
+          }
+        }
+      }
+    },
     "How & Presence": {
       "localizations": {
         "de": {
@@ -70703,6 +71524,16 @@
         }
       }
     },
+    "How hard you've trained lately. Reacts within days.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How hard you've trained lately. Reacts within days."
+          }
+        }
+      }
+    },
     "how NOOP works": {
       "localizations": {
         "de": {
@@ -70751,6 +71582,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "NOOP 如何運作"
+          }
+        }
+      }
+    },
+    "How this is calculated": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How this is calculated"
           }
         }
       }
@@ -82646,6 +83487,16 @@
         }
       }
     },
+    "last 6 weeks": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "last 6 weeks"
+          }
+        }
+      }
+    },
     "Last backup": {
       "localizations": {
         "de": {
@@ -82786,6 +83637,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "昨晚"
+          }
+        }
+      }
+    },
+    "level with base": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "level with base"
           }
         }
       }
@@ -83714,6 +84575,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "即時消耗"
+          }
+        }
+      }
+    },
+    "Load over time": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Load over time"
           }
         }
       }
@@ -94922,6 +95793,16 @@
         }
       }
     },
+    "Moderate session": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Moderate session"
+          }
+        }
+      }
+    },
     "Moment marked.": {
       "localizations": {
         "de": {
@@ -96352,6 +97233,36 @@
         }
       }
     },
+    "Near spike": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Near spike"
+          }
+        }
+      }
+    },
+    "Needs %lld more days of daily Strain": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Needs %lld more days of daily Strain"
+          }
+        }
+      }
+    },
+    "Needs 1 more day of daily Strain": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Needs 1 more day of daily Strain"
+          }
+        }
+      }
+    },
     "Needs a few more scored nights of Recovery to forecast tonight (%lld of %lld so far).": {
       "localizations": {
         "de": {
@@ -96696,6 +97607,16 @@
         }
       }
     },
+    "No base to compare yet": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No base to compare yet"
+          }
+        }
+      }
+    },
     "No current partner": {
       "localizations": {
         "de": {
@@ -96732,6 +97653,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "目前無配對"
+          }
+        }
+      }
+    },
+    "No daily Strain history is available for this source.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No daily Strain history is available for this source."
           }
         }
       }
@@ -96790,6 +97721,36 @@
           "stringUnit": {
             "state": "translated",
             "value": "無資料"
+          }
+        }
+      }
+    },
+    "No Strain history yet": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Strain history yet"
+          }
+        }
+      }
+    },
+    "no Strain recorded": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "no Strain recorded"
+          }
+        }
+      }
+    },
+    "No Strain recorded": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Strain recorded"
           }
         }
       }
@@ -97082,6 +98043,16 @@
         }
       }
     },
+    "No observation on the selected day": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No observation on the selected day"
+          }
+        }
+      }
+    },
     "No reading": {
       "localizations": {
         "de": {
@@ -97130,6 +98101,26 @@
           "stringUnit": {
             "state": "translated",
             "value": "無讀數"
+          }
+        }
+      }
+    },
+    "No scored workouts in these 7 days.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No scored workouts in these 7 days."
+          }
+        }
+      }
+    },
+    "No scored workouts this week.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No scored workouts this week."
           }
         }
       }
@@ -97286,6 +98277,26 @@
           "stringUnit": {
             "state": "translated",
             "value": "暫無目標 · 恢復尚未評分"
+          }
+        }
+      }
+    },
+    "No training days in these 7 days": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No training days in these 7 days"
+          }
+        }
+      }
+    },
+    "No training days this week": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No training days this week"
           }
         }
       }
@@ -97494,6 +98505,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "NOOP %@ 來了。點擊查看新功能。"
+          }
+        }
+      }
+    },
+    "NOOP is reading up to 180 days of daily Strain before showing your load.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NOOP is reading up to 180 days of daily Strain before showing your load."
           }
         }
       }
@@ -107091,6 +108112,16 @@
         }
       }
     },
+    "Not ready": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not ready"
+          }
+        }
+      }
+    },
     "Not recorded": {
       "localizations": {
         "de": {
@@ -112679,6 +113710,16 @@
         }
       }
     },
+    "Opens the load chart, daily strain and how it is calculated": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opens the load chart, daily strain and how it is calculated"
+          }
+        }
+      }
+    },
     "Opens this workout": {
       "localizations": {
         "de": {
@@ -113759,6 +114800,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Oura、Fitbit 或 Garmin 匯出"
+          }
+        }
+      }
+    },
+    "Out of date": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Out of date"
           }
         }
       }
@@ -116333,6 +117384,17 @@
         }
       }
     },
+    "Private. Coach runs on this iPhone.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Private. Coach runs on this iPhone."
+          }
+        }
+      }
+    },
     "probe": {
       "localizations": {
         "de": {
@@ -117733,6 +118795,58 @@
           "stringUnit": {
             "state": "translated",
             "value": "每晚，過去 30 天"
+          }
+        }
+      }
+    },
+    "Per session": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pro Einheit"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Por sesión"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Par séance"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Per sessione"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Por sessão"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "За тренировку"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每次训练"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每次訓練"
           }
         }
       }
@@ -121543,6 +122657,16 @@
         }
       }
     },
+    "Re-label as %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Re-label as %@"
+          }
+        }
+      }
+    },
     "Re-nudge every %lld min": {
       "localizations": {
         "de": {
@@ -121695,6 +122819,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "「朗讀」會在你需要時於裝置上播放回覆。當你離開教練或更改其隱私設定時，語音輸入會停止。Siri 本身使用 Apple 的 Siri 設定，與 NOOP 的裝置端聽寫各自獨立。"
+          }
+        }
+      }
+    },
+    "Reading dated load history": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reading dated load history"
           }
         }
       }
@@ -121987,6 +123121,76 @@
         }
       }
     },
+    "recent": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "recent"
+          }
+        }
+      }
+    },
+    "Recent load": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recent load"
+          }
+        }
+      }
+    },
+    "Recent load %@ · Fitness base %@ · Form %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recent load %@ · Fitness base %@ · Form %@"
+          }
+        }
+      }
+    },
+    "Recent load and fitness base": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recent load and fitness base"
+          }
+        }
+      }
+    },
+    "Recent load and fitness base over the last %lld days": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recent load and fitness base over the last %lld days"
+          }
+        }
+      }
+    },
+    "Recent load is %@ times your fitness base, in the %@ zone. Easing is under 0.8, sweet spot 0.8 to 1.3, spike above 1.3.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recent load is %@ times your fitness base, in the %@ zone. Easing is under 0.8, sweet spot 0.8 to 1.3, spike above 1.3."
+          }
+        }
+      }
+    },
+    "Recent load · 7 days": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recent load · 7 days"
+          }
+        }
+      }
+    },
     "Record puffin frames": {
       "localizations": {
         "de": {
@@ -122035,6 +123239,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "記錄 puffin 影格"
+          }
+        }
+      }
+    },
+    "Recorded Strain %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recorded Strain %@"
           }
         }
       }
@@ -122119,6 +123333,17 @@
         }
       }
     },
+    "Recovery %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recovery %@"
+          }
+        }
+      }
+    },
     "Recovery %lld · target %lld–%lld": {
       "localizations": {
         "de": {
@@ -122167,6 +123392,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "恢復 %lld · 目標 %lld–%lld"
+          }
+        }
+      }
+    },
+    "Recovery and sleep": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recovery and sleep"
           }
         }
       }
@@ -122223,6 +123459,17 @@
         }
       }
     },
+    "Recovery is %@ today. What do you want to work on?": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recovery is %@ today. What do you want to work on?"
+          }
+        }
+      }
+    },
     "Recovery uses your own recent HRV, resting heart rate, respiratory rate, and other available nightly signals. It becomes more personal as enough nights accumulate.": {
       "localizations": {
         "de": {
@@ -122271,6 +123518,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "恢復分數會參考你近期的 HRV、靜息心率、呼吸頻率以及其他可用的夜間訊號。隨著夜晚資料的累積，它會越來越貼合你個人。"
+          }
+        }
+      }
+    },
+    "Recovery was %@ on %@. What do you want to work on?": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recovery was %@ on %@. What do you want to work on?"
+          }
+        }
+      }
+    },
+    "Recovery was %@ yesterday. What do you want to work on?": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recovery was %@ yesterday. What do you want to work on?"
           }
         }
       }
@@ -123681,6 +124950,27 @@
           "stringUnit": {
             "state": "translated",
             "value": "已安排使用目前的解碼器重試。"
+          }
+        }
+      }
+    },
+    "Return to Trends and open Training load again to use the current records.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Return to Trends and open Training load again to use the current records."
+          }
+        }
+      }
+    },
+    "Review before saving": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Review before saving"
           }
         }
       }
@@ -134727,6 +136017,16 @@
         }
       }
     },
+    "Same math as above, one day forward. Not a recommendation.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Same math as above, one day forward. Not a recommendation."
+          }
+        }
+      }
+    },
     "Save exercise": {
       "localizations": {
         "de": {
@@ -136133,6 +137433,16 @@
         }
       }
     },
+    "Select sessions": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Select sessions"
+          }
+        }
+      }
+    },
     "Send Enable Sequence to Strap": {
       "localizations": {
         "de": {
@@ -136371,6 +137681,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "訓練場次"
+          }
+        }
+      }
+    },
+    "Sessions and load": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sessions and load"
           }
         }
       }
@@ -137657,6 +138978,28 @@
         }
       }
     },
+    "Sleep %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sleep %@"
+          }
+        }
+      }
+    },
+    "Sleep trend": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sleep trend"
+          }
+        }
+      }
+    },
     "so far %@": {
       "localizations": {
         "de": {
@@ -138201,6 +139544,36 @@
           "stringUnit": {
             "state": "translated",
             "value": "速度"
+          }
+        }
+      }
+    },
+    "Spike": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spike"
+          }
+        }
+      }
+    },
+    "Spike, above 1.3×": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spike, above 1.3×"
+          }
+        }
+      }
+    },
+    "Spiking above your base": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spiking above your base"
           }
         }
       }
@@ -139987,6 +141360,36 @@
           "stringUnit": {
             "state": "translated",
             "value": "替換動作"
+          }
+        }
+      }
+    },
+    "Sweet spot": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sweet spot"
+          }
+        }
+      }
+    },
+    "Sweet spot 0.8–1.3×": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sweet spot 0.8–1.3×"
+          }
+        }
+      }
+    },
+    "Sweet spot, 0.8–1.3×": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sweet spot, 0.8–1.3×"
           }
         }
       }
@@ -155259,6 +156662,46 @@
         }
       }
     },
+    "That is a sharper jump than your base is used to.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That is a sharper jump than your base is used to."
+          }
+        }
+      }
+    },
+    "That is a steady build.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That is a steady build."
+          }
+        }
+      }
+    },
+    "That is close to the load your body is used to.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That is close to the load your body is used to."
+          }
+        }
+      }
+    },
+    "That is lighter than the load your body is used to.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That is lighter than the load your body is used to."
+          }
+        }
+      }
+    },
     "That weight cannot be made with these plates.": {
       "localizations": {
         "de": {
@@ -155387,6 +156830,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "基礎資訊"
+          }
+        }
+      }
+    },
+    "The first %lld recorded days are averaged to start both lines. Load appears after %lld recorded days and is marked Established at %lld.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The first %lld recorded days are averaged to start both lines. Load appears after %lld recorded days and is marked Established at %lld."
           }
         }
       }
@@ -155531,6 +156984,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "關聯的訓練計劃已不存在"
+          }
+        }
+      }
+    },
+    "The load your body is used to. Moves slowly.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The load your body is used to. Moves slowly."
           }
         }
       }
@@ -155955,6 +157418,16 @@
         }
       }
     },
+    "The returned history belongs to another range. Return to Trends and try again.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The returned history belongs to another range. Return to Trends and try again."
+          }
+        }
+      }
+    },
     "The selected exact archive was deleted. Its receipt remains.": {
       "localizations": {
         "de": {
@@ -156111,6 +157584,16 @@
         }
       }
     },
+    "The sessions behind your daily Strain": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The sessions behind your daily Strain"
+          }
+        }
+      }
+    },
     "The sets you’ve logged will be lost. This can’t be undone.": {
       "localizations": {
         "de": {
@@ -156147,6 +157630,26 @@
           "stringUnit": {
             "state": "translated",
             "value": "已記錄的組數將會遺失，且無法復原。"
+          }
+        }
+      }
+    },
+    "The source history cannot produce a valid load estimate. Check the records in Trends.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The source history cannot produce a valid load estimate. Check the records in Trends."
+          }
+        }
+      }
+    },
+    "The source records changed": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The source records changed"
           }
         }
       }
@@ -156447,6 +157950,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "起床鬧鐘可在手環確認已就緒後，透過手環韌體讓你的手腕震動。手機上的備用通知無法保證送達：專注模式、靜音模式或被拒絕的通知權限都可能使其無法提醒你。請保留手機內建「時鐘」鬧鐘作為可靠的備用。"
+          }
+        }
+      }
+    },
+    "There is no usable Strain value for the selected end date.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "There is no usable Strain value for the selected end date."
           }
         }
       }
@@ -156919,6 +158432,16 @@
         }
       }
     },
+    "This wk": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This wk"
+          }
+        }
+      }
+    },
     "TIME": {
       "localizations": {
         "de": {
@@ -157007,6 +158530,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "各區間用時"
+          }
+        }
+      }
+    },
+    "Today's Strain is not ready": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Today's Strain is not ready"
           }
         }
       }
@@ -157115,6 +158648,46 @@
         }
       }
     },
+    "training above base": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "training above base"
+          }
+        }
+      }
+    },
+    "Training days": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Training days"
+          }
+        }
+      }
+    },
+    "Training days %lld, %@ from the 4 weeks before": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Training days %lld, %@ from the 4 weeks before"
+          }
+        }
+      }
+    },
+    "Training load starts after %lld days of recorded Strain.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Training load starts after %lld days of recorded Strain."
+          }
+        }
+      }
+    },
     "Training plan": {
       "localizations": {
         "de": {
@@ -157215,6 +158788,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "觸發條件"
+          }
+        }
+      }
+    },
+    "Try reading the selected source again.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Try reading the selected source again."
           }
         }
       }
@@ -166679,6 +168262,36 @@
         }
       }
     },
+    "up %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "up %@"
+          }
+        }
+      }
+    },
+    "up %@ since %lld days ago": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "up %@ since %lld days ago"
+          }
+        }
+      }
+    },
+    "up %@ this week": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "up %@ this week"
+          }
+        }
+      }
+    },
     "Upcoming": {
       "localizations": {
         "de": {
@@ -167859,6 +169472,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "正在使用訓練計劃設定"
+          }
+        }
+      }
+    },
+    "Using the same source and date as Trends.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Using the same source and date as Trends."
           }
         }
       }
@@ -169799,6 +171422,16 @@
         }
       }
     },
+    "Week by week": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Week by week"
+          }
+        }
+      }
+    },
     "weekdays": {
       "localizations": {
         "de": {
@@ -170003,6 +171636,26 @@
           "stringUnit": {
             "state": "translated",
             "value": "體重 · %@"
+          }
+        }
+      }
+    },
+    "What drove the week to the selected day": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "What drove the week to the selected day"
+          }
+        }
+      }
+    },
+    "What drove this week": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "What drove this week"
           }
         }
       }
@@ -170329,6 +171982,16 @@
         }
       }
     },
+    "When recent load sits **0.8–1.3×** your base, you're building steadily. Well above that is a spike. Well below means you're easing off.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When recent load sits **0.8–1.3×** your base, you're building steadily. Well above that is a spike. Well below means you're easing off."
+          }
+        }
+      }
+    },
     "WHERE IT'S LIGHTER THAN A STRAP": {
       "localizations": {
         "de": {
@@ -170365,6 +172028,26 @@
           "stringUnit": {
             "state": "translated",
             "value": "在哪些方面比手環更薄弱"
+          }
+        }
+      }
+    },
+    "Where the load came from": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Where the load came from"
+          }
+        }
+      }
+    },
+    "Where tomorrow could land": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Where tomorrow could land"
           }
         }
       }
@@ -172009,6 +173692,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "正式組 %@"
+          }
+        }
+      }
+    },
+    "Workload ratio %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workload ratio %@"
           }
         }
       }
@@ -178645,6 +180338,16 @@
         }
       }
     },
+    "You · %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You · %@"
+          }
+        }
+      }
+    },
     "YOUR DAILY SCORES": {
       "localizations": {
         "de": {
@@ -178733,6 +180436,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "你的資料已還原，可以使用。"
+          }
+        }
+      }
+    },
+    "Your fitness base is too small to compare recent load against yet.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your fitness base is too small to compare recent load against yet."
           }
         }
       }
@@ -179851,6 +181564,36 @@
           "stringUnit": {
             "state": "translated",
             "value": "你從週一到週日的情況，一眼看懂。"
+          }
+        }
+      }
+    },
+    "Your recent load is **%lld%% above** your fitness base.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your recent load is **%lld%% above** your fitness base."
+          }
+        }
+      }
+    },
+    "Your recent load is **%lld%% below** your fitness base.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your recent load is **%lld%% below** your fitness base."
+          }
+        }
+      }
+    },
+    "Your recent load is **level with** your fitness base.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your recent load is **level with** your fitness base."
           }
         }
       }

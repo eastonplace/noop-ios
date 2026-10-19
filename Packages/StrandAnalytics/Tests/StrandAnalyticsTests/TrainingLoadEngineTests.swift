@@ -213,4 +213,25 @@ final class TrainingLoadEngineTests: XCTestCase {
         XCTAssertEqual(result.ctl!, 30, accuracy: 1e-12)
         XCTAssertEqual(result.atl!, 30, accuracy: 1e-12)
     }
+    // MARK: - The public one-day step (a projection reuses the engine's math)
+
+    /// `step` is exactly the update `evaluate` takes for the next observed day, bit for bit.
+    func testStepEqualsEvaluatingOneMoreObservedDay() {
+        let loads: [Double] = (0..<50).map { 20 + Double(($0 * 7) % 23) * 3 }
+        let before = TrainingLoadEngine.evaluateDense(loads)
+        for next in [0.0, 12 / 0.21, 90] {
+            let stepped = TrainingLoadEngine.step(acute: before.acuteLoad!, chronic: before.chronicLoad!, load: next)
+            let after = TrainingLoadEngine.evaluateDense(loads + [next])
+            XCTAssertEqual(stepped.acute, after.acuteLoad!)
+            XCTAssertEqual(stepped.chronic, after.chronicLoad!)
+        }
+    }
+
+    func testStepHonoursAConfigurationsTimeConstants() {
+        let configuration = TrainingLoadEngine.Configuration(chronicTimeConstantDays: 10, acuteTimeConstantDays: 2)
+        let stepped = TrainingLoadEngine.step(acute: 40, chronic: 40, load: 80, configuration: configuration)
+        XCTAssertEqual(stepped.acute, 40 + (1 - exp(-1.0 / 2)) * 40, accuracy: 1e-12)
+        XCTAssertEqual(stepped.chronic, 40 + (1 - exp(-1.0 / 10)) * 40, accuracy: 1e-12)
+        XCTAssertEqual(TrainingLoadEngine.smoothingFactor(timeConstantDays: 7), 1 - exp(-1.0 / 7), accuracy: 1e-15)
+    }
 }

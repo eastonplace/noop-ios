@@ -156,11 +156,44 @@ enum DataBackup {
         }
     }
 
+    private struct SnapshotFailure: LocalizedError {
+        let complaint: String
+        var errorDescription: String? {
+            String(localized: "couldn't take a consistent snapshot of the NOOP database (SQLite reports: \(complaint)).")
+        }
+    }
+
+    /// Zips a point-in-time snapshot, never the live file. The live `whoop.sqlite` keeps changing
+    /// (BLE flushes, backfill commits, WAL auto-checkpoints) while a multi-second deflate reads it,
+    /// and a checkpoint that was blocked by a reader leaves committed frames in the -wal. The SQLite
+    /// online-backup API reads through the WAL, so the snapshot carries every committed row, and
+    /// `quick_check` then runs on the exact bytes that are zipped.
+    ///
+    /// The backup API copies page 1 verbatim, header bytes 18-19 included, so the snapshot of a WAL
+    /// database is itself marked WAL. Zipped as-is, the extracted `.sqlite` ships WITHOUT its -wal/-shm
+    /// and a read-only connection cannot open it (SQLITE_CANTOPEN on first read). The snapshot is
+    /// therefore switched to `journal_mode=DELETE` before it is verified and zipped, so the archived
+    /// file is self-contained. Restore is unaffected: it copies the file into place and the store's
+    /// `DatabasePool` puts the live database back into WAL when it opens it.
     private static func writeVerifiedBackupZip(dbURL: URL, to dest: URL, settingsJSON: Data?) throws {
-        if let complaint = DatabaseIntegrity.quickCheckFailure(atPath: dbURL.path) {
+        let snapshot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("noop-snapshot-\(UUID().uuidString).sqlite")
+        defer {
+            for suffix in ["", "-wal", "-shm", "-journal"] {
+                removeIfPresent(URL(fileURLWithPath: snapshot.path + suffix))
+            }
+        }
+        do { try onlineBackup(fromDatabaseAt: dbURL.path, to: snapshot.path) }
+        catch RestoreFailure.sqliteBackup(let complaint) { throw SnapshotFailure(complaint: complaint) }
+        try convertSnapshotToRollbackJournal(atPath: snapshot.path)
+        if let complaint = DatabaseIntegrity.quickCheckFailure(atPath: snapshot.path) {
             throw ExportIntegrityFailure(complaint: complaint)
         }
-        try writeBackupZipAtomically(dbURL: dbURL, to: dest, settingsJSON: settingsJSON)
+        try writeBackupZipAtomically(dbURL: snapshot, to: dest, settingsJSON: settingsJSON)
+    }
+
+    static func writeVerifiedBackupForTesting(databaseAt dbURL: URL, to dest: URL) throws {
+        try writeVerifiedBackupZip(dbURL: dbURL, to: dest, settingsJSON: nil)
     }
 
     private static func writeBackupZipAtomically(
@@ -523,6 +556,29 @@ enum DataBackup {
         let finish = sqlite3_backup_finish(backup)
         guard step == SQLITE_DONE, finish == SQLITE_OK else {
             throw RestoreFailure.sqliteBackup(String(cString: sqlite3_errmsg(destination)))
+        }
+    }
+
+    /// Rewrites a private snapshot (never the live store) out of WAL mode so the single file carries
+    /// every page and needs no -wal/-shm sidecars. Insists on SQLite confirming the new mode: a refused
+    /// switch silently reports the old mode, and zipping that would reintroduce the unreadable archive.
+    private static func convertSnapshotToRollbackJournal(atPath path: String) throws {
+        var db: OpaquePointer?
+        guard sqlite3_open_v2(path, &db, SQLITE_OPEN_READWRITE, nil) == SQLITE_OK else {
+            let message = db.map { String(cString: sqlite3_errmsg($0)) } ?? "could not open snapshot"
+            sqlite3_close(db)
+            throw SnapshotFailure(complaint: message)
+        }
+        defer { sqlite3_close(db) }
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, "PRAGMA journal_mode=DELETE", -1, &statement, nil) == SQLITE_OK else {
+            throw SnapshotFailure(complaint: String(cString: sqlite3_errmsg(db)))
+        }
+        defer { sqlite3_finalize(statement) }
+        guard sqlite3_step(statement) == SQLITE_ROW,
+              let mode = sqlite3_column_text(statement, 0),
+              String(cString: mode).lowercased() == "delete" else {
+            throw SnapshotFailure(complaint: "could not switch the snapshot out of WAL mode")
         }
     }
 

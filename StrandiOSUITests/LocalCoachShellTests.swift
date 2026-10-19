@@ -9,7 +9,7 @@ final class LocalCoachShellTests: XCTestCase {
         app.launch()
         let coachTab = app.buttons["app.tab.4"]
         XCTAssertTrue(coachTab.waitForExistence(timeout: 30))
-        app.buttons["coach.tab.chat"].tap()
+        // Coach is chat-first. A second tab selection must no longer be required to reach the composer.
         let composer = app.descendants(matching: .any).matching(identifier: "coach.composer").firstMatch
         let quickActions = app.buttons["app.quickActions"]
         XCTAssertTrue(composer.waitForExistence(timeout: 10))
@@ -19,11 +19,11 @@ final class LocalCoachShellTests: XCTestCase {
         capture(app, "01-full-shell-composer")
 
         quickActions.tap()
-        XCTAssertTrue(app.buttons.containing(.staticText, identifier: "Start workout").firstMatch.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["quickActions.startWorkout"].waitForExistence(timeout: 5))
         capture(app, "02-restored-quick-actions")
         app.buttons["quickActions.close"].tap()
-        app.buttons["Coach actions"].tap()
-        app.buttons["New conversation"].tap()
+        // New conversation is a header action (the composer's + menu no longer repeats it).
+        app.buttons["coach.newConversation"].tap()
         composer.tap()
         composer.typeText("This is a software check. Reply with the single word READY.")
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))

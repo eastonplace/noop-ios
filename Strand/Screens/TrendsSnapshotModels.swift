@@ -454,13 +454,11 @@ struct TrendsScreenSnapshot: Sendable {
             let trainingHistory = Array(data.canonicalDays
                 .filter { $0.day <= data.anchorDay }
                 .suffix(TrainingLoadTrendsWindow.days))
-            let trainingResult = TrainingLoadEngine.evaluate(
-                days: trainingHistory.map {
-                    TrainingLoadEngine.DailyLoad(day: $0.day, load: $0.strain)
-                },
-                through: data.anchorDay
-            )
-            trainingLoad = TrainingLoadSnapshot(result: trainingResult)
+            let trainingLoads = trainingHistory.map {
+                TrainingLoadEngine.DailyLoad(day: $0.day, load: $0.strain)
+            }
+            let trainingResult = TrainingLoadEngine.evaluate(days: trainingLoads, through: data.anchorDay)
+            trainingLoad = TrainingLoadSnapshot(result: trainingResult, history: trainingLoads, targetDay: data.anchorDay)
         } else {
             trainingLoad = nil
         }
@@ -587,16 +585,21 @@ struct TrendsScreenSnapshot: Sendable {
 struct TrainingLoadSnapshot: Sendable {
     let state: TrainingLoadEngine.State
     let unavailableReason: TrainingLoadEngine.UnavailableReason?
+    /// Why there is no estimate, in the words the detail page uses too; nil when there is one.
+    let gap: TrainingLoadPageModel.Gap?
     let contiguousDays: Int
     let chronic: Double?
     let acute: Double?
     let balance: Double?
     let chronicSpark: [Double]
     let acuteSpark: [Double]
+    /// Calendar days from the sparkline's first point to its last. A run with missing days spans more than it has points.
+    let sparkSpanDays: Int
 
-    init(result: TrainingLoadEngine.Result) {
+    init(result: TrainingLoadEngine.Result, history: [TrainingLoadEngine.DailyLoad], targetDay: String) {
         state = result.state
         unavailableReason = result.unavailableReason
+        gap = TrainingLoadPageModel.gap(result: result, history: history, targetDay: targetDay)
         contiguousDays = result.contiguousDays
         chronic = result.chronicLoad.map(StrainScale.displayValue(fromStored:))
         acute = result.acuteLoad.map(StrainScale.displayValue(fromStored:))
@@ -604,6 +607,9 @@ struct TrainingLoadSnapshot: Sendable {
         let recent = result.points.suffix(42)
         chronicSpark = recent.map { StrainScale.displayValue(fromStored: $0.chronicLoad) }
         acuteSpark = recent.map { StrainScale.displayValue(fromStored: $0.acuteLoad) }
+        sparkSpanDays = recent.first.flatMap { first in
+            recent.last.flatMap { TrainingLoadPageModel.daySpan(from: first.day, to: $0.day) }
+        } ?? max(recent.count - 1, 0)
     }
 }
 

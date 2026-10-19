@@ -137,6 +137,15 @@ enum WindDownNudge {
         return ((raw % day) + day) % day
     }
 
+    /// The calendar weekday (1=Sun…7=Sat) the nudge for `weekday`'s wake belongs on. When wake − need − lead
+    /// goes negative the wrapped minute lands on the PREVIOUS evening, so the trigger must be pinned to the
+    /// day before the wake day, not the wake day itself. Pure.
+    static func nudgeWeekday(forWeekday weekday: Int) -> Int {
+        let raw = wakeMinutes(forWeekday: weekday) - sleepNeedMinutes - leadMinutes
+        let dayOffset = Int((Double(raw) / Double(24 * 60)).rounded(.down))   // -1 when raw < 0, else 0
+        return ((weekday - 1 + dayOffset) % 7 + 7) % 7 + 1
+    }
+
     // MARK: - Public API
 
     /// The result of enabling the nudge — lets the UI react instead of silently persisting an "on" toggle
@@ -236,7 +245,7 @@ enum WindDownNudge {
             for weekday in 1...7 {
                 let minute = nudgeMinuteOfDay(forWeekday: weekday)
                 var comps = DateComponents()
-                comps.weekday = weekday   // Calendar weekday 1=Sun…7=Sat → fires weekly on that day
+                comps.weekday = nudgeWeekday(forWeekday: weekday)   // Calendar weekday 1=Sun…7=Sat; the evening before when the nudge wraps past midnight
                 comps.hour = minute / 60
                 comps.minute = minute % 60
                 let trigger = UNCalendarNotificationTrigger(dateMatching: comps, repeats: true)

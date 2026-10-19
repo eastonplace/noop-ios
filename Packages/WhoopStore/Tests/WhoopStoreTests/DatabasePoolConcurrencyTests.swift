@@ -230,6 +230,49 @@ final class DatabasePoolConcurrencyTests: XCTestCase {
         XCTAssertEqual(inserted.hr, 1)
     }
 
+    /// Reading a CLOSED store must throw, never crash. `poolRead` (F8) used to call the async
+    /// `DatabaseWriter.read` on the in-memory `DatabaseQueue`; GRDB 6.29.3's `DatabaseQueue.asyncRead`
+    /// then ran `endReadOnly()` after a failed `beginReadOnly()` (closed connection), driving its
+    /// read-only depth to -1 and tripping "Database.swift: unbalanced endReadOnly()". The queue-backed
+    /// store now reads synchronously on the actor, and the second read proves the depth stayed balanced.
+    func testReadingClosedInMemoryStoreThrowsWithoutTrippingGRDBAssertion() async throws {
+        let store = try await WhoopStore.inMemory()
+        _ = try await store.insert(Streams(hr: [HRSample(ts: 10, bpm: 60)]), deviceId: "dev")
+        let open = try await store.hrSamples(deviceId: "dev", from: 0, to: 100, limit: 10)
+        XCTAssertEqual(open.map(\.ts), [10], "queue-backed reads must still return committed rows")
+
+        try await store.close()
+
+        for attempt in 1...2 {
+            do {
+                _ = try await store.hrSamples(deviceId: "dev", from: 0, to: 100, limit: 10)
+                XCTFail("read #\(attempt) of a closed in-memory store must throw")
+            } catch {
+                XCTAssertFalse(error.localizedDescription.isEmpty)
+            }
+        }
+    }
+
+    /// The production path (file-backed `DatabasePool`) keeps its off-actor read and still fails
+    /// cleanly once the shared pool is closed.
+    func testReadingClosedFileBackedStoreThrows() async throws {
+        let path = tempPath()
+        defer { removeDB(path) }
+
+        let store = try await WhoopStore(path: path)
+        _ = try await store.insert(Streams(hr: [HRSample(ts: 10, bpm: 60)]), deviceId: "dev")
+        let open = try await store.hrSamples(deviceId: "dev", from: 0, to: 100, limit: 10)
+        XCTAssertEqual(open.map(\.ts), [10])
+
+        try await store.close()
+        do {
+            _ = try await store.hrSamples(deviceId: "dev", from: 0, to: 100, limit: 10)
+            XCTFail("a closed pool-backed store must throw")
+        } catch {
+            XCTAssertFalse(error.localizedDescription.isEmpty)
+        }
+    }
+
     /// Local performance guard for the shared writer owner. Alternating handles exercises the same
     /// BLEManager/Repository route as production without adding a second SQLite writer connection.
     func testSharedPoolCommitLatencyBenchmark() async throws {
@@ -261,5 +304,86 @@ final class DatabasePoolConcurrencyTests: XCTestCase {
         XCTAssertLessThan(maximum, 500, "shared-pool small commits must not produce a UI-scale stall")
     }
 
+    /// Perf (F8): the hot public reads run on a pool reader thread, off the actor's serial executor.
+    /// A write that holds the actor (a long `syncWrite`, standing in for an offload / import chunk) must
+    /// NOT make `hrSamples`, `dailyMetrics`, `sleepSessions`, `metricSeries` or `workouts` queue behind it.
+    /// Before the fix every one of these was actor-isolated, so each read waited for the write to finish.
+    func testHotReadsDoNotQueueBehindActorHeldWrite() async throws {
+        let path = tempPath()
+        defer { removeDB(path) }
+
+        let store = try await WhoopStore(path: path)
+        _ = try await store.insert(Streams(hr: [HRSample(ts: 1_000, bpm: 60), HRSample(ts: 1_001, bpm: 61)]),
+                                   deviceId: "dev")
+        _ = try await store.upsertDailyMetrics(
+            [DailyMetric(day: "2026-05-23", totalSleepMin: 420, efficiency: nil, deepMin: nil, remMin: nil,
+                         lightMin: nil, disturbances: nil, restingHr: nil, avgHrv: nil, recovery: nil,
+                         strain: nil, exerciseCount: nil)],
+            deviceId: "dev")
+
+        let insideWrite = DispatchSemaphore(value: 0)
+        let releaseWrite = DispatchSemaphore(value: 0)
+        // Always unblock the writer, even if an assertion below fails, so the suite cannot hang.
+        defer { releaseWrite.signal() }
+
+        let writer = Task { try await store.holdWriteOpenForTest(inside: insideWrite, release: releaseWrite) }
+        let entered = await Task.detached { Self.waitSync(insideWrite, seconds: 5) }.value
+        XCTAssertEqual(entered, .success, "writer never entered its transaction")
+
+        let reads = Task { () -> (hr: Int, days: Int, sleep: Int, series: Int, workouts: Int, snapshot: Int) in
+            let hr = try await store.hrSamples(deviceId: "dev", from: 0, to: 2_000, limit: 100).count
+            let days = try await store.dailyMetrics(deviceId: "dev", from: "2026-05-01", to: "2026-05-31").count
+            let sleep = try await store.sleepSessions(deviceId: "dev", from: 0, to: 2_000, limit: 10).count
+            let series = try await store.metricSeries(deviceId: "dev", key: "k", from: "2026-05-01", to: "2026-05-31").count
+            let workouts = try await store.workouts(deviceId: "dev", from: 0, to: 2_000, limit: 10).count
+            // Day-range convenience overload: must also be nonisolated, not just the `windows:` one.
+            let snapshot = try await store.canonicalHealthSurfaceSnapshot(
+                sourceIds: ["dev"], fromDay: "2026-05-01", throughDay: "2026-05-31",
+                sleepFromTs: 0, sleepThroughTs: 2_000, metricKeys: ["k"]).dailyRows.count
+            return (hr, days, sleep, series, workouts, snapshot)
+        }
+        let finishedBeforeWriteReleased = await withTaskGroup(of: Bool.self) { group in
+            group.addTask { (try? await reads.value) != nil }
+            group.addTask {
+                // Regression path: reads are stuck behind the actor-held write. Release the writer so
+                // the stuck reads (and the suite) can finish, and report the failure.
+                try? await Task.sleep(nanoseconds: 2_500_000_000)
+                guard !Task.isCancelled else { return true }
+                releaseWrite.signal()
+                return false
+            }
+            let first = await group.next() ?? false
+            group.cancelAll()
+            return first
+        }
+        XCTAssertTrue(finishedBeforeWriteReleased,
+                      "hot reads must complete while a write holds the actor, not queue behind it")
+
+        releaseWrite.signal()
+        try await writer.value
+        let result = try await reads.value
+        XCTAssertEqual(result.hr, 2)
+        XCTAssertEqual(result.days, 1)
+        XCTAssertEqual(result.sleep, 0)
+        XCTAssertEqual(result.series, 0)
+        XCTAssertEqual(result.workouts, 0)
+        XCTAssertEqual(result.snapshot, 1)
+    }
+
+    /// Sync wrapper so the blocking semaphore wait is not flagged as an async-context call.
+    private static func waitSync(_ sem: DispatchSemaphore, seconds: Double) -> DispatchTimeoutResult {
+        sem.wait(timeout: .now() + seconds)
+    }
+
     private enum ConcurrencyTimeout: Error { case readBlockedOnWriter }
+}
+
+extension WhoopStore {
+    /// Test hook: a `syncWrite` that parks on the actor's executor until released.
+    func holdWriteOpenForTest(inside: DispatchSemaphore, release: DispatchSemaphore) throws {
+        try syncWrite { _ in
+            inside.signal()
+            release.wait()
+        }
+    }
 }

@@ -17,11 +17,17 @@ extension TrendsView {
 
     // MARK: - Training load
 
+    /// The whole section opens the training load detail, the way a #55 tappable section does: the eyebrow's chevron
+    /// says so, with no extra footer row to break the hairline rhythm. VoiceOver hears one heading with a short summary
+    /// rather than every figure in the section.
     @ViewBuilder
     var trainingLoadCard: some View {
         if let snapshot = currentScreenSnapshot {
             trendsSeparator
-            trainingLoadSection(snapshot.trainingLoad)
+            TrainingLoadDetailLink(key: snapshot.key, rangeDays: selectedRange.days,
+                                   voiceOverSummary: trainingLoadVoiceOverSummary(snapshot.trainingLoad)) {
+                trainingLoadSection(snapshot.trainingLoad)
+            }
         }
     }
 
@@ -33,11 +39,12 @@ extension TrendsView {
                 tint: .strain,
                 trailing: .pill(
                     LocalizedStringKey(load.map(trainingLoadStatus) ?? "Loading"),
-                    tone: load?.state == .established ? .positive : .neutral
-                )
+                    tone: load.map { TrainingLoadCopy.tone($0.state) } ?? .neutral
+                ),
+                showsChevron: true
             )
             trainingLoadBody(load)
-            Text("Based on daily Effort. Descriptive only; it does not change Readiness.")
+            Text("Based on daily Strain. Descriptive only; it does not change Readiness.")
                 .font(StrandFont.micro)
                 .foregroundStyle(StrandPalette.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -48,10 +55,10 @@ extension TrendsView {
     private func trainingLoadBody(_ load: TrainingLoadSnapshot?) -> some View {
         if let load, load.state == .unavailable {
             VStack(alignment: .leading, spacing: 4) {
-                Text(trainingLoadUnavailableTitle(load))
+                Text(TrainingLoadCopy.unavailableTitle(load.gap))
                     .font(StrandFont.subhead.weight(.semibold))
                     .foregroundStyle(StrandPalette.textPrimary)
-                Text(trainingLoadUnavailableDetail(load))
+                Text(TrainingLoadCopy.unavailableDetail(load.gap))
                     .font(StrandFont.footnote)
                     .foregroundStyle(StrandPalette.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -60,9 +67,9 @@ extension TrendsView {
             VStack(alignment: .leading, spacing: WidgetMetrics.contentSpacing) {
                 StatFooter(
                     items: [
-                        (String(localized: "Chronic · 42d"), trainingLoadNumber(load.chronic)),
-                        (String(localized: "Acute · 7d"), trainingLoadNumber(load.acute)),
-                        (String(localized: "Balance"), trainingLoadBalance(load.balance)),
+                        (String(localized: "Recent load"), trainingLoadNumber(load.acute)),
+                        (String(localized: "Fitness base"), trainingLoadNumber(load.chronic)),
+                        (String(localized: "Form"), trainingLoadBalance(load.balance)),
                     ],
                     style: .prominent
                 )
@@ -71,7 +78,7 @@ extension TrendsView {
                         chronic: load.chronicSpark,
                         acute: load.acuteSpark,
                         tint: .strain,
-                        startLabel: String(localized: "\(load.acuteSpark.count - 1) days ago"),
+                        startLabel: String(localized: "\(load.sparkSpanDays) days ago"),
                         endLabel: String(localized: "Today")
                     )
                 }
@@ -85,7 +92,7 @@ extension TrendsView {
                     Text("Reading load history")
                         .font(StrandFont.subhead.weight(.semibold))
                         .foregroundStyle(StrandPalette.textPrimary)
-                    Text("NOOP is reading up to 180 days of daily Effort before showing your load.")
+                    Text("NOOP is reading up to 180 days of daily Strain before showing your load.")
                         .font(StrandFont.footnote)
                         .foregroundStyle(StrandPalette.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -95,40 +102,31 @@ extension TrendsView {
     }
 
     private func trainingLoadNumber(_ value: Double?) -> String {
-        value.map { String(format: "%.1f", $0) } ?? WidgetMetrics.missingValue
+        value.map { DrillInFormat.number($0, fractionDigits: 1) } ?? WidgetMetrics.missingValue
     }
 
     private func trainingLoadBalance(_ value: Double?) -> String {
-        value.map { String(format: "%@%.1f", $0 > 0 ? "+" : "", $0) } ?? WidgetMetrics.missingValue
+        value.map { DrillInFormat.signed($0, fractionDigits: 1) } ?? WidgetMetrics.missingValue
     }
 
+    /// The same pill the detail page shows, from the same words.
     private func trainingLoadStatus(_ load: TrainingLoadSnapshot) -> String {
-        switch load.state {
-        case .established: return String(localized: "Established")
-        case .building: return String(localized: "Building \(load.contiguousDays)/42")
-        case .unavailable: return String(localized: "Building")
-        }
+        TrainingLoadCopy.status(state: load.state, gap: load.gap, observedDays: load.contiguousDays)
     }
 
-    private func trainingLoadUnavailableTitle(_ load: TrainingLoadSnapshot) -> String {
-        switch load.unavailableReason {
-        case .notEnoughContiguousDays:
-            return String(localized: "Building your load history")
-        case .missingTargetDay:
-            return String(localized: "Today's Effort is not ready")
-        default:
-            return String(localized: "Training load is not ready")
+    /// One short VoiceOver label for the whole tappable section.
+    /// Built only from keys the catalog already translates, so every locale hears its own words.
+    private func trainingLoadVoiceOverSummary(_ load: TrainingLoadSnapshot?) -> String {
+        let title = String(localized: "Training load")
+        guard let load else { return [title, String(localized: "Loading")].joined(separator: ", ") }
+        let status = trainingLoadStatus(load)
+        guard load.state != .unavailable else {
+            return [title, status, TrainingLoadCopy.unavailableTitle(load.gap)].joined(separator: ", ")
         }
-    }
-
-    private func trainingLoadUnavailableDetail(_ load: TrainingLoadSnapshot) -> String {
-        if load.unavailableReason == .notEnoughContiguousDays {
-            let remaining = max(0, 14 - load.contiguousDays)
-            return remaining == 1
-                ? String(localized: "Need 1 more contiguous day with an Effort value.")
-                : String(localized: "Need \(remaining) more contiguous days with Effort values.")
-        }
-        return String(localized: "NOOP needs a continuous run of daily Effort values to model acute and chronic load.")
+        return [title, status,
+                String(localized: "Recent load") + " " + trainingLoadNumber(load.acute),
+                String(localized: "Fitness base") + " " + trainingLoadNumber(load.chronic),
+                String(localized: "Form") + " " + trainingLoadBalance(load.balance)].joined(separator: ", ")
     }
 
     // MARK: - Selected range
@@ -391,6 +389,10 @@ extension TrendsView {
     /// instead of the bare "M".
     private var rangePicker: some View {
         SegmentedPillControl(TrendRange.allCases, selection: $selectedRange) { $0.rawValue }
+            .segmentedPillSelectionStyle(.quiet)
+            // The selected tab takes the metric's colour, the one the metric chip beside it wears (stable for Recovery:
+            // a red band is a state, not a selection).
+            .segmentedPillTint(domain: selectedMetric.domainTint(latest: currentScreenSnapshot?.selectedPoints.last?.value))
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Range")
             .accessibilityValue("\(selectedRange.days) days")

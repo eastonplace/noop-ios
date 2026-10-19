@@ -4558,18 +4558,22 @@ final class Repository: ObservableObject {
     /// are filtered HERE so every consumer (Workouts screen, Today, Coach context) agrees: the engine
     /// re-derives the detected rows each run, so a plain delete would resurrect them; the dismissed
     /// span list is the durable "not a workout" record.
-    func workoutRows(days: Int = 4000, reconcileHR: Bool = true) async -> [WorkoutRow] {
+    ///
+    /// `reconcileLimit` bounds HR reconciliation to the newest N rows; the rest pass through verbatim. The default
+    /// (`.max`) reconciles everything as before. The reconcile spends its cap top-down in row order, so the head
+    /// comes back byte-identical to a full pass (Today shows six workouts, so it asks for six).
+    func workoutRows(days: Int = 4000, reconcileHR: Bool = true, reconcileLimit: Int = .max) async -> [WorkoutRow] {
         let now = Int(Date().timeIntervalSince1970)
         let fromDate = Self.dateByAddingCalendarDays(-max(0, days), to: Date(timeIntervalSince1970: TimeInterval(now)))
         let toDate = Self.dateByAddingCalendarDays(1, to: Date(timeIntervalSince1970: TimeInterval(now)))
         let lo = Int(fromDate.timeIntervalSince1970), hi = Int(toDate.timeIntervalSince1970)
-        return await workoutRows(from: lo, to: hi, reconcileHR: reconcileHR)
+        return await workoutRows(from: lo, to: hi, reconcileHR: reconcileHR, reconcileLimit: reconcileLimit)
     }
 
     /// Exact-window workout read. Detail/day screens previously called the day-count API and loaded years
     /// of sessions only to keep one row. Keep every source, dedup, dismissal, Test Centre trace, and HR
     /// reconciliation rule identical to `workoutRows(days:)`, but let callers bound the actual SQL window.
-    func workoutRows(from lo: Int, to hi: Int, reconcileHR: Bool = true) async -> [WorkoutRow] {
+    func workoutRows(from lo: Int, to hi: Int, reconcileHR: Bool = true, reconcileLimit: Int = .max) async -> [WorkoutRow] {
         guard hi > lo, let store = await ensureStore() else { return [] }
         // UNION the active strap + canonical (and their computed siblings) so workouts banked under the
         // canonical "my-whoop" before a re-add still show, alongside the re-added strap's live workouts.
@@ -4604,7 +4608,10 @@ final class Repository: ObservableObject {
             deduped = WorkoutSource.dedupCrossSource(filtered)
         }
         let visible = deduped.sorted { $0.startTs > $1.startTs }
-        return reconcileHR ? await reconcileWorkoutHrWithTrace(visible, store: store) : visible
+        guard reconcileHR else { return visible }
+        guard reconcileLimit < visible.count else { return await reconcileWorkoutHrWithTrace(visible, store: store) }
+        let head = Array(visible.prefix(max(0, reconcileLimit)))
+        return await reconcileWorkoutHrWithTrace(head, store: store) + visible.dropFirst(head.count)
     }
 
     // MARK: - Bounded workout reads (DL-06)

@@ -9,6 +9,8 @@ struct DesignLabAtomGallery: View {
 
     @State private var query = "recovery"
     @State private var range: Range = .week
+    @State private var strainRange: Range = .month
+    @State private var recoveryRange: Range = .day
     @State private var step = 1
     @State private var showToast = false
 
@@ -55,8 +57,21 @@ struct DesignLabAtomGallery: View {
                     PaperSearchField("Search metrics", text: $query)
                 }
 
-                section("SEGMENTED THUMB") {
-                    SegmentedPillControl(Range.allCases, selection: $range) { $0.rawValue }
+                // Flat tabs: no track, text-only segments, a small rounded thumb behind the selected label. Untinted for generic
+                // controls; tinted with the metric colour under a metric widget (and beside the hairline metric chip).
+                section("FLAT TABS") {
+                    VStack(alignment: .leading, spacing: 12) {
+                        SegmentedPillControl(Range.allCases, selection: $range) { $0.rawValue }
+                        HStack(spacing: 8) {
+                            TrendsMenuChipLabel(
+                                title: "Strain", systemImage: "flame.fill", tint: DomainTint.strain.accent)
+                            Spacer(minLength: 8)
+                            SegmentedPillControl(Range.allCases, selection: $strainRange) { $0.rawValue }
+                                .segmentedPillTint(domain: .strain)
+                        }
+                        SegmentedPillControl(Range.allCases, selection: $recoveryRange) { $0.rawValue }
+                            .segmentedPillTint(domain: .recovery(score: 72))
+                    }
                 }
 
                 section("TRANSIENT FEEDBACK") {

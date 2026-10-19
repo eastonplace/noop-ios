@@ -2324,17 +2324,17 @@ struct TodayView: View {
                           overline: lastScoredRecoveryDay.map { "\(carriedCaption($0))" } ?? "Should you push today?")
             NoopCard {
                     VStack(alignment: .leading, spacing: 12) {
-                        HStack(spacing: 10) {
-                            MicroStatusDot(color: readinessColor(r.level))
-                            Text(r.headline).font(StrandFont.headline)
-                                .foregroundStyle(StrandPalette.textPrimary)
-                                .accessibilityLabel("Readiness: \(levelWord(r.level)). \(r.headline)")
-                            Spacer()
-                            if let acwr = r.acwr {
-                                Text("load \(String(format: "%.2f", acwr))")
-                                    .font(StrandFont.captionNumber)
-                                    .foregroundStyle(StrandPalette.textTertiary)
-                                    .help("Acute (7-day) vs chronic (28-day) training load. 0.8-1.3 is the sweet spot.")
+                        // The ratio badge sits beside the headline while it fits and drops under it at large text
+                        // sizes, so neither is ever squeezed.
+                        ViewThatFits(in: .horizontal) {
+                            HStack(spacing: 10) {
+                                readinessHeadline(r)
+                                Spacer()
+                                if let acwr = r.acwr { workloadRatioBadge(acwr) }
+                            }
+                            VStack(alignment: .leading, spacing: 4) {
+                                readinessHeadline(r)
+                                if let acwr = r.acwr { workloadRatioBadge(acwr) }
                             }
                         }
                         Text(r.summary).font(StrandFont.subhead)
@@ -2648,6 +2648,28 @@ struct TodayView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
+    }
+
+    /// The status dot and one-word read at the top of the Readiness card.
+    private func readinessHeadline(_ r: ReadinessEngine.Readiness) -> some View {
+        HStack(spacing: 10) {
+            MicroStatusDot(color: readinessColor(r.level))
+            Text(r.headline).font(StrandFont.headline)
+                .foregroundStyle(StrandPalette.textPrimary)
+                .accessibilityLabel("Readiness: \(levelWord(r.level)). \(r.headline)")
+        }
+    }
+
+    /// The Readiness engine's 7-day against 28-day workload ratio. It is its own figure, separate from the Training
+    /// load page (which weights recent days with its own averages), so it carries its own name and says so.
+    private func workloadRatioBadge(_ ratio: Double) -> some View {
+        let tooltip: LocalizedStringKey = "Compares your 7-day and 28-day average workload. Around 0.8 to 1.3 is the usual range. This is separate from the Training load page, which weights recent days differently."
+        return Text("Workload ratio \(String(format: "%.2f", ratio))")
+            .font(StrandFont.captionNumber)
+            .foregroundStyle(StrandPalette.textTertiary)
+            .fixedSize(horizontal: false, vertical: true)
+            .help(tooltip)
+            .accessibilityHint(Text(tooltip))
     }
 
     /// S4: the Readiness card folded into the breakdown sheet. Same content as the old standalone
@@ -4467,7 +4489,9 @@ struct TodayView: View {
         // `async let`, then await each where its result is first used, same data, same derivations, same
         // assignment order as before. (The Sleep score + provenance resolves moved to loadDayScoped, #755.)
         async let stepsEstSeriesA    = repo.exploreSeries(key: "steps_est", source: "my-whoop")
-        async let workoutsA          = repo.workoutRows()
+        // Only the six newest workout tiles read reconciled HR/Effort; the count, source filter, day filter and
+        // spans never touch those fields, so reconcile just the head instead of up to 300 HR range reads.
+        async let workoutsA          = repo.workoutRows(reconcileLimit: 6)
         async let appleDaysA         = repo.appleDailyRows()
         async let xStepsA            = repo.series(key: "steps", source: "xiaomi-band")
         async let xSleepA            = repo.series(key: "sleep_total_min", source: "xiaomi-band")

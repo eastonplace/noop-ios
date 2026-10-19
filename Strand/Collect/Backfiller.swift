@@ -185,6 +185,10 @@ final class Backfiller {
     private var sessionProtocolMetadata = Data()
     /// Whether a START has been received and we're accumulating a chunk.
     private var chunkOpen = false
+    /// Set when BLEManager dropped a CRC-invalid inbound frame (WHOOP 5/MG) while a chunk was open. That frame
+    /// may have been a record, so the chunk is incomplete: the next HISTORY_END must fail the chunk without
+    /// commit or ACK so the strap re-sends it. Cleared at every chunk/session boundary.
+    private var sawInvalidInboundFrame = false
     /// Strap family for the current offload, set at begin(). Drives family-aware frame parsing (WHOOP 5/MG
     /// records sit at +4 offsets vs WHOOP 4.0) and the end_data slice the ack needs. Captured at begin()
     /// rather than init so it's correct even if the Backfiller was constructed before the strap was known.
@@ -391,6 +395,7 @@ final class Backfiller {
         isBackfilling = false
         chunk.removeAll(keepingCapacity: true)
         chunkOpen = false
+        sawInvalidInboundFrame = false
         onFailure?(failure)
     }
 
@@ -448,6 +453,7 @@ final class Backfiller {
         chunk.removeAll(keepingCapacity: true)
         sessionProtocolMetadata.removeAll(keepingCapacity: true)
         chunkOpen = true
+        sawInvalidInboundFrame = false
         sessionRowsPersisted = 0
         sessionMappedRawRecords = 0
         sessionFreshSensorReceipts = 0
@@ -502,15 +508,25 @@ final class Backfiller {
             isBackfilling = true
             chunk.removeAll(keepingCapacity: true)
             chunkOpen = true
+            sawInvalidInboundFrame = false
         case .end(let unix, let trim):
             await finishChunk(unix: unix, trim: trim, endFrame: frame, admission: admission)
         case .complete:
             isBackfilling = false
             chunk.removeAll(keepingCapacity: true)
             chunkOpen = false
+            sawInvalidInboundFrame = false
         case .other:
             if chunkOpen { chunk.append(frame) }
         }
+    }
+
+    /// BLEManager calls this when it drops a CRC-invalid WHOOP 5/MG frame during an offload instead of routing
+    /// it here (the bad frame might itself be a HISTORY_END or carry a corrupted type byte, so it is not
+    /// classified). The dropped frame may have held records, so the open chunk can no longer be proven
+    /// complete: `finishChunk` fails it closed (no commit, no ACK) and the strap re-sends.
+    func noteInvalidInboundFrame() {
+        if chunkOpen { sawInvalidInboundFrame = true }
     }
 
     /// The 8-byte `end_data` the high-freq-sync ack requires: metadata.data[10:18].
@@ -718,6 +734,13 @@ final class Backfiller {
         admission: Whoop5HistoricalSessionAdmission?
     ) async {
         guard ownsRoute(admission) else { return }
+        if sawInvalidInboundFrame {
+            sawInvalidInboundFrame = false
+            log?("Backfill: an inbound frame failed integrity and was dropped before this chunk ended — "
+                 + "holding ack for trim=\(trim) so the strap re-sends it.")
+            fail(.integrity(trim: trim))
+            return
+        }
         guard let endData = Backfiller.endData(from: endFrame, family: family) else { return }
 
         // Capture every mutable admission input before the detached decode can suspend. In particular,
@@ -1306,5 +1329,6 @@ final class Backfiller {
         isBackfilling = false
         chunk.removeAll(keepingCapacity: true)
         chunkOpen = false
+        sawInvalidInboundFrame = false
     }
 }

@@ -465,7 +465,7 @@ struct MetricDetailView: View {
                     // the ranges to misrepresent, and hiding the bar here would regress this "for context" intent.
                     VStack(alignment: .leading, spacing: WidgetMetrics.headerSpacing) {
                         SectionEyebrow("Trend", systemImage: metric.icon, tint: tint)
-                        rangeControls(caption: nil)
+                        rangeControls(caption: nil, tint: tint)
                     }
                     ExploreMessage(
                         symbol: "tray", title: Text("No data"),
@@ -473,7 +473,7 @@ struct MetricDetailView: View {
                 } else if !loaded {
                     VStack(alignment: .leading, spacing: WidgetMetrics.headerSpacing) {
                         SectionEyebrow("Trend", systemImage: metric.icon, tint: tint)
-                        rangeControls(caption: nil)
+                        rangeControls(caption: nil, tint: tint)
                     }
                     ExploreMessage(isLoading: true, title: Text("Reading your \(metric.title.lowercased())…"))
                 } else {
@@ -576,7 +576,7 @@ struct MetricDetailView: View {
                 // range control beneath it and one caption, then the numbers behind the chart.
                 trendChart(effectiveRange: effectiveRange, windowed: windowed, band: band,
                            latestDate: latestDate, tint: tint)
-                rangeControls(caption: caption)
+                rangeControls(caption: caption, tint: tint)
                 statFooter(values: values)
                 comparisonRows(effectiveRange: effectiveRange, windowed: windowed, band: band)
             } else if let latest, let latestDate {
@@ -587,7 +587,7 @@ struct MetricDetailView: View {
                     unit: displayUnit.isEmpty ? nil : displayUnit,
                     caption: String(localized: "latest \u{00B7} \(dateText(latestDate))"),
                     captionPlacement: .below)
-                rangeControls(caption: caption)
+                rangeControls(caption: caption, tint: tint)
                 // A typed key, so the ternary's two literals are looked up in the catalog like any other string.
                 let note: LocalizedStringKey = longerRangeShowsMore(effectiveRange: effectiveRange, windowedCount: windowed.count)
                     ? "Only one reading in this range. Choose a longer range to see a trend."
@@ -631,8 +631,8 @@ struct MetricDetailView: View {
     /// What the range control selects ("Last 30 days") with the control beside it, then the one caption under both. A
     /// range the history is too short for stays visible but dimmed and inert (#943).
     @ViewBuilder
-    private func rangeControls(caption: (text: String, widened: Bool)?) -> some View {
-        ExploreRangeControl(selection: selectionBinding, isEnabled: isUnlocked)
+    private func rangeControls(caption: (text: String, widened: Bool)?, tint: DomainTint) -> some View {
+        ExploreRangeControl(selection: selectionBinding, isEnabled: isUnlocked, tint: tint)
         if let caption {
             Text(caption.text)
                 .font(StrandFont.micro)

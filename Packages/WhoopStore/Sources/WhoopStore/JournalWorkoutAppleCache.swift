@@ -251,8 +251,8 @@ extension WhoopStore {
     }
 
     /// Workouts overlapping [from, to] (by startTs), oldest first.
-    public func workouts(deviceId: String, from: Int, to: Int, limit: Int) async throws -> [WorkoutRow] {
-        try syncRead { db in
+    public nonisolated func workouts(deviceId: String, from: Int, to: Int, limit: Int) async throws -> [WorkoutRow] {
+        try await poolRead { db in
             try Row.fetchAll(db, sql: """
                 SELECT startTs, endTs, sport, source, durationS, energyKcal, avgHr, maxHr,
                        strain, distanceM, zonesJSON, notes, strainVersion FROM workout

@@ -29,6 +29,13 @@ public enum StrandFont {
         fixed(size, weight: weight).monospacedDigit()
     }
 
+    /// A system size the caller has chosen for one piece of text: the size is passed in already scaled, so a screen that
+    /// wants Dynamic Type reads a `@ScaledMetric` value (capped where the layout needs it) and hands it here. A bare number
+    /// does not scale, which is why the UI contract audit flags `.font(.system(size:))` on text and points at this instead.
+    public static func sized(_ size: CGFloat, weight: Font.Weight = .regular) -> Font {
+        Font.system(size: size, weight: weight, design: .default)
+    }
+
     // MARK: Dynamic Type roles
 
     public static let largeTitle = Font.system(.largeTitle, design: .default).weight(.bold)

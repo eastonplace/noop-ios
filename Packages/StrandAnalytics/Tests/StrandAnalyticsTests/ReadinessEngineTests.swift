@@ -39,6 +39,12 @@ final class ReadinessEngineTests: XCTestCase {
         XCTAssertEqual(r.signals.first { $0.key == "acwr" }?.evidence, "7d 10.0 / 28d 10.0")
     }
 
+    func testWorkloadRatioSignalIsNotNamedTrainingLoad() {
+        // The 7-day against 28-day ratio is its own figure; "Training load" is the separate page with its own averages.
+        let r = ReadinessEngine.evaluate(days: baseline(todayHrv: 72, todayRhr: 46, todayStrain: 10))
+        XCTAssertEqual(r.signals.first { $0.key == "acwr" }?.label, "Workload ratio")
+    }
+
     func testRundownWhenTwoRecoverySignalsDown() {
         // Today: HRV suppressed AND resting HR elevated → two "bad" recovery signals.
         let r = ReadinessEngine.evaluate(days: baseline(todayHrv: 50, todayRhr: 60, todayStrain: 10))

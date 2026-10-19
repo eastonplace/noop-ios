@@ -268,19 +268,19 @@ public enum ReadinessEngine {
         let evidence = "7d \(String(format: "%.1f", acute)) / 28d \(String(format: "%.1f", chronic))"
         switch ratio {
         case ..<0.8:
-            return Signal(key: "acwr", label: "Training load",
+            return Signal(key: "acwr", label: "Workload ratio",
                 evidence: evidence,
                 detail: "ramping down (acute:chronic \(pct)) - room to build", flag: .watch)
         case 0.8..<1.3:
-            return Signal(key: "acwr", label: "Training load",
+            return Signal(key: "acwr", label: "Workload ratio",
                 evidence: evidence,
                 detail: "in the sweet spot (acute:chronic \(pct))", flag: .good)
         case 1.3..<1.5:
-            return Signal(key: "acwr", label: "Training load",
+            return Signal(key: "acwr", label: "Workload ratio",
                 evidence: evidence,
                 detail: "building fast (acute:chronic \(pct)) - watch fatigue", flag: .watch)
         default:
-            return Signal(key: "acwr", label: "Training load",
+            return Signal(key: "acwr", label: "Workload ratio",
                 evidence: evidence,
                 detail: "spiking (acute:chronic \(pct)) - higher injury risk", flag: .bad)
         }
