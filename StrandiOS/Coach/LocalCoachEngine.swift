@@ -451,7 +451,7 @@ final class LocalCoachEngine: ObservableObject {
         cancel()
         selectedConversationID = id
         responseProgress.reset()
-        messages = conversation.messages
+        messages = Self.healed(conversation.messages)
         // Older conversations may contain revoked personal data or a deleted memory.
         history = preferences.usePersonalData && preferences.memoryEnabled
             ? Array(messages.filter { !$0.isInterrupted && $0.createdAt >= historyFloor }.suffix(12)) : []
@@ -810,6 +810,15 @@ final class LocalCoachEngine: ObservableObject {
         loadSource()
     }
 
+    /// A turn's empty assistant placeholder is persisted before any output, so a kill mid-read leaves it on disk. Mark such
+    /// a trailing blank turn interrupted on load so it shows "Try again" and stays out of the model's history.
+    static func healed(_ messages: [LocalCoachMessage]) -> [LocalCoachMessage] {
+        guard var last = messages.last, last.role == .assistant, !last.isInterrupted,
+              last.text.isEmpty, last.evidence.isEmpty, last.cards?.isEmpty ?? true else { return messages }
+        last.isInterrupted = true
+        return Array(messages.dropLast()) + [last]
+    }
+
     private func loadSource() {
         guard let persistence else { return }
         do {
@@ -821,7 +830,7 @@ final class LocalCoachEngine: ObservableObject {
             historyFloor = state.historyFloor
             if let selected = state.selectedConversationID, let conversation = conversations.first(where: { $0.id == selected }) {
                 selectedConversationID = selected
-                messages = conversation.messages
+                messages = Self.healed(conversation.messages)
                 history = preferences.usePersonalData && preferences.memoryEnabled
                     ? Array(messages.filter { !$0.isInterrupted && $0.createdAt >= historyFloor }.suffix(12)) : []
             }
