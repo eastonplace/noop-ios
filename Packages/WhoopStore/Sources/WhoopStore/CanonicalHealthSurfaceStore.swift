@@ -125,7 +125,7 @@ extension WhoopStore {
 
     /// Read all normalized windows from one WAL generation. Each table is queried once, even when exact work
     /// is sparse or contains several overlapping current/history windows.
-    public func canonicalHealthSurfaceSnapshot(
+    public nonisolated func canonicalHealthSurfaceSnapshot(
         sourceIds: [String],
         windows: [CanonicalHealthSurfaceReadWindow],
         metricKeys: [String]
@@ -139,7 +139,7 @@ extension WhoopStore {
             (id, ids.count - index)
         })
 
-        return try syncRead { db in
+        return try await poolRead { db in
             let databaseId = try WhoopStore.databaseInstanceId(in: db)
             let dayRanges = try CanonicalHealthIndexedRangePlanner.dayRanges(normalized)
             let sleepRanges = try CanonicalHealthIndexedRangePlanner.sleepRanges(normalized)

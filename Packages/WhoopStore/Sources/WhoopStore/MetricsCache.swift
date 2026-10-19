@@ -517,8 +517,8 @@ extension WhoopStore {
 
     /// Cached sleep sessions intersecting the query interval `[from, to]`, ordered by effective onset.
     /// Session spans are half-open `[start, end)`, so a row ending exactly at `from` does not overlap.
-    public func sleepSessions(deviceId: String, from: Int, to: Int, limit: Int) async throws -> [CachedSleepSession] {
-        try syncRead { db in
+    public nonisolated func sleepSessions(deviceId: String, from: Int, to: Int, limit: Int) async throws -> [CachedSleepSession] {
+        try await poolRead { db in
             try Row.fetchAll(db, sql: """
                 SELECT startTs, endTs, efficiency, restingHr, avgHrv, stagesJSON, userEdited,
                        startTsAdjusted FROM sleepSession
@@ -560,8 +560,8 @@ extension WhoopStore {
     }
 
     /// Cached daily metrics for days in [from, to] (lexicographic YYYY-MM-DD compare), oldest first.
-    public func dailyMetrics(deviceId: String, from: String, to: String) async throws -> [DailyMetric] {
-        try syncRead { db in
+    public nonisolated func dailyMetrics(deviceId: String, from: String, to: String) async throws -> [DailyMetric] {
+        try await poolRead { db in
             try Row.fetchAll(db, sql: """
                 SELECT day, totalSleepMin, efficiency, deepMin, remMin, lightMin, disturbances,
                        restingHr, avgHrv, recovery, strain, exerciseCount,

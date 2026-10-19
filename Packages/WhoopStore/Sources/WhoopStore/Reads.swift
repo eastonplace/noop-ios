@@ -30,8 +30,8 @@ extension WhoopStore {
     /// back to its PPG estimate (never doubling a beat). This keeps the raw read in lockstep with the
     /// chart path, and lets a PPG-only WHOOP 5 night clear the night-stager's HR-count gate so it is
     /// scorable (#172). The PPG `bpm` is REAL, so it is ROUND-ed to the `HRSample.bpm` Int domain.
-    public func hrSamples(deviceId: String, from: Int, to: Int, limit: Int) async throws -> [HRSample] {
-        try syncRead { db in
+    public nonisolated func hrSamples(deviceId: String, from: Int, to: Int, limit: Int) async throws -> [HRSample] {
+        try await poolRead { db in
             try Row.fetchAll(db, sql: """
                 SELECT ts, bpm FROM (
                     SELECT ts, bpm FROM hrSample
@@ -56,8 +56,8 @@ extension WhoopStore {
     /// "nothing was inserted since last time, skip the expensive re-read" for pennies, `COUNT(*)` moves on
     /// any insert (including a backfilled OLD night whose `maxTs` wouldn't change), and `maxTs` distinguishes
     /// fresh appends. COALESCE so an empty window is `(0, 0)`, never nil.
-    public func hrFingerprint(deviceId: String, from: Int, to: Int) async throws -> (count: Int, maxTs: Int) {
-        try syncRead { db in
+    public nonisolated func hrFingerprint(deviceId: String, from: Int, to: Int) async throws -> (count: Int, maxTs: Int) {
+        try await poolRead { db in
             // COUNT(*) and COALESCE(MAX(ts),0) are both NON-NULL, and the aggregate query always returns
             // exactly one row, so fetchOne is non-nil and the columns read straight into Int. The guard is
             // belt-and-suspenders.
@@ -76,9 +76,9 @@ extension WhoopStore {
     /// Plausible heart-rate rows over `[from, to]`, counted up to `cap`: measured rows whose bpm is in `bpmRange`,
     /// plus the PPG-derived rows for seconds with no measured row. An off-wrist strap's 0 bpm stream counts for
     /// nothing. One indexed aggregate bounded by the window and the cap (review round 7, 2: who owns a day).
-    public func plausibleHRCount(deviceId: String, from: Int, to: Int,
+    public nonisolated func plausibleHRCount(deviceId: String, from: Int, to: Int,
                                  bpmRange: ClosedRange<Int>, cap: Int) async throws -> Int {
-        try syncRead { db in
+        try await poolRead { db in
             try Int.fetchOne(db, sql: """
                 SELECT COUNT(*) FROM (
                     SELECT 1 FROM hrSample
@@ -98,8 +98,8 @@ extension WhoopStore {
 
     /// Indexed bounds for the same measured-first HR stream `hrSamples` scores. One-shot history repairs use
     /// this to stop at the oldest real source day instead of scanning thousands of empty calendar days.
-    public func hrTimestampBounds(deviceId: String) async throws -> (earliest: Int, latest: Int)? {
-        try syncRead { db in
+    public nonisolated func hrTimestampBounds(deviceId: String) async throws -> (earliest: Int, latest: Int)? {
+        try await poolRead { db in
             // DL-02: one MIN or MAX per arm, so each is an index seek. A PPG second with a measured twin shares
             // its timestamp, so the measured-first stream's bounds equal the bounds over both tables.
             guard let row = try Row.fetchOne(db, sql: Self.hrTimestampBoundsSQL, arguments: ["d": deviceId]),
@@ -125,9 +125,9 @@ extension WhoopStore {
     /// aggregate over the `(deviceId, ts)` index range, with no temp table and no sort. A bucket that has any PPG
     /// fallback second goes through the grouped query restricted to that bucket, so its mean is computed by the
     /// same SQL over the same rows as before, and every figure is identical to the grouped query's.
-    public func hrBuckets(deviceId: String, from: Int, to: Int, bucketSeconds: Int) async throws -> [HRBucket] {
+    public nonisolated func hrBuckets(deviceId: String, from: Int, to: Int, bucketSeconds: Int) async throws -> [HRBucket] {
         let bucket = max(1, bucketSeconds)
-        return try syncRead { db in
+        return try await poolRead { db in
             // Negative or very wide windows keep the single grouped query: a bucket walk is only cheaper than
             // one scan when the range holds a bounded number of buckets.
             guard from >= 0, to >= from, (to - from) / bucket < Self.hrBucketsWalkLimit else {
@@ -223,14 +223,14 @@ extension WhoopStore {
         return out
     }
 
-    public func rrIntervals(deviceId: String, from: Int, to: Int, limit: Int) async throws -> [RRInterval] {
-        try syncRead { db in
+    public nonisolated func rrIntervals(deviceId: String, from: Int, to: Int, limit: Int) async throws -> [RRInterval] {
+        try await poolRead { db in
             try RRReadPolicy.read(db: db, deviceId: deviceId, from: from, to: to, limit: limit)
         }
     }
 
-    public func events(deviceId: String, from: Int, to: Int, limit: Int) async throws -> [WhoopEvent] {
-        try syncRead { db in
+    public nonisolated func events(deviceId: String, from: Int, to: Int, limit: Int) async throws -> [WhoopEvent] {
+        try await poolRead { db in
             try Row.fetchAll(db, sql: """
                 SELECT ts, kind, payloadJSON FROM event
                 WHERE deviceId = ? AND ts >= ? AND ts <= ?
@@ -246,8 +246,8 @@ extension WhoopStore {
         }
     }
 
-    public func batterySamples(deviceId: String, from: Int, to: Int, limit: Int) async throws -> [BatterySample] {
-        try syncRead { db in
+    public nonisolated func batterySamples(deviceId: String, from: Int, to: Int, limit: Int) async throws -> [BatterySample] {
+        try await poolRead { db in
             try Row.fetchAll(db, sql: """
                 SELECT ts, soc, mv FROM battery
                 WHERE deviceId = ? AND ts >= ? AND ts <= ?
@@ -257,8 +257,8 @@ extension WhoopStore {
         }
     }
 
-    public func spo2Samples(deviceId: String, from: Int, to: Int, limit: Int) async throws -> [SpO2Sample] {
-        try syncRead { db in
+    public nonisolated func spo2Samples(deviceId: String, from: Int, to: Int, limit: Int) async throws -> [SpO2Sample] {
+        try await poolRead { db in
             try Row.fetchAll(db, sql: """
                 SELECT ts, red, ir FROM spo2Sample
                 WHERE deviceId = ? AND ts >= ? AND ts <= ?
@@ -268,8 +268,8 @@ extension WhoopStore {
         }
     }
 
-    public func skinTempSamples(deviceId: String, from: Int, to: Int, limit: Int) async throws -> [SkinTempSample] {
-        try syncRead { db in
+    public nonisolated func skinTempSamples(deviceId: String, from: Int, to: Int, limit: Int) async throws -> [SkinTempSample] {
+        try await poolRead { db in
             try Row.fetchAll(db, sql: """
                 SELECT ts, raw FROM skinTempSample
                 WHERE deviceId = ? AND ts >= ? AND ts <= ?
@@ -279,8 +279,8 @@ extension WhoopStore {
         }
     }
 
-    public func stepSamples(deviceId: String, from: Int, to: Int, limit: Int) async throws -> [StepSample] {
-        try syncRead { db in
+    public nonisolated func stepSamples(deviceId: String, from: Int, to: Int, limit: Int) async throws -> [StepSample] {
+        try await poolRead { db in
             try Row.fetchAll(db, sql: """
                 SELECT ts, counter, activityClass FROM stepSample
                 WHERE deviceId = ? AND ts >= ? AND ts <= ?
@@ -294,8 +294,8 @@ extension WhoopStore {
 
     /// Latest classified activity in a bounded window. Today only needs one icon; loading up to 200,000
     /// cumulative-counter rows to discover it caused avoidable database and allocation pressure on Home.
-    public func latestStepActivityClass(deviceId: String, from: Int, to: Int) async throws -> StepSample? {
-        try syncRead { db in
+    public nonisolated func latestStepActivityClass(deviceId: String, from: Int, to: Int) async throws -> StepSample? {
+        try await poolRead { db in
             try Row.fetchOne(db, sql: """
                 SELECT ts, counter, activityClass FROM stepSample
                 WHERE deviceId = ? AND ts >= ? AND ts <= ? AND activityClass IS NOT NULL
@@ -305,8 +305,8 @@ extension WhoopStore {
         }
     }
 
-    public func respSamples(deviceId: String, from: Int, to: Int, limit: Int) async throws -> [RespSample] {
-        try syncRead { db in
+    public nonisolated func respSamples(deviceId: String, from: Int, to: Int, limit: Int) async throws -> [RespSample] {
+        try await poolRead { db in
             try Row.fetchAll(db, sql: """
                 SELECT ts, raw FROM respSample
                 WHERE deviceId = ? AND ts >= ? AND ts <= ?
@@ -316,8 +316,8 @@ extension WhoopStore {
         }
     }
 
-    public func gravitySamples(deviceId: String, from: Int, to: Int, limit: Int) async throws -> [GravitySample] {
-        try syncRead { db in
+    public nonisolated func gravitySamples(deviceId: String, from: Int, to: Int, limit: Int) async throws -> [GravitySample] {
+        try await poolRead { db in
             try Row.fetchAll(db, sql: """
                 SELECT ts, x, y, z FROM gravitySample
                 WHERE deviceId = ? AND ts >= ? AND ts <= ?
@@ -331,8 +331,8 @@ extension WhoopStore {
     /// `(deviceId, ts)` index alone, so no row is decoded. The WHOOP 4.0 steps estimate keys its per-day motion
     /// cache on this: an insert, a delete or a timestamp heal anywhere in the window moves the count, and a fresh
     /// append moves `maxTs`. COALESCE so an empty window is `(0, 0)`.
-    public func gravityFingerprint(deviceId: String, from: Int, to: Int) async throws -> (count: Int, maxTs: Int) {
-        try syncRead { db in
+    public nonisolated func gravityFingerprint(deviceId: String, from: Int, to: Int) async throws -> (count: Int, maxTs: Int) {
+        try await poolRead { db in
             guard let row = try Row.fetchOne(db, sql: """
                 SELECT COUNT(*) AS c, COALESCE(MAX(ts), 0) AS m FROM gravitySample
                 WHERE deviceId = ? AND ts >= ? AND ts <= ?
@@ -349,8 +349,8 @@ extension WhoopStore {
     /// Coalesces measured `hrSample` with PPG-derived `ppgHrSample` (#156) so a PPG-only offload (a v26
     /// WHOOP 5 night with no measured HR) still advances the frontier. The two persist in the same
     /// offload, so this only ever moves the watchdog forward when the strap really logged + offloaded.
-    public func latestHRSampleTs(deviceId: String) async throws -> Int? {
-        try syncRead { db in
+    public nonisolated func latestHRSampleTs(deviceId: String) async throws -> Int? {
+        try await poolRead { db in
             // DL-02: MAX inside each arm is an index seek; the outer MAX sees two rows. This runs every 20 s.
             try Int.fetchOne(db, sql: Self.latestHRSampleTsSQL, arguments: [deviceId, deviceId])
         }
@@ -359,8 +359,8 @@ extension WhoopStore {
     /// The newest HR sample timestamp at or before `bound`, or nil if there is none. A reader that windows its own
     /// reads to `[from, now]` asks for the frontier of that same window: a record stamped in the future (a
     /// wandering clock is allowed up to a day ahead) must not pin it.
-    public func latestHRSampleTs(deviceId: String, atOrBefore bound: Int) async throws -> Int? {
-        try syncRead { db in
+    public nonisolated func latestHRSampleTs(deviceId: String, atOrBefore bound: Int) async throws -> Int? {
+        try await poolRead { db in
             try Int.fetchOne(db, sql: Self.latestHRSampleTsAtOrBeforeSQL,
                              arguments: [deviceId, bound, deviceId, bound])
         }
@@ -408,8 +408,8 @@ extension WhoopStore {
         """
 
     /// Aggregate storage footprint: total decoded rows, raw batch count, total raw byteSize.
-    public func storageStats() async throws -> (decodedRows: Int, rawBatches: Int, rawBytes: Int) {
-        try syncRead { db in
+    public nonisolated func storageStats() async throws -> (decodedRows: Int, rawBatches: Int, rawBytes: Int) {
+        try await poolRead { db in
             let hr   = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM hrSample") ?? 0
             let rr   = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM rrInterval") ?? 0
             let ev   = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM event") ?? 0
