@@ -1188,4 +1188,36 @@ final class MigrationTests: XCTestCase {
             )
         }
     }
+
+    /// v59 is schema only: four empty tables and four indexes, and not one existing row is read, written or moved.
+    func testV59AddsLiftStrainTablesWithoutTouchingExistingRows() async throws {
+        let dbQueue = try DatabaseQueue()
+        try WhoopStore.makeMigrator().migrate(dbQueue, upTo: StoreIndexHygieneMigration.identifier)
+        try await dbQueue.write { db in
+            try db.execute(sql: """
+                INSERT INTO workout (deviceId, startTs, endTs, sport, source, durationS, strain, strainVersion)
+                VALUES ('my-whoop', 1784300000, 1784303600, 'Strength Training', 'manual', 3600, 33.3, NULL)
+                """)
+            try db.execute(sql: """
+                INSERT INTO dailyMetric (deviceId, day, strain, strainVersion) VALUES ('my-whoop-noop', '2026-07-17', 12.5, 2)
+                """)
+        }
+        let before = try await dbQueue.read { db in
+            (try Row.fetchAll(db, sql: "SELECT * FROM workout ORDER BY 1, 2").map(\.description),
+             try Row.fetchAll(db, sql: "SELECT * FROM dailyMetric ORDER BY 1, 2").map(\.description))
+        }
+
+        try WhoopStore.makeMigrator().migrate(dbQueue)
+
+        try await dbQueue.read { db in
+            XCTAssertEqual(
+                try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM grdb_migrations WHERE identifier = 'v59-lift-strain'"), 1)
+            for table in ["liftStrain", "liftStrainTarget", "liftStrainJob", "liftStrainControl"] {
+                XCTAssertTrue(try db.tableExists(table), table)
+                XCTAssertEqual(try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM \(table)"), 0, table)
+            }
+            XCTAssertEqual(try Row.fetchAll(db, sql: "SELECT * FROM workout ORDER BY 1, 2").map(\.description), before.0)
+            XCTAssertEqual(try Row.fetchAll(db, sql: "SELECT * FROM dailyMetric ORDER BY 1, 2").map(\.description), before.1)
+        }
+    }
 }

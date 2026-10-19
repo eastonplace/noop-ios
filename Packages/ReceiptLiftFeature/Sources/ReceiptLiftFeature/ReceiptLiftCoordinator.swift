@@ -14,6 +14,18 @@ public struct ReceiptLiftSet: Codable, Equatable, Sendable {
     public let isWarmup: Bool
     public let completedAt: Date
     public let note: String?
+    /// The exercise's own equipment label ("Barbell", "Bodyweight"...), derived in memory only. It is never written
+    /// into the stored envelope, and it is the `LiftExercise`'s own value, never the LiftMedia image alias's.
+    public var equipment: String? = nil
+
+    public init(id: String, exercise: String, muscleGroup: String, secondaryMuscles: [String] = [], setIndex: Int,
+                weightKg: Double, reps: Int, rpe: Double?, isWarmup: Bool, completedAt: Date, note: String?,
+                equipment: String? = nil) {
+        self.id = id; self.exercise = exercise; self.muscleGroup = muscleGroup
+        self.secondaryMuscles = secondaryMuscles; self.setIndex = setIndex; self.weightKg = weightKg
+        self.reps = reps; self.rpe = rpe; self.isWarmup = isWarmup; self.completedAt = completedAt
+        self.note = note; self.equipment = equipment
+    }
 }
 
 public struct ReceiptLiftWorkout: Codable, Equatable, Sendable {
@@ -22,6 +34,10 @@ public struct ReceiptLiftWorkout: Codable, Equatable, Sendable {
     public let startedAt: Date
     public let endedAt: Date
     public let sets: [ReceiptLiftSet]
+
+    public init(id: String, title: String, startedAt: Date, endedAt: Date, sets: [ReceiptLiftSet]) {
+        self.id = id; self.title = title; self.startedAt = startedAt; self.endedAt = endedAt; self.sets = sets
+    }
 }
 
 /// Serializes database writes and only advances the delivery cache after an atomic commit succeeds.
@@ -87,7 +103,7 @@ actor ReceiptLiftDatabase {
 
     func invalidate() { invalidated = true }
 
-    nonisolated private static func workouts(_ envelope: LiftDataEnvelope) -> [ReceiptLiftWorkout] {
+    nonisolated static func workouts(_ envelope: LiftDataEnvelope) -> [ReceiptLiftWorkout] {
         let exercises = Dictionary((envelope.userExercises + LiftExerciseCatalog.catalogExercises()).map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         return envelope.sessions.compactMap { session in
             guard let end = session.endedAt else { return nil }
@@ -101,7 +117,7 @@ actor ReceiptLiftDatabase {
                         secondaryMuscles: metadata?.secondaryMuscles ?? [], setIndex: set.setNumber,
                         weightKg: set.weight * 0.45359237, reps: set.reps, rpe: set.rpe,
                         isWarmup: set.isWarmup, completedAt: set.completedAt,
-                        note: set.notes.isEmpty ? nil : set.notes)
+                        note: set.notes.isEmpty ? nil : set.notes, equipment: exercise?.equipment)
                 })
         }
     }
