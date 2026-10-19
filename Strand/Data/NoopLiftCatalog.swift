@@ -14,8 +14,10 @@ enum NoopLiftCatalog {
         var instructions: String { localizedInstructions["en"] ?? "" }
         var imageURL: URL? {
             guard let image else { return nil }
-            let filename = URL(fileURLWithPath: image).lastPathComponent
-            return NoopLiftCatalog.resourceBundle.url(forResource: filename, withExtension: nil, subdirectory: "LiftCatalog/images")
+            // catalog.json still names the original JPEGs; the bundled pictures are the background-removed PNG cutouts
+            // with the same stem, so the figure sits straight on the dark canvas.
+            let stem = URL(fileURLWithPath: image).deletingPathExtension().lastPathComponent
+            return NoopLiftCatalog.resourceBundle.url(forResource: stem, withExtension: "png", subdirectory: "LiftCatalog/images")
         }
         enum CodingKeys: String, CodingKey {
             case id, name, equipment, target, image

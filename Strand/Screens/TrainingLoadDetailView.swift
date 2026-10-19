@@ -281,8 +281,8 @@ struct TrainingLoadDetailView: View {
 
     /// The canonical segmented pill, announced as one adjustable control (the Trends range treatment).
     private var periodPicker: some View {
-        // Tint pending the range lane: `.segmentedPillTint(StrandPalette.strainAccent)` goes on this control.
         SegmentedPillControl(TrainingLoadLayout.periods, selection: $period) { TrainingLoadLayout.label($0) }
+            .segmentedPillTint(StrandPalette.strainAccent)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Displayed history")
             .accessibilityValue("\(period) days")

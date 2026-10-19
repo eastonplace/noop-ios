@@ -901,14 +901,25 @@ final class LocalCoachEngine: ObservableObject {
         let conversation = LocalCoachConversation(title: "Sample \(screen.capitalized) conversation", messages: engine.messages)
         engine.conversations = [conversation, .init(title: "Synthetic weekly review")]
         engine.selectedConversationID = conversation.id
-        engine.plan = .init(title: "Balanced strength week", summary: "Three sample sessions, with time between workouts. Review and adapt a real plan before saving.",
-                            sourceID: "preview-synthetic", days: (0..<3).map { day in
-            .init(dayOffset: day * 2, title: "Day \(day + 1)", focus: "Full body", minutes: 45, exercises: [
-                .init(catalogID: "preview-squat", name: "Goblet squat", equipment: "Dumbbell", sets: 3, reps: 8, restSeconds: 90),
-                .init(catalogID: "preview-row", name: "Dumbbell row", equipment: "Dumbbell", sets: 3, reps: 10, restSeconds: 75),
-                .init(catalogID: "preview-push-up", name: "Push-up", equipment: "Bodyweight", sets: 3, reps: 10, restSeconds: 60)
+        // Catalog ids and names the picture lookup resolves, so the screenshot shows the real cutouts.
+        engine.plan = .init(title: "Balanced strength week", summary: "Three 45-minute sessions with a rest day between each.",
+                            sourceID: "preview-synthetic", days: [
+            .init(dayOffset: 0, title: "Upper body", focus: "Upper body", minutes: 45, exercises: [
+                .init(catalogID: "0314", name: "Incline Dumbbell Press", equipment: "Dumbbells", sets: 3, reps: 8, restSeconds: 90),
+                .init(catalogID: "0292", name: "One-Arm Dumbbell Row", equipment: "Dumbbell", sets: 3, reps: 10, restSeconds: 75),
+                .init(catalogID: "1719", name: "Close-Grip Bench Press", equipment: "Barbell", sets: 3, reps: 8, restSeconds: 90)
+            ]),
+            .init(dayOffset: 2, title: "Lower body", focus: "Lower body", minutes: 45, exercises: [
+                .init(catalogID: "0739", name: "Leg Press", equipment: "Machine", sets: 3, reps: 10, restSeconds: 90),
+                .init(catalogID: "0085", name: "Romanian Deadlift", equipment: "Barbell", sets: 3, reps: 8, restSeconds: 90),
+                .init(catalogID: "0585", name: "Leg Extension", equipment: "Machine", sets: 3, reps: 12, restSeconds: 60)
+            ]),
+            .init(dayOffset: 4, title: "Pull and core", focus: "Pull and core", minutes: 45, exercises: [
+                .init(catalogID: "0073", name: "Barbell Pullover", equipment: "Barbell", sets: 3, reps: 12, restSeconds: 60),
+                .init(catalogID: "3670", name: "Weighted Decline Sit-Up", equipment: "Plate", sets: 3, reps: 15, restSeconds: 45),
+                .init(catalogID: "0662", name: "Push-Up", equipment: "Body weight", sets: 3, reps: 10, restSeconds: 60)
             ])
-        })
+        ])
         engine.responseSeconds = 2.4
         #if DEBUG
         // A capture can show a failure without a model: `--noop-coach-error "<the system's own text>"`.

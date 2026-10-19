@@ -57,7 +57,7 @@ struct LocalCoachView: View {
             statusNote
             if screen == .chat || screen == .home { composerView }
         }
-        .safeAreaInset(edge: .top, spacing: 0) { header }
+        .safeAreaInset(edge: .top, spacing: 0) { pageHeader }
         .background(StrandPalette.appCanvas.ignoresSafeArea())
         .foregroundStyle(StrandPalette.textPrimary)
         .tint(StrandPalette.accent)
@@ -159,7 +159,6 @@ struct LocalCoachView: View {
     private var overviewPage: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                if coach.isPreview { LocalCoachFixtureLabel().padding(.bottom, NoopMetrics.space3) }
                 FlatSection("Your daily outlook", systemImage: "sun.horizon", tint: .accent,
                             trailing: CoachRecordDate.trailing(day: coach.snapshot.latestDay)) {
                     VStack(alignment: .leading, spacing: NoopMetrics.space2) {
@@ -255,6 +254,15 @@ struct LocalCoachView: View {
 
     private var showsAppChrome: Bool {
         scaffoldPresentation == .standard && chromeVisibility == .visible && navigationRole == .root
+    }
+
+    /// Your plan is a drill-in with its own header (back, title, state); every other page wears the Coach header.
+    @ViewBuilder private var pageHeader: some View {
+        if screen == .plan {
+            LocalCoachPlanHeader { show(.chat) }
+        } else {
+            header
+        }
     }
 
     /// The NOOP bar, then one quiet COACH row: the tracked title with history, new chat and the menu as plain icons. No
