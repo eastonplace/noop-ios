@@ -1896,7 +1896,12 @@ public struct TrendsLoadChart: View {
         let range = span + pad * 2
 
         if let timeline {
-            timelinePlot(timeline, size: size, lower: lower, range: range, low: low, high: high)
+            // A chart with value labels draws them on round numbers and keeps both lines inside the labelled range: the
+            // axis picks the gridlines first and the plot's domain is built around them. Without labels the plot is
+            // padded around its own extremes, as the card's sparkline is.
+            let axis = timeline.valueLabel != nil ? Self.valueAxis(low: low, high: high) : nil
+            timelinePlot(timeline, size: size, lower: axis?.lower ?? lower, range: axis.map { $0.upper - $0.lower } ?? range,
+                         axis: axis)
         } else {
             let chronicPoints = Self.points(chronic, size: size, lower: lower, range: range)
             let acutePoints = Self.points(acute, size: size, lower: lower, range: range)
@@ -1983,7 +1988,7 @@ public struct TrendsLoadChart: View {
     /// a day that was not recorded, and a run of one day is drawn as a dot.
     @ViewBuilder
     private func timelinePlot(_ timeline: Timeline, size: CGSize, lower: Double, range: Double,
-                              low: Double, high: Double) -> some View {
+                              axis: ValueAxis?) -> some View {
         // The plot keeps a strip at its trailing edge for the value labels; the lines, the scrub and the date row
         // all use the narrower width, so a per-day strip under the chart can inset the same amount and line up.
         let labelled = timeline.valueLabel != nil
@@ -1997,9 +2002,9 @@ public struct TrendsLoadChart: View {
         let selectedX = selection?.wrappedValue.map { Self.x(of: $0, in: timeline, width: width) }
 
         ZStack {
-            if let label = timeline.valueLabel {
-                ForEach(Self.gridValues(lower: lower, upper: lower + range), id: \.self) { value in
-                    gridLine(at: ys(value), text: Self.gridLabel(value, step: Self.gridStep(range: range), format: label),
+            if let label = timeline.valueLabel, let axis {
+                ForEach(axis.ticks, id: \.self) { value in
+                    gridLine(at: ys(value), text: Self.gridLabel(value, step: axis.step, format: label),
                              plotWidth: width, size: size)
                 }
             }
@@ -2077,28 +2082,68 @@ public struct TrendsLoadChart: View {
         .accessibilityHidden(true)
     }
 
-    /// A round step (1, 2, 2.5, 5 times a power of ten) that puts about four lines across the span.
-    private static func gridStep(range: Double) -> Double {
-        guard range.isFinite, range > 0 else { return 1 }
-        let raw = range / 4
-        let magnitude = pow(10, floor(log10(raw)))
-        let normalised = raw / magnitude
-        let step: Double = normalised <= 1 ? 1 : normalised <= 2 ? 2 : normalised <= 2.5 ? 2.5 : normalised <= 5 ? 5 : 10
-        return step * magnitude
+    /// The value axis of the zoomed-in chart: four or five gridlines on round numbers and the plot's domain around them.
+    ///
+    /// Every value from `low` to `high` lies between the first and the last gridline, so a line can never run past the
+    /// labelled range; the domain reaches a little beyond the outer gridlines so their labels sit inside the plot rather
+    /// than on its edge.
+    struct ValueAxis: Equatable {
+        /// Ascending round values, four or five of them.
+        let ticks: [Double]
+        /// The distance between two gridlines: 1, 2 or 5 times a power of ten.
+        let step: Double
+        /// The plot's domain.
+        let lower: Double
+        let upper: Double
     }
 
-    /// The round values inside the plot, ascending. The edge ones are left out so a label never sits on the plot's edge.
-    private static func gridValues(lower: Double, upper: Double) -> [Double] {
-        let step = gridStep(range: upper - lower)
-        guard step > 0 else { return [] }
-        let margin = (upper - lower) * 0.06
-        var value = (lower / step).rounded(.up) * step
-        var values: [Double] = []
-        while value <= upper, values.count < 12 {
-            if value >= lower + margin, value <= upper - margin { values.append(value) }
-            value += step
+    /// The smallest gap between gridlines the labels can show: the value format prints one decimal.
+    private static let minimumGridStep = 0.1
+    /// The most and fewest gridlines the axis draws.
+    private static let gridLineRange = 4...5
+
+    static func valueAxis(low: Double, high: Double) -> ValueAxis {
+        let low = low.isFinite ? low : 0
+        let high = high.isFinite ? max(high, low) : low
+        let nonNegative = low >= 0
+        // The finest step that still fits the data in five lines, never finer than the labels can print and, for a series
+        // that barely moves, never finer than 1% of its size.
+        let floorStep = max(minimumGridStep, niceStep(atLeast: max(abs(high), 1) * 0.01))
+        var step = max(niceStep(atLeast: (high - low) / Double(gridLineRange.upperBound - 1)), floorStep)
+
+        func cover(_ step: Double) -> (first: Int, last: Int) {
+            // A value a rounding error away from a gridline sits on it rather than one step beyond.
+            (Int(((low / step) + 1e-9).rounded(.down)), Int(((high / step) - 1e-9).rounded(.up)))
         }
-        return values
+        var (first, last) = cover(step)
+        while last - first + 1 > gridLineRange.upperBound {
+            step = nextNiceStep(after: step)
+            (first, last) = cover(step)
+        }
+        // A series that sits close to one round value still gets four lines: add values above, then below, never
+        // below zero for a load that cannot be negative.
+        while last - first + 1 < gridLineRange.lowerBound {
+            if nonNegative && first <= 0 { last += 1 } else if (last - first) % 2 == 1 { first -= 1 } else { last += 1 }
+        }
+        let ticks = (first...last).map { (Double($0) * step * 1e6).rounded() / 1e6 }
+        let pad = (ticks[ticks.count - 1] - ticks[0]) * 0.075
+        return ValueAxis(ticks: ticks, step: step, lower: ticks[0] - pad, upper: ticks[ticks.count - 1] + pad)
+    }
+
+    /// The smallest 1, 2 or 5 times a power of ten that is at least `value`.
+    private static func niceStep(atLeast value: Double) -> Double {
+        guard value.isFinite, value > 0 else { return minimumGridStep }
+        let magnitude = pow(10, floor(log10(value)))
+        let mantissa = value / magnitude
+        let nice: Double = mantissa <= 1 + 1e-9 ? 1 : mantissa <= 2 + 1e-9 ? 2 : mantissa <= 5 + 1e-9 ? 5 : 10
+        return nice * magnitude
+    }
+
+    /// The next coarser 1, 2, 5 step.
+    private static func nextNiceStep(after step: Double) -> Double {
+        let magnitude = pow(10, floor(log10(step) + 1e-9))
+        let mantissa = step / magnitude
+        return (mantissa < 1.5 ? 2 : mantissa < 3.5 ? 5 : 10) * magnitude
     }
 
     /// Whole numbers when the step is whole, else the caller's own format (one decimal).

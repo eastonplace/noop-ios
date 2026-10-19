@@ -39,7 +39,7 @@ struct TrainingLoadDetailLink<Label: View>: View {
         }
         .buttonStyle(PaperPressStyle())
         .accessibilityAddTraits(.isHeader)
-        .accessibilityHint("Opens the load chart, daily effort and how it is calculated")
+        .accessibilityHint("Opens the load chart, daily strain and how it is calculated")
         .accessibilityIdentifier("trends.trainingLoad.open")
     }
 }
@@ -72,12 +72,12 @@ enum TrainingLoadCopy {
     /// The one-line reason there is no load estimate.
     static func unavailableTitle(_ gap: TrainingLoadPageModel.Gap?) -> String {
         switch gap {
-        case .noHistory?: return String(localized: "No Effort history yet")
+        case .noHistory?: return String(localized: "No Strain history yet")
         case .needsMoreDays(let remaining)?:
             return remaining == 1
-                ? String(localized: "Needs 1 more day of daily Effort")
-                : String(localized: "Needs \(remaining) more days of daily Effort")
-        case .effortNotReady?: return String(localized: "Today's Effort is not ready")
+                ? String(localized: "Needs 1 more day of daily Strain")
+                : String(localized: "Needs \(remaining) more days of daily Strain")
+        case .effortNotReady?: return String(localized: "Today's Strain is not ready")
         case .unusable?, nil: return String(localized: "Training load is not ready")
         }
     }
@@ -85,10 +85,10 @@ enum TrainingLoadCopy {
     static func unavailableDetail(_ gap: TrainingLoadPageModel.Gap?,
                                   configuration: TrainingLoadEngine.Configuration = .standard) -> String {
         switch gap {
-        case .noHistory?: return String(localized: "No daily Effort history is available for this source.")
+        case .noHistory?: return String(localized: "No daily Strain history is available for this source.")
         case .needsMoreDays?:
-            return String(localized: "Training load starts after \(configuration.minimumDays) days of recorded Effort.")
-        case .effortNotReady?: return String(localized: "There is no usable Effort value for the selected end date.")
+            return String(localized: "Training load starts after \(configuration.minimumDays) days of recorded Strain.")
+        case .effortNotReady?: return String(localized: "There is no usable Strain value for the selected end date.")
         case .unusable?, nil:
             return String(localized: "The source history cannot produce a valid load estimate. Check the records in Trends.")
         }
@@ -98,7 +98,7 @@ enum TrainingLoadCopy {
 /// A bounded read of the same canonical Trends projection. TrainingLoadEngine remains the only calculator.
 ///
 /// The Training load page: a headline and gauge for where recent load sits against the fitness base, the three numbers
-/// explained, where tomorrow could land, the load over time (scrubbable, with the daily Effort that feeds it), the last
+/// explained, where tomorrow could land, the load over time (scrubbable, with the daily Strain that feeds it), the last
 /// six weeks, what drove this week, where the load came from, the last four weeks against the four before, and the
 /// method. Every derived number comes from `TrainingLoadPageModel`; this view reads, lays out and draws.
 struct TrainingLoadDetailView: View {
@@ -286,20 +286,21 @@ struct TrainingLoadDetailView: View {
 
     // MARK: Load over time
 
-    /// The scrub readout, the chart, the daily Effort that feeds it, the key and the range, in the mockup's order.
+    /// The scrub readout, the chart, its key, the daily Strain that feeds it and the range, in the mockup's order.
     private func loadSection(_ model: TrainingLoadPageModel, points: [TrainingLoadDay]) -> some View {
         let focus = focusDay(in: points)
-        return section("Load over time", symbol: "chart.xyaxis.line", trailing: .text(String(localized: "Effort, 0–21")),
+        return section("Load over time", symbol: "chart.xyaxis.line", trailing: .text(String(localized: "Strain, 0–21")),
                        spacing: 0) {
             VStack(alignment: .leading, spacing: 0) {
                 readout(focus)
                     .padding(.top, 12)
                 loadChart(points, focus: focus)
                     .padding(.top, 10)
+                // The key sits directly under the chart it explains, above the strip of daily marks.
+                TrendsLoadLegend(tint: .strain)
+                    .padding(.top, 10)
                 effortStrip(points)
                     .padding(.top, 16)
-                TrendsLoadLegend(tint: .strain)
-                    .padding(.top, 12)
                 TrendsControlRow(
                     leading: { _ in
                         Text("Last \(period) days")
@@ -320,14 +321,14 @@ struct TrainingLoadDetailView: View {
         return points.first { calendar.isDate($0.date, inSameDayAs: day) }
     }
 
-    /// Selected / Effort / Recent / Base for the day under the finger (the newest day until the chart is touched).
+    /// Selected / Strain / Recent / Base for the day under the finger (the newest day until the chart is touched).
     private func readout(_ focus: TrainingLoadDay?) -> some View {
         let missing = WidgetMetrics.missingValue
         let day = focus?.date ?? selectedDay ?? anchor
         let dayText = calendar.isDateInToday(day) ? String(localized: "Today") : day.formatted(weekdayFormat)
         return TrainingLoadReadout(cells: [
             .init(id: 0, label: "Selected", value: dayText, color: StrandPalette.textPrimary),
-            .init(id: 1, label: "Effort", value: focus.map { number($0.effort) } ?? missing, color: StrandPalette.textPrimary),
+            .init(id: 1, label: "Strain", value: focus.map { number($0.effort) } ?? missing, color: StrandPalette.textPrimary),
             .init(id: 2, label: "Recent", value: focus.map { number($0.acute) } ?? missing, color: TrainingLoadInk.recent),
             .init(id: 3, label: "Base", value: focus.map { number($0.chronic) } ?? missing, color: TrainingLoadInk.baseText),
         ])
@@ -355,7 +356,7 @@ struct TrainingLoadDetailView: View {
             .accessibilityIdentifier("trends.trainingLoad.chart")
     }
 
-    /// What feeds the load: each day's recorded Effort on the chart's own days. A recorded zero is a rest day (a small
+    /// What feeds the load: each day's recorded Strain on the chart's own days. A recorded zero is a rest day (a small
     /// dot); a day with nothing recorded has no mark.
     private func effortStrip(_ points: [TrainingLoadDay]) -> some View {
         let marks = points.map { TrainingLoadDailyStrip.Mark(date: $0.date, effort: $0.effort) }
@@ -364,10 +365,10 @@ struct TrainingLoadDetailView: View {
             guard let day = highlight ?? points.last?.date else { return "" }
             let name = day.formatted(weekdayFormat)
             guard let effort = points.first(where: { calendar.isDate($0.date, inSameDayAs: day) })?.effort else {
-                return String(localized: "\(name): no Effort recorded")
+                return String(localized: "\(name): no Strain recorded")
             }
-            if effort <= 0 { return String(localized: "\(name): rest day, no Effort") }
-            return name + ", " + String(localized: "Recorded Effort \(number(effort))")
+            if effort <= 0 { return String(localized: "\(name): rest day, no Strain") }
+            return name + ", " + String(localized: "Recorded Strain \(number(effort))")
         }()
         return VStack(alignment: .leading, spacing: 6) {
             ViewThatFits(in: .horizontal) {
@@ -388,8 +389,8 @@ struct TrainingLoadDetailView: View {
     }
 
     private var stripHeading: some View {
-        Text("Daily effort · what feeds it")
-            .font(.system(size: min(captionSize, 24), weight: .semibold))
+        Text("Daily strain · what feeds it")
+            .font(StrandFont.sized(min(captionSize, 24), weight: .semibold))
             .tracking(1)
             .textCase(.uppercase)
             .foregroundStyle(StrandPalette.textTertiary)
@@ -398,7 +399,7 @@ struct TrainingLoadDetailView: View {
 
     private var stripNote: some View {
         Text("dot = rest day")
-            .font(.system(size: min(captionSize, 24)))
+            .font(StrandFont.sized(min(captionSize, 24)))
             .foregroundStyle(StrandPalette.textTertiary)
             .fixedSize(horizontal: false, vertical: true)
     }
@@ -440,7 +441,7 @@ struct TrainingLoadDetailView: View {
     private func chartSummary(_ focus: TrainingLoadDay?) -> String {
         guard let focus else { return String(localized: "No observation on the selected day") }
         let day = calendar.isDateInToday(focus.date) ? String(localized: "Today") : focus.date.formatted(weekdayFormat)
-        return String(localized: "\(day): Effort \(number(focus.effort)), recent load \(number(focus.acute)), fitness base \(number(focus.chronic)), form \(signed(focus.balance))")
+        return String(localized: "\(day): Strain \(number(focus.effort)), recent load \(number(focus.acute)), fitness base \(number(focus.chronic)), form \(signed(focus.balance))")
     }
 
     /// "Today" for the anchor day when it is today, else "Oct 15", in the Trends source time zone.
@@ -472,7 +473,7 @@ struct TrainingLoadDetailView: View {
             TrainingLoadWeeks.Entry(id: $0.start, label: $0.start.formatted(monthDayFormat), isCurrent: $0.isCurrent,
                                     average: $0.averageEffort, base: $0.baseAtEnd)
         }
-        return section("Week by week", symbol: "calendar", trailing: .text(String(localized: "avg Effort per day")),
+        return section("Week by week", symbol: "calendar", trailing: .text(String(localized: "avg Strain per day")),
                        spacing: 14) {
             TrainingLoadWeeks(entries: entries)
         }
@@ -498,20 +499,30 @@ struct TrainingLoadDetailView: View {
         return section(isLatest ? "What drove this week" : "What drove the week to the selected day", symbol: "bolt.fill",
                        trailing: .text(rangeText), spacing: 6) {
             if rows.isEmpty {
-                Text(isLatest ? "No scored workouts this week." : "No scored workouts in these 7 days.")
-                    .font(StrandFont.footnote)
-                    .foregroundStyle(StrandPalette.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.vertical, NoopMetrics.space2)
+                // Nothing to rank, but the days and the unscored sessions behind them are still worth saying.
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(isLatest ? "No scored workouts this week." : "No scored workouts in these 7 days.")
+                    if week.trainingDays > 0 {
+                        Text(verbatim: trainingDaysText(week, isLatest: isLatest))
+                    }
+                }
+                .font(StrandFont.footnote)
+                .foregroundStyle(StrandPalette.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.vertical, NoopMetrics.space2)
             } else {
-                TrainingLoadDrivers(rows: rows, trainingDaysText: trainingDaysText(week.trainingDays, isLatest: isLatest))
+                TrainingLoadDrivers(rows: rows, trainingDaysText: trainingDaysText(week, isLatest: isLatest))
             }
         }
         .accessibilityIdentifier("trends.trainingLoad.drivers")
     }
 
-    private func trainingDaysText(_ count: Int, isLatest: Bool) -> String {
-        switch (count, isLatest) {
+    /// "6 training days this week · 4 workouts had no Strain score". Every day with a workout counts as a training day, but a
+    /// workout NOOP did not score (an Apple Health or imported session) cannot be ranked, so the line says how many were
+    /// left out of the list rather than leaving the count and the list to disagree.
+    private func trainingDaysText(_ week: TrainingLoadPageModel.DriverWeek, isLatest: Bool) -> String {
+        let count = week.trainingDays
+        let days: String = switch (count, isLatest) {
         case (0, true): String(localized: "No training days this week")
         case (1, true): String(localized: "1 training day this week")
         case (_, true): String(localized: "\(count) training days this week")
@@ -519,6 +530,12 @@ struct TrainingLoadDetailView: View {
         case (1, false): String(localized: "1 training day in these 7 days")
         default: String(localized: "\(count) training days in these 7 days")
         }
+        let unscored = week.unscoredWorkouts
+        guard count > 0, unscored > 0 else { return days }
+        let gap = unscored == 1
+            ? String(localized: "1 workout had no Strain score")
+            : String(localized: "\(unscored) workouts had no Strain score")
+        return days + " · " + gap
     }
 
     /// Duration, energy and distance when the session has them, never a placeholder for one it lacks.
@@ -572,12 +589,12 @@ struct TrainingLoadDetailView: View {
                          spoken: String(localized: "Training days \(current), \(spokenChange(Double(change), whole: true)) from the 4 weeks before"))
         }
         return [
-            .init(id: 0, label: String(localized: "Avg Effort / day"), value: number(comparison.averageEffort), delta: averageDelta,
-                  spoken: String(localized: "Average Effort per day \(number(comparison.averageEffort)), \(spokenChange(average, whole: false)) from the 4 weeks before")),
+            .init(id: 0, label: String(localized: "Avg Strain / day"), value: number(comparison.averageEffort), delta: averageDelta,
+                  spoken: String(localized: "Average Strain per day \(number(comparison.averageEffort)), \(spokenChange(average, whole: false)) from the 4 weeks before")),
             days,
             .init(id: 2, label: String(localized: "Biggest day"), value: number(comparison.biggestDay.effort),
                   delta: .plain(biggestDay),
-                  spoken: String(localized: "Biggest day, Effort \(number(comparison.biggestDay.effort)), \(biggestDay)")),
+                  spoken: String(localized: "Biggest day, Strain \(number(comparison.biggestDay.effort)), \(biggestDay)")),
         ]
     }
 
@@ -626,7 +643,7 @@ struct TrainingLoadDetailView: View {
                     Text("Workout history")
                         .font(StrandFont.subhead.weight(.semibold))
                         .foregroundStyle(StrandPalette.textPrimary)
-                    Text("The sessions behind your daily Effort")
+                    Text("The sessions behind your daily Strain")
                         .font(StrandFont.footnote)
                         .foregroundStyle(StrandPalette.textTertiary)
                 }
@@ -641,7 +658,7 @@ struct TrainingLoadDetailView: View {
             .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
             .contentShape(Rectangle())
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel(Text(verbatim: String(localized: "Workout history") + ". " + String(localized: "The sessions behind your daily Effort")))
+            .accessibilityLabel(Text(verbatim: String(localized: "Workout history") + ". " + String(localized: "The sessions behind your daily Strain")))
         }
         .buttonStyle(FlatRowPressStyle())
         .accessibilityIdentifier("trends.trainingLoad.workouts")
@@ -881,11 +898,11 @@ private struct TrainingLoadDay: Identifiable {
     var acute: Double { StrainScale.displayValue(fromStored: point.acuteLoad) }
     var chronic: Double { StrainScale.displayValue(fromStored: point.chronicLoad) }
     var balance: Double { StrainScale.displayDelta(fromStored: point.balance) }
-    /// The day's recorded Effort on the 0...21 display scale.
+    /// The day's recorded Strain on the 0...21 display scale.
     var effort: Double { StrainScale.displayValue(fromStored: point.load) }
 }
 
-/// Selected / Effort / Recent / Base for the day under the finger, in one quiet box. Two by two at the accessibility sizes.
+/// Selected / Strain / Recent / Base for the day under the finger, in one quiet box. Two by two at the accessibility sizes.
 private struct TrainingLoadReadout: View {
     struct Cell: Identifiable {
         let id: Int
@@ -925,11 +942,11 @@ private struct TrainingLoadReadout: View {
     private func column(_ cell: Cell) -> some View {
         VStack(alignment: .leading, spacing: 1) {
             Text(cell.label)
-                .font(.system(size: min(labelSize, 24), weight: .medium))
+                .font(StrandFont.sized(min(labelSize, 24), weight: .medium))
                 .foregroundStyle(StrandPalette.textTertiary)
                 .lineLimit(1)
             Text(verbatim: cell.value)
-                .font(.system(size: min(valueSize, 28), weight: .semibold).monospacedDigit())
+                .font(StrandFont.sized(min(valueSize, 28), weight: .semibold).monospacedDigit())
                 .foregroundStyle(cell.value == WidgetMetrics.missingValue ? StrandPalette.textTertiary : cell.color)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
@@ -937,16 +954,16 @@ private struct TrainingLoadReadout: View {
     }
 }
 
-/// What feeds the load, one mark per recorded day on the chart's own days: a bar scaled against the 0...21 Effort range
+/// What feeds the load, one mark per recorded day on the chart's own days: a bar scaled against the 0...21 Strain range
 /// (orange from 18, full strain blue from 14, translucent below), a small grey dot for a recorded zero (a rest day), and
-/// nothing for a day with no Effort recorded. Inset like the chart above it, so each mark sits under its day.
+/// nothing for a day with no Strain recorded. Inset like the chart above it, so each mark sits under its day.
 ///
 /// It is a second scrub surface, the way the chart above it is: a horizontal drag along it picks the nearest recorded day
 /// and writes the same selection, so the readout, the chart's hairline and "what drove this week" all follow.
 private struct TrainingLoadDailyStrip: View {
     struct Mark {
         let date: Date
-        /// Display-scale Effort. Zero is a recorded rest day.
+        /// Display-scale Strain. Zero is a recorded rest day.
         let effort: Double
     }
 
@@ -1019,7 +1036,7 @@ private struct TrainingLoadDailyStrip: View {
             }
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Daily Effort over the selected range")
+        .accessibilityLabel("Daily Strain over the selected range")
         .accessibilityValue(Text(verbatim: summary))
         .accessibilityIdentifier("trends.trainingLoad.effort")
     }

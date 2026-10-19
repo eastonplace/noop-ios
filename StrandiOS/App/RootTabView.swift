@@ -899,8 +899,8 @@ private extension Color {
         UIColor(self).getRed(&from.0, green: &from.1, blue: &from.2, alpha: &from.3)
         UIColor(other).getRed(&to.0, green: &to.1, blue: &to.2, alpha: &to.3)
         let t = CGFloat(amount)
-        return Color(.sRGB, red: Double(from.0 + (to.0 - from.0) * t), green: Double(from.1 + (to.1 - from.1) * t),
-                     blue: Double(from.2 + (to.2 - from.2) * t), opacity: Double(from.3 + (to.3 - from.3) * t))
+        return Color(UIColor(red: from.0 + (to.0 - from.0) * t, green: from.1 + (to.1 - from.1) * t,
+                             blue: from.2 + (to.2 - from.2) * t, alpha: from.3 + (to.3 - from.3) * t))
     }
 }
 

@@ -187,7 +187,7 @@ struct WorkoutRowContent: View {
 
     private var title: some View {
         Text(verbatim: presentation.title)
-            .font(.system(size: leadSize, weight: .semibold))
+            .font(StrandFont.sized(leadSize, weight: .semibold))
             .foregroundStyle(StrandPalette.textPrimary)
             .lineLimit(2)
             .fixedSize(horizontal: false, vertical: true)
@@ -252,7 +252,7 @@ struct WorkoutFactLine: View {
 
     private func line(_ shown: [String], wrapping: Bool) -> some View {
         Text(verbatim: WorkoutFormat.joined(shown))
-            .font(.system(size: size))
+            .font(StrandFont.sized(size))
             .foregroundStyle(StrandPalette.textSecondary)
             .lineLimit(wrapping ? 2 : 1)
             .fixedSize(horizontal: !wrapping, vertical: true)
@@ -344,7 +344,7 @@ struct WorkoutsHeaderRow<Action: View>: View {
             .buttonStyle(.plain)
             .accessibilityLabel(leadingLabel)
             Text(title)
-                .font(.system(size: titleSize, weight: .bold))
+                .font(StrandFont.sized(titleSize, weight: .bold))
                 .tracking(2.4)
                 .textCase(.uppercase)
                 .foregroundStyle(StrandPalette.textPrimary)
@@ -354,7 +354,7 @@ struct WorkoutsHeaderRow<Action: View>: View {
                 .accessibilityAddTraits(.isHeader)
             if showsDate {
                 Text(verbatim: date)
-                    .font(.system(size: dateSize))
+                    .font(StrandFont.sized(dateSize))
                     .foregroundStyle(StrandPalette.textSecondary)
                     .lineLimit(1)
                     .fixedSize()
@@ -405,7 +405,7 @@ struct WorkoutSportFilterChip: View {
                         .accessibilityHidden(true)
                 }
                 Text(verbatim: title)
-                    .font(.system(size: textSize, weight: .semibold))
+                    .font(StrandFont.sized(textSize, weight: .semibold))
                     .lineLimit(1)
                     .fixedSize(horizontal: true, vertical: false)
             }
@@ -481,7 +481,7 @@ struct WorkoutWeekBars: View {
                     VStack(spacing: 4) {
                         if isPeak {
                             Text(verbatim: WorkoutFormat.duration(day.activeSeconds))
-                                .font(.system(size: 12, weight: .medium))
+                                .font(StrandFont.sized(12, weight: .medium))
                                 .foregroundStyle(StrandPalette.textSecondary)
                                 .lineLimit(1)
                                 .fixedSize()
@@ -496,7 +496,7 @@ struct WorkoutWeekBars: View {
                 }
             }
             Text(verbatim: label(for: day))
-                .font(.system(size: 12, weight: .medium))
+                .font(StrandFont.sized(12, weight: .medium))
                 .foregroundStyle(day.isToday ? StrandPalette.textPrimary : StrandPalette.textTertiary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
@@ -581,7 +581,7 @@ struct WorkoutWeekStrip: View {
 
     private func label(_ fact: Fact) -> some View {
         Text(fact.label)
-            .font(.system(size: labelSize))
+            .font(StrandFont.sized(labelSize))
             .foregroundStyle(StrandPalette.textTertiary)
             .lineLimit(1)
     }

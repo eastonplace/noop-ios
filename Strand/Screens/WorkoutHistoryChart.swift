@@ -155,7 +155,7 @@ struct WorkoutHistoryChart: View {
         guard let interval else { return .none }
         return .custom(AnyView(
             Text(verbatim: WorkoutFormat.weekRange(interval))
-                .font(.system(size: 13.5))
+                .font(StrandFont.sized(13.5))
                 .foregroundStyle(StrandPalette.textSecondary)
                 .lineLimit(1)))
     }

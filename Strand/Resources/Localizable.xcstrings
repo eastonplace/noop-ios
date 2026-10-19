@@ -322,12 +322,12 @@
         }
       }
     },
-    "%@ %@, %@, %@, Effort %@": {
+    "%@ %@, %@, %@, Strain %@": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ %@, %@, %@, Effort %@"
+            "value": "%@ %@, %@, %@, Strain %@"
           }
         }
       }
@@ -6843,22 +6843,22 @@
         }
       }
     },
-    "%@: Effort %@, recent load %@, fitness base %@, form %@": {
+    "%@: Strain %@, recent load %@, fitness base %@, form %@": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@: Effort %@, recent load %@, fitness base %@, form %@"
+            "value": "%@: Strain %@, recent load %@, fitness base %@, form %@"
           }
         }
       }
     },
-    "%@: Effort %@, recent load %@, ratio %@, %@": {
+    "%@: Strain %@, recent load %@, ratio %@, %@": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@: Effort %@, recent load %@, ratio %@, %@"
+            "value": "%@: Strain %@, recent load %@, ratio %@, %@"
           }
         }
       }
@@ -6989,12 +6989,12 @@
         }
       }
     },
-    "%@: no Effort recorded": {
+    "%@: no Strain recorded": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@: no Effort recorded"
+            "value": "%@: no Strain recorded"
           }
         }
       }
@@ -7079,12 +7079,12 @@
         }
       }
     },
-    "%@: rest day, no Effort": {
+    "%@: rest day, no Strain": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@: rest day, no Effort"
+            "value": "%@: rest day, no Strain"
           }
         }
       }
@@ -12814,6 +12814,16 @@
         }
       }
     },
+    "%lld workouts had no Strain score": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld workouts had no Strain score"
+          }
+        }
+      }
+    },
     "%lld workouts marked.": {
       "localizations": {
         "en": {
@@ -15989,6 +15999,16 @@
         }
       }
     },
+    "1 workout had no Strain score": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 workout had no Strain score"
+          }
+        }
+      }
+    },
     "1 year": {
       "localizations": {
         "de": {
@@ -18121,12 +18141,12 @@
         }
       }
     },
-    "A day with no Effort recorded counts as a rest day for up to %lld days in a row. Longer gaps restart the history.": {
+    "A day with no Strain recorded counts as a rest day for up to %lld days in a row. Longer gaps restart the history.": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "A day with no Effort recorded counts as a rest day for up to %lld days in a row. Longer gaps restart the history."
+            "value": "A day with no Strain recorded counts as a rest day for up to %lld days in a row. Longer gaps restart the history."
           }
         }
       }
@@ -22661,42 +22681,42 @@
         }
       }
     },
-    "Average daily Effort by week": {
+    "Average daily Strain by week": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Average daily Effort by week"
+            "value": "Average daily Strain by week"
           }
         }
       }
     },
-    "average Effort %@": {
+    "average Strain %@": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "average Effort %@"
+            "value": "average Strain %@"
           }
         }
       }
     },
-    "Average Effort %@": {
+    "Average Strain %@": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Average Effort %@"
+            "value": "Average Strain %@"
           }
         }
       }
     },
-    "Average Effort per day %@, %@ from the 4 weeks before": {
+    "Average Strain per day %@, %@ from the 4 weeks before": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Average Effort per day %@, %@ from the 4 weeks before"
+            "value": "Average Strain per day %@, %@ from the 4 weeks before"
           }
         }
       }
@@ -22781,22 +22801,22 @@
         }
       }
     },
-    "Avg Effort / day": {
+    "Avg Strain / day": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Avg Effort / day"
+            "value": "Avg Strain / day"
           }
         }
       }
     },
-    "avg Effort per day": {
+    "avg Strain per day": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "avg Effort per day"
+            "value": "avg Strain per day"
           }
         }
       }
@@ -31303,12 +31323,12 @@
         }
       }
     },
-    "Based on daily Effort. Descriptive only; it does not change Readiness.": {
+    "Based on daily Strain. Descriptive only; it does not change Readiness.": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Based on daily Effort. Descriptive only; it does not change Readiness."
+            "value": "Based on daily Strain. Descriptive only; it does not change Readiness."
           }
         }
       }
@@ -31897,12 +31917,12 @@
         }
       }
     },
-    "Biggest day, Effort %@, %@": {
+    "Biggest day, Strain %@, %@": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Biggest day, Effort %@, %@"
+            "value": "Biggest day, Strain %@, %@"
           }
         }
       }
@@ -51470,22 +51490,22 @@
         }
       }
     },
-    "Daily Effort over the selected range": {
+    "Daily Strain over the selected range": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Daily Effort over the selected range"
+            "value": "Daily Strain over the selected range"
           }
         }
       }
     },
-    "Daily effort · what feeds it": {
+    "Daily strain · what feeds it": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Daily effort · what feeds it"
+            "value": "Daily strain · what feeds it"
           }
         }
       }
@@ -58252,32 +58272,22 @@
         }
       }
     },
-    "Effort": {
+    "Strain %@ → recent %@": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Effort"
+            "value": "Strain %@ → recent %@"
           }
         }
       }
     },
-    "Effort %@ → recent %@": {
+    "Strain, 0–21": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Effort %@ → recent %@"
-          }
-        }
-      }
-    },
-    "Effort, 0–21": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Effort, 0–21"
+            "value": "Strain, 0–21"
           }
         }
       }
@@ -59012,12 +59022,12 @@
         }
       }
     },
-    "Every day's **Effort** (the 0–21 score on Today) feeds two running averages. Recent days count more than older ones.": {
+    "Every day's **Strain** (the 0–21 score on Today) feeds two running averages. Recent days count more than older ones.": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Every day's **Effort** (the 0–21 score on Today) feeds two running averages. Recent days count more than older ones."
+            "value": "Every day's **Strain** (the 0–21 score on Today) feeds two running averages. Recent days count more than older ones."
           }
         }
       }
@@ -97233,22 +97243,22 @@
         }
       }
     },
-    "Needs %lld more days of daily Effort": {
+    "Needs %lld more days of daily Strain": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Needs %lld more days of daily Effort"
+            "value": "Needs %lld more days of daily Strain"
           }
         }
       }
     },
-    "Needs 1 more day of daily Effort": {
+    "Needs 1 more day of daily Strain": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Needs 1 more day of daily Effort"
+            "value": "Needs 1 more day of daily Strain"
           }
         }
       }
@@ -97647,12 +97657,12 @@
         }
       }
     },
-    "No daily Effort history is available for this source.": {
+    "No daily Strain history is available for this source.": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No daily Effort history is available for this source."
+            "value": "No daily Strain history is available for this source."
           }
         }
       }
@@ -97715,32 +97725,32 @@
         }
       }
     },
-    "No Effort history yet": {
+    "No Strain history yet": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No Effort history yet"
+            "value": "No Strain history yet"
           }
         }
       }
     },
-    "no Effort recorded": {
+    "no Strain recorded": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "no Effort recorded"
+            "value": "no Strain recorded"
           }
         }
       }
     },
-    "No Effort recorded": {
+    "No Strain recorded": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No Effort recorded"
+            "value": "No Strain recorded"
           }
         }
       }
@@ -98499,12 +98509,12 @@
         }
       }
     },
-    "NOOP is reading up to 180 days of daily Effort before showing your load.": {
+    "NOOP is reading up to 180 days of daily Strain before showing your load.": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "NOOP is reading up to 180 days of daily Effort before showing your load."
+            "value": "NOOP is reading up to 180 days of daily Strain before showing your load."
           }
         }
       }
@@ -113700,12 +113710,12 @@
         }
       }
     },
-    "Opens the load chart, daily effort and how it is calculated": {
+    "Opens the load chart, daily strain and how it is calculated": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Opens the load chart, daily effort and how it is calculated"
+            "value": "Opens the load chart, daily strain and how it is calculated"
           }
         }
       }
@@ -123233,12 +123243,12 @@
         }
       }
     },
-    "Recorded Effort %@": {
+    "Recorded Strain %@": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Recorded Effort %@"
+            "value": "Recorded Strain %@"
           }
         }
       }
@@ -157574,12 +157584,12 @@
         }
       }
     },
-    "The sessions behind your daily Effort": {
+    "The sessions behind your daily Strain": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The sessions behind your daily Effort"
+            "value": "The sessions behind your daily Strain"
           }
         }
       }
@@ -157944,12 +157954,12 @@
         }
       }
     },
-    "There is no usable Effort value for the selected end date.": {
+    "There is no usable Strain value for the selected end date.": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "There is no usable Effort value for the selected end date."
+            "value": "There is no usable Strain value for the selected end date."
           }
         }
       }
@@ -158524,12 +158534,12 @@
         }
       }
     },
-    "Today's Effort is not ready": {
+    "Today's Strain is not ready": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Today's Effort is not ready"
+            "value": "Today's Strain is not ready"
           }
         }
       }
@@ -158668,12 +158678,12 @@
         }
       }
     },
-    "Training load starts after %lld days of recorded Effort.": {
+    "Training load starts after %lld days of recorded Strain.": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Training load starts after %lld days of recorded Effort."
+            "value": "Training load starts after %lld days of recorded Strain."
           }
         }
       }

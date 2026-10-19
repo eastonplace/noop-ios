@@ -48,7 +48,7 @@ struct CoachWelcomeView: View {
                 .foregroundStyle(StrandPalette.accent)
                 .accessibilityHidden(true)
             Text(greetingTitle)
-                .font(.system(size: titleSize, weight: .semibold))
+                .font(StrandFont.sized(titleSize, weight: .semibold))
                 .tracking(-titleSize * 0.02)
                 .foregroundStyle(StrandPalette.textPrimary)
                 .lineLimit(3).minimumScaleFactor(0.7)

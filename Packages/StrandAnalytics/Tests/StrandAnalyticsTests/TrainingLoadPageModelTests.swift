@@ -267,6 +267,28 @@ final class TrainingLoadPageModelTests: XCTestCase {
         XCTAssertEqual(week.drivers.map(\.effort), [85 * 0.21, 72 * 0.21, 60 * 0.21])
         XCTAssertEqual(week.drivers[0].fraction, 85 * 0.21 / 21, accuracy: 1e-12)
         XCTAssertEqual(week.trainingDays, 4, "13th, 15th, 17th, 18th")
+        XCTAssertEqual(week.unscoredWorkouts, 1, "the 18th's yoga had no strain score")
+    }
+
+    func testUnscoredWorkoutsExplainTheGapBetweenTrainingDaysAndListedDrivers() {
+        let d = calendar()
+        // Six training days, but only two of the workouts carry a canonical strain: the rest are unscored sessions
+        // (strain nil, or a zero that the page treats as no score). The day count stays six; the unscored ones are counted.
+        let workouts = [
+            workout("2026-10-13", sport: "Yoga", strain: nil, d),
+            workout("2026-10-14", sport: "Walking", strain: nil, d),
+            workout("2026-10-15", sport: "Cycling", strain: 72, d),
+            workout("2026-10-16", sport: "Pilates", strain: nil, d),
+            workout("2026-10-16", hour: 19, sport: "Stretching", strain: 0, d),
+            workout("2026-10-17", sport: "Running", strain: 85, d),
+            workout("2026-10-19", sport: "Yoga", strain: nil, d),
+            workout("2026-10-12", sport: "Yoga", strain: nil, d),       // eight days before: outside the window
+        ]
+        let (m, _) = model(loads: Array(repeating: 50, count: 40), start: "2026-09-12", workouts: workouts)
+        let week = m.driverWeek(endingOn: date("2026-10-19", d))
+        XCTAssertEqual(week.trainingDays, 6, "the 13th, 14th, 15th, 16th, 17th and 19th")
+        XCTAssertEqual(week.drivers.map(\.workout.sport), ["Running", "Cycling"])
+        XCTAssertEqual(week.unscoredWorkouts, 5, "four nil strains and one zero, all inside the window")
     }
 
     func testDriversTieBreakToTheLaterWorkoutAndTheEmptyWeekIsEmpty() {
@@ -279,6 +301,7 @@ final class TrainingLoadPageModelTests: XCTestCase {
         let empty = m.driverWeek(endingOn: date("2026-08-01", d))
         XCTAssertTrue(empty.drivers.isEmpty)
         XCTAssertEqual(empty.trainingDays, 0)
+        XCTAssertEqual(empty.unscoredWorkouts, 0)
     }
 
     // MARK: Sport mix

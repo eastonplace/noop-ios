@@ -270,4 +270,41 @@ final class TrendsWidgetComponentsTests: XCTestCase {
             XCTAssertFalse(format(Double(Int.max)).isEmpty)
         }
     }
+
+    // MARK: Training load value axis
+
+    /// The page's own case: a six-week load that runs from about 6.6 to 13.4 gets the mockup's 6, 8, 10, 12, 14.
+    func testLoadAxisDrawsFourOrFiveRoundGridlinesAcrossTheWholeRange() {
+        let axis = TrendsLoadChart.valueAxis(low: 6.6, high: 13.4)
+        XCTAssertEqual(axis.ticks, [6, 8, 10, 12, 14])
+        XCTAssertEqual(axis.step, 2)
+    }
+
+    /// A narrow range was the bug: 9.4 to 13 drew only 10 and 12. It now draws every whole number across it.
+    func testLoadAxisNeverLeavesTwoGridlinesOnANarrowRange() {
+        let axis = TrendsLoadChart.valueAxis(low: 9.4, high: 13)
+        XCTAssertEqual(axis.ticks, [9, 10, 11, 12, 13])
+    }
+
+    func testLoadAxisKeepsEveryValueInsideTheLabelledRange() {
+        let cases: [(Double, Double)] = [(0, 0), (10, 10), (10, 10.2), (3.04, 3.06), (0.2, 4.1), (9.6, 11.6), (10.15, 11.9),
+                                         (6, 14), (0, 21), (1.1, 20.9), (7.999999999, 12.000000001), (0.0, 0.3)]
+        for (low, high) in cases {
+            let axis = TrendsLoadChart.valueAxis(low: low, high: high)
+            XCTAssertTrue((4...5).contains(axis.ticks.count), "\(low)...\(high): \(axis.ticks)")
+            XCTAssertLessThanOrEqual(axis.ticks.first!, low + 1e-9, "\(low)...\(high): the lowest value is above the first gridline")
+            XCTAssertGreaterThanOrEqual(axis.ticks.last!, high - 1e-9, "\(low)...\(high): the highest value is below the last gridline")
+            XCTAssertLessThan(axis.lower, axis.ticks.first!, "the outer labels sit inside the plot")
+            XCTAssertGreaterThan(axis.upper, axis.ticks.last!)
+            XCTAssertEqual(axis.ticks, axis.ticks.sorted())
+            for pair in zip(axis.ticks, axis.ticks.dropFirst()) {
+                XCTAssertEqual(pair.1 - pair.0, axis.step, accuracy: 1e-6, "even steps")
+            }
+        }
+    }
+
+    func testLoadAxisNeverGoesBelowZeroForAPlainLoad() {
+        XCTAssertEqual(TrendsLoadChart.valueAxis(low: 0, high: 0).ticks.first, 0)
+        XCTAssertGreaterThanOrEqual(TrendsLoadChart.valueAxis(low: 0.05, high: 0.3).ticks.first!, 0)
+    }
 }

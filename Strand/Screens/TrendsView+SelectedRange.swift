@@ -44,7 +44,7 @@ extension TrendsView {
                 showsChevron: true
             )
             trainingLoadBody(load)
-            Text("Based on daily Effort. Descriptive only; it does not change Readiness.")
+            Text("Based on daily Strain. Descriptive only; it does not change Readiness.")
                 .font(StrandFont.micro)
                 .foregroundStyle(StrandPalette.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -92,7 +92,7 @@ extension TrendsView {
                     Text("Reading load history")
                         .font(StrandFont.subhead.weight(.semibold))
                         .foregroundStyle(StrandPalette.textPrimary)
-                    Text("NOOP is reading up to 180 days of daily Effort before showing your load.")
+                    Text("NOOP is reading up to 180 days of daily Strain before showing your load.")
                         .font(StrandFont.footnote)
                         .foregroundStyle(StrandPalette.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)

@@ -100,7 +100,7 @@ struct LocalCoachPlanView: View {
             SectionEyebrow(plan.saved ? "Saved to your workouts" : "Built for your review",
                            systemImage: plan.saved ? "checkmark.circle.fill" : "dumbbell", tint: .accent)
             Text(plan.title)
-                .font(.system(size: titleSize, weight: .bold)).tracking(-0.6)
+                .font(StrandFont.sized(titleSize, weight: .bold)).tracking(-0.6)
                 .foregroundStyle(StrandPalette.textPrimary)
                 .lineLimit(4).minimumScaleFactor(0.6)
                 .fixedSize(horizontal: false, vertical: true)
@@ -139,7 +139,7 @@ struct LocalCoachPlanView: View {
         VStack(spacing: 0) {
             Button(action: onBuild) {
                 Text("Build a different plan")
-                    .font(.system(size: linkSize, weight: .semibold))
+                    .font(StrandFont.sized(linkSize, weight: .semibold))
                     .foregroundStyle(StrandPalette.textSecondary)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: .infinity, minHeight: 44)
@@ -225,14 +225,14 @@ struct LocalCoachPlanView: View {
 
     private func dayTitleText(_ day: LocalCoachPlanDay) -> some View {
         Text(day.title)
-            .font(.system(size: dayTitleSize, weight: .semibold)).tracking(-0.3)
+            .font(StrandFont.sized(dayTitleSize, weight: .semibold)).tracking(-0.3)
             .foregroundStyle(StrandPalette.textPrimary)
             .lineLimit(3).minimumScaleFactor(0.6)
     }
 
     private func dayMinutes(_ day: LocalCoachPlanDay) -> some View {
         Text("\(day.minutes) min")
-            .font(.system(size: dayMinutesSize, weight: .medium))
+            .font(StrandFont.sized(dayMinutesSize, weight: .medium))
             .foregroundStyle(StrandPalette.textTertiary)
             .lineLimit(1)
     }
@@ -387,10 +387,10 @@ private struct CoachPlanExerciseRow: View {
     private var details: some View {
         VStack(alignment: .leading, spacing: 3) {
             Text(exercise.name.capitalized)
-                .font(.system(size: nameSize, weight: .semibold)).tracking(-0.2)
+                .font(StrandFont.sized(nameSize, weight: .semibold)).tracking(-0.2)
                 .foregroundStyle(StrandPalette.textPrimary)
             Text("\(exercise.equipment.capitalized) · \(exercise.restSeconds)s rest")
-                .font(.system(size: metaSize, weight: .regular))
+                .font(StrandFont.sized(metaSize, weight: .regular))
                 .foregroundStyle(StrandPalette.textSecondary)
         }
         .multilineTextAlignment(.leading)
@@ -398,7 +398,7 @@ private struct CoachPlanExerciseRow: View {
 
     private var prescription: some View {
         Text("\(exercise.sets) × \(exercise.reps)")
-            .font(.system(size: prescriptionSize, weight: .semibold)).monospacedDigit()
+            .font(StrandFont.sized(prescriptionSize, weight: .semibold)).monospacedDigit()
             .foregroundStyle(StrandPalette.textPrimary)
             .accessibilityLabel(Text(verbatim: "\(exercise.sets) × \(exercise.reps) \(String(localized: "sets × reps"))"))
     }
@@ -416,7 +416,7 @@ private struct CoachCollapsibleSummary: View {
     private var overflows: Bool { fullHeight > clampedHeight + 1 }
 
     private func summary(lines: Int?) -> some View {
-        Text(text).font(.system(size: size, weight: .regular)).lineSpacing(3)
+        Text(text).font(StrandFont.sized(size, weight: .regular)).lineSpacing(3)
             .foregroundStyle(StrandPalette.textSecondary)
             .lineLimit(lines)
     }

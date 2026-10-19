@@ -112,7 +112,7 @@ struct TrainingLoadHero: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text(TrainingLoadWords.headline(model.headline))
-                .font(.system(size: min(headlineSize, 56), weight: .bold))
+                .font(StrandFont.sized(min(headlineSize, 56), weight: .bold))
                 .tracking(-0.8)
                 .foregroundStyle(StrandPalette.textPrimary)
                 .lineSpacing(0)
@@ -185,7 +185,7 @@ struct TrainingLoadGauge: View {
 
     private var badge: some View {
         Text("You · \(TrainingLoadWords.ratio(ratio))")
-            .font(.system(size: min(badgeSize, 22), weight: .bold))
+            .font(StrandFont.sized(min(badgeSize, 22), weight: .bold))
             .foregroundStyle(StrandPalette.textPrimary)
             .lineLimit(1)
             .padding(.horizontal, 8)
@@ -405,7 +405,7 @@ struct TrainingLoadNumberRow: View {
     private func valueBlock(alignment: HorizontalAlignment) -> some View {
         VStack(alignment: alignment, spacing: 1) {
             Text(verbatim: value)
-                .font(.system(size: min(valueSize, 44), weight: .semibold).monospacedDigit())
+                .font(StrandFont.sized(min(valueSize, 44), weight: .semibold).monospacedDigit())
                 .tracking(-0.6)
                 .foregroundStyle(value == WidgetMetrics.missingValue ? StrandPalette.textTertiary : StrandPalette.textPrimary)
                 .lineLimit(1)
@@ -474,7 +474,7 @@ private struct TrainingLoadTomorrowRow: View {
 
     private var effortText: String { DrillInFormat.number(projection.effort, fractionDigits: 0) }
     private var recentText: String { TrainingLoadWords.number(projection.recent) }
-    private var meta: String { String(localized: "Effort \(effortText) → recent \(recentText)") }
+    private var meta: String { String(localized: "Strain \(effortText) → recent \(recentText)") }
 
     private var spoken: String {
         let scenario = switch projection.scenario {
@@ -483,7 +483,7 @@ private struct TrainingLoadTomorrowRow: View {
         case .allOut: String(localized: "All out")
         }
         guard let ratio = projection.ratio, let zone = projection.zone else { return scenario }
-        return String(localized: "\(scenario): Effort \(effortText), recent load \(recentText), ratio \(TrainingLoadWords.ratio(ratio)), \(TrainingLoadWords.zone(zone))")
+        return String(localized: "\(scenario): Strain \(effortText), recent load \(recentText), ratio \(TrainingLoadWords.ratio(ratio)), \(TrainingLoadWords.zone(zone))")
     }
 
     var body: some View {
@@ -525,7 +525,7 @@ private struct TrainingLoadTomorrowRow: View {
         if let ratio = projection.ratio, let zone = projection.zone {
             VStack(alignment: typeSize.isAccessibilitySize ? .leading : .trailing, spacing: 0) {
                 Text(verbatim: TrainingLoadWords.ratio(ratio))
-                    .font(.system(size: min(ratioSize, 30), weight: .semibold).monospacedDigit())
+                    .font(StrandFont.sized(min(ratioSize, 30), weight: .semibold).monospacedDigit())
                     .foregroundStyle(StrandPalette.textPrimary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
@@ -568,7 +568,7 @@ private struct TrainingLoadTomorrowRow: View {
 
 // MARK: - Week by week
 
-/// The last six calendar weeks: a bar per week (its average daily Effort) and the fitness base at each week's end as a dashed
+/// The last six calendar weeks: a bar per week (its average daily Strain) and the fitness base at each week's end as a dashed
 /// line with dots. The current week is solid and its label is right-aligned to the chart's edge so it is never clipped.
 /// At the accessibility sizes it becomes a list, because six labelled columns cannot hold that type.
 struct TrainingLoadWeeks: View {
@@ -586,8 +586,8 @@ struct TrainingLoadWeeks: View {
     private var spoken: String {
         entries.map { entry in
             var parts = entry.isCurrent ? String(localized: "This week") : String(localized: "Week of \(entry.label)")
-            if let average = entry.average { parts += ": " + String(localized: "average Effort \(TrainingLoadWords.number(average))") }
-            else { parts += ": " + String(localized: "no Effort recorded") }
+            if let average = entry.average { parts += ": " + String(localized: "average Strain \(TrainingLoadWords.number(average))") }
+            else { parts += ": " + String(localized: "no Strain recorded") }
             if let base = entry.base { parts += ", " + String(localized: "fitness base \(TrainingLoadWords.number(base))") }
             return parts
         }.joined(separator: ". ")
@@ -600,7 +600,7 @@ struct TrainingLoadWeeks: View {
             } else {
                 TrainingLoadWeeksChart(entries: entries)
                     .accessibilityElement(children: .ignore)
-                    .accessibilityLabel("Average daily Effort by week")
+                    .accessibilityLabel("Average daily Strain by week")
                     .accessibilityValue(Text(verbatim: spoken))
             }
         }
@@ -615,8 +615,8 @@ struct TrainingLoadWeeks: View {
                     Text(verbatim: entry.isCurrent ? String(localized: "This week") : entry.label)
                         .font(StrandFont.footnote.weight(.semibold))
                         .foregroundStyle(StrandPalette.textPrimary)
-                    Text(verbatim: entry.average.map { String(localized: "Average Effort \(TrainingLoadWords.number($0))") }
-                         ?? String(localized: "No Effort recorded"))
+                    Text(verbatim: entry.average.map { String(localized: "Average Strain \(TrainingLoadWords.number($0))") }
+                         ?? String(localized: "No Strain recorded"))
                         .font(StrandFont.footnote)
                         .foregroundStyle(StrandPalette.textSecondary)
                     if let base = entry.base {
@@ -661,7 +661,7 @@ private struct TrainingLoadWeeksChart: View {
                             .frame(width: barWidth, height: max(baseline - y(average), 2))
                             .offset(x: x(index), y: y(average))
                         Text(verbatim: TrainingLoadWords.number(average))
-                            .font(.system(size: min(valueSize, 20), weight: .semibold))
+                            .font(StrandFont.sized(min(valueSize, 20), weight: .semibold))
                             .foregroundStyle(entry.isCurrent ? StrandPalette.textPrimary : StrandPalette.textSecondary)
                             .fixedSize()
                             .frame(width: barWidth + gap, alignment: .center)
@@ -684,7 +684,7 @@ private struct TrainingLoadWeeksChart: View {
                        width: CGFloat) -> some View {
         let cell = barWidth + gap
         let text = Text(entry.isCurrent ? String(localized: "This wk") : entry.label)
-            .font(.system(size: min(labelSize, 18), weight: entry.isCurrent ? .semibold : .regular))
+            .font(StrandFont.sized(min(labelSize, 18), weight: entry.isCurrent ? .semibold : .regular))
             .foregroundStyle(entry.isCurrent ? StrandPalette.textPrimary : StrandPalette.textTertiary)
             .lineLimit(1)
             .fixedSize()
@@ -741,7 +741,7 @@ private struct TrainingLoadWeeksChart: View {
 
 // MARK: - Drivers
 
-/// The week's hardest workouts, each with a day badge, the sport, what it was, a bar against the 0...21 scale and its Effort.
+/// The week's hardest workouts, each with a day badge, the sport, what it was, a bar against the 0...21 scale and its Strain.
 struct TrainingLoadDrivers: View {
     struct Row: Identifiable {
         let id: Int
@@ -777,7 +777,7 @@ struct TrainingLoadDrivers: View {
     }
 
     private func rowView(_ row: Row) -> some View {
-        let spoken = String(localized: "\(row.weekday) \(row.dayNumber), \(row.title), \(row.meta), Effort \(TrainingLoadWords.number(row.effort))")
+        let spoken = String(localized: "\(row.weekday) \(row.dayNumber), \(row.title), \(row.meta), Strain \(TrainingLoadWords.number(row.effort))")
         return Group {
             if typeSize.isAccessibilitySize {
                 VStack(alignment: .leading, spacing: 4) {
@@ -804,11 +804,11 @@ struct TrainingLoadDrivers: View {
     private func dayBadge(_ row: Row) -> some View {
         VStack(spacing: 0) {
             Text(verbatim: row.weekday.uppercased())
-                .font(.system(size: min(weekdaySize, 22), weight: .bold))
+                .font(StrandFont.sized(min(weekdaySize, 22), weight: .bold))
                 .tracking(1)
                 .foregroundStyle(StrandPalette.textTertiary)
             Text(verbatim: row.dayNumber)
-                .font(.system(size: min(dayNumberSize, 28), weight: .semibold).monospacedDigit())
+                .font(StrandFont.sized(min(dayNumberSize, 28), weight: .semibold).monospacedDigit())
                 .foregroundStyle(StrandPalette.textPrimary)
         }
         .lineLimit(1)
@@ -849,9 +849,9 @@ struct TrainingLoadDrivers: View {
     private func effortBlock(_ row: Row, alignment: HorizontalAlignment) -> some View {
         VStack(alignment: alignment, spacing: 0) {
             Text(verbatim: TrainingLoadWords.number(row.effort))
-                .font(.system(size: min(effortSize, 30), weight: .semibold).monospacedDigit())
+                .font(StrandFont.sized(min(effortSize, 30), weight: .semibold).monospacedDigit())
                 .foregroundStyle(TrainingLoadInk.recent)
-            Text("Effort")
+            Text("Strain")
                 .font(StrandFont.micro.weight(.regular))
                 .foregroundStyle(StrandPalette.textTertiary)
         }
@@ -861,7 +861,8 @@ struct TrainingLoadDrivers: View {
 
 // MARK: - Sport mix
 
-/// The share of summed workout strain by sport: a segmented bar and a two-column legend.
+/// The share of summed workout strain by sport: a segmented bar and a legend, one row per sport when there are two or fewer
+/// (and at the accessibility sizes), else two columns.
 struct TrainingLoadMix: View {
     struct Slice: Identifiable {
         let id: Int
@@ -901,11 +902,17 @@ struct TrainingLoadMix: View {
                         Text(verbatim: slice.name)
                             .font(Font.system(.subheadline, design: .default).weight(.regular))
                             .foregroundStyle(StrandPalette.textPrimary)
-                            .lineLimit(2)
+                            // One line, trimmed with an ellipsis when a long name ("Strength Training") cannot fit its
+                            // half of the row. At the accessibility sizes the row is the full width, so a name may wrap.
+                            .lineLimit(typeSize.isAccessibilitySize ? 2 : 1)
+                            .truncationMode(.tail)
+                            .minimumScaleFactor(fullWidthRows ? 1 : 0.85)
                         Spacer(minLength: 4)
                         Text(verbatim: "\(slice.percent)%")
                             .font(Font.system(.subheadline, design: .default).weight(.semibold).monospacedDigit())
                             .foregroundStyle(StrandPalette.textPrimary)
+                            .lineLimit(1)
+                            .fixedSize()
                     }
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel(Text(verbatim: String(localized: "\(slice.name), \(slice.percent) percent")))
@@ -915,8 +922,12 @@ struct TrainingLoadMix: View {
         .accessibilityIdentifier("trends.trainingLoad.mix")
     }
 
+    /// One row per sport when there are only one or two, so a long name has the whole width and never wraps; the
+    /// accessibility sizes stack too. Three or four sports share two columns.
+    private var fullWidthRows: Bool { typeSize.isAccessibilitySize || slices.count <= 2 }
+
     private var columns: [GridItem] {
-        typeSize.isAccessibilitySize
+        fullWidthRows
             ? [GridItem(.flexible(), alignment: .leading)]
             : [GridItem(.flexible(), spacing: 16, alignment: .leading), GridItem(.flexible(), alignment: .leading)]
     }
@@ -924,7 +935,7 @@ struct TrainingLoadMix: View {
 
 // MARK: - Comparison
 
-/// The last four weeks against the four before: average daily Effort, training days and the biggest day.
+/// The last four weeks against the four before: average daily Strain, training days and the biggest day.
 struct TrainingLoadComparisonStrip: View {
     struct Cell: Identifiable {
         let id: Int
@@ -978,7 +989,7 @@ struct TrainingLoadComparisonStrip: View {
                 .lineLimit(2)
                 .minimumScaleFactor(0.8)
             Text(verbatim: cell.value)
-                .font(.system(size: min(valueSize, 34), weight: .semibold).monospacedDigit())
+                .font(StrandFont.sized(min(valueSize, 34), weight: .semibold).monospacedDigit())
                 .foregroundStyle(cell.value == WidgetMetrics.missingValue ? StrandPalette.textTertiary : StrandPalette.textPrimary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
@@ -1009,7 +1020,7 @@ struct TrainingLoadComparisonStrip: View {
 // MARK: - Method
 
 /// "How this is calculated", in plain words and checked against `TrainingLoadEngine`: both lines are exponentially
-/// weighted averages of daily Effort whose weights fade over about a week and about six weeks (time constants, not
+/// weighted averages of daily Strain whose weights fade over about a week and about six weeks (time constants, not
 /// half-lives), seeded by the mean of the first recorded days; Form is base minus recent; a missing day counts as rest for a
 /// short run and a longer gap starts the history over.
 struct TrainingLoadMethod: View {
@@ -1022,7 +1033,7 @@ struct TrainingLoadMethod: View {
         let minimum = configuration.minimumDays
         let established = configuration.establishedDays
         VStack(alignment: .leading, spacing: NoopMetrics.space3) {
-            Text("Every day's **Effort** (the 0–21 score on Today) feeds two running averages. Recent days count more than older ones.")
+            Text("Every day's **Strain** (the 0–21 score on Today) feeds two running averages. Recent days count more than older ones.")
             formula("Recent load", "= weighted average, about 1 week")
             formula("Fitness base", "= weighted average, about 6 weeks")
             HStack(spacing: 8) {
@@ -1040,7 +1051,7 @@ struct TrainingLoadMethod: View {
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Form equals base minus recent")
             Text("When recent load sits **0.8–1.3×** your base, you're building steadily. Well above that is a spike. Well below means you're easing off.")
-            Text("A day with no Effort recorded counts as a rest day for up to \(maxGap) days in a row. Longer gaps restart the history.")
+            Text("A day with no Strain recorded counts as a rest day for up to \(maxGap) days in a row. Longer gaps restart the history.")
             Text("The first \(prime) recorded days are averaged to start both lines. Load appears after \(minimum) recorded days and is marked Established at \(established).")
             Text("Dates use the Trends source time zone: \(timeZoneIdentifier)")
         }

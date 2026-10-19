@@ -236,7 +236,7 @@ private struct CoachTurnView: View {
         let shape = UnevenRoundedRectangle(topLeadingRadius: 22, bottomLeadingRadius: 22,
                                            bottomTrailingRadius: 6, topTrailingRadius: 22, style: .continuous)
         return Text(message.text)
-            .font(.system(size: textSize, weight: .regular))
+            .font(StrandFont.sized(textSize, weight: .regular))
             .lineSpacing(textSize * 0.2)
             .foregroundStyle(StrandPalette.textPrimary)
             .multilineTextAlignment(.leading).textSelection(.enabled)

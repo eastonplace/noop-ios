@@ -119,14 +119,14 @@ private struct CoachHero: View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
             ForEach(Array(parts.enumerated()), id: \.offset) { _, part in
                 Text(part.value)
-                    .font(.system(size: size, weight: .semibold).monospacedDigit())
+                    .font(StrandFont.sized(size, weight: .semibold).monospacedDigit())
                     .tracking(-size * 0.024)
                     .foregroundStyle(part.value == WidgetMetrics.missingValue
                                      ? StrandPalette.textTertiary : StrandPalette.textPrimary)
                     .lineLimit(1).minimumScaleFactor(0.5)
                 if let unit = part.unit, part.value != WidgetMetrics.missingValue {
                     Text(unit)
-                        .font(.system(size: unitSize, weight: .medium))
+                        .font(StrandFont.sized(unitSize, weight: .medium))
                         .foregroundStyle(StrandPalette.textSecondary)
                         .lineLimit(1).minimumScaleFactor(0.6)
                         .padding(.trailing, 2)

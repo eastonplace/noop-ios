@@ -10,7 +10,7 @@ import WhoopStore
 /// `TrainingLoadEngine.step`, and everything else is arithmetic on its points.
 ///
 /// Scale. The engine's acute and chronic values are in the units of the daily load it was given: NOOP stores daily
-/// strain on 0...100, so they come out on 0...100. People read Effort on 0...21, so every figure this model returns for
+/// strain on 0...100, so they come out on 0...100. People read Strain on 0...21, so every figure this model returns for
 /// display is `stored * displayFactor` (0.21). The ratio is unitless and the same on both scales. `Day` carries stored
 /// values; `Projection`, `Week`, `Driver` and the rest carry display values.
 ///
@@ -69,7 +69,7 @@ public struct TrainingLoadPageModel: Sendable {
         }
 
         /// A stored workout row. The strain is the canonical NOOP V2 value only (`StrainResolver.canonicalWorkout`), the
-        /// same chain the daily Effort that feeds the model comes from, never an imported or legacy number.
+        /// same chain the daily Strain that feeds the model comes from, never an imported or legacy number.
         public init(row: WorkoutRow, sportName: String) {
             let span = Double(row.endTs - row.startTs)
             let seconds: Double? = {
@@ -203,7 +203,7 @@ public struct TrainingLoadPageModel: Sendable {
     public enum Scenario: Sendable, Equatable, CaseIterable {
         case rest, moderate, allOut
 
-        /// The Effort (0...21) the page asks "what if" with.
+        /// The Strain (0...21) the page asks "what if" with.
         public var effort: Double {
             switch self {
             case .rest: 0
@@ -213,7 +213,7 @@ public struct TrainingLoadPageModel: Sendable {
         }
     }
 
-    /// The engine's own next step for one imagined Effort.
+    /// The engine's own next step for one imagined Strain.
     public struct Projection: Sendable, Equatable {
         public let scenario: Scenario
         public let effort: Double
@@ -227,7 +227,7 @@ public struct TrainingLoadPageModel: Sendable {
     public struct Week: Sendable, Equatable {
         /// First day of the calendar week (the calendar's first weekday).
         public let start: Date
-        /// Mean daily Effort over the week's recorded days, display scale; nil when none were recorded.
+        /// Mean daily Strain over the week's recorded days, display scale; nil when none were recorded.
         public let averageEffort: Double?
         /// Fitness base on the week's last modeled day (the newest day for the current week), display scale. Nil for a
         /// week that ended before the engine's seed day.
@@ -246,11 +246,17 @@ public struct TrainingLoadPageModel: Sendable {
     }
 
     /// The seven days ending on a day, the workouts that carried them and how many days held a workout.
+    ///
+    /// `trainingDays` counts every day with a workout, scored or not, so it can exceed what `drivers` shows. A workout NOOP
+    /// did not score (an Apple Health or imported session) makes its day a training day but cannot be ranked as a driver;
+    /// `unscoredWorkouts` counts those, so the page can say why six training days show two workouts.
     public struct DriverWeek: Sendable, Equatable {
         public let first: Date
         public let last: Date
         public let drivers: [Driver]
         public let trainingDays: Int
+        /// Workouts in the window with no canonical strain. They are in `trainingDays` and never in `drivers`.
+        public let unscoredWorkouts: Int
     }
 
     public struct SportShare: Sendable, Equatable {
@@ -405,7 +411,8 @@ public struct TrainingLoadPageModel: Sendable {
 
     // MARK: - Drivers
 
-    /// The seven days ending on `day` (inclusive): the three hardest scored workouts and how many days held any workout.
+    /// The seven days ending on `day` (inclusive): the three hardest scored workouts, how many days held any workout and how
+    /// many of the workouts had no score to rank by.
     public func driverWeek(endingOn day: Date) -> DriverWeek {
         let last = calendar.startOfDay(for: day)
         let first = calendar.date(byAdding: .day, value: -(Self.driverWindowDays - 1), to: last) ?? last
@@ -423,7 +430,9 @@ public struct TrainingLoadPageModel: Sendable {
                 return Driver(workout: workout, effort: effort, fraction: min(max(effort / 21, 0), 1))
             }
         let trainingDays = Set(inWindow.map { calendar.startOfDay(for: $0.start) }).count
-        return DriverWeek(first: first, last: last, drivers: Array(ranked), trainingDays: trainingDays)
+        let unscored = inWindow.filter { ($0.strain ?? 0) <= 0 }.count
+        return DriverWeek(first: first, last: last, drivers: Array(ranked), trainingDays: trainingDays,
+                          unscoredWorkouts: unscored)
     }
 
     // MARK: - Sport mix
@@ -516,11 +525,11 @@ public struct TrainingLoadPageModel: Sendable {
 
     /// Why there is no load estimate, in terms a person can act on.
     public enum Gap: Sendable, Equatable {
-        /// No daily Effort has been recorded for this source.
+        /// No daily Strain has been recorded for this source.
         case noHistory
-        /// History exists but is shorter than the minimum; `remaining` more days of Effort are needed.
+        /// History exists but is shorter than the minimum; `remaining` more days of Strain are needed.
         case needsMoreDays(remaining: Int)
-        /// There is history, but the selected end day has no Effort value yet.
+        /// There is history, but the selected end day has no Strain value yet.
         case effortNotReady
         /// The history cannot be modeled (a bad value or a duplicated day).
         case unusable
@@ -528,7 +537,7 @@ public struct TrainingLoadPageModel: Sendable {
 
     /// The gap behind an unavailable result, or nil when the model is available.
     ///
-    /// The engine reports a target day with no Effort as "not enough contiguous days" with a count of zero, however much
+    /// The engine reports a target day with no Strain as "not enough contiguous days" with a count of zero, however much
     /// history sits behind it, which reads as "needs 14 more days" for someone with months of data. This reads the same
     /// history the engine was given and names that case for what it is.
     public static func gap(result: TrainingLoadEngine.Result, history: [TrainingLoadEngine.DailyLoad],
