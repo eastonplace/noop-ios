@@ -47172,6 +47172,16 @@
         }
       }
     },
+    "Compares your 7-day and 28-day average workload. Around 0.8 to 1.3 is the usual range. This is separate from the Training load page, which weights recent days differently.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compares your 7-day and 28-day average workload. Around 0.8 to 1.3 is the usual range. This is separate from the Training load page, which weights recent days differently."
+          }
+        }
+      }
+    },
     "Compares your heart rate before sleep with your recent nights": {
       "localizations": {
         "de": {
@@ -173662,6 +173672,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "正式組 %@"
+          }
+        }
+      }
+    },
+    "Workload ratio %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workload ratio %@"
           }
         }
       }

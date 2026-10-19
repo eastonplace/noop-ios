@@ -353,8 +353,10 @@ struct LocalCoachView: View {
         }
     }
 
-    /// The floating composer: a 54pt pill on the raised surface with a hairline, the actions menu as a "+" circle on
-    /// the left, dictation and send on the right. Send is white with a dark arrow once there is something to send.
+    /// The floating composer: a pill on the raised surface with a hairline (54pt at rest, one row tall), the actions
+    /// menu as a "+" circle on the left, dictation and send on the right. Send is white with a dark arrow once there
+    /// is something to send. The field and the three controls share one row height (see `CoachComposerRow`), so the
+    /// text and the controls sit on one centre line at every Dynamic Type size.
     private var composerView: some View {
         VStack(alignment: .leading, spacing: NoopMetrics.space2) {
             if voice.isRecording || voice.isStarting {
@@ -380,16 +382,18 @@ struct LocalCoachView: View {
                 attachmentMenu
                 TextField(coach.messages.isEmpty ? "Ask Coach" : "Ask a follow-up", text: $composer, axis: .vertical)
                     .coachFont(17, .regular, relativeTo: .body).lineLimit(1...6)
-                    .padding(.vertical, 15).padding(.horizontal, 4)
+                    .padding(.vertical, CoachComposerRow.fieldPadding).padding(.horizontal, 4)
+                    .frame(minHeight: CoachComposerRow.minHeight)
                     .focused($composerFocused).submitLabel(.send)
                     .onSubmit { if !coach.isResponding { submit(composer) } }
                     .disabled(voice.isRecording || voice.isStarting)
                     .accessibilityIdentifier("coach.composer")
                 Button(action: toggleDictation) {
-                    Image(systemName: voice.isRecording ? "waveform" : "mic")
-                        .font(.system(size: 19, weight: .regular))
-                        .foregroundStyle(voice.isRecording ? StrandPalette.accent : StrandPalette.textSecondary)
-                        .frame(width: 44, height: Self.composerHeight).contentShape(Rectangle())
+                    CoachComposerSlot {
+                        Image(systemName: voice.isRecording ? "waveform" : "mic")
+                            .font(.system(size: 19, weight: .regular))
+                            .foregroundStyle(voice.isRecording ? StrandPalette.accent : StrandPalette.textSecondary)
+                    }
                 }
                 .disabled(!coach.preferences.enabled || coach.isResponding)
                 .accessibilityLabel(voice.isRecording ? "Stop dictation" : "Dictate a question")
@@ -397,13 +401,14 @@ struct LocalCoachView: View {
                 Button {
                     if coach.isResponding { coach.cancel() } else { submit(composer) }
                 } label: {
-                    Image(systemName: coach.isResponding ? "stop.fill" : "arrow.up")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(canSend ? StrandPalette.onInk : StrandPalette.textTertiary)
-                        .frame(width: 36, height: 36)
-                        .background(Circle().fill(canSend ? StrandPalette.textPrimary : StrandPalette.inset))
-                        .overlay(Circle().fill(canSend ? Color.clear : StrandPalette.chipFill))
-                        .frame(width: 44, height: Self.composerHeight).contentShape(Rectangle())
+                    CoachComposerSlot {
+                        Image(systemName: coach.isResponding ? "stop.fill" : "arrow.up")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(canSend ? StrandPalette.onInk : StrandPalette.textTertiary)
+                            .frame(width: 36, height: 36)
+                            .background(Circle().fill(canSend ? StrandPalette.textPrimary : StrandPalette.inset))
+                            .overlay(Circle().fill(canSend ? Color.clear : StrandPalette.chipFill))
+                    }
                 }
                 .disabled(!canSend)
                 .accessibilityLabel(coach.isResponding ? "Stop response" : "Send message")
@@ -422,9 +427,6 @@ struct LocalCoachView: View {
         .background(StrandPalette.appCanvas)
     }
 
-    /// The pill is 54pt at rest and grows with its text and with Dynamic Type; its buttons ride the bottom row.
-    private static let composerHeight: CGFloat = 54
-
     private var canSend: Bool { coach.isResponding || !composer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
 
     private var attachmentMenu: some View {
@@ -440,12 +442,13 @@ struct LocalCoachView: View {
             Button("Testing & bug reports", systemImage: "ladybug") { showDiagnostics = true }
             if voice.isSpeaking { Button("Stop reading aloud", systemImage: "speaker.slash") { voice.stopSpeaking() } }
         } label: {
-            Image(systemName: "plus").font(.system(size: 19, weight: .regular))
-                .foregroundStyle(StrandPalette.textPrimary.opacity(0.85))
-                .frame(width: 36, height: 36)
-                .background(Circle().fill(StrandPalette.inset))
-                .overlay(Circle().fill(StrandPalette.chipFill))
-                .frame(width: 44, height: Self.composerHeight).contentShape(Rectangle())
+            CoachComposerSlot {
+                Image(systemName: "plus").font(.system(size: 19, weight: .regular))
+                    .foregroundStyle(StrandPalette.textPrimary.opacity(0.85))
+                    .frame(width: 36, height: 36)
+                    .background(Circle().fill(StrandPalette.inset))
+                    .overlay(Circle().fill(StrandPalette.chipFill))
+            }
         }
         .accessibilityLabel("Coach actions")
     }
@@ -548,6 +551,33 @@ struct LocalCoachView: View {
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { showAttachment = false } } }
         }
         .coachSettingsSheetEnvironment()
+    }
+}
+
+/// The composer's row. The pill is one row tall at rest: one line of the field's own text with 15pt above and below,
+/// and never under 54pt. The field and the three controls all use that row height, so at every Dynamic Type size the
+/// placeholder, the text and the controls sit on one centre line. When the text wraps, the pill grows and the controls
+/// ride the bottom row.
+private enum CoachComposerRow {
+    static let minHeight: CGFloat = 54
+    static let fieldPadding: CGFloat = 15
+}
+
+/// A 44pt-wide control slot exactly one composer row tall, with its content centred. The row is measured from a hidden
+/// line set in the field's own font, so the slot follows Dynamic Type exactly; the whole slot is the tap target.
+private struct CoachComposerSlot<Content: View>: View {
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        Text(verbatim: "Ag")
+            .coachFont(17, .regular, relativeTo: .body)
+            .fixedSize()
+            .padding(.vertical, CoachComposerRow.fieldPadding)
+            .frame(width: 44)
+            .frame(minHeight: CoachComposerRow.minHeight)
+            .hidden()
+            .overlay { content() }
+            .contentShape(Rectangle())
     }
 }
 
