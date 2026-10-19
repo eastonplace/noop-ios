@@ -311,6 +311,17 @@
         }
       }
     },
+    "%@ %@ vs avg": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ %@ vs avg"
+          }
+        }
+      }
+    },
     "%@ (Beta)": {
       "localizations": {
         "de": {
@@ -743,6 +754,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ Cohen's d %@。具統計顯著性。"
+          }
+        }
+      }
+    },
+    "%@ efficiency": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ efficiency"
           }
         }
       }
@@ -12229,6 +12251,17 @@
         }
       }
     },
+    "%lld sources": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld sources"
+          }
+        }
+      }
+    },
     "%lld sports": {
       "localizations": {
         "de": {
@@ -15701,6 +15734,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "1 次訓練 · 稀疏，已加寬至 %@"
+          }
+        }
+      }
+    },
+    "1 source": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 source"
           }
         }
       }
@@ -21901,6 +21945,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "封存遺失"
+          }
+        }
+      }
+    },
+    "Ask a follow-up": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ask a follow-up"
+          }
+        }
+      }
+    },
+    "Ask Coach": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ask Coach"
           }
         }
       }
@@ -39877,6 +39943,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "合併"
+          }
+        }
+      }
+    },
+    "Compare recent nights": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compare recent nights"
           }
         }
       }
@@ -65685,6 +65762,17 @@
         }
       }
     },
+    "From %@%% recovery": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "From %@%% recovery"
+          }
+        }
+      }
+    },
     "FULL BOND": {
       "localizations": {
         "de": {
@@ -68323,6 +68411,39 @@
           "stringUnit": {
             "state": "translated",
             "value": "在手腕上接收輕柔提醒"
+          }
+        }
+      }
+    },
+    "Good afternoon.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Good afternoon."
+          }
+        }
+      }
+    },
+    "Good evening.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Good evening."
+          }
+        }
+      }
+    },
+    "Good morning.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Good morning."
           }
         }
       }
@@ -116333,6 +116454,17 @@
         }
       }
     },
+    "Private. Coach runs on this iPhone.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Private. Coach runs on this iPhone."
+          }
+        }
+      }
+    },
     "probe": {
       "localizations": {
         "de": {
@@ -122119,6 +122251,17 @@
         }
       }
     },
+    "Recovery %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recovery %@"
+          }
+        }
+      }
+    },
     "Recovery %lld · target %lld–%lld": {
       "localizations": {
         "de": {
@@ -122167,6 +122310,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "恢復 %lld · 目標 %lld–%lld"
+          }
+        }
+      }
+    },
+    "Recovery and sleep": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recovery and sleep"
           }
         }
       }
@@ -122223,6 +122377,17 @@
         }
       }
     },
+    "Recovery is %@ today. What do you want to work on?": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recovery is %@ today. What do you want to work on?"
+          }
+        }
+      }
+    },
     "Recovery uses your own recent HRV, resting heart rate, respiratory rate, and other available nightly signals. It becomes more personal as enough nights accumulate.": {
       "localizations": {
         "de": {
@@ -122271,6 +122436,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "恢復分數會參考你近期的 HRV、靜息心率、呼吸頻率以及其他可用的夜間訊號。隨著夜晚資料的累積，它會越來越貼合你個人。"
+          }
+        }
+      }
+    },
+    "Recovery was %@ on %@. What do you want to work on?": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recovery was %@ on %@. What do you want to work on?"
+          }
+        }
+      }
+    },
+    "Recovery was %@ yesterday. What do you want to work on?": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recovery was %@ yesterday. What do you want to work on?"
           }
         }
       }
@@ -123681,6 +123868,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "已安排使用目前的解碼器重試。"
+          }
+        }
+      }
+    },
+    "Review before saving": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Review before saving"
           }
         }
       }
@@ -136375,6 +136573,17 @@
         }
       }
     },
+    "Sessions and load": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sessions and load"
+          }
+        }
+      }
+    },
     "set": {
       "localizations": {
         "de": {
@@ -137653,6 +137862,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "睡眠"
+          }
+        }
+      }
+    },
+    "Sleep %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sleep %@"
+          }
+        }
+      }
+    },
+    "Sleep trend": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sleep trend"
           }
         }
       }

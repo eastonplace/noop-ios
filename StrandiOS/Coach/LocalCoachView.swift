@@ -45,7 +45,6 @@ struct LocalCoachView: View {
     @State private var attachmentID: UUID?
     @State private var inputError: String?
     @FocusState private var composerFocused: Bool
-    @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(screen: LocalCoachScreen = .chat) {
@@ -138,7 +137,7 @@ struct LocalCoachView: View {
                 messages: coach.messages, activeMessageID: coach.currentResponseMessageID,
                 progress: coach.responseProgress.stage, isPreview: coach.isPreview,
                 snapshot: coach.snapshot, hasConsent: coach.preferences.usePersonalData,
-                availability: availability, onAsk: submit,
+                availability: availability, showsFollowUps: !composerFocused, onAsk: submit,
                 onEdit: { composer = $0; composerFocused = true },
                 onRetry: { Task { await coach.retryLatestAnswer() } },
                 onSpeak: { message in
@@ -171,8 +170,11 @@ struct LocalCoachView: View {
                             .foregroundStyle(StrandPalette.textSecondary)
                             .lineLimit(5)
                     }
-                    StatePill(LocalizedStringKey(coach.isPreview ? "Sample records, no model inference" : availability.title),
-                              tone: availabilityTone, pulsing: availability == .checking)
+                    // The ready state is not announced; a pill appears only when something stands in the way.
+                    if coach.isPreview || availability != .available {
+                        StatePill(LocalizedStringKey(coach.isPreview ? "Sample records, no model inference" : availability.title),
+                                  tone: availabilityTone, pulsing: availability == .checking)
+                    }
                 }
                 if !coach.snapshot.metrics.isEmpty {
                     FlatSectionSeparator.coach
@@ -255,47 +257,43 @@ struct LocalCoachView: View {
         scaffoldPresentation == .standard && chromeVisibility == .visible && navigationRole == .root
     }
 
+    /// The NOOP bar, then one quiet COACH row: the tracked title with history, new chat and the menu as plain icons. No
+    /// status line and no rule under it: the state of Coach is explained where it matters, on the new-chat page and in
+    /// the note above the composer.
     private var header: some View {
         VStack(spacing: 0) {
             if showsAppChrome { AppHeaderChrome() }
-            VStack(alignment: .leading, spacing: 0) {
+            Group {
                 if showsAppChrome {
-                    NoopTabTitleRow("Coach") { headerActions }
+                    HStack(spacing: 0) {
+                        if screen != .chat { backToChat }
+                        NoopTabTitleRow("Coach") { headerActions }
+                    }
                 } else {
-                    NoopScreenHeader(title: "Coach", backAction: navigationRole == .detail ? { dismiss() } : nil,
+                    NoopScreenHeader(title: "Coach",
+                                     backAction: screen != .chat ? { show(.chat) } : (navigationRole == .detail ? { dismiss() } : nil),
                                      style: .compact) { headerActions }
                 }
-                // One fixed-height line on every page, so leaving the chat never moves the transcript or the page below.
-                HStack(spacing: 6) {
-                    Circle().fill(availability == .available ? StrandPalette.accent : StrandPalette.textTertiary)
-                        .frame(width: 5, height: 5).accessibilityHidden(true)
-                    Text(coach.isPreview ? "Synthetic preview" : availability.title)
-                        .font(StrandFont.micro).foregroundStyle(StrandPalette.textSecondary)
-                        .lineLimit(1)
-                    Spacer(minLength: 4)
-                    if screen != .chat {
-                        Button { show(.chat) } label: {
-                            WidgetChip(appTitle: "Chat", systemImage: "chevron.left", showsChevron: false, overhangs: false)
-                                .chipHitTarget()
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel(Text("Back to chat"))
-                        .accessibilityIdentifier("coach.tab.chat")
-                        .transition(.opacity)
-                    }
-                }
-                .frame(minHeight: 24)
-                .padding(.bottom, NoopMetrics.space3)
             }
             .padding(.horizontal, NoopMetrics.space4)
-            Rectangle().fill(StrandPalette.hairline).frame(height: 1).accessibilityHidden(true)
+            .padding(.bottom, NoopMetrics.space1)
         }
         .background(StrandPalette.appCanvas)
     }
 
-    /// History, a new thread and the menu as the #55 icon chips Trends' share button and main's Coach header use.
+    private var backToChat: some View {
+        Button { show(.chat) } label: {
+            headerIcon("chevron.left")
+        }
+        .buttonStyle(.plain)
+        .padding(.leading, -13)
+        .accessibilityLabel(Text("Back to chat"))
+        .accessibilityIdentifier("coach.tab.chat")
+    }
+
+    /// History, a new thread and the menu as plain icons: no chip behind them, a 44pt tap area each.
     private var headerActions: some View {
-        HStack(spacing: NoopMetrics.space2) {
+        HStack(spacing: 0) {
             Button { showLibrary = true } label: { headerIcon("clock.arrow.circlepath") }
                 .accessibilityLabel("Conversation history").accessibilityIdentifier("coach.history")
             Button(action: newConversation) { headerIcon("square.and.pencil") }
@@ -311,6 +309,8 @@ struct LocalCoachView: View {
             .accessibilityLabel("More Coach options").accessibilityIdentifier("coach.more")
         }
         .buttonStyle(.plain)
+        // The last icon's tap area reaches past its glyph; pull it back so the glyph sits on the content edge.
+        .padding(.trailing, -13)
     }
 
     /// Page changes cross-fade (no slide: the header and composer stay put), and are instant under Reduce Motion.
@@ -320,53 +320,68 @@ struct LocalCoachView: View {
     }
 
     private func headerIcon(_ symbol: String) -> some View {
-        WidgetChip(systemImage: symbol, showsChevron: false, overhangs: false)
-            .iconChipHitTarget()
+        Image(systemName: symbol)
+            .font(.system(size: 18, weight: .regular))
+            .foregroundStyle(StrandPalette.textSecondary)
+            .frame(width: 44, height: 44)
+            .contentShape(Rectangle())
     }
 
     @ViewBuilder private var statusNote: some View {
         if let error = inputError ?? voice.errorText ?? coach.errorText ?? LocalCoachIntentBridge.errorText {
             CoachNotice(error: error)
-                .padding(.horizontal, NoopMetrics.space4).padding(.vertical, NoopMetrics.space2)
+                .padding(.horizontal, NoopMetrics.space5).padding(.vertical, NoopMetrics.space2)
                 .accessibilityIdentifier("coach.error")
         } else if coach.recordsUpdating && (screen == .home || screen == .chat) {
             CoachNotice(text: Text("Your records are updating. General chat is available."), tone: .info)
-                .padding(.horizontal, NoopMetrics.space4).padding(.vertical, NoopMetrics.space2)
+                .padding(.horizontal, NoopMetrics.space5).padding(.vertical, NoopMetrics.space2)
                 .accessibilityIdentifier("coach.recordsUpdating")
+        } else if screen == .chat, !coach.messages.isEmpty, availability != .available {
+            // The new-chat page explains the state in its greeting; a thread that already has turns says it here.
+            CoachNotice(text: Text(LocalizedStringKey(availability.title)),
+                        tone: availability == .checking ? .info : .warning)
+                .padding(.horizontal, NoopMetrics.space5).padding(.vertical, NoopMetrics.space2)
+                .accessibilityIdentifier("coach.availabilityNote")
         }
     }
 
+    /// The floating composer: a 54pt pill on the raised surface with a hairline, the actions menu as a "+" circle on
+    /// the left, dictation and send on the right. Send is white with a dark arrow once there is something to send.
     private var composerView: some View {
         VStack(alignment: .leading, spacing: NoopMetrics.space2) {
             if voice.isRecording || voice.isStarting {
                 Label(voice.isStarting ? "Preparing on-device dictation" : "Listening on this iPhone", systemImage: "waveform")
                     .font(StrandFont.caption).foregroundStyle(StrandPalette.accent)
+                    .padding(.horizontal, NoopMetrics.space2)
             }
             if attachmentTask != nil {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
                     Text("Reading workout text on this iPhone").font(StrandFont.caption)
-                }.foregroundStyle(StrandPalette.textSecondary)
+                }
+                .foregroundStyle(StrandPalette.textSecondary)
+                .padding(.horizontal, NoopMetrics.space2)
             }
             if visible && LocalCoachIntentBridge.hasPendingRequest {
                 Button("Load next Siri question", systemImage: "waveform", action: consumeSiriDraft)
                     .font(StrandFont.caption).frame(minHeight: 44)
+                    .padding(.horizontal, NoopMetrics.space2)
                     .disabled(!composer.isEmpty || coach.isResponding)
             }
             HStack(alignment: .bottom, spacing: 0) {
                 attachmentMenu
-                TextField("Ask about your training…", text: $composer, axis: .vertical)
-                    .font(StrandFont.body).lineLimit(1...6)
-                    .padding(.vertical, 13).padding(.leading, 2)
+                TextField(coach.messages.isEmpty ? "Ask Coach" : "Ask a follow-up", text: $composer, axis: .vertical)
+                    .coachFont(17, .regular, relativeTo: .body).lineLimit(1...6)
+                    .padding(.vertical, 15).padding(.horizontal, 4)
                     .focused($composerFocused).submitLabel(.send)
                     .onSubmit { if !coach.isResponding { submit(composer) } }
                     .disabled(voice.isRecording || voice.isStarting)
                     .accessibilityIdentifier("coach.composer")
                 Button(action: toggleDictation) {
                     Image(systemName: voice.isRecording ? "waveform" : "mic")
-                        .font(.system(size: 18, weight: .regular))
+                        .font(.system(size: 19, weight: .regular))
                         .foregroundStyle(voice.isRecording ? StrandPalette.accent : StrandPalette.textSecondary)
-                        .frame(width: 44, height: 48).contentShape(Rectangle())
+                        .frame(width: 44, height: Self.composerHeight).contentShape(Rectangle())
                 }
                 .disabled(!coach.preferences.enabled || coach.isResponding)
                 .accessibilityLabel(voice.isRecording ? "Stop dictation" : "Dictate a question")
@@ -375,37 +390,32 @@ struct LocalCoachView: View {
                     if coach.isResponding { coach.cancel() } else { submit(composer) }
                 } label: {
                     Image(systemName: coach.isResponding ? "stop.fill" : "arrow.up")
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(canSend ? StrandPalette.onInk : StrandPalette.textTertiary)
-                        .frame(width: 34, height: 34)
-                        .background(canSend ? StrandPalette.ink : StrandPalette.inset, in: Circle())
-                        .frame(width: 46, height: 48).contentShape(Rectangle())
+                        .frame(width: 36, height: 36)
+                        .background(Circle().fill(canSend ? StrandPalette.textPrimary : StrandPalette.inset))
+                        .overlay(Circle().fill(canSend ? Color.clear : StrandPalette.chipFill))
+                        .frame(width: 44, height: Self.composerHeight).contentShape(Rectangle())
                 }
                 .disabled(!canSend)
                 .accessibilityLabel(coach.isResponding ? "Stop response" : "Send message")
                 .accessibilityIdentifier("coach.send")
             }
-            .background(StrandPalette.chipFill, in: RoundedRectangle(cornerRadius: NoopMetrics.radius5, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: NoopMetrics.radius5, style: .continuous)
-                .strokeBorder(composerFocused ? StrandPalette.hairlineStrong : StrandPalette.hairline, lineWidth: 1))
+            .padding(.horizontal, 5)
+            .background(RoundedRectangle(cornerRadius: 27, style: .continuous).fill(StrandPalette.inset))
+            .overlay(RoundedRectangle(cornerRadius: 27, style: .continuous)
+                .strokeBorder(StrandPalette.hairlineStrong, lineWidth: 1))
+            .shadow(color: StrandPalette.appCanvas.opacity(0.9), radius: 15, x: 0, y: -5)
             .animation(.easeOut(duration: 0.16), value: composerFocused)
-            // The privacy line is reassurance, not a control: it gives its room to the transcript while typing and at
-            // accessibility sizes, where it would wrap to two lines under the field.
-            if !composerFocused && !typeSize.isAccessibilitySize {
-                HStack(spacing: 5) {
-                    Image(systemName: "lock.fill").font(.system(size: 9)).accessibilityHidden(true)
-                    Text("On this iPhone · You control what Coach can read").lineLimit(1)
-                }
-                .font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
-                .frame(maxWidth: .infinity, alignment: .center)
-                .transition(.opacity)
-            }
         }
         .buttonStyle(.plain)
-        .padding(.horizontal, NoopMetrics.space4)
-        .padding(.top, NoopMetrics.space3).padding(.bottom, NoopMetrics.space2)
+        .padding(.horizontal, 14)
+        .padding(.top, NoopMetrics.space2).padding(.bottom, NoopMetrics.space2)
         .background(StrandPalette.appCanvas)
     }
+
+    /// The pill is 54pt at rest and grows with its text and with Dynamic Type; its buttons ride the bottom row.
+    private static let composerHeight: CGFloat = 54
 
     private var canSend: Bool { coach.isResponding || !composer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
 
@@ -423,8 +433,11 @@ struct LocalCoachView: View {
             if voice.isSpeaking { Button("Stop reading aloud", systemImage: "speaker.slash") { voice.stopSpeaking() } }
         } label: {
             Image(systemName: "plus").font(.system(size: 19, weight: .regular))
-                .foregroundStyle(StrandPalette.textSecondary)
-                .frame(width: 44, height: 48).contentShape(Rectangle())
+                .foregroundStyle(StrandPalette.textPrimary.opacity(0.85))
+                .frame(width: 36, height: 36)
+                .background(Circle().fill(StrandPalette.inset))
+                .overlay(Circle().fill(StrandPalette.chipFill))
+                .frame(width: 44, height: Self.composerHeight).contentShape(Rectangle())
         }
         .accessibilityLabel("Coach actions")
     }
@@ -545,18 +558,42 @@ struct LocalCoachFixtureLabel: View {
 }
 
 #if DEBUG
+/// An answer being written, in its real place in the transcript: the question, then the one shimmering line. Fixture
+/// messages only; the engine, the model and the records are not involved.
+private struct CoachProgressChatFixture: View {
+    private let question = LocalCoachMessage(role: .user, text: "How did I sleep this week?")
+    private let reply = LocalCoachMessage(role: .assistant, text: "")
+
+    var body: some View {
+        CoachConversationView(
+            messages: [question, reply], activeMessageID: reply.id,
+            progress: .reading(tool: "sleep_history", days: 7), isPreview: true,
+            snapshot: .empty, hasConsent: true, availability: .available,
+            onAsk: { _ in }, onEdit: { _ in }, onRetry: {}, onSpeak: { _ in }, onStop: {},
+            onSettings: {}, onWorkouts: {}, onPlan: {})
+            .background(StrandPalette.appCanvas.ignoresSafeArea())
+    }
+}
+
 struct LocalCoachPreviewHost: View {
     @StateObject private var coach: LocalCoachEngine
     private let screen: String
     init(screen: String) {
         self.screen = screen
-        _coach = StateObject(wrappedValue: LocalCoachEngine.preview(screen: screen))
+        let engine = LocalCoachEngine.preview(screen: screen)
+        // `welcome` is the new-chat page with the sample record values behind its pills: the same fixture with the
+        // sample thread cleared.
+        if screen == "welcome" || screen == "welcome-access" { engine.newConversation() }
+        // `welcome-access` is the same page with record access off: the quiet "Choose what Coach can read" row.
+        if screen == "welcome-access" { engine.preferences.usePersonalData = false }
+        _coach = StateObject(wrappedValue: engine)
     }
     var body: some View {
         NavigationStack {
             if screen == "devicecheck" { LocalCoachDeviceCheckView().coachSettingsSheetEnvironment() }
             else if screen == "diagnostics" { LocalCoachDiagnosticsView().coachSettingsSheetEnvironment() }
             else if screen == "progress" { CoachProgressGallery() }
+            else if screen == "chat-progress" { CoachProgressChatFixture() }
             else { LocalCoachView(screen: LocalCoachScreen(rawValue: screen) ?? .chat) }
         }
         .environmentObject(coach)
