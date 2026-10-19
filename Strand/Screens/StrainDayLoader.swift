@@ -126,10 +126,13 @@ final class StrainDayCache {
 @MainActor
 enum StrainDayLoader {
     /// The pass for `request`, from the cache when it is fresh. nil when the repository has not loaded, or when the
-    /// calling task is cancelled before the work finishes (nothing is cached then).
-    static func load(_ request: StrainDayRequest, repo: Repository, now: Date = Date()) async -> StrainDayResult? {
+    /// calling task is cancelled before the work finishes (nothing is cached then). `useCache: false` neither reads
+    /// nor writes the screen's cache: Strength Strain's settle reads a day's parts this way, so its passes (made
+    /// without the day's lift loads) never stand in for the screen's.
+    static func load(_ request: StrainDayRequest, repo: Repository, now: Date = Date(),
+                     useCache: Bool = true) async -> StrainDayResult? {
         let cache = StrainDayCache.shared
-        if let hit = cache.entry(for: request.dayKey), cache.isFresh(hit, for: request, now: now) {
+        if useCache, let hit = cache.entry(for: request.dayKey), cache.isFresh(hit, for: request, now: now) {
             return hit.result
         }
         guard repo.loaded else { return nil }
@@ -233,7 +236,7 @@ enum StrainDayLoader {
             wake: window.wake.map { Date(timeIntervalSince1970: TimeInterval($0)) },
             cycleStart: start, end: end, sampleCount: samples.count,
             steps: steps, sleepMinutes: request.sleepMinutes)
-        cache.store(result, for: request, now: now)
+        if useCache { cache.store(result, for: request, now: now) }
         #if DEBUG
         func ms(_ from: DispatchTime, _ to: DispatchTime) -> Double {
             Double(to.uptimeNanoseconds - from.uptimeNanoseconds) / 1_000_000

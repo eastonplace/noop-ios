@@ -1013,7 +1013,8 @@ final class Repository: ObservableObject {
 
     func importedStrain(for day: String) -> ResolvedStrain? { importedStrainByDay[day] }
 
-    /// The live day's stored Strain with the day's logged sets added (Strength Strain, A7). With the day's parts the
+    /// The live day's stored Strain with the day's logged sets added (Strength Strain, A7). It is the same day combine
+    /// the stored settle and the day detail use (`StrengthStrainIntegration.dayCombine`): with the day's parts the
     /// sets join the cardio part and the step and energy floors stay max-combined
     /// (`max(floors, combine(cardio, M))`); the stored-score inversion is the documented fallback for a score whose
     /// parts are missing or are not the score being combined. No lifts leaves `heartRateStored` bit for bit.
@@ -1022,12 +1023,14 @@ final class Repository: ObservableObject {
     ) -> Double {
         let muscular = StrengthStrain.dayMuscularLoad(liftLoads)
         guard muscular > 0 else { return heartRateStored }
-        if let components, let score = components.score, score.bitPattern == heartRateStored.bitPattern,
-           let combined = StrengthStrain.combineDay(components: components, muscularLoad: muscular) {
-            return combined
-        }
-        return StrengthStrain.combine(hrStored: heartRateStored, muscularLoad: muscular)
+        return StrengthStrainIntegration.dayCombine(
+            hrStored: heartRateStored, muscularLoad: muscular, components: components)
     }
+
+    /// Set by the primary engine: loads the parts (cardio, step and energy floors) of logical days into a combiner,
+    /// so a settle that runs outside the engine (a Workouts-tab re-key) combines days the way the engine's does.
+    /// Nil leaves days to the stored-score inversion.
+    var liftStrainDayPartsLoader: (@MainActor (_ days: [String], _ combiner: StrengthStrainDayCombiner) async -> Void)?
 
     /// Drops every cache keyed on `refreshSeq` after Strength Strain's backfill changed stored Strain. A backfill can
     /// touch only days older than the 30-day dashboard window, which no dashboard refresh diff sees, so Today's
@@ -4891,14 +4894,28 @@ final class Repository: ObservableObject {
             // logged sets, the new row gets the heart-rate value first, so sets never stay inside a value labelled
             // heart rate, and both the old and the new day are settled before the transaction ends. Only if that
             // fails does the older delete-then-upsert path run.
+            let newDayKey = Self.logicalDayKey(Date(timeIntervalSince1970: TimeInterval(row.startTs)))
+            let oldDayKey = Self.logicalDayKey(Date(timeIntervalSince1970: TimeInterval(old.startTs)))
+            // Both days are settled with the day combine that knows the days' parts (A7), so a floor-dominated day
+            // gets the value the live score and the day detail show.
+            let combiner = StrengthStrainDayCombiner()
+            await liftStrainDayPartsLoader?([newDayKey, oldDayKey], combiner)
             let settle = LiftStrainRekeySettle(
                 canonicalComputedDeviceId: canonicalComputedId,
-                newDayKey: Self.logicalDayKey(Date(timeIntervalSince1970: TimeInterval(row.startTs))),
-                oldDayKey: Self.logicalDayKey(Date(timeIntervalSince1970: TimeInterval(old.startTs))),
+                newDayKey: newDayKey, oldDayKey: oldDayKey,
                 now: Int(Date().timeIntervalSince1970),
-                combine: StrengthStrainIntegration.combine)
+                combine: StrengthStrainIntegration.combine, dayCombine: combiner.dayCombine)
             if (try? await store.rekeyManualWorkout(deviceId: deviceId, old: old, new: row, settle: settle)) != nil {
                 rekeyed = true
+                // Any other day the settle reached whose parts were not loaded is settled again with its parts.
+                let missed = combiner.missedDays
+                if !missed.isEmpty, let loader = liftStrainDayPartsLoader {
+                    await loader(missed, combiner)
+                    _ = try? await store.applyLiftStrain(
+                        canonicalComputedDeviceId: canonicalComputedId, now: Int(Date().timeIntervalSince1970),
+                        combine: StrengthStrainIntegration.combine, dayCombine: combiner.dayCombine,
+                        extraDayKeys: missed)
+                }
                 NotificationCenter.default.post(name: .liftStrainDidChange, object: nil)
             } else {
                 _ = try? await store.deleteWorkouts(deviceId: deviceId, sport: old.sport,

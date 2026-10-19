@@ -22,6 +22,12 @@ import GRDB
 /// depend on StrandAnalytics.
 public typealias LiftStrainCombine = @Sendable (_ hrStored: Double, _ muscularLoad: Double) -> Double
 
+/// The day-level counterpart of ``LiftStrainCombine`` (A7): combines a day's heart-rate-only stored Strain with the
+/// day's muscular load, and may know the day's parts (cardio, step and energy floors) so the floors stay
+/// max-combined. `day` is the logical day key. Called inside the settle transaction: it must be synchronous and
+/// must not touch the store. When absent the day settle uses ``LiftStrainCombine``, the stored-score inversion.
+public typealias LiftStrainDayCombine = @Sendable (_ day: String, _ hrStored: Double, _ muscularLoad: Double) -> Double
+
 public enum LiftStrainRowState: String, Sendable, Codable {
     /// Computed, never applied.
     case pending
@@ -271,14 +277,17 @@ public struct LiftStrainRekeySettle: Sendable {
     public let oldDayKey: String?
     public let now: Int
     public let combine: LiftStrainCombine
+    /// The day combine, when the caller knows the days' parts. Nil settles days with `combine`.
+    public let dayCombine: LiftStrainDayCombine?
 
     public init(canonicalComputedDeviceId: String, newDayKey: String, oldDayKey: String? = nil, now: Int,
-                combine: @escaping LiftStrainCombine) {
+                combine: @escaping LiftStrainCombine, dayCombine: LiftStrainDayCombine? = nil) {
         self.canonicalComputedDeviceId = canonicalComputedDeviceId
         self.newDayKey = newDayKey
         self.oldDayKey = oldDayKey
         self.now = now
         self.combine = combine
+        self.dayCombine = dayCombine
     }
 }
 
@@ -475,12 +484,35 @@ extension WhoopStore {
 
     /// Visits every dirty lift row and day, in one transaction. Idempotent: a second call with nothing new
     /// changes nothing.
+    ///
+    /// `extraDayKeys` forces those days through the day settle even when no row of theirs is dirty; the settle is
+    /// still idempotent, so a day whose value does not change is not written. `dayCombine` is the components-aware
+    /// day combine (A7); nil uses `combine` for days too.
     public func applyLiftStrain(canonicalComputedDeviceId: String, now: Int,
-                                combine: @escaping LiftStrainCombine) async throws -> LiftStrainApplyResult {
+                                combine: @escaping LiftStrainCombine,
+                                dayCombine: LiftStrainDayCombine? = nil,
+                                extraDayKeys: [String] = []) async throws -> LiftStrainApplyResult {
         try syncWrite { db in
             try Self.applyLiftStrainInTransaction(
                 db: db, canonicalComputedDeviceId: canonicalComputedDeviceId, visit: .dirty,
-                extraDayKeys: [], now: now, combine: combine)
+                extraDayKeys: extraDayKeys, now: now, combine: combine, dayCombine: dayCombine)
+        }
+    }
+
+    /// The logical days an apply with these inputs may settle: the days of the rows it would visit, the extra days
+    /// and the days step C would pick. A superset of the days it writes, read without writing anything, so the
+    /// caller can gather each day's parts before the (synchronous) settle transaction runs.
+    public func liftStrainSettleDays(canonicalComputedDeviceId: String,
+                                     extraDayKeys: [String] = []) async throws -> [String] {
+        try syncRead { db in
+            let disabled = try Self.liftStrainIsDisabled(db)
+            var days = Set(extraDayKeys)
+            for row in try Self.liftStrainRowsToVisit(db: db, visit: .dirty, disabled: disabled) {
+                days.insert(row.dayKey)
+            }
+            try Self.collectLiftStrainDays(
+                db: db, canonical: canonicalComputedDeviceId, disabled: disabled, into: &days)
+            return days.sorted()
         }
     }
 
@@ -504,7 +536,8 @@ extension WhoopStore {
         chunk: LiftStrainChunkInput,
         jobKey: String,
         now: Int,
-        combine: @escaping LiftStrainCombine
+        combine: @escaping LiftStrainCombine,
+        dayCombine: LiftStrainDayCombine? = nil
     ) async throws -> LiftStrainApplyResult {
         guard !sourceOwner.deviceId.isEmpty else { throw LiftReceiptStateError.emptyDeviceId }
         return try syncWrite { db in
@@ -513,7 +546,7 @@ extension WhoopStore {
             let result = try Self.applyLiftStrainInTransaction(
                 db: db, canonicalComputedDeviceId: canonicalComputedDeviceId,
                 visit: .sessions(deviceId: sourceOwner.deviceId, ids: chunk.rows.map(\.liftSessionId)),
-                extraDayKeys: chunk.dayKeys, now: now, combine: combine)
+                extraDayKeys: chunk.dayKeys, now: now, combine: combine, dayCombine: dayCombine)
             try db.execute(sql: """
                 UPDATE liftStrainJob
                    SET cursorDay = ?, liftsApplied = liftsApplied + ?, liftsSkipped = liftsSkipped + ?,
@@ -711,7 +744,8 @@ extension WhoopStore {
             if let oldDay = settle.oldDayKey { days.insert(oldDay) }
             return try Self.applyLiftStrainInTransaction(
                 db: db, canonicalComputedDeviceId: settle.canonicalComputedDeviceId, visit: .dirty,
-                extraDayKeys: days.sorted(), now: settle.now, combine: settle.combine)
+                extraDayKeys: days.sorted(), now: settle.now, combine: settle.combine,
+                dayCombine: settle.dayCombine)
         }
     }
 
@@ -780,7 +814,8 @@ extension WhoopStore {
         visit: LiftStrainVisit,
         extraDayKeys: [String],
         now: Int,
-        combine: LiftStrainCombine
+        combine: LiftStrainCombine,
+        dayCombine: LiftStrainDayCombine? = nil
     ) throws -> LiftStrainApplyResult {
         var result = LiftStrainApplyResult()
         let disabled = try liftStrainIsDisabled(db)
@@ -807,7 +842,7 @@ extension WhoopStore {
         // Step D: settle each day.
         for day in dayKeys.sorted() {
             try settleLiftStrainDay(db: db, day: day, canonical: canonicalComputedDeviceId, disabled: disabled,
-                                    now: now, combine: combine, result: &result)
+                                    now: now, combine: combine, dayCombine: dayCombine, result: &result)
         }
         return result
     }
@@ -1082,7 +1117,7 @@ extension WhoopStore {
     /// Step D for one logical day.
     private static func settleLiftStrainDay(
         db: Database, day: String, canonical: String, disabled: Bool, now: Int, combine: LiftStrainCombine,
-        result: inout LiftStrainApplyResult
+        dayCombine: LiftStrainDayCombine?, result: inout LiftStrainApplyResult
     ) throws {
         // M_day is per user, not per owner: every owner's applied lifts on the day, smallest first.
         let mDay: Double = disabled ? 0 : LiftStrainBits.dayLoad(try Double.fetchAll(db, sql: """
@@ -1127,7 +1162,7 @@ extension WhoopStore {
             var stored = current
             if current.version == 2, let base {
                 load = mDay
-                let target = mDay > 0 ? combine(base, mDay) : base
+                let target = mDay > 0 ? (dayCombine?(day, base, mDay) ?? combine(base, mDay)) : base
                 if !LiftStrainBits.same(target, current.strain) {
                     try db.execute(sql: """
                         UPDATE dailyMetric SET strain = ?, strainVersion = 2

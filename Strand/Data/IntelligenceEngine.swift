@@ -35,12 +35,97 @@ final class IntelligenceEngine: ObservableObject {
     private var strengthBackfillRunning = false
     private(set) var strengthBackfillDone = false
 
+    // MARK: Day parts for the day settle (A7)
+
+    /// Test seam: supplies a day's parts instead of rebuilding them from the day's readings.
+    var liftStrainDayPartsForTesting: (@MainActor (String) async -> StrainScorerV2.DayStrainComponents?)?
+
+    private struct DayPartsKey: Hashable {
+        let day: String
+        let storedBits: UInt64?
+        let steps: Int?
+        let sleepBits: UInt64?
+        let restingBits: UInt64
+        let maxHRBits: UInt64
+        let ticksBits: UInt64
+        let isToday: Bool
+    }
+
+    private struct DayPartsEntry { let parts: StrainScorerV2.DayStrainComponents? }
+
+    /// The parts rebuilt for a settle, keyed by every input that shapes them (the stored score included), so a later
+    /// pass over unchanged days reads no readings.
+    private var dayPartsCache: [DayPartsKey: DayPartsEntry] = [:]
+
+    private static func logicalStart(ofDayKey dayKey: String, calendar: Calendar = .current) -> Date? {
+        let parts = dayKey.split(separator: "-").compactMap { Int($0) }
+        guard parts.count == 3 else { return nil }
+        return calendar.date(from: DateComponents(year: parts[0], month: parts[1], day: parts[2]))
+    }
+
+    /// One day's heart-rate-only parts (cardio, step and energy floors), rebuilt the way the day detail rebuilds them
+    /// from the day's readings. Nil when the day has no computed row or no parts, which leaves the day to the
+    /// stored-score inversion.
+    private func liftStrainDayParts(day: String) async -> StrainScorerV2.DayStrainComponents? {
+        if let seam = liftStrainDayPartsForTesting { return await seam(day) }
+        guard let start = Self.logicalStart(ofDayKey: day), let basis = await repo.computedDailyMetric(day: day)
+        else { return nil }
+        let isToday = day == Repository.logicalDayKey(Date())
+        let maxHR = isToday ? Double(profile.hrMax) : profile.hrMaxForBatchScoring
+        let resting = basis.restingHr.map(Double.init) ?? StrainScorerV2.defaultRestingHR
+        let key = DayPartsKey(
+            day: day, storedBits: basis.strain?.bitPattern, steps: basis.steps,
+            sleepBits: basis.totalSleepMin?.bitPattern, restingBits: resting.bitPattern,
+            maxHRBits: maxHR.bitPattern, ticksBits: profile.stepTicksPerStep.bitPattern, isToday: isToday)
+        if let hit = dayPartsCache[key] { return hit.parts }
+        let request = StrainDayRequest(
+            dayKey: day, logicalStart: start, isToday: isToday, maxHR: maxHR, restingHR: resting,
+            steps: basis.steps, stepTicksPerStep: profile.stepTicksPerStep, sleepMinutes: basis.totalSleepMin,
+            heroTenths: nil, refreshSeq: repo.refreshSeq)
+        let parts = await StrainDayLoader.load(request, repo: repo, useCache: false)?.analysis.components
+        if dayPartsCache.count >= 64 { dayPartsCache.removeAll() }
+        dayPartsCache[key] = DayPartsEntry(parts: parts)
+        return parts
+    }
+
+    /// Loads the parts of `days` into `combiner` (the Repository's re-key settle goes through this too).
+    func loadLiftStrainDayParts(_ days: [String], into combiner: StrengthStrainDayCombiner) async {
+        await combiner.load(days) { [self] day in await liftStrainDayParts(day: day) }
+    }
+
+    /// Runs one apply with a day combine that knows the parts of the days it will settle. The days are listed first
+    /// (read only), their parts gathered, then `run` applies. A day the settle reached that was not listed is settled
+    /// again once its parts are loaded; the settle is idempotent from the heart-rate value, so the re-run writes only
+    /// the days whose value changes. A day with no parts is settled by the stored-score inversion (documented).
+    private func applyLiftStrain(
+        store: WhoopStore, extraDayKeys: [String] = [],
+        run: (_ dayCombine: @escaping LiftStrainDayCombine) async throws -> LiftStrainApplyResult
+    ) async throws -> LiftStrainApplyResult {
+        let canonical = deviceId + "-noop"
+        let combiner = StrengthStrainDayCombiner()
+        let days = (try? await store.liftStrainSettleDays(
+            canonicalComputedDeviceId: canonical, extraDayKeys: extraDayKeys)) ?? extraDayKeys
+        await loadLiftStrainDayParts(days, into: combiner)
+        var result = try await run(combiner.dayCombine)
+        let missed = combiner.missedDays
+        if !missed.isEmpty {
+            await loadLiftStrainDayParts(missed, into: combiner)
+            let again = try await store.applyLiftStrain(
+                canonicalComputedDeviceId: canonical, now: Int(Date().timeIntervalSince1970),
+                combine: StrengthStrainIntegration.combine, dayCombine: combiner.dayCombine, extraDayKeys: missed)
+            result.add(again)
+        }
+        return result
+    }
+
     /// In-pass apply: called while `computing == true`. Returns the workout and day writes.
     private func applyLiftStrainInPass(store: WhoopStore) async -> Int {
         do {
-            let r = try await store.applyLiftStrain(
-                canonicalComputedDeviceId: deviceId + "-noop", now: Int(Date().timeIntervalSince1970),
-                combine: StrengthStrainIntegration.combine)
+            let r = try await applyLiftStrain(store: store) { dayCombine in
+                try await store.applyLiftStrain(
+                    canonicalComputedDeviceId: deviceId + "-noop", now: Int(Date().timeIntervalSince1970),
+                    combine: StrengthStrainIntegration.combine, dayCombine: dayCombine)
+            }
             let writes = r.workoutWrites + r.dayWrites
             if writes > 0 { NotificationCenter.default.post(name: .liftStrainDidChange, object: nil) }
             return writes
@@ -77,9 +162,11 @@ final class IntelligenceEngine: ObservableObject {
         guard isPrimary, !computing, let store = await repo.storeHandle() else { return nil }
         let result: LiftStrainApplyResult
         do {
-            result = try await store.applyLiftStrain(
-                canonicalComputedDeviceId: deviceId + "-noop", now: Int(Date().timeIntervalSince1970),
-                combine: StrengthStrainIntegration.combine)
+            result = try await applyLiftStrain(store: store) { dayCombine in
+                try await store.applyLiftStrain(
+                    canonicalComputedDeviceId: deviceId + "-noop", now: Int(Date().timeIntervalSince1970),
+                    combine: StrengthStrainIntegration.combine, dayCombine: dayCombine)
+            }
         } catch {
             NSLog("[strength-strain] settle failed: %@", "\(error)")
             return nil
@@ -165,9 +252,12 @@ final class IntelligenceEngine: ObservableObject {
                     computing = true
                     let result: LiftStrainApplyResult?
                     do {
-                        result = try await store.applyLiftStrainBackfillChunk(
-                            sourceOwner: scope, canonicalComputedDeviceId: canonical, chunk: chunk, jobKey: jobKey,
-                            now: Int(Date().timeIntervalSince1970), combine: StrengthStrainIntegration.combine)
+                        result = try await applyLiftStrain(store: store, extraDayKeys: chunk.dayKeys) { dayCombine in
+                            try await store.applyLiftStrainBackfillChunk(
+                                sourceOwner: scope, canonicalComputedDeviceId: canonical, chunk: chunk, jobKey: jobKey,
+                                now: Int(Date().timeIntervalSince1970), combine: StrengthStrainIntegration.combine,
+                                dayCombine: dayCombine)
+                        }
                     } catch {
                         NSLog("[strength-strain] backfill chunk failed for %@: %@", owner, "\(error)")
                         result = nil
@@ -666,6 +756,11 @@ final class IntelligenceEngine: ObservableObject {
 
     init(repo: Repository, profile: ProfileStore, deviceId: String, isPrimary: Bool = false) {
         self.repo = repo; self.profile = profile; self.deviceId = deviceId; self.isPrimary = isPrimary
+        if isPrimary {
+            repo.liftStrainDayPartsLoader = { [weak self] days, combiner in
+                await self?.loadLiftStrainDayParts(days, into: combiner)
+            }
+        }
     }
 
     /// Apply the user's pre-sleep-feedback consent boundary. Enabling forces a fresh normal scan.

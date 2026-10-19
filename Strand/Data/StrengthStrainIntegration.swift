@@ -105,12 +105,92 @@ enum StrengthStrainIntegration {
         return text
     }
 
-    // MARK: Day settle without components (stored-score inversion, A7)
+    // MARK: Day combine (A7): one function for the stored value and the shown value
 
-    /// The documented fallback for a stored day score whose parts are not stored: the whole score is treated as
-    /// heart-rate load. The live accumulator and the day detail use `StrengthStrain.combineDay` with the parts.
+    /// The most a day's parts may differ from the heart-rate-only score they are combined for (display scale) and
+    /// still be that score. Equal to the day detail's agreement tolerance.
+    static let dayPartsTolerance = 0.05
+
+    /// A day's heart-rate-only stored score with the day's muscular load added. With the day's parts it is
+    /// `max(step floor, energy floor, combine(cardio, M))`; without parts, or with parts that are not this score
+    /// (they differ by more than ``dayPartsTolerance``), the whole score is treated as heart-rate load
+    /// (`StrengthStrain.combine`), the documented stored-score inversion. The stored settle, the live day Strain and
+    /// the day detail all call this, so the three agree. The parts are anchored to `hrStored`, so a day whose parts
+    /// were rebuilt from the readings (equal to the stored score within a rounding) still combines from the stored bits.
+    static func dayCombine(hrStored h: Double, muscularLoad m: Double,
+                           components: StrainScorerV2.DayStrainComponents?) -> Double {
+        if let components, let score = components.score, h.isFinite,
+           abs(StrainScorerV2.displayValue(fromStored: score) - StrainScorerV2.displayValue(fromStored: h))
+               <= dayPartsTolerance {
+            let anchored = StrainScorerV2.DayStrainComponents(
+                cardio: components.cardio, steps: components.steps, energy: components.energy,
+                score: h, dominant: components.dominant)
+            if let combined = StrengthStrain.combineDay(components: anchored, muscularLoad: m) { return combined }
+        }
+        return StrengthStrain.combine(hrStored: h, muscularLoad: m)
+    }
+
+    /// The stored-score inversion for a day whose parts are not known, with the day's per-lift loads.
     static func settledDay(hrStored: Double, loads: [Double]) -> Double {
         StrengthStrain.combine(hrStored: hrStored, muscularLoad: StrengthStrain.dayMuscularLoad(loads))
+    }
+}
+
+/// Holds the parts of the days a settle will combine, and hands the store a synchronous day combine over them
+/// (the store calls it inside its write transaction, so it cannot read anything itself). A day whose parts were
+/// never looked for is recorded as missed, so the caller can load it and settle that day again.
+final class StrengthStrainDayCombiner: @unchecked Sendable {
+    private let lock = NSLock()
+    private var parts: [String: StrainScorerV2.DayStrainComponents] = [:]
+    private var attempted: Set<String> = []
+    private var missed: Set<String> = []
+
+    /// Looks up each day not yet attempted with `parts` (nil is a final answer: the day has no usable parts).
+    @MainActor
+    func load(_ days: [String], using parts: (String) async -> StrainScorerV2.DayStrainComponents?) async {
+        for day in Set(days).sorted() {
+            let known = locked { attempted.contains(day) }
+            if known { continue }
+            let found = await parts(day)
+            locked {
+                attempted.insert(day)
+                missed.remove(day)
+                self.parts[day] = found
+            }
+        }
+    }
+
+    /// Days the store asked about that were never loaded.
+    var missedDays: [String] { locked { missed.sorted() } }
+
+    var dayCombine: LiftStrainDayCombine {
+        { [self] day, hrStored, muscularLoad in
+            let components: StrainScorerV2.DayStrainComponents? = locked {
+                if !attempted.contains(day) { missed.insert(day) }
+                return parts[day]
+            }
+            return StrengthStrainIntegration.dayCombine(
+                hrStored: hrStored, muscularLoad: muscularLoad, components: components)
+        }
+    }
+
+    private func locked<T>(_ body: () -> T) -> T {
+        lock.lock()
+        defer { lock.unlock() }
+        return body()
+    }
+}
+
+extension LiftStrainApplyResult {
+    /// The sum of two applies (a settle and the follow-up settle of the days it missed).
+    mutating func add(_ other: LiftStrainApplyResult) {
+        rowsVisited += other.rowsVisited
+        workoutWrites += other.workoutWrites
+        dayWrites += other.dayWrites
+        applied += other.applied
+        notScored += other.notScored
+        detached += other.detached
+        conflicts += other.conflicts
     }
 }
 

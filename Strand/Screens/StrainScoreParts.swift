@@ -37,7 +37,10 @@ struct StrainScoreParts: Equatable {
                      liftLoad: Double = 0) -> StrainScoreParts? {
         guard let score = components.score else { return nil }
         let load = usable(liftLoad)
-        let combinedScore = load > 0 ? (StrengthStrain.combineDay(components: components, muscularLoad: load) ?? score) : score
+        // The same day combine the stored settle and the live score use (A7).
+        let combinedScore = load > 0
+            ? StrengthStrainIntegration.dayCombine(hrStored: score, muscularLoad: load, components: components)
+            : score
         let agrees = hero.map { abs(StrainScale.displayValue(fromStored: combinedScore) - $0) <= agreementTolerance } ?? false
         let dominant = Self.dominant(components, liftLoad: load)
         func row(_ kind: StrainScoreRow.Kind, _ value: Double?) -> StrainScoreRow {

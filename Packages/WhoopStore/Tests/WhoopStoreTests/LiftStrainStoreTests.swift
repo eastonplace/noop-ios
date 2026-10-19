@@ -1216,4 +1216,89 @@ final class LiftStrainStoreTests: XCTestCase {
         XCTAssertNil(original.replacingStrain(nil).strain)
         XCTAssertEqual(original.replacingStrain(10), original)
     }
+
+    // MARK: Day combine with parts (A7)
+
+    func testDayCombineReplacesTheInversionForTheDayOnly() async throws {
+        let store = try await newStore()
+        try await seedBasicLift(store)
+        // A components-aware day combine that is visibly different from the fake `combine`.
+        let dayCombine: LiftStrainDayCombine = { day, h, m in day == "2026-07-17" ? h + 7 + m : -1 }
+        _ = try await store.applyLiftStrain(
+            canonicalComputedDeviceId: canonical, now: 1_000, combine: combine, dayCombine: dayCombine)
+        // The workout still uses `combine` (30 + 2 * 10); the day uses `dayCombine` (40 + 7 + 10).
+        let workoutBits = try await workoutPair(store, startA)
+        let dayBits = try await dayPair(store, dayA)
+        XCTAssertEqual(workoutBits, Pair(50, 2))
+        XCTAssertEqual(dayBits, Pair(57, 2))
+        let target = try await rows(store, "SELECT hrOnlyStrain, writtenStrain FROM liftStrainTarget WHERE kind = 'day'")
+        XCTAssertEqual(target.first?["hrOnlyStrain"] as Double?, 40)
+        XCTAssertEqual(target.first?["writtenStrain"] as Double?, 57)
+    }
+
+    func testDayCombineMatchesTheInversionWhenAbsent() async throws {
+        let store = try await newStore()
+        try await seedBasicLift(store)
+        _ = try await apply(store)
+        let dayBits = try await dayPair(store, dayA)
+        XCTAssertEqual(dayBits, Pair(60, 2), "no dayCombine: the day settles with `combine` (40 + 2 * 10)")
+    }
+
+    func testExtraDayKeysResettleADayWithTheDayCombineWithoutDrift() async throws {
+        let store = try await newStore()
+        try await seedBasicLift(store)
+        _ = try await apply(store)  // settled by the inversion
+        let before = try await dayPair(store, dayA)
+        XCTAssertEqual(before, Pair(60, 2))
+        // Nothing is dirty: a plain apply leaves the day alone.
+        let idle = try await store.applyLiftStrain(
+            canonicalComputedDeviceId: canonical, now: 2_000, combine: combine, dayCombine: { _, h, m in h + m })
+        XCTAssertEqual(idle.dayWrites, 0)
+        let unchanged = try await dayPair(store, dayA)
+        XCTAssertEqual(unchanged, before)
+        // Forcing the day re-settles it from the heart-rate value (40), not from the inversion value (60).
+        let forced = try await store.applyLiftStrain(
+            canonicalComputedDeviceId: canonical, now: 3_000, combine: combine, dayCombine: { _, h, m in h + m },
+            extraDayKeys: [dayA])
+        XCTAssertEqual(forced.dayWrites, 1)
+        let after = try await dayPair(store, dayA)
+        XCTAssertEqual(after, Pair(50, 2))
+        let again = try await store.applyLiftStrain(
+            canonicalComputedDeviceId: canonical, now: 4_000, combine: combine, dayCombine: { _, h, m in h + m },
+            extraDayKeys: [dayA])
+        XCTAssertEqual(again.dayWrites, 0)
+    }
+
+    func testSettleDaysListsTheDaysAnApplyWouldTouch() async throws {
+        let store = try await newStore()
+        try await seedBasicLift(store)
+        let pending = try await store.liftStrainSettleDays(canonicalComputedDeviceId: canonical)
+        XCTAssertEqual(pending, [dayA], "a pending lift's day")
+        let withExtra = try await store.liftStrainSettleDays(canonicalComputedDeviceId: canonical, extraDayKeys: [dayB])
+        XCTAssertEqual(withExtra, [dayA, dayB])
+        let dump = try await trackingDump(store)
+        _ = try await store.liftStrainSettleDays(canonicalComputedDeviceId: canonical)
+        let afterDump = try await trackingDump(store)
+        XCTAssertEqual(afterDump, dump, "listing the days writes nothing")
+        _ = try await apply(store)
+        let settled = try await store.liftStrainSettleDays(canonicalComputedDeviceId: canonical)
+        XCTAssertEqual(settled, [], "nothing left to settle")
+    }
+
+    func testRekeySettleUsesTheDayCombine() async throws {
+        let store = try await newStore()
+        try await seedBasicLift(store)
+        _ = try await apply(store)
+        let old = workout(startA, strain: 50, version: 2)
+        let new = workout(startB, strain: 30, version: 2)
+        try await store.upsertDailyMetrics([day(dayB, strain: 20, version: 2)], deviceId: canonical)
+        let settle = LiftStrainRekeySettle(
+            canonicalComputedDeviceId: canonical, newDayKey: dayB, oldDayKey: dayA, now: 5_000, combine: combine,
+            dayCombine: { _, h, m in h + 100 * m })
+        try await store.rekeyManualWorkout(deviceId: owner, old: old, new: new, settle: settle)
+        let oldDay = try await dayPair(store, dayA)
+        let newDay = try await dayPair(store, dayB)
+        XCTAssertEqual(oldDay, Pair(40, 2), "the old day returns to its heart-rate value")
+        XCTAssertEqual(newDay, Pair(1_020, 2), "the new day goes through the day combine (20 + 100 * 10)")
+    }
 }
