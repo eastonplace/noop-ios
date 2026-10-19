@@ -245,6 +245,29 @@ final class LocalCoachEngineTests: XCTestCase {
         XCTAssertTrue(make(directory: root).conversations.isEmpty)
     }
 
+    func testOrphanedEmptyAssistantTurnIsRestoredAsInterrupted() throws {
+        let root = try directory()
+        let store = LocalCoachPersistence(directory: root)
+        var conversation = LocalCoachConversation(title: "Killed", messages: [
+            .init(role: .user, text: "How did I sleep?"),
+            .init(role: .assistant, text: "")
+        ])
+        conversation.updatedAt = Date()
+        var state = LocalCoachPersistence.State(sourceID: "a")
+        state.conversations = [conversation]
+        state.selectedConversationID = conversation.id
+        try store.save(state)
+
+        let engine = make(directory: root)
+        XCTAssertEqual(engine.messages.count, 2)
+        XCTAssertEqual(engine.messages.last?.isInterrupted, true, "a blank orphaned turn must offer Try again")
+
+        let reselected = make(directory: root)
+        reselected.selectConversation(conversation.id)
+        XCTAssertEqual(reselected.messages.last?.isInterrupted, true)
+        XCTAssertEqual(LocalCoachEngine.healed([.init(role: .assistant, text: "Real answer")]).last?.isInterrupted, false)
+    }
+
     func testPlanDraftDoesNotSaveUntilExplicitSave() async throws {
         let data = TestCoachData()
         let engine = make(data: data, directory: try directory())

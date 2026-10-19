@@ -149,6 +149,8 @@ final class LocalCoachEngine: ObservableObject {
     private var readCount = 0
     private var runningTools: [String: Int] = [:]
     private var lastAutoBriefDay: String?
+    /// The brief that started the latest turn, so Try again replays it as a brief rather than as a plain question.
+    private var lastBrief: (question: String, kind: LocalCoachBriefKind)?
 
     var recordsUpdating: Bool { scope.fenced }
     /// What the page re-reads its snapshot for: the source, whether its records are being updated, and whether new
@@ -319,6 +321,7 @@ final class LocalCoachEngine: ObservableObject {
         updateAvailability()
         guard availability == .available, let model else { errorText = availability.title; return false }
         cancel()
+        lastBrief = brief.map { (question: text, kind: $0) }
         errorText = storageError
         ensureConversation(title: text)
         let requestDate = Date()
@@ -451,7 +454,7 @@ final class LocalCoachEngine: ObservableObject {
         cancel()
         selectedConversationID = id
         responseProgress.reset()
-        messages = conversation.messages
+        messages = Self.healed(conversation.messages)
         // Older conversations may contain revoked personal data or a deleted memory.
         history = preferences.usePersonalData && preferences.memoryEnabled
             ? Array(messages.filter { !$0.isInterrupted && $0.createdAt >= historyFloor }.suffix(12)) : []
@@ -714,7 +717,7 @@ final class LocalCoachEngine: ObservableObject {
             messages.removeSubrange(userIndex...)
             persistConversation()
         }
-        await respond(question, brief: nil)
+        await respond(question, brief: lastBrief?.question == question ? lastBrief?.kind : nil)
     }
 
     private func finish(_ token: UUID, started: Date?) {
@@ -760,6 +763,7 @@ final class LocalCoachEngine: ObservableObject {
             // createPlan/updatePlan/savePlan still require current consent at their call boundaries.
             dailyBrief = "Allow local data to build an outlook from your records."
             lastAutoBriefDay = nil
+            lastBrief = nil
             messages = []
             selectedConversationID = nil
         }
@@ -806,8 +810,18 @@ final class LocalCoachEngine: ObservableObject {
             ? "Ask a question about your latest records."
             : "Allow local data to build an outlook from your records."
         lastAutoBriefDay = nil
+        lastBrief = nil
         errorText = storageError
         loadSource()
+    }
+
+    /// A turn's empty assistant placeholder is persisted before any output, so a kill mid-read leaves it on disk. Mark such
+    /// a trailing blank turn interrupted on load so it shows "Try again" and stays out of the model's history.
+    static func healed(_ messages: [LocalCoachMessage]) -> [LocalCoachMessage] {
+        guard var last = messages.last, last.role == .assistant, !last.isInterrupted,
+              last.text.isEmpty, last.evidence.isEmpty, last.cards?.isEmpty ?? true else { return messages }
+        last.isInterrupted = true
+        return Array(messages.dropLast()) + [last]
     }
 
     private func loadSource() {
@@ -821,7 +835,7 @@ final class LocalCoachEngine: ObservableObject {
             historyFloor = state.historyFloor
             if let selected = state.selectedConversationID, let conversation = conversations.first(where: { $0.id == selected }) {
                 selectedConversationID = selected
-                messages = conversation.messages
+                messages = Self.healed(conversation.messages)
                 history = preferences.usePersonalData && preferences.memoryEnabled
                     ? Array(messages.filter { !$0.isInterrupted && $0.createdAt >= historyFloor }.suffix(12)) : []
             }

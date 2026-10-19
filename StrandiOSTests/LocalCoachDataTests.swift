@@ -378,6 +378,27 @@ final class LocalCoachDataTests: XCTestCase {
         XCTAssertTrue(LocalCoachDataService.workoutsCard([], window: window).isEmpty)
     }
 
+    func testCoachWorkoutsCollapseStrapAndAppleHealthTwinsLikeTheWorkoutsScreen() {
+        func row(_ start: Int, _ end: Int, _ sport: String, _ source: String, hr: Int?) -> WorkoutRow {
+            WorkoutRow(startTs: start, endTs: end, sport: sport, source: source, durationS: Double(end - start),
+                       energyKcal: nil, avgHr: hr, maxHr: nil, strain: nil, distanceM: nil, zonesJSON: nil, notes: nil)
+        }
+        let strap = row(10_000, 13_000, "Running", "whoop", hr: 150)
+        let twin = row(10_060, 13_000, "Running", "apple-health", hr: nil)
+        let other = row(50_000, 52_000, "Cycling", "apple-health", hr: nil)
+        let items: [LocalCoachDataService.OwnedWorkout] = [
+            .init(owner: "my-whoop", row: strap), .init(owner: "apple-health", row: twin), .init(owner: "apple-health", row: other)
+        ]
+        // Same strap row read twice (exact duplicate) plus the Health twin and an unrelated ride.
+        let withDuplicate = items + [.init(owner: "my-whoop", row: strap)]
+        let result = LocalCoachDataService.dedupedWorkouts(withDuplicate, truncated: false)
+        XCTAssertEqual(result.rows.count, 2, "One session recorded by strap and Apple Health is one workout, not two")
+        XCTAssertEqual(result.rows.map(\.owner), ["apple-health", "my-whoop"], "Newest first, strap owner label kept")
+        XCTAssertEqual(result.rows.map(\.row), [other, strap], "The richer strap row wins over its Health twin")
+        XCTAssertEqual(result.rows.reduce(0.0) { $0 + ($1.row.durationS ?? 0) }, 3_000 + 2_000, "Summed duration counts the session once")
+        XCTAssertFalse(result.truncated)
+    }
+
     func testCoverageAndNutritionStatsCardsNeverMixDatesOrInventValues() throws {
         let window = try makeWindow()
         guard case .stats(let coverage)? = LocalCoachDataService.coverageCard(

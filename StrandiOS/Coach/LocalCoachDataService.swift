@@ -296,7 +296,7 @@ final class LocalCoachDataService {
                 cards += Self.workoutsCard(shown.map(\.row), window: window)
             }
             if read.truncated { lines.append("The 200-workout read cap was reached. Totals describe only the returned rows.") }
-            lines.append("Only identical records across namespaces were collapsed. Distinct overlapping records remain and may describe the same activity.")
+            lines.append("Identical records and strap/Health/activity-file twins of the same session were collapsed, as on the Workouts screen. Other overlapping records remain and may describe the same activity.")
             evidence += shown.prefix(8).map { item in .init(id: "workout:\(item.owner):\(item.row.startTs):\(item.row.sport)", title: Self.clean(item.row.sport), detail: "Stored workout; \(Self.measured(item.row.durationS, unit: "seconds")).", source: "\(item.owner) / \(Self.clean(item.row.source))", date: Date(timeIntervalSince1970: Double(item.row.startTs))) }
         case "nutrition":
             let store = try await checkedStore(expected)
@@ -420,7 +420,7 @@ final class LocalCoachDataService {
             source: sourceDescription(expected), date: fresh.latestDay.flatMap(LocalCoachWindow.date))
     }
 
-    private struct OwnedWorkout { let owner: String; let row: WorkoutRow }
+    struct OwnedWorkout { let owner: String; let row: WorkoutRow }
     private func workouts(_ window: LocalCoachWindow, expected: Scope) async throws -> (rows: [OwnedWorkout], truncated: Bool) {
         let store = try await checkedStore(expected)
         var seenOwners = Set<String>()
@@ -436,7 +436,13 @@ final class LocalCoachDataService {
             truncated = truncated || rows.count > 200
             result += rows.prefix(200).filter { $0.endTs >= $0.startTs }.map { .init(owner: owner, row: $0) }
         }
-        // Only exact duplicates are collapsed. Do not guess that overlapping workouts are identical.
+        return Self.dedupedWorkouts(result, truncated: truncated)
+    }
+
+    /// Post-read pipeline: exact duplicates are collapsed first, then the same strap-vs-Health/activity-file
+    /// twin collapse the Workouts screen applies (Repository.workoutRows), so the Coach's count and duration
+    /// agree with it. Newest first, capped at 200.
+    static func dedupedWorkouts(_ result: [OwnedWorkout], truncated: Bool) -> (rows: [OwnedWorkout], truncated: Bool) {
         var seen: [String: [WorkoutRow]] = [:]
         let distinct = result.sorted { $0.row.startTs > $1.row.startTs }.filter { item in
             let key = "\(item.row.startTs)|\(item.row.endTs)|\(item.row.sport)|\(item.row.source)"
@@ -444,7 +450,19 @@ final class LocalCoachDataService {
             seen[key, default: []].append(item.row)
             return true
         }
-        return (Array(distinct.prefix(200)), truncated || distinct.count > 200)
+        let collapsed = Self.collapseCrossSourceTwins(distinct)
+        return (Array(collapsed.prefix(200)), truncated || collapsed.count > 200)
+    }
+
+    /// Keeps the rows `WorkoutSource.dedupCrossSource` keeps (it returns rows unchanged), preserving each
+    /// row's owner label and the input order.
+    private static func collapseCrossSourceTwins(_ items: [OwnedWorkout]) -> [OwnedWorkout] {
+        var remaining = WorkoutSource.dedupCrossSource(items.map(\.row))
+        return items.filter { item in
+            guard let i = remaining.firstIndex(of: item.row) else { return false }
+            remaining.remove(at: i)
+            return true
+        }
     }
 
     @MainActor private struct Metric {
