@@ -105,7 +105,7 @@ public struct CanonicalHealthSurfaceStoreSnapshot: Equatable, Sendable {
 }
 
 extension WhoopStore {
-    public func canonicalHealthSurfaceSnapshot(
+    public nonisolated func canonicalHealthSurfaceSnapshot(
         sourceIds: [String],
         fromDay: String,
         throughDay: String,

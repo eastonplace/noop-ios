@@ -287,13 +287,17 @@ final class DatabasePoolConcurrencyTests: XCTestCase {
         let entered = await Task.detached { Self.waitSync(insideWrite, seconds: 5) }.value
         XCTAssertEqual(entered, .success, "writer never entered its transaction")
 
-        let reads = Task { () -> (hr: Int, days: Int, sleep: Int, series: Int, workouts: Int) in
+        let reads = Task { () -> (hr: Int, days: Int, sleep: Int, series: Int, workouts: Int, snapshot: Int) in
             let hr = try await store.hrSamples(deviceId: "dev", from: 0, to: 2_000, limit: 100).count
             let days = try await store.dailyMetrics(deviceId: "dev", from: "2026-05-01", to: "2026-05-31").count
             let sleep = try await store.sleepSessions(deviceId: "dev", from: 0, to: 2_000, limit: 10).count
             let series = try await store.metricSeries(deviceId: "dev", key: "k", from: "2026-05-01", to: "2026-05-31").count
             let workouts = try await store.workouts(deviceId: "dev", from: 0, to: 2_000, limit: 10).count
-            return (hr, days, sleep, series, workouts)
+            // Day-range convenience overload: must also be nonisolated, not just the `windows:` one.
+            let snapshot = try await store.canonicalHealthSurfaceSnapshot(
+                sourceIds: ["dev"], fromDay: "2026-05-01", throughDay: "2026-05-31",
+                sleepFromTs: 0, sleepThroughTs: 2_000, metricKeys: ["k"]).dailyRows.count
+            return (hr, days, sleep, series, workouts, snapshot)
         }
         let finishedBeforeWriteReleased = await withTaskGroup(of: Bool.self) { group in
             group.addTask { (try? await reads.value) != nil }
@@ -320,6 +324,7 @@ final class DatabasePoolConcurrencyTests: XCTestCase {
         XCTAssertEqual(result.sleep, 0)
         XCTAssertEqual(result.series, 0)
         XCTAssertEqual(result.workouts, 0)
+        XCTAssertEqual(result.snapshot, 1)
     }
 
     /// Sync wrapper so the blocking semaphore wait is not flagged as an async-context call.
