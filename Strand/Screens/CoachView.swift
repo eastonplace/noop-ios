@@ -31,6 +31,8 @@ struct CoachView: View {
     /// takes effect on the next send. Seeded from the engine when the editor opens.
     @State private var promptDraft: String = ""
     @FocusState private var composerFocused: Bool
+    /// The reply's body size, drawn as the on-device Coach draws it and following Dynamic Type.
+    @ScaledMetric(relativeTo: .body) private var answerSize: CGFloat = 16.5
 
     /// Sentinel tag for the "Custom…" entry in the model Picker.
     private let customModelTag = "__custom__"
@@ -434,36 +436,36 @@ struct CoachView: View {
         .frame(maxWidth: .infinity, minHeight: 180, alignment: .topLeading)
     }
 
+    /// The same flat chat language as the on-device Coach: the person's words in a right-aligned bubble with a small
+    /// tail, the reply as plain body text with no box. LLM replies arrive as Markdown (bold, lists, headings, tables);
+    /// user bubbles stay verbatim `Text` so typed `*`/`#` never turn into surprise formatting.
     @ViewBuilder
     private func bubble(_ message: ChatMessage) -> some View {
         switch message.role {
         case .user:
+            let shape = UnevenRoundedRectangle(topLeadingRadius: 22, bottomLeadingRadius: 22,
+                                               bottomTrailingRadius: 6, topTrailingRadius: 22, style: .continuous)
             HStack {
                 Spacer(minLength: 48)
                 Text(message.text)
                     .font(StrandFont.body)
-                    .foregroundStyle(StrandPalette.surfaceBase)
+                    .foregroundStyle(StrandPalette.textPrimary)
                     .textSelection(.enabled)
                     .multilineTextAlignment(.leading)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
-                    .background(StrandPalette.accent, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 11)
+                    .background(shape.fill(StrandPalette.inset))
+                    .overlay(shape.fill(StrandPalette.chipFill))
                     .frame(maxWidth: 520, alignment: .trailing)
             }
             .accessibilityElement(children: .combine)
             .accessibilityLabel("You said: \(message.text)")
         case .assistant:
-            // LLM replies arrive as Markdown (bold, lists, headings, tables),             // rendered with the chat-bubble-sized Strand theme. User bubbles stay
-            // verbatim `Text` so typed `*`/`#` never turn into surprise formatting.
-            // The reply sits on a frosted Charge-tinted surface, a card, not a flat box.
             HStack {
                 Markdown(message.text)
-                    .markdownTheme(.strand)
+                    .markdownTheme(.coachAnswer(size: answerSize))
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 11)
-                    .frostedCardSurface(tint: StrandPalette.recoveryData, cornerRadius: 16)
                     .frame(maxWidth: 560, alignment: .leading)
                 Spacer(minLength: 48)
             }
@@ -480,9 +482,6 @@ struct CoachView: View {
                 .foregroundStyle(StrandPalette.textSecondary)
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 11)
-        .frostedCardSurface(tint: StrandPalette.recoveryData, cornerRadius: 16)
         .frame(maxWidth: 320, alignment: .leading)
         .accessibilityLabel("Coach is thinking")
     }

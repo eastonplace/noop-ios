@@ -2,65 +2,70 @@
 import SwiftUI
 import StrandDesign
 
-/// The label is event-driven. Only this small ornament animates; it never invents task stages or progress percentages.
-/// Flat like the rest of the transcript (no box): the ornament leads, the stage reads as a row under the Coach eyebrow,
-/// and Stop is the same chip family as the answer actions.
+/// The label is event-driven; it never invents task stages or progress percentages. While Coach works it is one
+/// shimmering secondary line in the answer's own text slot ("Reading sleep history…"), static under Reduce Motion.
+/// A finished stage keeps its meaning as a small glyph and the stage's own words. Stop is a quiet text button; the
+/// composer's send button stops the reply too.
 struct CoachProgressView: View {
     let stage: CoachResponseStage
     var onStop: (() -> Void)? = nil
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.scenePhase) private var scenePhase
-    @State private var visible = false
 
     var body: some View {
-        HStack(alignment: .center, spacing: NoopMetrics.space3) {
-            ornament.frame(width: 22, height: 22).accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(LocalizedStringKey(stage.title))
-                    .font(StrandFont.subhead.weight(.semibold))
-                    .foregroundStyle(StrandPalette.textPrimary)
-                    .contentTransition(.opacity)
-                if !stage.detail.isEmpty {
-                    Text(LocalizedStringKey(stage.detail)).font(StrandFont.footnote)
-                        .foregroundStyle(StrandPalette.textTertiary)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .contentTransition(.opacity)
+        HStack(alignment: .firstTextBaseline, spacing: NoopMetrics.space3) {
+            Group {
+                if stage.isActive {
+                    CoachShimmerText(text: Text(verbatim: activeLine))
+                } else {
+                    finished
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: stage)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(Text(LocalizedStringKey(spokenText)))
             if stage.isActive, let onStop {
                 Button(action: onStop) {
-                    WidgetChip(appTitle: "Stop", systemImage: "stop.fill", showsChevron: false, overhangs: false)
-                        .chipHitTarget()
+                    Text("Stop").coachFont(14, .medium, relativeTo: .subheadline)
+                        .foregroundStyle(StrandPalette.textTertiary)
+                        .frame(minWidth: 44, minHeight: 44, alignment: .trailing)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Stop response")
                 .accessibilityIdentifier("coach.progress.stop")
             }
         }
-        .frame(minHeight: 44)
-        .onAppear { visible = true }
-        .onDisappear { visible = false }
+        .frame(minHeight: 28)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("coach.responseProgress")
     }
 
-    @ViewBuilder private var ornament: some View {
-        if stage.isActive {
-            if reduceMotion || scenePhase != .active || !visible {
-                bars(time: 0, still: true)
-            } else {
-                TimelineView(.animation(minimumInterval: 1.0 / 20.0)) { clock in
-                    bars(time: clock.date.timeIntervalSinceReferenceDate, still: false)
-                }
+    /// "Reading sleep history…": the stage's words with an ellipsis while it is under way. A phase that has just
+    /// finished ("Record check complete") keeps its own full stop of meaning and gets none.
+    private var activeLine: String {
+        let title = String(localized: String.LocalizationValue(stage.title))
+        if case .evidenceReady = stage { return title }
+        return title + "…"
+    }
+
+    /// What VoiceOver hears: the stage and what it is doing, the one line the eye reads plus its detail.
+    private var spokenText: String { stage.detail.isEmpty ? stage.title : stage.title + ". " + stage.detail }
+
+    private var finished: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Image(systemName: finishedSymbol)
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(finishedTint)
+                    .accessibilityHidden(true)
+                Text(LocalizedStringKey(stage.title)).coachFont(16.5, .medium)
+                    .foregroundStyle(StrandPalette.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-        } else {
-            Image(systemName: finishedSymbol)
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(finishedTint)
-                .frame(width: 22, height: 22)
-                .background(Circle().fill(finishedTint.opacity(0.14)))
+            if !stage.detail.isEmpty {
+                Text(LocalizedStringKey(stage.detail)).coachFont(13, .regular, relativeTo: .footnote)
+                    .foregroundStyle(StrandPalette.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 
@@ -80,17 +85,6 @@ struct CoachProgressView: View {
         default: StrandPalette.textSecondary
         }
     }
-
-    private func bars(time: Double, still: Bool) -> some View {
-        HStack(spacing: 3) {
-            ForEach(0..<3, id: \.self) { index in
-                let phase = still ? 0.45 : (sin(time * 2 * .pi / 1.05 - Double(index) * 0.72) + 1) / 2
-                Capsule().fill(StrandPalette.accent.opacity(0.42 + phase * 0.5))
-                    .frame(width: 3, height: 5 + phase * 11)
-            }
-        }
-        .frame(width: 22, height: 22)
-    }
 }
 
 #if DEBUG
@@ -108,7 +102,7 @@ struct CoachProgressGallery: View {
                     .padding(.top, NoopMetrics.space2)
                 ForEach(Array(stages.enumerated()), id: \.offset) { index, stage in
                     FlatSectionSeparator.coach
-                    // The first stage shows the Stop chip, as a live answer does.
+                    // The first stage shows the Stop button, as a live answer does.
                     CoachProgressView(stage: stage, onStop: index == 0 ? {} : nil)
                         .accessibilityIdentifier("coach.progressFixture.\(index)")
                 }
