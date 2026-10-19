@@ -1356,4 +1356,33 @@ final class BackfillerHistoricalCommitReceiptTests: XCTestCase {
         XCTAssertEqual(idsAfterResend, ["strap-a"])
         XCTAssertEqual(ackCount, 1)
     }
+
+    /// The invalid-frame marker is ordered with the frames (BLEManager queues it behind START). A START ingested
+    /// BEFORE the marker must not erase it, and the marker must fail the chunk at the next END.
+    @MainActor
+    func testInvalidMarkerAppliedAfterStartBeforeEndFailsClosed() async {
+        let store = SourceCaptureStore()
+        var ackCount = 0
+        var failures: [BackfillFailure] = []
+        let backfiller = Backfiller(
+            store: store,
+            deviceId: "strap-a",
+            ackTrim: { _, _, _ in ackCount += 1; return true },
+            onFailure: { failures.append($0) },
+            extract: { _, _, _, _, _, _ in Streams() })
+        backfiller.begin(
+            family: .whoop4,
+            historicalCursorScope: HistoricalCursorScope(
+                deviceId: "strap-a", lineage: "registry-A", cursorEpoch: 5))
+
+        await backfiller.ingest(frameFromPayload([], type: 49, seq: 0, cmd: 1))
+        backfiller.noteInvalidInboundFrame()
+        await backfiller.ingest(frameFromPayload([0x01, 0x02, 0x03], type: 47))
+        await backfiller.ingest(historyEndFrame(trim: 123))
+
+        let ids = await store.deviceIds()
+        XCTAssertEqual(ids, [])
+        XCTAssertEqual(ackCount, 0)
+        XCTAssertEqual(failures.count, 1)
+    }
 }

@@ -619,6 +619,10 @@ public final class BLEManager: NSObject, ObservableObject {
         let whoop5Admission: Whoop5HistoricalSessionAdmission?
         /// BLE-8: the historical session + physical connection that admitted this frame (both families).
         let token: BackfillDrainToken
+        /// True for an ordered "a CRC-invalid frame was dropped here" marker (no bytes). It is applied to the
+        /// Backfiller when it reaches the head of the queue, so it lands after every earlier frame (incl. a
+        /// still-queued START) and before every later one (incl. END).
+        var isInvalidMarker = false
     }
     private var backfillFrameQueue: [AdmittedBackfillFrame] = []
     /// Accumulates durable writes across an auto-continued history burst. The dashboard is notified once
@@ -2714,7 +2718,7 @@ public final class BLEManager: NSObject, ObservableObject {
     /// Feed a frame to the Backfiller preserving exact arrival order. Frames are appended
     /// synchronously (delegate order) and drained sequentially in small slices, so START /
     /// data / END chunk assembly is never reordered while the UI still gets time to paint.
-    private func routeBackfillFrame(_ frame: [UInt8]) {
+    private func routeBackfillFrame(_ frame: [UInt8], isInvalidMarker: Bool = false) {
         let whoop5Admission: Whoop5HistoricalSessionAdmission?
         if selectedModel.deviceFamily == .whoop5 {
             guard let admission = admittedHistoricalBackfill,
@@ -2735,7 +2739,7 @@ public final class BLEManager: NSObject, ObservableObject {
             return
         }
         backfillFrameQueue.append(AdmittedBackfillFrame(bytes: frame, whoop5Admission: whoop5Admission,
-                                                        token: token))
+                                                        token: token, isInvalidMarker: isInvalidMarker))
         guard let drainID = backfillDrainOwnership.claimIfIdle() else { return }
         Task { @MainActor in await drainBackfillFrames(drainID) }
     }
@@ -2762,6 +2766,10 @@ public final class BLEManager: NSObject, ObservableObject {
                                                           current: currentBackfillDrainToken,
                                                           backfilling: backfilling) else {
                     droppedStale += 1
+                    continue
+                }
+                if admittedFrame.isInvalidMarker {
+                    backfiller?.noteInvalidInboundFrame()
                     continue
                 }
                 if let admission = admittedFrame.whoop5Admission {
@@ -6768,8 +6776,9 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
                         secureReady: whoop5SecureReady,
                         integrityValid: integrityValid) == .routeCurrentSession else {
                         // A dropped CRC-invalid frame during an offload may have held history records. Tell
-                        // the Backfiller so it refuses to commit/ACK the incomplete chunk (strap re-sends).
-                        if backfilling, whoop5SecureReady { backfiller?.noteInvalidInboundFrame() }
+                        // the Backfiller so it refuses to commit/ACK the incomplete chunk (strap re-sends). Queued
+                        // as an ordered marker so it applies after earlier frames (START) and before later (END).
+                        if backfilling, whoop5SecureReady { routeBackfillFrame([], isInvalidMarker: true) }
                         continue
                     }
                     lastDataAt = Date()
