@@ -3324,17 +3324,18 @@ final class IntelligenceEngine: ObservableObject {
             // Review round 7 (1): a migration chunk keeps the detected workouts of the days it keeps, and of the
             // older chunk's evening before its window, which that chunk reconciles itself. A stored bout this
             // pass re-detected (overlapping a produced row) is replaced, not duplicated.
-            var keptWorkoutRows: [WorkoutRow] = []
-            if keepUnproducedHistory {
-                let keptWindows = civilDays.filter { historyKeepDays.contains($0.day) }
-                keptWorkoutRows = try await store.workouts(
-                    deviceId: computedId, from: windowStart, to: windowEnd, limit: 10_000
-                ).filter { row in
-                    (row.source == computedId || row.source == "detected")
-                        && (row.startTs < oldestCivilDay.start
-                            || keptWindows.contains { row.startTs >= $0.start && row.startTs < $0.nextStart })
-                        && !workoutRows.contains { $0.startTs < row.endTs && row.startTs < $0.endTs }
-                }
+            // The 30 h lookback reaches back into the previous evening, but this pass only detects bouts
+            // inside its own civil days. Every pass keeps the rows before its first day for the same reason,
+            // otherwise the first pass after midnight deletes last evening's workout.
+            let keptWindows = keepUnproducedHistory ? civilDays.filter { historyKeepDays.contains($0.day) } : []
+            let keptWorkoutRows: [WorkoutRow] = try await store.workouts(
+                deviceId: computedId, from: windowStart, to: keepUnproducedHistory ? windowEnd : oldestCivilDay.start - 1,
+                limit: 10_000
+            ).filter { row in
+                (row.source == computedId || row.source == "detected")
+                    && (row.startTs < oldestCivilDay.start
+                        || keptWindows.contains { row.startTs >= $0.start && row.startTs < $0.nextStart })
+                    && !workoutRows.contains { $0.startTs < row.endTs && row.startTs < $0.endTs }
             }
             let workoutResult = try await store.reconcileDetectedWorkouts(
                 workoutRows + keptWorkoutRows, deviceId: computedId, from: windowStart, to: windowEnd)
