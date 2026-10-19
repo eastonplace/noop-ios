@@ -87,7 +87,10 @@ enum CoachEvidencePolicy {
     }
 
     /// Explicit ranges are checked before a store query. A large or invalid range never quietly becomes "recent".
-    private static func requestedWindow(in text: String, now: Date, calendar: Calendar) -> Int? {
+    private static func requestedWindow(in rawText: String, now: Date, calendar: Calendar) -> Int? {
+        // An age ("I'm 40 years old") is a personal detail, not a read window.
+        let agePattern = #"\b(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s*-?\s*(?:years?|yrs?)\s*-?\s*(?:old|of age|young)\b"#
+        let text = rawText.replacingOccurrences(of: agePattern, with: " ", options: .regularExpression)
         let datePattern = #"\b\d{4}-\d{1,2}-\d{1,2}\b"#
         let dateStrings = matches(datePattern, in: text).map { $0[0] }
         if !dateStrings.isEmpty {

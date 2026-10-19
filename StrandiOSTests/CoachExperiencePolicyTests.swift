@@ -45,6 +45,16 @@ final class CoachExperiencePolicyTests: XCTestCase {
         }
     }
 
+    func testAgeIsNotTreatedAsAReadWindow() {
+        XCTAssertEqual(CoachEvidencePolicy.plan(for: "I'm 40 years old, should I train today?", now: now, calendar: calendar),
+                       .read(tool: "workout_history", days: 1))
+        XCTAssertEqual(CoachEvidencePolicy.plan(for: "As a 30-year-old, should I train today?", now: now, calendar: calendar),
+                       .read(tool: "workout_history", days: 1))
+        guard case .needsNarrowerRange = CoachEvidencePolicy.plan(for: "I'm 40 years old, show my sleep over 90 days", now: now, calendar: calendar) else {
+            return XCTFail("A real over-range window must still be refused next to an age")
+        }
+    }
+
     func testDateRangeSpanningMoreThanThirtyOneDaysIsRejected() {
         let question = "Show my sleep from 2026-08-01 to 2026-10-01"
         guard case .needsNarrowerRange = CoachEvidencePolicy.plan(for: question, now: now, calendar: calendar) else {
