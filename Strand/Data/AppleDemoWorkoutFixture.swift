@@ -109,6 +109,20 @@ enum AppleDemoWorkoutFixture {
                 }
             }
             if !hr.isEmpty { _ = try await store.insert(Streams(hr: hr), deviceId: AppleDemoSeeder.whoop) }
+
+            // 3. Strength Strain: score each lift from its sets and fold it into its workout and day exactly as the
+            //    app does for a real save (one extra step on the heart-rate value, never a replacement).
+            let nowTs = Int(now.timeIntervalSince1970)
+            for session in sessions {
+                if let lift = session.lift {
+                    let row = StrengthStrainIntegration.computed(
+                        sessionId: lift.session.id, startTs: session.row.startTs, sets: lift.sets, bodyweightKg: 75)
+                    try await store.upsertLiftStrainComputed(deviceId: AppleDemoSeeder.whoop, rows: [row], now: nowTs)
+                }
+            }
+            _ = try await store.applyLiftStrain(
+                canonicalComputedDeviceId: "\(AppleDemoSeeder.whoop)-noop", now: nowTs,
+                combine: StrengthStrainIntegration.combine)
             NSLog("AppleDemoWorkoutFixture: %d sessions, %d HR samples.", sessions.count, hr.count)
         } catch {
             NSLog("AppleDemoWorkoutFixture: failed — \(error)")

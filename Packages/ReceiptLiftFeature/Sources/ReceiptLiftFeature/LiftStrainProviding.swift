@@ -1,66 +1,88 @@
 import Foundation
 import SwiftUI
 
-// MARK: - The Strain seam
-//
-// Strength home, live logging and the summary read Strain through this protocol and never from the engine, so the
-// screens stay in the package and the host decides where the numbers come from (the stored lift-strain rows). With no
-// provider (`nil`, the default) every screen degrades on its own: the live strip reads "—", Recent shows "—", and the
-// summary shows "Scoring…" until its timeout and then "Strain isn't ready for this lift yet."
+/// How a finished session's Strain reads on Lift's own screens. The host owns the numbers (they are stored values
+/// on NOOP's scale); this package only draws them.
+public enum LiftStrainSummaryState: String, Sendable {
+    /// Computed, not yet folded into the stored Strain (the host is settling it).
+    case pending
+    /// The stored Strain includes the logged sets.
+    case scored
+    /// No heart-rate Strain exists for the workout (yet), so the sets are not added.
+    case notScored
+    /// The workout has no counted sets: the stored Strain is heart rate alone.
+    case noSets
+}
 
-public enum LiftStrainSummaryState: String, Sendable { case pending, scored, notScored, noSets }
-
-/// What the summary shows for one finished lift: heart-rate-only Strain, the stored combined value, and the set counts.
+/// One finished session's Strain, on the 0...21 display scale.
 public struct LiftStrainSnapshot: Equatable, Sendable {
-  public let state: LiftStrainSummaryState
-  /// Heart-rate-only Strain on the 0...21 display scale.
-  public let heartRateDisplay: Double?
-  /// The stored workout Strain on the 0...21 display scale.
-  public let combinedDisplay: Double?
-  public let workingSets: Int, warmupSets: Int, countedSets: Int
-  public let bodyweightIsDefault: Bool
+    public let state: LiftStrainSummaryState
+    /// Heart rate alone, 0...21.
+    public let heartRateDisplay: Double?
+    /// The stored workout value, 0...21.
+    public let combinedDisplay: Double?
+    public let workingSets: Int
+    public let warmupSets: Int
+    public let countedSets: Int
+    /// The body weight behind the score is the 75 kg default, because none was set when the lift was scored.
+    public let bodyweightIsDefault: Bool
 
-  /// What the lifted sets added on top of heart rate.
-  public var setsAddDisplay: Double? {
-    guard let combined = combinedDisplay, let heartRate = heartRateDisplay else { return nil }
-    return combined - heartRate
-  }
+    /// What the logged sets add to heart rate alone.
+    public var setsAddDisplay: Double? {
+        guard let c = combinedDisplay, let h = heartRateDisplay else { return nil }
+        return c - h
+    }
 
-  public init(
-    state: LiftStrainSummaryState, heartRateDisplay: Double?, combinedDisplay: Double?,
-    workingSets: Int, warmupSets: Int, countedSets: Int, bodyweightIsDefault: Bool
-  ) {
-    self.state = state; self.heartRateDisplay = heartRateDisplay; self.combinedDisplay = combinedDisplay
-    self.workingSets = workingSets; self.warmupSets = warmupSets; self.countedSets = countedSets
-    self.bodyweightIsDefault = bodyweightIsDefault
-  }
+    public init(state: LiftStrainSummaryState, heartRateDisplay: Double?, combinedDisplay: Double?,
+                workingSets: Int, warmupSets: Int, countedSets: Int, bodyweightIsDefault: Bool) {
+        self.state = state
+        self.heartRateDisplay = heartRateDisplay
+        self.combinedDisplay = combinedDisplay
+        self.workingSets = workingSets
+        self.warmupSets = warmupSets
+        self.countedSets = countedSets
+        self.bodyweightIsDefault = bodyweightIsDefault
+    }
 }
 
-/// Strain so far in a lift that is still running.
+/// Strain so far during a live session, 0...21.
 public struct LiftLiveVitals: Equatable, Sendable {
-  public let bpm: Int?
-  public let heartRateDisplay: Double?
-  public let combinedDisplay: Double?
+    public let bpm: Int?
+    public let heartRateDisplay: Double?
+    public let combinedDisplay: Double?
 
-  public init(bpm: Int?, heartRateDisplay: Double?, combinedDisplay: Double?) {
-    self.bpm = bpm; self.heartRateDisplay = heartRateDisplay; self.combinedDisplay = combinedDisplay
-  }
+    public init(bpm: Int?, heartRateDisplay: Double?, combinedDisplay: Double?) {
+        self.bpm = bpm
+        self.heartRateDisplay = heartRateDisplay
+        self.combinedDisplay = combinedDisplay
+    }
 }
 
+/// What the host gives Lift to show Strain. Every value is read from what the host stored (or, for a live session,
+/// from the same formula), so Lift never computes a score of its own.
 public protocol LiftStrainProviding: Sendable {
-  func summary(sessionID: String) async -> LiftStrainSnapshot?
-  /// Yields when stored lift Strain changes, so a summary waiting on heart data can re-resolve.
-  func updates() -> AsyncStream<Void>
-  /// The stored workout Strain (0...21 display scale) for each session id that has one.
-  func recentStrains(sessionIDs: [String]) async -> [String: Double]
-  func liveVitals(start: Date, sets: [ReceiptLiftSet]) async -> LiftLiveVitals?
-  func beginLiveHeartRate() async
-  func endLiveHeartRate() async
+    /// The session's Strain, or nil when the host has none for it.
+    func summary(sessionID: String) async -> LiftStrainSnapshot?
+    /// Yields whenever stored Strain changed (a lift was scored, settled or rescored).
+    func updates() -> AsyncStream<Void>
+    /// The stored workout Strain (0...21 display) of each session that has one.
+    func recentStrains(sessionIDs: [String]) async -> [String: Double]
+    /// Strain so far for a session that started at `start`, with the sets logged so far.
+    func liveVitals(start: Date, sets: [ReceiptLiftSet]) async -> LiftLiveVitals?
+    /// A live session wants the realtime heart-rate stream; balanced by `endLiveHeartRate`.
+    func beginLiveHeartRate() async
+    func endLiveHeartRate() async
 }
 
-extension EnvironmentValues {
-  /// The host's Strain source; nil until the host provides one.
-  @Entry var liftStrainProvider: (any LiftStrainProviding)? = nil
+public struct LiftStrainProviderKey: EnvironmentKey {
+    public static let defaultValue: (any LiftStrainProviding)? = nil
+}
+
+public extension EnvironmentValues {
+    var liftStrainProvider: (any LiftStrainProviding)? {
+        get { self[LiftStrainProviderKey.self] }
+        set { self[LiftStrainProviderKey.self] = newValue }
+    }
 }
 
 /// Keeps live heart rate on for as long as its task runs: begin first, end when the task is cancelled. The pair is

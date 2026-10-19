@@ -127,6 +127,10 @@ actor ReceiptLiftDatabase {
 public final class ReceiptLiftCoordinator: ObservableObject {
     let store: LiftStore
     private let database: ReceiptLiftDatabase
+    /// The host's Strain numbers for Lift's screens; nil when the host has none (previews, tests).
+    public var strainProvider: (any LiftStrainProviding)? {
+        didSet { objectWillChange.send() }
+    }
     private var observation: AnyCancellable?
     private var backgroundSaveTask: Task<Void, Never>?
     private var backgroundLease: UIBackgroundTaskIdentifier = .invalid
@@ -135,11 +139,6 @@ public final class ReceiptLiftCoordinator: ObservableObject {
         UIApplication.shared.beginBackgroundTask(withName: name, expirationHandler: expiration)
     }
     var endBackgroundTask: (UIBackgroundTaskIdentifier) -> Void = { UIApplication.shared.endBackgroundTask($0) }
-    /// Where Strength home, live logging and the summary read Strain from. Nil until the host provides one; the screens
-    /// then show their own placeholder states.
-    public var strainProvider: (any LiftStrainProviding)? {
-        didSet { objectWillChange.send() }
-    }
     public var hasActiveSession: Bool { store.activeSession != nil }
     public var saveError: String? { store.databaseSaveError }
 

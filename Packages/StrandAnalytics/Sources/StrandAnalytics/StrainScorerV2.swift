@@ -243,6 +243,18 @@ public enum StrainScorerV2 {
             )
         }
 
+        /// The live day's parts, read from the same computation as `strain`: `components.score == strain` bit for
+        /// bit. Strength Strain combines the day's muscular load with the cardio part of these (floors stay
+        /// max-combined), so the live day needs the parts, not only the winner. Nil when `strain` is.
+        public var components: DayStrainComponents? {
+            guard effectiveMaxHR.isFinite, restingHR.isFinite, effectiveMaxHR > restingHR else { return nil }
+            let parts = StrainScorerV2.physiologicalComponents(
+                cardiovascularLoad: cardiovascularLoad,
+                coverageSeconds: coverageSeconds,
+                context: context)
+            return parts.score == nil ? nil : parts
+        }
+
         /// The day's components under the batch scorer's rules, which differ from `strain` in one
         /// respect: like ``StrainScorerV2/strain(_:maxHR:restingHR:mode:)``, no heart-rate load counts
         /// until the stream holds `minReadings` readings. The live `strain` above has never applied that

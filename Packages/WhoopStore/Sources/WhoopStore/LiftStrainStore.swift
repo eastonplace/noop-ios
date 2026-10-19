@@ -22,6 +22,12 @@ import GRDB
 /// depend on StrandAnalytics.
 public typealias LiftStrainCombine = @Sendable (_ hrStored: Double, _ muscularLoad: Double) -> Double
 
+/// The day-level counterpart of ``LiftStrainCombine`` (A7): combines a day's heart-rate-only stored Strain with the
+/// day's muscular load, and may know the day's parts (cardio, step and energy floors) so the floors stay
+/// max-combined. `day` is the logical day key. Called inside the settle transaction: it must be synchronous and
+/// must not touch the store. When absent the day settle uses ``LiftStrainCombine``, the stored-score inversion.
+public typealias LiftStrainDayCombine = @Sendable (_ day: String, _ hrStored: Double, _ muscularLoad: Double) -> Double
+
 public enum LiftStrainRowState: String, Sendable, Codable {
     /// Computed, never applied.
     case pending
@@ -271,14 +277,17 @@ public struct LiftStrainRekeySettle: Sendable {
     public let oldDayKey: String?
     public let now: Int
     public let combine: LiftStrainCombine
+    /// The day combine, when the caller knows the days' parts. Nil settles days with `combine`.
+    public let dayCombine: LiftStrainDayCombine?
 
     public init(canonicalComputedDeviceId: String, newDayKey: String, oldDayKey: String? = nil, now: Int,
-                combine: @escaping LiftStrainCombine) {
+                combine: @escaping LiftStrainCombine, dayCombine: LiftStrainDayCombine? = nil) {
         self.canonicalComputedDeviceId = canonicalComputedDeviceId
         self.newDayKey = newDayKey
         self.oldDayKey = oldDayKey
         self.now = now
         self.combine = combine
+        self.dayCombine = dayCombine
     }
 }
 
@@ -475,12 +484,35 @@ extension WhoopStore {
 
     /// Visits every dirty lift row and day, in one transaction. Idempotent: a second call with nothing new
     /// changes nothing.
+    ///
+    /// `extraDayKeys` forces those days through the day settle even when no row of theirs is dirty; the settle is
+    /// still idempotent, so a day whose value does not change is not written. `dayCombine` is the components-aware
+    /// day combine (A7); nil uses `combine` for days too.
     public func applyLiftStrain(canonicalComputedDeviceId: String, now: Int,
-                                combine: @escaping LiftStrainCombine) async throws -> LiftStrainApplyResult {
+                                combine: @escaping LiftStrainCombine,
+                                dayCombine: LiftStrainDayCombine? = nil,
+                                extraDayKeys: [String] = []) async throws -> LiftStrainApplyResult {
         try syncWrite { db in
             try Self.applyLiftStrainInTransaction(
                 db: db, canonicalComputedDeviceId: canonicalComputedDeviceId, visit: .dirty,
-                extraDayKeys: [], now: now, combine: combine)
+                extraDayKeys: extraDayKeys, now: now, combine: combine, dayCombine: dayCombine)
+        }
+    }
+
+    /// The logical days an apply with these inputs may settle: the days of the rows it would visit, the extra days
+    /// and the days step C would pick. A superset of the days it writes, read without writing anything, so the
+    /// caller can gather each day's parts before the (synchronous) settle transaction runs.
+    public func liftStrainSettleDays(canonicalComputedDeviceId: String,
+                                     extraDayKeys: [String] = []) async throws -> [String] {
+        try syncRead { db in
+            let disabled = try Self.liftStrainIsDisabled(db)
+            var days = Set(extraDayKeys)
+            for row in try Self.liftStrainRowsToVisit(db: db, visit: .dirty, disabled: disabled) {
+                days.insert(row.dayKey)
+            }
+            try Self.collectLiftStrainDays(
+                db: db, canonical: canonicalComputedDeviceId, disabled: disabled, into: &days)
+            return days.sorted()
         }
     }
 
@@ -504,7 +536,8 @@ extension WhoopStore {
         chunk: LiftStrainChunkInput,
         jobKey: String,
         now: Int,
-        combine: @escaping LiftStrainCombine
+        combine: @escaping LiftStrainCombine,
+        dayCombine: LiftStrainDayCombine? = nil
     ) async throws -> LiftStrainApplyResult {
         guard !sourceOwner.deviceId.isEmpty else { throw LiftReceiptStateError.emptyDeviceId }
         return try syncWrite { db in
@@ -513,7 +546,7 @@ extension WhoopStore {
             let result = try Self.applyLiftStrainInTransaction(
                 db: db, canonicalComputedDeviceId: canonicalComputedDeviceId,
                 visit: .sessions(deviceId: sourceOwner.deviceId, ids: chunk.rows.map(\.liftSessionId)),
-                extraDayKeys: chunk.dayKeys, now: now, combine: combine)
+                extraDayKeys: chunk.dayKeys, now: now, combine: combine, dayCombine: dayCombine)
             try db.execute(sql: """
                 UPDATE liftStrainJob
                    SET cursorDay = ?, liftsApplied = liftsApplied + ?, liftsSkipped = liftsSkipped + ?,
@@ -651,11 +684,14 @@ extension WhoopStore {
 
     /// Moves a manually edited workout from `old` to `new` in one transaction, replacing the separate
     /// delete-then-upsert. When the old row still holds the value the apply wrote, the new row gets the
-    /// heart-rate-only value instead, so logged sets never stay in a value labelled heart rate; the lift row
-    /// for the old key is detached. With `settle`, the old and the new day are settled in the same transaction.
+    /// heart-rate-only value first, so logged sets never stay in a value labelled heart rate. Lifts attached
+    /// to the old key follow the workout (A6): their rows are repointed to the new key and the new day, reset
+    /// to `pending`, and the apply in this same transaction recombines the new row. The old and the new day
+    /// are both settled in this transaction, so the old day returns to its heart-rate value bit for bit and the
+    /// new day includes the moved lift's load. `settle` is required: a rekey never leaves a day for a later pass.
     @discardableResult
     public func rekeyManualWorkout(deviceId: String, old: WorkoutRow, new: WorkoutRow,
-                                   settle: LiftStrainRekeySettle? = nil) async throws -> LiftStrainApplyResult {
+                                   settle: LiftStrainRekeySettle) async throws -> LiftStrainApplyResult {
         try syncWrite { db in
             guard old.startTs != new.startTs || old.sport != new.sport else {
                 _ = try Self.upsertWorkoutRows(db: db, rows: [new], deviceId: deviceId)
@@ -693,20 +729,23 @@ extension WhoopStore {
             try db.execute(sql: """
                 DELETE FROM liftStrainTarget WHERE deviceId = ? AND kind = 'workout' AND keyTs = ? AND keyText = ?
                 """, arguments: [deviceId, old.startTs, old.sport])
-            let now = settle?.now ?? Int(Date().timeIntervalSince1970)
+            // The lifts follow the workout: same session, new key and day, nothing applied yet. The apply below
+            // visits them as pending and builds the new target on the heart-rate-only value written above.
             try db.execute(sql: """
-                UPDATE liftStrain SET state = 'detached', appliedMuscularLoad = 0, combinedStrain = NULL, updatedAt = ?
-                WHERE deviceId = ? AND workoutStartTs = ? AND workoutSport = ?
-                """, arguments: [now, deviceId, old.startTs, old.sport])
+                UPDATE liftStrain
+                   SET workoutStartTs = ?, workoutSport = ?, dayKey = ?, state = 'pending', hrOnlyStrain = NULL,
+                       appliedMuscularLoad = 0, combinedStrain = NULL, updatedAt = ?
+                 WHERE deviceId = ? AND workoutStartTs = ? AND workoutSport = ?
+                """, arguments: [new.startTs, new.sport, settle.newDayKey, settle.now, deviceId, old.startTs, old.sport])
 
-            guard let settle else { return LiftStrainApplyResult() }
             guard target != nil || !liftDays.isEmpty else { return LiftStrainApplyResult() }
             var days = Set(liftDays)
             days.insert(settle.newDayKey)
             if let oldDay = settle.oldDayKey { days.insert(oldDay) }
             return try Self.applyLiftStrainInTransaction(
                 db: db, canonicalComputedDeviceId: settle.canonicalComputedDeviceId, visit: .dirty,
-                extraDayKeys: days.sorted(), now: settle.now, combine: settle.combine)
+                extraDayKeys: days.sorted(), now: settle.now, combine: settle.combine,
+                dayCombine: settle.dayCombine)
         }
     }
 
@@ -775,7 +814,8 @@ extension WhoopStore {
         visit: LiftStrainVisit,
         extraDayKeys: [String],
         now: Int,
-        combine: LiftStrainCombine
+        combine: LiftStrainCombine,
+        dayCombine: LiftStrainDayCombine? = nil
     ) throws -> LiftStrainApplyResult {
         var result = LiftStrainApplyResult()
         let disabled = try liftStrainIsDisabled(db)
@@ -793,13 +833,16 @@ extension WhoopStore {
             }
         }
 
+        // Step B sweep: workout targets that no live lift row points at any more.
+        try sweepOrphanWorkoutTargets(db: db, now: now, result: &result)
+
         // Step C: choose days.
         try collectLiftStrainDays(db: db, canonical: canonicalComputedDeviceId, disabled: disabled, into: &dayKeys)
 
         // Step D: settle each day.
         for day in dayKeys.sorted() {
             try settleLiftStrainDay(db: db, day: day, canonical: canonicalComputedDeviceId, disabled: disabled,
-                                    now: now, combine: combine, result: &result)
+                                    now: now, combine: combine, dayCombine: dayCombine, result: &result)
         }
         return result
     }
@@ -849,6 +892,17 @@ extension WhoopStore {
                 SELECT ls.* FROM liftStrain ls WHERE ls.state = 'detached'
                    AND EXISTS (SELECT 1 FROM workout w WHERE w.deviceId = ls.deviceId
                                AND w.startTs = ls.workoutStartTs AND w.sport = ls.workoutSport)
+                """))
+            // (d) an applied or provisional row that points at a key with no workout target: a re-save or a
+            // backfill re-run sent the row back to a key it was re-keyed away from. Visiting it re-attaches it
+            // (the workout exists) or detaches it (the workout is gone), and the sweep below then frees the
+            // target the move left behind.
+            add(try Row.fetchAll(db, sql: """
+                SELECT ls.* FROM liftStrain ls
+                 WHERE ls.state IN ('applied', 'notScored')
+                   AND NOT EXISTS (SELECT 1 FROM liftStrainTarget t
+                                    WHERE t.deviceId = ls.deviceId AND t.kind = 'workout'
+                                      AND t.keyTs = ls.workoutStartTs AND t.keyText = ls.workoutSport)
                 """))
         }
         return byKey.values.sorted {
@@ -955,6 +1009,55 @@ extension WhoopStore {
             applied: r["appliedMuscularLoad"])
     }
 
+    /// Workout targets that recorded a combined value (or a muscular load) while no non-detached lift row points
+    /// at their key: the lift was re-keyed away, re-saved at another start, or deleted. When the stored pair is
+    /// still the one the apply wrote, the heart-rate-only value goes back with a guarded update; a value someone
+    /// rewrote since is already a heart-rate value and is kept. The target is then dropped: a later lift at that
+    /// key snapshots it afresh. The day of the workout is re-settled by Step C's orphan sweep.
+    private static func sweepOrphanWorkoutTargets(db: Database, now: Int,
+                                                  result: inout LiftStrainApplyResult) throws {
+        let orphans = try Row.fetchAll(db, sql: """
+            SELECT t.* FROM liftStrainTarget t
+             WHERE t.kind = 'workout' AND (t.appliedMuscularLoad > 0 OR t.writtenStrain IS NOT t.hrOnlyStrain)
+               AND NOT EXISTS (SELECT 1 FROM liftStrain ls
+                                WHERE ls.deviceId = t.deviceId AND ls.workoutStartTs = t.keyTs
+                                  AND ls.workoutSport = t.keyText AND ls.state != 'detached')
+            """)
+        for t in orphans {
+            let deviceId: String = t["deviceId"]
+            let keyTs: Int = t["keyTs"]
+            let keyText: String = t["keyText"]
+            if let w = try Row.fetchOne(db, sql: """
+                SELECT strain, strainVersion FROM workout WHERE deviceId = ? AND startTs = ? AND sport = ?
+                """, arguments: [deviceId, keyTs, keyText]) {
+                let current = LiftStrainPair(strain: w["strain"], version: w["strainVersion"])
+                let written = LiftStrainPair(strain: t["writtenStrain"], version: t["writtenStrainVersion"])
+                if current.same(written) {
+                    let orig = LiftStrainPair(strain: t["origStrain"], version: t["origStrainVersion"])
+                    let hrOnly: Double? = t["hrOnlyStrain"]
+                    // Same rule as the revert: never a version-2 NULL, and the original pair when it is the
+                    // heart-rate value.
+                    let restored: LiftStrainPair
+                    if let hrOnly, !LiftStrainBits.same(hrOnly, orig.strain) {
+                        restored = LiftStrainPair(strain: hrOnly, version: 2)
+                    } else {
+                        restored = orig
+                    }
+                    if !restored.same(current) {
+                        try db.execute(sql: """
+                            UPDATE workout SET strain = ?, strainVersion = ?
+                             WHERE deviceId = ? AND startTs = ? AND sport = ? AND strain IS ?
+                            """, arguments: [restored.strain, restored.version, deviceId, keyTs, keyText, current.strain])
+                        if db.changesCount > 0 { result.workoutWrites += 1 } else { result.conflicts += 1 }
+                    }
+                }
+            }
+            try db.execute(sql: """
+                DELETE FROM liftStrainTarget WHERE deviceId = ? AND kind = 'workout' AND keyTs = ? AND keyText = ?
+                """, arguments: [deviceId, keyTs, keyText])
+        }
+    }
+
     /// The applied-lift join behind M_day: a lift counts only while its workout still holds the value we wrote.
     private static let appliedLoadJoin = """
         FROM liftStrain ls
@@ -973,13 +1076,17 @@ extension WhoopStore {
              WHERE t.kind = 'day' AND (d.strain IS NOT t.writtenStrain OR d.strainVersion IS NOT t.writtenStrainVersion)
             """))
 
-        // Applied lift days that still have no canonical day target (and a canonical day row to build one on).
+        // Applied lift days that have a day row without a day target. Every row the dashboard can pick is a
+        // candidate: the canonical computed row and each lift owner's own "<owner>-noop" row, so a row written
+        // after the first settle of the day (for example by a transient engine) is settled on the next apply.
         days.formUnion(try String.fetchAll(db, sql: """
-            SELECT DISTINCT ls.dayKey FROM liftStrain ls
-              JOIN dailyMetric d ON d.deviceId = ?1 AND d.day = ls.dayKey
-             WHERE ls.state = 'applied' AND ls.appliedMuscularLoad > 0
-               AND NOT EXISTS (SELECT 1 FROM liftStrainTarget t
-                                WHERE t.deviceId = ?1 AND t.kind = 'day' AND t.keyText = ls.dayKey)
+            SELECT DISTINCT ls.dayKey \(appliedLoadJoin)
+               AND EXISTS (SELECT 1 FROM dailyMetric d
+                            WHERE d.day = ls.dayKey
+                              AND (d.deviceId = ?1 OR d.deviceId = ls.deviceId || '-noop')
+                              AND NOT EXISTS (SELECT 1 FROM liftStrainTarget t
+                                               WHERE t.deviceId = d.deviceId AND t.kind = 'day'
+                                                 AND t.keyTs = 0 AND t.keyText = ls.dayKey))
             """, arguments: [canonical]))
 
         // Orphan sweep (A5): a day target that recorded a muscular load (or whose written value differs from the
@@ -1010,7 +1117,7 @@ extension WhoopStore {
     /// Step D for one logical day.
     private static func settleLiftStrainDay(
         db: Database, day: String, canonical: String, disabled: Bool, now: Int, combine: LiftStrainCombine,
-        result: inout LiftStrainApplyResult
+        dayCombine: LiftStrainDayCombine?, result: inout LiftStrainApplyResult
     ) throws {
         // M_day is per user, not per owner: every owner's applied lifts on the day, smallest first.
         let mDay: Double = disabled ? 0 : LiftStrainBits.dayLoad(try Double.fetchAll(db, sql: """
@@ -1055,7 +1162,7 @@ extension WhoopStore {
             var stored = current
             if current.version == 2, let base {
                 load = mDay
-                let target = mDay > 0 ? combine(base, mDay) : base
+                let target = mDay > 0 ? (dayCombine?(day, base, mDay) ?? combine(base, mDay)) : base
                 if !LiftStrainBits.same(target, current.strain) {
                     try db.execute(sql: """
                         UPDATE dailyMetric SET strain = ?, strainVersion = 2

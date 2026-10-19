@@ -10,6 +10,12 @@ import WhoopStore
 // thread, a screen that goes away cancels it, and the last result per day is kept so reopening the screen paints at
 // once and refreshes behind it.
 
+/// One applied lift of the day: when its workout ended and the muscular load Strength Strain stored for it.
+struct StrainDayLiftLoad: Equatable, Sendable {
+    let endTs: Int
+    let muscularLoad: Double
+}
+
 /// What one pass needs to know about the day it reads.
 struct StrainDayRequest: Equatable, Sendable {
     let dayKey: String
@@ -30,6 +36,9 @@ struct StrainDayRequest: Equatable, Sendable {
     let heroTenths: Int?
     /// The repository's refresh counter: new data landed.
     let refreshSeq: Int
+    /// The day's applied lifts. Part of the request, so a cached pass is behind the moment a lift is applied,
+    /// rescored or removed.
+    var liftLoads: [StrainDayLiftLoad] = []
 }
 
 /// One day's pass: the parts of the score, the curve, and the span it covers.
@@ -88,6 +97,7 @@ final class StrainDayCache {
             && entry.request.steps == request.steps
             && entry.request.stepTicksPerStep == request.stepTicksPerStep
             && entry.request.sleepMinutes == request.sleepMinutes
+            && entry.request.liftLoads == request.liftLoads
         guard sameInputs, entry.request.refreshSeq == request.refreshSeq else { return false }
         // Today's pass is also only as good as the hero it was read for (the live score ticks every 20 s) and as young
         // as the lifetime; a past day has no clock.
@@ -116,10 +126,13 @@ final class StrainDayCache {
 @MainActor
 enum StrainDayLoader {
     /// The pass for `request`, from the cache when it is fresh. nil when the repository has not loaded, or when the
-    /// calling task is cancelled before the work finishes (nothing is cached then).
-    static func load(_ request: StrainDayRequest, repo: Repository, now: Date = Date()) async -> StrainDayResult? {
+    /// calling task is cancelled before the work finishes (nothing is cached then). `useCache: false` neither reads
+    /// nor writes the screen's cache: Strength Strain's settle reads a day's parts this way, so its passes (made
+    /// without the day's lift loads) never stand in for the screen's.
+    static func load(_ request: StrainDayRequest, repo: Repository, now: Date = Date(),
+                     useCache: Bool = true) async -> StrainDayResult? {
         let cache = StrainDayCache.shared
-        if let hit = cache.entry(for: request.dayKey), cache.isFresh(hit, for: request, now: now) {
+        if useCache, let hit = cache.entry(for: request.dayKey), cache.isFresh(hit, for: request, now: now) {
             return hit.result
         }
         guard repo.loaded else { return nil }
@@ -213,15 +226,17 @@ enum StrainDayLoader {
             StrainDayAnalysis.make(samples: samples, maxHR: maxHR, restingHR: restingHR,
                                    context: context, start: start, end: end)
         }
-        let analysis = await withTaskCancellationHandler { await work.value } onCancel: { work.cancel() }
+        let heartRateAnalysis = await withTaskCancellationHandler { await work.value } onCancel: { work.cancel() }
         guard !Task.isCancelled else { return nil }
+        // Strength Strain: the day's logged sets join the cardio curve at the moment each lift ended.
+        let analysis = StrainDayLiftTransform.apply(heartRateAnalysis, loads: request.liftLoads)
 
         let result = StrainDayResult(
             analysis: analysis,
             wake: window.wake.map { Date(timeIntervalSince1970: TimeInterval($0)) },
             cycleStart: start, end: end, sampleCount: samples.count,
             steps: steps, sleepMinutes: request.sleepMinutes)
-        cache.store(result, for: request, now: now)
+        if useCache { cache.store(result, for: request, now: now) }
         #if DEBUG
         func ms(_ from: DispatchTime, _ to: DispatchTime) -> Double {
             Double(to.uptimeNanoseconds - from.uptimeNanoseconds) / 1_000_000
