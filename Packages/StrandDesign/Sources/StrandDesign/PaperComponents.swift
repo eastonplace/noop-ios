@@ -630,9 +630,8 @@ public struct TinyMetricBadge: View {
         Text(text)
             .font(StrandFont.captionNumber)
             .foregroundStyle(StrandPalette.textPrimary)
-            .padding(.horizontal, 7)
-            .frame(height: 24)
-            .background(tint.opacity(0.14), in: Capsule(style: .continuous))
+            .statePillChrome(tint: tint)
+            .frame(minHeight: 24)
     }
 }
 

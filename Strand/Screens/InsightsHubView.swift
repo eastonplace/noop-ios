@@ -170,13 +170,8 @@ struct InsightsHubView: View {
                             showAllAssociations = false
                         }
                     } label: {
-                        Text(item.rawValue)
-                            .font(StrandFont.micro.weight(.semibold))
-                            .foregroundStyle(selected ? StrandPalette.onInk : StrandPalette.textSecondary)
-                            .padding(.horizontal, 13)
-                            .frame(height: 32)
-                            .background(selected ? StrandPalette.ink : StrandPalette.card, in: Capsule())
-                            .overlay(Capsule().strokeBorder(selected ? Color.clear : StrandPalette.cardBorder))
+                        ChoiceChip(verbatimTitle: item.rawValue, isSelected: selected)
+                            .chipHitTarget()
                     }
                     .buttonStyle(.plain)
                 }
@@ -279,7 +274,7 @@ struct InsightsHubView: View {
                             .lineLimit(1)
                     }
                     Spacer(minLength: 8)
-                    StatePill(LocalizedStringKey(r.leadLagText), tone: .accent, showsDot: false)
+                    StatePill(LocalizedStringKey(r.leadLagText), tone: .neutral, showsDot: false)
                     ScoreStatePill(Self.scoreState(r.confidence))
                 }
 

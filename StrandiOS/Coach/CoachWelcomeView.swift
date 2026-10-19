@@ -168,13 +168,13 @@ struct CoachWelcomeView: View {
 
     private func pill(_ reading: Reading) -> some View {
         HStack(spacing: 6) {
-            Image(systemName: reading.symbol).font(.system(size: 12, weight: .semibold)).accessibilityHidden(true)
+            Image(systemName: reading.symbol).font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(reading.tint).accessibilityHidden(true)
             Text(verbatim: reading.text).coachFont(13.5, .semibold, relativeTo: .footnote, digits: true)
+                .foregroundStyle(StrandPalette.textPrimary)
         }
-        .foregroundStyle(reading.tint)
-        .padding(.horizontal, 12)
+        .neutralPillChrome()
         .frame(minHeight: pillHeight)
-        .background(Capsule(style: .continuous).fill(reading.tint.opacity(0.13)))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(reading.label))
     }
