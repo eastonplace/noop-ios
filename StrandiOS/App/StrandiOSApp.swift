@@ -104,6 +104,8 @@ struct StrandiOSApp: App {
         let alarmMode = SmartAlarmAdaptiveModeStore(legacy: model.behavior)
         let alarmRuntime = SmartAlarmRuntimeController(model: model, modeStore: alarmMode)
         SmartAlarmBackgroundTaskRegistrar.install(alarmRuntime)
+        // A BLE-restoration relaunch has no scene to run `.task`; the strap-fired hook must still be live.
+        alarmRuntime.installStrapHooks()
         _model = StateObject(wrappedValue: model)
         _alarmMode = StateObject(wrappedValue: alarmMode)
         _alarmRuntime = StateObject(wrappedValue: alarmRuntime)

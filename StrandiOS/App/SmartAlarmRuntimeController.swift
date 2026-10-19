@@ -132,6 +132,7 @@ final class SmartAlarmRuntimeController: ObservableObject {
     private let model: AppModel
     private let behavior: BehaviorStore
     private var started = false
+    private var strapHooksInstalled = false
     private var observedSnapshot: SmartAlarmRuntimeSnapshot?
     private var generation = SmartAlarmRuntimeGeneration()
     private var configurationID: UUID
@@ -166,6 +167,33 @@ final class SmartAlarmRuntimeController: ObservableObject {
         dailyTask?.cancel()
     }
 
+    /// Strap-driven edges: a reconnect re-arms the firmware alarm, and a strap-fired event correlates evidence,
+    /// mirrors the wake on the phone, then reconciles the following firmware occurrence. These must exist for a
+    /// Bluetooth-restoration relaunch that never builds a scene (and so never reaches `start()` from the UI), so
+    /// the app calls this from `init`. It has no launch-time side effects, unlike `start()`'s initial reconcile,
+    /// and is idempotent.
+    func installStrapHooks() {
+        guard !strapHooksInstalled else { return }
+        strapHooksInstalled = true
+
+        model.live.$connectSettled
+            .dropFirst()
+            .sink { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.reconcileImmediately(trigger: .bluetoothReconnect)
+                }
+            }
+            .store(in: &cancellables)
+
+        // The controller is the only alarm runtime.
+        model.live.onSmartAlarmFired = { [weak self] in
+            guard let self else { return }
+            SmartAlarmEvidenceStore.refreshCorrelation()
+            AppModel.postSmartAlarm()
+            self.reconcileImmediately(trigger: .configured)
+        }
+    }
+
     func start() {
         guard !started else { return }
         started = true
@@ -186,23 +214,7 @@ final class SmartAlarmRuntimeController: ObservableObject {
             }
             .store(in: &cancellables)
 
-        model.live.$connectSettled
-            .dropFirst()
-            .sink { [weak self] _ in
-                Task { @MainActor [weak self] in
-                    self?.reconcileImmediately(trigger: .bluetoothReconnect)
-                }
-            }
-            .store(in: &cancellables)
-
-        // The controller is the only alarm runtime. A strap-fired event first correlates evidence and
-        // mirrors the wake on the phone, then immediately reconciles the following firmware occurrence.
-        model.live.onSmartAlarmFired = { [weak self] in
-            guard let self else { return }
-            SmartAlarmEvidenceStore.refreshCorrelation()
-            AppModel.postSmartAlarm()
-            self.reconcileImmediately(trigger: .configured)
-        }
+        installStrapHooks()
 
         model.repo.$refreshSeq
             .dropFirst()
