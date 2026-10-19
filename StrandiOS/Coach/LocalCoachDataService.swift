@@ -436,8 +436,13 @@ final class LocalCoachDataService {
             truncated = truncated || rows.count > 200
             result += rows.prefix(200).filter { $0.endTs >= $0.startTs }.map { .init(owner: owner, row: $0) }
         }
-        // Exact duplicates are collapsed first, then the same strap-vs-Health/activity-file twin collapse the
-        // Workouts screen applies (Repository.workoutRows), so the Coach's count and duration agree with it.
+        return Self.dedupedWorkouts(result, truncated: truncated)
+    }
+
+    /// Post-read pipeline: exact duplicates are collapsed first, then the same strap-vs-Health/activity-file
+    /// twin collapse the Workouts screen applies (Repository.workoutRows), so the Coach's count and duration
+    /// agree with it. Newest first, capped at 200.
+    static func dedupedWorkouts(_ result: [OwnedWorkout], truncated: Bool) -> (rows: [OwnedWorkout], truncated: Bool) {
         var seen: [String: [WorkoutRow]] = [:]
         let distinct = result.sorted { $0.row.startTs > $1.row.startTs }.filter { item in
             let key = "\(item.row.startTs)|\(item.row.endTs)|\(item.row.sport)|\(item.row.source)"
@@ -451,7 +456,7 @@ final class LocalCoachDataService {
 
     /// Keeps the rows `WorkoutSource.dedupCrossSource` keeps (it returns rows unchanged), preserving each
     /// row's owner label and the input order.
-    static func collapseCrossSourceTwins(_ items: [OwnedWorkout]) -> [OwnedWorkout] {
+    private static func collapseCrossSourceTwins(_ items: [OwnedWorkout]) -> [OwnedWorkout] {
         var remaining = WorkoutSource.dedupCrossSource(items.map(\.row))
         return items.filter { item in
             guard let i = remaining.firstIndex(of: item.row) else { return false }

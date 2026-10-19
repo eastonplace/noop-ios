@@ -389,12 +389,14 @@ final class LocalCoachDataTests: XCTestCase {
         let items: [LocalCoachDataService.OwnedWorkout] = [
             .init(owner: "my-whoop", row: strap), .init(owner: "apple-health", row: twin), .init(owner: "apple-health", row: other)
         ]
-        let kept = LocalCoachDataService.collapseCrossSourceTwins(items)
-        XCTAssertEqual(kept.map(\.row), WorkoutSource.dedupCrossSource(items.map(\.row)),
-                       "The Coach must keep exactly what the Workouts screen keeps")
-        XCTAssertEqual(kept.count, 2, "One session recorded by strap and Apple Health is one workout, not two")
-        XCTAssertEqual(kept.map(\.owner), ["my-whoop", "apple-health"])
-        XCTAssertEqual(kept.first?.row, strap, "The richer strap row wins, keeping its owner label")
+        // Same strap row read twice (exact duplicate) plus the Health twin and an unrelated ride.
+        let withDuplicate = items + [.init(owner: "my-whoop", row: strap)]
+        let result = LocalCoachDataService.dedupedWorkouts(withDuplicate, truncated: false)
+        XCTAssertEqual(result.rows.count, 2, "One session recorded by strap and Apple Health is one workout, not two")
+        XCTAssertEqual(result.rows.map(\.owner), ["apple-health", "my-whoop"], "Newest first, strap owner label kept")
+        XCTAssertEqual(result.rows.map(\.row), [other, strap], "The richer strap row wins over its Health twin")
+        XCTAssertEqual(result.rows.reduce(0.0) { $0 + ($1.row.durationS ?? 0) }, 3_000 + 2_000, "Summed duration counts the session once")
+        XCTAssertFalse(result.truncated)
     }
 
     func testCoverageAndNutritionStatsCardsNeverMixDatesOrInventValues() throws {
