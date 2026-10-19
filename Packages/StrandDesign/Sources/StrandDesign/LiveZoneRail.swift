@@ -128,9 +128,9 @@ public struct LiveZoneRail: View {
 
     private func bpmText(_ bpm: Int) -> Text {
         Text(verbatim: "\(bpm)").font(StrandFont.bodyNumber.weight(.semibold)).monospacedDigit()
-            .foregroundStyle(StrandPalette.textPrimary)
+            .foregroundStyleCompat(StrandPalette.textPrimary)
         + Text(verbatim: " ")
-        + Text("bpm", bundle: .module).font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
+        + Text("bpm", bundle: .module).font(StrandFont.micro).foregroundStyleCompat(StrandPalette.textTertiary)
     }
 
     // MARK: Rail

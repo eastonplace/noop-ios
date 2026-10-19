@@ -26,7 +26,9 @@ final class LocalCoachDiagnosticsTests: XCTestCase {
 
     func testSyntheticModelGenerationWhenAvailable() async throws {
         guard LocalCoachDiagnostics.modelAvailable else { throw XCTSkip("Apple Intelligence is unavailable in this test environment.") }
-        let result = try await LocalCoachDiagnostics.testModel()
+        let result: LocalCoachCheck
+        do { result = try await LocalCoachDiagnostics.testModel() }
+        catch where LocalCoachModelAssets.areMissing(error) { throw XCTSkip(LocalCoachModelAssets.skipReason) }
         XCTAssertEqual(result.status, .passed, result.detail)
     }
 
