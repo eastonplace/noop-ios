@@ -144,6 +144,9 @@ struct RootTabView: View {
                     // does not bring the workout back after it is minimized.
                     closeFan()
                     if active { router.openActiveWorkout() } else { router.workoutJourneyRequest = .setup(initialSport: nil) }
+                }, onStrength: {
+                    // The same Lift flow the Live Activity's deep link opens; it closes the fan itself.
+                    openLift()
                 }, onQuickStart: { sport in
                     closeFan()
                     router.workoutJourneyRequest = .quickStart(sport: sport)
@@ -649,6 +652,10 @@ private struct ActiveSessionAutoPresenter: View {
     }
 
     private func present(_ target: ActiveSessionAutoPresentPolicy.Target?) {
+        #if DEBUG
+        // QA only: a restored run or lift does not cover the screen being captured.
+        if ProcessInfo.processInfo.arguments.contains("--noop-qa-no-auto-present") { return }
+        #endif
         switch target {
         case .run: presentRun()
         case .lift: presentLift()

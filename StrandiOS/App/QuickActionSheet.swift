@@ -3,7 +3,8 @@ import SwiftUI
 import StrandDesign
 
 /// Quick Actions. The tab bar's + turns into a ×, a scrim dims the screen behind it, and the actions spring out of the
-/// button along an arc above it. The file keeps the name of the sheet it replaced.
+/// button above it: Start workout and Strength side by side on top, the other four arcing down to the +. The file keeps
+/// the name of the sheet it replaced.
 ///
 /// Presentation only. The app shell remains the sole owner of starting, restoring and presenting a workout, and of the
 /// + button itself (`PaperTabBar`), which is drawn above this view so it stays fully visible over the scrim.
@@ -15,6 +16,8 @@ struct QuickActionFan: View {
     let onClose: () -> Void
     let onPick: (QuickAction) -> Void
     let onWorkout: (_ active: Bool) -> Void
+    /// Opens the Lift flow, the one "Lift weights instead" on the workout setup page also leads to.
+    let onStrength: () -> Void
     let onQuickStart: (_ sport: String) -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -31,12 +34,6 @@ struct QuickActionFan: View {
     private static let plusCentreAboveBottom = NoopMetrics.navBarHeight / 2
     /// The tab bar's row and the hairline over it.
     private static let barHeight = NoopMetrics.navBarHeight + 1
-    /// The arc is centred a little above the + so the outer circles clear the tab labels.
-    private static let arcLift: CGFloat = 8
-    private static let radius: CGFloat = 172
-    private static let primaryDiameter: CGFloat = 72
-    private static let diameter: CGFloat = 60
-    private static let labelGap: CGFloat = 8
     private static let labelWidth: CGFloat = 92
     /// Two lines of the 13pt label.
     private static let labelHeight: CGFloat = 34
@@ -123,49 +120,57 @@ struct QuickActionFan: View {
         let tint: Color
         var hint: LocalizedStringKey?
         var value: Text?
-        /// Degrees on the arc, measured from the right: 90 is straight up.
-        var angle: Double = 90
-        var isPrimary = false
+        let slot: QuickActionSlot
+        /// VoiceOver lands here when Quick Actions opens.
+        var takesFocus = false
         let run: () -> Void
+
+        var isPrimary: Bool { slot.isPrimary }
     }
 
-    /// Left to right along the arc, which is also the order they spring out in.
+    /// Left to right across the fan, which is also the order they spring out in.
     private var actions: [FanAction] {
         [
             FanAction(id: "journal", title: "Journal", spokenTitle: "Log journal", symbol: "pencil.line",
-                      tint: StrandPalette.journalAccent, hint: "Record how you feel", angle: 150) { onPick(.journal) },
+                      tint: StrandPalette.journalAccent, hint: "Record how you feel", slot: .journal) { onPick(.journal) },
             FanAction(id: "live", title: "Live HR", symbol: "heart.fill", tint: StrandPalette.liveRed,
-                      hint: "See your heart rate now", angle: 118) { onPick(.live) },
-            primary,
+                      hint: "See your heart rate now", slot: .live) { onPick(.live) },
+            workoutAction,
+            strengthAction,
             FanAction(id: "intervals", title: "Intervals", symbol: "timer", tint: StrandPalette.strainAccent,
-                      hint: "Open your interval timer", angle: 62) { onPick(.intervals) },
+                      hint: "Open your interval timer", slot: .intervals) { onPick(.intervals) },
             // UX-07 is P3 and excluded. Preserve the existing unconditional entry and preferences.
             FanAction(id: "breathe", title: "Breathe", symbol: "wind", tint: StrandPalette.chargeAccent,
-                      hint: "Open guided breathing", angle: 30) { onPick(.breathe) },
+                      hint: "Open guided breathing", slot: .breathe) { onPick(.breathe) },
         ]
     }
 
-    /// The centre action. It starts a workout, returns to the one in progress, or, while a lift is recording, returns to
-    /// the lift (a workout cannot start under it).
-    private var primary: FanAction {
-        let active = model.activeWorkout
-        let run: () -> Void = {
-            if blockedByLift { router.openActiveLift() } else { onWorkout(active != nil) }
-        }
-        if let active {
+    /// Starts a workout, or returns to the one in progress. A lift in progress leaves it as it is: Start opens the setup,
+    /// which says a lift is recording and offers it, and Strength is the way straight back to the lift.
+    private var workoutAction: FanAction {
+        if let active = model.activeWorkout {
             return FanAction(id: "resumeWorkout", title: "Return to workout", symbol: "figure.run",
                              tint: StrandPalette.onInk,
                              value: Text("\(WorkoutSource.displaySport(active.sport)) · in progress"),
-                             isPrimary: true, run: run)
+                             slot: .workout, takesFocus: true) { onWorkout(true) }
         }
+        return FanAction(id: "startWorkout", title: "Start workout", symbol: "figure.run", tint: StrandPalette.onInk,
+                         hint: "Choose an activity and get started.", slot: .workout, takesFocus: !blockedByLift) {
+            onWorkout(false)
+        }
+    }
+
+    /// Opens the Lift flow, or, while a lift is recording (a workout cannot start under it), returns to that lift.
+    private var strengthAction: FanAction {
         if blockedByLift {
             return FanAction(id: "returnToLift", title: "Return to lift", symbol: "dumbbell.fill",
                              tint: StrandPalette.onInk,
                              hint: "Your lift is recording. Finish it before starting a workout.",
-                             isPrimary: true, run: run)
+                             slot: .strength, takesFocus: true) { router.openActiveLift() }
         }
-        return FanAction(id: "startWorkout", title: "Start workout", symbol: "figure.run", tint: StrandPalette.onInk,
-                         hint: "Choose an activity and get started.", isPrimary: true, run: run)
+        return FanAction(id: "strength", title: "Strength", spokenTitle: "Strength training", symbol: "dumbbell.fill",
+                         tint: StrandPalette.onInk, hint: "Choose a routine and track sets, reps and weight.",
+                         slot: .strength) { onStrength() }
     }
 
     /// The "Start <last sport>" shortcut, offered only when starting it would not have to ask anything.
@@ -194,19 +199,15 @@ struct QuickActionFan: View {
 
     private func arc(in size: CGSize) -> some View {
         let plus = CGPoint(x: size.width / 2, y: size.height - Self.plusCentreAboveBottom)
-        let centre = CGPoint(x: plus.x, y: plus.y - Self.arcLift)
-        // The outer circles stay on screen on a narrow phone.
-        let radius = min(Self.radius, (size.width / 2 - Self.diameter / 2 - 8) / CGFloat(cos(Double.pi / 6)))
         return ZStack(alignment: .topLeading) {
             ForEach(Array(actions.enumerated()), id: \.element.id) { index, action in
-                let radians = action.angle * Double.pi / 180
-                let target = CGPoint(x: centre.x + radius * CGFloat(cos(radians)),
-                                     y: centre.y - radius * CGFloat(sin(radians)))
-                bubble(action, index: index, target: target, start: plus)
+                let target = action.slot.centre(plus: plus, width: size.width)
+                bubble(action, index: index, target: target,
+                       labelWidth: action.slot.labelWidth(width: size.width, maximum: Self.labelWidth), start: plus)
             }
             if let sport = recentSport {
-                // Above the centre action's circle, as a quiet capsule.
-                let target = CGPoint(x: plus.x, y: centre.y - radius - Self.primaryDiameter / 2 - 14 - 22)
+                // Above the two top actions, centred between them, as a quiet capsule.
+                let target = CGPoint(x: plus.x, y: plus.y + QuickActionSlot.chipOffsetY)
                 chip(sport: sport, target: target, start: plus, index: 2)
             }
         }
@@ -230,29 +231,30 @@ struct QuickActionFan: View {
                 radius: action.isPrimary ? 20 : 15, y: 10)
     }
 
-    private func bubble(_ action: FanAction, index: Int, target: CGPoint, start: CGPoint) -> some View {
-        let diameter = action.isPrimary ? Self.primaryDiameter : Self.diameter
-        let height = diameter + Self.labelGap + Self.labelHeight
+    private func bubble(_ action: FanAction, index: Int, target: CGPoint, labelWidth: CGFloat, start: CGPoint) -> some View {
+        let diameter = action.slot.diameter
+        let height = diameter + QuickActionSlot.labelGap + Self.labelHeight
         let t = progress
         let anim = motion(delay: index)
         return Button { perform(action.run) } label: {
-            VStack(spacing: Self.labelGap) {
+            VStack(spacing: QuickActionSlot.labelGap) {
                 circle(action, diameter: diameter, glyph: action.isPrimary ? 30 : 24)
                 Text(action.title)
                     .font(StrandFont.footnote.weight(.semibold))
                     .foregroundStyle(StrandPalette.textPrimary)
                     .multilineTextAlignment(.center)
                     .lineLimit(2)
-                    .frame(width: Self.labelWidth, height: Self.labelHeight, alignment: .top)
+                    .minimumScaleFactor(0.75)
+                    .frame(width: labelWidth, height: Self.labelHeight, alignment: .top)
             }
-            .frame(width: Self.labelWidth, height: height, alignment: .top)
+            .frame(width: labelWidth, height: height, alignment: .top)
             .contentShape(Rectangle())
         }
         .buttonStyle(QuickActionPressStyle(reduceMotion: reduceMotion))
         .accessibilityLabel(action.spokenTitle ?? action.title)
         .modifier(OptionalAccessibilityHint(hint: action.hint, value: action.value))
         .accessibilityIdentifier("quickActions.\(action.id)")
-        .modifier(PrimaryFocus(isPrimary: action.isPrimary, focus: $primaryFocused))
+        .modifier(PrimaryFocus(takesFocus: action.takesFocus, focus: $primaryFocused))
         .opacity(Double(t))
         .animation(anim.fade, value: isOpen)
         // The circle is what springs out of the +, so it is the circle's centre the scale holds still.
@@ -301,7 +303,7 @@ struct QuickActionFan: View {
         let ordered = actions.filter { !$0.isPrimary } + actions.filter { $0.isPrimary }
         let rows = VStack(spacing: 10) {
             ForEach(Array(ordered.enumerated()), id: \.element.id) { index, action in
-                if action.isPrimary, let sport = recentSport {
+                if action.slot == .workout, let sport = recentSport {
                     recentRow(sport: sport, index: index)
                 }
                 row(action, index: index)
@@ -364,7 +366,7 @@ struct QuickActionFan: View {
             .accessibilityLabel(action.spokenTitle ?? action.title)
             .modifier(OptionalAccessibilityHint(hint: action.hint, value: action.value))
             .accessibilityIdentifier("quickActions.\(action.id)")
-            .modifier(PrimaryFocus(isPrimary: action.isPrimary, focus: $primaryFocused))
+            .modifier(PrimaryFocus(takesFocus: action.takesFocus, focus: $primaryFocused))
         }
     }
 
@@ -395,6 +397,51 @@ struct QuickActionFan: View {
     }
 }
 
+/// Where each Quick Action sits: Start workout and Strength side by side on top, the other four arcing down to the +.
+/// The offsets are the circle's centre from the + button's centre on a `referenceWidth` screen (the mockup's horizontal
+/// numbers, lifted so the lowest labels clear the tab bar).
+enum QuickActionSlot: CaseIterable {
+    case journal, live, workout, strength, intervals, breathe
+
+    /// The screen width the offsets were drawn for. Horizontal offsets scale with the real width.
+    static let referenceWidth: CGFloat = 393
+    /// The least room kept between a circle or a label and the edge of the screen.
+    static let edgeMargin: CGFloat = 12
+    /// Between a circle and its label.
+    static let labelGap: CGFloat = 8
+    /// The recent-sport chip's centre above the + centre: its 44pt frame (the capsule is 36pt) ends 14pt over the two top
+    /// circles.
+    static var chipOffsetY: CGFloat { workout.offset.y - workout.diameter / 2 - 14 - 22 }
+
+    var offset: CGPoint {
+        switch self {
+        case .journal: CGPoint(x: -152.5, y: -118)
+        case .live: CGPoint(x: -126.5, y: -215)
+        case .workout: CGPoint(x: -48.5, y: -262)
+        case .strength: CGPoint(x: 48.5, y: -262)
+        case .intervals: CGPoint(x: 126.5, y: -215)
+        case .breathe: CGPoint(x: 152.5, y: -118)
+        }
+    }
+
+    var isPrimary: Bool { self == .workout || self == .strength }
+    var diameter: CGFloat { isPrimary ? 72 : 60 }
+
+    /// The circle's centre. A narrow screen scales the horizontal offsets down; the outer circles never come nearer the
+    /// edge than `edgeMargin`.
+    func centre(plus: CGPoint, width: CGFloat) -> CGPoint {
+        let reach = width / 2 - Self.edgeMargin - diameter / 2
+        let dx = min(abs(offset.x) * width / Self.referenceWidth, reach)
+        return CGPoint(x: plus.x + (offset.x < 0 ? -dx : dx), y: plus.y + offset.y)
+    }
+
+    /// The label, and with it the tap area: `maximum` wide, or less where that would cross `edgeMargin`.
+    func labelWidth(width: CGFloat, maximum: CGFloat) -> CGFloat {
+        let x = centre(plus: CGPoint(x: width / 2, y: 0), width: width).x
+        return min(maximum, 2 * (min(x, width - x) - Self.edgeMargin))
+    }
+}
+
 /// A hint and a value only where there are some, so a plain button does not carry an empty one.
 private struct OptionalAccessibilityHint: ViewModifier {
     let hint: LocalizedStringKey?
@@ -407,13 +454,13 @@ private struct OptionalAccessibilityHint: ViewModifier {
     }
 }
 
-/// VoiceOver lands on the primary action when Quick Actions opens.
+/// VoiceOver lands on the one action marked to take it when Quick Actions opens.
 private struct PrimaryFocus: ViewModifier {
-    let isPrimary: Bool
+    let takesFocus: Bool
     var focus: AccessibilityFocusState<Bool>.Binding
 
     func body(content: Content) -> some View {
-        if isPrimary {
+        if takesFocus {
             content.accessibilityFocused(focus)
         } else {
             content

@@ -140930,6 +140930,12 @@
             "value": "Fuerza"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Force"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
@@ -140940,6 +140946,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Força"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сила"
           }
         },
         "zh-Hans": {
