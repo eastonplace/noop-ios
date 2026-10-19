@@ -39,6 +39,25 @@ final class TrainingLoadPageModelTests: XCTestCase {
         return (TrainingLoadPageModel(days: days, workouts: workouts, calendar: cal), result)
     }
 
+    /// The page's own feed: the engine's modeled days plus every recorded day of the run, the six before the seed day
+    /// included. Also returns the same model built from the modeled days alone, to show what the wider feed changes.
+    private func pageModels(loads: [Double?], start: String, calendar cal: Calendar)
+        -> (full: TrainingLoadPageModel, modeledOnly: TrainingLoadPageModel) {
+        let input = loads.enumerated().map {
+            TrainingLoadEngine.DailyLoad(day: dayString(offset: $0.offset, from: start, cal), load: $0.element)
+        }
+        let result = TrainingLoadEngine.evaluate(days: input)
+        let days = result.points.map {
+            TrainingLoadPageModel.Day(date: date($0.day, cal), acute: $0.acuteLoad, chronic: $0.chronicLoad, load: $0.load)
+        }
+        let recorded: [TrainingLoadPageModel.Recorded] = input.compactMap { item in
+            guard let load = item.load, let first = result.startDay, item.day >= first else { return nil }
+            return .init(date: date(item.day, cal), load: load)
+        }
+        return (TrainingLoadPageModel(days: days, workouts: [], calendar: cal, recorded: recorded),
+                TrainingLoadPageModel(days: days, workouts: [], calendar: cal))
+    }
+
     private func workout(_ day: String, hour: Int = 9, sport: String = "Running", strain: Double? = 50,
                          _ calendar: Calendar) -> TrainingLoadPageModel.Workout {
         let start = calendar.date(byAdding: .hour, value: hour, to: date(day, calendar))!
@@ -345,6 +364,49 @@ final class TrainingLoadPageModelTests: XCTestCase {
         XCTAssertNotNil(long.comparison)
         XCTAssertNil(long.comparison?.trainingDays)
         XCTAssertNil(long.comparison?.trainingDaysDelta)
+    }
+
+    /// The engine emits no point for the first six recorded days (they only seed it), but they were recorded: the week
+    /// they fall in and the window they fall in average them rather than pretending the week or window is shorter.
+    func testWeeksAndComparisonCountTheRecordedDaysBeforeTheSeedDay() throws {
+        let d = calendar()
+        // 40 recorded days ending Monday 2026-10-19. The first two weeks' worth of seed days (09-10...09-15) are hard.
+        var loads: [Double?] = Array(repeating: 40, count: 40)
+        for index in 0..<6 { loads[index] = 100 }
+        let (full, modeledOnly) = pageModels(loads: loads, start: "2026-09-10", calendar: d)
+        XCTAssertEqual(full.latest!.date, date("2026-10-19", d))
+        XCTAssertEqual(full.days.count, 34, "34 modeled points: the seed day is the 7th recorded day")
+
+        // The week of 09-14 holds recorded days 09-14...09-20: two of 100 and five of 40.
+        let oldest = full.weeks.first!
+        XCTAssertEqual(oldest.start, date("2026-09-14", d))
+        XCTAssertEqual(oldest.observedDays, 7)
+        XCTAssertEqual(oldest.averageEffort!, 400.0 / 7 * 0.21, accuracy: 1e-12)
+        XCTAssertNotNil(oldest.baseAtEnd, "the week still ends on a modeled day")
+        XCTAssertEqual(modeledOnly.weeks.first!.observedDays, 5, "the modeled days alone drop 09-14 and 09-15")
+        XCTAssertEqual(modeledOnly.weeks.first!.averageEffort!, 40 * 0.21, accuracy: 1e-12)
+
+        // 12 recorded days (6 of 100, 6 of 40) sit before the latest 28; only 6 of them are modeled.
+        XCTAssertNil(modeledOnly.comparison, "6 modeled days is under the week the comparison needs")
+        let comparison = try XCTUnwrap(full.comparison)
+        XCTAssertEqual(comparison.previousAverageEffort, 70 * 0.21, accuracy: 1e-12)
+        XCTAssertEqual(comparison.averageEffort, 40 * 0.21, accuracy: 1e-12)
+    }
+
+    func testAWeekWhollyBeforeTheSeedDayHasAnAverageButNoBase() {
+        let d = calendar()
+        // 35 recorded days from Tue 2026-09-15 to Mon 2026-10-19. The seed day is the 7th, Mon 09-21, so the first
+        // Monday-first week (09-14...09-20) holds six recorded days and not one modeled day.
+        var loads: [Double?] = Array(repeating: 40, count: 35)
+        for index in 0..<6 { loads[index] = 80 }
+        let (full, modeledOnly) = pageModels(loads: loads, start: "2026-09-15", calendar: d)
+        XCTAssertEqual(full.weeks.first!.start, date("2026-09-14", d))
+        let preSeedWeek = full.weeks.first!
+        XCTAssertEqual(preSeedWeek.observedDays, 6)
+        XCTAssertEqual(preSeedWeek.averageEffort!, 80 * 0.21, accuracy: 1e-12)
+        XCTAssertNil(preSeedWeek.baseAtEnd, "no acute or chronic value exists before the seed day")
+        XCTAssertNil(modeledOnly.weeks.first!.averageEffort, "the modeled days alone leave that week empty")
+        XCTAssertEqual(modeledOnly.weeks.first!.observedDays, 0)
     }
 
     func testBiggestDayTieGoesToTheNewestDay() {

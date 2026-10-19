@@ -35,6 +35,19 @@ public struct TrainingLoadPageModel: Sendable {
         }
     }
 
+    /// One recorded day's load in the engine's stored units. Wider than `Day`: the engine models acute and chronic from its
+    /// seed day (the 7th recorded day of the run) on, so the first six recorded days have a load but no state of their own.
+    /// The weeks, the four-week comparison and the biggest day count every recorded day, not only the modeled ones.
+    public struct Recorded: Sendable, Equatable {
+        public let date: Date
+        public let load: Double
+
+        public init(date: Date, load: Double) {
+            self.date = date
+            self.load = load
+        }
+    }
+
     /// One workout. `strain` is NOOP's own stored 0...100 score for it, nil when NOOP did not score it (an Apple Health or
     /// imported session): such a workout still makes its day a training day but is not ranked or counted into the mix.
     public struct Workout: Sendable, Equatable {
@@ -214,11 +227,13 @@ public struct TrainingLoadPageModel: Sendable {
     public struct Week: Sendable, Equatable {
         /// First day of the calendar week (the calendar's first weekday).
         public let start: Date
-        /// Mean daily Effort over the week's observed days, display scale; nil when none were observed.
+        /// Mean daily Effort over the week's recorded days, display scale; nil when none were recorded.
         public let averageEffort: Double?
-        /// Fitness base on the week's last observed day (the newest day for the current week), display scale.
+        /// Fitness base on the week's last modeled day (the newest day for the current week), display scale. Nil for a
+        /// week that ended before the engine's seed day.
         public let baseAtEnd: Double?
         public let isCurrent: Bool
+        /// Recorded days in the week (the days the average is over).
         public let observedDays: Int
     }
 
@@ -265,12 +280,14 @@ public struct TrainingLoadPageModel: Sendable {
         public let biggestDay: Biggest
     }
 
-    /// Fewest observed days the earlier window needs before the comparison is drawn.
+    /// Fewest recorded days the earlier window needs before the comparison is drawn.
     public static let minimumComparisonDays = 7
     public static let comparisonWindowDays = 28
     public static let weekCount = 6
     public static let mixWindowDays = 42
     public static let driverCount = 3
+    /// The days a "what drove the week" window spans, the selected day included.
+    public static let driverWindowDays = 7
     public static let mixSportCount = 3
 
     // MARK: - Init
@@ -279,10 +296,14 @@ public struct TrainingLoadPageModel: Sendable {
     ///   - days: observed modeled days in the engine's stored units, any order.
     ///   - workouts: the workouts read for the window, any order.
     ///   - calendar: the one calendar every day bucket and week uses; set its `firstWeekday` to the person's.
-    public init(days: [Day], workouts: [Workout], calendar: Calendar,
+    ///   - recorded: every recorded day of the modeled run, including the days before the engine's seed day, which are not
+    ///     in `days`. The weeks, the comparison and the biggest day average these. Nil takes them from `days`.
+    public init(days: [Day], workouts: [Workout], calendar: Calendar, recorded: [Recorded]? = nil,
                 configuration: TrainingLoadEngine.Configuration = .standard,
                 displayFactor: Double = 0.21) {
         let ordered = days.sorted { $0.date < $1.date }
+        let loads = (recorded ?? ordered.map { Recorded(date: $0.date, load: $0.load) })
+            .sorted { $0.date < $1.date }
         self.days = ordered
         self.workouts = workouts
         self.calendar = calendar
@@ -304,10 +325,10 @@ public struct TrainingLoadPageModel: Sendable {
             Self.makeProjections(from: $0, configuration: configuration, displayFactor: displayFactor)
         } ?? []
         self.weeks = latest.map {
-            Self.makeWeeks(in: ordered, newest: $0.date, calendar: calendar, displayFactor: displayFactor)
+            Self.makeWeeks(in: ordered, recorded: loads, newest: $0.date, calendar: calendar, displayFactor: displayFactor)
         } ?? []
         self.comparison = latest.flatMap {
-            Self.makeComparison(days: ordered, workouts: workouts, newest: $0.date, calendar: calendar,
+            Self.makeComparison(recorded: loads, workouts: workouts, newest: $0.date, calendar: calendar,
                             displayFactor: displayFactor)
         }
     }
@@ -361,18 +382,22 @@ public struct TrainingLoadPageModel: Sendable {
 
     // MARK: - Weeks
 
-    private static func makeWeeks(in days: [Day], newest: Date, calendar: Calendar, displayFactor: Double) -> [Week] {
+    private static func makeWeeks(in days: [Day], recorded: [Recorded], newest: Date, calendar: Calendar,
+                                  displayFactor: Double) -> [Week] {
         guard let currentStart = calendar.dateInterval(of: .weekOfYear, for: newest)?.start else { return [] }
         var result: [Week] = []
         for offset in stride(from: weekCount - 1, through: 0, by: -1) {
             guard let start = calendar.date(byAdding: .day, value: -7 * offset, to: currentStart),
                   let next = calendar.date(byAdding: .day, value: 7, to: start) else { continue }
-            let inWeek = days.filter { $0.date >= start && $0.date < next }
+            // The average counts every recorded day of the week. The base is the engine's, so it stops at the last
+            // modeled day (a week wholly before the seed day has none).
+            let inWeek = recorded.filter { $0.date >= start && $0.date < next }
             let average = inWeek.isEmpty
                 ? nil
                 : inWeek.reduce(0) { $0 + $1.load } / Double(inWeek.count) * displayFactor
+            let modeled = days.last { $0.date >= start && $0.date < next }
             result.append(Week(start: start, averageEffort: average,
-                               baseAtEnd: inWeek.last.map { $0.chronic * displayFactor },
+                               baseAtEnd: modeled.map { $0.chronic * displayFactor },
                                isCurrent: offset == 0, observedDays: inWeek.count))
         }
         return result
@@ -383,7 +408,7 @@ public struct TrainingLoadPageModel: Sendable {
     /// The seven days ending on `day` (inclusive): the three hardest scored workouts and how many days held any workout.
     public func driverWeek(endingOn day: Date) -> DriverWeek {
         let last = calendar.startOfDay(for: day)
-        let first = calendar.date(byAdding: .day, value: -6, to: last) ?? last
+        let first = calendar.date(byAdding: .day, value: -(Self.driverWindowDays - 1), to: last) ?? last
         let end = calendar.date(byAdding: .day, value: 1, to: last) ?? last
         let inWindow = workouts.filter { $0.start >= first && $0.start < end }
         let ranked = inWindow
@@ -456,17 +481,17 @@ public struct TrainingLoadPageModel: Sendable {
 
     // MARK: - Comparison
 
-    private static func makeComparison(days: [Day], workouts: [Workout], newest: Date, calendar: Calendar,
+    private static func makeComparison(recorded: [Recorded], workouts: [Workout], newest: Date, calendar: Calendar,
                                    displayFactor: Double) -> Comparison? {
         let span = comparisonWindowDays
         guard let recentFirst = calendar.date(byAdding: .day, value: -(span - 1), to: newest),
               let previousFirst = calendar.date(byAdding: .day, value: -span, to: recentFirst),
               let end = calendar.date(byAdding: .day, value: 1, to: newest) else { return nil }
-        let recent = days.filter { $0.date >= recentFirst && $0.date < end }
-        let previous = days.filter { $0.date >= previousFirst && $0.date < recentFirst }
+        let recent = recorded.filter { $0.date >= recentFirst && $0.date < end }
+        let previous = recorded.filter { $0.date >= previousFirst && $0.date < recentFirst }
         guard !recent.isEmpty, previous.count >= minimumComparisonDays else { return nil }
 
-        func mean(_ values: [Day]) -> Double {
+        func mean(_ values: [Recorded]) -> Double {
             values.reduce(0) { $0 + $1.load } / Double(values.count) * displayFactor
         }
         func trainingDays(from lower: Date, to upper: Date) -> Int {
@@ -474,7 +499,7 @@ public struct TrainingLoadPageModel: Sendable {
                 .map { calendar.startOfDay(for: $0.start) }).count
         }
         // Ties go to the newest day.
-        guard let biggest = recent.reduce(nil as Day?, { best, day in
+        guard let biggest = recent.reduce(nil as Recorded?, { best, day in
             guard let best else { return day }
             return day.load >= best.load ? day : best
         }) else { return nil }

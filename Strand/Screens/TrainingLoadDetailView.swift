@@ -122,6 +122,8 @@ struct TrainingLoadDetailView: View {
     @State private var readID = UUID()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage(UnitPrefs.systemKey) private var unitSystemRaw = UnitSystem.metric.rawValue
+    /// The strip's caption size: the mockup's 11.5pt at the default text size, growing with Dynamic Type.
+    @ScaledMetric(relativeTo: .caption2) private var captionSize: CGFloat = 11.5
 
     init(request: TrainingLoadDetailRequest) {
         self.request = request
@@ -380,13 +382,14 @@ struct TrainingLoadDetailView: View {
                 }
             }
             .accessibilityHidden(true)
-            TrainingLoadDailyStrip(marks: marks, domain: chartDomain, calendar: calendar, highlight: highlight, summary: spoken)
+            TrainingLoadDailyStrip(marks: marks, domain: chartDomain, calendar: calendar, highlight: highlight, summary: spoken,
+                                   selection: snappedSelection)
         }
     }
 
     private var stripHeading: some View {
         Text("Daily effort · what feeds it")
-            .font(.system(size: 11.5, weight: .semibold))
+            .font(.system(size: min(captionSize, 24), weight: .semibold))
             .tracking(1)
             .textCase(.uppercase)
             .foregroundStyle(StrandPalette.textTertiary)
@@ -395,7 +398,7 @@ struct TrainingLoadDetailView: View {
 
     private var stripNote: some View {
         Text("dot = rest day")
-            .font(.system(size: 11.5))
+            .font(.system(size: min(captionSize, 24)))
             .foregroundStyle(StrandPalette.textTertiary)
             .fixedSize(horizontal: false, vertical: true)
     }
@@ -743,10 +746,11 @@ struct TrainingLoadDetailView: View {
     /// Never "-0.0" or "+0.0": a form that rounds to nothing reads "0.0".
     private func signed(_ value: Double) -> String { DrillInFormat.signed(value, fractionDigits: 1) }
 
-    /// The six-plus-two weeks of sessions the page needs (the 28 days against the 28 before, the 42 of the mix, the week of
-    /// drivers all sit inside it), read once, with the sport named the way the Workouts screens name it.
+    /// The sessions the page needs, read once, with the sport named the way the Workouts screens name it. They span the whole
+    /// modeled window plus the six days before its oldest day: any day the chart can scrub to has its full seven-day window
+    /// of "what drove the week" behind it, and the 28 against 28 days and the 42 of the mix sit inside it too.
     @MainActor private func readWorkouts() async -> [TrainingLoadPageModel.Workout] {
-        let days = TrainingLoadPageModel.comparisonWindowDays * 2
+        let days = TrainingLoadTrendsWindow.days + TrainingLoadPageModel.driverWindowDays - 1
         guard let first = calendar.date(byAdding: .day, value: 1 - days, to: anchor),
               let end = calendar.date(byAdding: .day, value: 1, to: anchor) else { return [] }
         let rows = await repo.workoutRows(from: Int(first.timeIntervalSince1970), to: Int(end.timeIntervalSince1970),
@@ -807,9 +811,16 @@ struct TrainingLoadDetailView: View {
                     .init(date: $0, acute: point.acuteLoad, chronic: point.chronicLoad, load: point.load)
                 }
             }
+            // Every recorded day of the run, the six before the engine's seed day included (they have a load but no
+            // modeled state), so the weeks, the comparison and the biggest day are not short of those days.
+            let startDay = evaluated.startDay
+            let recorded: [TrainingLoadPageModel.Recorded] = loads.compactMap { item in
+                guard let load = item.load, let startDay, item.day >= startDay else { return nil }
+                return date(item.day).map { .init(date: $0, load: load) }
+            }
             let modelCalendar = calendar
             built = await Task.detached(priority: .userInitiated) {
-                TrainingLoadPageModel(days: modelDays, workouts: workouts, calendar: modelCalendar)
+                TrainingLoadPageModel(days: modelDays, workouts: workouts, calendar: modelCalendar, recorded: recorded)
             }.value
             guard !Task.isCancelled, trigger == self.trigger, sourceIsCurrent else { return }
         }
@@ -886,6 +897,7 @@ private struct TrainingLoadReadout: View {
     let cells: [Cell]
     @Environment(\.dynamicTypeSize) private var typeSize
     @ScaledMetric(relativeTo: .callout) private var valueSize: CGFloat = 16
+    @ScaledMetric(relativeTo: .caption2) private var labelSize: CGFloat = 11.5
 
     var body: some View {
         Group {
@@ -913,7 +925,7 @@ private struct TrainingLoadReadout: View {
     private func column(_ cell: Cell) -> some View {
         VStack(alignment: .leading, spacing: 1) {
             Text(cell.label)
-                .font(.system(size: 11.5, weight: .medium))
+                .font(.system(size: min(labelSize, 24), weight: .medium))
                 .foregroundStyle(StrandPalette.textTertiary)
                 .lineLimit(1)
             Text(verbatim: cell.value)
@@ -928,6 +940,9 @@ private struct TrainingLoadReadout: View {
 /// What feeds the load, one mark per recorded day on the chart's own days: a bar scaled against the 0...21 Effort range
 /// (orange from 18, full strain blue from 14, translucent below), a small grey dot for a recorded zero (a rest day), and
 /// nothing for a day with no Effort recorded. Inset like the chart above it, so each mark sits under its day.
+///
+/// It is a second scrub surface, the way the chart above it is: a horizontal drag along it picks the nearest recorded day
+/// and writes the same selection, so the readout, the chart's hairline and "what drove this week" all follow.
 private struct TrainingLoadDailyStrip: View {
     struct Mark {
         let date: Date
@@ -941,45 +956,83 @@ private struct TrainingLoadDailyStrip: View {
     /// The scrubbed day, drawn as a hairline; nil when nothing is scrubbed.
     let highlight: Date?
     let summary: String
+    /// The page's scrub selection. The strip writes the nearest recorded day and clears it when the finger lifts.
+    let selection: Binding<Date?>
+    @GestureState private var isScrubbing = false
+    @State private var dragAxis: Axis?
 
     static let height: CGFloat = 44
+    /// A drag that begins this close to the leading edge is the navigation back swipe's, not a scrub (the chart's own rule).
+    static let leadingEdgeInset: CGFloat = 16
 
     var body: some View {
-        Canvas { context, size in
-            let width = max(size.width - TrendsLoadChart.valueAxisInset, 1)
-            let span = domain.upperBound.timeIntervalSince(domain.lowerBound)
-            guard span > 0 else { return }
-            let x = { (date: Date) -> CGFloat in
-                width * CGFloat(min(max(date.timeIntervalSince(domain.lowerBound) / span, 0), 1))
-            }
-            let perDay = width * CGFloat(86_400 / span)
-            let barWidth = max(1.5, min(4.6, perDay * 0.6))
-            let usable = size.height - 4
-            if let highlight {
-                var line = Path()
-                line.move(to: CGPoint(x: x(highlight), y: 0))
-                line.addLine(to: CGPoint(x: x(highlight), y: size.height))
-                context.stroke(line, with: .color(StrandPalette.textPrimary.opacity(0.35)), lineWidth: 1)
-            }
-            for mark in marks {
-                let centre = x(mark.date)
-                if mark.effort <= 0 {
-                    let dot = CGRect(x: centre - 1.6, y: size.height - 2 - 1.6, width: 3.2, height: 3.2)
-                    context.fill(Path(ellipseIn: dot), with: .color(StrandPalette.textTertiary))
-                    continue
+        GeometryReader { proxy in
+            Canvas { context, size in
+                let width = max(size.width - TrendsLoadChart.valueAxisInset, 1)
+                let span = domain.upperBound.timeIntervalSince(domain.lowerBound)
+                guard span > 0 else { return }
+                let x = { (date: Date) -> CGFloat in
+                    width * CGFloat(min(max(date.timeIntervalSince(domain.lowerBound) / span, 0), 1))
                 }
-                let barHeight = max(CGFloat(min(mark.effort / 21, 1)) * usable, 2)
-                let rect = CGRect(x: centre - barWidth / 2, y: size.height - barHeight, width: barWidth, height: barHeight)
-                let color: Color = mark.effort >= 18 ? TrainingLoadInk.spike
-                    : mark.effort >= 14 ? TrainingLoadInk.recent : TrainingLoadInk.recent.opacity(0.5)
-                context.fill(Path(roundedRect: rect, cornerRadius: min(1.6, barWidth / 2)), with: .color(color))
+                let perDay = width * CGFloat(86_400 / span)
+                let barWidth = max(1.5, min(4.6, perDay * 0.6))
+                let usable = size.height - 4
+                if let highlight {
+                    var line = Path()
+                    line.move(to: CGPoint(x: x(highlight), y: 0))
+                    line.addLine(to: CGPoint(x: x(highlight), y: size.height))
+                    context.stroke(line, with: .color(StrandPalette.textPrimary.opacity(0.35)), lineWidth: 1)
+                }
+                for mark in marks {
+                    let centre = x(mark.date)
+                    if mark.effort <= 0 {
+                        let dot = CGRect(x: centre - 1.6, y: size.height - 2 - 1.6, width: 3.2, height: 3.2)
+                        context.fill(Path(ellipseIn: dot), with: .color(StrandPalette.textTertiary))
+                        continue
+                    }
+                    let barHeight = max(CGFloat(min(mark.effort / 21, 1)) * usable, 2)
+                    let rect = CGRect(x: centre - barWidth / 2, y: size.height - barHeight, width: barWidth, height: barHeight)
+                    let color: Color = mark.effort >= 18 ? TrainingLoadInk.spike
+                        : mark.effort >= 14 ? TrainingLoadInk.recent : TrainingLoadInk.recent.opacity(0.5)
+                    context.fill(Path(roundedRect: rect, cornerRadius: min(1.6, barWidth / 2)), with: .color(color))
+                }
             }
+            .contentShape(Rectangle())
+            // Horizontal drags scrub; a mostly vertical one is the page scrolling and is left alone.
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 8, coordinateSpace: .local)
+                    .updating($isScrubbing) { _, state, _ in state = true }
+                    .onChanged { value in
+                        if dragAxis == nil {
+                            dragAxis = abs(value.translation.width) > abs(value.translation.height) ? .horizontal : .vertical
+                        }
+                        guard dragAxis == .horizontal, value.startLocation.x > Self.leadingEdgeInset else { return }
+                        select(nearestTo: value.location.x, width: max(proxy.size.width - TrendsLoadChart.valueAxisInset, 1))
+                    }
+            )
         }
         .frame(height: Self.height)
+        .onChange(of: isScrubbing) { _, scrubbing in
+            if !scrubbing {
+                dragAxis = nil
+                selection.wrappedValue = nil
+            }
+        }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Daily Effort over the selected range")
         .accessibilityValue(Text(verbatim: summary))
         .accessibilityIdentifier("trends.trainingLoad.effort")
+    }
+
+    /// The recorded day nearest the touch, on the same domain and width the marks are drawn on.
+    private func select(nearestTo x: CGFloat, width: CGFloat) {
+        let span = domain.upperBound.timeIntervalSince(domain.lowerBound)
+        guard span > 0, !marks.isEmpty else { return }
+        let target = domain.lowerBound.addingTimeInterval(span * Double(min(max(x / width, 0), 1)))
+        guard let nearest = marks.map(\.date).min(by: {
+            abs($0.timeIntervalSince(target)) < abs($1.timeIntervalSince(target))
+        }) else { return }
+        if selection.wrappedValue != nearest { selection.wrappedValue = nearest }
     }
 }
 

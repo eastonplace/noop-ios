@@ -171,7 +171,16 @@ struct TrainingLoadGauge: View {
             track
             labels.padding(.top, 9)
         }
-        .accessibilityHidden(true)
+        // One spoken element inside the hero's combined one: the ratio, the zone it falls in and where the zones cut.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(verbatim: spoken))
+    }
+
+    /// "Recent load is 1.20 times your fitness base, in the Sweet spot zone. Easing is under 0.8, ..."
+    private var spoken: String {
+        let times = ratio.formatted(.number.precision(.fractionLength(2)))
+        let zone = TrainingLoadWords.zone(TrainingLoadPageModel.zone(forRatio: ratio))
+        return String(localized: "Recent load is \(times) times your fitness base, in the \(zone) zone. Easing is under 0.8, sweet spot 0.8 to 1.3, spike above 1.3.")
     }
 
     private var badge: some View {
@@ -751,6 +760,7 @@ struct TrainingLoadDrivers: View {
     @ScaledMetric(relativeTo: .body) private var badgeWidth: CGFloat = 44
     @ScaledMetric(relativeTo: .body) private var dayNumberSize: CGFloat = 17
     @ScaledMetric(relativeTo: .body) private var effortSize: CGFloat = 18
+    @ScaledMetric(relativeTo: .caption2) private var weekdaySize: CGFloat = 11
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -794,7 +804,7 @@ struct TrainingLoadDrivers: View {
     private func dayBadge(_ row: Row) -> some View {
         VStack(spacing: 0) {
             Text(verbatim: row.weekday.uppercased())
-                .font(.system(size: 11, weight: .bold))
+                .font(.system(size: min(weekdaySize, 22), weight: .bold))
                 .tracking(1)
                 .foregroundStyle(StrandPalette.textTertiary)
             Text(verbatim: row.dayNumber)
