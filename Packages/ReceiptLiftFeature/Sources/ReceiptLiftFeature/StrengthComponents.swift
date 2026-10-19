@@ -61,7 +61,7 @@ struct StrengthIconGlyph: View {
     Image(systemName: systemImage)
       .font(StrandFont.sized(size, weight: .regular))
       .foregroundStyle(StrandPalette.textTertiary)
-      .frame(width: 44, height: 44)
+      .frame(width: max(44, size + 22), height: max(44, size + 22))
       .contentShape(Rectangle())
   }
 }

@@ -161,7 +161,7 @@ struct LiftSessionSummaryView: View {
       Text(markdown: LiftSessionSummaryLogic.lede(
         heartRate: heartRate, combined: combined, workingSets: snapshot.workingSets,
         rpeRange: LiftSessionSummaryLogic.rpeRange(LiftSessionSummaryLogic.ratedWorkingEfforts(session)),
-        locale: format.locale))
+        locale: format.locale), emphasis: StrandPalette.textPrimary)
         .font(StrandFont.body)
         .foregroundStyle(StrandPalette.textSecondary)
         .lineSpacing(3)
@@ -260,9 +260,13 @@ struct LiftSessionSummaryView: View {
 }
 
 extension Text {
-  /// Text from a string whose `**bold**` runs are real emphasis; a string that fails to parse is shown as it is.
-  init(markdown: String) {
-    if let attributed = try? AttributedString(markdown: markdown) {
+  /// Text from a string whose `**bold**` runs are real emphasis, in `emphasis` colour; a string that fails to parse is
+  /// shown as it is.
+  init(markdown: String, emphasis: Color) {
+    if var attributed = try? AttributedString(markdown: markdown) {
+      for run in attributed.runs where run.inlinePresentationIntent?.contains(.stronglyEmphasized) == true {
+        attributed[run.range].foregroundColor = emphasis
+      }
       self.init(attributed)
     } else {
       self.init(verbatim: markdown)
@@ -299,7 +303,7 @@ struct LiftStrainGauge: View {
             label("With your sets · \(number(combined))", foreground: StrandPalette.onLightFill, fill: StrandPalette.solidFill)
           }
         }
-        scaleEnds.padding(.top, 38)
+        scaleEnds.padding(.top, 24)
       }
     }
   }

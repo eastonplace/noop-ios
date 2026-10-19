@@ -524,7 +524,7 @@ struct LiftWorkoutLogicTests {
   }
 }
 
-private extension LiftWorkoutLogicTests {
+extension LiftWorkoutLogicTests {
   struct StoreFixture {
     let directory: URL
     let dataURL: URL

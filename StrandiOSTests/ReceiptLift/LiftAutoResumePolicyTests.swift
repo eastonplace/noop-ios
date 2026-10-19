@@ -19,6 +19,10 @@ struct LiftAutoResumePolicyTests {
       destination: .start, hasActiveSession: false, alreadyAutoResumed: false))
   }
 
+  @Test func theLaunchFlagIsOffByDefault() {
+    #expect(!LiftAutoResumePolicy.suppressedByLaunchFlag)
+  }
+
   @Test func leavesEveryOtherDestinationAlone() {
     for destination in [LiftDestination.history, .progress, .routines] {
       #expect(!LiftAutoResumePolicy.shouldResume(

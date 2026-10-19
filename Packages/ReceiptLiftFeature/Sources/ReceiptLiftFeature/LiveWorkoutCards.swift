@@ -142,6 +142,7 @@ struct LiveStrainCard: View {
 struct LiveRecordingEyebrow: View {
   let title: String
 
+  @Environment(\.dynamicTypeSize) private var typeSize
   @ScaledMetric(relativeTo: .caption) private var size: CGFloat = 12
 
   var body: some View {
@@ -149,11 +150,11 @@ struct LiveRecordingEyebrow: View {
       Circle().fill(StrandPalette.accent).frame(width: 7, height: 7).accessibilityHidden(true)
       Text(verbatim: String(localized: "Recording") + " · " + title)
         .textCase(.uppercase)
-        .tracking(1.8)
+        .tracking(1.2)
         .font(StrandFont.sized(size, weight: .bold))
         .foregroundStyle(StrandPalette.accent)
-        .lineLimit(2)
-        .minimumScaleFactor(0.7)
+        .lineLimit(typeSize.isAccessibilitySize ? 3 : 1)
+        .minimumScaleFactor(typeSize.isAccessibilitySize ? 1 : 0.6)
     }
     .accessibilityElement(children: .combine)
   }

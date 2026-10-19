@@ -221,6 +221,40 @@ struct LiftModelTests {
     #expect(snapshot.latestPersonalRecord == nil)
   }
 
+  @Test func legacySetJSONDecodesWithNilEffortRatedAndReEncodesUnchanged() throws {
+    let json = """
+      {"completedAt":"2026-01-01T10:00:00Z","exerciseID":"6E3F6F2A-3B1C-4C1E-9D7E-0C5B6A6B7A11","id":"1D2F6F2A-3B1C-4C1E-9D7E-0C5B6A6B7A22","isWarmup":false,"notes":"","reps":8,"rpe":8,"setNumber":1,"weight":135}
+      """
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+    let set = try decoder.decode(LiftSet.self, from: Data(json.utf8))
+    #expect(set.effortRated == nil)
+    let encoder = JSONEncoder()
+    encoder.dateEncodingStrategy = .iso8601
+    encoder.outputFormatting = [.sortedKeys]
+    let encoded = try #require(String(data: try encoder.encode(set), encoding: .utf8))
+    #expect(!encoded.contains("effortRated"))
+    #expect(encoded == json.trimmingCharacters(in: .whitespacesAndNewlines))
+  }
+
+  @Test func halfStepEffortRoundTripsAndRatedFlagIsKept() throws {
+    var set = makeSet(weight: 100, reps: 5, isWarmup: false)
+    set.rpe = 8.5
+    set.effortRated = true
+    let data = try JSONEncoder().encode(set)
+    let decoded = try JSONDecoder().decode(LiftSet.self, from: data)
+    #expect(decoded.rpe == 8.5)
+    #expect(decoded.effortRated == true)
+  }
+
+  @Test func anOldIntegerRPEDecodes() throws {
+    var set = makeSet(weight: 100, reps: 5, isWarmup: false)
+    set.rpe = 9
+    let decoded = try JSONDecoder().decode(LiftSet.self, from: try JSONEncoder().encode(set))
+    #expect(decoded.rpe == 9)
+    #expect(decoded.effortRated == nil)
+  }
+
   private func makeSet(
     id: UUID = UUID(),
     exerciseID: UUID = UUID(),

@@ -223,7 +223,7 @@ private struct MiniRestBarContent: View {
   private var identity: some View {
     Button(action: onPresentOptions) {
       HStack(alignment: .firstTextBaseline, spacing: 10) {
-        Text("Rest timer")
+        Text("Rest")
           .textCase(.uppercase)
           .tracking(1.6)
           .font(StrandFont.sized(labelSize, weight: .bold))
