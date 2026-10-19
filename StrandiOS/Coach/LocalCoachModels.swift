@@ -171,5 +171,5 @@ enum LocalCoachAvailability: Equatable, Sendable {
     }
 }
 
-enum LocalCoachBriefKind: String, Sendable { case morning, evening, weekly, activity }
+enum LocalCoachBriefKind: String, Sendable, CaseIterable { case morning, evening, weekly, activity }
 #endif

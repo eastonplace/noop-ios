@@ -149,8 +149,6 @@ final class LocalCoachEngine: ObservableObject {
     private var readCount = 0
     private var runningTools: [String: Int] = [:]
     private var lastAutoBriefDay: String?
-    /// The brief that started the latest turn, so Try again replays it as a brief rather than as a plain question.
-    private var lastBrief: (question: String, kind: LocalCoachBriefKind)?
 
     var recordsUpdating: Bool { scope.fenced }
     /// What the page re-reads its snapshot for: the source, whether its records are being updated, and whether new
@@ -321,7 +319,6 @@ final class LocalCoachEngine: ObservableObject {
         updateAvailability()
         guard availability == .available, let model else { errorText = availability.title; return false }
         cancel()
-        lastBrief = brief.map { (question: text, kind: $0) }
         errorText = storageError
         ensureConversation(title: text)
         let requestDate = Date()
@@ -600,16 +597,24 @@ final class LocalCoachEngine: ObservableObject {
         }
     }
 
+    static func prompt(for kind: LocalCoachBriefKind) -> String {
+        switch kind {
+        case .morning: "Give me a morning brief from my latest local sleep, recovery and training records. Name the record dates, any missing data, and one practical action."
+        case .evening: "Give me an evening brief from my recorded activity and sleep patterns. Suggest one practical step for tonight. State what was not recorded."
+        case .weekly: "Give me a weekly brief covering the last seven recorded days of training, sleep and recovery. Use tool-calculated comparisons; distinguish association from causation."
+        case .activity: "Review my most recent recorded activity with an activity brief. Explain the available evidence, recovery context and one reasonable next step."
+        }
+    }
+
+    /// The brief a stored question was asked as. A brief's kind is not saved with its messages, so a retry after a relaunch
+    /// or a conversation switch recovers it from the prompt text.
+    static func briefKind(forPrompt text: String) -> LocalCoachBriefKind? {
+        LocalCoachBriefKind.allCases.first { prompt(for: $0) == text }
+    }
+
     func generateBrief(kind: LocalCoachBriefKind) async {
         guard canOperate(personal: true) else { return }
-        let prompt: String
-        switch kind {
-        case .morning: prompt = "Give me a morning brief from my latest local sleep, recovery and training records. Name the record dates, any missing data, and one practical action."
-        case .evening: prompt = "Give me an evening brief from my recorded activity and sleep patterns. Suggest one practical step for tonight. State what was not recorded."
-        case .weekly: prompt = "Give me a weekly brief covering the last seven recorded days of training, sleep and recovery. Use tool-calculated comparisons; distinguish association from causation."
-        case .activity: prompt = "Review my most recent recorded activity with an activity brief. Explain the available evidence, recovery context and one reasonable next step."
-        }
-        await respond(prompt, brief: kind)
+        await respond(Self.prompt(for: kind), brief: kind)
     }
 
     func exportConversation() -> String {
@@ -717,7 +722,7 @@ final class LocalCoachEngine: ObservableObject {
             messages.removeSubrange(userIndex...)
             persistConversation()
         }
-        await respond(question, brief: lastBrief?.question == question ? lastBrief?.kind : nil)
+        await respond(question, brief: Self.briefKind(forPrompt: question))
     }
 
     private func finish(_ token: UUID, started: Date?) {
@@ -763,7 +768,6 @@ final class LocalCoachEngine: ObservableObject {
             // createPlan/updatePlan/savePlan still require current consent at their call boundaries.
             dailyBrief = "Allow local data to build an outlook from your records."
             lastAutoBriefDay = nil
-            lastBrief = nil
             messages = []
             selectedConversationID = nil
         }
@@ -810,7 +814,6 @@ final class LocalCoachEngine: ObservableObject {
             ? "Ask a question about your latest records."
             : "Allow local data to build an outlook from your records."
         lastAutoBriefDay = nil
-        lastBrief = nil
         errorText = storageError
         loadSource()
     }

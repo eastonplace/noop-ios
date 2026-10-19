@@ -112,6 +112,13 @@ final class CoachEvidenceIntegrationTests: XCTestCase {
         XCTAssertNotEqual(engine.dailyBrief, stale)
         XCTAssertEqual(engine.dailyBrief, "Synthetic explanation")
     }
+
+    func testBriefKindIsRecoveredFromTheStoredPromptAlone() {
+        for kind in LocalCoachBriefKind.allCases {
+            XCTAssertEqual(LocalCoachEngine.briefKind(forPrompt: LocalCoachEngine.prompt(for: kind)), kind)
+        }
+        XCTAssertNil(LocalCoachEngine.briefKind(forPrompt: "Show my recent workouts"))
+    }
 }
 
 @MainActor
