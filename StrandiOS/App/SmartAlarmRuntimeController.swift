@@ -156,6 +156,8 @@ final class SmartAlarmRuntimeController: ObservableObject {
             weekdays: model.behavior.smartAlarmWeekdays
         )
         configurationID = SmartAlarmRuntimeBackgroundScheduler.configurationID(for: initialSnapshot)
+        // A BLE-restoration relaunch has no scene to run `.task`, so the strap hooks are live from construction.
+        installStrapHooks()
     }
 
     deinit {
@@ -170,7 +172,7 @@ final class SmartAlarmRuntimeController: ObservableObject {
     /// Strap-driven edges: a reconnect re-arms the firmware alarm, and a strap-fired event correlates evidence,
     /// mirrors the wake on the phone, then reconciles the following firmware occurrence. These must exist for a
     /// Bluetooth-restoration relaunch that never builds a scene (and so never reaches `start()` from the UI), so
-    /// the app calls this from `init`. It has no launch-time side effects, unlike `start()`'s initial reconcile,
+    /// `init` calls this. It has no launch-time side effects, unlike `start()`'s initial reconcile,
     /// and is idempotent.
     func installStrapHooks() {
         guard !strapHooksInstalled else { return }
