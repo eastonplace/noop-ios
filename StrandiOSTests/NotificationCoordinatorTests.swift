@@ -13,6 +13,12 @@ final class NotificationCoordinatorTests: XCTestCase {
         var acceptsBeforeFailure = false
         var duringAdd: (() -> Void)?
         var duringPendingRead: (() -> Void)?
+        var deferRemoval = false
+        var duringRemove: (() -> Void)?
+        var removalContinuation: CheckedContinuation<Void, Never>?
+        var removals = 0
+        var removedBatches: [[String]] = []
+        var categoryRegistrations = 0
         var details: Set<String> = []
         var authorizationReads = 0
         var duringAuthorization: ((Int) -> Void)?
@@ -34,8 +40,24 @@ final class NotificationCoordinatorTests: XCTestCase {
             if let failure { throw failure }
         }
         func identifiersContainingDetails() async -> Set<String> { details }
-        func removeDelivered(_ identifiers: [String]) {}
-        func remove(_ identifiers: [String], delivered: Bool) { identifiers.forEach { requests[$0] = nil } }
+        func removeDelivered(_ identifiers: [String]) async {}
+        func remove(_ identifiers: [String], delivered: Bool) async {
+            removals += 1
+            removedBatches.append(identifiers)
+            identifiers.forEach { requests[$0] = nil }
+            if deferRemoval {
+                await withCheckedContinuation { continuation in
+                    removalContinuation = continuation
+                    duringRemove?()
+                }
+            } else { duringRemove?() }
+        }
+        func registerCategories() async { categoryRegistrations += 1 }
+        func completeRemoval() {
+            let continuation = removalContinuation
+            removalContinuation = nil
+            continuation?.resume()
+        }
     }
     let now = Date(timeIntervalSince1970: 1_800_360_000)
     func candidate() -> NotificationCandidate {
@@ -44,6 +66,186 @@ final class NotificationCoordinatorTests: XCTestCase {
     func coordinator(store: WhoopStore, center: Center, preferences: @escaping () -> NotificationPreferencesSnapshot = { .init(modes: [.workoutSummary: .notify], quietHoursEnabled: false) }) -> NotificationCoordinator {
         NotificationCoordinator(center: center, clock: { self.now }, preferences: preferences, context: { .init(sourceContext: "device", logicalDay: "2027-01-19", sleeping: false) }, store: { store }, dryRun: { false })
     }
+    func testDeferredRemovalKeepsMainActorResponsiveAndLedgerSubmittedUntilReturn() async throws {
+        let store = try await WhoopStore.inMemory()
+        let center = Center()
+        let runtime = coordinator(store: store, center: center)
+        await runtime.process(candidates: [candidate()])
+        center.deferRemoval = true
+        defer { center.completeRemoval() }
+        let started = expectation(description: "Removal entered")
+        center.duringRemove = { center.duringRemove = nil; started.fulfill() }
+        let withdrawal = Task { await runtime.withdraw(occurrenceID: self.candidate().occurrenceID) }
+        await fulfillment(of: [started], timeout: 1)
+        let beforeReturn = try await store.notificationRecords()
+        XCTAssertEqual(beforeReturn.first?.state, .submitted)
+        var heartbeat = false
+        await Task { @MainActor in heartbeat = true }.value
+        XCTAssertTrue(heartbeat, "MainActor work must run while platform removal is suspended")
+        center.completeRemoval()
+        await withdrawal.value
+        let afterReturn = try await store.notificationRecords()
+        XCTAssertEqual(afterReturn.first?.state, .withdrawn)
+    }
+
+    func testSourceChangeDuringRemovalDoesNotWithdrawReplacementStoreOrRemoveItsRequest() async throws {
+        let oldStore = try await WhoopStore.inMemory()
+        let newStore = try await WhoopStore.inMemory()
+        let center = Center()
+        var source = "device"
+        let runtime = NotificationCoordinator(center: center, clock: { self.now },
+            preferences: { .init(modes: [.workoutSummary: .notify], quietHoursEnabled: false) },
+            context: { .init(sourceContext: source, logicalDay: "2027-01-19", sleeping: false) },
+            store: { source == "device" ? oldStore : newStore }, dryRun: { false })
+        let original = candidate()
+        await runtime.process(candidates: [original])
+        let identifier = NotificationCoordinator.requestIdentifier(original.occurrenceID)
+        _ = try await newStore.claimNotification(.init(occurrenceID: original.occurrenceID,
+            attentionKey: original.attentionKey, ruleID: original.ruleID, sourceContext: "replacement",
+            evidenceRevision: original.evidenceRevision, logicalDay: original.logicalDay,
+            requestIdentifier: identifier, isProactive: true, expiresAt: original.expiresAt), now: now)
+        _ = try await newStore.markNotificationSubmitting(occurrenceID: original.occurrenceID, now: now)
+        try await newStore.markNotificationSubmitted(occurrenceID: original.occurrenceID, now: now)
+        center.deferRemoval = true
+        defer { center.completeRemoval() }
+        let started = expectation(description: "Removal entered")
+        center.duringRemove = { center.duringRemove = nil; started.fulfill() }
+        let withdrawal = Task { await runtime.withdraw(occurrenceID: original.occurrenceID) }
+        await fulfillment(of: [started], timeout: 1)
+        source = "replacement"
+        center.requests[identifier] = .init(identifier: identifier, title: "Current", body: "Current", candidate: original)
+        center.completeRemoval()
+        await withdrawal.value
+        let oldRows = try await oldStore.notificationRecords()
+        let replacementRows = try await newStore.notificationRecords()
+        XCTAssertEqual(oldRows.first?.state, .withdrawn)
+        XCTAssertEqual(replacementRows.first?.state, .submitted)
+        XCTAssertEqual(center.requests[identifier]?.title, "Current")
+        XCTAssertEqual(center.removals, 1)
+    }
+
+    func testAcceptedAndUncertainAddCleanupFinishesOldLedgerWhenSourceChangesDuringRemoval() async throws {
+        for uncertain in [false, true] {
+            let oldStore = try await WhoopStore.inMemory()
+            let newStore = try await WhoopStore.inMemory()
+            let center = Center()
+            if uncertain {
+                center.failure = NotificationSubmissionError.uncertain
+                center.acceptsBeforeFailure = true
+            }
+            var source = "device"
+            var enabled = true
+            center.duringAdd = { enabled = false }
+            let runtime = NotificationCoordinator(center: center, clock: { self.now },
+                preferences: { .init(modes: [.workoutSummary: enabled ? .notify : .off], quietHoursEnabled: false) },
+                context: { .init(sourceContext: source, logicalDay: "2027-01-19", sleeping: false) },
+                store: { source == "device" ? oldStore : newStore }, dryRun: { false })
+            let original = candidate()
+            let identifier = NotificationCoordinator.requestIdentifier(original.occurrenceID)
+            _ = try await newStore.claimNotification(.init(occurrenceID: original.occurrenceID,
+                attentionKey: original.attentionKey, ruleID: original.ruleID, sourceContext: "replacement",
+                evidenceRevision: original.evidenceRevision, logicalDay: original.logicalDay,
+                requestIdentifier: identifier, isProactive: true, expiresAt: original.expiresAt), now: now)
+            _ = try await newStore.markNotificationSubmitting(occurrenceID: original.occurrenceID, now: now)
+            try await newStore.markNotificationSubmitted(occurrenceID: original.occurrenceID, now: now)
+            center.deferRemoval = true
+            defer { center.completeRemoval() }
+            let started = expectation(description: "Post-add cleanup removal entered: uncertain=\(uncertain)")
+            center.duringRemove = { center.duringRemove = nil; started.fulfill() }
+            let processing = Task { await runtime.process(candidates: [original]) }
+            await fulfillment(of: [started], timeout: 1)
+            let beforeReturn = try await oldStore.notificationRecords()
+            XCTAssertEqual(beforeReturn.first?.state, .submitted)
+            source = "replacement"
+            center.requests[identifier] = .init(identifier: identifier, title: "Current", body: "Current", candidate: original)
+            center.completeRemoval()
+            await processing.value
+            let oldRows = try await oldStore.notificationRecords()
+            let newRows = try await newStore.notificationRecords()
+            XCTAssertEqual(oldRows.first?.state, .withdrawn, "uncertain=\(uncertain)")
+            XCTAssertEqual(oldRows.first?.attempts, 1)
+            XCTAssertEqual(newRows.first?.state, .submitted)
+            XCTAssertEqual(center.requests[identifier]?.title, "Current")
+            XCTAssertEqual(center.additions, 1)
+            XCTAssertEqual(center.removals, 1)
+        }
+    }
+
+    func testSourceChangeWhileOpeningWithdrawalStorePreservesReplacementRequest() async throws {
+        let replacementStore = try await WhoopStore.inMemory()
+        let center = Center()
+        var source = "old"
+        let identifier = NotificationCoordinator.requestIdentifier(candidate().occurrenceID)
+        center.requests[identifier] = .init(identifier: identifier, title: "Current", body: "Current", candidate: candidate())
+        let runtime = NotificationCoordinator(center: center, clock: { self.now },
+            preferences: { .init(modes: [:]) },
+            context: { .init(sourceContext: source, logicalDay: "2027-01-19") },
+            store: { source = "replacement"; return replacementStore }, dryRun: { false })
+        await runtime.withdraw(occurrenceID: candidate().occurrenceID)
+        XCTAssertEqual(center.removals, 0)
+        XCTAssertNotNil(center.requests[identifier])
+    }
+
+    func testConcurrentStartInstallsObserversOnceBeforeRemovalReturns() async throws {
+        let store = try await WhoopStore.inMemory()
+        let center = Center()
+        let runtime = coordinator(store: store, center: center)
+        center.deferRemoval = true
+        defer { center.completeRemoval() }
+        let started = expectation(description: "Startup removal entered")
+        center.duringRemove = { center.duringRemove = nil; started.fulfill() }
+        let first = Task { await runtime.start() }
+        await fulfillment(of: [started], timeout: 1)
+        let count = runtime.installedObserverCount
+        XCTAssertGreaterThan(count, 0)
+        let second = Task { await runtime.start() }
+        await Task.yield()
+        XCTAssertEqual(runtime.installedObserverCount, count)
+        XCTAssertEqual(center.removals, 1)
+        center.deferRemoval = false
+        center.completeRemoval()
+        await first.value
+        await second.value
+        XCTAssertEqual(runtime.installedObserverCount, count)
+        XCTAssertEqual(center.categoryRegistrations, 1)
+    }
+
+    func testLatestSourceStartReconcilesAfterSharedInitializationCompletes() async throws {
+        let oldStore = try await WhoopStore.inMemory()
+        let newStore = try await WhoopStore.inMemory()
+        let center = Center()
+        var source = "old"
+        var openedSources: [String] = []
+        let runtime = NotificationCoordinator(center: center, clock: { self.now },
+            preferences: { .init(modes: [.workoutSummary: .notify], quietHoursEnabled: false) },
+            context: { .init(sourceContext: source, logicalDay: "2027-01-19", sleeping: false) },
+            store: {
+                openedSources.append(source)
+                return source == "old" ? oldStore : newStore
+            }, dryRun: { false })
+        center.deferRemoval = true
+        defer { center.completeRemoval() }
+        let started = expectation(description: "Shared startup removal entered")
+        center.duringRemove = { center.duringRemove = nil; started.fulfill() }
+        let oldStart = Task { await runtime.start() }
+        await fulfillment(of: [started], timeout: 1)
+        let count = runtime.installedObserverCount
+        source = "replacement"
+        oldStart.cancel()
+        let latestStart = Task { await runtime.start() }
+        await Task.yield()
+        XCTAssertTrue(openedSources.isEmpty, "Every start must wait for global initialization")
+        center.deferRemoval = false
+        center.completeRemoval()
+        await oldStart.value
+        await latestStart.value
+        XCTAssertEqual(runtime.installedObserverCount, count)
+        XCTAssertEqual(center.categoryRegistrations, 1)
+        XCTAssertEqual(center.removedBatches.filter { $0.contains("battery-low") }.count, 1)
+        XCTAssertFalse(openedSources.isEmpty, "The latest source must reconcile after initialization")
+        XCTAssertTrue(openedSources.allSatisfy { $0 == "replacement" })
+    }
+
     func testProductionContextDoesNotInventAwakeEvidence() async throws {
         let store = try await WhoopStore.inMemory()
         let center = Center()

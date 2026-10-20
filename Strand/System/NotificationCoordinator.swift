@@ -23,55 +23,139 @@ protocol NotificationCenterClient: AnyObject {
     func pendingIdentifiers() async -> Set<String>
     func deliveredIdentifiers() async -> Set<String>
     func add(_ request: NotificationDeliveryRequest) async throws
-    func remove(_ identifiers: [String], delivered: Bool)
-    func removeDelivered(_ identifiers: [String])
+    func remove(_ identifiers: [String], delivered: Bool) async
+    func removeDelivered(_ identifiers: [String]) async
     func identifiersContainingDetails() async -> Set<String>
+    func registerCategories() async
 }
 extension NotificationCenterClient {
-    func removeDelivered(_ identifiers: [String]) {}
+    func removeDelivered(_ identifiers: [String]) async {}
     func identifiersContainingDetails() async -> Set<String> { [] }
+    func registerCategories() async {}
 }
 
 @MainActor
 final class SystemNotificationCenterClient: NotificationCenterClient {
-    private let center = UNUserNotificationCenter.current()
+    // UN methods that look synchronous can wait for XPC. Initiate every platform
+    // operation on this queue; only Sendable values and continuations cross back.
+    private nonisolated static let ipcQueue = DispatchQueue(label: "noop.notifications.system-ipc")
+
     func isAuthorized() async -> Bool {
-        let settings = await center.notificationSettings()
-        return [.authorized, .provisional, .ephemeral].contains(settings.authorizationStatus)
+        await withCheckedContinuation { continuation in
+            Self.ipcQueue.async {
+                UNUserNotificationCenter.current().getNotificationSettings { settings in
+                    continuation.resume(returning: [.authorized, .provisional, .ephemeral].contains(settings.authorizationStatus))
+                }
+            }
+        }
     }
-    func pendingIdentifiers() async -> Set<String> { Set(await center.pendingNotificationRequests().map(\.identifier)) }
-    func deliveredIdentifiers() async -> Set<String> { Set(await center.deliveredNotifications().map { $0.request.identifier }) }
+    func pendingIdentifiers() async -> Set<String> {
+        await withCheckedContinuation { continuation in
+            Self.ipcQueue.async {
+                UNUserNotificationCenter.current().getPendingNotificationRequests { requests in
+                    continuation.resume(returning: Set(requests.map(\.identifier)))
+                }
+            }
+        }
+    }
+    func deliveredIdentifiers() async -> Set<String> {
+        await withCheckedContinuation { continuation in
+            Self.ipcQueue.async {
+                UNUserNotificationCenter.current().getDeliveredNotifications { notifications in
+                    continuation.resume(returning: Set(notifications.map { $0.request.identifier }))
+                }
+            }
+        }
+    }
     func add(_ request: NotificationDeliveryRequest) async throws {
-        let content = UNMutableNotificationContent()
-        content.title = request.title
-        content.body = request.body
-        content.interruptionLevel = .active
-        // New advice uses normal interruption priority, never sound/time-sensitive/critical privileges.
-        content.categoryIdentifier = NotificationCoordinator.supportsSnooze(request.candidate)
-            ? "noop.notification.charge" : "noop.notification.open"
-        content.userInfo = NotificationCoordinator.userInfo(for: request.candidate)
-        content.userInfo["noopNotificationContainsDetails"] = request.body != request.candidate.genericBody
-        content.userInfo["noopNotificationRepeating"] = request.repeatingComponents != nil
-        let trigger: UNNotificationTrigger?
-        if let components = request.repeatingComponents {
-            trigger = UNCalendarNotificationTrigger(dateMatching: components, repeats: true)
-        } else if let scheduled = request.candidate.scheduledAt {
-            let components = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: scheduled)
-            trigger = UNCalendarNotificationTrigger(dateMatching: components, repeats: false)
-        } else { trigger = nil }
-        do { try await center.add(UNNotificationRequest(identifier: request.identifier, content: content, trigger: trigger)) }
-        catch is CancellationError { throw NotificationSubmissionError.uncertain }
-        catch { throw NotificationSubmissionError.knownFailure }
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            Self.ipcQueue.async {
+                let content = UNMutableNotificationContent()
+                content.title = request.title
+                content.body = request.body
+                content.interruptionLevel = .active
+                // Advice never requests sound/time-sensitive/critical privileges.
+                content.categoryIdentifier = NotificationCoordinator.supportsSnooze(request.candidate)
+                    ? "noop.notification.charge" : "noop.notification.open"
+                content.userInfo = NotificationCoordinator.userInfo(for: request.candidate)
+                content.userInfo["noopNotificationContainsDetails"] = request.body != request.candidate.genericBody
+                content.userInfo["noopNotificationRepeating"] = request.repeatingComponents != nil
+                let trigger: UNNotificationTrigger?
+                if let components = request.repeatingComponents {
+                    trigger = UNCalendarNotificationTrigger(dateMatching: components, repeats: true)
+                } else if let scheduled = request.candidate.scheduledAt {
+                    let components = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: scheduled)
+                    trigger = UNCalendarNotificationTrigger(dateMatching: components, repeats: false)
+                } else { trigger = nil }
+                UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: request.identifier, content: content, trigger: trigger)) { error in
+                    if let error {
+                        continuation.resume(throwing: error is CancellationError
+                            ? NotificationSubmissionError.uncertain : NotificationSubmissionError.knownFailure)
+                    } else { continuation.resume() }
+                }
+            }
+        }
     }
     func identifiersContainingDetails() async -> Set<String> {
-        let pending = await center.pendingNotificationRequests()
-        let delivered = await center.deliveredNotifications().map(\.request)
-        return Set((pending + delivered).filter { ($0.content.userInfo["noopNotificationContainsDetails"] as? Bool) == true }.map(\.identifier))
+        let pending: Set<String> = await withCheckedContinuation { continuation in
+            Self.ipcQueue.async {
+                UNUserNotificationCenter.current().getPendingNotificationRequests { requests in
+                    continuation.resume(returning: Set(requests.filter {
+                        ($0.content.userInfo["noopNotificationContainsDetails"] as? Bool) == true
+                    }.map(\.identifier)))
+                }
+            }
+        }
+        let delivered: Set<String> = await withCheckedContinuation { continuation in
+            Self.ipcQueue.async {
+                UNUserNotificationCenter.current().getDeliveredNotifications { notifications in
+                    continuation.resume(returning: Set(notifications.filter {
+                        ($0.request.content.userInfo["noopNotificationContainsDetails"] as? Bool) == true
+                    }.map { $0.request.identifier }))
+                }
+            }
+        }
+        return pending.union(delivered)
     }
-    func removeDelivered(_ identifiers: [String]) { center.removeDeliveredNotifications(withIdentifiers: identifiers) }
-    func remove(_ identifiers: [String], delivered: Bool) {
-        center.removePendingNotificationRequests(withIdentifiers: identifiers)
-        if delivered { center.removeDeliveredNotifications(withIdentifiers: identifiers) }
+    func removeDelivered(_ identifiers: [String]) async {
+        await withCheckedContinuation { continuation in
+            Self.ipcQueue.async {
+                UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: identifiers)
+                continuation.resume()
+            }
+        }
+    }
+    func remove(_ identifiers: [String], delivered: Bool) async {
+        await withCheckedContinuation { continuation in
+            Self.ipcQueue.async {
+                let center = UNUserNotificationCenter.current()
+                center.removePendingNotificationRequests(withIdentifiers: identifiers)
+                if delivered { center.removeDeliveredNotifications(withIdentifiers: identifiers) }
+                continuation.resume()
+            }
+        }
+    }
+    func registerCategories() async {
+        await withCheckedContinuation { continuation in
+            Self.ipcQueue.async {
+                UNUserNotificationCenter.current().getNotificationCategories { existing in
+                    // The SDK returns immutable category/action objects without
+                    // Sendable annotations. This one work item owns their handoff:
+                    // the callback does not access them again, and all subsequent
+                    // access and platform mutation occur on ipcQueue. Keep the
+                    // original objects so every action and category field survives.
+                    let registration = DispatchWorkItem {
+                        let turnOff = UNNotificationAction(identifier: "noop.notification.turnOff", title: "Turn off this type", options: [])
+                        let category = UNNotificationCategory(identifier: "noop.notification.open", actions: [turnOff], intentIdentifiers: [], options: [])
+                        let snooze = UNNotificationAction(identifier: "noop.notification.snooze", title: "Remind me in 15 minutes", options: [])
+                        let charge = UNNotificationCategory(identifier: "noop.notification.charge", actions: [snooze, turnOff], intentIdentifiers: [], options: [])
+                        UNUserNotificationCenter.current().setNotificationCategories(existing.union([category, charge]))
+                        continuation.resume()
+                    }
+                    Self.ipcQueue.async(execute: registration)
+                }
+            }
+        }
     }
 }
 
@@ -119,6 +203,7 @@ final class NotificationCoordinator: ObservableObject {
     private var lastAuthorization: Bool?
     private let authorizationChange: (Bool?, Bool) -> Void
     private var revisions: [String: String] = [:]
+    private var withdrawalGenerations: [String: Int] = [:]
     private var inFlight: Set<String> = []
     private var scheduleGeneration = 0
     private var setupFailures: [String: String] = [:]
@@ -126,6 +211,8 @@ final class NotificationCoordinator: ObservableObject {
     private var repeatingComponents: [String: DateComponents] = [:]
     var workoutPlans: () -> [NotificationWorkoutPlan] = { [] }
     private var observers: [NSObjectProtocol] = []
+    private var initialization: Task<Void, Never>?
+    private(set) var installedObserverCount = 0
 
     init(center: NotificationCenterClient, clock: @escaping () -> Date,
          preferences: @escaping () -> NotificationPreferencesSnapshot,
@@ -138,27 +225,37 @@ final class NotificationCoordinator: ObservableObject {
     }
 
     func start() async {
-        if observers.isEmpty {
+        let source = context().sourceContext
+        if initialization == nil {
             let legacy = ["battery-low", "battery-runtime", "battery-full", "illness-watch", "wind-down-nudge"]
                 + (1...7).map { "wind-down-nudge-wd\($0)" }
-            center.remove(legacy, delivered: true)
             for name in [Notification.Name.notificationPreferencesDidChange,
                          NSNotification.Name.NSSystemTimeZoneDidChange,
                          NSNotification.Name.NSCalendarDayChanged,
                          Notification.Name("noop.notificationJournalDidChange"),
                          Notification.Name("noop.notificationPlansDidChange")] {
-                observers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { _ in
-                    Task { @MainActor in await Self.shared.reconcileSchedules() }
+                observers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                    Task { @MainActor [weak self] in await self?.reconcileSchedules() }
                 })
             }
             #if os(iOS)
-            observers.append(NotificationCenter.default.addObserver(forName: UIApplication.significantTimeChangeNotification, object: nil, queue: .main) { _ in
-                Task { @MainActor in await Self.shared.reconcileSchedules() }
+            observers.append(NotificationCenter.default.addObserver(forName: UIApplication.significantTimeChangeNotification, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor [weak self] in await self?.reconcileSchedules() }
             })
             #endif
+            installedObserverCount = observers.count
+            // This global migration must finish even when the starting source is
+            // replaced or its caller is cancelled. It does not retain this owner.
+            let center = center
+            initialization = Task { @MainActor in
+                await center.remove(legacy, delivered: true)
+                await center.registerCategories()
+            }
         }
-        registerCategories()
+        await initialization?.value
+        guard !Task.isCancelled, context().sourceContext == source else { return }
         await reconcile()
+        guard !Task.isCancelled, context().sourceContext == source else { return }
         await reconcileSchedules()
     }
 
@@ -167,16 +264,22 @@ final class NotificationCoordinator: ObservableObject {
     }
 
     func process(candidates: [NotificationCandidate]) async {
+        let source = context().sourceContext
+        let generation = scheduleGeneration
         for candidate in candidates { revisions[candidate.occurrenceID] = candidate.evidenceRevision }
+        let withdrawals = withdrawalGenerations
         guard let store = await storeProvider() else { setupStatus = "Notification history is unavailable. Open the app after storage becomes available."; return }
-        guard !context().sourceContext.hasPrefix("unavailable:") else {
+        guard context().sourceContext == source, generation == scheduleGeneration else { return }
+        guard !source.hasPrefix("unavailable:") else {
             setupStatus = "Notifications will be checked when your current data source finishes loading."
             return
         }
         let authorized = await authorization()
+        guard context().sourceContext == source, generation == scheduleGeneration else { return }
         if !authorized { setupStatus = "Notifications are not allowed. Enable them in system Settings." }
         do {
             let rows = try await store.notificationRecords()
+            guard context().sourceContext == source, generation == scheduleGeneration else { return }
             // Reserved means add was never invoked; its own claim must not suppress a safe resume.
             let resuming = Set(rows.filter { $0.state == .reserved }.map(\.occurrenceID))
             let evaluationHistory = history(rows).filter { entry in
@@ -185,10 +288,14 @@ final class NotificationCoordinator: ObservableObject {
             for candidate in candidates {
                 if let old = rows.first(where: { $0.occurrenceID == candidate.occurrenceID }),
                    old.evidenceRevision != candidate.evidenceRevision, old.state == .submitted {
-                    center.remove([old.requestIdentifier], delivered: true)
+                    await center.remove([old.requestIdentifier], delivered: true)
+                    guard context().sourceContext == source, generation == scheduleGeneration,
+                          revisions[candidate.occurrenceID] == candidate.evidenceRevision,
+                          withdrawalGenerations[candidate.occurrenceID] == withdrawals[candidate.occurrenceID] else { return }
                     try await store.withdrawNotification(occurrenceID: old.occurrenceID, now: clock())
                 }
             }
+            guard context().sourceContext == source, generation == scheduleGeneration else { return }
             let evaluation = NotificationPolicy.evaluate(candidates: candidates, preferences: preferences(), context: currentContext(permissionGranted: authorized), history: evaluationHistory, now: clock())
             lastEvaluation = evaluation
             inAppCandidates.removeAll { $0.expiresAt <= clock() || $0.sourceContext != context().sourceContext || preferences().mode(for: $0.group) == .off }
@@ -197,6 +304,7 @@ final class NotificationCoordinator: ObservableObject {
                 inAppCandidates.append(candidate)
             }
             for decision in evaluation.decisions {
+                guard context().sourceContext == source, generation == scheduleGeneration else { return }
                 let dry = dryRun() && decision.candidate.lane == .proactive
                     && decision.candidate.group != .chargeReminder && decision.candidate.group != .batteryFull
                 try await store.recordNotificationEvaluation(occurrenceID: decision.candidate.occurrenceID,
@@ -205,6 +313,8 @@ final class NotificationCoordinator: ObservableObject {
                     dryRun: dry, now: clock())
             }
             for candidate in evaluation.selected {
+                guard context().sourceContext == source, generation == scheduleGeneration,
+                      withdrawalGenerations[candidate.occurrenceID] == withdrawals[candidate.occurrenceID] else { return }
                 if dryRun() && candidate.lane == .proactive && candidate.group != .chargeReminder && candidate.group != .batteryFull { continue }
                 await submit(candidate, store: store)
             }
@@ -240,7 +350,7 @@ final class NotificationCoordinator: ObservableObject {
         }
     }
 
-    private func remainsValid(_ candidate: NotificationCandidate, rows: [NotificationLedgerRecord], store: WhoopStore) async -> Bool {
+    private func remainsValid(_ candidate: NotificationCandidate, rows: [NotificationLedgerRecord], store: WhoopStore, withdrawalGeneration: Int) async -> Bool {
         let family: String?
         switch candidate.ruleID {
         case "chargeReminder.battery", "chargeReminder.snoozed": family = "charge"
@@ -252,7 +362,8 @@ final class NotificationCoordinator: ObservableObject {
                 family: family, observationIsActive: nil, now: clock()), episode == candidate.evidenceRevision else { return false }
             guard BatteryNotifier.permits(candidate) else { return false }
         }
-        guard revisions[candidate.occurrenceID] == candidate.evidenceRevision else { return false }
+        guard revisions[candidate.occurrenceID] == candidate.evidenceRevision,
+              withdrawalGenerations[candidate.occurrenceID, default: 0] == withdrawalGeneration else { return false }
         return !NotificationPolicy.evaluate(candidates: [candidate], preferences: preferences(), context: currentContext(), history: history(rows, excluding: candidate.occurrenceID), now: clock()).selected.isEmpty
     }
 
@@ -261,26 +372,27 @@ final class NotificationCoordinator: ObservableObject {
         inFlight.insert(candidate.occurrenceID)
         defer { inFlight.remove(candidate.occurrenceID) }
         let identifier = Self.requestIdentifier(candidate.occurrenceID)
+        let withdrawalGeneration = withdrawalGenerations[candidate.occurrenceID, default: 0]
         do {
             // A known failure can reserve at most one retry. Never retry an unknown add outcome.
             for attempt in 0...1 {
                 let rows = try await store.notificationRecords()
-                guard await remainsValid(candidate, rows: rows, store: store), await authorization() else { return }
-                guard await remainsValid(candidate, rows: rows, store: store) else { return }
+                guard await remainsValid(candidate, rows: rows, store: store, withdrawalGeneration: withdrawalGeneration), await authorization() else { return }
+                guard await remainsValid(candidate, rows: rows, store: store, withdrawalGeneration: withdrawalGeneration) else { return }
                 let claim = NotificationLedgerClaim(occurrenceID: candidate.occurrenceID, attentionKey: candidate.attentionKey,
                     ruleID: candidate.ruleID, sourceContext: candidate.sourceContext, evidenceRevision: candidate.evidenceRevision,
                     logicalDay: candidate.logicalDay, requestIdentifier: identifier, isProactive: candidate.lane == .proactive,
                     expiresAt: candidate.expiresAt, timeZoneIdentifier: currentContext().timeZoneIdentifier)
                 guard case .claimed = try await store.claimNotification(claim, now: clock()) else { return }
-                guard await remainsValid(candidate, rows: rows, store: store) else {
+                guard await remainsValid(candidate, rows: rows, store: store, withdrawalGeneration: withdrawalGeneration) else {
                     try await store.withdrawNotificationBeforeInvocation(occurrenceID: candidate.occurrenceID, now: clock()); return
                 }
                 guard try await store.markNotificationSubmitting(occurrenceID: candidate.occurrenceID, now: clock()) else { return }
-                guard await remainsValid(candidate, rows: rows, store: store) else {
+                guard await remainsValid(candidate, rows: rows, store: store, withdrawalGeneration: withdrawalGeneration) else {
                     try await store.withdrawNotificationBeforeInvocation(occurrenceID: candidate.occurrenceID, now: clock(), acquiredSubmitGate: true); return
                 }
                 let permissionBeforeAdd = await authorization()
-                guard permissionBeforeAdd, await remainsValid(candidate, rows: rows, store: store) else {
+                guard permissionBeforeAdd, await remainsValid(candidate, rows: rows, store: store, withdrawalGeneration: withdrawalGeneration) else {
                     try await store.withdrawNotificationBeforeInvocation(occurrenceID: candidate.occurrenceID, now: clock(), acquiredSubmitGate: true); return
                 }
                 let detailed = preferences().showHealthDetails
@@ -299,13 +411,13 @@ final class NotificationCoordinator: ObservableObject {
                         let delivered = await center.deliveredIdentifiers()
                         try await store.reconcileNotifications(pending: pending, delivered: delivered, now: clock())
                         _ = try await retainSubmittedRequestIfValid(candidate, identifier: identifier,
-                            detailed: detailed, store: store)
+                            detailed: detailed, store: store, withdrawalGeneration: withdrawalGeneration)
                     }
                     return
                 }
                 try await store.markNotificationSubmitted(occurrenceID: candidate.occurrenceID, now: clock())
                 guard try await retainSubmittedRequestIfValid(candidate, identifier: identifier,
-                    detailed: detailed, store: store) else { return }
+                    detailed: detailed, store: store, withdrawalGeneration: withdrawalGeneration) else { return }
                 setupFailures[identifier] = nil
                 setupStatus = setupFailures.values.sorted().first
                 return
@@ -319,12 +431,16 @@ final class NotificationCoordinator: ObservableObject {
     /// add can accept a request before reporting an uncertain result. Both outcomes
     /// must clean up a request that became obsolete across the platform await.
     private func retainSubmittedRequestIfValid(_ candidate: NotificationCandidate, identifier: String,
-                                              detailed: Bool, store: WhoopStore) async throws -> Bool {
+                                              detailed: Bool, store: WhoopStore, withdrawalGeneration: Int) async throws -> Bool {
         let permission = await authorization()
         let currentRows = try await store.notificationRecords()
-        guard permission, await remainsValid(candidate, rows: currentRows, store: store),
+        guard permission, await remainsValid(candidate, rows: currentRows, store: store, withdrawalGeneration: withdrawalGeneration),
               detailed == preferences().showHealthDetails else {
-            center.remove([identifier], delivered: true)
+            await center.remove([identifier], delivered: true)
+            // Completing cleanup always updates the captured old store, even if
+            // source or revision changed while removal was waiting.
+            // The captured store still owns this old request, including a source
+            // change observed after add. Never open a replacement store here.
             // Withdrawal retains identity and any consumed attention. It does not
             // turn an uncertain add into a known failure or grant another retry.
             try await store.withdrawNotification(occurrenceID: candidate.occurrenceID, now: clock())
@@ -337,37 +453,44 @@ final class NotificationCoordinator: ObservableObject {
         // A store belongs to the source selected before it was opened. A replacement
         // during any await must not let that store remove the new source's requests.
         let source = context().sourceContext
+        let generation = scheduleGeneration
         guard inFlight.isEmpty, !source.hasPrefix("unavailable:"),
-              let store = await storeProvider(), context().sourceContext == source else { return }
+              let store = await storeProvider(), context().sourceContext == source, generation == scheduleGeneration else { return }
         let pending = await center.pendingIdentifiers()
-        guard context().sourceContext == source else { return }
+        guard context().sourceContext == source, generation == scheduleGeneration else { return }
         let delivered = await center.deliveredIdentifiers()
-        guard context().sourceContext == source else { return }
+        guard context().sourceContext == source, generation == scheduleGeneration else { return }
         let details = await center.identifiersContainingDetails()
-        guard context().sourceContext == source else { return }
+        guard context().sourceContext == source, generation == scheduleGeneration else { return }
         do {
             try await store.reconcileNotifications(pending: pending, delivered: delivered, now: clock())
-            guard context().sourceContext == source else { return }
+            guard context().sourceContext == source, generation == scheduleGeneration else { return }
             let rows = try await store.notificationRecords()
-            guard context().sourceContext == source else { return }
+            guard context().sourceContext == source, generation == scheduleGeneration else { return }
             let known = Set(rows.map(\.requestIdentifier))
             let orphans = (pending.union(delivered)).filter { $0.hasPrefix(Self.namespace) && !known.contains($0) }
-            center.remove(Array(orphans), delivered: true)
+            await center.remove(Array(orphans), delivered: true)
+            guard context().sourceContext == source, generation == scheduleGeneration else { return }
             for row in rows where row.requestIdentifier.hasPrefix(Self.namespace) {
-                guard context().sourceContext == source else { return }
+                guard context().sourceContext == source, generation == scheduleGeneration else { return }
                 let obsolete = row.sourceContext != source || row.expiresAt <= clock()
                 let group = NotificationGroup.allCases.first { row.ruleID.hasPrefix($0.rawValue) || row.ruleID == "noop." + $0.rawValue }
                 let disabled = group.map { preferences().mode(for: $0) != .notify } ?? false
                 if obsolete || disabled || (!preferences().showHealthDetails && details.contains(row.requestIdentifier)) {
-                    center.remove([row.requestIdentifier], delivered: true)
+                    let revision = revisions[row.occurrenceID]
+                    let withdrawal = withdrawalGenerations[row.occurrenceID]
+                    await center.remove([row.requestIdentifier], delivered: true)
+                    guard context().sourceContext == source, generation == scheduleGeneration else { return }
+                    guard revisions[row.occurrenceID] == revision,
+                          withdrawalGenerations[row.occurrenceID] == withdrawal else { return }
                     try await store.withdrawNotification(occurrenceID: row.occurrenceID, now: clock())
-                    guard context().sourceContext == source else { return }
+                    guard context().sourceContext == source, generation == scheduleGeneration else { return }
                 }
             }
             try await store.pruneNotificationDecisions(now: clock(), retentionDays: 30)
-            guard context().sourceContext == source else { return }
+            guard context().sourceContext == source, generation == scheduleGeneration else { return }
         } catch {
-            guard context().sourceContext == source else { return }
+            guard context().sourceContext == source, generation == scheduleGeneration else { return }
             setupStatus = "Notification status could not be checked. Open the app again to retry."
         }
     }
@@ -397,15 +520,27 @@ final class NotificationCoordinator: ObservableObject {
     }
 
     func withdraw(occurrenceID: String) async {
+        // Invalidate submissions before opening storage or waiting for OS removal.
         revisions[occurrenceID] = nil
+        withdrawalGenerations[occurrenceID, default: 0] += 1
+        let withdrawal = withdrawalGenerations[occurrenceID]
+        let source = context().sourceContext
+        let generation = scheduleGeneration
+        let store = await storeProvider()
+        guard context().sourceContext == source, generation == scheduleGeneration,
+              withdrawalGenerations[occurrenceID] == withdrawal, revisions[occurrenceID] == nil else { return }
         let identifier = Self.requestIdentifier(occurrenceID)
-        center.remove([identifier], delivered: true)
+        await center.remove([identifier], delivered: true)
+        // Removal belongs to the store captured before IPC. Finish that ledger
+        // cleanup even when a replacement source becomes current while waiting.
+        if let store { try? await store.withdrawNotification(occurrenceID: occurrenceID, now: clock()) }
+        guard context().sourceContext == source, generation == scheduleGeneration,
+              withdrawalGenerations[occurrenceID] == withdrawal, revisions[occurrenceID] == nil else { return }
         setupFailures[identifier] = nil
         setupStatus = setupFailures.values.sorted().first
-        if let store = await storeProvider() { try? await store.withdrawNotification(occurrenceID: occurrenceID, now: clock()) }
     }
 
-    static func supportsSnooze(_ candidate: NotificationCandidate) -> Bool {
+    nonisolated static func supportsSnooze(_ candidate: NotificationCandidate) -> Bool {
         candidate.group == .chargeReminder && candidate.lane == .proactive
             && candidate.ruleID == "chargeReminder.battery"
     }
@@ -460,7 +595,7 @@ final class NotificationCoordinator: ObservableObject {
     static func requestIdentifier(_ occurrenceID: String) -> String {
         namespace + Data(occurrenceID.utf8).base64EncodedString()
     }
-    static func userInfo(for candidate: NotificationCandidate) -> [AnyHashable: Any] {
+    nonisolated static func userInfo(for candidate: NotificationCandidate) -> [AnyHashable: Any] {
         var payload: [AnyHashable: Any] = ["noopNotificationVersion": 1,
             "noopNotificationOccurrence": candidate.occurrenceID,
             "noopNotificationGroup": candidate.group.rawValue,
@@ -474,16 +609,7 @@ final class NotificationCoordinator: ObservableObject {
         }
         return payload
     }
-    private func registerCategories() {
-        // Build inside the platform callback to avoid transferring UI objects across actors.
-        UNUserNotificationCenter.current().getNotificationCategories { existing in
-            let turnOff = UNNotificationAction(identifier: "noop.notification.turnOff", title: "Turn off this type", options: [])
-            let category = UNNotificationCategory(identifier: "noop.notification.open", actions: [turnOff], intentIdentifiers: [], options: [])
-            let snooze = UNNotificationAction(identifier: "noop.notification.snooze", title: "Remind me in 15 minutes", options: [])
-            let charge = UNNotificationCategory(identifier: "noop.notification.charge", actions: [snooze, turnOff], intentIdentifiers: [], options: [])
-            UNUserNotificationCenter.current().setNotificationCategories(existing.union([category, charge]))
-        }
-    }
+
 }
 @MainActor
 extension NotificationCoordinator {
@@ -589,12 +715,19 @@ extension NotificationCoordinator {
                   revision == prefs.scheduleRevision else { return }
             for record in records where record.ruleID.hasSuffix(".scheduled") && !desired.contains(record.occurrenceID) {
                 await withdraw(occurrenceID: record.occurrenceID)
+                guard generation == scheduleGeneration, source == model.repo.notificationSourceContext,
+                      revision == prefs.scheduleRevision else { return }
             }
         }
-        guard generation == scheduleGeneration, revision == prefs.scheduleRevision else { return }
+        guard generation == scheduleGeneration, source == model.repo.notificationSourceContext,
+              revision == prefs.scheduleRevision else { return }
         repeatingComponents = repeats
         await process(candidates: candidates)
+        guard generation == scheduleGeneration, source == model.repo.notificationSourceContext,
+              revision == prefs.scheduleRevision else { return }
         let pending = await center.pendingIdentifiers()
+        guard generation == scheduleGeneration, source == model.repo.notificationSourceContext,
+              revision == prefs.scheduleRevision else { return }
         if pending.filter({ $0.hasPrefix(Self.namespace) }).count > 24 {
             setupStatus = "More than 24 reminders are pending. Accepted reminders are preserved; shorten the schedule if setup fails."
         }

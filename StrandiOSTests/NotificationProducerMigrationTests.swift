@@ -24,7 +24,7 @@ final class NotificationProducerMigrationTests: XCTestCase {
             await duringAdd?()
             if let failure { throw failure }
         }
-        func remove(_ identifiers: [String], delivered: Bool) {
+        func remove(_ identifiers: [String], delivered: Bool) async {
             removed.formUnion(identifiers)
             identifiers.forEach { requests[$0] = nil }
         }
