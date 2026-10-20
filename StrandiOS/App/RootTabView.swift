@@ -12,6 +12,8 @@ struct RootTabView: View {
     @EnvironmentObject private var lift: NoopReceiptLiftIntegration
     @ObservedObject private var notificationCoordinator = NotificationCoordinator.shared
     @State private var notificationDestination: NotificationSheetDestination?
+    /// Retained until Settings actually dismisses, including a swipe, so the queue cannot present underneath it.
+    @State private var notificationSettingsDestination: NotificationSheetDestination?
     @State private var notificationRoutingRetry: Task<Void, Never>?
     @EnvironmentObject private var repo: Repository
     @EnvironmentObject private var localCoach: LocalCoachEngine
@@ -123,6 +125,11 @@ struct RootTabView: View {
     }
 
     var body: some View {
+        shellNavigationHandlers
+    }
+
+    // Opaque view boundaries keep the shell layout, presentation and event chains independently type checked.
+    private var shellLayout: some View {
         ZStack(alignment: .bottom) {
         VStack(spacing: 0) {
         TabView(selection: $selectedTab) {
@@ -178,6 +185,10 @@ struct RootTabView: View {
             })
         }
         }
+    }
+
+    private var shellInfrastructure: some View {
+        shellLayout
         .safeAreaInset(edge: .top, spacing: 0) {
             if let candidate = visibleInAppNotification {
                 NotificationInAppCard(candidate: candidate, onOpen: {
@@ -205,7 +216,7 @@ struct RootTabView: View {
         .background {
             ActiveSessionAutoPresenter(
                 otherPresentationActive: journey != nil || quickAction != nil || fanOpen || showDevices || routedPillar != nil || showLift
-                    || settingsSheet != nil || settingsClosing || notificationDestination != nil,
+                    || settingsSheet != nil || settingsClosing || notificationDestination != nil || notificationSettingsDestination != nil,
                 presentRun: autoPresentJourney,
                 presentLift: { showLift = true })
         }
@@ -228,14 +239,12 @@ struct RootTabView: View {
                 await FolderBackup.catchUpIfDue(checkpoint: { await backupRepo.checkpointForBackup() })
             }
         }
-        .sheet(item: $notificationDestination, onDismiss: {
-            router.visibleNotificationDestinations = []
-            routePendingNotification()
-        }) { request in
-            NavigationStack {
-                NotificationDestinationScreen(destination: request.destination, sourceContext: request.sourceContext)
-                    .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { notificationDestination = nil } } }
-            }
+    }
+
+    private var notificationPresentation: some View {
+        shellInfrastructure
+        .sheet(item: $notificationDestination, onDismiss: notificationDestinationDidDismiss) { request in
+            notificationScreen(request)
         }
         .onChange(of: router.pendingNotificationDestinations) { _, _ in routePendingNotification() }
         .onChange(of: repo.loaded) { _, _ in routePendingNotification() }
@@ -250,6 +259,10 @@ struct RootTabView: View {
         .onChange(of: quickAction) { _, _ in routePendingNotification() }
         .onChange(of: routedPillar) { _, _ in routePendingNotification() }
         .onChange(of: settingsSheet) { _, _ in routePendingNotification() }
+    }
+
+    private var shellPresentations: some View {
+        notificationPresentation
         .sheet(item: $quickAction) { action in
             quickActionDestination(action)
         }
@@ -264,14 +277,8 @@ struct RootTabView: View {
         .sheet(item: $routedPillar) { destination in
             pillarScreen(destination)
         }
-        .sheet(item: $settingsSheet) { request in
-            SettingsSheetHost(request: request, onClose: { settingsSheet = nil })
-                // A sheet is outside the TabView, so it needs the in-app clock format's locale itself: Sleep & alarm's
-                // time pickers inside Settings follow the 12/24-hour preference like the Sleep tab's.
-                .environment(\.locale, clockLocale)
-                .presentationDetents([.large])
-                .presentationDragIndicator(.hidden)
-                .presentationBackground(StrandPalette.appCanvas)
+        .sheet(item: $settingsSheet, onDismiss: settingsDidDismiss) { request in
+            settingsScreen(request)
         }
         .onChange(of: router.settingsRequest) { _, request in
             guard let request else { return }
@@ -291,6 +298,10 @@ struct RootTabView: View {
             PaperToast(LocalizedStringKey(router.shellToast ?? ""), systemImage: "trash",
                        tint: StrandPalette.textSecondary, announcement: router.shellToast)
         }
+    }
+
+    private var shellNavigationHandlers: some View {
+        shellPresentations
         .onChange(of: router.requestedDestination) { _, destination in
             // While the journey is up nothing else presents underneath it: the request waits for the cover to close.
             if journey != nil || ShellModalCollapse.isCollapsing, let destination, destination != .activeWorkout {
@@ -524,7 +535,7 @@ struct RootTabView: View {
     private var visibleInAppNotification: NotificationCandidate? {
         guard scenePhase == .active, notificationSourceReady, !router.isAutoPresentBlocked,
               model.activeWorkout == nil, lift.coordinator?.hasActiveSession != true,
-              notificationDestination == nil, journey == nil, !showLift, !showDevices,
+              notificationDestination == nil, notificationSettingsDestination == nil, journey == nil, !showLift, !showDevices,
               quickAction == nil, routedPillar == nil, settingsSheet == nil, !settingsClosing,
               !fanOpen, !ShellModalCollapse.isCollapsing else { return nil }
         return notificationCoordinator.inAppCandidates.last {
@@ -533,6 +544,12 @@ struct RootTabView: View {
     }
 
     private func routePendingNotification() {
+        // Notification Settings pages use the ordinary host, but still belong to the source that opened them.
+        if let request = notificationSettingsDestination,
+           request.sourceContext != repo.notificationSourceContext || !notificationSourceReady {
+            settingsSheet = nil
+        }
+        guard notificationSettingsDestination == nil else { return }
         guard scenePhase == .active, notificationDestination == nil, notificationSourceReady,
               journey == nil, !showLift, quickAction == nil, routedPillar == nil,
               settingsSheet == nil, !settingsClosing, !ShellModalCollapse.isCollapsing,
@@ -558,7 +575,78 @@ struct RootTabView: View {
         ) else { return }
         closeFan()
         router.visibleNotificationDestinations = [destination]
-        notificationDestination = NotificationSheetDestination(destination: destination, sourceContext: repo.notificationSourceContext)
+        let request = NotificationSheetDestination(destination: destination, sourceContext: repo.notificationSourceContext)
+        if let route = notificationSettingsRoute(for: destination) {
+            notificationSettingsDestination = request
+            settingsSheet = SettingsSheetRequest(route: route)
+        } else {
+            notificationDestination = request
+        }
+    }
+
+    /// Read registry rows only after all launch, source, session and modal guards have passed.
+    /// Unknown and non-WHOOP devices retain the source-fenced Devices destination.
+    private func notificationSettingsRoute(for destination: NotificationDestination) -> SettingsRouteID? {
+        switch destination {
+        case .settings:
+            return .notificationsAlerts
+        case .device(let id):
+            guard id == repo.deviceId,
+                  let registry = model.deviceRegistry,
+                  registry.activeDeviceId == id,
+                  let device = registry.devices.first(where: { $0.id == id }),
+                  SourceCoordinator.isWhoop(device) else { return nil }
+            return .whoop
+        default:
+            return nil
+        }
+    }
+
+    private func notificationDestinationDidDismiss() {
+        router.visibleNotificationDestinations = []
+        routePendingNotification()
+    }
+
+    private func settingsDidDismiss() {
+        if notificationSettingsDestination != nil {
+            notificationSettingsDestination = nil
+            router.visibleNotificationDestinations = []
+        }
+        routePendingNotification()
+    }
+
+    private func settingsScreen(_ request: SettingsSheetRequest) -> some View {
+        SettingsSheetHost(request: request, onClose: { settingsSheet = nil })
+            // Sheets need the in-app clock format independently of the TabView.
+            .environment(\.locale, clockLocale)
+            .presentationDetents([.large])
+            .presentationDragIndicator(.hidden)
+            .presentationBackground(StrandPalette.appCanvas)
+    }
+
+    private func notificationScreen(_ request: NotificationSheetDestination) -> some View {
+        NavigationStack {
+            NotificationDestinationScreen(destination: request.destination, sourceContext: request.sourceContext)
+                .toolbar {
+                    if #available(iOS 26, *) {
+                        ToolbarItem(placement: .topBarTrailing) { notificationDoneButton }
+                            .sharedBackgroundVisibility(.hidden)
+                    } else {
+                        ToolbarItem(placement: .topBarTrailing) { notificationDoneButton }
+                    }
+                }
+        }
+    }
+
+    private var notificationDoneButton: some View {
+        Button(action: { notificationDestination = nil }) {
+            Text("Done")
+                .foregroundStyle(.white)
+                .frame(minWidth: 44, minHeight: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("notification.done")
     }
 
     private func routePendingCoachRequest() {

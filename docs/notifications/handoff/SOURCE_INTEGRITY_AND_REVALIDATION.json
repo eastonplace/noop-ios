@@ -112,5 +112,11 @@
   "original_validation_report_unchanged": true,
   "production_swift_build": "not_run_by_catalog_audit",
   "production_swift_tests": "not_run_by_catalog_audit",
-  "physical_iphone_tests": "not_run_by_catalog_audit"
+  "physical_iphone_tests": "not_run_by_catalog_audit",
+  "binary_artifacts_in_repository": [
+    "Noop_Notification_Catalog_540.xlsx",
+    "Noop_Notification_Plan.pdf"
+  ],
+  "copied_binary_files": 2,
+  "copied_original_files": 20
 }
