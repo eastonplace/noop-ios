@@ -184,14 +184,19 @@ final class SelectedScreenDirectionTests: XCTestCase {
         launch(app, route: "quick-actions", size: size)
         let choose = app.buttons["quickActions.choose"]
         try requireExists(choose, timeout: 60)
-        try reveal(choose, in: app)
+        // On the local runtime this custom modal reports a false isHittable value even
+        // when the entire control is visible. Prove the actual touch action and its
+        // navigation consequence below; do not infer VoiceOver support from this check.
+        XCTAssertTrue(choose.isEnabled, "The empty menu keeps Settings enabled")
+        XCTAssertTrue(app.frame.contains(choose.frame), "The Settings command is fully on screen")
+        XCTAssertGreaterThan(choose.frame.width, 0)
         XCTAssertGreaterThanOrEqual(choose.frame.height, 44, "The empty menu keeps a usable Settings command")
         for name in menuNames {
             XCTAssertFalse(app.buttons["quickActions.\(name)"].exists, "All-hidden removes the \(name) command")
         }
         XCTAssertFalse(app.buttons["quickActions.recentSport"].exists)
         capture(app, "quick-actions-\(size)-all-hidden")
-        choose.tap()
+        choose.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         try requireExists(app.switches["settings.quickActions.journal"], timeout: 15)
         let fanClosed = XCTNSPredicateExpectation(
             predicate: NSPredicate(format: "exists == false"), object: app.buttons["quickActions.close"]
@@ -247,15 +252,32 @@ final class SelectedScreenDirectionTests: XCTestCase {
                            direction: ScrollDirection = .up) throws {
         let toggle = app.switches["settings.quickActions.\(name)"]
         try reveal(toggle, in: app, direction: direction)
-        if try switchValue(toggle) != desired {
-            // Native Form exposes the full labelled row as a Switch. Its trailing track
-            // receives one human-length press; the postcondition checks the actual saved value.
-            toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).press(forDuration: 0.1)
+        // Form exposes both a full-row accessibility proxy and the actual native control.
+        // Activate the control itself, with no coordinate guess or fallback to the proxy.
+        let rowFrame = toggle.frame
+        let controls = toggle.descendants(matching: .switch).allElementsBoundByIndex.filter {
+            let frame = $0.frame
+            return $0.identifier.isEmpty && frame.width > 0 && frame.height > 0
+                && frame.width < rowFrame.width / 2 && rowFrame.contains(frame)
         }
-        let changed = XCTNSPredicateExpectation(
-            predicate: NSPredicate(format: "value == %@", desired ? "1" : "0"), object: toggle
-        )
-        XCTAssertEqual(XCTWaiter.wait(for: [changed], timeout: 5), .completed, "\(name) reflects its saved value")
+        guard controls.count == 1, let control = controls.first else {
+            captureFailure(in: app)
+            XCTFail("Expected exactly one native switch inside the \(name) row")
+            throw HarnessError.unreachable("Native switch was missing or ambiguous")
+        }
+        try reveal(control, in: app, direction: direction)
+        XCTAssertTrue(control.isEnabled, "\(name) is enabled")
+        let previous = try switchValue(toggle)
+        XCTAssertEqual(try switchValue(control), previous, "Native control and row agree before activation")
+        if previous != desired { control.tap() }
+        let changed = [control, toggle].map { element in
+            XCTNSPredicateExpectation(
+                predicate: NSPredicate(format: "value == %@", desired ? "1" : "0"), object: element
+            )
+        }
+        let result = XCTWaiter.wait(for: changed, timeout: 5)
+        if result != .completed { captureFailure(in: app) }
+        XCTAssertEqual(result, .completed, "\(name) reflects its saved value in the native control and row")
     }
 
     private func capture(_ app: XCUIApplication, _ name: String) {
