@@ -21,57 +21,89 @@ struct TodayDashboardSettingsView: View {
 
     var body: some View {
         NativeSettingsList {
-            Section {
-                ForEach(summaryRows) { metric in
-                    let enabled = summarySelection.contains(metric)
-                    Toggle(metric.title, isOn: Binding(
-                        get: { summarySelection.contains(metric) },
-                        set: { setSummary(metric, enabled: $0) }
-                    ))
-                    .disabled(enabled && summarySelection.count == 1)
-                    .accessibilityIdentifier("today.summary.\(metric.id)")
-                }
-                .onMove(perform: moveSummary)
-            } header: {
-                Text("Summary metrics")
-            } footer: {
-                Text("Choose at least one score for the summary row. Use Edit to change the order.")
-            }
-
-            Section {
-                ForEach(healthRows) { card in
-                    let enabled = healthSelection.contains(card)
-                    Toggle(card.title, isOn: Binding(
-                        get: { healthSelection.contains(card) },
-                        set: { setHealth(card, enabled: $0) }
-                    ))
-                    .disabled((enabled && healthSelection.count == 1)
-                              || (!enabled && healthSelection.count == DashboardCardPrefs.maximumCount))
-                    .accessibilityIdentifier("today.health.\(card.id)")
-                }
-                .onMove(perform: moveHealth)
-            } header: {
-                Text("Health Monitor")
-            } footer: {
-                Text("Choose one to nine metrics. Use Edit to change the order. Missing readings show a dash. All metrics remain available from Today.")
-            }
+            summarySection
+            healthSection
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("todayDashboard.settings")
-        .accessibilityValue("summary:" + summarySelection.map(\.rawValue).joined(separator: ",")
-                            + ";health:" + healthSelection.map(\.rawValue).joined(separator: ","))
+        .accessibilityValue(selectionAccessibilityValue)
         .navigationTitle("Today Dashboard")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { EditButton().accessibilityIdentifier("todayDashboard.edit") }
         #endif
-        .onAppear {
-            // Preserve the same one-time migration even when Settings is opened before Today.
-            if !healthNormalized {
-                healthRaw = DashboardCardPrefs.encode(
-                    DashboardCardPrefs.migratedSelection(healthRaw, hydrationEnabled: hydrationEnabled))
-                healthNormalized = true
+        .onAppear(perform: normalizeHealthSelection)
+    }
+
+    private var summarySection: some View {
+        Section {
+            ForEach(summaryRows) { metric in
+                summaryToggle(metric)
             }
+            .onMove(perform: moveSummary)
+        } header: {
+            Text("Summary metrics")
+        } footer: {
+            Text("Choose at least one score for the summary row. Use Edit to change the order.")
+        }
+    }
+
+    private var healthSection: some View {
+        Section {
+            ForEach(healthRows) { card in
+                healthToggle(card)
+            }
+            .onMove(perform: moveHealth)
+        } header: {
+            Text("Health Monitor")
+        } footer: {
+            Text("Choose one to nine metrics. Use Edit to change the order. Missing readings show a dash. All metrics remain available from Today.")
+        }
+    }
+
+    private func summaryToggle(_ metric: TodaySummaryMetric) -> some View {
+        let enabled: Bool = summarySelection.contains(metric)
+        let disabled: Bool = enabled && summarySelection.count == 1
+        return Toggle(metric.title, isOn: summaryBinding(metric))
+            .disabled(disabled)
+            .accessibilityIdentifier("today.summary.\(metric.id)")
+    }
+
+    private func healthToggle(_ card: DashboardCard) -> some View {
+        let enabled: Bool = healthSelection.contains(card)
+        let disabled: Bool = (enabled && healthSelection.count == 1)
+            || (!enabled && healthSelection.count == DashboardCardPrefs.maximumCount)
+        return Toggle(card.title, isOn: healthBinding(card))
+            .disabled(disabled)
+            .accessibilityIdentifier("today.health.\(card.id)")
+    }
+
+    private func summaryBinding(_ metric: TodaySummaryMetric) -> Binding<Bool> {
+        Binding<Bool>(
+            get: { summarySelection.contains(metric) },
+            set: { setSummary(metric, enabled: $0) }
+        )
+    }
+
+    private func healthBinding(_ card: DashboardCard) -> Binding<Bool> {
+        Binding<Bool>(
+            get: { healthSelection.contains(card) },
+            set: { setHealth(card, enabled: $0) }
+        )
+    }
+
+    private var selectionAccessibilityValue: String {
+        let summaryIDs: String = summarySelection.map(\.rawValue).joined(separator: ",")
+        let healthIDs: String = healthSelection.map(\.rawValue).joined(separator: ",")
+        return "summary:" + summaryIDs + ";health:" + healthIDs
+    }
+
+    private func normalizeHealthSelection() {
+        // Preserve the same one-time migration even when Settings is opened before Today.
+        if !healthNormalized {
+            healthRaw = DashboardCardPrefs.encode(
+                DashboardCardPrefs.migratedSelection(healthRaw, hydrationEnabled: hydrationEnabled))
+            healthNormalized = true
         }
     }
 

@@ -110,7 +110,7 @@ final class ApprovedDashboardUITests: XCTestCase {
         try waitFor(app.buttons["quickActions.close"], predicate: "exists == false", in: app)
 
         let title = element("today.health.title", in: app)
-        try reveal(title, in: app)
+        try reveal(title, in: app, needsHitTarget: false, viewport: app.scrollViews.firstMatch)
         XCTAssertEqual(title.label, "Health Monitor", "The M1 heading has no metric count")
         let health = element("today.health.monitor", in: app)
         XCTAssertEqual(health.buttons.matching(NSPredicate(format: "label CONTAINS[cd] 'custom' ")).count, 0,
@@ -123,6 +123,10 @@ final class ApprovedDashboardUITests: XCTestCase {
         try reveal(app.buttons["today.health.dataSources"], in: app)
         capture(app, "today-\(size)-M1-health-footer")
         assertPinnedHeader(device, initialY: headerY, in: app)
+        device.tap()
+        try requireExists(element("settings.whoop.connection", in: app), in: app)
+        capture(app, "today-\(size)-scrolled-header-opens-native-whoop")
+        try closeSettingsToToday(in: app)
         try reveal(allMetrics, in: app, direction: .down)
         allMetrics.tap()
         try waitFor(allMetrics, predicate: "exists == false", in: app)
@@ -137,15 +141,18 @@ final class ApprovedDashboardUITests: XCTestCase {
         launch(app, route: "settings-todayDashboard")
         defer { app.terminate() }
         let original = try selection(in: app)
+        var restoredOriginal = false
         // The exact enabled order is restored through the same native controls, including
-        // selections that existed before this test. The app container is never erased.
+        // selections that existed before this test. Cleanup navigates in the current
+        // process: the task simulator must not need a third process launch to restore it.
         defer {
-            do {
-                launch(app, route: "settings-todayDashboard")
-                try setSelection(original, in: app)
-                launch(app, route: "settings-todayDashboard")
-                XCTAssertEqual(try selection(in: app), original, "Restore the pre-test selection and order")
-            } catch { XCTFail("Could not restore dashboard preferences: \(error)") }
+            if !restoredOriginal {
+                do {
+                    try openTodayDashboardSettings(in: app)
+                    try setSelection(original, in: app)
+                    XCTAssertEqual(try selection(in: app), original, "Restore the pre-test selection and order")
+                } catch { XCTFail("Could not restore dashboard preferences: \(error)") }
+            }
         }
 
         let allScores = Selection(summary: ["recovery", "strain", "sleep"], health: original.health)
@@ -170,7 +177,7 @@ final class ApprovedDashboardUITests: XCTestCase {
         try reveal(app.switches["today.health.respiratory"], in: app)
         capture(app, "dashboard-settings-persisted-health-selection")
 
-        launch(app)
+        try closeSettingsToToday(in: app)
         try requireExists(app.buttons["today.summary.pillar.strain"], in: app, timeout: 60)
         let strain = app.buttons["today.summary.pillar.strain"]
         let recovery = app.buttons["today.summary.pillar.recovery"]
@@ -182,6 +189,50 @@ final class ApprovedDashboardUITests: XCTestCase {
         for name in changed.health { try reveal(app.buttons["today.health.tile.\(name)"], in: app) }
         XCTAssertFalse(app.buttons["today.health.tile.sleep"].exists)
         capture(app, "today-three-selected-health-metrics")
+        try openTodayDashboardSettings(in: app)
+        try setSelection(original, in: app)
+        XCTAssertEqual(try selection(in: app), original, "Restore the exact pre-test enabled selections and their order")
+        capture(app, "dashboard-settings-original-selection-restored")
+        restoredOriginal = true
+    }
+
+    private func returnToSettingsRoot(in app: XCUIApplication) throws {
+        // Deep-linked Settings pages are native pushes above this root. Scope Back to
+        // the navigation bar so a content button with the same label cannot be tapped.
+        for _ in 0..<4 {
+            if app.navigationBars["Settings"].exists { return }
+            let back = app.navigationBars.buttons.matching(NSPredicate(
+                format: "label ==[cd] %@ OR label ==[cd] %@", "Settings", "Back"
+            )).firstMatch
+            try requireExists(back, in: app)
+            back.tap()
+        }
+        captureFailure(in: app)
+        throw HarnessError.unreachable("Could not return to the native Settings root")
+    }
+
+    private func closeSettingsToToday(in app: XCUIApplication) throws {
+        try returnToSettingsRoot(in: app)
+        let done = app.buttons["settings.done"]
+        try requireExists(done, in: app)
+        done.tap()
+        try waitFor(done, predicate: "exists == false", in: app)
+        try requireExists(app.buttons["app.settings"], in: app)
+    }
+
+    private func openTodayDashboardSettings(in app: XCUIApplication) throws {
+        if element("todayDashboard.settings", in: app).exists { return }
+        if !app.buttons["settings.done"].exists {
+            let profile = app.buttons["app.settings"]
+            try reveal(profile, in: app, direction: .down)
+            profile.tap()
+            try requireExists(app.buttons["settings.done"], in: app)
+        }
+        try returnToSettingsRoot(in: app)
+        let dashboard = app.buttons["settings.row.todayDashboard"]
+        try reveal(dashboard, in: app)
+        dashboard.tap()
+        try requireExists(element("todayDashboard.settings", in: app), in: app)
     }
 
     private func assertSettingsAccessibility() throws {
@@ -344,6 +395,16 @@ final class ApprovedDashboardUITests: XCTestCase {
     }
 
     private func assertPinnedHeader(_ device: XCUIElement, initialY: CGFloat, in app: XCUIApplication) {
+        let exists = device.exists
+        let frame = device.frame
+        let hittable = device.isHittable
+        if !exists || !hittable || !app.frame.contains(frame) || abs(frame.minY - initialY) > 1 {
+            let state = XCTAttachment(string: "exists=\(exists)\nlabel=\(device.label)\nisHittable=\(hittable)\nframe=\(frame)\ninitialY=\(initialY)\nappFrame=\(app.frame)")
+            state.name = "pinned-header-hit-test-state"
+            state.lifetime = .keepAlways
+            add(state)
+            captureFailure(in: app)
+        }
         XCTAssertTrue(device.exists, "The Today device header remains in the accessibility tree after Health scrolling")
         XCTAssertTrue(device.isHittable, "The pinned Today device entry point remains tappable after Health scrolling")
         XCTAssertTrue(app.frame.contains(device.frame), "The pinned Today header remains fully on screen")
@@ -357,10 +418,16 @@ final class ApprovedDashboardUITests: XCTestCase {
     private enum ScrollDirection { case up, down }
 
     private func reveal(_ element: XCUIElement, in app: XCUIApplication,
-                        direction: ScrollDirection = .up, needsHitTarget: Bool = true) throws {
+                        direction: ScrollDirection = .up, needsHitTarget: Bool = true,
+                        viewport: XCUIElement? = nil) throws {
         for attempt in 0..<20 {
+            let visibleFrame = viewport.map { $0.frame.intersection(app.frame) } ?? app.frame
+            if element.identifier == "today.health.title", attempt < 4 {
+                print("[health-scroll] attempt=\(attempt) targetFrame=\(element.frame) viewportFrame=\(String(describing: viewport?.frame)) isHittable=\(element.isHittable)")
+                capture(app, "health-scroll-attempt-\(attempt)")
+            }
             if element.exists, element.frame.width > 0, element.frame.height > 0,
-               app.frame.contains(element.frame), !needsHitTarget || element.isHittable { return }
+               visibleFrame.contains(element.frame), !needsHitTarget || element.isHittable { return }
             if attempt == 0 { _ = element.waitForExistence(timeout: 3) }
             let surface = app.scrollViews.allElementsBoundByIndex.first(where: \.isHittable)
                 ?? app.tables.allElementsBoundByIndex.first(where: \.isHittable) ?? app

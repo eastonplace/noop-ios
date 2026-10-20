@@ -142,6 +142,56 @@ struct ScreenScaffold<Content: View, Trailing: View>: View {
     #endif
 
     var body: some View {
+        scaffoldLayout
+        // The flat canvas, plus an optional full-bleed TOP backdrop (Today's day-cycle scene) drawn behind
+        // the scroll content — edge-to-edge under the status bar. The scene is CONFINED to the header+hero
+        // band (see SceneScreenBackground.height) so it fades out ABOVE the dashboard cards, which then sit
+        // on the opaque canvas and stay fully legible (2026-06-23: cards were "losing the data").
+        .background(alignment: .top) {
+            ZStack(alignment: .top) {
+                #if os(iOS)
+                StrandPalette.appCanvas
+                #else
+                StrandPalette.surfaceBase
+                #endif
+                topBackground
+            }
+            .ignoresSafeArea()
+        }
+        .modifier(ScreenScaffoldSettingsNavigation(title: title, presentation: presentation))
+        #if os(iOS)
+        .modifier(ScreenScaffoldPushedNavigationBar(
+            hidden: presentation == .standard && navigationRole == .detail, backAction: detailBackAction))
+        #endif
+        #if os(macOS)
+        // The mac window toolbar's default vibrant material washed the top of the liquid day-of-sky WHITE
+        // (the scroll-under-titlebar blend). Hide it so the sky reads edge-to-edge and dark, like iOS.
+        .toolbarBackground(.hidden, for: .windowToolbar)
+        #endif
+    }
+
+    /// A tab root gives the header its own layout and hit-test region. Clipping the scroll viewport
+    /// keeps scrolling content and its gestures below that sibling instead of under an inset overlay.
+    @ViewBuilder private var scaffoldLayout: some View {
+        #if os(iOS)
+        if showsAppHeaderChrome {
+            VStack(spacing: 0) {
+                AppHeaderChrome(title: title ?? "Today")
+                    .fixedSize(horizontal: false, vertical: true)
+                    .zIndex(1)
+                scrollViewport
+                    .clipped()
+                    .contentShape(Rectangle())
+            }
+        } else {
+            scrollViewport
+        }
+        #else
+        scrollViewport
+        #endif
+    }
+
+    private var scrollViewport: some View {
         ScrollView(.vertical) {
             column
             #if os(iOS)
@@ -176,7 +226,7 @@ struct ScreenScaffold<Content: View, Trailing: View>: View {
         }
         .coordinateSpace(.named("screen-scaffold-scroll"))
         .overlay(alignment: .top) {
-            // Never at a tab root: the pinned chrome stays put and its title row scrolls away like Today's.
+            // Tab roots keep their page header outside this scroll viewport.
             if showsCompactHeader, !showsAppHeaderChrome, !showsUtilityHeader, title != nil || subtitle != nil {
                 compactHeader
                 .padding(.horizontal, 16)
@@ -188,9 +238,7 @@ struct ScreenScaffold<Content: View, Trailing: View>: View {
         }
         .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: showsCompactHeader)
         .safeAreaInset(edge: .top, spacing: 0) {
-            if showsAppHeaderChrome {
-                AppHeaderChrome(title: title ?? "Today")
-            } else if showsUtilityHeader {
+            if showsUtilityHeader {
                 utilityHeader
                     .padding(.horizontal, 16)
                     .padding(.vertical, 4)
@@ -201,32 +249,7 @@ struct ScreenScaffold<Content: View, Trailing: View>: View {
         // horizontal bounce resolves to disabled and the page cannot expose an off-canvas edge.
         .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
         #endif
-        // The flat canvas, plus an optional full-bleed TOP backdrop (Today's day-cycle scene) drawn behind
-        // the scroll content — edge-to-edge under the status bar. The scene is CONFINED to the header+hero
-        // band (see SceneScreenBackground.height) so it fades out ABOVE the dashboard cards, which then sit
-        // on the opaque canvas and stay fully legible (2026-06-23: cards were "losing the data").
-        .background(alignment: .top) {
-            ZStack(alignment: .top) {
-                #if os(iOS)
-                StrandPalette.appCanvas
-                #else
-                StrandPalette.surfaceBase
-                #endif
-                topBackground
-            }
-            .ignoresSafeArea()
-        }
         .modifier(RefreshableIfNeeded(onRefresh: onRefresh))
-        .modifier(ScreenScaffoldSettingsNavigation(title: title, presentation: presentation))
-        #if os(iOS)
-        .modifier(ScreenScaffoldPushedNavigationBar(
-            hidden: presentation == .standard && navigationRole == .detail, backAction: detailBackAction))
-        #endif
-        #if os(macOS)
-        // The mac window toolbar's default vibrant material washed the top of the liquid day-of-sky WHITE
-        // (the scroll-under-titlebar blend). Hide it so the sky reads edge-to-edge and dark, like iOS.
-        .toolbarBackground(.hidden, for: .windowToolbar)
-        #endif
     }
 
     #if os(iOS)
