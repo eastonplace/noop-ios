@@ -29,6 +29,8 @@ enum AppHeaderChromeMapper {
 /// invalidating ScreenScaffold or the content screen beneath it.
 struct AppHeaderChrome: View {
     let title: LocalizedStringKey
+    /// Only this small, optional accessory is erased; live state stays in the header's leaf observer.
+    var titleActions: AnyView? = nil
 
     @EnvironmentObject private var live: LiveState
     @EnvironmentObject private var model: AppModel
@@ -55,7 +57,8 @@ struct AppHeaderChrome: View {
             recovery: repo.today?.recovery,
             onStrap: { router.openSettings(.whoop) },
             onSync: sync,
-            onProfile: { router.openSettings() }
+            onProfile: { router.openSettings() },
+            titleActions: titleActions
         )
         .padding(.horizontal, 16)
         .padding(.vertical, 6)

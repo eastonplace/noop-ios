@@ -57,8 +57,30 @@ final class ApprovedDashboardUITests: XCTestCase {
                 XCTAssertGreaterThanOrEqual(action.frame.width + targetDimensionRoundingTolerance, 44)
             }
             if title == "Trends" {
-                try requireExists(app.buttons["Explore insights and metrics"], in: app)
-                try requireExists(app.buttons["Share Trends"], in: app)
+                let explore = app.buttons["trends.explore"]
+                let share = app.buttons["trends.share"]
+                for action in [explore, share] {
+                    try requireExists(action, in: app)
+                    XCTAssertTrue(app.frame.contains(action.frame), "Trends tools stay fully on screen")
+                    XCTAssertGreaterThanOrEqual(action.frame.width + targetDimensionRoundingTolerance, 44)
+                    XCTAssertGreaterThanOrEqual(action.frame.height + targetDimensionRoundingTolerance, 44)
+                }
+                XCTAssertEqual(explore.label, "Explore insights and metrics")
+                XCTAssertEqual(share.label, "Share Trends")
+                XCTAssertEqual(explore.frame.midY, share.frame.midY, accuracy: 1, "Trends tools share one row")
+                if size == .normal {
+                    let titleAction = app.buttons["app.header.titleAction"]
+                    try requireExists(titleAction, in: app)
+                    XCTAssertEqual(explore.frame.midY, titleAction.frame.midY, accuracy: 1,
+                                   "Explore aligns with the title even during a full sync error")
+                    XCTAssertEqual(share.frame.midY, battery.frame.midY, accuracy: 1,
+                                   "Share aligns with the account controls")
+                    XCTAssertGreaterThan(header.frame.minY, explore.frame.midY,
+                                         "Status has its own width below the aligned title controls")
+                } else {
+                    XCTAssertLessThanOrEqual(explore.frame.maxY, battery.frame.minY,
+                                             "Accessibility tools reflow above account controls")
+                }
             }
             capture(app, "shared-battery-\(size)-\(title.lowercased())")
         }

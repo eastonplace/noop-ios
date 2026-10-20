@@ -124,6 +124,46 @@ final class HeaderTitleFitTests: XCTestCase {
         }
     }
 
+    private func trendsHeaderWithTools(_ battery: Int? = 68, syncState: AppSyncState = .error) -> HeaderChromeRow {
+        HeaderChromeRow(title: "Trends", strapState: .offline, battery: battery, syncState: syncState,
+                        initials: "", recovery: 72, onStrap: {}, onSync: {}, onProfile: {},
+                        titleActions: AnyView(HStack(spacing: 8) {
+                            Button {} label: {
+                                WidgetChip(appTitle: "Explore", systemImage: "square.grid.2x2",
+                                           showsChevron: false, overhangs: false)
+                                    .frame(minWidth: 44, minHeight: 44)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            Button {} label: {
+                                WidgetChip(systemImage: "square.and.arrow.up", showsChevron: false, overhangs: false)
+                                    .frame(minWidth: 44, minHeight: 44)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                        }))
+    }
+
+    func testTrendsToolsFitBesideTheTitleOnA402PointPhone() {
+        let idle = height(width: 370, size: .large) { trendsHeaderWithTools(syncState: .idle) }
+        for battery in [nil, 0, 68, 100] as [Int?] {
+            let withTools = height(width: 370, size: .large) { trendsHeaderWithTools(battery) }
+            XCTAssertEqual(withTools, 88, accuracy: 0.5,
+                           "title controls and status each keep a 44 pt touch row at 402 pt")
+            XCTAssertEqual(withTools, idle, accuracy: 0.5,
+                           "the full offline/error status gets its own width without adding a tools band")
+        }
+    }
+
+    func testTrendsToolsReflowAtNarrowWidthsAndAccessibilitySizes() {
+        let compact = height(width: 370, size: .large) { trendsHeaderWithTools() }
+        let narrow = height(width: 288, size: .large) { trendsHeaderWithTools() }
+        let accessible = height(width: 288) { trendsHeaderWithTools() }
+        XCTAssertGreaterThanOrEqual(narrow, compact, "narrow phones retain both 44 pt header rows")
+        XCTAssertLessThanOrEqual(narrow, compact + 44, "a narrow status/tools fallback adds at most one touch row")
+        XCTAssertGreaterThan(accessible, narrow + 44, "accessibility text stacks tools and account controls")
+    }
+
     private func pillar(_ id: String, _ label: String, _ state: String) -> TodayPillarModel {
         TodayPillarModel(id: id, label: label, value: 72, maximum: 100, valueText: "72", state: state, accent: .green)
     }

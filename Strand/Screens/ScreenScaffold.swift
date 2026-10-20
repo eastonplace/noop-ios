@@ -117,6 +117,8 @@ struct ScreenScaffold<Content: View, Trailing: View>: View {
     var headerContext: String? = nil
     /// Opt-in compact title for modal utility roots. Other presentations keep their existing chrome.
     var usesCompactUtilityHeader: Bool = false
+    /// Opt-in tab-root tools that belong beside the pinned page title instead of in a scrolling row.
+    var placesTrailingInAppHeader: Bool = false
     /// Optional element pinned to the header's trailing edge (e.g. the strap-battery badge on Today).
     /// Defaults to `EmptyView` via the convenience init below, so other screens are unaffected.
     @ViewBuilder var trailing: () -> Trailing
@@ -176,7 +178,8 @@ struct ScreenScaffold<Content: View, Trailing: View>: View {
         #if os(iOS)
         if showsAppHeaderChrome {
             VStack(spacing: 0) {
-                AppHeaderChrome(title: title ?? "Today")
+                AppHeaderChrome(title: title ?? "Today",
+                                titleActions: placesTrailingInAppHeader ? AnyView(headerTrailing) : nil)
                     .fixedSize(horizontal: false, vertical: true)
                     .zIndex(1)
                 scrollViewport
@@ -280,9 +283,9 @@ struct ScreenScaffold<Content: View, Trailing: View>: View {
     @ViewBuilder private var headerForColumn: some View {
         #if os(iOS)
         if showsAppHeaderChrome {
-            // The pinned H2 header owns the page title. Keep every screen-specific action in the
-            // scrolling content row: suppressing a duplicate title must not remove Coach or Trends tools.
-            if Trailing.self != EmptyView.self || resolvedCloseAction != nil {
+            // Screens can opt their tools into the pinned title row. Other tab roots retain their
+            // scrolling action row, and pushed/modal presentations retain their own header tools.
+            if !placesTrailingInAppHeader, Trailing.self != EmptyView.self || resolvedCloseAction != nil {
                 HStack(spacing: 8) {
                     Spacer(minLength: 0)
                     headerTrailing

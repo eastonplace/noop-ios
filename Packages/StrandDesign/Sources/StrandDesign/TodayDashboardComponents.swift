@@ -722,6 +722,8 @@ public struct HeaderChromeRow: View {
     public let onStrap: () -> Void
     public let onSync: () -> Void
     public let onProfile: () -> Void
+    /// Optional page tools. Erasing only this accessory preserves the existing non-generic header API.
+    public let titleActions: AnyView?
     @Environment(\.dynamicTypeSize) private var typeSize
     @ScaledMetric(relativeTo: .title) private var titleSize: CGFloat = 26
     @ScaledMetric(relativeTo: .body) private var chromeGlyph: CGFloat = 21
@@ -732,18 +734,21 @@ public struct HeaderChromeRow: View {
                 syncCompletedUnits: Int? = nil,
                 initials: String, profileImage: Image? = nil, recovery: Double?,
                 onStrap: @escaping () -> Void, onSync: @escaping () -> Void,
-                onProfile: @escaping () -> Void) {
+                onProfile: @escaping () -> Void, titleActions: AnyView? = nil) {
         self.title = title
         self.strapState = strapState; self.battery = battery; self.syncState = syncState
         self.syncCompletedUnits = syncCompletedUnits
         self.initials = initials; self.profileImage = profileImage
         self.recovery = recovery
         self.onStrap = onStrap; self.onSync = onSync; self.onProfile = onProfile
+        self.titleActions = titleActions
     }
 
     public var body: some View {
         Group {
-            if typeSize.isAccessibilitySize {
+            if let titleActions {
+                headerWithTitleActions(titleActions)
+            } else if typeSize.isAccessibilitySize {
                 // Let the page and full status grow vertically; no condensed symbols or clipped words.
                 VStack(alignment: .leading, spacing: 8) {
                     deviceTitle
@@ -764,31 +769,111 @@ public struct HeaderChromeRow: View {
         .accessibilityElement(children: .contain)
     }
 
+    @ViewBuilder private func headerWithTitleActions(_ actions: AnyView) -> some View {
+        if typeSize.isAccessibilitySize {
+            VStack(alignment: .leading, spacing: 8) {
+                deviceTitle
+                actions
+                HStack {
+                    Spacer(minLength: 0)
+                    accountActions
+                }
+            }
+        } else {
+            ViewThatFits(in: .horizontal) {
+                VStack(alignment: .leading, spacing: 0) {
+                    HStack(spacing: 8) {
+                        deviceTitleAction.fixedSize(horizontal: true, vertical: true)
+                        Spacer(minLength: 0)
+                        actions.fixedSize(horizontal: true, vertical: true)
+                        accountActions.fixedSize(horizontal: true, vertical: true)
+                    }
+                    // A sync error can be longer than the title. Give status the whole header width
+                    // without making it push page tools out of the title row.
+                    deviceStatusAction
+                }
+                // A narrow phone or a longer translated status gets two useful header rows.
+                // Tools share the status row instead of reserving a separate band below the divider.
+                VStack(alignment: .leading, spacing: 0) {
+                    HStack(spacing: 8) {
+                        deviceTitleAction
+                        Spacer(minLength: 0)
+                        accountActions
+                    }
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: 8) {
+                            deviceStatusAction.fixedSize(horizontal: true, vertical: true)
+                            Spacer(minLength: 0)
+                            actions.fixedSize(horizontal: true, vertical: true)
+                        }
+                        VStack(alignment: .leading, spacing: 0) {
+                            deviceStatusAction
+                            actions
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     private var deviceTitle: some View {
         Button(action: onStrap) {
             VStack(alignment: .leading, spacing: 3) {
-                Text(title)
-                    .font(StrandFont.sized(titleSize, weight: .semibold))
-                    .foregroundStyle(StrandPalette.textPrimary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityAddTraits(.isHeader)
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    strapDot
-                        .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] }
-                    Text(statusLabel)
-                        .font(StrandFont.caption)
-                        .foregroundStyle(syncState == .error ? StrandPalette.statusWarning : StrandPalette.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Image(systemName: "chevron.down")
-                        .font(StrandFont.micro.weight(.semibold))
-                        .foregroundStyle(StrandPalette.textTertiary)
-                        .accessibilityHidden(true)
-                }
+                pageTitle
+                deviceStatus
             }
             .frame(minWidth: 44, minHeight: 44, alignment: .leading)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityValue(deviceAccessibilityValue)
+        .accessibilityHint("Opens device Settings, battery and sync controls")
+        .accessibilityIdentifier("app.deviceStatus")
+    }
+
+    private var pageTitle: some View {
+        Text(title)
+            .font(StrandFont.sized(titleSize, weight: .semibold))
+            .foregroundStyle(StrandPalette.textPrimary)
+            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityAddTraits(.isHeader)
+            .accessibilityIdentifier("app.header.title")
+    }
+
+    private var deviceStatus: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            strapDot
+                .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] }
+            Text(statusLabel)
+                .font(StrandFont.caption)
+                .foregroundStyle(syncState == .error ? StrandPalette.statusWarning : StrandPalette.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Image(systemName: "chevron.down")
+                .font(StrandFont.micro.weight(.semibold))
+                .foregroundStyle(StrandPalette.textTertiary)
+                .accessibilityHidden(true)
+        }
+    }
+
+    private var deviceTitleAction: some View {
+        Button(action: onStrap) {
+            pageTitle
+                .frame(minWidth: 44, minHeight: 44, alignment: .leading)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint("Opens device Settings, battery and sync controls")
+        .accessibilityIdentifier("app.header.titleAction")
+    }
+
+    private var deviceStatusAction: some View {
+        Button(action: onStrap) {
+            deviceStatus
+                .frame(minWidth: 44, minHeight: 44, alignment: .leading)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text(title) + Text(", ") + Text(statusLabel))
         .accessibilityValue(deviceAccessibilityValue)
         .accessibilityHint("Opens device Settings, battery and sync controls")
         .accessibilityIdentifier("app.deviceStatus")
