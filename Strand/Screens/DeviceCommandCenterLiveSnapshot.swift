@@ -17,6 +17,7 @@ final class DeviceCommandCenterLiveSnapshot: ObservableObject {
 
     struct Value: Equatable {
         var connected: Bool
+        var bonded: Bool
         var connectedAt: TimeInterval?
         var encryptedBond: Bool
         var bluetoothUnavailableMessage: String?
@@ -42,6 +43,9 @@ final class DeviceCommandCenterLiveSnapshot: ObservableObject {
         var r22FlagsAccepted: Int
         var strapFirmware: String?
         var worn: Bool
+        var wearStateKnown: Bool
+        var advertisingName: String?
+        var renameStatus: String?
         var historicalSyncPassProgress: HistoricalSyncPassProgress?
     }
 
@@ -52,6 +56,7 @@ final class DeviceCommandCenterLiveSnapshot: ObservableObject {
     init(live: LiveState) {
         value = Value(
             connected: live.connected,
+            bonded: live.bonded,
             connectedAt: live.connectedAt,
             encryptedBond: live.encryptedBond,
             bluetoothUnavailableMessage: live.bluetoothUnavailableMessage,
@@ -81,10 +86,16 @@ final class DeviceCommandCenterLiveSnapshot: ObservableObject {
             r22FlagsAccepted: live.r22FlagsAccepted,
             strapFirmware: live.strapFirmware,
             worn: live.worn,
+            wearStateKnown: false,
+            advertisingName: live.advertisingName,
+            renameStatus: live.renameStatus,
             historicalSyncPassProgress: live.historicalSyncPassProgress
         )
 
         bind(live.$connected, to: \.connected)
+        bind(live.$bonded, to: \.bonded)
+        bind(live.$advertisingName, to: \.advertisingName)
+        bind(live.$renameStatus, to: \.renameStatus)
         bind(live.$connectedAt, to: \.connectedAt)
         bind(live.$encryptedBond, to: \.encryptedBond)
         bind(live.$bluetoothUnavailableMessage, to: \.bluetoothUnavailableMessage)
@@ -111,6 +122,24 @@ final class DeviceCommandCenterLiveSnapshot: ObservableObject {
         bind(live.$worn, to: \.worn)
         bind(live.$historicalSyncPassProgress, to: \.historicalSyncPassProgress)
 
+        // `worn` defaults to true. A wrist label needs a strap event, not that default.
+        // Keep the witness in this presentation adapter; do not change BLE behavior.
+        live.$lastEvent
+            .dropFirst()
+            .filter { Self.isWristEvent($0) }
+            .sink { [weak self] _ in
+                guard let self, value.connected, !value.wearStateKnown else { return }
+                value.wearStateKnown = true
+            }
+            .store(in: &cancellables)
+        live.$connected
+            .filter { !$0 }
+            .sink { [weak self] _ in
+                guard let self, value.wearStateKnown else { return }
+                value.wearStateKnown = false
+            }
+            .store(in: &cancellables)
+
         let batteryRuntime = Publishers.CombineLatest3(
             live.$batterySamples,
             live.$batteryRatedHours,
@@ -123,6 +152,10 @@ final class DeviceCommandCenterLiveSnapshot: ObservableObject {
                     sessionStartedAt: connectedAt.map { Int($0) })
             }
         bind(batteryRuntime, to: \.batteryRuntime)
+    }
+
+    private static func isWristEvent(_ event: String?) -> Bool {
+        event?.hasPrefix("WRIST_ON") == true || event?.hasPrefix("WRIST_OFF") == true
     }
 
     private static func batteryRuntime(

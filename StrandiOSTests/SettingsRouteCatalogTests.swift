@@ -2,6 +2,15 @@ import XCTest
 @testable import NOOP
 
 final class SettingsRouteCatalogTests: XCTestCase {
+    func testRecentUpdatesHasOneSearchableRouteAboveTheProfile() {
+        XCTAssertEqual(SettingsRouteCatalog.recentUpdates.id, .recentUpdates)
+        XCTAssertEqual(SettingsRouteCatalog.recentUpdates.title, "Recent updates")
+        XCTAssertFalse(SettingsRouteCatalog.rootSections.flatMap(\.routes).map(\.id).contains(.recentUpdates))
+        for query in ["recent updates", "unread", "inbox", "release notes", "dismissed cards"] {
+            XCTAssertEqual(SettingsRouteCatalog.search(query).map(\.route), [.recentUpdates], query)
+        }
+    }
+
     func testRootHasOneStableOwnerPerRouteAndNoSupport() {
         let routes = SettingsRouteCatalog.rootSections.flatMap(\.routes).map(\.id)
         XCTAssertEqual(Set(routes).count, routes.count)
@@ -85,7 +94,8 @@ final class SettingsRouteCatalogTests: XCTestCase {
     /// Every page is reachable from the profile row, a root row or a search result, and no row is listed twice.
     func testEveryRouteIsReachableAndNothingIsListedTwice() {
         let rows = SettingsRouteCatalog.rootSections.flatMap(\.routes).map(\.id)
-        let reachable = Set(rows).union(SettingsRouteCatalog.searchItems.map(\.route)).union([.personalProfile])
+        let reachable = Set(rows).union(SettingsRouteCatalog.searchItems.map(\.route))
+            .union([.personalProfile, SettingsRouteCatalog.recentUpdates.id])
         XCTAssertEqual(reachable, Set(SettingsRouteID.allCases))
         XCTAssertEqual(Set(rows).count, rows.count)
     }
@@ -165,6 +175,9 @@ final class SettingsRouteCatalogTests: XCTestCase {
     /// The root shows translated titles, so a query typed from what is on screen has to find its row.
     func testAGermanQueryFindsTheRowsItNames() throws {
         let german = try german()
+        let updatesTitle = String(localized: "Recent updates", bundle: german)
+        XCTAssertNotEqual(updatesTitle, "Recent updates")
+        XCTAssertEqual(SettingsRouteCatalog.search(updatesTitle, in: german).map(\.route), [.recentUpdates])
         XCTAssertEqual(SettingsRouteCatalog.search("Akku", in: german).map(\.id), [
             "whoop",
             "continuous-hrv",

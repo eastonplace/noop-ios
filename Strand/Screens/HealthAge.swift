@@ -26,6 +26,9 @@ import WhoopStore
 struct FitnessAgeSection: View {
     @EnvironmentObject var repo: Repository
     @EnvironmentObject var profile: ProfileStore
+    #if os(iOS)
+    @EnvironmentObject private var router: NavRouter
+    #endif
 
     /// Latest weekly Fitness Age (years) read from the "fitness_age" metricSeries, nil until loaded/computed.
     @State private var fitnessAge: Double?
@@ -36,6 +39,7 @@ struct FitnessAgeSection: View {
     /// Reveal the readiness checklist (the "ⓘ How accurate is this?" disclosure under a shown value).
     @State private var showReadiness = false
 
+    #if os(macOS)
     /// The drill-down this section can present, as an item-driven sheet (two stacked `.sheet` modifiers race on macOS).
     /// `.settings`: Settings (the profile card) so a required-missing input can be filled in place.
     private enum FitnessSheet: String, Identifiable {
@@ -43,6 +47,7 @@ struct FitnessAgeSection: View {
         var id: String { rawValue }
     }
     @State private var fitnessSheet: FitnessSheet?
+    #endif
 
     /// The coverage counts the engine's verdict is built from: the last 7 computed/imported days give the resting-HR and
     /// activity counts, the profile gives the rest.
@@ -64,22 +69,29 @@ struct FitnessAgeSection: View {
 
     var body: some View {
         content
+            #if os(macOS)
             .sheet(item: $fitnessSheet) { which in
                 NavigationStack {
                     switch which {
                     case .settings:
-                        // TODO(lane-merge): openSettings(.personalProfile)
                         SettingsView()
                     }
                 }
                 // Health is a pushed screen: its sheet must not hand Settings the drill-in role, or the pages Settings
                 // pushes would leave the native look they have in the Settings tab.
                 .settingsSheetScreenScaffoldEnvironment()
-                #if os(macOS)
                 .frame(width: 900, height: 820)
-                #endif
             }
+            #endif
             .task(id: repo.refreshSeq) { await load() }
+    }
+
+    private func openProfileSettings() {
+        #if os(iOS)
+        router.openSettings(.personalProfile)
+        #else
+        fitnessSheet = .settings
+        #endif
     }
 
     @ViewBuilder private var content: some View {
@@ -93,7 +105,7 @@ struct FitnessAgeSection: View {
                 if showReadiness {
                     FitnessAgeReadinessList(readiness: readiness(coverage), rhrDays: coverage.rhrDays,
                                             activityDays: coverage.activityDays, lead: nil,
-                                            onFix: { fitnessSheet = .settings })
+                                            onFix: openProfileSettings)
                         .transition(.opacity)
                 }
             }
@@ -108,7 +120,7 @@ struct FitnessAgeSection: View {
                         lead: verdict.canCompute
                             ? "A few more days and we can show your Fitness Age."
                             : "A few more days of wear, plus the basics below, and we can show your Fitness Age.",
-                        onFix: { fitnessSheet = .settings })
+                        onFix: openProfileSettings)
                 } else {
                     // Brief read of the weekly value; an honest placeholder rather than an empty gap.
                     HealthEmptyNote(symbol: "figure.run", text: "Reading your Fitness Age…")

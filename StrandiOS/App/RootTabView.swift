@@ -765,15 +765,14 @@ private struct PaperTabBar: View {
         ForEach(nav.dropFirst(2)) { tabButton($0) }
     }
 
-    /// The mint + of the mockup: 54pt with a soft glow. Opening the fan turns its glyph 135 degrees into a × while the fill
-    /// settles to a neutral raised surface; with Reduce Motion the glyph swaps with a fade instead of turning.
+    /// The white 54pt quick action control keeps its dark glyph through the fan animation.
+    /// Reduce Motion swaps the glyph with a fade instead of turning it.
     private var quickActionsButton: some View {
         let p = Double(fanProgress)
         return Button(action: onQuickActions) {
             ZStack {
                 Circle()
-                    .fill(StrandPalette.ink.blended(into: StrandPalette.inset, by: p))
-                    .shadow(color: StrandPalette.ink.opacity(0.25 * (1 - p)), radius: 11, y: 6)
+                    .fill(StrandPalette.solidFill)
                 ZStack {
                     Image(systemName: "plus")
                         .rotationEffect(.degrees(reduceMotion ? 0 : 135 * p))
@@ -782,8 +781,8 @@ private struct PaperTabBar: View {
                         Image(systemName: "xmark").opacity(p)
                     }
                 }
-                .font(.system(size: 26, weight: .semibold))
-                .foregroundStyle(StrandPalette.onInk.blended(into: StrandPalette.textPrimary, by: p))
+                .font(.system(size: 26, weight: .regular))
+                .foregroundStyle(StrandPalette.onLightFill)
             }
             .frame(width: 54, height: 54)
             .animation(reduceMotion ? .easeInOut(duration: 0.2) : .spring(response: 0.38, dampingFraction: 0.62),
@@ -815,7 +814,7 @@ private struct PaperTabBar: View {
                     .font(.system(size: 18, weight: active ? .semibold : .regular))
                 PaperTabLabel(title: item.title, isActive: active)
             }
-            // The selected tab is the light ink; mint stays on the + and on "recording now" (the one pill system).
+            // The selected tab uses light ink; mint stays on "recording now" status.
             .foregroundStyle(active ? StrandPalette.solidFill : StrandPalette.textTertiary)
             .opacity(1 - 0.7 * Double(fanProgress))
             .frame(maxWidth: .infinity)

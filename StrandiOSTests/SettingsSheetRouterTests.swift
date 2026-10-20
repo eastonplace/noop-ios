@@ -37,5 +37,6 @@ final class SettingsSheetRouterTests: XCTestCase {
     func testTheSheetStartsOnTheRootOrOnTheDeepLinkedPage() {
         XCTAssertEqual(SettingsSheetHost.initialPath(for: SettingsSheetRequest()), [])
         XCTAssertEqual(SettingsSheetHost.initialPath(for: SettingsSheetRequest(route: .appearanceUnits)), [.appearanceUnits])
+        XCTAssertEqual(SettingsSheetHost.initialPath(for: SettingsSheetRequest(route: .recentUpdates)), [.recentUpdates])
     }
 }

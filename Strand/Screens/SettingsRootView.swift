@@ -1,8 +1,8 @@
 import SwiftUI
 import StrandDesign
 
-/// The Settings root, in the idiom of the iOS Settings app: a large "Settings" title, a search field under it, an
-/// Apple-ID-style row for the person's profile, and grouped lists of rows that each start with a coloured rounded-square
+/// The Settings root uses a native inline "Settings" title beside Done, a search field under it, Recent updates,
+/// an Apple-ID-style row for the person's profile, and grouped lists of rows that each start with a coloured rounded-square
 /// tile. Everything is a native List, NavigationLink and `.searchable`; the only custom drawing is the tile.
 struct SettingsRootView: View {
     let status: SettingsRootStatus
@@ -15,6 +15,9 @@ struct SettingsRootView: View {
     var body: some View {
         NativeSettingsList {
             if query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Section {
+                    SettingsRecentUpdatesRow()
+                }
                 Section {
                     SettingsProfileRow()
                 }
@@ -37,7 +40,7 @@ struct SettingsRootView: View {
         }
         .navigationTitle("Settings")
         #if os(iOS)
-        .navigationBarTitleDisplayMode(.large)
+        .navigationBarTitleDisplayMode(.inline)
         #endif
         .settingsSearch(text: $query)
     }
@@ -70,6 +73,19 @@ struct SettingsRootView: View {
 }
 
 // MARK: - Rows
+
+/// Only this row observes inbox changes; opening the inbox does not mark anything read.
+private struct SettingsRecentUpdatesRow: View {
+    @EnvironmentObject private var updates: UpdateStore
+
+    var body: some View {
+        SettingsRouteLink(
+            route: SettingsRouteCatalog.recentUpdates.id,
+            title: SettingsRouteCatalog.recentUpdates.title,
+            value: updates.unreadCount > 0 ? String(localized: "\(updates.unreadCount) unread") : nil
+        )
+    }
+}
 
 /// The row Apple's Settings opens with for the Apple ID: the person's photo, what the page is, one line of what it holds,
 /// and a chevron. It opens Personal profile. Its own leaf, so a profile edit redraws this row and not the whole root.
@@ -228,6 +244,7 @@ extension SettingsRouteID {
     /// The symbol on the route's tile.
     var tileSymbol: String {
         switch self {
+        case .recentUpdates: "tray.fill"
         case .personalProfile: "person.crop.circle.fill"
         case .whoop: "dot.radiowaves.left.and.right"
         case .syncBattery: "battery.100percent"
@@ -236,6 +253,7 @@ extension SettingsRouteID {
         case .backupExport: "externaldrive.fill.badge.icloud"
         case .notificationsAlerts: "bell.badge.fill"
         case .appearanceUnits: "textformat.size"
+        case .todayDashboard: "square.grid.2x2.fill"
         case .workouts: "figure.run"
         case .quickActions: "plus.circle.fill"
         case .sleepAlarm: "bed.double.fill"
@@ -250,6 +268,7 @@ extension SettingsRouteID {
     /// The tile's colour: one of the system colours Apple's own Settings uses, so it follows light and dark.
     var tileColor: Color {
         switch self {
+        case .recentUpdates: .blue
         case .personalProfile: .gray
         case .whoop: .blue
         case .syncBattery: .green
@@ -258,6 +277,7 @@ extension SettingsRouteID {
         case .backupExport: .indigo
         case .notificationsAlerts: .red
         case .appearanceUnits: .blue
+        case .todayDashboard: .cyan
         case .workouts: .orange
         case .quickActions: .green
         case .sleepAlarm: .indigo
