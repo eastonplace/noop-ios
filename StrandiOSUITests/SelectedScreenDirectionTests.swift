@@ -270,9 +270,9 @@ final class SelectedScreenDirectionTests: XCTestCase {
         let previous = try switchValue(toggle)
         XCTAssertEqual(try switchValue(control), previous, "Native control and row agree before activation")
         if previous != desired {
-            // The center overlaps the movable thumb on the modern native switch.
-            // Touch the desired end of its track, then verify the real control and row.
-            control.coordinate(withNormalizedOffset: CGVector(dx: desired ? 0.9 : 0.1, dy: 0.5)).tap()
+            // Use XCTest's computed hittable point for the native control. A row can
+            // be hittable while a fixed normalized track coordinate is not actionable.
+            control.tap()
         }
         let changed = [control, toggle].map { element in
             XCTNSPredicateExpectation(
