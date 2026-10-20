@@ -236,6 +236,7 @@ extension SettingsRouteID {
         case .backupExport: "externaldrive.fill.badge.icloud"
         case .notificationsAlerts: "bell.badge.fill"
         case .appearanceUnits: "textformat.size"
+        case .todayDashboard: "square.grid.2x2.fill"
         case .workouts: "figure.run"
         case .quickActions: "plus.circle.fill"
         case .sleepAlarm: "bed.double.fill"
@@ -258,6 +259,7 @@ extension SettingsRouteID {
         case .backupExport: .indigo
         case .notificationsAlerts: .red
         case .appearanceUnits: .blue
+        case .todayDashboard: .cyan
         case .workouts: .orange
         case .quickActions: .green
         case .sleepAlarm: .indigo

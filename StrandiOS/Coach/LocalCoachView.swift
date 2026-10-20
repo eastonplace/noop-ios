@@ -265,17 +265,17 @@ struct LocalCoachView: View {
         }
     }
 
-    /// The NOOP bar, then one quiet COACH row: the tracked title with history, new chat and the menu as plain icons. No
-    /// status line and no rule under it: the state of Coach is explained where it matters, on the new-chat page and in
-    /// the note above the composer.
+    /// The shared page header owns the Coach title. History, new chat and the menu
+    /// remain in their own quiet action row, with a back control on Coach drill-ins.
     private var header: some View {
         VStack(spacing: 0) {
-            if showsAppChrome { AppHeaderChrome() }
+            if showsAppChrome { AppHeaderChrome(title: "Coach") }
             Group {
                 if showsAppChrome {
                     HStack(spacing: 0) {
                         if screen != .chat { backToChat }
-                        NoopTabTitleRow("Coach") { headerActions }
+                        Spacer(minLength: 0)
+                        headerActions
                     }
                 } else {
                     NoopScreenHeader(title: "Coach",

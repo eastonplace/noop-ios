@@ -28,6 +28,8 @@ enum AppHeaderChromeMapper {
 /// Leaf observer for the pinned app chrome. LiveState's frequent writes stop here instead of
 /// invalidating ScreenScaffold or the content screen beneath it.
 struct AppHeaderChrome: View {
+    let title: LocalizedStringKey
+
     @EnvironmentObject private var live: LiveState
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var repo: Repository
@@ -44,6 +46,7 @@ struct AppHeaderChrome: View {
 
     var body: some View {
         HeaderChromeRow(
+            title: title,
             strapState: chromeState.strap,
             battery: live.batteryPct.map { Int($0.rounded()) },
             syncState: chromeState.sync,
@@ -52,7 +55,7 @@ struct AppHeaderChrome: View {
             initials: "",
             profileImage: profileImage,
             recovery: repo.today?.recovery,
-            onStrap: router.openDevices,
+            onStrap: { router.openSettings(.whoop) },
             onSync: sync,
             onUpdates: router.openUpdates,
             onProfile: { router.openSettings() }

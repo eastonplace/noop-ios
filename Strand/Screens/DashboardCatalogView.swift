@@ -30,15 +30,8 @@ struct DashboardCatalogView: View {
     @Binding var selectionRaw: String
     let hydrationEnabled: Bool
 
-    @State private var showingEditor = false
-
     var body: some View {
-        ScreenScaffold(title: "Your Cards", subtitle: "Every metric, one place", lazy: true,
-                       trailing: {
-                           Button("Customize") { showingEditor = true }
-                               .font(StrandFont.caption.weight(.semibold))
-                               .foregroundStyle(StrandPalette.link)
-                       }) {
+        ScreenScaffold(title: "All metrics", subtitle: "Every metric, one place", lazy: true) {
             ForEach(items) { item in
                 NavigationLink {
                     DashboardCardDestination(card: item.card)
@@ -52,10 +45,6 @@ struct DashboardCatalogView: View {
                 }
                 .buttonStyle(.plain)
             }
-        }
-        .sheet(isPresented: $showingEditor) {
-            DashboardCardsEditorSheet(selectionRaw: $selectionRaw, hydrationEnabled: hydrationEnabled)
-                .environment(\.appHeaderChromeVisibility, .hidden)
         }
     }
 }

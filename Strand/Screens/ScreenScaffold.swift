@@ -189,7 +189,7 @@ struct ScreenScaffold<Content: View, Trailing: View>: View {
         .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: showsCompactHeader)
         .safeAreaInset(edge: .top, spacing: 0) {
             if showsAppHeaderChrome {
-                AppHeaderChrome()
+                AppHeaderChrome(title: title ?? "Today")
             } else if showsUtilityHeader {
                 utilityHeader
                     .padding(.horizontal, 16)
@@ -256,11 +256,15 @@ struct ScreenScaffold<Content: View, Trailing: View>: View {
 
     @ViewBuilder private var headerForColumn: some View {
         #if os(iOS)
-        if showsAppHeaderChrome, let title {
-            // A tab root already has the pinned chrome row (and its wordmark) above the content, so it gets
-            // one compact title row, like Today's, instead of a second wordmark, a large title and a subtitle.
-            NoopTabTitleRow(title, hasTrailing: Trailing.self != EmptyView.self || resolvedCloseAction != nil) {
-                headerTrailing
+        if showsAppHeaderChrome {
+            // The pinned H2 header owns the page title. Keep every screen-specific action in the
+            // scrolling content row: suppressing a duplicate title must not remove Coach or Trends tools.
+            if Trailing.self != EmptyView.self || resolvedCloseAction != nil {
+                HStack(spacing: 8) {
+                    Spacer(minLength: 0)
+                    headerTrailing
+                }
+                .frame(minHeight: 44)
             }
         } else if let title, let back = detailBackAction {
             // A pushed screen gets one compact row of its own: back chip, caps title, optional context. No

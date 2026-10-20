@@ -126,12 +126,14 @@ public struct TodayHeroCard: View {
                     VStack(alignment: .leading, spacing: NoopMetrics.space4) {
                         ForEach(pillars) { pillar in
                             TodayPillarGauge(model: pillar) { onPillar(pillar.id) }
+                                .accessibilityIdentifier("today.summary.pillar.\(pillar.id)")
                         }
                     }
                 } else {
                     HStack(alignment: .top, spacing: 6) {
                         ForEach(pillars) { pillar in
                             TodayPillarGauge(model: pillar) { onPillar(pillar.id) }
+                                .accessibilityIdentifier("today.summary.pillar.\(pillar.id)")
                         }
                     }
                 }
@@ -494,112 +496,91 @@ public struct HealthDashboardTileModel: Identifiable, Equatable {
 
 public struct HealthDashboardCard: View {
     public let tiles: [HealthDashboardTileModel]
-    public let status: String
     public let onTile: (String) -> Void
-    public let onCustomize: () -> Void
     public let onShowAll: () -> Void
     public let onDataSources: () -> Void
 
     @Environment(\.dynamicTypeSize) private var typeSize
+    @ScaledMetric(relativeTo: .headline) private var titleSize: CGFloat = 16
 
-    public init(tiles: [HealthDashboardTileModel], status: String,
-                onTile: @escaping (String) -> Void, onCustomize: @escaping () -> Void,
+    // Retain the earlier initializer labels for gallery clients. Configuration now lives in native Settings.
+    public init(tiles: [HealthDashboardTileModel], status: String = "",
+                onTile: @escaping (String) -> Void, onCustomize: @escaping () -> Void = {},
                 onShowAll: @escaping () -> Void, onDataSources: @escaping () -> Void) {
-        self.tiles = tiles; self.status = status; self.onTile = onTile
-        self.onCustomize = onCustomize; self.onShowAll = onShowAll; self.onDataSources = onDataSources
+        self.tiles = tiles; self.onTile = onTile
+        self.onShowAll = onShowAll; self.onDataSources = onDataSources
+    }
+
+    private var columnCount: Int {
+        if typeSize >= .accessibility3 { return 1 }
+        return typeSize.isAccessibilitySize ? 2 : 3
     }
 
     public var body: some View {
         TodaySectionSurface(bottom: 12) {
-            VStack(alignment: .leading, spacing: 9) {
-                VStack(alignment: .leading, spacing: 3) {
-                    // The widget eyebrow, as on Live HR and Stress: ink symbol, caps title, quiet chip.
-                    //
-                    // At an accessibility size the title and the chip cannot share a row (the title broke one letter
-                    // per line beside "Customise"), so the chip drops under the title and the title wraps between its
-                    // words. Every smaller size is the one-row header exactly as it was.
-                    if typeSize.isAccessibilitySize {
-                        VStack(alignment: .leading, spacing: NoopMetrics.space2) {
-                            HStack(spacing: NoopMetrics.space2) {
-                                HealthMonitorEyebrowIcon()
-                                Text("Health Monitor", bundle: .module).strandOverlineFitted().lineLimit(3)
-                            }
-                            customiseButton
-                        }
-                    } else {
-                        HStack(spacing: NoopMetrics.space2) {
-                            HealthMonitorEyebrowIcon()
-                            Text("Health Monitor", bundle: .module).strandOverline()
-                            Spacer(minLength: NoopMetrics.space2)
-                            customiseButton
-                        }
-                    }
-                    Text(verbatim: status).font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
-                }
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 0), count: 3), spacing: 0) {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Health Monitor", bundle: .module)
+                    .font(.system(size: titleSize, weight: .semibold))
+                    .foregroundStyle(StrandPalette.textPrimary)
+                    .accessibilityAddTraits(.isHeader)
+                    .accessibilityIdentifier("today.health.title")
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 0), count: columnCount),
+                          alignment: .leading, spacing: 0) {
                     ForEach(Array(tiles.enumerated()), id: \.element.id) { index, tile in
                         Button { onTile(tile.id) } label: { HealthDashboardTile(model: tile) }
                             .buttonStyle(.plain)
+                            .accessibilityIdentifier("today.health.tile.\(tile.id)")
                             .overlay(alignment: .trailing) {
-                                if index % 3 != 2 && index + 1 < tiles.count { verticalTileDivider }
+                                if index % columnCount != columnCount - 1 && index + 1 < tiles.count {
+                                    Rectangle().fill(StrandPalette.hairline)
+                                        .frame(width: 1).padding(.vertical, 16).accessibilityHidden(true)
+                                }
                             }
                             .overlay(alignment: .bottom) {
-                                if index + 3 < tiles.count { horizontalTileDivider }
+                                if index / columnCount < (tiles.count - 1) / columnCount {
+                                    Rectangle().fill(StrandPalette.hairline).frame(height: 1)
+                                        .padding(.horizontal, 8).accessibilityHidden(true)
+                                }
                             }
                     }
                 }
-                HStack {
-                    Button("Show all", action: onShowAll)
-                        .font(StrandFont.caption.weight(.semibold)).foregroundStyle(StrandPalette.link)
-                    Spacer()
-                    Button(action: onDataSources) {
-                        HStack(spacing: 5) {
-                            Text("Data Sources", bundle: .module)
-                            Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold))
-                        }
-                    }
-                    .font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary).buttonStyle(.plain)
+                TodayHairline()
+                if typeSize.isAccessibilitySize {
+                    VStack(alignment: .leading, spacing: 0) { allMetricsButton; dataSourcesButton }
+                } else {
+                    HStack { allMetricsButton; Spacer(); dataSourcesButton }
                 }
             }
         }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("today.health.monitor")
     }
 
-    private var customiseButton: some View {
-        Button(action: onCustomize) {
-            WidgetChip("Customise", systemImage: "slider.horizontal.3", showsChevron: false, overhangs: false)
-                .chipHitTarget()
+    private var allMetricsButton: some View {
+        Button(action: onShowAll) {
+            HStack(spacing: 6) {
+                Text("All metrics", bundle: .module)
+                Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold))
+            }
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
         }
+        .font(StrandFont.caption.weight(.semibold)).foregroundStyle(StrandPalette.textPrimary)
         .buttonStyle(.plain)
-        .accessibilityLabel(Text("Customise", bundle: .module))
+        .accessibilityIdentifier("today.health.allMetrics")
     }
 
-    private var verticalTileDivider: some View {
-        Rectangle()
-            .fill(StrandPalette.hairline)
-            .frame(width: 1, height: 52)
-            .accessibilityHidden(true)
-    }
-
-    private var horizontalTileDivider: some View {
-        Rectangle()
-            .fill(StrandPalette.hairline)
-            .frame(height: 1)
-            .padding(.horizontal, 8)
-            .accessibilityHidden(true)
-    }
-}
-
-/// The Health Monitor symbol: ink, in the same `caption` size as the other eyebrow symbols, in a column as
-/// wide as the heart / bolt.heart on Live HR and Stress so all three titles start at the same x.
-private struct HealthMonitorEyebrowIcon: View {
-    @ScaledMetric(relativeTo: .caption) private var column: CGFloat = 14.67
-
-    var body: some View {
-        Image(systemName: "heart.text.square")
-            .font(StrandFont.caption)
-            .foregroundStyle(StrandPalette.ink)
-            .frame(width: column, alignment: .leading)
-            .accessibilityHidden(true)
+    private var dataSourcesButton: some View {
+        Button(action: onDataSources) {
+            HStack(spacing: 6) {
+                Text("Data Sources", bundle: .module)
+                Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold))
+            }
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
+        }
+        .font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary).buttonStyle(.plain)
+        .accessibilityIdentifier("today.health.dataSources")
     }
 }
 
@@ -607,60 +588,47 @@ public struct HealthDashboardTile: View {
     public let model: HealthDashboardTileModel
     public init(model: HealthDashboardTileModel) { self.model = model }
     @Environment(\.dynamicTypeSize) private var typeSize
+    @ScaledMetric(relativeTo: .title3) private var valueSize: CGFloat = 20
+    @ScaledMetric(relativeTo: .caption) private var labelSize: CGFloat = 11
 
-    /// A number reads in the primary ink and the missing dash in the tertiary. A value with no digit in it
-    /// (a word such as "Calibrating") is a status, not a measurement, so it reads in the secondary ink.
     private var valueInk: Color {
         if model.value == WidgetMetrics.missingValue { return StrandPalette.textTertiary }
         return model.value.contains(where: \.isNumber) ? StrandPalette.textPrimary : StrandPalette.textSecondary
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            HStack(spacing: 4) {
-                Image(systemName: model.icon).font(.system(size: 10, weight: .semibold)).foregroundStyle(model.accent)
-                Text(verbatim: model.label).font(StrandFont.micro).foregroundStyle(StrandPalette.textSecondary)
-                    .lineLimit(1).minimumScaleFactor(0.7)
-                Spacer(minLength: 0)
-                if let detail = model.detail {
-                    Text(verbatim: detail)
-                        .font(StrandFont.micro)
-                        .foregroundStyle(StrandPalette.textTertiary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.7)
-                }
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 5) {
+                Image(systemName: model.icon)
+                    .font(.system(size: labelSize, weight: .medium)).foregroundStyle(model.accent)
+                Text(verbatim: model.label)
+                    .font(.system(size: labelSize)).foregroundStyle(StrandPalette.textSecondary)
+                    .lineLimit(typeSize.isAccessibilitySize ? nil : 2)
+                    .fixedSize(horizontal: false, vertical: true)
                 if case .typical(_, _, false) = model.rail {
-                    Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 8, weight: .bold))
+                    Image(systemName: "exclamationmark.triangle.fill").font(.system(size: labelSize, weight: .bold))
                         .foregroundStyle(StrandPalette.statusWarning)
                 }
             }
-            HStack(alignment: .firstTextBaseline, spacing: 2) {
-                Text(verbatim: model.value).font(StrandFont.number(17, weight: .semibold)).monospacedDigit()
-                    .foregroundStyle(valueInk)
-                    .lineLimit(1).minimumScaleFactor(0.65)
-                if let unit = model.unit, model.value != WidgetMetrics.missingValue {
-                    let unitText = Text(verbatim: unit).font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
-                    if typeSize.isAccessibilitySize {
-                        // A unit is one word: at an accessibility size it keeps its line and scales down before it breaks
-                        // ("rp / m"), and the number beside it gives way first.
-                        unitText.lineLimit(1).minimumScaleFactor(0.5).layoutPriority(1)
-                    } else {
-                        unitText
-                    }
-                }
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .firstTextBaseline, spacing: 3) { valueText; unitText }
+                VStack(alignment: .leading, spacing: 2) { valueText; unitText }
             }
+            if let detail = model.detail {
+                Text(verbatim: detail).font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            // Only real history is drawn. Metrics without a series keep the same quiet cell geometry.
             if model.spark.count > 1 {
-                Sparkline(values: model.spark, gradient: Gradient(colors: [model.accent.opacity(0.4), model.accent]),
-                          lineWidth: 1.3, showsArea: true, showsHead: false, showsHover: false)
-                    .frame(height: 12).accessibilityHidden(true)
-            } else {
-                Color.clear.frame(height: 12)
+                Sparkline(values: model.spark, gradient: Gradient(colors: [model.accent.opacity(0.7), model.accent]),
+                          lineWidth: 1.5, showsArea: false, showsHead: false, showsHover: false)
+                    .frame(height: 18).accessibilityHidden(true)
             }
-            HealthTileRailView(rail: model.rail, accent: model.accent)
+            Spacer(minLength: 0)
         }
         .padding(.horizontal, 8)
-        .padding(.vertical, 10)
-        .frame(maxWidth: .infinity, minHeight: 78, alignment: .leading)
+        .padding(.vertical, 14)
+        .frame(maxWidth: .infinity, minHeight: 110, alignment: .topLeading)
         .contentShape(Rectangle())
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(
@@ -669,30 +637,20 @@ public struct HealthDashboardTile: View {
         )
         .accessibilityHint("Opens details")
     }
-}
 
-private struct HealthTileRailView: View {
-    let rail: HealthTileRail
-    let accent: Color
-    var body: some View {
-        GeometryReader { proxy in
-            let width = proxy.size.width
-            ZStack(alignment: .leading) {
-                Capsule().fill(StrandPalette.hairline)
-                switch rail {
-                case .none: EmptyView()
-                case .progress(let progress):
-                    Capsule().fill(accent).frame(width: max(3, width * min(max(progress, 0), 1)))
-                case .typical(let position, let range, let inRange):
-                    Capsule().fill((inRange ? accent : StrandPalette.statusWarning).opacity(0.35))
-                        .frame(width: width * max(0, min(range.upperBound, 1) - max(range.lowerBound, 0)))
-                        .offset(x: width * min(max(range.lowerBound, 0), 1))
-                    Circle().fill(inRange ? accent : StrandPalette.statusWarning).frame(width: 5, height: 5)
-                        .position(x: width * min(max(position, 0), 1), y: 1.5)
-                }
-            }
+    private var valueText: some View {
+        Text(verbatim: model.value).font(StrandFont.number(valueSize, weight: .semibold)).monospacedDigit()
+            .foregroundStyle(valueInk)
+            .lineLimit(typeSize.isAccessibilitySize ? nil : 1)
+            .minimumScaleFactor(typeSize.isAccessibilitySize ? 1 : 0.85)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    @ViewBuilder private var unitText: some View {
+        if let unit = model.unit, model.value != WidgetMetrics.missingValue {
+            Text(verbatim: unit).font(.system(size: labelSize))
+                .foregroundStyle(StrandPalette.textTertiary).fixedSize()
         }
-        .frame(height: 3)
     }
 }
 
@@ -751,7 +709,9 @@ public struct MetricCatalogRow: View {
 public enum AppStrapState: Equatable { case live, syncing, offline }
 public enum AppSyncState: Equatable { case idle, syncing, done, error }
 
+/// H2: the current page leads; the strap subtitle opens its device Settings.
 public struct HeaderChromeRow: View {
+    public let title: LocalizedStringKey
     public let strapState: AppStrapState
     public let battery: Int?
     public let syncState: AppSyncState
@@ -765,25 +725,15 @@ public struct HeaderChromeRow: View {
     public let onUpdates: () -> Void
     public let onProfile: () -> Void
     @Environment(\.dynamicTypeSize) private var typeSize
-    /// The wordmark's size at an accessibility size: `.caption2` bold, scaled like `.caption2` but never past
-    /// `wordmarkCeiling`, so it stays one line. Every smaller size keeps `StrandFont.overline`.
-    @ScaledMetric(relativeTo: .caption2) private var wordmarkSize: CGFloat = 11
+    @ScaledMetric(relativeTo: .title) private var titleSize: CGFloat = 26
+    @ScaledMetric(relativeTo: .body) private var chromeGlyph: CGFloat = 21
 
-    private static let wordmarkCeiling: CGFloat = 17
-    /// The sync, bell and profile glyphs at an accessibility size scale with the type, up to a ceiling the row can carry
-    /// beside the wordmark and the two condensed symbols on the narrowest phone. Their tap targets grow from 30 pt to the
-    /// 44 pt minimum. Below an accessibility size they are the fixed 30 pt and 13 pt they always were, so no smaller size
-    /// moves.
-    @ScaledMetric(relativeTo: .caption2) private var chromeGlyph: CGFloat = 13
-    private static let chromeGlyphCeiling: CGFloat = 24
-    /// The tap target of the condensed strap and battery symbols (the minimum touch target).
-    private static let condensedTarget: CGFloat = 44
-
-    public init(strapState: AppStrapState, battery: Int?, syncState: AppSyncState,
+    public init(title: LocalizedStringKey = "Today", strapState: AppStrapState, battery: Int?, syncState: AppSyncState,
                 syncCompletedUnits: Int? = nil,
                 unreadCount: Int, initials: String, profileImage: Image? = nil, recovery: Double?,
                 onStrap: @escaping () -> Void, onSync: @escaping () -> Void,
                 onUpdates: @escaping () -> Void, onProfile: @escaping () -> Void) {
+        self.title = title
         self.strapState = strapState; self.battery = battery; self.syncState = syncState
         self.syncCompletedUnits = syncCompletedUnits
         self.unreadCount = unreadCount; self.initials = initials; self.profileImage = profileImage
@@ -792,131 +742,145 @@ public struct HeaderChromeRow: View {
     }
 
     public var body: some View {
-        // At the accessibility sizes the status would not fit beside the wordmark ("Offline" and "68%" broke letter by
-        // letter), so it shrinks to its two symbols (the strap's dot, the battery glyph). The words and the number are
-        // what VoiceOver says and what the large content viewer shows on a press and hold; that viewer exists only at
-        // these sizes, so every smaller size keeps the words on screen. The strap's state also shows in the dot's shape
-        // (filled, ringed, hollow), not by colour alone.
-        let condensed = typeSize.isAccessibilitySize
-        let target: CGFloat = condensed ? Self.condensedTarget : 30
-        let glyph: CGFloat = condensed ? min(chromeGlyph, Self.chromeGlyphCeiling) : 13
-        HStack(spacing: 9) {
-            Text("NOOP", bundle: .module)
-                .font(condensed ? .system(size: min(wordmarkSize, Self.wordmarkCeiling), weight: .bold) : StrandFont.overline)
-                .tracking(4).foregroundStyle(StrandPalette.textPrimary)
-                .lineLimit(1).fixedSize(horizontal: true, vertical: false)
-            Spacer(minLength: 4)
-            Button(action: onStrap) {
-                HStack(spacing: 5) {
-                    if condensed {
-                        strapDot
-                    } else {
-                        Circle().fill(strapColor).frame(width: 6, height: 6)
-                        Text(strapLabel).font(StrandFont.micro.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.6)
+        Group {
+            if typeSize.isAccessibilitySize {
+                // Let the page and full status grow vertically; no condensed symbols or clipped words.
+                VStack(alignment: .leading, spacing: 8) {
+                    deviceTitle
+                    HStack {
+                        Spacer(minLength: 0)
+                        accountActions
                     }
                 }
-                .padding(.horizontal, condensed ? 6 : 8).padding(.vertical, 6)
-                .frame(minWidth: condensed ? Self.condensedTarget : 0, minHeight: condensed ? Self.condensedTarget : 0)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain).accessibilityLabel("Strap \(strapLabel)")
-            .accessibilityShowsLargeContentViewer { Text("Strap \(strapLabel)") }
-            if let battery {
-                Button(action: onStrap) {
-                    HStack(spacing: 4) {
-                        Image(systemName: batterySymbol(for: battery))
-                            .font(.system(size: condensed ? 15 : 12, weight: .semibold))
-                        if !condensed {
-                            Text("\(battery)%").font(StrandFont.micro).monospacedDigit().lineLimit(1).minimumScaleFactor(0.6)
-                        }
-                    }
-                    .foregroundStyle(batteryColor(for: battery))
-                    .padding(.horizontal, condensed ? 4 : 7).padding(.vertical, 6)
-                    .frame(minWidth: condensed ? Self.condensedTarget : 0, minHeight: condensed ? Self.condensedTarget : 0)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain).accessibilityLabel("Strap battery, \(battery) percent")
-                .accessibilityShowsLargeContentViewer {
-                    Label("\(battery)%", systemImage: batterySymbol(for: battery))
+            } else {
+                HStack(alignment: .center, spacing: 12) {
+                    deviceTitle
+                    Spacer(minLength: 0)
+                    accountActions
                 }
             }
-            Button(action: onSync) {
-                HStack(spacing: 4) {
-                    Image(systemName: syncSymbol).font(.system(size: glyph, weight: .semibold))
-                    if syncState == .syncing, let units = syncCompletedUnits, units > 0 {
-                        Text("\(units)").font(StrandFont.micro).monospacedDigit()
-                    }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .contain)
+    }
+
+    private var deviceTitle: some View {
+        Button(action: onStrap) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(StrandFont.sized(titleSize, weight: .semibold))
+                    .foregroundStyle(StrandPalette.textPrimary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityAddTraits(.isHeader)
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    strapDot
+                        .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] }
+                    Text(statusLabel)
+                        .font(StrandFont.caption)
+                        .foregroundStyle(syncState == .error ? StrandPalette.statusWarning : StrandPalette.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Image(systemName: "chevron.down")
+                        .font(StrandFont.micro.weight(.semibold))
+                        .foregroundStyle(StrandPalette.textTertiary)
+                        .accessibilityHidden(true)
                 }
-                .foregroundStyle(syncState == .error ? StrandPalette.statusWarning : StrandPalette.textSecondary)
-                .frame(minWidth: target, minHeight: target)
-                .padding(.horizontal, syncState == .syncing && (syncCompletedUnits ?? 0) > 0 ? 5 : 0)
             }
-            .buttonStyle(.plain).accessibilityLabel(syncAccessibility)
+            .frame(minWidth: 44, minHeight: 44, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityValue(deviceAccessibilityValue)
+        .accessibilityHint("Opens device Settings, battery and sync controls")
+        .accessibilityIdentifier("app.deviceStatus")
+    }
+
+    private var accountActions: some View {
+        HStack(spacing: 8) {
             Button(action: onUpdates) {
-                Image(systemName: "bell").font(.system(size: glyph, weight: .semibold)).frame(width: target, height: target)
+                Image(systemName: "bell")
+                    .font(StrandFont.sized(min(chromeGlyph, 28), weight: .regular))
+                    .foregroundStyle(StrandPalette.textSecondary)
+                    .frame(width: 44, height: 44)
                     .overlay(alignment: .topTrailing) {
                         if unreadCount > 0 {
-                            Text("\(min(unreadCount, 9))").font(.system(size: condensed ? 12 : 8, weight: .bold)).foregroundStyle(.white)
-                                .frame(width: condensed ? 20 : 14, height: condensed ? 20 : 14)
-                                .background(StrandPalette.liveRed, in: Circle())
+                            Circle().fill(StrandPalette.liveRed)
+                                .frame(width: 6, height: 6)
+                                .offset(x: -5, y: 5)
+                                .accessibilityHidden(true)
                         }
                     }
+                    .contentShape(Rectangle())
             }
-            .buttonStyle(.plain).accessibilityLabel(unreadCount > 0 ? "Updates, \(unreadCount) unread" : "Updates")
+            .buttonStyle(.plain)
+            .accessibilityLabel(unreadCount > 0 ? "Notifications, \(unreadCount) unread" : "Notifications")
+            .accessibilityIdentifier("app.notifications")
             Button(action: onProfile) {
                 ZStack {
                     Circle().stroke(recovery.map { RecoveryBands.color(for: $0) } ?? StrandPalette.hairlineStrong, lineWidth: 2)
                     if let profileImage {
-                        profileImage.resizable().scaledToFill().clipShape(Circle()).padding(3)
+                        profileImage.resizable().scaledToFill()
+                            .frame(width: 30, height: 30).clipShape(Circle())
                     } else if initials.isEmpty {
-                        Image(systemName: "person.fill").font(.system(size: condensed ? glyph : 12, weight: .semibold))
+                        Image(systemName: "person.fill")
+                            .font(StrandFont.sized(min(chromeGlyph, 24), weight: .semibold))
                             .foregroundStyle(StrandPalette.textSecondary)
                     } else {
-                        Text(verbatim: initials).font(StrandFont.micro.weight(.bold)).foregroundStyle(StrandPalette.textPrimary)
+                        Text(verbatim: initials).font(StrandFont.micro.weight(.bold))
+                            .foregroundStyle(StrandPalette.textPrimary)
                     }
-                }.frame(width: condensed ? target : 31, height: condensed ? target : 31)
+                }
+                .frame(width: 36, height: 36)
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
             }
-            .buttonStyle(.plain).accessibilityLabel("Profile and settings")
+            .buttonStyle(.plain)
+            .accessibilityLabel("Profile and settings")
+            .accessibilityIdentifier("app.settings")
         }
-        .frame(minHeight: condensed ? max(38, target) : 38)
     }
 
     private var strapColor: Color {
         switch strapState { case .live: StrandPalette.statusPositive; case .syncing: StrandPalette.accent; case .offline: StrandPalette.textTertiary }
     }
     private var strapLabel: String {
-        switch strapState { case .live: String(localized: "Live", bundle: .module); case .syncing: String(localized: "Syncing", bundle: .module); case .offline: String(localized: "Offline", bundle: .module) }
+        switch strapState {
+        case .live: String(localized: "Strap connected", bundle: .module)
+        case .syncing: String(localized: "Strap syncing", bundle: .module)
+        case .offline: String(localized: "Strap offline", bundle: .module)
+        }
     }
-    /// The strap's state as a shape as well as a colour: filled while live, ringed while syncing, hollow when offline.
+    private var statusLabel: String {
+        switch syncState {
+        case .error: "\(strapLabel) · \(String(localized: "Sync failed", bundle: .module))"
+        case .syncing: "\(strapLabel) · \(String(localized: "Syncing", bundle: .module))"
+        case .idle, .done: strapLabel
+        }
+    }
+    /// State is encoded by shape as well as colour.
     @ViewBuilder private var strapDot: some View {
         switch strapState {
         case .live:
-            Circle().fill(strapColor).frame(width: 10, height: 10)
+            Circle().fill(strapColor).frame(width: 5, height: 5)
         case .syncing:
-            Circle().fill(strapColor).frame(width: 6, height: 6)
-                .overlay(Circle().strokeBorder(strapColor, lineWidth: 1.5).frame(width: 12, height: 12))
-                .frame(width: 12, height: 12)
+            Circle().fill(strapColor).frame(width: 4, height: 4)
+                .overlay(Circle().strokeBorder(strapColor, lineWidth: 1).frame(width: 8, height: 8))
+                .frame(width: 8, height: 8)
         case .offline:
-            Circle().strokeBorder(strapColor, lineWidth: 2).frame(width: 10, height: 10)
+            Circle().strokeBorder(strapColor, lineWidth: 1.5).frame(width: 6, height: 6)
         }
     }
-    private func batterySymbol(for percentage: Int) -> String {
-        switch percentage { case ..<13: "battery.0"; case ..<38: "battery.25"; case ..<63: "battery.50"; case ..<88: "battery.75"; default: "battery.100" }
-    }
-    private func batteryColor(for percentage: Int) -> Color {
-        percentage < 15 ? StrandPalette.statusCritical : (percentage < 30 ? StrandPalette.statusWarning : StrandPalette.textSecondary)
-    }
-    private var syncSymbol: String {
-        switch syncState { case .idle: "arrow.triangle.2.circlepath"; case .syncing: "arrow.triangle.2.circlepath"; case .done: "checkmark"; case .error: "exclamationmark" }
-    }
-    private var syncAccessibility: String {
+    private var deviceAccessibilityValue: String {
+        var details: [String] = []
+        if let battery { details.append(String(localized: "Battery, \(battery) percent", bundle: .module)) }
         switch syncState {
-        case .idle: "Sync now"
+        case .idle: break
         case .syncing:
-            if let units = syncCompletedUnits, units > 0 { "Syncing, \(units) history chunks transferred" }
-            else { "Syncing" }
-        case .done: "Sync complete"
-        case .error: "Sync failed, retry"
+            if let units = syncCompletedUnits, units > 0 {
+                details.append(String(localized: "\(units) history chunks transferred", bundle: .module))
+            }
+        case .done: details.append(String(localized: "Sync complete", bundle: .module))
+        case .error: details.append(String(localized: "Open device Settings to retry sync", bundle: .module))
         }
+        return details.joined(separator: ". ")
     }
 }

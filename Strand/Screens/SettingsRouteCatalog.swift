@@ -12,6 +12,7 @@ enum SettingsRouteID: String, CaseIterable, Hashable, Identifiable, Sendable {
     case backupExport
     case notificationsAlerts
     case appearanceUnits
+    case todayDashboard
     case quickActions
     /// Workout detection, hydration, keep-screen-on and the Live Activity.
     case workouts
@@ -114,6 +115,7 @@ enum SettingsRouteCatalog {
             routes: [
                 .init(id: .notificationsAlerts, title: "Notifications & alerts"),
                 .init(id: .appearanceUnits, title: "Appearance & units"),
+                .init(id: .todayDashboard, title: "Today dashboard"),
                 .init(id: .workouts, title: "Workouts"),
                 .init(id: .quickActions, title: "Quick Actions"),
             ]
@@ -241,6 +243,13 @@ enum SettingsRouteCatalog {
             breadcrumb: "App Preferences › Appearance & units",
             route: .appearanceUnits,
             keywords: ["US", "metric", "imperial", "temperature", "Celsius", "Fahrenheit", "°C", "°F", "Strain scale", "Strain"]
+        ),
+        .init(
+            id: "today-dashboard",
+            title: "Today dashboard",
+            breadcrumb: "App Preferences",
+            route: .todayDashboard,
+            keywords: ["summary", "metrics", "health monitor", "customization", "cards", "visibility"]
         ),
         .init(
             id: "quick-actions",

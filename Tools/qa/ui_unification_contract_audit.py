@@ -232,11 +232,53 @@ try:
         "settingsDestination(",
         "profileSettingsDetail",
         "displaySettingsDetail",
-        "strapSettingsDetail",
+        "case .whoop:\n            WhoopDeviceSettingsView()",
         "syncBatterySettingsDetail",
         "backupExportSettingsDetail",
         "diagnosticsExperimentalSettingsDetail",
         "aboutSettingsDetail",
+    )
+    # WHOOP status and commands live in the native Settings destination. Devices retains pairing/registry work.
+    require(
+        "Strand/Screens/WhoopDeviceSettingsView.swift",
+        "NativeSettingsList",
+        '.navigationTitle("WHOOP")',
+        "connectionSection(value, resolved: resolved, now: now)",
+        "historySection(value, now: now)",
+        "controlsSection(value, resolved: resolved)",
+        "diagnosticsSection(value, resolved: resolved)",
+        'row("Last completed sync", isWhoop ? timestamp(value.lastSyncedAt)',
+        'row("Saved through", isWhoop ? timestamp(value.historicalDataFrontierAt)',
+        'row("Chunks this session", isWhoop ?',
+        "value.historicalSyncPassProgress",
+        "progress.rowsPersisted",
+        "sessionState: isWhoop ? value.historicalSyncSessionState : .disconnected",
+        "lastSuccessfulBackfillAt: isWhoop ? value.lastSyncedAt : nil",
+        "historicalDataFrontierAt: isWhoop ? value.historicalDataFrontierAt : nil",
+        'command("Sync Now", enabled: isWhoop && resolved.commands.syncEnabled',
+        "model.syncActiveDevice()",
+        'command("Test Vibration", enabled: isWhoop && resolved.commands.vibrationEnabled',
+        "model.testDeviceVibration()",
+        'command("Refresh Battery", enabled: isWhoop && resolved.commands.batteryEnabled',
+        "model.refreshDeviceBattery()",
+        'command("Re-scan", enabled: canScanWhoop && resolved.commands.linkEnabled',
+        "model.refreshDeviceLink()",
+        'command("Disconnect", enabled: isWhoop && (value.connected || value.bonded)',
+        "model.disconnect()",
+        'Button(LocalizedStringKey(title)) { guard enabled else { return }; action() }',
+        ".disabled(!enabled)",
+        'NavigationLink("Manage Devices")',
+        "DevicesView().environment(\\.screenScaffoldNavigationRole, .detail)",
+        "isConfirmedWhoop4 && value.connected && selectedWhoopModelRaw == WhoopModel.whoop4.rawValue",
+    )
+    forbid(
+        "Strand/Screens/WhoopDeviceSettingsView.swift",
+        "ScreenScaffold(",
+        "DeviceCommandCenterHero(",
+        "DeviceCommandCenterModule(",
+        "FlatSection(",
+        "NoopButton(",
+        "StatePill(",
     )
     # Settings is the iOS Settings idiom: native lists, native navigation titles, `.searchable`, and a root of
     # coloured icon tiles behind an Apple-ID-style profile row. None of the widget-language kit lives here.
@@ -343,9 +385,9 @@ try:
         "SupportView()",
     )
     require(
-        "Strand/Screens/DevicesView.swift",
-        'title: "Test Centre"',
-        "TestCentreView()",
+        "Strand/Screens/WhoopDeviceSettingsView.swift",
+        'NavigationLink(value: SettingsRouteID.testCentre) { Text("Test Centre") }',
+        '.accessibilityIdentifier("settings.whoop.testCentre")',
     )
     forbid(
         "StrandiOS/App/RootTabView.swift",

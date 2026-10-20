@@ -223,7 +223,7 @@ struct SettingsDetailHost: View {
         case .personalProfile:
             profileSettingsDetail
         case .whoop:
-            strapSettingsDetail
+            WhoopDeviceSettingsView()
         case .syncBattery:
             syncBatterySettingsDetail
         case .appleHealth:
@@ -236,6 +236,8 @@ struct SettingsDetailHost: View {
             AutomationsView()
         case .appearanceUnits:
             displaySettingsDetail
+        case .todayDashboard:
+            TodayDashboardSettingsView()
         case .quickActions:
             QuickActionsSettingsView()
         case .workouts:
@@ -474,72 +476,6 @@ struct SettingsDetailHost: View {
             }
         }
         .navigationTitle("Appearance & units")
-        #if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
-        #endif
-    }
-
-    private var strapSettingsDetail: some View {
-        NativeSettingsList {
-            Section {
-                LabeledContent("Status", value: strapStatusTitle)
-                if let pct = live.batteryPct {
-                    LabeledContent(
-                        "Battery",
-                        value: live.charging == true
-                            ? "\(Int(pct.rounded()))% · Charging"
-                            : "\(Int(pct.rounded()))%"
-                    )
-                }
-                Text(strapStatusDetail)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                Button("Re-scan") { model.scan() }
-                Button("Disconnect") { model.disconnect() }
-                    .disabled(!live.connected && !live.bonded)
-            } header: {
-                Text("Connection")
-            } footer: {
-                Text("NOOP pairs directly with your WHOOP over Bluetooth. It does not require the WHOOP app or cloud.")
-            }
-
-            Section {
-                Button("Copy Strap Log") {
-                    PlatformPasteboard.copy(live.exportableLogText())
-                }
-                Button("Save Strap Log…") {
-                    FileExport.exportText(
-                        live.exportableLogText(),
-                        suggestedName: FileExport.timestampedName("noop-strap-log", ext: "txt")
-                    )
-                }
-            } header: {
-                Text("Diagnostics")
-            } footer: {
-                Text("The strap log records what NOOP saw and is useful when reporting a connection problem.")
-            }
-
-            if live.connected && selectedWhoopModelRaw == WhoopModel.whoop4.rawValue {
-                Section {
-                    LabeledContent("Current name", value: live.advertisingName ?? "—")
-                    TextField("New strap name", text: $strapNameDraft)
-                        .textInputAutocapitalization(.words)
-                        .autocorrectionDisabled()
-                    Button("Rename Strap") {
-                        model.ble.renameStrap(strapNameDraft)
-                    }
-                    .disabled(strapNameDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    if let status = live.renameStatus {
-                        Text(status).font(.subheadline).foregroundStyle(.secondary)
-                    }
-                } header: {
-                    Text("Name")
-                } footer: {
-                    Text("WHOOP 4.0 restarts after a rename. The new Bluetooth name appears on the next connection.")
-                }
-            }
-        }
-        .navigationTitle("WHOOP")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif

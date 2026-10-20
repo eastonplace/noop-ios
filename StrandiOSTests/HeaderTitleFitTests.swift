@@ -77,14 +77,21 @@ final class HeaderTitleFitTests: XCTestCase {
         XCTAssertLessThan(captionNarrow, caption * 1.4)
     }
 
-    func testTheHeaderChromeKeepsItsWordmarkOnOneLineAtTheLargestTextSize() {
-        func chrome() -> HeaderChromeRow {
-            HeaderChromeRow(strapState: .offline, battery: 68, syncState: .idle, unreadCount: 2, initials: "",
-                            recovery: 72, onStrap: {}, onSync: {}, onUpdates: {}, onProfile: {})
+    func testTheH2HeaderKeepsEveryPageTitleAndStatusWithinANarrowPhone() {
+        let titles: [LocalizedStringKey] = ["Today", "Trends", "Coach", "Sleep"]
+        for title in titles {
+            func chrome() -> HeaderChromeRow {
+                HeaderChromeRow(title: title, strapState: .offline, battery: 68, syncState: .idle,
+                                unreadCount: 9, initials: "", recovery: 72,
+                                onStrap: {}, onSync: {}, onUpdates: {}, onProfile: {})
+            }
+            let regular = height(width: 288, size: .large) { chrome() }
+            let accessible = height(width: 288) { chrome() }
+            XCTAssertGreaterThanOrEqual(regular, 44, "the action row keeps its minimum touch height")
+            XCTAssertGreaterThan(accessible, regular + 44, "large text moves account actions below the full title and status")
+            let wide = height(width: 3000) { chrome() }
+            XCTAssertLessThan(accessible, wide * 1.8, "a narrow phone may wrap status words, but never stack individual title letters")
         }
-        let wide = height(width: 3000) { chrome() }
-        let phone = height(width: 370) { chrome() }
-        XCTAssertLessThan(phone, wide * 1.4, "letters stacking one per line would make the row several lines tall")
     }
 
     private func pillar(_ id: String, _ label: String, _ state: String) -> TodayPillarModel {
@@ -157,15 +164,16 @@ final class HeaderTitleFitTests: XCTestCase {
         XCTAssertLessThan(labelAX, height(width: 3000) { uncapped() })
     }
 
-    func testTheTopBarKeepsTheStrapWordsUntilAnAccessibilitySize() {
-        func chrome() -> HeaderChromeRow {
-            HeaderChromeRow(strapState: .offline, battery: 68, syncState: .idle, unreadCount: 2, initials: "",
-                            recovery: 72, onStrap: {}, onSync: {}, onUpdates: {}, onProfile: {})
+    func testTheH2HeaderLetsTheActualSyncErrorWrapAtAccessibilitySizes() {
+        func chrome(_ state: AppSyncState) -> HeaderChromeRow {
+            HeaderChromeRow(title: "Today", strapState: .offline, battery: 68, syncState: state,
+                            unreadCount: 9, initials: "", recovery: 72,
+                            onStrap: {}, onSync: {}, onUpdates: {}, onProfile: {})
         }
-        let largest = naturalWidth(size: .xxxLarge) { chrome() }
-        let firstAccessibility = naturalWidth(size: .accessibility1) { chrome() }
-        // The words and the battery number ("Offline", "68%") are on screen at xxxLarge, so the row is wider than the
-        // condensed one at the first accessibility size, whose type is larger.
-        XCTAssertGreaterThan(largest, firstAccessibility)
+        let offline = height(width: 288) { chrome(.idle) }
+        let error = height(width: 288) { chrome(.error) }
+        XCTAssertGreaterThan(error, offline, "the real sync error takes more lines instead of being clipped or condensed away")
+        // Extra state changes the status text, never the stable pair of account action targets.
+        XCTAssertGreaterThanOrEqual(height(width: 288, size: .large) { chrome(.syncing) }, 44)
     }
 }
