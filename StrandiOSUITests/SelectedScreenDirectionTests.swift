@@ -88,8 +88,9 @@ final class SelectedScreenDirectionTests: XCTestCase {
         try reveal(phase, in: app)
         XCTAssertTrue(["Breathe in…", "Breathe out…"].contains(phase.label))
         let initialPhase = phase.label
+        let nextPhase = initialPhase == "Breathe in…" ? "Breathe out…" : "Breathe in…"
         let advances = XCTNSPredicateExpectation(
-            predicate: NSPredicate(format: "label != %@ AND label != %@", initialPhase, "Ready to breathe"),
+            predicate: NSPredicate(format: "exists == true AND label == %@", nextPhase),
             object: phase
         )
         XCTAssertEqual(XCTWaiter.wait(for: [advances], timeout: 14), .completed, "Starting a session advances its inhale/exhale clock")

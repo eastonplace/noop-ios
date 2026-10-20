@@ -54,7 +54,8 @@ struct LiveView: View {
         ScreenScaffold(title: "Live Body Console",
                        subtitle: nil,
                        topBackground: nil,
-                       backAction: scaffoldBackAction) {
+                       backAction: scaffoldBackAction,
+                       usesCompactUtilityHeader: true) {
             VStack(alignment: .leading, spacing: NoopMetrics.sectionGap) {
                 PaperLiveDeviceCard(deviceName: activeDeviceName,
                                     activeConnection: activeConnection)

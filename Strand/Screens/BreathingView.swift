@@ -167,7 +167,8 @@ private struct BreathingContent: View {
                        subtitle: "Haptic-paced breathing · find your pace · calm down",
                        // Liquid finish: the same full-bleed day-of-sky backdrop Today + the other liquid
                        // tabs carry, so Breathe sits in one atmosphere.
-                       topBackground: nil) {
+                       topBackground: nil,
+                       usesCompactUtilityHeader: true) {
 
             modeSwitch
             StressCheckInCard(center: nudgeCenter) { startOneMinuteCue() }
