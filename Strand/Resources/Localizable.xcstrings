@@ -18701,42 +18701,42 @@
         }
       }
     },
-    "A cardiovascular load in the Banister TRIMP family: time spent in each heart-rate zone, weighted so harder zones count for more, summed into one daily figure.": {
+    "Heart-rate load in the Banister TRIMP family (time in each heart-rate zone, harder zones weighted more), plus a muscular load from the working sets you log: reps × weight, how hard each set was and how much muscle the lift uses. Both are added before the 0–21 curve.": {
       "localizations": {
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Eine kardiovaskuläre Last aus der Banister-TRIMP-Familie: Zeit in jeder Herzfrequenzzone, gewichtet, sodass härtere Zonen mehr zählen, aufsummiert zu einer Tageszahl."
+            "value": "Herzfrequenzlast aus der Banister-TRIMP-Familie (Zeit in jeder Herzfrequenzzone, härtere Zonen zählen stärker), plus eine Muskelbelastung aus den Arbeitssätzen, die du protokollierst: Wiederholungen × Gewicht, wie hart jeder Satz war und wie viel Muskulatur die Übung beansprucht. Beide werden vor der 0–21-Kurve addiert."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Una carga cardiovascular de la familia TRIMP de Banister: tiempo en cada zona de frecuencia cardíaca, ponderado para que las zonas más duras cuenten más, sumado en una sola cifra diaria."
+            "value": "Carga de frecuencia cardíaca de la familia TRIMP de Banister (tiempo en cada zona de frecuencia cardíaca, con más peso en las zonas más duras), más una carga muscular de las series de trabajo que registras: repeticiones × peso, lo duro que fue cada serie y cuánto músculo usa el ejercicio. Ambas se suman antes de la curva de 0 a 21."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un carico cardiovascolare della famiglia Banister TRIMP: il tempo trascorso in ciascuna zona di frequenza cardiaca, ponderato in modo che le zone più dure contino di più, sommato in un unico dato giornaliero."
+            "value": "Carico della frequenza cardiaca della famiglia Banister TRIMP (tempo in ogni zona di frequenza cardiaca, con più peso alle zone più dure), più un carico muscolare dalle serie di lavoro che registri: ripetizioni × peso, quanto è stata dura ogni serie e quanto muscolo usa l'esercizio. Entrambi si sommano prima della curva da 0 a 21."
           }
         },
         "pt-PT": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Uma carga cardiovascular da familia TRIMP de Banister: tempo en cada zona de frequência cardíaca, ponderado para que as zonas mais duras cuenten mais, sumado en uma sola cifra diaria."
+            "value": "Carga de frequência cardíaca da família TRIMP de Banister (tempo em cada zona de frequência cardíaca, com mais peso nas zonas mais duras), mais uma carga muscular das séries de trabalho que registas: repetições × peso, quão dura foi cada série e quanto músculo o exercício usa. Ambas somam-se antes da curva de 0 a 21."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "属于 Banister TRIMP 家族的心血管负荷：统计你在各心率区间的时长，区间越高权重越大，汇总为一个每日数字。"
+            "value": "属于 Banister TRIMP 家族的心率负荷（在各心率区间的时间，越高强度的区间权重越大），再加上你所记录正式组的肌肉负荷：次数 × 重量、每组的吃力程度，以及该动作动用的肌肉量。两者在 0–21 曲线之前相加。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "屬於 Banister TRIMP 家族的心血管負荷：在各心率區間停留的時間，較高強度區間權重更大，加總成每日一個數字。"
+            "value": "屬於 Banister TRIMP 家族的心率負荷（在各心率區間的時間，越高強度的區間權重越大），再加上你所記錄正式組的肌肉負荷：次數 × 重量、每組的吃力程度，以及該動作動用的肌肉量。兩者在 0–21 曲線之前相加。"
           }
         }
       }
@@ -31223,42 +31223,42 @@
         }
       }
     },
-    "BANISTER TRIMP / HR ZONES": {
+    "HR ZONES + LOGGED SETS": {
       "localizations": {
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "BANISTER-TRIMP / HF-ZONEN"
+            "value": "HF-ZONEN + PROTOKOLLIERTE SÄTZE"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "TRIMP DE BANISTER / ZONAS DE FC"
+            "value": "ZONAS DE FC + SERIES REGISTRADAS"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "BANISTER TRIMP / ZONE FC"
+            "value": "ZONE FC + SERIE REGISTRATE"
           }
         },
         "pt-PT": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "TRIMP DE BANISTER / zonas DE FC"
+            "value": "ZONAS DE FC + SÉRIES REGISTADAS"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "BANISTER TRIMP / 心率区间"
+            "value": "心率区间 + 已记录组数"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "BANISTER TRIMP / 心率區間"
+            "value": "心率區間 + 已記錄組數"
           }
         }
       }
@@ -77012,42 +77012,42 @@
         }
       }
     },
-    "How to read this: HRV, Resting HR, Sleep duration, Respiratory rate and Skin temperature are measured from the strap (skin temp is shown as the deviation from your own baseline). Workouts is the count of activities you logged or that were detected. Recovery, Strain and Stress are NOOP's own on-device scores, not clinical measures: Recovery is a daily readiness composite (HRV, resting HR, sleep and skin-temp trend), Strain is cardiovascular load derived from heart rate, and Stress is a 0–3 autonomic-load index from resting HR and HRV.": {
+    "How to read this: HRV, Resting HR, Sleep duration, Respiratory rate and Skin temperature are measured from the strap (skin temp is shown as the deviation from your own baseline). Workouts is the count of activities you logged or that were detected. Recovery, Strain and Stress are NOOP's own on-device scores, not clinical measures: Recovery is a daily readiness composite (HRV, resting HR, sleep and skin-temp trend), Strain is a load from heart rate plus the working sets you log, and Stress is a 0-3 autonomic-load index from resting HR and HRV.": {
       "localizations": {
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "So liest du das: HRV, Ruhe-HF, Schlafdauer, Atemfrequenz und Hauttemperatur werden vom Strap gemessen (Hauttemperatur wird als Abweichung von deiner eigenen Basislinie angezeigt). Workouts ist die Zahl der Aktivitäten, die du erfasst hast oder die erkannt wurden. Erholung, Belastung und Stress sind NOOPs eigene Werte auf dem Gerät, keine klinischen Messungen: Erholung ist ein täglicher Bereitschafts-Kompositwert (HRV, Ruhe-HF, Schlaf und Hauttemperatur-Trend), Belastung ist die aus der Herzfrequenz abgeleitete kardiovaskuläre Last, und Stress ist ein 0–3-Index der autonomen Belastung aus Ruhe-HF und HRV."
+            "value": "So liest du das: HRV, Ruhe-HF, Schlafdauer, Atemfrequenz und Hauttemperatur werden vom Strap gemessen (Hauttemperatur wird als Abweichung von deiner eigenen Basislinie angezeigt). Workouts ist die Zahl der Aktivitäten, die du erfasst hast oder die erkannt wurden. Erholung, Belastung und Stress sind NOOPs eigene Werte auf dem Gerät, keine klinischen Messungen: Erholung ist ein täglicher Bereitschafts-Kompositwert (HRV, Ruhe-HF, Schlaf und Hauttemperatur-Trend), Belastung ist eine Last aus Herzfrequenz plus den Arbeitssätzen, die du protokollierst, und Stress ist ein 0–3-Index der autonomen Belastung aus Ruhe-HF und HRV."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cómo leer esto: la VFC, la FC en reposo, la duración del sueño, la frecuencia respiratoria y la temperatura cutánea se miden desde la pulsera (la temp. cutánea se muestra como la desviación respecto a tu propia línea base). Entrenamientos es el número de actividades que registraste o que se detectaron. Recuperación, Esfuerzo y Estrés son puntuaciones propias de NOOP calculadas en el dispositivo, no medidas clínicas: la Recuperación es un compuesto diario de preparación (VFC, FC en reposo, sueño y tendencia de temp. cutánea), el Esfuerzo es la carga cardiovascular derivada de la frecuencia cardíaca, y el Estrés es un índice de carga autonómica de 0–3 a partir de la FC en reposo y la VFC."
+            "value": "Cómo leer esto: la VFC, la FC en reposo, la duración del sueño, la frecuencia respiratoria y la temperatura cutánea se miden desde la pulsera (la temp. cutánea se muestra como la desviación respecto a tu propia línea base). Entrenamientos es el número de actividades que registraste o que se detectaron. Recuperación, Esfuerzo y Estrés son puntuaciones propias de NOOP calculadas en el dispositivo, no medidas clínicas: la Recuperación es un compuesto diario de preparación (VFC, FC en reposo, sueño y tendencia de temp. cutánea), el Esfuerzo es una carga a partir de la frecuencia cardíaca más las series de trabajo que registras, y el Estrés es un índice de carga autonómica de 0–3 a partir de la FC en reposo y la VFC."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Come leggerlo: HRV, FC a riposo, durata del sonno, frequenza respiratoria e temperatura cutanea sono misurate dalla fascia (la temperatura cutanea è mostrata come deviazione rispetto alla tua linea di base). Allenamenti è il conteggio delle attività che hai registrato o che sono state rilevate. Recupero, Carico e Stress sono punteggi calcolati da NOOP sul dispositivo, non misure cliniche: il Recupero è un indice giornaliero di prontezza (HRV, FC a riposo, sonno e andamento della temperatura cutanea), lo Carico è il carico cardiovascolare derivato dalla frequenza cardiaca e lo Stress è un indice di carico autonomico da 0 a 3 basato su FC a riposo e HRV."
+            "value": "Come leggerlo: HRV, FC a riposo, durata del sonno, frequenza respiratoria e temperatura cutanea sono misurate dalla fascia (la temperatura cutanea è mostrata come deviazione rispetto alla tua linea di base). Allenamenti è il conteggio delle attività che hai registrato o che sono state rilevate. Recupero, Carico e Stress sono punteggi calcolati da NOOP sul dispositivo, non misure cliniche: il Recupero è un indice giornaliero di prontezza (HRV, FC a riposo, sonno e andamento della temperatura cutanea), il Carico è un carico dalla frequenza cardiaca più le serie di lavoro che registri e lo Stress è un indice di carico autonomico da 0 a 3 basato su FC a riposo e HRV."
           }
         },
         "pt-PT": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Como leer isto: a VFC, a FC en repouso, a duração do sono, a frequência respiratória e a temperatura cutánea se miden desde a bracelete (a temp. cutánea se muestra como a desviación respecto a o teu própria linha de base). Treinos es el número de atividades que registraste o que se detectaron. recuperação, Esforço e Estrés son puntuaciones próprias de NOOP calculadas no dispositivo, no medidas clínicas: a recuperação es um compuesto diario de preparación (VFC, FC en repouso, sono e tendência de temp. cutánea), el Esforço es a carga cardiovascular derivada da frequência cardíaca, e el Estrés es um índice de carga autonómica de 0–3 a partir da FC en repouso e a VFC."
+            "value": "Como leer isto: a VFC, a FC en repouso, a duração do sono, a frequência respiratória e a temperatura cutánea se miden desde a bracelete (a temp. cutánea se muestra como a desviación respecto a o teu própria linha de base). Treinos es el número de atividades que registraste o que se detectaron. recuperação, Esforço e Estrés son puntuaciones próprias de NOOP calculadas no dispositivo, no medidas clínicas: a recuperação es um compuesto diario de preparación (VFC, FC en repouso, sono e tendência de temp. cutánea), o Esforço é uma carga da frequência cardíaca mais as séries de trabalho que registas, e el Estrés es um índice de carga autonómica de 0–3 a partir da FC en repouso e a VFC."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "如何解读：HRV、静息心率、睡眠时长、呼吸频率和皮肤温度都由手环测量（皮肤温度显示为相对于你自身基线的偏差）。锻炼是你记录或被检测到的活动次数。恢复、强度和压力是 NOOP 自己的设备端分数，不是临床指标：恢复是每日准备度的综合值（HRV、静息心率、睡眠和皮肤温度趋势），强度是由心率推算的心血管负荷，压力是由静息心率和 HRV 得出的 0–3 自主神经负荷指数。"
+            "value": "如何解读：HRV、静息心率、睡眠时长、呼吸频率和皮肤温度都由手环测量（皮肤温度显示为相对于你自身基线的偏差）。锻炼是你记录或被检测到的活动次数。恢复、强度和压力是 NOOP 自己的设备端分数，不是临床指标：恢复是每日准备度的综合值（HRV、静息心率、睡眠和皮肤温度趋势），强度是由心率加上你记录的正式组得出的负荷，压力是由静息心率和 HRV 得出的 0–3 自主神经负荷指数。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "如何解讀：HRV、靜息心率、睡眠時長、呼吸率和皮膚溫度都是從手環測量的（皮膚溫度顯示為相對於你自身基線的偏差）。鍛鍊是你記錄或被偵測到的活動次數。恢復、強度和壓力是 NOOP 自己的裝置端分數，並非臨床測量：恢復是每日準備度綜合值（HRV、靜息心率、睡眠和皮膚溫度趨勢），強度是由心率推導的心血管負荷，壓力則是由靜息心率和 HRV 得出的 0–3 自主神經負荷指數。"
+            "value": "如何解讀：HRV、靜息心率、睡眠時長、呼吸率和皮膚溫度都是從手環測量的（皮膚溫度顯示為相對於你自身基線的偏差）。鍛鍊是你記錄或被偵測到的活動次數。恢復、強度和壓力是 NOOP 自己的裝置端分數，並非臨床測量：恢復是每日準備度綜合值（HRV、靜息心率、睡眠和皮膚溫度趨勢），強度是由心率加上你記錄的正式組得出的負荷，壓力則是由靜息心率和 HRV 得出的 0–3 自主神經負荷指數。"
           }
         }
       }
@@ -130103,42 +130103,42 @@
         }
       }
     },
-    "Recovery weighs your HRV against your personal baseline (~55%%), resting heart rate (~20%%), rest quality (~15%%), respiration (~5%%) and skin-temperature deviation (~5%%). Strain is a 0–%@ cardiovascular load from time in heart-rate zones. Sleep is staged from movement and heart rate. Everything is computed here from the strap's raw data. It works for any day NOOP collected raw streams.": {
+    "Recovery weighs your HRV against your personal baseline (~55%%), resting heart rate (~20%%), rest quality (~15%%), respiration (~5%%) and skin-temperature deviation (~5%%). Strain is a 0-%@ load from time in heart-rate zones, plus the working sets you log on lifting days. Sleep is staged from movement and heart rate. Everything is computed here from the strap's raw data. It works for any day NOOP collected raw streams.": {
       "localizations": {
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Die Erholung gewichtet deine HRV gegenüber deiner persönlichen Basislinie (~55%%), Ruheherzfrequenz (~20%%), Ruhequalität (~15%%), Atmung (~5%%) und Hauttemperatur-Abweichung (~5%%). Anstrengung ist eine kardiovaskuläre Last von 0–%@ aus der Zeit in Herzfrequenzzonen. Ruhe wird aus Bewegung und Herzfrequenz in Phasen eingeteilt. Alles wird hier aus den Rohdaten des Straps berechnet. Es funktioniert für jeden Tag, an dem NOOP Roh-Streams gesammelt hat."
+            "value": "Die Erholung gewichtet deine HRV gegenüber deiner persönlichen Basislinie (~55%%), Ruheherzfrequenz (~20%%), Ruhequalität (~15%%), Atmung (~5%%) und Hauttemperatur-Abweichung (~5%%). Anstrengung ist eine Last von 0–%@ aus der Zeit in Herzfrequenzzonen, plus die Arbeitssätze, die du an Krafttrainingstagen protokollierst. Ruhe wird aus Bewegung und Herzfrequenz in Phasen eingeteilt. Alles wird hier aus den Rohdaten des Straps berechnet. Es funktioniert für jeden Tag, an dem NOOP Roh-Streams gesammelt hat."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Recuperación compara tu VFC con tu línea base personal (~55%%), la frecuencia cardíaca en reposo (~20%%), la calidad del descanso (~15%%), la respiración (~5%%) y la desviación de la temperatura de la piel (~5%%). Esfuerzo es una recuperación cardiovascular de 0 a %@ según el tiempo en zonas de frecuencia cardíaca. Descanso se clasifica por fases a partir del movimiento y la frecuencia cardíaca. Todo se calcula aquí con los datos crudos de la pulsera. Funciona para cualquier día en que NOOP recopiló datos crudos."
+            "value": "Recuperación compara tu VFC con tu línea base personal (~55%%), la frecuencia cardíaca en reposo (~20%%), la calidad del descanso (~15%%), la respiración (~5%%) y la desviación de la temperatura de la piel (~5%%). Esfuerzo es una carga de 0 a %@ según el tiempo en zonas de frecuencia cardíaca, más las series de trabajo que registras en los días de pesas. Descanso se clasifica por fases a partir del movimiento y la frecuencia cardíaca. Todo se calcula aquí con los datos crudos de la pulsera. Funciona para cualquier día en que NOOP recopiló datos crudos."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "La recupero pondera la tua HRV rispetto alla tua linea di base personale (~55%%), la frequenza cardiaca a riposo (~20%%), la qualità del riposo (~15%%), la respirazione (~5%%) e la deviazione della temperatura cutanea (~5%%). Lo sforzo è un carico cardiovascolare da 0 a %@ basato sul tempo nelle zone di frequenza cardiaca. Il riposo è suddiviso in fasi a partire dal movimento e dalla frequenza cardiaca. Tutto viene calcolato qui dai dati grezzi della fascia, funziona per qualsiasi giorno in cui NOOP ha raccolto i flussi grezzi."
+            "value": "La recupero pondera la tua HRV rispetto alla tua linea di base personale (~55%%), la frequenza cardiaca a riposo (~20%%), la qualità del riposo (~15%%), la respirazione (~5%%) e la deviazione della temperatura cutanea (~5%%). Lo sforzo è un carico da 0 a %@ basato sul tempo nelle zone di frequenza cardiaca, più le serie di lavoro che registri nei giorni di pesi. Il riposo è suddiviso in fasi a partire dal movimento e dalla frequenza cardiaca. Tutto viene calcolato qui dai dati grezzi della fascia, funziona per qualsiasi giorno in cui NOOP ha raccolto i flussi grezzi."
           }
         },
         "pt-PT": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Recuperação compara o teu VFC com o teu linha de base personal (~55%%), a frequência cardíaca en repouso (~20%%), a calidad do descanso (~15%%), a respiração (~5%%) e a desviación da temperatura da piel (~5%%). Esforço es uma recuperação cardiovascular de 0 a %@ conforme el tempo en zonas de frequência cardíaca. Descanso se clasifica por fases a partir do movimento e a frequência cardíaca. Tudo se calcula aquí com os dados crudos da bracelete. Funciona para qualquer dia en que NOOP recopiló dados crudos."
+            "value": "Recuperação compara o teu VFC com o teu linha de base personal (~55%%), a frequência cardíaca en repouso (~20%%), a calidad do descanso (~15%%), a respiração (~5%%) e a desviación da temperatura da piel (~5%%). O Esforço é uma carga de 0 a %@ segundo o tempo nas zonas de frequência cardíaca, mais as séries de trabalho que registas nos dias de pesas. Descanso se clasifica por fases a partir do movimento e a frequência cardíaca. Tudo se calcula aquí com os dados crudos da bracelete. Funciona para qualquer dia en que NOOP recopiló dados crudos."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "恢复会将你的 HRV 与你的个人基线（约 55%%）、静息心率（约 20%%）、休息质量（约 15%%）、呼吸（约 5%%）和皮肤温度偏差（约 5%%）进行加权。消耗是根据在各心率区间的时间得出的 0–%@ 心血管负荷。休息则根据体动和心率分期。一切都在这里根据手环的原始数据计算，只要 NOOP 采集到原始数据流的任何一天都适用。"
+            "value": "恢复会将你的 HRV 与你的个人基线（约 55%%）、静息心率（约 20%%）、休息质量（约 15%%）、呼吸（约 5%%）和皮肤温度偏差（约 5%%）进行加权。消耗是根据在各心率区间的时间得出的 0–%@ 负荷，再加上你在力量训练日记录的正式组。休息则根据体动和心率分期。一切都在这里根据手环的原始数据计算，只要 NOOP 采集到原始数据流的任何一天都适用。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "恢復會將你的 HRV 與你的個人基線（約 55%%）、靜息心率（約 20%%）、休息品質（約 15%%）、呼吸（約 5%%）和皮膚溫度偏差（約 5%%）進行加權。消耗是根據在各心率區間的時間得出的 0–%@ 心血管負荷。休息則根據體動和心率分期。一切都在這裡根據手環的原始資料計算，只要 NOOP 採集到原始資料流的任何一天都適用。"
+            "value": "恢復會將你的 HRV 與你的個人基線（約 55%%）、靜息心率（約 20%%）、休息品質（約 15%%）、呼吸（約 5%%）和皮膚溫度偏差（約 5%%）進行加權。消耗是根據在各心率區間的時間得出的 0–%@ 負荷，再加上你在力量訓練日記錄的正式組。休息則根據體動和心率分期。一切都在這裡根據手環的原始資料計算，只要 NOOP 採集到原始資料流的任何一天都適用。"
           }
         }
       }
@@ -145094,7 +145094,7 @@
         }
       }
     },
-    "Sets score": {
+    "Decides score": {
       "localizations": {
         "de": {
           "stringUnit": {
@@ -145130,6 +145130,406 @@
           "stringUnit": {
             "state": "translated",
             "value": "決定評分"
+          }
+        }
+      }
+    },
+    "Heart rate only %@ → With your sets %@": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nur Herzfrequenz %@ → Mit deinen Sätzen %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo frecuencia cardíaca %@ → Con tus series %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo frequenza cardiaca %@ → Con le tue serie %@"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Só frequência cardíaca %@ → Com as tuas séries %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仅心率 %@ → 计入你的组数后 %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "僅心率 %@ → 計入你的組數後 %@"
+          }
+        }
+      }
+    },
+    "Includes your logged sets": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enthält deine protokollierten Sätze"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Incluye tus series registradas"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Include le tue serie registrate"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Inclui as tuas séries registadas"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "包含你已记录的组数"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "包含你已記錄的組數"
+          }
+        }
+      }
+    },
+    "Log sets to count lifting": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Protokolliere Sätze, damit Krafttraining zählt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Registra series para que cuenten las pesas"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Registra le serie per contare i pesi"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Regista séries para contar as pesas"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "记录组数后才会计入力量训练"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "記錄組數後才會計入力量訓練"
+          }
+        }
+      }
+    },
+    "Not scored yet · wear your strap during lifts": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Noch nicht bewertet · trage deinen Strap beim Krafttraining"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aún sin puntuar · lleva tu pulsera durante las pesas"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non ancora valutato · indossa la fascia durante i pesi"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ainda sem pontuação · usa a bracelete durante as pesas"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尚未评分 · 力量训练时请佩戴手环"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尚未評分 · 力量訓練時請配戴手環"
+          }
+        }
+      }
+    },
+    "Scoring…": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wird bewertet…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Puntuando…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Valutazione in corso…"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A pontuar…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在评分…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在評分…"
+          }
+        }
+      }
+    },
+    "Imported lifts only have totals, so this is heart rate only.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importierte Krafteinheiten enthalten nur Gesamtwerte, daher zählt hier nur die Herzfrequenz."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las sesiones de pesas importadas solo tienen totales, así que esto es solo frecuencia cardíaca."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gli allenamenti con i pesi importati hanno solo i totali, quindi qui conta solo la frequenza cardiaca."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Os treinos de pesas importados só têm totais, por isso isto é apenas frequência cardíaca."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "导入的力量训练只有总计数据，因此这里仅按心率计算。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "匯入的力量訓練只有總計資料，因此這裡僅依心率計算。"
+          }
+        }
+      }
+    },
+    "Strain %@ of 21. Heart rate only %@. Your sets add %@.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anstrengung %@ von 21. Nur Herzfrequenz %@. Deine Sätze fügen %@ hinzu."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esfuerzo %@ de 21. Solo frecuencia cardíaca %@. Tus series suman %@."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sforzo %@ su 21. Solo frequenza cardiaca %@. Le tue serie aggiungono %@."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esforço %@ de 21. Só frequência cardíaca %@. As tuas séries somam %@."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "消耗 %@，满分 21。仅心率 %@。你的组数增加 %@。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "消耗 %@，滿分 21。僅心率 %@。你的組數增加 %@。"
+          }
+        }
+      }
+    },
+    "Heart rate + lifting so far": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Herzfrequenz + Krafttraining bisher"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Frecuencia cardíaca + pesas hasta ahora"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Frequenza cardiaca + pesi finora"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Frequência cardíaca + pesas até agora"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目前的心率 + 力量训练"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目前的心率 + 力量訓練"
+          }
+        }
+      }
+    },
+    "Heart rate + lifting that day": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Herzfrequenz + Krafttraining an diesem Tag"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Frecuencia cardíaca + pesas ese día"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Frequenza cardiaca + pesi quel giorno"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Frequência cardíaca + pesas nesse dia"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当天的心率 + 力量训练"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "當天的心率 + 力量訓練"
+          }
+        }
+      }
+    },
+    "Heart rate and lifting load through the day, from %@ to %@ by %@.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Belastung aus Herzfrequenz und Krafttraining im Tagesverlauf, von %@ auf %@ bis %@."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Carga de frecuencia cardíaca y pesas a lo largo del día, de %@ a %@ a las %@."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Carico di frequenza cardiaca e pesi nel corso della giornata, da %@ a %@ entro le %@."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Carga de frequência cardíaca e pesas ao longo do dia, de %@ para %@ às %@."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全天心率与力量训练负荷，从 %@ 升至 %@，截至 %@。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全天心率與力量訓練負荷，從 %@ 升至 %@，截至 %@。"
           }
         }
       }
@@ -152986,42 +153386,82 @@
         }
       }
     },
-    "Strain: how hard did your heart work?": {
+    "Strain: how hard did your heart and muscles work?": {
       "localizations": {
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Anstrengung: Wie hart hat dein Herz gearbeitet?"
+            "value": "Anstrengung: Wie hart haben dein Herz und deine Muskeln gearbeitet?"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Esfuerzo: ¿cuánto trabajó tu corazón?"
+            "value": "Esfuerzo: ¿cuánto trabajaron tu corazón y tus músculos?"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sforzo: quanto ha lavorato il tuo cuore?"
+            "value": "Sforzo: quanto hanno lavorato il tuo cuore e i tuoi muscoli?"
           }
         },
         "pt-PT": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Esforço: cuánto trabajó o teu coração?"
+            "value": "Esforço: quanto trabalharam o teu coração e os teus músculos?"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "消耗：你的心脏有多努力？"
+            "value": "消耗：你的心脏和肌肉有多努力？"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "消耗：你的心臟有多努力？"
+            "value": "消耗：你的心臟和肌肉有多努力？"
+          }
+        }
+      }
+    },
+    "Your cardiovascular and movement load across your sleep-to-sleep day. NOOP continuously weights each valid heart-rate interval by heart-rate reserve, credits worn sleep and real movement without double counting, and displays the result on the canonical 0–21 Strain scale. Ordinary days register; sustained maximum effort approaches 21. Logged lifting sets add a muscular load: reps × weight, how hard each set was (your RPE, 8 if you didn't pick one) and how much muscle the lift uses, measured against your body weight. Bodyweight moves count the share of your body you lift. Warm-ups don't count, a lift with no sets stays heart rate only, and imported lifts only have totals, so they stay heart rate only. Fitness Age and VO2max still use heart rate only. This is NOOP's own transparent score, not WHOOP's proprietary formula.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deine kardiovaskuläre Last und Bewegungslast über deinen Tag von Schlaf zu Schlaf. NOOP gewichtet jedes gültige Herzfrequenzintervall fortlaufend nach der Herzfrequenzreserve, rechnet getragenen Schlaf und echte Bewegung ohne Doppelzählung an und zeigt das Ergebnis auf der kanonischen 0–21-Anstrengungsskala. Normale Tage schlagen sich nieder; anhaltende Höchstanstrengung nähert sich 21. Protokollierte Krafttrainingssätze fügen eine Muskelbelastung hinzu: Wiederholungen × Gewicht, wie hart jeder Satz war (dein RPE, 8, wenn du keinen gewählt hast) und wie viel Muskulatur die Übung beansprucht, gemessen an deinem Körpergewicht. Körpergewichtsübungen zählen den Anteil deines Körpers, den du bewegst. Aufwärmsätze zählen nicht, ein Training ohne Sätze bleibt nur Herzfrequenz, und importierte Krafteinheiten haben nur Gesamtwerte, daher bleiben sie nur Herzfrequenz. Fitnessalter und VO2max nutzen weiterhin nur die Herzfrequenz. Das ist NOOPs eigener, transparenter Wert, nicht WHOOPs proprietäre Formel."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tu carga cardiovascular y de movimiento a lo largo de tu día de sueño a sueño. NOOP pondera de forma continua cada intervalo válido de frecuencia cardíaca según la reserva de frecuencia cardíaca, acredita el sueño con la pulsera puesta y el movimiento real sin contarlos dos veces, y muestra el resultado en la escala canónica de Esfuerzo de 0 a 21. Los días normales se registran; el esfuerzo máximo sostenido se acerca a 21. Las series de pesas registradas suman una carga muscular: repeticiones × peso, lo duro que fue cada serie (tu RPE, 8 si no elegiste uno) y cuánto músculo usa el ejercicio, medido respecto a tu peso corporal. Los ejercicios con el peso del cuerpo cuentan la parte de tu cuerpo que levantas. Los calentamientos no cuentan, un entrenamiento sin series sigue siendo solo frecuencia cardíaca, y las sesiones importadas solo tienen totales, así que siguen siendo solo frecuencia cardíaca. La Edad fitness y el VO2max siguen usando solo la frecuencia cardíaca. Esta es la puntuación transparente propia de NOOP, no la fórmula propietaria de WHOOP."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il tuo carico cardiovascolare e di movimento nell'arco della tua giornata da sonno a sonno. NOOP pesa continuamente ogni intervallo valido di frequenza cardiaca in base alla riserva di frequenza cardiaca, riconosce il sonno con la fascia indossata e il movimento reale senza doppi conteggi e mostra il risultato sulla scala canonica di Sforzo da 0 a 21. I giorni normali si registrano; lo sforzo massimo prolungato si avvicina a 21. Le serie con i pesi registrate aggiungono un carico muscolare: ripetizioni × peso, quanto è stata dura ogni serie (il tuo RPE, 8 se non ne hai scelto uno) e quanto muscolo usa l'esercizio, misurato rispetto al tuo peso corporeo. Gli esercizi a corpo libero contano la parte del tuo corpo che sollevi. I riscaldamenti non contano, un allenamento senza serie resta solo frequenza cardiaca, e gli allenamenti importati hanno solo i totali, quindi restano solo frequenza cardiaca. Età fitness e VO2max continuano a usare solo la frequenza cardiaca. Questo è il punteggio trasparente di NOOP, non la formula proprietaria di WHOOP."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A tua carga cardiovascular e de movimento ao longo do teu dia de sono a sono. O NOOP pondera continuamente cada intervalo válido de frequência cardíaca pela reserva de frequência cardíaca, credita o sono com a bracelete posta e o movimento real sem contar duas vezes, e mostra o resultado na escala canónica de Esforço de 0 a 21. Os dias normais registam-se; o esforço máximo sustentado aproxima-se de 21. As séries de pesas registadas somam uma carga muscular: repetições × peso, quão dura foi cada série (o teu RPE, 8 se não escolheste um) e quanto músculo o exercício usa, medido face ao teu peso corporal. Os exercícios com o peso do corpo contam a parte do teu corpo que levantas. Os aquecimentos não contam, um treino sem séries continua a ser só frequência cardíaca, e os treinos importados só têm totais, por isso continuam a ser só frequência cardíaca. A Idade de condição física e o VO2max continuam a usar só a frequência cardíaca. Esta é a pontuação transparente do próprio NOOP, não a fórmula proprietária da WHOOP."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你在两次睡眠之间这一天的心血管与运动负荷。NOOP 会按心率储备持续加权每个有效的心率区间，在不重复计算的前提下计入佩戴时的睡眠和真实运动，并将结果显示在标准的 0–21 消耗刻度上。普通的日子会有读数；持续的最大强度会接近 21。已记录的力量训练组会增加肌肉负荷：次数 × 重量、每组的吃力程度（你的 RPE，未选择时按 8 计）以及该动作动用的肌肉量，并以你的体重为基准衡量。自重动作按你所举起的身体比例计算。热身组不计入，没有记录组的训练仍只按心率计算，导入的训练只有总计数据，因此也只按心率计算。体能年龄和 VO2max 仍只使用心率。这是 NOOP 自己的透明评分，而非 WHOOP 的专有公式。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你在兩次睡眠之間這一天的心血管與運動負荷。NOOP 會依心率儲備持續加權每個有效的心率區間，在不重複計算的前提下計入配戴時的睡眠和真實運動，並將結果顯示在標準的 0–21 消耗刻度上。普通的日子會有讀數；持續的最大強度會接近 21。已記錄的力量訓練組會增加肌肉負荷：次數 × 重量、每組的吃力程度（你的 RPE，未選擇時按 8 計）以及該動作動用的肌肉量，並以你的體重為基準衡量。自重動作按你所舉起的身體比例計算。熱身組不計入，沒有記錄組的訓練仍只依心率計算，匯入的訓練只有總計資料，因此也只依心率計算。體能年齡和 VO2max 仍只使用心率。這是 NOOP 自己的透明評分，而非 WHOOP 的專有公式。"
           }
         }
       }
@@ -199445,54 +199885,54 @@
         }
       }
     },
-    "Cardiovascular load for the day, on a 0-21 scale.": {
+    "Load for the day from heart rate plus the working sets you log, on a 0-21 scale.": {
       "localizations": {
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Herz-Kreislauf-Belastung des Tages auf einer Skala von 0–21."
+            "value": "Belastung des Tages aus Herzfrequenz plus den Arbeitssätzen, die du protokollierst, auf einer Skala von 0–21."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Carga cardiovascular del día, en una escala de 0-21."
+            "value": "Carga del día a partir de la frecuencia cardíaca más las series de trabajo que registras, en una escala de 0-21."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Charge cardiovasculaire de la journée, sur une échelle de 0 à 21."
+            "value": "Charge de la journée à partir de la fréquence cardiaque et des séries de travail que vous enregistrez, sur une échelle de 0 à 21."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Carico cardiovascolare della giornata, su una scala da 0 a 21."
+            "value": "Carico della giornata dalla frequenza cardiaca più le serie di lavoro che registri, su una scala da 0 a 21."
           }
         },
         "pt-PT": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Carga cardiovascular do dia, numa escala de 0 a 21."
+            "state": "needs_review",
+            "value": "Carga do dia a partir da frequência cardíaca mais as séries de trabalho que registas, numa escala de 0 a 21."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Нагрузка на сердечно-сосудистую систему за день по шкале от 0 до 21."
+            "value": "Нагрузка за день по пульсу и рабочим подходам, которые вы записываете, по шкале от 0 до 21."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "当天的心血管负荷，范围 0–21。"
+            "value": "当天由心率及你记录的正式组得出的负荷，范围 0–21。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "當天的心血管負荷，範圍 0–21。"
+            "value": "當天由心率及你記錄的正式組得出的負荷，範圍 0–21。"
           }
         }
       }
@@ -202783,54 +203223,54 @@
         }
       }
     },
-    "Tonight's computed need: baseline, plus yesterday's Strain and sleep-debt repayment, minus nap credit.": {
+    "Tonight's computed need: baseline, plus yesterday's heart-rate Strain and sleep-debt repayment, minus nap credit.": {
       "localizations": {
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Berechneter Bedarf für heute Nacht: Basiswert plus gestrige Anstrengung und Schlafschuld-Ausgleich, minus Nickerchen-Gutschrift."
+            "value": "Berechneter Bedarf für heute Nacht: Basiswert plus gestrige Herzfrequenz-Anstrengung und Schlafschuld-Ausgleich, minus Nickerchen-Gutschrift."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Necesidad calculada para esta noche: línea base, más el Esfuerzo de ayer y la devolución de la deuda de sueño, menos el crédito de siestas."
+            "value": "Necesidad calculada para esta noche: línea base, más el Esfuerzo de ayer según la frecuencia cardíaca y la devolución de la deuda de sueño, menos el crédito de siestas."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Besoin calculé pour cette nuit : référence, plus l'Effort d'hier et le remboursement de la dette de sommeil, moins le crédit de sieste."
+            "value": "Besoin calculé pour cette nuit : référence, plus l'Effort d'hier selon la fréquence cardiaque et le remboursement de la dette de sommeil, moins le crédit de sieste."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fabbisogno calcolato per stanotte: base, più lo Sforzo di ieri e il recupero del debito di sonno, meno il credito dei riposini."
+            "value": "Fabbisogno calcolato per stanotte: base, più lo Sforzo di ieri basato sulla frequenza cardiaca e il recupero del debito di sonno, meno il credito dei riposini."
           }
         },
         "pt-PT": {
           "stringUnit": {
             "state": "translated",
-            "value": "Necessidade calculada para esta noite: referência, mais o Esforço de ontem e a reposição da dívida de sono, menos o crédito de sestas."
+            "value": "Necessidade calculada para esta noite: referência, mais o Esforço de ontem pela frequência cardíaca e a reposição da dívida de sono, menos o crédito de sestas."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Расчётная потребность на эту ночь: базовый уровень плюс вчерашнее Усилие и погашение долга сна, минус зачёт дневного сна."
+            "value": "Расчётная потребность на эту ночь: базовый уровень плюс вчерашнее Усилие по пульсу и погашение долга сна, минус зачёт дневного сна."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "今晚的计算需求：基线，加上昨天的消耗和睡眠债偿还，减去小睡抵扣。"
+            "value": "今晚的计算需求：基线，加上昨天基于心率的消耗和睡眠债偿还，减去小睡抵扣。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "今晚的計算需求：基準值，加上昨天的消耗與睡眠債償還，減去小睡抵扣。"
+            "value": "今晚的計算需求：基準值，加上昨天基於心率的消耗與睡眠債償還，減去小睡抵扣。"
           }
         }
       }

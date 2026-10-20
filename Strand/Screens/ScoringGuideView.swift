@@ -102,8 +102,8 @@ struct ScoringGuideView: View {
                           body: String(localized: "Led by your heart-rate variability (HRV) measured against your own personal baseline, plus resting heart rate, last night's Sleep, breathing rate, and a skin-temperature signal (an early illness or overreach flag). Higher HRV versus your baseline means higher Recovery. NOOP needs a few nights to learn your baseline first. Until then you'll see “Calibrating”."),
                           vsWhoop: String(localized: "Same core idea as WHOOP's Recovery % (HRV-led recovery), but our weighting and baseline maths are our own, and openly documented."))
                 scoreCard(.strain,
-                          headline: String(localized: "Strain: how hard did your heart work?"),
-                          body: String(localized: "Your cardiovascular and movement load across your sleep-to-sleep day. NOOP continuously weights each valid heart-rate interval by heart-rate reserve, credits worn sleep and real movement without double counting, and displays the result on the canonical 0–21 Strain scale. Ordinary days register; sustained maximum effort approaches 21. This is NOOP's transparent score, not WHOOP's proprietary formula, and muscular load is not yet included."),
+                          headline: StrainCopy.scoringGuideStrainHeadline,
+                          body: StrainCopy.scoringGuideStrainBody,
                           vsWhoop: String(localized: "The display uses WHOOP's familiar 0–21 Day Strain scale. NOOP's underlying training-load recipe remains its own and is documented here."))
                 scoreCard(.sleep,
                           headline: String(localized: "Sleep: how restorative was your sleep?"),

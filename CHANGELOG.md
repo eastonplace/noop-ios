@@ -17,6 +17,10 @@ approximate; downloads are on the [Releases](https://github.com/NoopApp/noop/rel
 
 ---
 
+## Unreleased: Strength Strain
+
+- **Strength Strain.** Strain now counts the working sets you log in Strength, on top of heart rate. Past lifts were rescored once when you updated; only Strain changed on lift days (recovery, calories, sleep, heart rate, Fitness Age and VO2max are unchanged). Warm-ups don't count; lifts with no sets and imported lifts stay heart rate only.
+
 ## 7.9.0: Coupled view, a rebuilt workout list, and numbers in your journal (all platforms)
 
 Three sizeable new features, the fix wave that was in flight, and a hardening pass a pre-release

@@ -582,3 +582,54 @@ final class TrendBuildingProgressTests: XCTestCase {
         XCTAssertEqual(progress.recordedDays, 0)
     }
 }
+
+// MARK: - Strength Strain on the Strain detail
+
+/// Once the day has logged lifting (M > 0): the curve is named for heart rate and lifting, "What set the score" gains a
+/// Lifting row that is what the sets add, and the pill on the deciding row is "Decides score".
+final class StrainLiftingDetailTests: XCTestCase {
+    private let origin = Date(timeIntervalSince1970: 1_800_000_000)
+
+    private func components(cardio: Double, steps: Double?) -> StrainScorerV2.DayStrainComponents {
+        .init(cardio: cardio, steps: steps, energy: nil,
+              score: StrainScorerV2.storedValue(fromDisplay: max(cardio, steps ?? 0)), dominant: .cardio)
+    }
+
+    func testALiftingDayAddsALiftingRowThatIsWhatTheSetsAdd() throws {
+        let parts = components(cardio: 10, steps: 4)
+        let hero = StrengthStrain.combinedDisplay(hrDisplay: 10, muscularLoad: 12)
+        let result = try XCTUnwrap(StrainScoreParts.make(parts, hero: hero, liftLoad: 12))
+        XCTAssertEqual(result.rows.map(\.kind), [.cardio, .steps, .lifting])
+        XCTAssertTrue(result.agreesWithHero, "the parts add up to the combined hero")
+        let lifting = try XCTUnwrap(result.rows.last)
+        XCTAssertEqual(try XCTUnwrap(lifting.value), hero - 10, accuracy: 1e-6)
+        XCTAssertFalse(lifting.setsScore, "the Lifting row is a part of the cardio row's score, never the one that decides")
+        XCTAssertTrue(result.rows[0].setsScore, "cardio, which carries the lifts, decides the score")
+        XCTAssertEqual(StrainCopy.liftingRowDetail(add: DrillInFormat.number(try XCTUnwrap(lifting.value), fractionDigits: 1)),
+                       "Logged working sets add \(DrillInFormat.number(hero - 10, fractionDigits: 1))")
+    }
+
+    func testADayWithoutLiftingHasNoLiftingRowAndTheOldBits() throws {
+        let parts = components(cardio: 10, steps: 4)
+        let plain = try XCTUnwrap(StrainScoreParts.make(parts, hero: 10))
+        let zero = try XCTUnwrap(StrainScoreParts.make(parts, hero: 10, liftLoad: 0))
+        XCTAssertEqual(plain, zero)
+        XCTAssertEqual(plain.rows.map(\.kind), [.cardio, .steps])
+    }
+
+    func testTheCurveCaptionsFollowTheDaysLiftLoad() {
+        let curve = (0..<4).map { StrainScorerV2.CumulativeCardioPoint(t: origin.addingTimeInterval(Double($0) * 3_600), value: Double($0)) }
+        let base = StrainDayAnalysis(components: components(cardio: 3, steps: nil), curve: curve, gateOpenedAt: origin)
+        XCTAssertEqual(base.liftMuscularLoad, 0)
+        let end = Int(origin.addingTimeInterval(3_600).timeIntervalSince1970)
+        let lifted = StrainDayLiftTransform.apply(base, loads: [StrainDayLiftLoad(endTs: end, muscularLoad: 12)])
+        XCTAssertGreaterThan(lifted.liftMuscularLoad, 0)
+        for analysis in [base, lifted] {
+            let lifting = analysis.liftMuscularLoad > 0
+            XCTAssertEqual(StrainCopy.curveReadoutCaption(isToday: true, lifting: lifting),
+                           lifting ? "Heart rate + lifting so far" : "Cardio load so far")
+            XCTAssertEqual(StrainCopy.curveReadoutCaption(isToday: false, lifting: lifting),
+                           lifting ? "Heart rate + lifting that day" : "Cardio load that day")
+        }
+    }
+}
