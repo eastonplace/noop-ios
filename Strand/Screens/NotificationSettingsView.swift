@@ -36,7 +36,7 @@ struct NotificationSettingsView: View {
             Section {
                 Button("Preview Essentials") { previewEssentials = true }
             } footer: {
-                Text("Optional: morning and workout summaries, with at most 2 proactive notices per day. Your chosen reminders and device alerts keep their existing settings.")
+                Text("Save morning and workout summary choices. Phone summaries wait for current-data and sleep verification. Workout results are available with In app. Your chosen reminders and device alerts keep their existing settings.")
             }
             Section {
                 modePicker("Morning summary", group: .morningSummary)
@@ -50,7 +50,7 @@ struct NotificationSettingsView: View {
                 }
                 NavigationLink("Wake alarm") { SmartAlarmView().environment(\.screenScaffoldPresentation, .settingsDetail) }
             } header: { Text("Sleep") } footer: {
-                Text("Morning summaries will be available after the recovery update. Your choice is saved. Wind-down reminders use generic copy and your chosen schedule.")
+                Text("Your morning summary choice is saved. Delivery waits for current-data and sleep verification. Wind-down reminders use generic copy and your chosen schedule.")
             }
             Section {
                 modePicker("Scheduled workout", group: .workoutPlan, allowsInApp: false)
@@ -61,7 +61,7 @@ struct NotificationSettingsView: View {
                 modePicker("Workout summary", group: .workoutSummary)
                 modePicker("Daily strain target", group: .strainTarget)
             } header: { Text("Training") } footer: {
-                Text("Daily strain target alerts will be available after the recovery update. Your choice is saved. A reminder opens your plan and never starts a workout.")
+                Text("Summary and strain target choices are saved. Phone summaries wait for sleep verification; strain target alerts also wait for current-data verification. Choose In app for completed-workout results. A scheduled reminder opens your plan and never starts a workout.")
             }
             Section {
                 modePicker("Journal check-in", group: .journalCheckIn, allowsInApp: false)
@@ -76,7 +76,7 @@ struct NotificationSettingsView: View {
                 Toggle("Low and full battery alerts", isOn: $preferences.batteryAlerts)
                 Toggle("Predictive battery reminders", isOn: $preferences.batteryPredictiveAlerts)
             } header: { Text("Device") } footer: {
-                Text("Existing battery choices are preserved. Related low-battery and runtime warnings share one charging episode.")
+                Text("Existing battery choices are preserved. Related low-battery and runtime warnings share one charging episode. A charge warning can be delayed once by 15 minutes while it remains current.")
             }
             Section {
                 modePicker("Weekly review", group: .weeklyReview, allowsInApp: false)
@@ -91,7 +91,7 @@ struct NotificationSettingsView: View {
                 Toggle("Health-pattern alerts", isOn: $preferences.illnessWatch)
                     .onChange(of: preferences.illnessWatch) { _, _ in model.reevaluateIllness() }
             } header: { Text("Recovery") } footer: {
-                Text("Your existing choice is preserved. Health-pattern phone alerts will be available after the recovery update. Patterns are informational, not diagnoses.")
+                Text("Your existing choice is preserved. Health-pattern phone alerts wait for current-data and sleep verification. Patterns are informational, not diagnoses.")
             }
             Section {
                 Toggle("Proactive notifications", isOn: $preferences.proactiveEnabled)
@@ -118,7 +118,7 @@ struct NotificationSettingsView: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Turn on morning and completed-workout summaries. At most 2 proactive notices per day, 10 per rolling week, with 3 hours between them. Morning summaries become available after the recovery update. No new timed reminders are added.")
+            Text("Save Notify for morning and completed-workout summaries. Phone delivery waits for current-data and sleep verification. When available, summaries share a limit of 2 proactive notices per day, 10 per rolling week, with 3 hours between them. You can choose In app for workout results now. No timed reminders are added.")
         }
         .navigationTitle("Notifications")
         #if os(iOS)

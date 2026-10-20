@@ -29,7 +29,8 @@ enum NotificationSchedulePlanner {
         hasExplicitTime && completedSessionID == nil
     }
     static func candidate(group: NotificationGroup, id: String, scheduledAt: Date, source: String,
-                          destination: NotificationDestination, now: Date, revision: Int = 0, recurring: Bool = false) -> NotificationCandidate {
+                          destination: NotificationDestination, now: Date, revision: Int = 0, recurring: Bool = false,
+                          actionAt: Date? = nil) -> NotificationCandidate {
         let timing = recurring ? "recurring" : String(Int(scheduledAt.timeIntervalSince1970))
         let occurrence = "\(group.rawValue):\(source.utf8.count):\(source):\(id):\(timing):r\(revision)"
         let copy: (String, String)
@@ -39,10 +40,18 @@ enum NotificationSchedulePlanner {
         case .journalCheckIn: copy = ("Journal check-in", "Your chosen check-in is due. Open your journal when it suits you.")
         default: copy = ("Your weekly review", "Take a moment to review your week in Noop.")
         }
+        let expiry: Date
+        if recurring { expiry = .distantFuture }
+        else if group == .workoutPlan {
+            // WT021/024/027/030 expire relative to the chosen workout start,
+            // not the earlier reminder time produced by the selected lead.
+            expiry = (actionAt ?? scheduledAt).addingTimeInterval(120 * 60)
+        } else if group == .journalCheckIn { expiry = scheduledAt.addingTimeInterval(120 * 60) }
+        else { expiry = scheduledAt.addingTimeInterval(86400) }
         return .init(ruleID: group.rawValue + ".scheduled", group: group, subjectID: id,
             occurrenceID: occurrence, attentionKey: occurrence, evidenceRevision: occurrence,
             sourceContext: source, logicalDay: NotificationFactBuilder.dayKey(scheduledAt),
-            observedAt: now, generatedAt: now, expiresAt: recurring ? .distantFuture : scheduledAt.addingTimeInterval(86400),
+            observedAt: now, generatedAt: now, expiresAt: expiry,
             lane: .explicitReminder, destination: destination, genericTitle: copy.0,
             genericBody: copy.1, scheduledAt: scheduledAt)
     }

@@ -3,7 +3,8 @@ import StrandAnalytics
 import WhoopStore
 
 /// Notification evidence is read from canonical records, never dashboard display carry.
-/// The recovery repair is absent on this branch. No preference can qualify those inputs.
+/// The recovery repair alone does not qualify notification inputs. The adapter and
+/// its measurement/identity fixtures need a later reviewed change before this gate opens.
 enum NotificationFactBuilder {
     static let recoveryRepairIntegrated = false
     static func dayKey(_ date: Date, calendar: Calendar = .current) -> String {

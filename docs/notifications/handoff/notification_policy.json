@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "status": "proposed_product_policy",
+  "as_of_date": "2026-10-20",
+  "timezone_policy": "Use the device current timezone for delivery and preserve event-local/logical-day identity for source facts.",
+  "default_migration": "Preserve existing settings. All newly introduced push families remain off until selected.",
+  "proactive_budget": {
+    "max_per_local_day": 2,
+    "max_per_rolling_seven_days": 10,
+    "minimum_spacing_minutes": 180,
+    "avoid_explicit_reminder_within_minutes": 30,
+    "quiet_start_local": "21:00",
+    "quiet_end_local": "08:00",
+    "default_sound": false,
+    "default_interruption_level": "active",
+    "allow_time_sensitive": false,
+    "allow_critical_alerts": false
+  },
+  "explicit_reminders": {
+    "authorization": "User selects the category, time, recurrence, and expected count.",
+    "budget": "Keep the chosen schedule. Proactive budget does not cancel explicit reminders.",
+    "quiet_exception": "Applies only to the selected reminder at its selected time.",
+    "same_action_coalescing": true,
+    "requires_current_schedule_revision": true
+  },
+  "alarm_lane": {
+    "preserve_existing_contract": true,
+    "separate_from_proactive_budget": true,
+    "do_not_claim_guaranteed_os_delivery": true
+  },
+  "freshness_defaults": {
+    "intraday_strain_max_observation_age_minutes": 30,
+    "live_battery_max_observation_age_minutes": 30,
+    "workout_summary_max_event_age_minutes": 60,
+    "morning_window_end_local": "12:00",
+    "weekly_review_max_delay_hours": 24,
+    "overnight_requires_current_wake_day": true,
+    "live_detection_uses_existing_engine_freshness": true
+  },
+  "state": {
+    "routine_pending_request_soft_cap": 24,
+    "pending_overflow_policy": "Preserve accepted selected schedules; prefer generic recurring requests, bound one-shot horizon, and surface any actual scheduling failure.",
+    "decision_metadata_retention_days": 30,
+    "unique_claim": "subject_id + source_context + family_id + occurrence_id",
+    "shared_attention_claim": "subject_id + stable_source_lineage + coalescing_group + canonical_event_id",
+    "database_generation_is_evidence_revision_only": true,
+    "revision_is_not_occurrence": true,
+    "submission_success_state": "submitted",
+    "unknown_outcome_requires_reconciliation": true,
+    "unknown_outcome_without_platform_record": "submission_uncertain; retain attention charge; do not resubmit proactive occurrence",
+    "retry_limit_after_known_submission_failure": 1,
+    "retry_only_while_valid": true
+  },
+  "scheduling": {
+    "expiry_scope": "latest useful app evaluation or submission; not a guaranteed OS presentation cutoff",
+    "future_scheduled_copy": "generic unless its claims remain valid through the selected occurrence",
+    "cancellation": "when changed state is committed or observed at an available execution opportunity",
+    "one_shot_dst_missing_minute": "first valid local time after the gap",
+    "one_shot_dst_repeated_minute": "first occurrence only",
+    "repeating_calendar_dst": "platform matching; verify on device and reconcile on lifecycle opportunities"
+  },
+  "privacy": {
+    "private_previews_default": true,
+    "detailed_health_copy_requires_separate_opt_in": true,
+    "sensitive_journal_context_never_in_public_preview": true,
+    "diagnostic_logs_contain_raw_health_text": false,
+    "model_call_can_choose_eligibility": false
+  },
+  "suppression_reasons": [
+    "category_off", "required_consent_missing", "permission_denied", "missing_input",
+    "invalid_value", "stale_metric", "wrong_metric_day", "source_changed", "model_incompatible",
+    "insufficient_coverage", "sleep_not_final", "historical_replay", "superseded", "record_deleted",
+    "already_seen", "already_scheduled", "episode_still_raised", "active_workout", "active_lift",
+    "asleep", "quiet_hours", "explicit_reminder_nearby", "expired", "budget_full",
+    "cooldown", "dependency_unmet", "current_screen_covers_event", "not_actionable"
+  ]
+}

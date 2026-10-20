@@ -11,7 +11,9 @@ extension Notification.Name {
 @MainActor
 final class NotificationPreferences: ObservableObject {
     static let shared = NotificationPreferences()
-    let objectWillChange = ObservableObjectPublisher()
+    // Let Combine synthesize the nonisolated ObservableObject witness. An explicit
+    // main-actor publisher cannot satisfy that requirement in Swift 6.
+    @Published private var changeRevision = 0
     private let defaults: UserDefaults
     private let prefix = "notifications.v1."
 
@@ -33,7 +35,7 @@ final class NotificationPreferences: ObservableObject {
     private func bool(_ key: String, fallback: Bool) -> Bool { defaults.object(forKey: key) as? Bool ?? fallback }
     private func integer(_ key: String, fallback: Int) -> Int { defaults.object(forKey: key) as? Int ?? fallback }
     private func write(_ value: Any, _ key: String) {
-        objectWillChange.send()
+        changeRevision &+= 1
         defaults.set(value, forKey: key)
         if key != prefix + "scheduleRevision" { defaults.set(scheduleRevision &+ 1, forKey: prefix + "scheduleRevision") }
         NotificationCenter.default.post(name: .notificationPreferencesDidChange, object: self)

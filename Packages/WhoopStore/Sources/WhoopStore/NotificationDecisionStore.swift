@@ -205,13 +205,27 @@ extension WhoopStore {
             try db.execute(sql: """
                 UPDATE notificationDecision SET state = 'withdrawn', updatedAt = ?, reason = 'withdrawn',
                     chargedAt = CASE WHEN attempts = 0 THEN NULL ELSE chargedAt END
-                WHERE occurrenceID = ? AND state NOT IN ('acknowledged', 'withdrawn')
+                WHERE occurrenceID = ? AND state != 'withdrawn'
                 """, arguments: [now.timeIntervalSince1970, occurrenceID])
+        }
+    }
+    /// Call only when the caller can prove the platform add API was never invoked.
+    /// Set acquiredSubmitGate only after this caller won markNotificationSubmitting and
+    /// has not invoked add. Otherwise, another caller may already own the submitting row.
+    public func withdrawNotificationBeforeInvocation(occurrenceID: String, now: Date,
+                                                     acquiredSubmitGate: Bool = false) async throws {
+        try notificationWriteDurable { db in
+            try db.execute(sql: """
+                UPDATE notificationDecision SET updatedAt = CASE WHEN state = 'withdrawn' THEN updatedAt ELSE ? END,
+                    state = 'withdrawn', reason = 'withdrawn', chargedAt = NULL
+                WHERE occurrenceID = ? AND (state = 'reserved' OR (? AND state IN ('submitting', 'withdrawn')))
+                """, arguments: [now.timeIntervalSince1970, occurrenceID, acquiredSubmitGate])
         }
     }
     public func acknowledgeNotification(occurrenceID: String, now: Date) async throws {
         try notificationWriteDurable { db in
-            try db.execute(sql: "UPDATE notificationDecision SET state = 'acknowledged', updatedAt = ?, reason = NULL WHERE occurrenceID = ? AND state IN ('submitting', 'submitted', 'submission_uncertain', 'withdrawn')", arguments: [now.timeIntervalSince1970, occurrenceID])
+            // A late response must not restore ownership after the schedule was cancelled.
+            try db.execute(sql: "UPDATE notificationDecision SET state = 'acknowledged', updatedAt = ?, reason = NULL WHERE occurrenceID = ? AND state IN ('submitting', 'submitted', 'submission_uncertain')", arguments: [now.timeIntervalSince1970, occurrenceID])
         }
     }
     public func reconcileNotifications(pending: Set<String>, delivered: Set<String>, now: Date) async throws {

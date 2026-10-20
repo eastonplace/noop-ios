@@ -179,6 +179,7 @@ extension WhoopStore {
                                      membership.isActive ? 1 : 0, membership.isQuickAdd ? 1 : 0])
             }
         }
+        NotificationCenter.default.post(name: .init("noop.notificationJournalDidChange"), object: nil)
     }
 
     /// Installs the built-in preset once. INSERT OR IGNORE preserves every later user edit.

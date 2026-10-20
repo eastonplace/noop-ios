@@ -74,7 +74,12 @@ public enum NotificationPolicy {
         if c.lane == .proactive {
             if !p.proactiveEnabled { return .proactiveDisabled }
             if context.activeWorkout { return .activeWorkout }
-            if context.sleeping { return .sleepInProgress }
+            if context.sleeping == true { return .sleepInProgress }
+            // Existing device alerts are not coaching. Keep those choices useful when
+            // the source has no live sleep state, but do not assume the wearer is awake.
+            if context.sleeping == nil && c.group != .chargeReminder && c.group != .batteryFull {
+                return .sleepStateUnavailable
+            }
             if isQuiet(now, preferences: p, timeZoneIdentifier: context.timeZoneIdentifier) { return .quietHours }
             if context.explicitReminderDates.contains(where: { abs($0.timeIntervalSince(now)) < reminderSeparation }) { return .reminderNearby }
             let proactive = history.filter { $0.isProactive }

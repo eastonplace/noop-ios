@@ -19,7 +19,8 @@ public enum NotificationReason: String, Codable, Sendable {
     case sourceChanged = "source_changed", modelMismatch = "model_mismatch", notFinal = "not_final"
     case insufficientCoverage = "insufficient_coverage", dependencyUnqualified = "dependency_unqualified"
     case historicalReplay = "historical_replay", alreadySeen = "already_seen", alreadyScheduled = "already_scheduled"
-    case activeWorkout = "active_workout", sleepInProgress = "sleep_in_progress", quietHours = "quiet_hours"
+    case activeWorkout = "active_workout", sleepInProgress = "sleep_in_progress"
+    case sleepStateUnavailable = "sleep_state_unavailable", quietHours = "quiet_hours"
     case expired, permissionDenied = "permission_denied", budgetFull = "budget_full"
     case minimumGap = "minimum_gap", reminderNearby = "reminder_nearby", futureObservation = "future_observation"
 }
@@ -105,11 +106,12 @@ public struct NotificationContext: Equatable, Sendable {
     public let timeZoneIdentifier: String
     public let permissionGranted: Bool
     public let activeWorkout: Bool
-    public let sleeping: Bool
+    /// nil means no qualified current observation. A historical sleep window is not live sleep state.
+    public let sleeping: Bool?
     public let visibleDestinations: Set<NotificationDestination>
     public let explicitReminderDates: [Date]
     public init(sourceContext: String, logicalDay: String, timeZoneIdentifier: String = TimeZone.current.identifier,
-                permissionGranted: Bool = true, activeWorkout: Bool = false, sleeping: Bool = false,
+                permissionGranted: Bool = true, activeWorkout: Bool = false, sleeping: Bool? = nil,
                 visibleDestinations: Set<NotificationDestination> = [], explicitReminderDates: [Date] = []) {
         self.sourceContext = sourceContext; self.logicalDay = logicalDay; self.timeZoneIdentifier = timeZoneIdentifier
         self.permissionGranted = permissionGranted; self.activeWorkout = activeWorkout; self.sleeping = sleeping

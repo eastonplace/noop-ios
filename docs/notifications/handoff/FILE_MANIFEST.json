@@ -1,0 +1,101 @@
+{
+  "as_of_date": "2026-10-20",
+  "scope": "All packaged files except this manifest itself.",
+  "files": [
+    {
+      "path": "CODEX_PROMPT.md",
+      "bytes": 6042,
+      "sha256": "4a847930ce0edd7c084670d8df2a67124168e3799380d9570743c09905e74afb"
+    },
+    {
+      "path": "Noop_Notification_Catalog_540.xlsx",
+      "bytes": 198535,
+      "sha256": "8aea41059bf53e52e3baf8524c9e5e9a2e825d7679765f3d5ca21ab5e64cc01e"
+    },
+    {
+      "path": "Noop_Notification_Plan.pdf",
+      "bytes": 60456,
+      "sha256": "30d18310fa0cf6a11133ad3be6e82bb417fb14e92b423559be6b2461e2b7c1ca"
+    },
+    {
+      "path": "README.md",
+      "bytes": 3365,
+      "sha256": "903ef1f3dd99da79568afdf2591e1c9bd243fea9c241ef8323f46e408c5cac1d"
+    },
+    {
+      "path": "catalog/FAMILY_INDEX.md",
+      "bytes": 64822,
+      "sha256": "744457f6dc7e4d4c7d8d25d2c46b3939402b273560f160d1f32241331bd71f4a"
+    },
+    {
+      "path": "catalog/notification_catalog.csv",
+      "bytes": 1737025,
+      "sha256": "9f64334311987ac88cbad48f20fafcf2efde40cf6952d78dbf8e7d650ec24d6c"
+    },
+    {
+      "path": "catalog/notification_catalog.json",
+      "bytes": 1472179,
+      "sha256": "53c847f8b1474c47aa59b83ef81cbab3ffd5b18c73d406fbb0ed9b0fcc7ccacb"
+    },
+    {
+      "path": "catalog/rendered_examples.json",
+      "bytes": 113374,
+      "sha256": "3426649b32fec06e6adf4d29ce51406f73edb8b923a66d13c29a828f6115600a"
+    },
+    {
+      "path": "docs/CATALOG_GUIDE.md",
+      "bytes": 7310,
+      "sha256": "b1aeeb3b7240d0832fcdcde252e39aca7828555c5839a9ae6e094025c280da5f"
+    },
+    {
+      "path": "docs/IMPLEMENTATION_PLAN.md",
+      "bytes": 12745,
+      "sha256": "789c8fa92699e6ecb1fed0d62746df30e04da68a6e4fdc92a16e0a8f5d3e1e32"
+    },
+    {
+      "path": "docs/PRODUCT_SPEC.md",
+      "bytes": 23339,
+      "sha256": "92ccfc00f44f1479d92efaa97f3c2aeac71079a60a42b80a6d3623e4201059ac"
+    },
+    {
+      "path": "docs/QA_MATRIX.md",
+      "bytes": 17672,
+      "sha256": "5d07451375092a19d19cca52b123b2dad6433268af54a4cdb0d1094befab9e2b"
+    },
+    {
+      "path": "docs/REPO_AND_WHOOP_EVIDENCE.md",
+      "bytes": 14711,
+      "sha256": "d4c2a333747809c8b1f413c73f9da73e60b0dc873a35316cef64772fa3cc83ad"
+    },
+    {
+      "path": "notification_policy.json",
+      "bytes": 3980,
+      "sha256": "2db983fa0b3b74a6213bea6a9ba3f5bbe8e3c71d58ad04ce5cd5da0b6a752bbd"
+    },
+    {
+      "path": "validation/ARTIFACT_CHECKS.json",
+      "bytes": 639,
+      "sha256": "eb4d7a266e0ae4835e6a93144cb78ccd33217cc101813d593385b15caa1d8aab"
+    },
+    {
+      "path": "validation/REVIEW_NOTES.md",
+      "bytes": 3531,
+      "sha256": "dae3b8b6fb830ebc94a4767ea9c29374b76a01822365d39961fa7dba8a9d5ba1"
+    },
+    {
+      "path": "validation/VALIDATION_REPORT.json",
+      "bytes": 1900,
+      "sha256": "520a48d7a0fff0c4771c0a44cbc7813e46a6e20111d4fb9a4085b7c0a43fbba8"
+    },
+    {
+      "path": "validation/failure_matrix.json",
+      "bytes": 33370,
+      "sha256": "8cae54dfe1d6facc29fd110fe69e8e790b4f18c8e8aff08e4fdc731459c18321"
+    },
+    {
+      "path": "validation/validate_catalog.py",
+      "bytes": 8997,
+      "sha256": "b9b3d23c7bb81ead0e1de0e7d1d7a4596d2e51a15bb1c3e410746416d6eca6db"
+    }
+  ]
+}

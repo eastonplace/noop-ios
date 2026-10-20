@@ -17,7 +17,7 @@ final class NotificationPolicyTests: XCTestCase {
     func evaluate(_ candidates: [NotificationCandidate], modes: [NotificationGroup: NotificationDeliveryMode] = [.chargeReminder: .notify], history: [NotificationHistoryEntry] = [], context: NotificationContext? = nil) -> NotificationEvaluation {
         NotificationPolicy.evaluate(candidates: candidates,
             preferences: .init(modes: modes, quietHoursEnabled: false),
-            context: context ?? .init(sourceContext: "canonical", logicalDay: "2027-01-15"),
+            context: context ?? .init(sourceContext: "canonical", logicalDay: "2027-01-15", sleeping: false),
             history: history, now: now)
     }
     func testNewGroupOffAndInAppNeverAuthorizesOS() {
@@ -43,6 +43,15 @@ final class NotificationPolicyTests: XCTestCase {
                               modes: [.strainTarget: .notify, .workoutSummary: .notify])
         XCTAssertEqual(result.selected.map(\.occurrenceID), ["summary"])
         XCTAssertEqual(result.decisions.filter { $0.reason == .coalesced }.count, 1)
+    }
+    func testUnknownSleepSuppressesCoachingButPreservesDeviceChoicesAndExplicitReminders() {
+        let unknown = NotificationContext(sourceContext: "canonical", logicalDay: "2027-01-15")
+        let coaching = candidate("workout", group: .workoutSummary)
+        XCTAssertEqual(evaluate([coaching], modes: [.workoutSummary: .notify], context: unknown).decisions.first?.reason, .sleepStateUnavailable)
+        XCTAssertEqual(evaluate([coaching], modes: [.workoutSummary: .inApp], context: unknown).inApp.count, 1)
+        XCTAssertEqual(evaluate([candidate()], context: unknown).selected.count, 1)
+        XCTAssertEqual(evaluate([candidate("full", group: .batteryFull)], modes: [.batteryFull: .notify], context: unknown).selected.count, 1)
+        XCTAssertEqual(evaluate([candidate("journal", group: .journalCheckIn, lane: .explicitReminder)], modes: [.journalCheckIn: .notify], context: unknown).selected.count, 1)
     }
     func testAttentionDedupeSurvivesEvidenceRevision() {
         let history = [NotificationHistoryEntry(occurrenceID: "old", attentionKey: "shared", logicalDay: "2027-01-14", chargedAt: now.addingTimeInterval(-86400))]

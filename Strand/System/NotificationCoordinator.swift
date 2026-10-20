@@ -47,7 +47,8 @@ final class SystemNotificationCenterClient: NotificationCenterClient {
         content.body = request.body
         content.interruptionLevel = .active
         // New advice uses normal interruption priority, never sound/time-sensitive/critical privileges.
-        content.categoryIdentifier = "noop.notification.open"
+        content.categoryIdentifier = NotificationCoordinator.supportsSnooze(request.candidate)
+            ? "noop.notification.charge" : "noop.notification.open"
         content.userInfo = NotificationCoordinator.userInfo(for: request.candidate)
         content.userInfo["noopNotificationContainsDetails"] = request.body != request.candidate.genericBody
         content.userInfo["noopNotificationRepeating"] = request.repeatingComponents != nil
@@ -82,7 +83,7 @@ final class NotificationCoordinator: ObservableObject {
         center: SystemNotificationCenterClient(), clock: Date.init,
         preferences: { NotificationPreferences.shared.snapshot },
         context: {
-            .init(sourceContext: AppModel.shared?.repo.notificationSourceContext ?? "unavailable",
+            productionContext(sourceContext: AppModel.shared?.repo.notificationSourceContext ?? "unavailable",
                   logicalDay: NotificationFactBuilder.dayKey(Date()),
                   activeWorkout: AppModel.shared?.activeWorkout != nil || AppModel.shared?.hasActiveReceiptLift?() == true || AppModel.shared?.notificationSessionsReady == false,
                   visibleDestinations: NavRouter.currentVisibleNotificationDestinations)
@@ -94,6 +95,14 @@ final class NotificationCoordinator: ObservableObject {
             UserDefaults.standard.set(current, forKey: "notifications.lastAuthorization")
             if previous == false && current { NotificationPreferences.shared.bumpScheduleRevision() }
         })
+
+    /// The current sources expose completed windows and unpaired marks, not a
+    /// qualified live asleep/awake observation. Keep that uncertainty explicit.
+    static func productionContext(sourceContext: String, logicalDay: String, activeWorkout: Bool,
+                                  visibleDestinations: Set<NotificationDestination> = []) -> NotificationContext {
+        .init(sourceContext: sourceContext, logicalDay: logicalDay, activeWorkout: activeWorkout,
+              sleeping: nil, visibleDestinations: visibleDestinations)
+    }
 
     @Published private(set) var setupStatus: String?
     @Published private(set) var lastEvaluation: NotificationEvaluation?
@@ -136,6 +145,7 @@ final class NotificationCoordinator: ObservableObject {
             for name in [Notification.Name.notificationPreferencesDidChange,
                          NSNotification.Name.NSSystemTimeZoneDidChange,
                          NSNotification.Name.NSCalendarDayChanged,
+                         Notification.Name("noop.notificationJournalDidChange"),
                          Notification.Name("noop.notificationPlansDidChange")] {
                 observers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { _ in
                     Task { @MainActor in await Self.shared.reconcileSchedules() }
@@ -230,7 +240,18 @@ final class NotificationCoordinator: ObservableObject {
         }
     }
 
-    private func remainsValid(_ candidate: NotificationCandidate, rows: [NotificationLedgerRecord]) -> Bool {
+    private func remainsValid(_ candidate: NotificationCandidate, rows: [NotificationLedgerRecord], store: WhoopStore) async -> Bool {
+        let family: String?
+        switch candidate.ruleID {
+        case "chargeReminder.battery", "chargeReminder.snoozed": family = "charge"
+        case "batteryFull.battery": family = "full"
+        default: family = nil
+        }
+        if let family {
+            guard let episode = try? await store.notificationEpisode(deviceID: candidate.subjectID,
+                family: family, observationIsActive: nil, now: clock()), episode == candidate.evidenceRevision else { return false }
+            guard BatteryNotifier.permits(candidate) else { return false }
+        }
         guard revisions[candidate.occurrenceID] == candidate.evidenceRevision else { return false }
         return !NotificationPolicy.evaluate(candidates: [candidate], preferences: preferences(), context: currentContext(), history: history(rows, excluding: candidate.occurrenceID), now: clock()).selected.isEmpty
     }
@@ -244,23 +265,23 @@ final class NotificationCoordinator: ObservableObject {
             // A known failure can reserve at most one retry. Never retry an unknown add outcome.
             for attempt in 0...1 {
                 let rows = try await store.notificationRecords()
-                guard remainsValid(candidate, rows: rows), await authorization() else { return }
-                guard remainsValid(candidate, rows: rows) else { return }
+                guard await remainsValid(candidate, rows: rows, store: store), await authorization() else { return }
+                guard await remainsValid(candidate, rows: rows, store: store) else { return }
                 let claim = NotificationLedgerClaim(occurrenceID: candidate.occurrenceID, attentionKey: candidate.attentionKey,
                     ruleID: candidate.ruleID, sourceContext: candidate.sourceContext, evidenceRevision: candidate.evidenceRevision,
                     logicalDay: candidate.logicalDay, requestIdentifier: identifier, isProactive: candidate.lane == .proactive,
                     expiresAt: candidate.expiresAt, timeZoneIdentifier: currentContext().timeZoneIdentifier)
                 guard case .claimed = try await store.claimNotification(claim, now: clock()) else { return }
-                guard remainsValid(candidate, rows: rows) else {
-                    try await store.withdrawNotification(occurrenceID: candidate.occurrenceID, now: clock()); return
+                guard await remainsValid(candidate, rows: rows, store: store) else {
+                    try await store.withdrawNotificationBeforeInvocation(occurrenceID: candidate.occurrenceID, now: clock()); return
                 }
                 guard try await store.markNotificationSubmitting(occurrenceID: candidate.occurrenceID, now: clock()) else { return }
-                guard remainsValid(candidate, rows: rows) else {
-                    try await store.withdrawNotification(occurrenceID: candidate.occurrenceID, now: clock()); return
+                guard await remainsValid(candidate, rows: rows, store: store) else {
+                    try await store.withdrawNotificationBeforeInvocation(occurrenceID: candidate.occurrenceID, now: clock(), acquiredSubmitGate: true); return
                 }
                 let permissionBeforeAdd = await authorization()
-                guard permissionBeforeAdd, remainsValid(candidate, rows: rows) else {
-                    try await store.withdrawNotification(occurrenceID: candidate.occurrenceID, now: clock()); return
+                guard permissionBeforeAdd, await remainsValid(candidate, rows: rows, store: store) else {
+                    try await store.withdrawNotificationBeforeInvocation(occurrenceID: candidate.occurrenceID, now: clock(), acquiredSubmitGate: true); return
                 }
                 let detailed = preferences().showHealthDetails
                 let request = NotificationDeliveryRequest(identifier: identifier, title: candidate.genericTitle,
@@ -277,17 +298,14 @@ final class NotificationCoordinator: ObservableObject {
                         let pending = await center.pendingIdentifiers()
                         let delivered = await center.deliveredIdentifiers()
                         try await store.reconcileNotifications(pending: pending, delivered: delivered, now: clock())
+                        _ = try await retainSubmittedRequestIfValid(candidate, identifier: identifier,
+                            detailed: detailed, store: store)
                     }
                     return
                 }
                 try await store.markNotificationSubmitted(occurrenceID: candidate.occurrenceID, now: clock())
-                let permission = await authorization()
-                let currentRows = try await store.notificationRecords()
-                guard permission, remainsValid(candidate, rows: currentRows), detailed == preferences().showHealthDetails else {
-                    center.remove([identifier], delivered: true)
-                    try await store.withdrawNotification(occurrenceID: candidate.occurrenceID, now: clock())
-                    return
-                }
+                guard try await retainSubmittedRequestIfValid(candidate, identifier: identifier,
+                    detailed: detailed, store: store) else { return }
                 setupFailures[identifier] = nil
                 setupStatus = setupFailures.values.sorted().first
                 return
@@ -296,6 +314,23 @@ final class NotificationCoordinator: ObservableObject {
             // Ledger failure after add is uncertain. Keep the durable submitting marker for restart reconciliation.
             setupStatus = "Notification status could not be saved. It will be checked when the app next opens."
         }
+    }
+
+    /// add can accept a request before reporting an uncertain result. Both outcomes
+    /// must clean up a request that became obsolete across the platform await.
+    private func retainSubmittedRequestIfValid(_ candidate: NotificationCandidate, identifier: String,
+                                              detailed: Bool, store: WhoopStore) async throws -> Bool {
+        let permission = await authorization()
+        let currentRows = try await store.notificationRecords()
+        guard permission, await remainsValid(candidate, rows: currentRows, store: store),
+              detailed == preferences().showHealthDetails else {
+            center.remove([identifier], delivered: true)
+            // Withdrawal retains identity and any consumed attention. It does not
+            // turn an uncertain add into a known failure or grant another retry.
+            try await store.withdrawNotification(occurrenceID: candidate.occurrenceID, now: clock())
+            return false
+        }
+        return true
     }
 
     func reconcile() async {
@@ -370,6 +405,57 @@ final class NotificationCoordinator: ObservableObject {
         if let store = await storeProvider() { try? await store.withdrawNotification(occurrenceID: occurrenceID, now: clock()) }
     }
 
+    static func supportsSnooze(_ candidate: NotificationCandidate) -> Bool {
+        candidate.group == .chargeReminder && candidate.lane == .proactive
+            && candidate.ruleID == "chargeReminder.battery"
+    }
+
+    /// A single requested charge reminder. The action cannot extend the original
+    /// observation's usefulness or create a chain of repeated coaching notices.
+    static func snoozeCandidate(_ original: NotificationCandidate, now: Date) -> NotificationCandidate? {
+        let scheduled = now.addingTimeInterval(15 * 60)
+        guard supportsSnooze(original), scheduled < original.expiresAt,
+              now >= original.generatedAt else { return nil }
+        return .init(ruleID: original.group.rawValue + ".snoozed", group: original.group,
+            subjectID: original.subjectID, occurrenceID: original.occurrenceID + ":snooze",
+            attentionKey: original.attentionKey + ":snooze", evidenceRevision: original.evidenceRevision,
+            sourceContext: original.sourceContext, logicalDay: original.logicalDay,
+            observedAt: original.observedAt, generatedAt: original.generatedAt, expiresAt: original.expiresAt,
+            quality: original.quality, lane: .explicitReminder, destination: original.destination,
+            genericTitle: original.genericTitle, genericBody: original.genericBody,
+            scheduledAt: scheduled, freshnessLimit: original.freshnessLimit)
+    }
+
+    func snooze(_ original: NotificationCandidate) async {
+        guard let reminder = Self.snoozeCandidate(original, now: clock()) else {
+            if Self.supportsSnooze(original) {
+                setupStatus = "This charge reminder can no longer be delayed. Open your device to check its current status."
+            }
+            return
+        }
+        guard let store = await storeProvider(),
+              let rows = try? await store.notificationRecords(),
+              let activeEpisode = try? await store.notificationEpisode(deviceID: original.subjectID,
+                  family: "charge", observationIsActive: nil, now: clock()),
+              activeEpisode == original.evidenceRevision,
+              rows.contains(where: { $0.occurrenceID == original.occurrenceID
+                  && $0.sourceContext == original.sourceContext && $0.evidenceRevision == original.evidenceRevision
+                  && $0.state == .submitted }) else { return }
+        await process(candidates: [reminder])
+    }
+
+    func journalReminderIfNeeded(_ candidate: NotificationCandidate, day: String,
+                                 catalog: JournalCatalogStore, importedQuestions: [String],
+                                 store: WhoopStore) async throws -> NotificationCandidate? {
+        guard candidate.group == .journalCheckIn, candidate.sourceContext == context().sourceContext else { return nil }
+        let incomplete = try await NotificationJournalEligibility.isIncomplete(day: day,
+            catalog: catalog, importedQuestions: importedQuestions, store: store)
+        guard candidate.sourceContext == context().sourceContext else { return nil }
+        if incomplete { return candidate }
+        await withdraw(occurrenceID: candidate.occurrenceID)
+        return nil
+    }
+
     nonisolated static let namespace = "noop.notifications."
     static func requestIdentifier(_ occurrenceID: String) -> String {
         namespace + Data(occurrenceID.utf8).base64EncodedString()
@@ -383,6 +469,9 @@ final class NotificationCoordinator: ObservableObject {
         if let data = try? JSONEncoder().encode(candidate.destination), let text = String(data: data, encoding: .utf8) {
             payload["noopNotificationDestination"] = text
         }
+        if supportsSnooze(candidate), let data = try? JSONEncoder().encode(candidate) {
+            payload["noopNotificationSnoozeCandidate"] = String(decoding: data, as: UTF8.self)
+        }
         return payload
     }
     private func registerCategories() {
@@ -390,7 +479,9 @@ final class NotificationCoordinator: ObservableObject {
         UNUserNotificationCenter.current().getNotificationCategories { existing in
             let turnOff = UNNotificationAction(identifier: "noop.notification.turnOff", title: "Turn off this type", options: [])
             let category = UNNotificationCategory(identifier: "noop.notification.open", actions: [turnOff], intentIdentifiers: [], options: [])
-            UNUserNotificationCenter.current().setNotificationCategories(existing.union([category]))
+            let snooze = UNNotificationAction(identifier: "noop.notification.snooze", title: "Remind me in 15 minutes", options: [])
+            let charge = UNNotificationCategory(identifier: "noop.notification.charge", actions: [snooze, turnOff], intentIdentifiers: [], options: [])
+            UNUserNotificationCenter.current().setNotificationCategories(existing.union([category, charge]))
         }
     }
 }
@@ -443,19 +534,41 @@ extension NotificationCoordinator {
         }
         // Journal completion is occurrence-specific: calendar repeats cannot skip one completed
         // day. Keep seven days of generic one-shots, replenished on normal app execution.
+        var journalStore: WhoopStore?
+        var journalImportedQuestions: [String] = []
+        let journalCatalog: JournalCatalogStore?
+        if prefs.mode(for: .journalCheckIn) == .notify {
+            journalStore = await storeProvider()
+            guard journalStore != nil else {
+                setupStatus = "Journal reminders will be checked when storage becomes available."
+                return
+            }
+            let imported = await model.repo.importedJournalEntries()
+            journalImportedQuestions = Array(Set(imported.map(\.question)))
+            journalCatalog = JournalCatalogStore()
+        } else { journalCatalog = nil }
+        guard generation == scheduleGeneration, source == model.repo.notificationSourceContext,
+              revision == prefs.scheduleRevision else { return }
         for offset in 0..<7 {
             guard let day = calendar.date(byAdding: .day, value: offset, to: calendar.startOfDay(for: now)) else { continue }
             let weekday = calendar.component(.weekday, from: day)
             let key = NotificationFactBuilder.dayKey(day)
             if prefs.mode(for: .journalCheckIn) == .notify, prefs.journalWeekdays.contains(weekday),
-               let date = NotificationSchedulePlanner.resolve(day: day, minute: prefs.journalMinutes), date > now {
-                let answers = await model.repo.nativeJournalAnswers(day: key)
+               let date = NotificationSchedulePlanner.resolve(day: day, minute: prefs.journalMinutes), date > now,
+               let journalStore, let journalCatalog {
+                let candidate = NotificationSchedulePlanner.candidate(group: .journalCheckIn, id: key,
+                    scheduledAt: date, source: source, destination: .journal(logicalDay: key), now: now, revision: revision)
+                let needed: NotificationCandidate?
+                do {
+                    needed = try await journalReminderIfNeeded(candidate, day: key, catalog: journalCatalog,
+                        importedQuestions: journalImportedQuestions, store: journalStore)
+                } catch {
+                    setupStatus = "Journal completion could not be checked. Open the app again to retry."
+                    return
+                }
                 guard generation == scheduleGeneration, source == model.repo.notificationSourceContext,
                       revision == prefs.scheduleRevision else { return }
-                if answers.isEmpty {
-                    candidates.append(NotificationSchedulePlanner.candidate(group: .journalCheckIn, id: key,
-                        scheduledAt: date, source: source, destination: .journal(logicalDay: key), now: now, revision: revision))
-                }
+                if let needed { candidates.append(needed) }
             }
         }
         if prefs.mode(for: .workoutPlan) == .notify {
@@ -463,7 +576,8 @@ extension NotificationCoordinator {
                 let date = plan.plannedAt.addingTimeInterval(-Double(prefs.workoutReminderLeadMinutes * 60))
                 guard date > now, date < now.addingTimeInterval(7 * 86400) else { continue }
                 candidates.append(NotificationSchedulePlanner.candidate(group: .workoutPlan, id: "\(plan.id):r\(plan.revision)",
-                    scheduledAt: date, source: source, destination: .plannedWorkout(id: plan.id), now: now, revision: revision))
+                    scheduledAt: date, source: source, destination: .plannedWorkout(id: plan.id), now: now,
+                    revision: revision, actionAt: plan.plannedAt))
             }
         }
         guard generation == scheduleGeneration, source == model.repo.notificationSourceContext,

@@ -1,6 +1,7 @@
 import Foundation
 import UserNotifications
 import StrandAnalytics
+import WhoopStore
 
 /// Surfaces the strap battery state as a user notification — a LOW warning when the cell falls to
 /// the threshold so the user can top up before tonight's sleep, and a CHARGED note when it reaches
@@ -8,6 +9,34 @@ import StrandAnalytics
 /// status-only check at fire time, and durable per-device episode claims.
 /// On-device only; gated behind the user's "Battery alerts" setting (default ON) by the caller (#368).
 enum BatteryNotifier {
+    private struct Observation {
+        let id: UUID
+        let source: String
+        let charging: Bool?
+        let pct: Int
+        var pendingCancellation: UUID?
+    }
+    @MainActor private static var observations: [String: Observation] = [:]
+
+    @MainActor
+    private static func beginObservation(deviceID: String, source: String, charging: Bool?, pct: Int) -> UUID {
+        let id = UUID()
+        let cancellation = charging == true ? UUID() : observations[deviceID]?.pendingCancellation
+        observations[deviceID] = .init(id: id, source: source, charging: charging, pct: pct,
+                                       pendingCancellation: cancellation)
+        return id
+    }
+
+    /// Current input validity is separate from charge-episode identity. Confirmed
+    /// charging cancels the action but must never rearm a discharge episode.
+    @MainActor
+    static func permits(_ candidate: NotificationCandidate) -> Bool {
+        guard let current = observations[candidate.subjectID] else { return true }
+        guard current.source == candidate.sourceContext else { return false }
+        if candidate.group == .chargeReminder { return current.charging != true && current.pendingCancellation == nil }
+        if candidate.group == .batteryFull { return current.pct == 100 }
+        return true
+    }
 
     /// Pure crossing-with-hysteresis policy, identical on macOS/iOS and Android (#368). The two
     /// `*Alerted` flags are PERSISTED, so they survive process death — and the 25% re-arm band means
@@ -59,8 +88,30 @@ enum BatteryNotifier {
     @MainActor
     static func observe(deviceID: String, sourceContext: String, pct: Int, remainingHours: Double?,
                         charging: Bool?, enabled: Bool, predictiveEnabled: Bool, now: Date = Date()) async {
-        guard !deviceID.isEmpty, (0...100).contains(pct),
-              let store = await AppModel.shared?.repo.notificationDecisionStore() else { return }
+        guard !deviceID.isEmpty, (0...100).contains(pct) else { return }
+        let observationID = beginObservation(deviceID: deviceID, source: sourceContext, charging: charging, pct: pct)
+        guard let model = AppModel.shared,
+              let store = await model.repo.notificationDecisionStore() else { return }
+        await observe(deviceID: deviceID, sourceContext: sourceContext, pct: pct, remainingHours: remainingHours,
+            charging: charging, enabled: enabled, predictiveEnabled: predictiveEnabled, now: now,
+            store: store, coordinator: .shared, destinationDeviceID: model.repo.deviceId, observationID: observationID)
+    }
+
+    /// Production composition with explicit dependencies so real observations can be
+    /// tested against the durable episode store and the delivery coordinator together.
+    @MainActor
+    static func observe(deviceID: String, sourceContext: String, pct: Int, remainingHours: Double?,
+                        charging: Bool?, enabled: Bool, predictiveEnabled: Bool, now: Date,
+                        store: WhoopStore, coordinator: NotificationCoordinator,
+                        destinationDeviceID: String? = nil, observationID: UUID? = nil,
+                        beforeEpisodeRead: (@MainActor () async -> Void)? = nil,
+                        beforeProcess: (@MainActor () async -> Void)? = nil) async {
+        guard !deviceID.isEmpty, (0...100).contains(pct) else { return }
+        let observationID = observationID ?? beginObservation(deviceID: deviceID, source: sourceContext, charging: charging, pct: pct)
+        @MainActor func isCurrent() -> Bool { observations[deviceID]?.id == observationID }
+        guard isCurrent() else { return }
+        if let beforeEpisodeRead { await beforeEpisodeRead() }
+        guard isCurrent() else { return }
         let runtime = remainingHours.flatMap { $0.isFinite && $0 >= 0 ? $0 : nil }
         let low = enabled && pct <= 15 && charging != true
         let shortRuntime = predictiveEnabled && runtime.map { $0 <= 24 } == true && charging != true
@@ -71,22 +122,43 @@ enum BatteryNotifier {
             // devices can still rearm from a valid 25% recovery.
             let runtimeConcern = try await store.notificationEpisode(deviceID: deviceID, family: "runtimeEvidence",
                 observationIsActive: runtime.flatMap { $0 <= 24 ? true : ($0 >= 36 ? false : nil) }, now: now)
+            guard isCurrent() else { return }
             let cleared = pct >= 25 && runtimeConcern == nil
+            let previousCharge = try await store.notificationEpisode(deviceID: deviceID, family: "charge", observationIsActive: nil, now: now)
+            guard isCurrent() else { return }
             let chargeEpisode = try await store.notificationEpisode(deviceID: deviceID, family: "charge",
                 observationIsActive: low || shortRuntime ? true : (cleared ? false : nil), now: now)
+            guard isCurrent() else { return }
+            let pendingCancellation = observations[deviceID]?.pendingCancellation
+            if chargeEpisode == nil || charging == true || pendingCancellation != nil {
+                if let obsoleteCharge = previousCharge ?? chargeEpisode {
+                    let occurrence = "chargeReminder:\(deviceID):\(obsoleteCharge)"
+                    // Once observed, charging cancellation must finish even if a nil
+                    // charging packet supersedes this producer during either await.
+                    await coordinator.withdraw(occurrenceID: occurrence)
+                    await coordinator.withdraw(occurrenceID: occurrence + ":snooze")
+                }
+                if observations[deviceID]?.pendingCancellation == pendingCancellation {
+                    observations[deviceID]?.pendingCancellation = nil
+                }
+                guard isCurrent() else { return }
+            }
             let previousFull = try await store.notificationEpisode(deviceID: deviceID, family: "full", observationIsActive: nil, now: now)
+            guard isCurrent() else { return }
             let fullEpisode = try await store.notificationEpisode(deviceID: deviceID, family: "full", observationIsActive: pct == 100, now: now)
+            guard isCurrent() else { return }
             if pct < 100, let previousFull {
-                await NotificationCoordinator.shared.withdraw(occurrenceID: "batteryFull:\(deviceID):\(previousFull)")
+                await coordinator.withdraw(occurrenceID: "batteryFull:\(deviceID):\(previousFull)")
+                guard isCurrent() else { return }
             }
             var candidates: [NotificationCandidate] = []
             func candidate(group: NotificationGroup, episode: String, title: String, body: String) -> NotificationCandidate {
                 let occurrence = "\(group.rawValue):\(deviceID):\(episode)"
                 return .init(ruleID: group.rawValue + ".battery", group: group, subjectID: deviceID,
                     occurrenceID: occurrence, attentionKey: "battery:\(deviceID):\(episode)",
-                    evidenceRevision: "\(pct):\(runtime.map(String.init(describing:)) ?? "unknown")",
+                    evidenceRevision: episode,
                     sourceContext: sourceContext, logicalDay: NotificationFactBuilder.dayKey(now), observedAt: now,
-                    generatedAt: now, expiresAt: now.addingTimeInterval(1800), destination: .device(id: AppModel.shared?.repo.deviceId ?? deviceID),
+                    generatedAt: now, expiresAt: now.addingTimeInterval(1800), destination: .device(id: destinationDeviceID ?? deviceID),
                     genericTitle: title, genericBody: body)
             }
             if (low || shortRuntime), let chargeEpisode {
@@ -97,7 +169,9 @@ enum BatteryNotifier {
                 candidates.append(candidate(group: .batteryFull, episode: fullEpisode,
                     title: "Device charged", body: "Your device is ready for your next recording."))
             }
-            await NotificationCoordinator.shared.process(candidates: candidates)
+            if let beforeProcess { await beforeProcess() }
+            guard isCurrent() else { return }
+            await coordinator.process(candidates: candidates)
         } catch { /* Keep episode state unconsumed; a subsequent real observation can retry. */ }
     }
 }

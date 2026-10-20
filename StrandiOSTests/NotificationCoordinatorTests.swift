@@ -10,10 +10,17 @@ final class NotificationCoordinatorTests: XCTestCase {
         var requests: [String: NotificationDeliveryRequest] = [:]
         var additions = 0
         var failure: Error?
+        var acceptsBeforeFailure = false
         var duringAdd: (() -> Void)?
         var duringPendingRead: (() -> Void)?
         var details: Set<String> = []
-        func isAuthorized() async -> Bool { permission }
+        var authorizationReads = 0
+        var duringAuthorization: ((Int) -> Void)?
+        func isAuthorized() async -> Bool {
+            authorizationReads += 1
+            duringAuthorization?(authorizationReads)
+            return permission
+        }
         func pendingIdentifiers() async -> Set<String> {
             duringPendingRead?()
             return Set(requests.keys)
@@ -21,9 +28,10 @@ final class NotificationCoordinatorTests: XCTestCase {
         func deliveredIdentifiers() async -> Set<String> { [] }
         func add(_ request: NotificationDeliveryRequest) async throws {
             additions += 1
-            if let failure { throw failure }
+            if let failure, !acceptsBeforeFailure { throw failure }
             requests[request.identifier] = request
             duringAdd?()
+            if let failure { throw failure }
         }
         func identifiersContainingDetails() async -> Set<String> { details }
         func removeDelivered(_ identifiers: [String]) {}
@@ -34,8 +42,23 @@ final class NotificationCoordinatorTests: XCTestCase {
         .init(ruleID: "workoutSummary", group: .workoutSummary, subjectID: "workout", occurrenceID: "workout:1", attentionKey: "workout:1", evidenceRevision: "v2", sourceContext: "device", logicalDay: "2027-01-19", observedAt: now, generatedAt: now, expiresAt: now.addingTimeInterval(3600), destination: .workout(id: "workout"), genericTitle: "Workout ready", genericBody: "Review your result.", detailBody: "Private health values")
     }
     func coordinator(store: WhoopStore, center: Center, preferences: @escaping () -> NotificationPreferencesSnapshot = { .init(modes: [.workoutSummary: .notify], quietHoursEnabled: false) }) -> NotificationCoordinator {
-        NotificationCoordinator(center: center, clock: { self.now }, preferences: preferences, context: { .init(sourceContext: "device", logicalDay: "2027-01-19") }, store: { store }, dryRun: { false })
+        NotificationCoordinator(center: center, clock: { self.now }, preferences: preferences, context: { .init(sourceContext: "device", logicalDay: "2027-01-19", sleeping: false) }, store: { store }, dryRun: { false })
     }
+    func testProductionContextDoesNotInventAwakeEvidence() async throws {
+        let store = try await WhoopStore.inMemory()
+        let center = Center()
+        let liveContext = NotificationCoordinator.productionContext(sourceContext: "device", logicalDay: "2027-01-19", activeWorkout: false)
+        XCTAssertNil(liveContext.sleeping)
+        let runtime = NotificationCoordinator(center: center, clock: { self.now },
+            preferences: { .init(modes: [.workoutSummary: .notify], quietHoursEnabled: false) },
+            context: { liveContext }, store: { store }, dryRun: { false })
+        await runtime.process(candidates: [candidate()])
+        XCTAssertEqual(runtime.lastEvaluation?.decisions.first?.reason, .sleepStateUnavailable)
+        XCTAssertEqual(center.additions, 0)
+        let rows = try await store.notificationRecords()
+        XCTAssertTrue(rows.isEmpty, "Unknown sleep must not consume the coaching occurrence")
+    }
+
     func testAcceptedSubmissionIsPrivateAndDurableAcrossRestart() async throws {
         let store = try await WhoopStore.inMemory()
         let center = Center()
@@ -89,6 +112,63 @@ final class NotificationCoordinatorTests: XCTestCase {
         let uncertainRows = try await store.notificationRecords()
         XCTAssertEqual(uncertainRows.first?.state, .submissionUncertain)
     }
+    func testAcceptedThenUncertainAddRevalidatesSourcePreferencesAndPrivacyWithoutRetry() async throws {
+        for change in ["source", "preferences", "privacy", "permission"] {
+            let store = try await WhoopStore.inMemory()
+            let center = Center()
+            center.failure = NotificationSubmissionError.uncertain
+            center.acceptsBeforeFailure = true
+            var source = "device"
+            var enabled = true
+            var details = true
+            center.duringAdd = {
+                switch change {
+                case "source": source = "replacement"
+                case "preferences": enabled = false
+                case "privacy": details = false
+                default: center.permission = false
+                }
+            }
+            let runtime = NotificationCoordinator(center: center, clock: { self.now },
+                preferences: { .init(modes: [.workoutSummary: enabled ? .notify : .off],
+                    quietHoursEnabled: false, showHealthDetails: details) },
+                context: { .init(sourceContext: source, logicalDay: "2027-01-19", sleeping: false) },
+                store: { store }, dryRun: { false })
+            await runtime.process(candidates: [candidate()])
+            XCTAssertTrue(center.requests.isEmpty, change)
+            let rows = try await store.notificationRecords()
+            XCTAssertEqual(rows.first?.state, .withdrawn, change)
+            XCTAssertNotNil(rows.first?.chargedAt, change)
+            XCTAssertEqual(rows.first?.attempts, 1, change)
+            center.failure = nil
+            center.duringAdd = nil
+            source = "device"; enabled = true; details = true; center.permission = true
+            await runtime.process(candidates: [candidate()])
+            XCTAssertEqual(center.additions, 1, "An uncertain outcome cannot regain a retry: \(change)")
+        }
+    }
+    func testKnownCancellationAfterSubmittingMarkerReleasesUnusedBudgetWithoutReplayingIdentity() async throws {
+        let store = try await WhoopStore.inMemory()
+        let center = Center()
+        center.duringAuthorization = { count in if count == 3 { center.permission = false } }
+        let runtime = coordinator(store: store, center: center)
+        await runtime.process(candidates: [candidate()])
+        XCTAssertEqual(center.additions, 0)
+        let cancelled = try await store.notificationRecords()
+        XCTAssertEqual(cancelled.first?.state, .withdrawn)
+        XCTAssertNil(cancelled.first?.chargedAt)
+        XCTAssertEqual(cancelled.first?.attempts, 1)
+        center.permission = true
+        center.duringAuthorization = nil
+        await runtime.process(candidates: [candidate()])
+        XCTAssertEqual(center.additions, 0, "Unused budget does not erase the cancelled occurrence identity")
+        let other = NotificationCandidate(ruleID: "workoutSummary", group: .workoutSummary, subjectID: "other",
+            occurrenceID: "other", attentionKey: "other", evidenceRevision: "v2", sourceContext: "device",
+            logicalDay: "2027-01-19", observedAt: now, generatedAt: now, expiresAt: now.addingTimeInterval(3600),
+            destination: .workout(id: "other"), genericTitle: "Ready", genericBody: "Review")
+        await runtime.process(candidates: [other])
+        XCTAssertEqual(center.additions, 1, "A notice that never invoked add must not block an unrelated useful result")
+    }
     func testDefaultPrivateReconciliationPreservesGenericPendingRequest() async throws {
         let store = try await WhoopStore.inMemory()
         let center = Center()
@@ -105,7 +185,7 @@ final class NotificationCoordinatorTests: XCTestCase {
         center.duringAdd = { source = "different-device" }
         let runtime = NotificationCoordinator(center: center, clock: { self.now },
             preferences: { .init(modes: [.workoutSummary: .notify], quietHoursEnabled: false) },
-            context: { .init(sourceContext: source, logicalDay: "2027-01-19") }, store: { store }, dryRun: { false })
+            context: { .init(sourceContext: source, logicalDay: "2027-01-19", sleeping: false) }, store: { store }, dryRun: { false })
         await runtime.process(candidates: [candidate()])
         XCTAssertTrue(center.requests.isEmpty)
         let rows = try await store.notificationRecords()
@@ -138,7 +218,7 @@ final class NotificationCoordinatorTests: XCTestCase {
         try await newStore.markNotificationSubmitted(occurrenceID: reminder.occurrenceID, now: now)
         let runtime = NotificationCoordinator(center: center, clock: { self.now },
             preferences: { .init(modes: [.journalCheckIn: .notify]) },
-            context: { .init(sourceContext: source, logicalDay: "2027-01-19") },
+            context: { .init(sourceContext: source, logicalDay: "2027-01-19", sleeping: false) },
             store: { source == "database-a:device" ? oldStore : newStore }, dryRun: { false })
         center.duringPendingRead = {
             source = "database-b:device"
@@ -158,7 +238,7 @@ final class NotificationCoordinatorTests: XCTestCase {
         center.requests[identifier] = .init(identifier: identifier, title: "Current", body: "Current", candidate: candidate())
         let runtime = NotificationCoordinator(center: center, clock: { self.now },
             preferences: { .init(modes: [.workoutSummary: .notify]) },
-            context: { .init(sourceContext: source, logicalDay: "2027-01-19") },
+            context: { .init(sourceContext: source, logicalDay: "2027-01-19", sleeping: false) },
             store: { source = "database-b:device"; return oldStore }, dryRun: { false })
         await runtime.reconcile()
         XCTAssertNotNil(center.requests[identifier])
@@ -199,7 +279,7 @@ final class NotificationCoordinatorTests: XCTestCase {
         var revision = 0
         let runtime = NotificationCoordinator(center: center, clock: { self.now },
             preferences: { .init(modes: [.journalCheckIn: .notify]) },
-            context: { .init(sourceContext: "device", logicalDay: "2027-01-19") }, store: { store }, dryRun: { false },
+            context: { .init(sourceContext: "device", logicalDay: "2027-01-19", sleeping: false) }, store: { store }, dryRun: { false },
             authorizationChange: { previous, current in if previous == false && current { revision += 1 } })
         func reminder() -> NotificationCandidate {
             NotificationSchedulePlanner.candidate(group: .journalCheckIn, id: "day", scheduledAt: now.addingTimeInterval(3600),

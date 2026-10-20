@@ -12,10 +12,10 @@ The initial release supports:
 | --- | --- |
 | Wind-down | Generic reminder calculated from the canonical Sleep Need plan, chosen wake time and lead. Daily or weekday calendar recurrence. |
 | Planned workout | Generic reminder for a saved Lift plan with an explicitly chosen time. Date-only legacy plans need a time saved before they qualify. |
-| Completed workout | Current, locally completed sessions only, after canonical strain has settled. No imported or historical-session replay. |
+| Completed workout | Current, locally completed sessions only, after canonical strain has settled. No imported or historical-session replay. In-app results remain available; proactive phone delivery also requires qualified current awake evidence. |
 | Device charging | Existing low, predictive-runtime and full-charge choices, with durable per-device charging episodes. |
 | Weekly review | Chosen weekly reminder opening the latest completed Monday-Sunday review period. |
-| Journal | Chosen weekdays and time, opening the exact journal date. A completed entry is skipped when the app reconciles the schedule. |
+| Journal | Chosen weekdays and time, opening the exact journal date. Requires an active visible question. Partial entries remain eligible; all selected native answers, including No and numeric zero, complete that date and cancel its reminder on reconciliation. |
 | Morning summary | Choice is saved; delivery awaits the separate recovery repair and a qualified canonical-data adapter. |
 | Daily strain target / health patterns | Choices are saved; delivery awaits the separate recovery repair and qualified current inputs. |
 
@@ -23,16 +23,20 @@ The recovery gate is explicit in `NotificationFactBuilder`. Merging recovery PR 
 
 Journal and workout reminders are prepared seven days ahead and replenished during normal app execution. Wind-down and weekly reminders repeat through the OS. iOS cannot rerun app eligibility at the moment a local request is displayed, so future copy stays generic and changed/completed schedules are cancelled when the app observes them.
 
+The first-release catalog deadlines apply: a workout reminder expires two hours after its chosen workout start, and a journal reminder expires two hours after its chosen check-in time. The workout reminder lead changes its fire time, not its expiry base. These are app eligibility deadlines; they do not guarantee an OS presentation cutoff.
+
 ## Delivery contract
 
 - Proactive notices have a limit of 2 per local calendar day, 10 per rolling seven days and a minimum three-hour gap. They yield within 30 minutes of a chosen reminder.
 - Proactive quiet hours default to 21:00–08:00. A deliberately selected reminder time is a scoped exception.
+- Current sources do not provide a qualified live asleep/awake signal. Production records unknown sleep state and suppresses proactive coaching with `sleep_state_unavailable`; it does not infer wakefulness from a completed sleep window, a strap mark or quiet hours. Existing device-charge choices and selected reminders remain available. Adding a live sleep adapter requires a reviewed source contract and tests.
 - New routine notices use normal interruption priority and no sound. Existing alarm/session behavior retains its independent owner.
 - Health-detail previews default off. Future reminders contain no predicted score or sensitive journal answer.
 - Occurrence identity, shared attention identity and the budget reservation are claimed atomically in SQLite. A source revision cannot create another occurrence for the same event.
 - A successful OS `add` is recorded as submitted, not delivered. Unknown outcomes retain a conservative claim; known failures have at most one retry.
 - Source changes, disabled categories, expired records and removed plans are reconciled with requests owned by this coordinator. Unrelated alarm requests remain owned by their existing code.
 - Taps carry typed record IDs, wait for onboarding/source/session readiness, and open read-only destinations. A tap cannot start or complete a workout.
+- Charge warnings offer one user-requested reminder in 15 minutes while that time remains before the original observation's expiry. The reminder keeps that expiry, has no further Snooze action and is cancelled on a measured charging recovery. Expired, withdrawn or changed-source actions cannot create another notice. Other launch groups offer Open and Turn off this type; Snooze for their different useful windows is deferred.
 
 `Preview new advice without sending` records eligible new advice locally. The proactive pause switch leaves explicitly chosen schedules and wake alarms available.
 
@@ -57,7 +61,7 @@ The temporary Linux Swift 6.3.3 harnesses compiled the exact new policy sources 
 - SQLite ledger harness: 20 tests passed, including separate writer connections, disk reopen, unknown submission outcomes, bounded retry, retention, local-calendar budgets and migration ordering. A repeated-reconciliation regression was reproduced and fixed before the final run.
 - A pure Foundation schedule harness verified DST spring/fall resolution and skipping date-only or completed plans.
 - A civil-date regression harness reproduced the wrong journal date after a timezone change. The corrected date helpers passed nine checks, including midnight and UTC-to-Los-Angeles travel.
-- All 12 required source audits passed. Swift syntax parsing has passed for the changed implementation areas. Parsing does not establish Apple SDK type checking.
+- These are earlier implementation reports. Their temporary harness outputs are not committed here and were not rerun by the source review. The reproducible first-release path and test mapping is in [Source coverage audit](SOURCE_COVERAGE.md). That audit is source inspection, not an Apple build, a passing test run or validation of 540 catalog rows.
 
 The existing GitHub workflows run the real retained packages, Xcode app build and iOS unit tests on the pushed PR. Their current status is recorded in the PR description. Linux cannot run Xcode, render SwiftUI screenshots or exercise device notification behavior.
 
@@ -71,3 +75,4 @@ Before merge, review the hosted Apple checks and manually verify normal/large-te
 - [Original implementation plan](IMPLEMENTATION_PLAN.md)
 - [Repository and WHOOP research evidence](REPO_AND_WHOOP_EVIDENCE.md)
 - [Launch catalog-family mapping](launch-rule-map.json)
+- [First-release source coverage and evidence limits](SOURCE_COVERAGE.md)

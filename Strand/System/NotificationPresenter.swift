@@ -33,6 +33,7 @@ final class NotificationPresenter: NSObject, UNUserNotificationCenterDelegate {
         let occurrence = payload["noopNotificationOccurrence"] as? String
         let groupRaw = payload["noopNotificationGroup"] as? String
         let repeating = payload["noopNotificationRepeating"] as? Bool == true
+        let snoozeJSON = payload["noopNotificationSnoozeCandidate"] as? String
         // The delegate handoff is complete; only Sendable values cross to the main actor.
         completionHandler()
         guard owned else { return }
@@ -40,6 +41,10 @@ final class NotificationPresenter: NSObject, UNUserNotificationCenterDelegate {
             if action == "noop.notification.turnOff", let groupRaw, let group = NotificationGroup(rawValue: groupRaw) {
                 NotificationPreferences.shared.setMode(.off, for: group)
                 await NotificationCoordinator.shared.reconcileSchedules()
+            } else if action == "noop.notification.snooze", let snoozeJSON,
+                      let original = try? JSONDecoder().decode(NotificationCandidate.self, from: Data(snoozeJSON.utf8)),
+                      original.occurrenceID == occurrence, original.sourceContext == source {
+                await NotificationCoordinator.shared.snooze(original)
             } else if action == UNNotificationDefaultActionIdentifier {
                 var routedJSON = routeJSON
                 if repeating, let groupRaw {
@@ -62,7 +67,8 @@ final class NotificationPresenter: NSObject, UNUserNotificationCenterDelegate {
                 routePayload["noopNotificationSourceContext"] = source
                 NavRouter.receiveNotificationResponse(userInfo: routePayload)
             }
-            if let occurrence, let store = await AppModel.shared?.repo.notificationDecisionStore() {
+            if action == UNNotificationDefaultActionIdentifier, let occurrence,
+               let store = await AppModel.shared?.repo.notificationDecisionStore() {
                 try? await store.acknowledgeNotification(occurrenceID: occurrence, now: Date())
             }
         }

@@ -216,6 +216,6 @@ Validate on a physical iPhone. Test locked data, delayed background work, Focus,
 
 The release passes when useful messages open the correct record, old evidence stays silent, and chosen schedules survive restarts. It must also preserve existing alarm behavior and source ownership.
 
-The companion implementation plan maps the work to exact files and meaningful tests. The catalog provides 540 positive cases. The separate failure matrix covers stale data, permission changes, event collisions, concurrency, and clock changes.
+The companion implementation plan maps the work to exact files and meaningful tests. The original design catalog describes 540 positive cases; it is a backlog, not 540 required production rules. The recovered original catalog and separate failure matrix are retained under `handoff/`. Their design validation is distinct from production rule coverage.
 
-This handoff does not claim an iOS build or device test. It records a read-only code review, public-source research, catalog checks, and artifact checks. See `REPO_AND_WHOOP_EVIDENCE.md` for pinned source links and `validation/VALIDATION_REPORT.json` for executed artifact checks.
+This handoff does not claim an iOS build or device test. See `REPO_AND_WHOOP_EVIDENCE.md` for pinned source links and `SOURCE_COVERAGE.md` for the first-release source audit. The recovered original `handoff/validation/VALIDATION_REPORT.json` records artifact validation for the supplied design library. Its checks do not establish production support for every row or executed app failure scenarios.

@@ -24,6 +24,25 @@ final class NotificationScheduleTests: XCTestCase {
         XCTAssertFalse(NotificationSchedulePlanner.shouldScheduleWorkout(hasExplicitTime: true, completedSessionID: "saved"))
         XCTAssertTrue(NotificationSchedulePlanner.shouldScheduleWorkout(hasExplicitTime: true, completedSessionID: nil))
     }
+    func testWorkoutExpiryUsesChosenStartRatherThanReminderLeadAndJournalUsesTwoHours() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let start = now.addingTimeInterval(3600)
+        let reminder = NotificationSchedulePlanner.candidate(group: .workoutPlan, id: "plan",
+            scheduledAt: start.addingTimeInterval(-1800), source: "source",
+            destination: .plannedWorkout(id: "plan"), now: now, actionAt: start)
+        XCTAssertEqual(reminder.expiresAt, start.addingTimeInterval(7200))
+        XCTAssertNotEqual(reminder.expiresAt, reminder.scheduledAt?.addingTimeInterval(7200))
+        let journal = NotificationSchedulePlanner.candidate(group: .journalCheckIn, id: "day",
+            scheduledAt: start, source: "source", destination: .journal(logicalDay: "day"), now: now)
+        XCTAssertEqual(journal.expiresAt, start.addingTimeInterval(7200))
+        for candidate in [reminder, journal] {
+            let result = NotificationPolicy.evaluate(candidates: [candidate],
+                preferences: .init(modes: [candidate.group: .notify]),
+                context: .init(sourceContext: "source", logicalDay: "day"), history: [], now: candidate.expiresAt)
+            XCTAssertEqual(result.decisions.first?.reason, .expired)
+            XCTAssertTrue(result.selected.isEmpty)
+        }
+    }
     func testRecurringIdentitySurvivesNextWeekAndNewIntentGetsNewIdentity() {
         let now = Date(timeIntervalSince1970: 1_800_000_000)
         func occurrence(_ scheduled: Date, revision: Int) -> NotificationCandidate {

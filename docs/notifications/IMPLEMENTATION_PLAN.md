@@ -178,6 +178,8 @@ Preserve canonical displayed strain. Do not sum workout scores to invent daily s
 
 The catalog's 540 entries are product cases. They are not 540 existing production rules. Implement focused behavior tests for the selected families and the shared policy. Run catalog validation to check the design files separately.
 
+Repository evidence (2026-10-20): the recovered original 540-row catalog, separate failure matrix and artifact validation are retained under `handoff/`. Run the retained catalog validator for design-library checks. `SOURCE_COVERAGE.md` records the bounded first-release source audit; it does not replace design validation or Apple execution gates.
+
 - [ ] Run the changed package suites and the project's required source audits.
 - [ ] Generate the Xcode project with `xcodegen generate`; build and test scheme `NOOPiOS` on an installed simulator.
 - [ ] Test real-device notification permission, lock state, background delay, Focus, time changes, and strap reconnect when available.
