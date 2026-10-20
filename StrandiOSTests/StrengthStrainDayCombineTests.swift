@@ -188,7 +188,7 @@ final class StrengthStrainDayCombineTests: XCTestCase {
         let combiner = StrengthStrainDayCombiner()
         let parts = floorDominated()
         let stored = parts.score ?? 0
-        await combiner.load(["2026-07-17"]) { _ in parts }
+        await combiner.load(["2026-07-17"]) { _ in .found(parts) }
 
         let known = combiner.dayCombine("2026-07-17", stored, 10)
         XCTAssertEqual(known.bitPattern,
@@ -199,7 +199,7 @@ final class StrengthStrainDayCombineTests: XCTestCase {
         XCTAssertEqual(unknown.bitPattern, inversion(stored, 10).bitPattern, "no parts: the inversion")
         XCTAssertEqual(combiner.missedDays, ["2026-07-18"])
 
-        await combiner.load(["2026-07-18"]) { _ in parts }
+        await combiner.load(["2026-07-18"]) { _ in .found(parts) }
         XCTAssertEqual(combiner.missedDays, [])
         XCTAssertEqual(combiner.dayCombine("2026-07-18", stored, 10).bitPattern, known.bitPattern)
     }
@@ -207,10 +207,59 @@ final class StrengthStrainDayCombineTests: XCTestCase {
     func testCombinerTreatsNilPartsAsAFinalAnswer() async {
         let combiner = StrengthStrainDayCombiner()
         var asked = 0
-        await combiner.load(["2026-07-17"]) { _ in asked += 1; return nil }
-        await combiner.load(["2026-07-17"]) { _ in asked += 1; return nil }
+        await combiner.load(["2026-07-17"]) { _ in asked += 1; return .none }
+        await combiner.load(["2026-07-17"]) { _ in asked += 1; return .none }
         XCTAssertEqual(asked, 1)
         _ = combiner.dayCombine("2026-07-17", 40, 10)
         XCTAssertEqual(combiner.missedDays, [], "a day with no parts is not retried")
+    }
+
+    func testCombinerRetriesADayWhoseLookupWasUnavailable() async {
+        let combiner = StrengthStrainDayCombiner()
+        let parts = floorDominated()
+        let stored = parts.score ?? 0
+        var asked = 0
+        await combiner.load(["2026-07-17"]) { _ in asked += 1; return .unavailable }
+        _ = combiner.dayCombine("2026-07-17", stored, 10)
+        XCTAssertEqual(combiner.missedDays, ["2026-07-17"], "an unavailable lookup leaves the day missed")
+
+        await combiner.load(["2026-07-17"]) { _ in asked += 1; return .found(parts) }
+        XCTAssertEqual(asked, 2, "and it is looked for again")
+        XCTAssertEqual(combiner.missedDays, [])
+        XCTAssertEqual(
+            combiner.dayCombine("2026-07-17", stored, 10).bitPattern,
+            StrengthStrainIntegration.dayCombine(hrStored: stored, muscularLoad: 10, components: parts).bitPattern,
+            "the retry settles by the parts, not the inversion")
+    }
+
+    func testEngineDoesNotCacheAnUnavailablePartsLoad() async throws {
+        let store = try await WhoopStore.inMemory()
+        let (engine, repo) = Fixtures.makeEngine(store: store)
+        let day = "2026-07-17"
+
+        // The repository has not loaded: the day is missed, not settled as "no parts".
+        repo.loaded = false
+        let early = StrengthStrainDayCombiner()
+        await engine.loadLiftStrainDayParts([day], into: early)
+        _ = early.dayCombine(day, 40, 10)
+        XCTAssertEqual(early.missedDays, [day])
+
+        // A cancelled task is the same.
+        repo.loaded = true
+        let cancelled = StrengthStrainDayCombiner()
+        let task = Task { @MainActor in
+            while !Task.isCancelled { await Task.yield() }
+            await engine.loadLiftStrainDayParts([day], into: cancelled)
+        }
+        task.cancel()
+        await task.value
+        _ = cancelled.dayCombine(day, 40, 10)
+        XCTAssertEqual(cancelled.missedDays, [day])
+
+        // Neither left a cached answer behind: the next look, loaded and not cancelled, gives a definite one.
+        let later = StrengthStrainDayCombiner()
+        await engine.loadLiftStrainDayParts([day], into: later)
+        _ = later.dayCombine(day, 40, 10)
+        XCTAssertEqual(later.missedDays, [], "the day has no computed row: a final answer this time")
     }
 }

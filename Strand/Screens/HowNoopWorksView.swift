@@ -258,7 +258,7 @@ struct HowNoopWorksView: View {
             case .charge:
                 return String(localized: "A baseline-normalized recovery score: your resting heart rate, sleep quality and night-to-night consistency, weighted against your own baseline, with heart-rate variability (rMSSD) leading wherever the strap gives us a clean reading.")
             case .effort:
-                return String(localized: "A cardiovascular load in the Banister TRIMP family: time spent in each heart-rate zone, weighted so harder zones count for more, summed into one daily figure.")
+                return StrainCopy.strainMethod
             case .rest:
                 return String(localized: "Sleep scored from how long you slept versus how much you needed, how efficient the night was, and the restorative (deep and REM) share of it.")
             case .fitnessAge:
@@ -270,7 +270,7 @@ struct HowNoopWorksView: View {
         var family: String {
             switch self {
             case .charge:     return String(localized: "RESTING HR + SLEEP + HRV")
-            case .effort:     return String(localized: "BANISTER TRIMP / HR ZONES")
+            case .effort:     return StrainCopy.strainFamily
             case .rest:       return String(localized: "DURATION + EFFICIENCY + STAGES")
             case .fitnessAge: return String(localized: "NES / HUNT VO2MAX")
             }

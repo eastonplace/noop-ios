@@ -136,6 +136,15 @@ enum StrengthStrainIntegration {
     }
 }
 
+/// What a look for a day's parts found. `unavailable` is a temporary no (the task was cancelled, or the repository has
+/// not loaded): it is never cached and never a final answer, so the day stays missed and the follow-up settle retries it.
+enum LiftStrainDayPartsLookup {
+    case found(StrainScorerV2.DayStrainComponents)
+    /// The day has no computed row or no usable parts: a final answer (the stored-score inversion settles it).
+    case none
+    case unavailable
+}
+
 /// Holds the parts of the days a settle will combine, and hands the store a synchronous day combine over them
 /// (the store calls it inside its write transaction, so it cannot read anything itself). A day whose parts were
 /// never looked for is recorded as missed, so the caller can load it and settle that day again.
@@ -145,17 +154,27 @@ final class StrengthStrainDayCombiner: @unchecked Sendable {
     private var attempted: Set<String> = []
     private var missed: Set<String> = []
 
-    /// Looks up each day not yet attempted with `parts` (nil is a final answer: the day has no usable parts).
+    /// Looks up each day not yet attempted with `parts`. `.none` is a final answer (the day has no usable parts);
+    /// `.unavailable` is not: the day is left unattempted, so it stays missed and is looked for again.
     @MainActor
-    func load(_ days: [String], using parts: (String) async -> StrainScorerV2.DayStrainComponents?) async {
+    func load(_ days: [String], using parts: (String) async -> LiftStrainDayPartsLookup) async {
         for day in Set(days).sorted() {
             let known = locked { attempted.contains(day) }
             if known { continue }
-            let found = await parts(day)
+            let lookup = await parts(day)
             locked {
-                attempted.insert(day)
-                missed.remove(day)
-                self.parts[day] = found
+                switch lookup {
+                case .found(let components):
+                    attempted.insert(day)
+                    missed.remove(day)
+                    self.parts[day] = components
+                case .none:
+                    attempted.insert(day)
+                    missed.remove(day)
+                    self.parts[day] = nil
+                case .unavailable:
+                    break
+                }
             }
         }
     }
