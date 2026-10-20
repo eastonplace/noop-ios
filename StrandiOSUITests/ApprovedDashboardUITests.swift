@@ -141,7 +141,9 @@ final class ApprovedDashboardUITests: XCTestCase {
         plus.tap()
         try requireExists(app.buttons["quickActions.close"], in: app)
         capture(app, "today-\(size)-quick-actions-open")
-        app.buttons["quickActions.close"].tap()
+        // Use the visible X: the full-screen scrim's center is covered by the menu at AX sizes.
+        XCTAssertEqual(plus.label, "Close Quick Actions")
+        plus.tap()
         try waitFor(app.buttons["quickActions.close"], predicate: "exists == false", in: app)
 
         let title = element("today.health.title", in: app)
