@@ -1,0 +1,1286 @@
+{
+  "schema_version": 1,
+  "checked_at": "2026-10-19",
+  "scope": "WHOOP-only reconciliation; current target base preserved",
+  "pins": {
+    "target": {
+      "repo": "eastonplace/noop-ios",
+      "ref": "main",
+      "sha": "38682a54803b232373d5c453386c80a7a74d6cc0",
+      "tree": "314a7c2d0c5890213d144e62e86ec6f7166fb2ee",
+      "date": "2026-10-19T13:52:26Z"
+    },
+    "upstream": {
+      "repo": "ryanbr/noop",
+      "ref": "main",
+      "sha": "8e4b0c16e7640607600fa6bde5424095eba6034e",
+      "tree": "c3bc5948d8bbc99ee44eacd4e4ddbd350cfb99f8",
+      "date": "2026-10-15T17:31:00Z"
+    },
+    "fetchedAt": "2026-10-19",
+    "source": "GitHub connector"
+  },
+  "prior_upstream_pin": {
+    "sha": "141cbd939bb9ac28cd7477e60b2c9ff06dfbe0bf",
+    "date": "2026-09-24T08:15:10Z",
+    "title": "ble: ask again for the peripheral once the radio is up, instead of scanning for one already bonded (#2436)",
+    "body": "ble: ask again for the peripheral once the radio is up, instead of scanning for one already bonded (#2436)\n\nReported in #2433 by @pipiche38, with the root cause and the remedy already\ntraced. Every claim was checked against the source rather than the trace, and\nthere was one more door than the report names.\n\n`retrievePeripherals(withIdentifiers:)` answers nothing before `.poweredOn`.\nEvery source read that empty answer as \"this device has never been seen here\"\nand took the discovery branch: park the id, arm a service-filtered scan. The\nreplay on `.poweredOn` then looked the id up in `seenPeripherals` only, which\nis empty for the same reason, so it fell through to the scan it had just armed.\nThe targeted connect CoreBluetooth honours while the app is suspended was never\nissued.\n\nIn the foreground this costs nothing: a scan finds the device in 1-6 s. In the\nbackground iOS throttles scanning hard. The report has a Gen3 ring bonded to\nthe phone for weeks found 29 min 54 s after a background relaunch, and 4 min\n31 s earlier the same day, beside a WHOOP central that attached immediately.\nEvery launch printed \"not cached yet\", 8 of 8 in that export, for a ring that\nplainly was.\n\nBLEManager already learned this for straps in #2272, where the comment reads\n\"a background scan would not find it\". The four peripheral sources never did.\n\nTwo doors, not one. `issueStandingConnect` carries the same conflation, and it\nis worse there, because its fallback calls `connect(id)`, which scans. Scanning\nis the one thing a standing connect exists to avoid, against its own promise\nthat CoreBluetooth reconnects \"whenever the ring is reachable, including while\nthe app is suspended\".\n\nBoth entry points now park the intent before the retrieve when the state is not\n`.poweredOn`, which also stops the log claiming something the code never\nchecked. The replay re-issues the retrieve, now that an empty answer means\nsomething, and connects what it finds.\n\nParking means nothing calls `scan()` on the way past, so a parked connect that\nstill cannot be resolved has no deferred scan to pick up: it arms discovery\nitself rather than answering \"nothing to do\", which would drop a first-ever\npairing in silence. Four outcomes, not three, and `didDiscover` still connects\nthe parked id on sight.\n\nSame change in the three sibling sources carrying the identical block:\nStandardHRSource, HuamiHRSource, FTMSSource. BLEManager was checked and is\nclean throughout, guarding the state before every retrieve.\n\nThe decision is extracted as `PendingConnect.replay`, a pure function of\n(parked, held, retrieved, scanning), testable without a radio, a peripheral or\na CBCentralManager, as the report suggested. Eight cases in StrandTests, two of\nthem invariants over the whole input space: a parked connect is never dropped,\nand nothing is ever started for a caller who asked for nothing. Mutation-tested\ntwice, each reddening only what it should.\n\nAndroid needs no twin: `getRemoteDevice(address)` rehydrates from a stable MAC\nwhatever the adapter state, while CoreBluetooth's per-app UUIDs need the radio\nup to resolve.\n\nWhat no unit test covers is the hardware half, which is the acceptance signal\nthe report names: a background relaunch followed within seconds by a connect\nline rather than a scan.\n\nRefs #1213, #1215",
+    "url": "https://github.com/ryanbr/noop/commit/141cbd939bb9ac28cd7477e60b2c9ff06dfbe0bf"
+  },
+  "release_boundaries": [
+    {
+      "tag": "testing-latest",
+      "sha": "8e4b0c16e7640607600fa6bde5424095eba6034e",
+      "name": "NOOP Staging \u2014 base 12.1.0 \u00b7 2026-10-15 \u00b7 8e4b0c1",
+      "published_at": "2026-10-15T17:31:32Z",
+      "prerelease": true,
+      "url": "https://github.com/ryanbr/noop/releases/tag/testing-latest"
+    },
+    {
+      "tag": "v12.0.0",
+      "sha": "7acce06c3d22cb5dfe959f2c4a43902471d21332",
+      "name": "NOOP 12.0.0",
+      "published_at": "2026-10-04T12:37:39Z",
+      "prerelease": false,
+      "url": "https://github.com/ryanbr/noop/releases/tag/v12.0.0"
+    },
+    {
+      "tag": "v11.8.0",
+      "sha": "ef0c0d72f2ece1a66c625a30e1076935e584b448",
+      "name": "NOOP 11.8.0",
+      "published_at": "2026-09-17T12:39:24Z",
+      "prerelease": false,
+      "url": "https://github.com/ryanbr/noop/releases/tag/v11.8.0"
+    }
+  ],
+  "history_counts": {
+    "after_prior_pin": 278,
+    "through_v12.0.0": 245,
+    "after_v12.0.0_to_staging_head": 33,
+    "inventory_records_including_baseline": 279,
+    "github_compare_confirmation": {
+      "status": "ahead",
+      "ahead_by": 278,
+      "behind_by": 0,
+      "total_commits": 278,
+      "merge_base_sha": "141cbd939bb9ac28cd7477e60b2c9ff06dfbe0bf"
+    }
+  },
+  "limitations": [
+    "GitHub compare response capped at300 files; not a complete changed-file count.",
+    "Selected behavioral source audit plus complete recent commit inventory; not exhaustive feature parity.",
+    "No hardware session.",
+    "Native46-test analytics subset is not full app/database/resource validation."
+  ],
+  "native_analytics_validation": {
+    "exit_code": 0,
+    "elapsed_seconds": 20.953,
+    "log": "analytics-native.log",
+    "scope": "exact whole-source subset with XCTest; not full StrandAnalytics/WhoopStore/app build",
+    "requested_xunit_output_created": false,
+    "tests": 46,
+    "failures": 0,
+    "unexpected": 0,
+    "summary_source": "Parsed from the original native XCTest log",
+    "class_summaries": {
+      "ChargeDriversTests": {
+        "tests": 13,
+        "failures": 0
+      },
+      "NightlyPhysiologyRegressionTests": {
+        "tests": 8,
+        "failures": 0
+      },
+      "RecoveryOptionalBaselineEligibilityTests": {
+        "tests": 6,
+        "failures": 0
+      },
+      "RecoveryScorerTests": {
+        "tests": 15,
+        "failures": 0
+      },
+      "RecoveryScorerTraceTests": {
+        "tests": 4,
+        "failures": 0
+      }
+    }
+  },
+  "preserved_target_contracts": [
+    "Easton UI",
+    "Strain V2",
+    "180-second normal sync ownership plus conditional bounded 600-second powered catch-up",
+    "Restore sequencing and ownership",
+    "Verified backup export behavior",
+    "WHOOP5 protocol proof beyond ATT ACK"
+  ],
+  "excluded_scope": [
+    "Coach",
+    "Oura",
+    "Other device families",
+    "Android-only changes",
+    "Upstream UI redesigns",
+    "Unrelated workouts/Health features",
+    "Experimental Strain or effort redesign"
+  ],
+  "unresolved_upstream_hardware": {
+    "claim": "Stable12.0.0 release notes state WHOOP5/MG history remains unresolved because its pairing/clock handshake is rejected; live HR does not prove history capture.",
+    "source": "https://github.com/ryanbr/noop/releases/tag/v12.0.0",
+    "source_kind": "upstream_release_claim_not_locally_reproduced"
+  },
+  "findings": [
+    {
+      "id": "RR-01",
+      "title": "WHOOP 4 source provenance per complete UTC hour",
+      "priority": "high",
+      "disposition": "adapt",
+      "upstream_commits": [
+        {
+          "sha": "c1beffa51465126d55436348259483ac787aa1c3",
+          "date": "2026-09-26T01:34:44Z",
+          "title": "Fix WHOOP 4 HRV source selection",
+          "url": "https://github.com/ryanbr/noop/commit/c1beffa51465126d55436348259483ac787aa1c3",
+          "phase": "since_prior_pin_through_v12.0.0",
+          "local_diff": "commits/c1beffa5.json"
+        },
+        {
+          "sha": "aee05cb49b079443d6658d795d2b67250937290b",
+          "date": "2026-09-27T02:38:07Z",
+          "title": "fix: select fuller WHOOP 4 RR source per hour",
+          "url": "https://github.com/ryanbr/noop/commit/aee05cb49b079443d6658d795d2b67250937290b",
+          "phase": "since_prior_pin_through_v12.0.0",
+          "local_diff": "commits/aee05cb4.json"
+        },
+        {
+          "sha": "3472cd106bea5591d7e915883ca80b20f62cd505",
+          "date": "2026-09-27T02:38:07Z",
+          "title": "fix: separate WHOOP 4 RR transports for HRV",
+          "url": "https://github.com/ryanbr/noop/commit/3472cd106bea5591d7e915883ca80b20f62cd505",
+          "phase": "since_prior_pin_through_v12.0.0",
+          "local_diff": "commits/3472cd10.json"
+        },
+        {
+          "sha": "12ca2f07982c1f73f53154533050e70b1f38208b",
+          "date": "2026-09-27T02:38:07Z",
+          "title": "WHOOP 4 R-R sources: repin the ingress test, pair extractStreams",
+          "url": "https://github.com/ryanbr/noop/commit/12ca2f07982c1f73f53154533050e70b1f38208b",
+          "phase": "since_prior_pin_through_v12.0.0",
+          "local_diff": null
+        }
+      ],
+      "upstream_paths": [
+        "Packages/WhoopProtocol/Sources/WhoopProtocol/HistoricalStreams.swift",
+        "Packages/WhoopProtocol/Sources/WhoopProtocol/Streams.swift",
+        "Packages/WhoopProtocol/Tests/WhoopProtocolTests/StreamsTests.swift",
+        "Packages/WhoopProtocol/Tests/WhoopProtocolTests/Whoop5RRTests.swift",
+        "Packages/WhoopStore/Sources/WhoopStore/Reads.swift",
+        "Packages/WhoopStore/Sources/WhoopStore/StreamStore.swift",
+        "Packages/WhoopStore/Sources/WhoopStore/Whoop5RRReadPolicy.swift",
+        "Packages/WhoopStore/Tests/WhoopStoreTests/RrSourceChannelTests.swift",
+        "Strand/Collect/Backfiller.swift",
+        "Strand/Collect/Collector.swift",
+        "Strand/Collect/RawHistoryArchive.swift",
+        "Strand/Data/Repository.swift"
+      ],
+      "source_functions": [
+        "WhoopStore.rrIntervals",
+        "extractStreams(...family:)",
+        "extractHistoricalStreams(...family:)"
+      ],
+      "target_base_observation": "Target RRSource has WHOOP 4 historical/realtime/standard string cases, but non-strict RRReadPolicy selection admits mixed WHOOP 4 trains.",
+      "adaptation_or_rationale": "Select historical, then realtime, then standard, then legacy independently for each whole UTC hour intersecting the query; exclude suspect rows before selection, then apply query bounds and LIMIT. Preserve target strings and emission order.",
+      "dependencies": [
+        "Confirmed family from registry",
+        "Consistent realtime, standard, historical and replay provenance",
+        "Target RRReadPolicy and store schema",
+        "Normal analysis cache invalidation"
+      ],
+      "verification_required": [
+        "Sparse historical wins denser realtime",
+        "Partial-hour and paginated reads choose the same transport",
+        "Cross-hour fallback",
+        "Same-second distinct beats and sourceOrdinal survive",
+        "Unknown family and WHOOP 5 isolation"
+      ],
+      "notes": [
+        "The intermediate fuller-source policy in aee05cb4 was superseded by final provenance priority in 3472cd10.",
+        "Do not import Oura source policy."
+      ],
+      "delivery_status": "implemented_in_adapted_files"
+    },
+    {
+      "id": "RR-02",
+      "title": "Import compatibility for upstream WHOOP 4 channels 8, 9 and 10",
+      "priority": "high",
+      "disposition": "adapt",
+      "upstream_commits": [
+        {
+          "sha": "c1beffa51465126d55436348259483ac787aa1c3",
+          "date": "2026-09-26T01:34:44Z",
+          "title": "Fix WHOOP 4 HRV source selection",
+          "url": "https://github.com/ryanbr/noop/commit/c1beffa51465126d55436348259483ac787aa1c3",
+          "phase": "since_prior_pin_through_v12.0.0",
+          "local_diff": "commits/c1beffa5.json"
+        },
+        {
+          "sha": "3472cd106bea5591d7e915883ca80b20f62cd505",
+          "date": "2026-09-27T02:38:07Z",
+          "title": "fix: separate WHOOP 4 RR transports for HRV",
+          "url": "https://github.com/ryanbr/noop/commit/3472cd106bea5591d7e915883ca80b20f62cd505",
+          "phase": "since_prior_pin_through_v12.0.0",
+          "local_diff": "commits/3472cd10.json"
+        }
+      ],
+      "upstream_paths": [
+        "Packages/WhoopProtocol/Sources/WhoopProtocol/HistoricalStreams.swift",
+        "Packages/WhoopProtocol/Sources/WhoopProtocol/Streams.swift",
+        "Packages/WhoopProtocol/Tests/WhoopProtocolTests/StreamsTests.swift",
+        "Packages/WhoopProtocol/Tests/WhoopProtocolTests/Whoop5RRTests.swift",
+        "Packages/WhoopStore/Sources/WhoopStore/Reads.swift",
+        "Packages/WhoopStore/Sources/WhoopStore/StreamStore.swift",
+        "Packages/WhoopStore/Sources/WhoopStore/Whoop5RRReadPolicy.swift",
+        "Packages/WhoopStore/Tests/WhoopStoreTests/RrSourceChannelTests.swift",
+        "Strand/Collect/Backfiller.swift",
+        "Strand/Collect/Collector.swift",
+        "Strand/Collect/RawHistoryArchive.swift",
+        "Strand/Data/Repository.swift"
+      ],
+      "source_functions": [
+        "RRSource.legacyChannel mapping",
+        "Target Database v57 follow-on migration"
+      ],
+      "target_base_observation": "Target legacy mapping and v57 numeric-to-string migration iterate only channels 1 through 7.",
+      "adaptation_or_rationale": "Extend compatibility mapping: 8 to whoop4Historical, 9 to whoop4Realtime, 10 to whoop4Standard. Use a new target migration identity and preserve imported raw rows and ordinals.",
+      "dependencies": [
+        "RR-01",
+        "Target schema migration ordering",
+        "Backup import and archive replay"
+      ],
+      "verification_required": [
+        "Migration from each channel 8..10",
+        "Idempotent migration/reopen",
+        "Existing string provenance preserved",
+        "Backup/restore round trip",
+        "Unrecognized legacy values remain safely unclaimed"
+      ],
+      "notes": [],
+      "delivery_status": "implemented_in_adapted_files"
+    },
+    {
+      "id": "RR-03",
+      "title": "WHOOP 5 500 ms filler quarantine",
+      "priority": "high",
+      "disposition": "adapt",
+      "upstream_commits": [
+        {
+          "sha": "2d0b01d8a1ef2d3578cf36a8e3a4f4e47e0ffe4f",
+          "date": "2026-09-28T12:20:17Z",
+          "title": "store: mark the WHOOP 5 500 ms R-R fill value as suspect",
+          "url": "https://github.com/ryanbr/noop/commit/2d0b01d8a1ef2d3578cf36a8e3a4f4e47e0ffe4f",
+          "phase": "since_prior_pin_through_v12.0.0",
+          "local_diff": "commits/2d0b01d8.json"
+        }
+      ],
+      "upstream_paths": [
+        "Packages/WhoopStore/Sources/WhoopStore/Database.swift",
+        "Packages/WhoopStore/Sources/WhoopStore/StreamStore.swift",
+        "Packages/WhoopStore/Sources/WhoopStore/Whoop5RRReadPolicy.swift",
+        "Packages/WhoopStore/Tests/WhoopStoreTests/Whoop5RrFillTests.swift"
+      ],
+      "source_functions": [
+        "whoop5RrFillFlagSQL",
+        "WhoopStore.insert",
+        "Database migration v47-rr-whoop5-fill upstream only"
+      ],
+      "target_base_observation": "Target has no tsSuspect field or equivalent narrow fill quarantine at the pinned base.",
+      "adaptation_or_rationale": "Mark rather than delete exact 500 ms WHOOP 5 historical/standard rows when same-device, same-second stored HR is below 100 bpm; migrate existing data and apply to new insertion. Exclude suspect rows before analytics source selection.",
+      "dependencies": [
+        "Target-native suspect metadata migration",
+        "HR/RR insertion ordering",
+        "Reader source selection and fingerprints",
+        "Restore preservation"
+      ],
+      "verification_required": [
+        "HR99 qualifies and HR100 does not",
+        "Unknown HR does not qualify",
+        "WHOOP 4 and other R-R values remain eligible",
+        "Different device or second does not qualify",
+        "Raw data retained",
+        "New insert and migrated old rows agree"
+      ],
+      "notes": [
+        "Upstream empirical basis was one 443896-beat WHOOP 5 backup; not a general clinical rule.",
+        "Upstream channels 5 and 7 must map to target string provenance."
+      ],
+      "delivery_status": "implemented_in_adapted_files"
+    },
+    {
+      "id": "REC-01",
+      "title": "Usable optional RHR and respiration baselines",
+      "priority": "high",
+      "disposition": "adapt",
+      "upstream_commits": [
+        {
+          "sha": "e7128ba7745c7a2debd6667719a5612c71fa4004",
+          "date": "2026-09-08T02:41:08Z",
+          "title": "recovery: treat an unusable resting-HR baseline as absent (#1990)",
+          "url": "https://github.com/ryanbr/noop/commit/e7128ba7745c7a2debd6667719a5612c71fa4004",
+          "phase": "older_than_prior_pin",
+          "local_diff": "commits/e7128ba7.json"
+        },
+        {
+          "sha": "0b7294054bf97135c22f1cf8c05d82e5d3cf98a9",
+          "date": "2026-10-09T04:23:07Z",
+          "title": "charge: omit unusable optional personal baselines",
+          "url": "https://github.com/ryanbr/noop/commit/0b7294054bf97135c22f1cf8c05d82e5d3cf98a9",
+          "phase": "staging_after_v12.0.0",
+          "local_diff": "commits/0b729405.json"
+        }
+      ],
+      "upstream_paths": [
+        "Packages/StrandAnalytics/Sources/StrandAnalytics/ChargeDrivers.swift",
+        "Packages/StrandAnalytics/Sources/StrandAnalytics/RecoveryScorer+Trace.swift",
+        "Packages/StrandAnalytics/Sources/StrandAnalytics/RecoveryScorer.swift",
+        "Packages/StrandAnalytics/Tests/StrandAnalyticsTests/RecoveryOptionalBaselineUsableTests.swift",
+        "Packages/StrandAnalytics/Tests/StrandAnalyticsTests/RecoveryRhrBaselineUsableTests.swift"
+      ],
+      "source_functions": [
+        "RecoveryScorer.recovery BaselineState overload",
+        "RecoveryScorer.chargeDrivers",
+        "RecoveryScorer.recoveryTrace"
+      ],
+      "target_base_observation": "Target only gates dominant HRV centrally; optional RHR and respiration are accepted by scorer, driver rows and trace. One engine respiration gate is insufficient.",
+      "adaptation_or_rationale": "Filter optional RHR and respiration through existing BaselineState.usable in all three paths. Preserve target low-level score kernel and API, with no effortBaseline parameter.",
+      "dependencies": [
+        "BaselineState.usable provisional-or-trusted semantics",
+        "Normal analysis invalidation for previously cached scores"
+      ],
+      "verification_required": [
+        "Six RecoveryOptionalBaselineEligibilityTests",
+        "Existing RecoveryScorerTests",
+        "Existing RecoveryScorerTraceTests",
+        "Existing ChargeDriversTests",
+        "Persisted-driver parity and invalidation integration"
+      ],
+      "notes": [
+        "Prepared in ports/recovery.",
+        "Native exact production subset passed all 46 tests with zero failures, including 6 new eligibility tests. See verification/analytics-native*.",
+        "Stale is ineligible even with large nValid."
+      ],
+      "delivery_status": "implemented_in_adapted_files"
+    },
+    {
+      "id": "SLEEP-01",
+      "title": "Primary-night resting HR uses primary session floor",
+      "priority": "high",
+      "disposition": "adapt",
+      "upstream_commits": [
+        {
+          "sha": "5de051909cd17c704ddead6cc5aacea7f23a651c",
+          "date": "2026-09-28T23:45:51Z",
+          "title": "analytics: restore primary-night RHR floor (Refs #2522)",
+          "url": "https://github.com/ryanbr/noop/commit/5de051909cd17c704ddead6cc5aacea7f23a651c",
+          "phase": "since_prior_pin_through_v12.0.0",
+          "local_diff": "commits/5de05190.json"
+        }
+      ],
+      "upstream_paths": [
+        "Packages/StrandAnalytics/Sources/StrandAnalytics/AnalyticsEngine.swift",
+        "Packages/StrandAnalytics/Sources/StrandAnalytics/PrimarySessionRestingHR.swift",
+        "Packages/StrandAnalytics/Tests/StrandAnalyticsTests/PrimaryNightRestingHRDailyTests.swift"
+      ],
+      "source_functions": [
+        "AnalyticsEngine.analyzeDay",
+        "PrimarySessionRestingHR diagnostics only",
+        "Target IntelligenceEngine persisted-session physiology selection"
+      ],
+      "target_base_observation": "Target AnalyticsEngine used matched.compactMap(restingHR).min(), allowing a short nap to set daily RHR; persisted-session reconciliation has a corresponding selector.",
+      "adaptation_or_rationale": "Choose the longest primary session before reading its existing restingHR. Do not fall back to a shorter session if primary RHR is nil. Keep the original resting-HR kernel, not upstream mean diagnostics.",
+      "dependencies": [
+        "Target-owned PrimaryNightRestingHR selector",
+        "AnalyticsEngine and IntelligenceEngine call sites",
+        "Cache invalidation"
+      ],
+      "verification_required": [
+        "Long night wins lower-HR nap",
+        "Missing primary RHR remains nil",
+        "Target kernel unchanged",
+        "Persisted and edited session selection",
+        "NightlyPhysiologyRegressionTests"
+      ],
+      "notes": [
+        "Target-audit agent owns code. Native subset executed 8 nightly regression tests."
+      ],
+      "delivery_status": "implemented_in_adapted_files"
+    },
+    {
+      "id": "SLEEP-02",
+      "title": "Nightly HRV window requires 20 clean intervals",
+      "priority": "high",
+      "disposition": "adapt",
+      "upstream_commits": [
+        {
+          "sha": "2fd88d1ade1ae70914e2458416c20cab00e0c611",
+          "date": "2026-09-22T09:16:21Z",
+          "title": "hrv: a nightly 5-min window needs minBeats clean intervals to count",
+          "url": "https://github.com/ryanbr/noop/commit/2fd88d1ade1ae70914e2458416c20cab00e0c611",
+          "phase": "older_than_prior_pin",
+          "local_diff": "commits/2fd88d1a.json"
+        }
+      ],
+      "upstream_paths": [
+        "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepStager.swift",
+        "Packages/StrandAnalytics/Tests/StrandAnalyticsTests/SleepStagerTests.swift"
+      ],
+      "source_functions": [
+        "SleepStager.sessionHrvWindows",
+        "HRVAnalyzer.minBeats"
+      ],
+      "target_base_observation": "Target requires only two clean beats for a nightly window even though HRVAnalyzer.minBeats is 20.",
+      "adaptation_or_rationale": "Use the existing minBeats floor. Preserve gap-aware cleaning, binning, original same-second ordering and RMSSD.",
+      "dependencies": [
+        "No classifier or over-count refusal prerequisite",
+        "Normal analysis invalidation"
+      ],
+      "verification_required": [
+        "19 clean intervals produce nil",
+        "20 produce a value",
+        "Sparse high-RMSSD window cannot equal-weight a full window",
+        "Endpoint binning and survivor behavior"
+      ],
+      "notes": [
+        "This missing change predates the previous upstream pin.",
+        "Do not add an 80-percent cleaning-retention gate.",
+        "Target-audit agent owns code; nightly native subset tests passed."
+      ],
+      "delivery_status": "implemented_in_adapted_files"
+    },
+    {
+      "id": "BLE-01",
+      "title": "False start-of-frame header checks",
+      "priority": "high",
+      "disposition": "preserve_target",
+      "upstream_commits": [
+        {
+          "sha": "f15360dac9abf814d7b2dd78098e4b1a994c7dbb",
+          "date": "2026-09-24T00:00:26Z",
+          "title": "ble: reject a false start-of-frame by its own header checksum (#2429)",
+          "url": "https://github.com/ryanbr/noop/commit/f15360dac9abf814d7b2dd78098e4b1a994c7dbb",
+          "phase": "older_than_prior_pin",
+          "local_diff": "commits/f15360da.json"
+        }
+      ],
+      "upstream_paths": [
+        "Packages/WhoopProtocol/Sources/WhoopProtocol/FrameDiagnostics.swift",
+        "Packages/WhoopProtocol/Sources/WhoopProtocol/Framing.swift",
+        "Packages/WhoopProtocol/Tests/WhoopProtocolTests/ReassemblerTests.swift",
+        "Strand/BLE/BLEManager.swift",
+        "Strand/BLE/FrameRouter.swift"
+      ],
+      "source_functions": [
+        "Reassembler.feed",
+        "FrameDiagnostics headerChecksumDrops",
+        "FrameRouter absorbReassemblerDrops"
+      ],
+      "target_base_observation": "Target already checks WHOOP 4 header CRC8 and WHOOP 5 CRC16 before accepting declared payload length, with ReassemblerHeaderCRCTests.",
+      "adaptation_or_rationale": "Retain existing checksum resynchronization. Review family minimum total length and diagnostics separately; do not duplicate or regress header gates.",
+      "dependencies": [
+        "Target framing format and max-size bounds",
+        "Connection-scoped diagnostics lifecycle"
+      ],
+      "verification_required": [
+        "Existing header CRC regressions",
+        "Valid fragmented frames",
+        "False SOF before valid frames",
+        "Per-family total floor and rejection diagnostics as applicable"
+      ],
+      "notes": [],
+      "delivery_status": "existing_target_behavior_preserved",
+      "delivery_note": "Existing CRC behavior preserved; new header-drop/oversize telemetry and framing regression tests are included."
+    },
+    {
+      "id": "BLE-02",
+      "title": "Bond re-entry classifiers",
+      "priority": "high",
+      "disposition": "preserve_target",
+      "upstream_commits": [
+        {
+          "sha": "0b05b84eeb446327965dc7ba945bd7d78f9c64b2",
+          "date": "2026-10-13T09:35:45Z",
+          "title": "Re-prove the WHOOP 4.0 encrypted bond when didConnect re-enters a bonded link",
+          "url": "https://github.com/ryanbr/noop/commit/0b05b84eeb446327965dc7ba945bd7d78f9c64b2",
+          "phase": "staging_after_v12.0.0",
+          "local_diff": "commits/0b05b84e.json"
+        },
+        {
+          "sha": "9b278013c943a9ad011ec5d8cf39291efbba33e6",
+          "date": "2026-10-13T10:04:10Z",
+          "title": "fix(ble): re-prove the WHOOP 5/MG encrypted bond on a re-entered link",
+          "url": "https://github.com/ryanbr/noop/commit/9b278013c943a9ad011ec5d8cf39291efbba33e6",
+          "phase": "staging_after_v12.0.0",
+          "local_diff": "commits/9b278013.json"
+        },
+        {
+          "sha": "35d052d662534941469a6e0be80085be231338a8",
+          "date": "2026-10-13T11:06:21Z",
+          "title": "fix(ble): ask whether the re-proved bond is this strap's",
+          "url": "https://github.com/ryanbr/noop/commit/35d052d662534941469a6e0be80085be231338a8",
+          "phase": "staging_after_v12.0.0",
+          "local_diff": "commits/35d052d6.json"
+        }
+      ],
+      "upstream_paths": [
+        "Strand/BLE/BLEManager.swift",
+        "Strand/BLE/ClientHelloOutcome.swift",
+        "Strand/BLE/Whoop4BondAck.swift",
+        "StrandTests/ClientHelloOutcomeTests.swift",
+        "StrandTests/Whoop4BondAckTests.swift"
+      ],
+      "source_functions": [
+        "Whoop4BondAck.classify",
+        "ClientHelloOutcome.classify",
+        "BLEManager.didConnect",
+        "Target admitConnectionGeneration",
+        "Target completeWhoop5SecureReady"
+      ],
+      "target_base_observation": "Target connection admission resets didBond/encryptedBond and handshake ownership before publishing connection ID. WHOOP 5 secure state requires protected notification and GET_HELLO protocol proof after write ACK.",
+      "adaptation_or_rationale": "Preserve stronger generation-specific target proof. Do not allow an upstream ACK-only helper to restore encryptedBond or proprietary command authority.",
+      "dependencies": [
+        "Whoop5SecureSession",
+        "Peripheral and connection-generation binding",
+        "Target command authorization gates"
+      ],
+      "verification_required": [
+        "Radio-cycle re-entry without disconnect",
+        "Late callback from prior generation",
+        "Different peripheral in a prior-bond window",
+        "ACK cannot substitute for protocol proof"
+      ],
+      "notes": [],
+      "delivery_status": "existing_target_behavior_preserved"
+    },
+    {
+      "id": "BLE-03",
+      "title": "OS-connected lookup across WHOOP families",
+      "priority": "medium",
+      "disposition": "defer",
+      "upstream_commits": [
+        {
+          "sha": "0bbd79425d7e1977a237c88e605f2de14318cdd5",
+          "date": "2026-09-27T22:47:23Z",
+          "title": "ble: adopt an OS-level strap link from either WHOOP family",
+          "url": "https://github.com/ryanbr/noop/commit/0bbd79425d7e1977a237c88e605f2de14318cdd5",
+          "phase": "since_prior_pin_through_v12.0.0",
+          "local_diff": "commits/0bbd7942.json"
+        }
+      ],
+      "upstream_paths": [
+        "Strand/BLE/BLEManager.swift"
+      ],
+      "source_functions": [
+        "BLEManager.connectCore",
+        "CBCentralManager.retrieveConnectedPeripherals"
+      ],
+      "target_base_observation": "Target OS-connected lookup queries only the currently selected family service.",
+      "adaptation_or_rationale": "Future adaptation should query both WHOOP vendor UUIDs with explicit target adoption/teardown ownership. Never use generic GATT Heart Rate or Battery UUIDs for this discovery.",
+      "dependencies": [
+        "Same-peripheral adoption and pinned strap rules",
+        "Existing disconnect-other-peripheral loop",
+        "Reconnect ownership tests"
+      ],
+      "verification_required": [
+        "WHOOP 4 selected with OS-linked WHOOP 5 and reverse",
+        "Pinned and unpinned installs",
+        "No unrelated accessory adoption/disconnection"
+      ],
+      "notes": [
+        "Upstream intentionally widens its pinned-strap disconnect loop to other-family WHOOP devices. That is a wire-visible behavior requiring review."
+      ],
+      "delivery_status": "not_imported_in_this_package"
+    },
+    {
+      "id": "SYNC-01",
+      "title": "Rescore claim before awaits and pending replay",
+      "priority": "high",
+      "disposition": "preserve_target",
+      "upstream_commits": [
+        {
+          "sha": "c03d4da127f4878359f401c45e7c43ec60e286f5",
+          "date": "2026-10-02T00:35:37Z",
+          "title": "fix: serialize iOS re-score admission (refs #2607)",
+          "url": "https://github.com/ryanbr/noop/commit/c03d4da127f4878359f401c45e7c43ec60e286f5",
+          "phase": "since_prior_pin_through_v12.0.0",
+          "local_diff": "commits/c03d4da1.json"
+        },
+        {
+          "sha": "f7aaf78bcd5c3e32698cecb05a5707301f2f6107",
+          "date": "2026-10-02T01:21:10Z",
+          "title": "rescore: space backgrounded offload re-scores at least 30 minutes apart",
+          "url": "https://github.com/ryanbr/noop/commit/f7aaf78bcd5c3e32698cecb05a5707301f2f6107",
+          "phase": "since_prior_pin_through_v12.0.0",
+          "local_diff": null
+        },
+        {
+          "sha": "f46671f627b2ec9a4fa5308e349f6a6f7e68c369",
+          "date": "2026-10-04T01:15:59Z",
+          "title": "fix(apple): complete history repair before queued recent rescore",
+          "url": "https://github.com/ryanbr/noop/commit/f46671f627b2ec9a4fa5308e349f6a6f7e68c369",
+          "phase": "since_prior_pin_through_v12.0.0",
+          "local_diff": "commits/f46671f6.json"
+        }
+      ],
+      "upstream_paths": [
+        "Strand/Data/IntelligenceEngine.swift",
+        "StrandTests/SleepWearHistoryRepairTests.swift"
+      ],
+      "source_functions": [
+        "IntelligenceEngine.analyzeRecent",
+        "Target IntelligenceAnalysisCoordinator"
+      ],
+      "target_base_observation": "Target already sets computing before awaiting store access and retains exact queued request/postconditions through its coordinator.",
+      "adaptation_or_rationale": "Keep target request ownership, durable receipts and bounded 180-second sync. Do not import boolean replay tasks, upstream pacing loops or an independent cooldown scheduler.",
+      "dependencies": [
+        "Target sync and analytics coordinator",
+        "Normal versioned invalidation"
+      ],
+      "verification_required": [
+        "Concurrent admission",
+        "Interrupted pass replay",
+        "Exactly-once completion receipts",
+        "180-second ownership bound preserved"
+      ],
+      "notes": [],
+      "delivery_status": "existing_target_behavior_preserved"
+    },
+    {
+      "id": "OWNER-01",
+      "title": "Archived WHOOP history remains available",
+      "priority": "medium",
+      "disposition": "preserve_target",
+      "upstream_commits": [
+        {
+          "sha": "dda7401f74e0b4ac26f1de38a0c387570969888f",
+          "date": "2026-10-02T01:22:19Z",
+          "title": "Preserve archived device history in Apple day ownership",
+          "url": "https://github.com/ryanbr/noop/commit/dda7401f74e0b4ac26f1de38a0c387570969888f",
+          "phase": "since_prior_pin_through_v12.0.0",
+          "local_diff": "commits/dda7401f.json"
+        }
+      ],
+      "upstream_paths": [
+        "Packages/StrandAnalytics/Tests/StrandAnalyticsTests/DayOwnerReadIntegrationTests.swift",
+        "Strand/Data/IntelligenceEngine.swift",
+        "StrandTests/DayOwnerUniversalLineTests.swift"
+      ],
+      "source_functions": [
+        "IntelligenceEngine.resolveDayOwner"
+      ],
+      "target_base_observation": "Target completedDay path considers archived sources by plausible HR coverage, protects sufficiently covered active owner and can prefer a full archived day over a short lower-priority live source.",
+      "adaptation_or_rationale": "Keep target completed-day resolver. Upstream archived-priority4 presence probing is not equivalent and is less precise for completed-day coverage.",
+      "dependencies": [
+        "CivilDayWindow",
+        "Plausible HR count",
+        "Locked day ownership"
+      ],
+      "verification_required": [
+        "Archived full day with empty active strap",
+        "Covered active day retains ownership",
+        "Short secondary live data does not steal archived day",
+        "Locked override remains first"
+      ],
+      "notes": [],
+      "delivery_status": "existing_target_behavior_preserved"
+    },
+    {
+      "id": "HRV-01",
+      "title": "Over-counted main-night HRV refusal",
+      "priority": "high",
+      "disposition": "defer",
+      "upstream_commits": [
+        {
+          "sha": "460f11aedd4dd12c5b575944b8ee00c04663ff06",
+          "date": "2026-09-06T21:38:44Z",
+          "title": "hrv: withhold RMSSD on a night whose R-R over-counts",
+          "url": "https://github.com/ryanbr/noop/commit/460f11aedd4dd12c5b575944b8ee00c04663ff06",
+          "phase": "older_than_prior_pin",
+          "local_diff": "commits/460f11ae.json"
+        },
+        {
+          "sha": "9bea1441abfbfb2faad0a0cbae99c07f153f0bc2",
+          "date": "2026-08-02T04:34:23Z",
+          "title": "Give classifyCoverage a floor, so a night missing beats stops reading as clean (#977) (#1033)",
+          "url": "https://github.com/ryanbr/noop/commit/9bea1441abfbfb2faad0a0cbae99c07f153f0bc2",
+          "phase": "older_than_prior_pin",
+          "local_diff": "commits/9bea1441.json"
+        },
+        {
+          "sha": "2e3d1a2631b678d22e949d9f9ded57376f22e9d9",
+          "date": "2026-09-24T01:28:00Z",
+          "title": "hrv: do not replace a refused main night's HRV with the day's naps (#2426)",
+          "url": "https://github.com/ryanbr/noop/commit/2e3d1a2631b678d22e949d9f9ded57376f22e9d9",
+          "phase": "older_than_prior_pin",
+          "local_diff": "commits/2e3d1a26.json"
+        }
+      ],
+      "upstream_paths": [
+        "Packages/StrandAnalytics/Sources/StrandAnalytics/AnalyticsEngine.swift",
+        "Packages/StrandAnalytics/Sources/StrandAnalytics/HRVAnalyzer.swift",
+        "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepStager.swift",
+        "Packages/StrandAnalytics/Tests/StrandAnalyticsTests/AnalyticsEngineRefusedMainNightHrvTests.swift",
+        "Packages/StrandAnalytics/Tests/StrandAnalyticsTests/HrvOverCountGateTests.swift",
+        "Packages/StrandAnalytics/Tests/StrandAnalyticsTests/RrCoverageVerdictTests.swift",
+        "Strand/Data/IntelligenceEngine.swift"
+      ],
+      "source_functions": [
+        "HRVAnalyzer.classifyCoverage",
+        "HRVAnalyzer.successiveDiffIsTrustworthy",
+        "SleepStager.sessionHrvOverCounted",
+        "SleepStager.sessionAvgHRV",
+        "AnalyticsEngine main-night HRV pooling"
+      ],
+      "target_base_observation": "Target lacks classifier and shared refusal reason. Canonical cached sessions can lack raw-owner provenance; edited-window reconciliation skips nil metric updates.",
+      "adaptation_or_rationale": "Implement only as an end-to-end future change carrying refusal and raw-owner identity through cache, edited sessions, persisted daily fields and baseline folding. Do not infer refusal from nil alone or borrow nap HRV for a refused main night.",
+      "dependencies": [
+        "Coverage classifier and two over-count verdict gate",
+        "Canonical raw-owner provenance",
+        "Edited-window nil writes",
+        "Main-group pooling",
+        "Repair/invalidation receipt"
+      ],
+      "verification_required": [
+        "Honest 75 bpm second collisions remain accepted",
+        "Same/cross-second over-count refused",
+        "Under-covered is distinct and not rejected by this gate",
+        "No RR is distinct from refusal",
+        "Clean fragment can contribute within refused main group",
+        "Cached and edited nil results replace old metric"
+      ],
+      "notes": [
+        "The classifier floor alone is diagnostic; successive differences reject only the two over-count verdicts.",
+        "No cross-second tolerance-based destructive de-duplication.",
+        "The 20-clean-interval port is independent and included."
+      ],
+      "delivery_status": "not_imported_in_this_package"
+    },
+    {
+      "id": "SLEEP-03",
+      "title": "Sustained HR closes unmatched off-wrist tails",
+      "priority": "medium",
+      "disposition": "defer",
+      "upstream_commits": [
+        {
+          "sha": "7f1e42f7b5b2bd4e8cb364017749fe3115d23d53",
+          "date": "2026-09-29T05:37:22Z",
+          "title": "fix(sleep): recover unmatched off-wrist tails from sustained HR",
+          "url": "https://github.com/ryanbr/noop/commit/7f1e42f7b5b2bd4e8cb364017749fe3115d23d53",
+          "phase": "since_prior_pin_through_v12.0.0",
+          "local_diff": "commits/7f1e42f7.json"
+        },
+        {
+          "sha": "b9e1a3ce50209782eaaaf4aa63aacc476679508d",
+          "date": "2026-09-29T05:37:22Z",
+          "title": "fix(sleep): combine history repair passes",
+          "url": "https://github.com/ryanbr/noop/commit/b9e1a3ce50209782eaaaf4aa63aacc476679508d",
+          "phase": "since_prior_pin_through_v12.0.0",
+          "local_diff": "commits/b9e1a3ce.json"
+        },
+        {
+          "sha": "f46671f627b2ec9a4fa5308e349f6a6f7e68c369",
+          "date": "2026-10-04T01:15:59Z",
+          "title": "fix(apple): complete history repair before queued recent rescore",
+          "url": "https://github.com/ryanbr/noop/commit/f46671f627b2ec9a4fa5308e349f6a6f7e68c369",
+          "phase": "since_prior_pin_through_v12.0.0",
+          "local_diff": "commits/f46671f6.json"
+        }
+      ],
+      "upstream_paths": [
+        "Packages/StrandAnalytics/Sources/StrandAnalytics/AnalyticsEngine.swift",
+        "Packages/StrandAnalytics/Sources/StrandAnalytics/WristWearRecovery.swift",
+        "Packages/StrandAnalytics/Tests/StrandAnalyticsTests/WristWearRecoveryTests.swift",
+        "Strand/App/AppModel.swift",
+        "Strand/Data/IntelligenceEngine.swift",
+        "StrandTests/SleepWearHistoryRepairTests.swift"
+      ],
+      "source_functions": [
+        "WristWearRecovery.firstSustainedHR",
+        "AnalyticsEngine.offWristIntervals",
+        "IntelligenceEngine historical sleep repair"
+      ],
+      "target_base_observation": "Target offWristIntervals accepts events/windowEnd only and extends unmatched OFF to windowEnd; no WristWearRecovery file.",
+      "adaptation_or_rationale": "Future port requires HR input and target-owned historical repair. Use only unmatched OFF tails; never synthesize events or shorten explicit OFF/ON pairs.",
+      "dependencies": [
+        "Same-window HR input on every call path",
+        "300-second run with HR30...220 and max gap5 seconds",
+        "Durable target repair receipt",
+        "Cache invalidation"
+      ],
+      "verification_required": [
+        "Explicit OFF/ON unchanged",
+        "Repeated OFF resets evidence",
+        "Invalid duplicate HR defeats evidence",
+        "Future events ignored",
+        "First actual sample boundary",
+        "Interrupted repair resumes without widening sync budget"
+      ],
+      "notes": [],
+      "delivery_status": "not_imported_in_this_package"
+    },
+    {
+      "id": "SLEEP-04",
+      "title": "Deep base prior adjustment",
+      "priority": "medium",
+      "disposition": "defer",
+      "upstream_commits": [
+        {
+          "sha": "bbeb20e831b023b8a2a20c5ad282c14b7df47a3c",
+          "date": "2026-09-28T23:21:17Z",
+          "title": "sleep: lower the deep base prior to 0.15 on PSG evidence",
+          "url": "https://github.com/ryanbr/noop/commit/bbeb20e831b023b8a2a20c5ad282c14b7df47a3c",
+          "phase": "since_prior_pin_through_v12.0.0",
+          "local_diff": "commits/bbeb20e8.json"
+        }
+      ],
+      "upstream_paths": [
+        "Packages/StrandAnalytics/Sources/StrandAnalytics/SleepStagerV2.swift",
+        "Packages/StrandAnalytics/Tests/StrandAnalyticsTests/SleepStagerV2Tests.swift",
+        "Tools/SleepPSG/Sources/sleeppsg/RecipePort.swift",
+        "Tools/SleepPSG/Sources/sleeppsg/Variants.swift",
+        "Tools/SleepPSG/Sources/sleeppsg/main.swift"
+      ],
+      "source_functions": [
+        "SleepStagerV2.baseLogPrior"
+      ],
+      "target_base_observation": "Target still uses the prior staging value.",
+      "adaptation_or_rationale": "Keep target staging default until replayed on its fixture corpus. Upstream changes deep from log0.18 to log0.15 without importing the proposed wake adjustment.",
+      "dependencies": [
+        "Target PSG or established staging replay corpus",
+        "Expected output review"
+      ],
+      "verification_required": [
+        "Per-subject staging comparisons",
+        "Deep precision/recall and bias tradeoff",
+        "Preserve wake and REM definitions"
+      ],
+      "notes": [
+        "Upstream claims 31-subject PSG replay; the audit did not rerun that experiment."
+      ],
+      "delivery_status": "not_imported_in_this_package"
+    },
+    {
+      "id": "REC-02",
+      "title": "Charge baseline history window and import retirement",
+      "priority": "medium",
+      "disposition": "defer",
+      "upstream_commits": [
+        {
+          "sha": "df44f0ed76f66176cd84165460fafd57b0bd883c",
+          "date": "2026-10-03T23:08:15Z",
+          "title": "fix(charge): add the rule for which nights a Charge baseline reads",
+          "url": "https://github.com/ryanbr/noop/commit/df44f0ed76f66176cd84165460fafd57b0bd883c",
+          "phase": "since_prior_pin_through_v12.0.0",
+          "local_diff": "commits/df44f0ed.json"
+        },
+        {
+          "sha": "79b906551e7229938fdacd48e5ef9020ea448794",
+          "date": "2026-10-03T23:08:15Z",
+          "title": "fix(charge): fold the engine's Charge baselines through ChargeBaselines",
+          "url": "https://github.com/ryanbr/noop/commit/79b906551e7229938fdacd48e5ef9020ea448794",
+          "phase": "since_prior_pin_through_v12.0.0",
+          "local_diff": null
+        },
+        {
+          "sha": "8931adbc0e5c18750c54637c27146fa69d1fd42b",
+          "date": "2026-10-03T23:08:15Z",
+          "title": "fix(charge): read the headline's baselines in the Charge breakdown",
+          "url": "https://github.com/ryanbr/noop/commit/8931adbc0e5c18750c54637c27146fa69d1fd42b",
+          "phase": "since_prior_pin_through_v12.0.0",
+          "local_diff": null
+        }
+      ],
+      "upstream_paths": [
+        "Packages/StrandAnalytics/Sources/StrandAnalytics/ChargeBaselines.swift",
+        "Packages/StrandAnalytics/Tests/StrandAnalyticsTests/ChargeBaselinesTests.swift"
+      ],
+      "source_functions": [
+        "ChargeBaselines.history",
+        "ChargeBaselines.resolve",
+        "ChargeBaselines.logLine",
+        "IntelligenceEngine baseline folding"
+      ],
+      "target_base_observation": "Target already folds as-of baseline chronology and persists driver payloads, so upstream full-history import weighting is not automatically the same defect.",
+      "adaptation_or_rationale": "Audit target imported-vs-own chronology separately before applying upstream fixed21-civil-day and import-until-own-trusted rule.",
+      "dependencies": [
+        "As-of time semantics",
+        "Import ownership",
+        "Re-score versions",
+        "Persisted driver/headline agreement"
+      ],
+      "verification_required": [
+        "No future-night leakage",
+        "Old import retires only under specified rule",
+        "Historical day replay deterministic",
+        "Headline and driver payload baselines identical"
+      ],
+      "notes": [],
+      "delivery_status": "not_imported_in_this_package"
+    },
+    {
+      "id": "STRESS-01",
+      "title": "Personal stress lens and input-union cache witnesses",
+      "priority": "medium",
+      "disposition": "defer",
+      "upstream_commits": [
+        {
+          "sha": "3211f94b5ecb3b2fd79fdc1018e63a4989085a2f",
+          "date": "2026-09-28T02:02:27Z",
+          "title": "stress: the same once-a-day lens on Apple",
+          "url": "https://github.com/ryanbr/noop/commit/3211f94b5ecb3b2fd79fdc1018e63a4989085a2f",
+          "phase": "since_prior_pin_through_v12.0.0",
+          "local_diff": "commits/3211f94b.json"
+        },
+        {
+          "sha": "4d40dda7f7bcabaf9c437c008d0b4bb9dbe2c12b",
+          "date": "2026-10-09T06:37:24Z",
+          "title": "fix(stress): gate every stress read on the union HR witness",
+          "url": "https://github.com/ryanbr/noop/commit/4d40dda7f7bcabaf9c437c008d0b4bb9dbe2c12b",
+          "phase": "staging_after_v12.0.0",
+          "local_diff": "commits/4d40dda7.json"
+        },
+        {
+          "sha": "88654a00175f08a00787990ff411c77f822cc5fd",
+          "date": "2026-10-09T04:14:49Z",
+          "title": "fix(stress): discard results from cancelled screen loads",
+          "url": "https://github.com/ryanbr/noop/commit/88654a00175f08a00787990ff411c77f822cc5fd",
+          "phase": "staging_after_v12.0.0",
+          "local_diff": "commits/88654a00.json"
+        }
+      ],
+      "upstream_paths": [
+        "Strand/Data/DaytimeStressMode.swift",
+        "Strand/Data/Repository.swift",
+        "Strand/Data/StressDayCurve.swift",
+        "Strand/Data/StressLoadCancellation.swift",
+        "Strand/Screens/StressView.swift",
+        "StrandTests/StressLensCacheTests.swift",
+        "StrandTests/StressLoadCancellationTests.swift",
+        "StrandTests/StressPersonalBaselineSurfaceTests.swift"
+      ],
+      "source_functions": [
+        "DaytimeStressMode.selected",
+        "DaytimeStressLensCache.resolve",
+        "Repository.hrFingerprintUnion",
+        "StressDayCurve.today",
+        "StressLoadCancellation"
+      ],
+      "target_base_observation": "Target has daytime stress analytics but lacks the same StressDayCurve/DaytimeStressMode/StressView architecture.",
+      "adaptation_or_rationale": "Adapt local-day anchoring, full HR-source union witness and cancelled-load rejection into the target snapshot architecture in a separate change; preserve current UI and opt-in behavior.",
+      "dependencies": [
+        "Actual reader input union",
+        "Per-source fingerprint identity",
+        "Calendar startOfDay",
+        "MainActor in-flight task ownership"
+      ],
+      "verification_required": [
+        "Backfill under alias invalidates lens",
+        "DST/local-day boundary",
+        "Concurrent resolves share work",
+        "Cancelled loads cannot publish",
+        "Unrelated source excluded from witness"
+      ],
+      "notes": [],
+      "delivery_status": "not_imported_in_this_package"
+    },
+    {
+      "id": "STORE-01",
+      "title": "Owned temporary scratch and safe cleanup",
+      "priority": "medium",
+      "disposition": "defer",
+      "upstream_commits": [
+        {
+          "sha": "f11830ee8026357096cc694d67f0c2086d605447",
+          "date": "2026-09-25T06:48:13Z",
+          "title": "storage: stage NOOP's temp scratch in a folder it owns, and sweep only that (#2453)",
+          "url": "https://github.com/ryanbr/noop/commit/f11830ee8026357096cc694d67f0c2086d605447",
+          "phase": "since_prior_pin_through_v12.0.0",
+          "local_diff": "commits/f11830ee.json"
+        }
+      ],
+      "upstream_paths": [
+        "Packages/StrandImport/Sources/StrandImport/AppleHealthImporter.swift",
+        "Packages/StrandImport/Sources/StrandImport/XiaomiBandImporter.swift",
+        "Packages/WhoopStore/Sources/WhoopStore/StreamStore.swift",
+        "Strand/App/AppModel.swift",
+        "Strand/Data/CsvExport.swift",
+        "Strand/Data/DataBackup.swift",
+        "Strand/Screens/RhythmView.swift",
+        "Strand/Screens/WorkoutDetailView.swift",
+        "Strand/System/FileExport.swift",
+        "Strand/System/NoopScratch.swift",
+        "Strand/System/TrendsReportRenderer.swift",
+        "StrandTests/NoopScratchTests.swift"
+      ],
+      "source_functions": [
+        "NoopScratch.root/directory/file/subdirectory/purge",
+        "AppModel.purgeImportTemp",
+        "DataBackup export staging"
+      ],
+      "target_base_observation": "Target still has an open noop-prefix temp predicate; recently integrated verified backup and restore staging is critical baseline behavior.",
+      "adaptation_or_rationale": "Adapt bundle-specific owned scratch with active operation leases and narrowly enumerated legacy cleanup in a separate change. Do not replace DataBackup with upstream file wholesale.",
+      "dependencies": [
+        "Backup/restore staging ownership",
+        "Export/import active operation lifecycle",
+        "Sandbox versus unsandboxed macOS temp directories"
+      ],
+      "verification_required": [
+        "Other processes noop-prefixed directories survive",
+        "Live export/import survives cleanup",
+        "Expired owned scratch reclaimed",
+        "Verified backup still atomic and restorable"
+      ],
+      "notes": [],
+      "delivery_status": "not_imported_in_this_package"
+    },
+    {
+      "id": "HEALTH-01",
+      "title": "Failed HealthKit read must not erase prior stored metric",
+      "priority": "medium",
+      "disposition": "defer",
+      "upstream_commits": [
+        {
+          "sha": "424bc304cef201823261b3c66993a2a8b31ef7a8",
+          "date": "2026-09-28T12:11:58Z",
+          "title": "health: no Apple metric may be overwritten by a read that failed",
+          "url": "https://github.com/ryanbr/noop/commit/424bc304cef201823261b3c66993a2a8b31ef7a8",
+          "phase": "since_prior_pin_through_v12.0.0",
+          "local_diff": "commits/424bc304.json"
+        }
+      ],
+      "upstream_paths": [
+        "StrandiOS/Health/HealthKitBridge.swift"
+      ],
+      "source_functions": [
+        "HealthKitBridge.collect",
+        "HealthRead failed/unsupported distinction",
+        "HealthKit whole-row replacement"
+      ],
+      "target_base_observation": "Target uses its own bounded observer and replacement pipeline rather than upstream whole-row collector.",
+      "adaptation_or_rationale": "Review target transaction seams for failed-vs-empty distinction. Do not wholesale transplant upstream bridge or unrelated metric scope.",
+      "dependencies": [
+        "Query result state",
+        "Atomic replacement semantics",
+        "Existing target write authorization"
+      ],
+      "verification_required": [
+        "Failed query preserves last good value",
+        "Unsupported type does not permanently block all sync",
+        "Successful empty read retains intended replacement behavior"
+      ],
+      "notes": [],
+      "delivery_status": "not_imported_in_this_package"
+    },
+    {
+      "id": "PROTO-01",
+      "title": "Bundled schema and hook smoke test",
+      "priority": "medium",
+      "disposition": "adapt_test",
+      "upstream_commits": [
+        {
+          "sha": "7a00c26be9264267cd267c468a9f9197ab201db7",
+          "date": "2026-10-15T06:53:01Z",
+          "title": "test(protocol): verify bundled schema decoder wiring",
+          "url": "https://github.com/ryanbr/noop/commit/7a00c26be9264267cd267c468a9f9197ab201db7",
+          "phase": "staging_after_v12.0.0",
+          "local_diff": "commits/7a00c26b.json"
+        }
+      ],
+      "upstream_paths": [
+        "Packages/WhoopProtocol/Sources/WhoopProtocol/WhoopProtocol.swift",
+        "Packages/WhoopProtocol/Tests/WhoopProtocolTests/SmokeTests.swift"
+      ],
+      "source_functions": [
+        "loadSchema",
+        "parseFrame bundled alias resolution",
+        "post-hook decoding",
+        "SmokeTests"
+      ],
+      "target_base_observation": "Target already has bundled schema and protocol tests; compare its resource-aware test coverage at the actual package seam.",
+      "adaptation_or_rationale": "A target-native smoke test can pin bundled resources and hooks. No new historical wire layout or handshake should be inferred from this upstream test commit.",
+      "dependencies": [
+        "Actual package bundle resources",
+        "Target schema aliases and registered hooks"
+      ],
+      "verification_required": [
+        "loadSchema from bundle",
+        "Representative parsed fields from declared alias",
+        "Hook output from registered packet"
+      ],
+      "notes": [
+        "This source commit removes unused WhoopProtocolInfo and improves tests; it is not a new decoder protocol."
+      ],
+      "delivery_status": "not_imported_in_this_package",
+      "delivery_note": "The complete existing protocol suite and added framing tests passed. A separate transplant of the upstream schema/hook smoke test is not included."
+    },
+    {
+      "id": "ECG-01",
+      "title": "WHOOP MG ECG layout and capture changes",
+      "priority": "low",
+      "disposition": "defer",
+      "upstream_commits": [
+        {
+          "sha": "0bec5566c0e1370fc0ea6d03a3e0eab30753a038",
+          "date": "2026-09-29T13:43:43Z",
+          "title": "ecg: correct the MG Labrador R17 layout, wrist values and START list",
+          "url": "https://github.com/ryanbr/noop/commit/0bec5566c0e1370fc0ea6d03a3e0eab30753a038",
+          "phase": "since_prior_pin_through_v12.0.0",
+          "local_diff": null
+        },
+        {
+          "sha": "b1c76595e726dc27d7d43ad5f5d660b0e7e20aa5",
+          "date": "2026-10-09T08:45:25Z",
+          "title": "fix(ecg): let a probe run reach the frame that carries the result",
+          "url": "https://github.com/ryanbr/noop/commit/b1c76595e726dc27d7d43ad5f5d660b0e7e20aa5",
+          "phase": "staging_after_v12.0.0",
+          "local_diff": null
+        },
+        {
+          "sha": "cd9235dd2c170981a9f7fceaf9320cb0c37a2e17",
+          "date": "2026-10-09T08:45:25Z",
+          "title": "fix(ecg): keep a capture's frames when the user stops it",
+          "url": "https://github.com/ryanbr/noop/commit/cd9235dd2c170981a9f7fceaf9320cb0c37a2e17",
+          "phase": "staging_after_v12.0.0",
+          "local_diff": null
+        },
+        {
+          "sha": "4f3baeba47215dab941e4e7cc1a4ffa442583147",
+          "date": "2026-10-09T08:45:25Z",
+          "title": "refactor(ecg): keep the listen window in one place",
+          "url": "https://github.com/ryanbr/noop/commit/4f3baeba47215dab941e4e7cc1a4ffa442583147",
+          "phase": "staging_after_v12.0.0",
+          "local_diff": null
+        }
+      ],
+      "upstream_paths": [
+        "Packages/WhoopProtocol/Sources/WhoopProtocol",
+        "Strand/BLE/BLEManager.swift"
+      ],
+      "source_functions": [
+        "ECG R17 decoder",
+        "ECG wrist-state and START-list parsing",
+        "ECG capture/probe controller"
+      ],
+      "target_base_observation": "Hardware-specific experimental MG surface requires its own source and capture comparison.",
+      "adaptation_or_rationale": "Keep out of the normal WHOOP sleep/RR port. A later MG-only adaptation needs exact recorded frames and capture ownership proofs.",
+      "dependencies": [
+        "WHOOP MG device/captured frames",
+        "Safe separation from history offload",
+        "Capture latch lifecycle"
+      ],
+      "verification_required": [
+        "R17 field fixture",
+        "Wrist-state mapping",
+        "START command bounds",
+        "Capture/offload handoff",
+        "App-restart capture state"
+      ],
+      "notes": [
+        "Recent inventory was reviewed; the full ECG capture subsystem was not validated here."
+      ],
+      "delivery_status": "not_imported_in_this_package"
+    },
+    {
+      "id": "DIAG-01",
+      "title": "Per-peripheral strap clock verdict attribution",
+      "priority": "low",
+      "disposition": "defer_consumer_absent",
+      "upstream_commits": [
+        {
+          "sha": "276b72ea3a5b9912859e926b32ed0627d9016113",
+          "date": "2026-09-27T22:22:53Z",
+          "title": "Attribute the strap-clock verdict to the strap it is about",
+          "url": "https://github.com/ryanbr/noop/commit/276b72ea3a5b9912859e926b32ed0627d9016113",
+          "phase": "since_prior_pin_through_v12.0.0",
+          "local_diff": "commits/276b72ea.json"
+        }
+      ],
+      "upstream_paths": [
+        "Strand/BLE/BLEManager.swift",
+        "Strand/BLE/LastSyncAttribution.swift",
+        "Strand/System/DebugDataDiagnostics.swift",
+        "StrandTests/StrapClockAttributionTests.swift"
+      ],
+      "source_functions": [
+        "LastSyncAttribution.resolveStrapClockTs",
+        "LastSyncAttribution.strapClockPrefKey",
+        "DebugDataDiagnostics.alarmLines",
+        "BLEManager range reply attribution"
+      ],
+      "target_base_observation": "Target LiveState+Biometrics writes the shared preference, but the upstream alarm diagnostic consumer and helper are absent. Connection-scoped clock checks are present.",
+      "adaptation_or_rationale": "Do not claim the same upstream false diagnostic currently appears in target. Use per-peripheral attribution if that consumer is introduced; preserve connection-scoped checks.",
+      "dependencies": [
+        "Peripheral identity",
+        "Paired registry count",
+        "Single-device legacy fallback only"
+      ],
+      "verification_required": [
+        "Per-device stamp wins",
+        "Legacy shared stamp allowed only one paired device",
+        "Multiple devices with no owned stamp show unknown",
+        "Blank identity rejected"
+      ],
+      "notes": [],
+      "delivery_status": "not_imported_in_this_package"
+    },
+    {
+      "id": "PERF-01",
+      "title": "Single-pass R-R day fingerprint",
+      "priority": "low",
+      "disposition": "defer",
+      "upstream_commits": [
+        {
+          "sha": "5e204fab4f6f550aa86c3dc48717087ee85c105b",
+          "date": "2026-09-29T01:25:33Z",
+          "title": "rescore: read the day fingerprint's R-R figures in one walk",
+          "url": "https://github.com/ryanbr/noop/commit/5e204fab4f6f550aa86c3dc48717087ee85c105b",
+          "phase": "since_prior_pin_through_v12.0.0",
+          "local_diff": "commits/5e204fab.json"
+        }
+      ],
+      "upstream_paths": [
+        "Packages/WhoopStore/Sources/WhoopStore/Reads.swift",
+        "Packages/WhoopStore/Tests/WhoopStoreTests/DayStreamFingerprintOneWalkTests.swift"
+      ],
+      "source_functions": [
+        "WhoopStore dayStreamFingerprint SQL"
+      ],
+      "target_base_observation": "Target has its own input fingerprints and analytics cache semantics.",
+      "adaptation_or_rationale": "Consider batching only if the resulting witness is identical and includes every newly meaningful provenance/suspect change. Performance edits should follow target correctness work.",
+      "dependencies": [
+        "Target fingerprint version and actual input set",
+        "R-R provenance and quarantine"
+      ],
+      "verification_required": [
+        "Old and new witness equality on fixed corpus",
+        "Changes under aliases and provenance invalidate",
+        "No query-window broadening"
+      ],
+      "notes": [],
+      "delivery_status": "not_imported_in_this_package",
+      "delivery_note": "The upstream helper is not transplanted. The package implements a target-specific bounded RRScoringFingerprint with source/quality/order aggregates and global family identity, integrated into both scan caches."
+    }
+  ],
+  "final_delivery": {
+    "changed_repository_files": 37,
+    "production_swift_files": 19,
+    "native_xctest_methods": 579,
+    "native_failures": 0,
+    "exact_sql_tests": 19,
+    "apply_helper_tests": 8,
+    "apple_app_and_full_store_gates_executed": false,
+    "local_integration_changes": [
+      "R-R witness in day cache and idle watermark; cache-v5",
+      "v59 additive quality migration and source mapping",
+      "Main and settle history repair rearmed together as v4",
+      "Pending-aware shared rescore background request preservation"
+    ],
+    "authoritative_files": "../manifest.json; ../reports/INTEGRATION_REPORT.md; ../verification/VALIDATION.md"
+  }
+}

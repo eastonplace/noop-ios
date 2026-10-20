@@ -137,6 +137,9 @@ extension WhoopStore {
                     }
                 }
             }
+            // Quality annotation shares the decoded-row transaction, including atomic
+            // historical commits. Receipt and ACK ordering remains unchanged.
+            try RRQualityMigration.markKnownFill(in: db, streams: streams, deviceId: deviceId)
             if !streams.events.isEmpty {
                 let stmt = try db.cachedStatement(sql: """
                     INSERT INTO event (deviceId, ts, kind, payloadJSON) VALUES (?, ?, ?, ?)

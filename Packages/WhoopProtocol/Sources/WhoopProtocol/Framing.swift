@@ -254,6 +254,15 @@ public final class Reassembler {
     /// Mirrors the Android `Framing.kt` cap. (Reimplemented from @vulnix0x4's PR #374.)
     static let maxFrameBytes = 8192
 
+    /// False start-of-frame candidates rejected by their header checksum. This follows upstream
+    /// f15360da's diagnostic counter while preserving this fork's header-first validation order.
+    /// Monotonic for this reassembler's lifetime; observing it never changes frame admission.
+    public private(set) var headerChecksumDrops = 0
+
+    /// Header-valid candidates rejected by the existing 8 KB cap, counted separately so an oversized
+    /// declared length is not reported as a header-checksum failure. Monotonic for this instance.
+    public private(set) var oversizedLengthDrops = 0
+
     /// `family` selects the frame-length convention:
     /// - WHOOP 4.0 reads a u16 length at `buf[1..3]`, total = `length + 4`.
     /// - WHOOP 5.0 ("puffin") reads a u16 declared length at `buf[2..4]` (after the `0xAA` SOF and
@@ -288,6 +297,7 @@ public final class Reassembler {
                 // [0xAA][len u16 LE][crc8(len bytes)]: needs 4 bytes.
                 if avail < 4 { break scan }
                 guard crc8(buf, head + 1, head + 3) == buf[head + 3] else {
+                    headerChecksumDrops += 1
                     head += 1
                     continue scan
                 }
@@ -298,6 +308,7 @@ public final class Reassembler {
                 let wantCRC = crc16Modbus(buf, head, head + 6)
                 let gotCRC = UInt16(buf[head + 6]) | (UInt16(buf[head + 7]) << 8)
                 guard wantCRC == gotCRC else {
+                    headerChecksumDrops += 1
                     head += 1
                     continue scan
                 }
@@ -306,6 +317,7 @@ public final class Reassembler {
             if total > Reassembler.maxFrameBytes {
                 // Impossibly large declared length → this 0xAA is garbage. Drop it and resync to the
                 // next SOF instead of stalling the live stream until a reconnect.
+                oversizedLengthDrops += 1
                 head += 1
                 continue scan
             }
@@ -351,6 +363,17 @@ public final class Reassembler {
 public final class ReassemblerSet<Key: Hashable> {
     private var reassemblers: [Key: Reassembler] = [:]
     public private(set) var family: DeviceFamily
+
+    /// Header-checksum drops across the current characteristic windows. Derived from their counters
+    /// so repeated reads cannot double-count. Both reset methods discard the windows and these totals.
+    public var headerChecksumDrops: Int {
+        reassemblers.values.reduce(0) { $0 + $1.headerChecksumDrops }
+    }
+
+    /// Header-valid oversized candidates across the current characteristic windows; resets with them.
+    public var oversizedLengthDrops: Int {
+        reassemblers.values.reduce(0) { $0 + $1.oversizedLengthDrops }
+    }
 
     public init(family: DeviceFamily = .whoop4) {
         self.family = family

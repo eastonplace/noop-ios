@@ -75,7 +75,7 @@ final class IntelligenceEngineDayBoundsTests: XCTestCase {
     /// older scoring semantics (fixed-offset days before AN-02, the midnight-cut Effort before AN-05, the
     /// unfilled calorie total before D3b) are never replayed.
     func testCacheSignatureCarriesTheCivilDayScanVersion() {
-        XCTAssertEqual(IntelligenceEngine.analyzeScanVersion, "cache-v4")
+        XCTAssertEqual(IntelligenceEngine.analyzeScanVersion, "cache-v5")
         let signature = IntelligenceEngine.analyzeRecentCacheConfigSignature(
             profile: UserProfile(), baselines: AnalyticsEngine.ProfileBaselines(), maxHROverride: nil,
             timeZoneIdentifier: "America/New_York", timeZoneOffsetSeconds: -18_000,

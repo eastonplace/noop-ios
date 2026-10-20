@@ -637,7 +637,7 @@ final class AppModel: ObservableObject {
     /// the app's lifetime (the registry outlives the session); `removeDuplicates` collapses redundant emits.
     private var readSpineCancellable: AnyCancellable?
 
-    init() {
+    init(startRuntimeTasks: Bool = true) {
         let live = LiveState()
         self.live = live
         // SEED every subsystem with the same id (`deviceId`, "my-whoop" at launch). The store/registry
@@ -749,6 +749,10 @@ final class AppModel: ObservableObject {
         // (and the bond sink above re-applies it on every reconnect).
         ble.setKeepRealtimeForData(PuffinExperiment.keepRealtimeForDataEnabled)
         applyPowerSaving()
+
+        // An in-memory host can drive explicit work without competing autonomous launch/cadence tasks.
+        // The application entry keeps the default runtime lifecycle.
+        guard startRuntimeTasks else { return }
 
         // Turn the strap's offloaded raw data into dashboard scores on launch and every 15
         // minutes, so recovery / strain / sleep populate from the strap itself with no import.
@@ -2144,7 +2148,15 @@ final class AppModel: ObservableObject {
 
         #if os(iOS)
         if !hasBackgroundGrant {
-            switch HistoricalScoringBackgroundTaskRegistrar.completionDisposition(for: result) {
+            // Receipt work and the versioned history rescore share this request. A drained receipt pipeline
+            // must not cancel the wake while the current main or settle pass still has durable work.
+            let effortPending = await intelligence.effortRescoreIsPending()
+            switch HistoricalScoringBackgroundTaskRegistrar.completionDisposition(
+                for: result,
+                healthImportPending: false,
+                healthScoringPending: false,
+                effortRescorePending: effortPending
+            ) {
             case .complete:
                 HistoricalScoringBackgroundTaskRegistrar.cancelPendingRequest()
             case .retry:

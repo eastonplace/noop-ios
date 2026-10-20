@@ -6,6 +6,18 @@ import XCTest
 /// (the exact key STRING may differ across platforms — the cache is in-memory and per-platform — but the
 /// set of changes that must / must not invalidate a reused day is a shared contract).
 final class AnalyzeRecentDayCacheTests: XCTestCase {
+    func testRRProvenanceAndQualityInvalidateWithoutAnyHRChange() {
+        func key(_ rr: String) -> String {
+            AnalyzeRecentDayCache.cacheKey(owner: "whoop4-A", hrCount: 178_000,
+                hrMaxTs: 1_700_000_000, skinAnchorRaw: 1290,
+                rrFingerprint: rr, hrvWindowDetail: false)
+        }
+        XCTAssertEqual(key("history:100:quality0"), key("history:100:quality0"))
+        XCTAssertNotEqual(key("standard:100:quality0"), key("history:100:quality0"))
+        XCTAssertNotEqual(key("history:100:quality0"), key("history:99:quality0|history:1:quality1"))
+        XCTAssertNotEqual(key("history:100:quality0"), key("history:101:quality0"))
+    }
+
     // Unchanged inputs → identical key → the day is reused.
     func testStableInputsReuse() {
         let a = AnalyzeRecentDayCache.cacheKey(owner: "dev1", hrCount: 178_000, hrMaxTs: 1_700_000_000, skinAnchorRaw: 1290, hrvWindowDetail: false)
