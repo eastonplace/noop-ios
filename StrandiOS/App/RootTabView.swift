@@ -14,6 +14,7 @@ struct RootTabView: View {
     @State private var notificationDestination: NotificationSheetDestination?
     /// Retained until Settings actually dismisses, including a swipe, so the queue cannot present underneath it.
     @State private var notificationSettingsDestination: NotificationSheetDestination?
+    @State private var notificationSettingsRequestID: UUID?
     @State private var notificationRoutingRetry: Task<Void, Never>?
     @EnvironmentObject private var repo: Repository
     @EnvironmentObject private var localCoach: LocalCoachEngine
@@ -40,9 +41,10 @@ struct RootTabView: View {
     @State private var routedPillar: NavRouter.Destination?
     /// The Settings sheet (the top bar's profile button, or any caller of `NavRouter.openSettings`). nil = closed.
     @State private var settingsSheet: SettingsSheetRequest?
-    /// True from the moment `presentAfterClosingSettings` closes the Settings sheet until the presentation it was
-    /// waiting for has been made, so the auto-presenter does not slip a sheet of its own into that gap.
+    /// Holds notification routing and auto-presentation until a requested Settings replacement or follow-up is installed.
     @State private var settingsClosing = false
+    /// Only the current transition may install its destination or release the closing gate.
+    @State private var settingsTransitionID: UUID?
     /// The workout journey (setup, live, summary), presented once as a full-screen cover that cannot be swiped away. nil =
     /// closed. Every screen asks for it through `NavRouter.beginWorkout()` / `openActiveWorkout()`.
     @State private var journey: WorkoutJourneyEntry?
@@ -426,7 +428,7 @@ struct RootTabView: View {
                     showLift = false
                     // Settings is shell state like the rest: never left non-nil under the cover.
                     settingsSheet = nil
-                    settingsClosing = false
+                    cancelSettingsTransition()
                     router.collapseModals()
                 },
                 isSatisfied: { journey != nil },
@@ -469,14 +471,22 @@ struct RootTabView: View {
     /// opens and (because it lands on its start screen) resumes the active session on its own.
     private func openLift() {
         guard !showLift else { return }
-        let shellSheetWasUp = quickAction != nil || showDevices || routedPillar != nil || settingsSheet != nil
+        let shellSheetWasUp = quickAction != nil || showDevices || routedPillar != nil || settingsSheet != nil || settingsClosing
+        cancelSettingsTransition()
         quickAction = nil
         closeFan(animated: false)
         showDevices = false
         routedPillar = nil
         settingsSheet = nil
         if shellSheetWasUp {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { showLift = true }
+            let transitionID = UUID()
+            settingsTransitionID = transitionID
+            settingsClosing = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                guard settingsTransitionID == transitionID else { return }
+                showLift = true
+                cancelSettingsTransition()
+            }
         } else {
             showLift = true
         }
@@ -489,18 +499,31 @@ struct RootTabView: View {
     /// waits for the cover to close, as every destination does.
     private func presentSettings(_ request: SettingsSheetRequest, afterDismissal: Bool) {
         if journey != nil || ShellModalCollapse.isCollapsing {
+            cancelSettingsTransition()
             settingsAfterJourney = request
             return
         }
-        let shellSheetWasUp = quickAction != nil || showDevices || routedPillar != nil || showLift || settingsSheet != nil
+        let shellSheetWasUp = quickAction != nil || showDevices || routedPillar != nil || showLift || settingsSheet != nil || settingsClosing
+        cancelSettingsTransition()
         quickAction = nil
         closeFan(animated: false)
         showDevices = false
         routedPillar = nil
         showLift = false
-        settingsSheet = nil
         if shellSheetWasUp || afterDismissal {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { settingsSheet = request }
+            settingsTransitionID = request.id
+            settingsClosing = true
+            settingsSheet = nil
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+                guard settingsTransitionID == request.id else { return }
+                if journey != nil || ShellModalCollapse.isCollapsing {
+                    settingsAfterJourney = request
+                } else {
+                    settingsSheet = request
+                }
+                cancelSettingsTransition()
+                routePendingNotification()
+            }
         } else {
             settingsSheet = request
         }
@@ -512,16 +535,26 @@ struct RootTabView: View {
     /// dismissal, the `openLift` pattern; with nothing up `present` runs at once. The journey then hands whatever else is
     /// up to `ShellModalCollapse`, so Settings is always closed through its own binding, never by a UIKit force-dismiss.
     private func presentAfterClosingSettings(_ present: @escaping () -> Void) {
-        guard let delay = ShellSettingsGate.delay(settingsIsUp: settingsSheet != nil) else {
+        guard let delay = ShellSettingsGate.delay(settingsIsUp: settingsSheet != nil || settingsClosing) else {
             present()
             return
         }
+        let transitionID = UUID()
+        settingsTransitionID = transitionID
         settingsClosing = true
         settingsSheet = nil
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-            settingsClosing = false
+            guard settingsTransitionID == transitionID else { return }
             present()
+            // The action can start another transition; its owner retains the gate in that case.
+            if settingsTransitionID == transitionID { cancelSettingsTransition() }
+            routePendingNotification()
         }
+    }
+
+    private func cancelSettingsTransition() {
+        settingsTransitionID = nil
+        settingsClosing = false
     }
 
     private var notificationSourceReady: Bool {
@@ -546,6 +579,7 @@ struct RootTabView: View {
     private func routePendingNotification() {
         // Notification Settings pages use the ordinary host, but still belong to the source that opened them.
         if let request = notificationSettingsDestination,
+           settingsSheet?.id == notificationSettingsRequestID,
            request.sourceContext != repo.notificationSourceContext || !notificationSourceReady {
             settingsSheet = nil
         }
@@ -577,8 +611,10 @@ struct RootTabView: View {
         router.visibleNotificationDestinations = [destination]
         let request = NotificationSheetDestination(destination: destination, sourceContext: repo.notificationSourceContext)
         if let route = notificationSettingsRoute(for: destination) {
+            let settingsRequest = SettingsSheetRequest(route: route)
             notificationSettingsDestination = request
-            settingsSheet = SettingsSheetRequest(route: route)
+            notificationSettingsRequestID = settingsRequest.id
+            settingsSheet = settingsRequest
         } else {
             notificationDestination = request
         }
@@ -610,6 +646,7 @@ struct RootTabView: View {
     private func settingsDidDismiss() {
         if notificationSettingsDestination != nil {
             notificationSettingsDestination = nil
+            notificationSettingsRequestID = nil
             router.visibleNotificationDestinations = []
         }
         routePendingNotification()
