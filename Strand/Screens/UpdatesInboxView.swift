@@ -3,14 +3,25 @@ import StrandDesign
 
 // MARK: - Updates inbox
 //
-// The sheet behind the Today header's bell. A calm, newest-first log of what's new — release notes,
+// A calm, newest-first log shared by the native Settings page and the standalone Updates sheet — release notes,
 // "new data arrived" readings, strap heads-ups, and the Today info-cards the user swiped away (which
 // can be restored from here). Tapping an actionable row routes via NavRouter; a dismissed-card row
 // offers "Restore to Today". Everything is on-device and non-clinical — informational, never a verdict.
 //
 // Sheet idiom matches WhatsNewView: a FIXED macOS frame (a macOS sheet hosting a ScrollView collapses
 // without one) and iOS presentationDetents via `noopSheetPresentation`.
+extension EnvironmentValues {
+    /// Closes the Settings sheet from any native destination without popping only its detail page.
+    @Entry var settingsCloseAction: ScreenScaffoldCloseAction? = nil
+}
+
 struct UpdatesInboxView: View {
+    enum Presentation {
+        case sheet
+        case settings
+    }
+
+    var presentation: Presentation = .sheet
     @EnvironmentObject var updateStore: UpdateStore
     @EnvironmentObject var router: NavRouter
     let onClose: () -> Void
@@ -19,6 +30,14 @@ struct UpdatesInboxView: View {
     private var read: [UpdateItem] { updateStore.sortedItems.filter { $0.read } }
 
     var body: some View {
+        if presentation == .settings {
+            nativeSettingsContent
+        } else {
+            sheetContent
+        }
+    }
+
+    private var sheetContent: some View {
         ScreenScaffold(title: "Updates",
                        subtitle: LocalizedStringKey(subtitle),
                        trailing: { NoopIconButton("xmark", accessibilityLabel: "Close", action: onClose) }) {
@@ -36,6 +55,43 @@ struct UpdatesInboxView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .noopSheetPresentation(largeFirst: true)
         #endif
+    }
+
+    private var nativeSettingsContent: some View {
+        NativeSettingsList {
+            if updateStore.items.isEmpty {
+                Section { emptyState }
+            } else {
+                if !unread.isEmpty {
+                    nativeSection("NEW", items: unread)
+                }
+                if !read.isEmpty {
+                    nativeSection("EARLIER", items: read)
+                }
+                Section {
+                    Button("Mark all read", action: markAllRead)
+                        .disabled(updateStore.unreadCount == 0)
+                        .accessibilityIdentifier("settings.updates.markAllRead")
+                    Button("Clear all", role: .destructive, action: clearAll)
+                        .accessibilityIdentifier("settings.updates.clearAll")
+                }
+            }
+        }
+        .navigationTitle("Recent updates")
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
+        .accessibilityIdentifier("settings.recentUpdates")
+    }
+
+    private func nativeSection(_ label: LocalizedStringKey, items: [UpdateItem]) -> some View {
+        Section {
+            ForEach(items) { item in
+                UpdateRow(item: item, native: true, onTap: { handleTap(item) }, onRestore: { restore(item) })
+            }
+        } header: {
+            Text(label)
+        }
     }
 
     private var subtitle: String {
@@ -94,19 +150,13 @@ struct UpdatesInboxView: View {
 
     private var footer: some View {
         HStack(spacing: NoopMetrics.space3) {
-            Button {
-                StrandHaptic.selection.play()
-                withAnimation(StrandMotion.interactive) { updateStore.clearAll() }
-            } label: {
+            Button(action: clearAll) {
                 Label("Clear all", systemImage: "trash")
             }
             .buttonStyle(NoopButtonStyle(.secondary, fullWidth: true))
             .disabled(updateStore.items.isEmpty)
 
-            Button {
-                StrandHaptic.selection.play()
-                withAnimation(StrandMotion.interactive) { updateStore.markAllRead() }
-            } label: {
+            Button(action: markAllRead) {
                 Text("Mark all read")
             }
             .buttonStyle(NoopButtonStyle(.primary, fullWidth: true))
@@ -116,14 +166,32 @@ struct UpdatesInboxView: View {
 
     // MARK: Actions
 
+    private func clearAll() {
+        StrandHaptic.selection.play()
+        withAnimation(StrandMotion.interactive) { updateStore.clearAll() }
+    }
+
+    private func markAllRead() {
+        StrandHaptic.selection.play()
+        withAnimation(StrandMotion.interactive) { updateStore.markAllRead() }
+    }
+
     /// Tapping a row marks it read, then routes if it carries a known deep link (else just stays open).
     private func handleTap(_ item: UpdateItem) {
         StrandHaptic.selection.play()
         withAnimation(StrandMotion.interactive) { updateStore.markRead(item.id) }
         guard let key = item.deepLink, let dest = NavRouter.Destination(deepLinkKey: key) else { return }
-        // Route via the shell, then close this sheet so the destination is visible.
         router.requestedDestination = dest
-        onClose()
+        if presentation == .sheet {
+            onClose()
+        } else {
+            // The shell closes Settings and waits for dismissal before presenting another sheet or workout.
+            // Tab destinations only change selection, so they also need to release the Settings sheet here.
+            switch dest {
+            case .trends, .liveSession: onClose()
+            default: break
+            }
+        }
     }
 
     /// Restore a dismissed Today card: flip its `@AppStorage` flag back (so it reappears), drop the
@@ -144,50 +212,16 @@ struct UpdatesInboxView: View {
 
 private struct UpdateRow: View {
     let item: UpdateItem
+    var native = false
     let onTap: () -> Void
     let onRestore: () -> Void
 
     var body: some View {
-        PaperCard {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(alignment: .top, spacing: 12) {
-                    Image(systemName: symbol)
-                        .font(StrandFont.headline)
-                        .foregroundStyle(tint)
-                        .frame(width: 24)
-                        .padding(.top, 1)
-                        .accessibilityHidden(true)
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(item.title)
-                            .font(StrandFont.headline.weight(.semibold))
-                            .foregroundStyle(StrandPalette.textPrimary)
-                            .fixedSize(horizontal: false, vertical: true)
-                        Text(item.message)
-                            .font(StrandFont.subhead)
-                            .foregroundStyle(StrandPalette.textSecondary)
-                            .lineLimit(2)
-                            .fixedSize(horizontal: false, vertical: true)
-                        Text(relativeDate)
-                            .font(StrandFont.footnote)
-                            .foregroundStyle(StrandPalette.textTertiary)
-                            .padding(.top, 1)
-                    }
-                    Spacer(minLength: 0)
-                    if !item.read {
-                        Circle().fill(StrandPalette.statusCritical)
-                            .frame(width: 8, height: 8)
-                            .padding(.top, 5)
-                            .accessibilityHidden(true)
-                    }
-                }
-                if item.kind == .dismissedCard {
-                    Button(action: onRestore) {
-                        Label("Restore to Today", systemImage: "arrow.uturn.up")
-                            .font(StrandFont.subhead)
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(StrandPalette.accent)
-                }
+        Group {
+            if native {
+                rowContent
+            } else {
+                PaperCard { rowContent }
             }
         }
         .contentShape(Rectangle())
@@ -197,6 +231,49 @@ private struct UpdateRow: View {
         .accessibilityAddTraits(.isButton)
         .accessibilityLabel(item.read ? "\(item.title). \(item.message)"
                                        : "Unread. \(item.title). \(item.message)")
+    }
+
+    private var rowContent: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: symbol)
+                    .font(StrandFont.headline)
+                    .foregroundStyle(tint)
+                    .frame(width: 24)
+                    .padding(.top, 1)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(item.title)
+                        .font(StrandFont.headline.weight(.semibold))
+                        .foregroundStyle(StrandPalette.textPrimary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(item.message)
+                        .font(StrandFont.subhead)
+                        .foregroundStyle(StrandPalette.textSecondary)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(relativeDate)
+                        .font(StrandFont.footnote)
+                        .foregroundStyle(StrandPalette.textTertiary)
+                        .padding(.top, 1)
+                }
+                Spacer(minLength: 0)
+                if !item.read {
+                    Circle().fill(StrandPalette.statusCritical)
+                        .frame(width: 8, height: 8)
+                        .padding(.top, 5)
+                        .accessibilityHidden(true)
+                }
+            }
+            if item.kind == .dismissedCard {
+                Button(action: onRestore) {
+                    Label("Restore to Today", systemImage: "arrow.uturn.up")
+                        .font(StrandFont.subhead)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(StrandPalette.accent)
+            }
+        }
     }
 
     private var symbol: String {

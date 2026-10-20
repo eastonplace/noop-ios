@@ -31,6 +31,65 @@ final class ApprovedDashboardUITests: XCTestCase {
     func testWHOOPSettingsAccessibilityXXXL() throws { try assertWHOOPSettings(size: .accessibilityXXXL) }
     func testSettingsRootDoneAlignmentNormal() throws { try assertSettingsRootDone(size: .normal) }
     func testSettingsRootDoneAlignmentAccessibilityXXXL() throws { try assertSettingsRootDone(size: .accessibilityXXXL) }
+    func testSharedBatteryHeaderAndRecentUpdatesNormal() throws { try assertSharedBatteryHeaderAndRecentUpdates(size: .normal) }
+    func testSharedBatteryHeaderAndRecentUpdatesAccessibilityXXXL() throws { try assertSharedBatteryHeaderAndRecentUpdates(size: .accessibilityXXXL) }
+
+    private func assertSharedBatteryHeaderAndRecentUpdates(size: TextSize) throws {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        launch(app, size: size)
+        defer { app.terminate() }
+        let tabs: [(String, String)] = [("0", "Today"), ("1", "Trends"), ("4", "Coach"), ("2", "Sleep")]
+        for (tag, title) in tabs {
+            let tab = app.buttons["app.tab.\(tag)"]
+            try requireExists(tab, in: app, timeout: 60)
+            if tag != "0" { tab.tap() }
+            let header = app.buttons["app.deviceStatus"]
+            try waitFor(header, predicate: "exists == true AND label CONTAINS[cd] '\(title)'", in: app)
+            XCTAssertEqual(app.buttons.matching(identifier: "app.deviceStatus").count, 1, "One shared header per tab")
+            XCTAssertFalse(app.buttons["app.notifications"].exists, "Updates no longer occupy the header")
+            let battery = app.buttons["app.battery"]
+            try requireExists(battery, in: app)
+            try waitFor(battery, predicate: "label == 'Strap battery 68 percent'", in: app)
+            for action in [battery, app.buttons["app.settings"]] {
+                XCTAssertTrue(app.frame.contains(action.frame), "\(title) keeps its header action fully on screen")
+                XCTAssertGreaterThanOrEqual(action.frame.height + targetDimensionRoundingTolerance, 44)
+                XCTAssertGreaterThanOrEqual(action.frame.width + targetDimensionRoundingTolerance, 44)
+            }
+            if title == "Trends" {
+                try requireExists(app.buttons["Explore insights and metrics"], in: app)
+                try requireExists(app.buttons["Share Trends"], in: app)
+            }
+            capture(app, "shared-battery-\(size)-\(title.lowercased())")
+        }
+
+        // The new battery slot remains a real device Settings entry, including on another tab.
+        let battery = app.buttons["app.battery"]
+        battery.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        try requireExists(element("settings.whoop.connection", in: app), in: app)
+        capture(app, "shared-battery-\(size)-opens-whoop")
+        try closeSettingsToToday(in: app)
+        XCTAssertTrue(app.buttons["app.deviceStatus"].label.contains("Sleep"), "Closing device Settings preserves the selected tab")
+
+        app.buttons["app.settings"].tap()
+        try requireExists(app.navigationBars["Settings"], in: app)
+        let updates = app.buttons["settings.row.recentUpdates"]
+        try requireExists(updates, in: app)
+        XCTAssertTrue(app.frame.contains(updates.frame), "Recent updates is available at the top without scrolling")
+        let profile = element("settings.profileRow", in: app)
+        if profile.exists { XCTAssertLessThan(updates.frame.minY, profile.frame.minY) }
+        let unreadLabel = updates.label
+        capture(app, "recent-updates-\(size)-settings-root")
+        updates.tap()
+        try requireExists(element("settings.recentUpdates", in: app), in: app)
+        try requireExists(app.navigationBars["Recent updates"], in: app)
+        capture(app, "recent-updates-\(size)-native-inbox")
+        try returnToSettingsRoot(in: app)
+        XCTAssertEqual(updates.label, unreadLabel, "Opening Recent updates does not mark the inbox read")
+        app.buttons["settings.done"].tap()
+        try waitFor(app.buttons["settings.done"], predicate: "exists == false", in: app)
+        XCTAssertTrue(app.buttons["app.deviceStatus"].label.contains("Sleep"), "Done returns to the selected tab")
+    }
 
     private func assertSettingsRootDone(size: TextSize) throws {
         continueAfterFailure = false
@@ -124,7 +183,7 @@ final class ApprovedDashboardUITests: XCTestCase {
         defer { app.terminate() }
         let device = app.buttons["app.deviceStatus"]
         try requireExists(device, in: app, timeout: 60)
-        for id in ["app.deviceStatus", "app.notifications", "app.settings"] {
+        for id in ["app.deviceStatus", "app.battery", "app.settings"] {
             let button = app.buttons[id]
             try reveal(button, in: app, needsHitTarget: id != "app.deviceStatus")
             XCTAssertGreaterThanOrEqual(button.frame.height + targetDimensionRoundingTolerance, 44, "\(id) retains its touch target")
@@ -565,13 +624,13 @@ final class ApprovedDashboardUITests: XCTestCase {
             }
         }
         captureFailure(in: app)
-        throw HarnessError.unreachable("Could not reveal \(element.identifier)")
+        throw HarnessError.unreachable("Could not reveal \(element.exists ? element.identifier : "the requested element")")
     }
 
     private func requireExists(_ element: XCUIElement, in app: XCUIApplication, timeout: TimeInterval = 10) throws {
         guard element.waitForExistence(timeout: timeout) else {
             captureFailure(in: app)
-            throw HarnessError.unreachable("Missing \(element.identifier)")
+            throw HarnessError.unreachable("Missing \(element.exists ? element.identifier : "the requested element")")
         }
     }
 
@@ -579,7 +638,7 @@ final class ApprovedDashboardUITests: XCTestCase {
         let expectation = XCTNSPredicateExpectation(predicate: NSPredicate(format: predicate), object: element)
         guard XCTWaiter.wait(for: [expectation], timeout: 8) == .completed else {
             captureFailure(in: app)
-            throw HarnessError.invalidValue("Expected \(predicate) for \(element.identifier)")
+            throw HarnessError.invalidValue("Expected \(predicate) for \(element.exists ? element.identifier : "the requested element")")
         }
     }
 

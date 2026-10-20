@@ -47,6 +47,7 @@ struct SettingsSheetHost: View {
         .environment(\.screenScaffoldPresentation, .settingsDetail)
         .environment(\.appHeaderChromeVisibility, .hidden)
         .environment(\.screenScaffoldCloseAction, nil)
+        .environment(\.settingsCloseAction, ScreenScaffoldCloseAction(perform: onClose))
     }
 
     private var doneButton: some View {

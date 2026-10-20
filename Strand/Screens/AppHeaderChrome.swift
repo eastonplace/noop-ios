@@ -33,7 +33,6 @@ struct AppHeaderChrome: View {
     @EnvironmentObject private var live: LiveState
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var repo: Repository
-    @EnvironmentObject private var updateStore: UpdateStore
     @EnvironmentObject private var profile: ProfileStore
     @EnvironmentObject private var router: NavRouter
 
@@ -51,13 +50,11 @@ struct AppHeaderChrome: View {
             battery: live.batteryPct.map { Int($0.rounded()) },
             syncState: chromeState.sync,
             syncCompletedUnits: live.backfilling ? live.syncChunksThisSession : nil,
-            unreadCount: updateStore.unreadCount,
             initials: "",
             profileImage: profileImage,
             recovery: repo.today?.recovery,
             onStrap: { router.openSettings(.whoop) },
             onSync: sync,
-            onUpdates: router.openUpdates,
             onProfile: { router.openSettings() }
         )
         .padding(.horizontal, 16)

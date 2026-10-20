@@ -716,29 +716,29 @@ public struct HeaderChromeRow: View {
     public let battery: Int?
     public let syncState: AppSyncState
     public let syncCompletedUnits: Int?
-    public let unreadCount: Int
     public let initials: String
     public let profileImage: Image?
     public let recovery: Double?
     public let onStrap: () -> Void
     public let onSync: () -> Void
-    public let onUpdates: () -> Void
     public let onProfile: () -> Void
     @Environment(\.dynamicTypeSize) private var typeSize
     @ScaledMetric(relativeTo: .title) private var titleSize: CGFloat = 26
     @ScaledMetric(relativeTo: .body) private var chromeGlyph: CGFloat = 21
+    @ScaledMetric(relativeTo: .caption) private var batteryTextSize: CGFloat = 12
+    @ScaledMetric(relativeTo: .caption) private var batteryGlyphSize: CGFloat = 16
 
     public init(title: LocalizedStringKey = "Today", strapState: AppStrapState, battery: Int?, syncState: AppSyncState,
                 syncCompletedUnits: Int? = nil,
-                unreadCount: Int, initials: String, profileImage: Image? = nil, recovery: Double?,
+                initials: String, profileImage: Image? = nil, recovery: Double?,
                 onStrap: @escaping () -> Void, onSync: @escaping () -> Void,
-                onUpdates: @escaping () -> Void, onProfile: @escaping () -> Void) {
+                onProfile: @escaping () -> Void) {
         self.title = title
         self.strapState = strapState; self.battery = battery; self.syncState = syncState
         self.syncCompletedUnits = syncCompletedUnits
-        self.unreadCount = unreadCount; self.initials = initials; self.profileImage = profileImage
+        self.initials = initials; self.profileImage = profileImage
         self.recovery = recovery
-        self.onStrap = onStrap; self.onSync = onSync; self.onUpdates = onUpdates; self.onProfile = onProfile
+        self.onStrap = onStrap; self.onSync = onSync; self.onProfile = onProfile
     }
 
     public var body: some View {
@@ -796,24 +796,7 @@ public struct HeaderChromeRow: View {
 
     private var accountActions: some View {
         HStack(spacing: 8) {
-            Button(action: onUpdates) {
-                Image(systemName: "bell")
-                    .font(StrandFont.sized(min(chromeGlyph, 28), weight: .regular))
-                    .foregroundStyle(StrandPalette.textSecondary)
-                    .frame(width: 44, height: 44)
-                    .overlay(alignment: .topTrailing) {
-                        if unreadCount > 0 {
-                            Circle().fill(StrandPalette.liveRed)
-                                .frame(width: 6, height: 6)
-                                .offset(x: -5, y: 5)
-                                .accessibilityHidden(true)
-                        }
-                    }
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(unreadCount > 0 ? "Notifications, \(unreadCount) unread" : "Notifications")
-            .accessibilityIdentifier("app.notifications")
+            batteryAction
             Button(action: onProfile) {
                 ZStack {
                     Circle().stroke(recovery.map { RecoveryBands.color(for: $0) } ?? StrandPalette.hairlineStrong, lineWidth: 2)
@@ -836,6 +819,44 @@ public struct HeaderChromeRow: View {
             .buttonStyle(.plain)
             .accessibilityLabel("Profile and settings")
             .accessibilityIdentifier("app.settings")
+        }
+    }
+
+    private var batteryAction: some View {
+        Button(action: onStrap) {
+            HStack(spacing: 4) {
+                Image(systemName: batterySymbol)
+                    .font(StrandFont.sized(batteryGlyphSize, weight: .regular))
+                Text(verbatim: validBattery.map { "\($0)%" } ?? "--%")
+                    .font(StrandFont.mono(batteryTextSize, weight: .medium))
+            }
+            .foregroundStyle(validBattery.map { $0 <= 15 } == true
+                             ? StrandPalette.statusWarning : StrandPalette.textSecondary)
+            .fixedSize(horizontal: true, vertical: false)
+            .frame(minWidth: 44, minHeight: 44)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text(verbatim: validBattery.map {
+            String(localized: "Strap battery \($0) percent", bundle: .module)
+        } ?? String(localized: "Strap battery unavailable", bundle: .module)))
+        .accessibilityHint("Opens device Settings")
+        .accessibilityIdentifier("app.battery")
+    }
+
+    private var validBattery: Int? {
+        guard let battery, (0...100).contains(battery) else { return nil }
+        return battery
+    }
+
+    private var batterySymbol: String {
+        guard let battery = validBattery else { return "battery.0percent" }
+        switch battery {
+        case ..<13: return "battery.0percent"
+        case ..<38: return "battery.25percent"
+        case ..<63: return "battery.50percent"
+        case ..<88: return "battery.75percent"
+        default: return "battery.100percent"
         }
     }
 
@@ -871,7 +892,7 @@ public struct HeaderChromeRow: View {
     }
     private var deviceAccessibilityValue: String {
         var details: [String] = []
-        if let battery { details.append(String(localized: "Battery, \(battery) percent", bundle: .module)) }
+        if let battery = validBattery { details.append(String(localized: "Battery, \(battery) percent", bundle: .module)) }
         switch syncState {
         case .idle: break
         case .syncing:

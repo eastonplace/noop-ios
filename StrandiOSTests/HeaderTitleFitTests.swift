@@ -82,8 +82,8 @@ final class HeaderTitleFitTests: XCTestCase {
         for title in titles {
             func chrome() -> HeaderChromeRow {
                 HeaderChromeRow(title: title, strapState: .offline, battery: 68, syncState: .idle,
-                                unreadCount: 9, initials: "", recovery: 72,
-                                onStrap: {}, onSync: {}, onUpdates: {}, onProfile: {})
+                                initials: "", recovery: 72,
+                                onStrap: {}, onSync: {}, onProfile: {})
             }
             let regular = height(width: 288, size: .large) { chrome() }
             let accessible = height(width: 288) { chrome() }
@@ -91,6 +91,36 @@ final class HeaderTitleFitTests: XCTestCase {
             XCTAssertGreaterThan(accessible, regular + 44, "large text moves account actions below the full title and status")
             let wide = height(width: 3000) { chrome() }
             XCTAssertLessThan(accessible, wide * 1.8, "a narrow phone may wrap status words, but never stack individual title letters")
+        }
+    }
+
+    func testTheHeaderBatteryStaysOnOneLineAtPhoneWidthsAndAccessibilitySizes() {
+        func chrome(_ battery: Int?) -> HeaderChromeRow {
+            HeaderChromeRow(title: "Today", strapState: .offline, battery: battery, syncState: .idle,
+                            initials: "", recovery: 72, onStrap: {}, onSync: {}, onProfile: {})
+        }
+        let phoneWidths: [CGFloat] = [320, 375, 402]
+        let typeSizes: [DynamicTypeSize] = [.large, .accessibility5]
+        let batteryLevels: [Int?] = [nil, 0, 15, 100]
+        for phoneWidth in phoneWidths {
+            let contentWidth = phoneWidth - 32 // AppHeaderChrome's horizontal padding.
+            for size in typeSizes {
+                let reference = height(width: contentWidth, size: size) { chrome(68) }
+                for battery in batteryLevels {
+                    let measured = height(width: contentWidth, size: size) { chrome(battery) }
+                    XCTAssertEqual(measured, reference, accuracy: 0.5,
+                                   "battery values stay horizontal without adding a line at \(phoneWidth) pt and \(size)")
+                    XCTAssertGreaterThanOrEqual(measured, 44, "header actions keep their minimum touch height")
+                }
+            }
+        }
+    }
+
+    func testTheHeaderBatterySymbolsExistOnTheSupportedPlatform() {
+        let symbols = ["battery.0percent", "battery.25percent", "battery.50percent",
+                       "battery.75percent", "battery.100percent"]
+        for symbol in symbols {
+            XCTAssertNotNil(UIImage(systemName: symbol), "header battery symbol must resolve: \(symbol)")
         }
     }
 
@@ -167,8 +197,8 @@ final class HeaderTitleFitTests: XCTestCase {
     func testTheH2HeaderLetsTheActualSyncErrorWrapAtAccessibilitySizes() {
         func chrome(_ state: AppSyncState) -> HeaderChromeRow {
             HeaderChromeRow(title: "Today", strapState: .offline, battery: 68, syncState: state,
-                            unreadCount: 9, initials: "", recovery: 72,
-                            onStrap: {}, onSync: {}, onUpdates: {}, onProfile: {})
+                            initials: "", recovery: 72,
+                            onStrap: {}, onSync: {}, onProfile: {})
         }
         let offline = height(width: 288) { chrome(.idle) }
         let error = height(width: 288) { chrome(.error) }

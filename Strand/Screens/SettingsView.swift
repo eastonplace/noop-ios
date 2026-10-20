@@ -23,6 +23,7 @@ struct SettingsView: View {
 struct SettingsDetailHost: View {
     @AppStorage(ClockFormatPreference.defaultsKey) private var clockPreference = ClockFormatPreference.system.rawValue
 
+    @Environment(\.settingsCloseAction) private var settingsCloseAction
     let destination: SettingsRouteID
     @EnvironmentObject var model: AppModel
     @EnvironmentObject var live: LiveState
@@ -220,6 +221,8 @@ struct SettingsDetailHost: View {
     @ViewBuilder
     private func settingsDestination(_ route: SettingsRouteID) -> some View {
         switch route {
+        case .recentUpdates:
+            UpdatesInboxView(presentation: .settings, onClose: { settingsCloseAction?.perform() })
         case .personalProfile:
             profileSettingsDetail
         case .whoop:
