@@ -62,8 +62,9 @@ final class ApprovedDashboardUITests: XCTestCase {
     func testDeviceRegistryRemainsReachableWithoutCommandDashboard() throws {
         continueAfterFailure = false
         let app = XCUIApplication()
-        launch(app, route: "settings-whoop")
+        launch(app, route: "settings")
         defer { app.terminate() }
+        try openWHOOPFromSettingsRoot(in: app)
         let manageDevices = app.buttons["settings.whoop.manageDevices"]
         try requireExists(element("settings.whoop.connection", in: app), in: app, timeout: 60)
         try reveal(manageDevices, in: app)
@@ -286,8 +287,9 @@ final class ApprovedDashboardUITests: XCTestCase {
     private func assertSettingsAccessibility() throws {
         continueAfterFailure = false
         let app = XCUIApplication()
-        launch(app, route: "settings-todayDashboard", size: .accessibilityXXXL)
+        launch(app, route: "settings", size: .accessibilityXXXL)
         defer { app.terminate() }
+        try openTodayDashboardSettings(in: app)
         let saved = try selection(in: app)
         for name in ["recovery", "strain", "sleep"] {
             try reveal(app.switches["today.summary.\(name)"], in: app, needsHitTarget: false)
@@ -303,8 +305,9 @@ final class ApprovedDashboardUITests: XCTestCase {
     private func assertWHOOPSettings(size: TextSize) throws {
         continueAfterFailure = false
         let app = XCUIApplication()
-        launch(app, route: "settings-whoop", size: size)
+        launch(app, route: "settings", size: size)
         defer { app.terminate() }
+        try openWHOOPFromSettingsRoot(in: app)
         let connection = element("settings.whoop.connection", in: app)
         try requireExists(connection, in: app, timeout: 60)
         try reveal(connection, in: app, needsHitTarget: false)
@@ -356,6 +359,14 @@ final class ApprovedDashboardUITests: XCTestCase {
         }
         capture(app, "whoop-\(size)-diagnostics")
         XCTAssertFalse(element("settings.whoop.feedback", in: app).exists, "Read-only navigation issues no device command")
+    }
+
+    private func openWHOOPFromSettingsRoot(in app: XCUIApplication) throws {
+        try requireExists(app.navigationBars["Settings"], in: app, timeout: 60)
+        let whoop = app.buttons["settings.row.whoop"]
+        try reveal(whoop, in: app)
+        whoop.tap()
+        try requireExists(element("settings.whoop.connection", in: app), in: app)
     }
 
     private func selection(in app: XCUIApplication) throws -> Selection {
