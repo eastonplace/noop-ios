@@ -19,9 +19,9 @@ enum StrengthMetrics {
   /// What a 44pt icon button keeps empty around its glyph; the header's last icon sits this far past the gutter so the
   /// glyph, not its tap area, lines up with the page edge.
   static let iconInset: CGFloat = 11
-  /// The sheet grabber: 36 x 5, #3A4246.
+  /// The sheet grabber: 36 x 5, `StrandPalette.grabber` (#3A4246).
   static let grabberSize = CGSize(width: 36, height: 5)
-  static let grabberColor = Color(.sRGB, red: 0x3A / 255, green: 0x42 / 255, blue: 0x46 / 255)
+  static let grabberColor = StrandPalette.grabber
 }
 
 /// The grabber the design draws at the top of the Strength sheet, 10pt above the header row.
@@ -216,30 +216,6 @@ struct StrengthTileRow: Layout {
       subview.place(at: CGPoint(x: x, y: bounds.minY), anchor: .topLeading, proposal: ProposedViewSize(width: side, height: side))
       x += side + spacing
     }
-  }
-}
-
-/// The Log set button of the live card: the main button's look (solid light fill, dark label) at 44pt, so the REST and
-/// STRAIN cards stay above the fold with the set table, the best estimate and the tool chips over it.
-struct StrengthLogSetButtonStyle: ButtonStyle {
-  @Environment(\.isEnabled) private var isEnabled
-  @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-  static let height: CGFloat = 44
-
-  func makeBody(configuration: Configuration) -> some View {
-    configuration.label
-      .labelStyle(.titleAndIcon)
-      .font(StrandFont.headline.weight(.semibold))
-      .lineLimit(1)
-      .minimumScaleFactor(0.9)
-      .foregroundStyle(StrandPalette.onLightFill)
-      .frame(maxWidth: .infinity, minHeight: Self.height)
-      .background(StrandPalette.solidFill, in: Capsule(style: .continuous))
-      .contentShape(Capsule(style: .continuous))
-      .opacity(isEnabled ? (configuration.isPressed ? 0.82 : 1) : 0.4)
-      .scaleEffect(configuration.isPressed && !reduceMotion ? 0.97 : 1)
-      .animation(reduceMotion ? nil : StrandMotion.interactive, value: configuration.isPressed)
   }
 }
 

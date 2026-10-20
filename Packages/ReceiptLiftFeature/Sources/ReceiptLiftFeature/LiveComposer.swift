@@ -3,8 +3,9 @@ import SwiftUI
 
 
 /// The current exercise of a live workout (the exercise card of the approved design): who it is, the set table whose
-/// draft row is the editor, the best estimate so far today, the tools that belong to the set, and the Log set button. The
-/// set's figures live in `draft` (the workout view's) so the table's check and the Log set button read the same ones.
+/// draft row is the editor, and the best estimate so far today. Every tool that belongs to the set (warm-up, warm-up
+/// suggestion, plate loader, swap, superset) is in the "..." menu, so the REST and STRAIN cards sit right under the
+/// table. A set is logged on its row's check circle. The set's figures live in `draft` (the workout view's).
 struct LiveComposerSection: View {
   let exercise: LiftExercise
   let store: LiftStore
@@ -31,9 +32,6 @@ struct LiveComposerSection: View {
       identityRow
       LiveSetTable(exercise: exercise, rows: tableRows, draft: $draft, focus: $focus, onLog: logSet)
       bestEstimateLine
-      toolChips
-      Button(action: logSet) { Label("Log set", systemImage: "plus") }
-        .buttonStyle(StrengthLogSetButtonStyle())
     }
     .padding(.vertical, NoopMetrics.space3)
     .onAppear { onComposed(exercise.id) }
@@ -69,6 +67,10 @@ struct LiveComposerSection: View {
                 .lineLimit(typeSize.isAccessibilitySize ? 4 : 2)
                 .fixedSize(horizontal: false, vertical: true)
             }
+            if let label = store.supersetLabel(for: exercise.id) {
+              LiftTag(text: LocalizedStringKey(label), systemImage: "link")
+                .padding(.top, 2)
+            }
           }
           .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -100,6 +102,20 @@ struct LiveComposerSection: View {
       }
       Button("Superset", systemImage: "link") {
         onPresentSuperset(exercise)
+      }
+      Divider()
+      Toggle(isOn: $draft.isWarmup) {
+        Label("Warm-up", systemImage: "flame")
+      }
+      if liftShouldOfferWarmupSuggestion(completedWorkingSets: setProgress.completed) {
+        Button("Suggest a warm-up", systemImage: "figure.strengthtraining.traditional") {
+          onPresentWarmup()
+        }
+      }
+      if LiftPlateLoaderEligibility.isEligible(exercise) {
+        Button("Plate loader", systemImage: "scalemass") {
+          onPresentPlates()
+        }
       }
     } label: {
       StrengthIconGlyph(systemImage: "ellipsis")
@@ -150,52 +166,6 @@ struct LiveComposerSection: View {
         }
         .accessibilityElement(children: .combine)
       }
-    }
-  }
-
-  // MARK: Tools
-
-  /// Every tool is a choice chip: 34pt, 14pt side padding, a 1pt hairline, the light fill while it is on.
-  @ViewBuilder private var chips: some View {
-    if LiftPlateLoaderEligibility.isEligible(exercise) {
-      ChoiceChipButton(
-        title: "Plate loader", systemImage: "scalemass", accessibilityHint: "Shows plates for the current composer weight",
-        action: onPresentPlates)
-    }
-    ChoiceChipButton(
-      title: "Warm-up", systemImage: draft.isWarmup ? "checkmark" : "flame", isSelected: draft.isWarmup
-    ) {
-      draft.isWarmup.toggle()
-    }
-    .accessibilityValue(draft.isWarmup ? Text("On") : Text("Off"))
-    if liftShouldOfferWarmupSuggestion(completedWorkingSets: setProgress.completed) {
-      ChoiceChipButton(
-        title: "Suggest a warm-up", systemImage: "figure.strengthtraining.traditional",
-        accessibilityLabel: "Warm-up suggestion", accessibilityHint: "Shows suggested warm-up sets",
-        action: onPresentWarmup)
-    }
-    ChoiceChipButton(
-      title: "Swap", systemImage: "arrow.triangle.2.circlepath", accessibilityLabel: "Swap exercise"
-    ) { onPresentSwap(exercise) }
-    ChoiceChipButton(title: "Superset", systemImage: "link") { onPresentSuperset(exercise) }
-    if let label = store.supersetLabel(for: exercise.id) {
-      LiftTag(text: LocalizedStringKey(label), systemImage: "link")
-    }
-  }
-
-  /// One row that scrolls sideways edge to edge (its content starts at the page gutter), so no chip is ever cut at the
-  /// gutter; at the accessibility sizes the chips stack instead.
-  @ViewBuilder private var toolChips: some View {
-    if typeSize.isAccessibilitySize {
-      VStack(alignment: .leading, spacing: NoopMetrics.space2) { chips }
-    } else {
-      ScrollView(.horizontal) {
-        HStack(spacing: NoopMetrics.space2) { chips }
-          .padding(.vertical, 5)
-      }
-      .contentMargins(.horizontal, StrengthMetrics.gutter, for: .scrollContent)
-      .scrollIndicators(.hidden)
-      .padding(.horizontal, -StrengthMetrics.gutter)
     }
   }
 }

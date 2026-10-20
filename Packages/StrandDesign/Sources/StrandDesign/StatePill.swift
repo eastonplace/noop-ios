@@ -61,21 +61,23 @@ public struct StatePill: View {
 // MARK: - Shared pill metrics
 
 extension View {
-    /// The state pill's type: overline face, 0.4pt tracking, white ink. White, never the tone, so a
-    /// red or amber pill still reads as a quiet label on a tinted chip.
+    /// The state pill's type: 13pt semibold, no tracking, white ink (the approved pill board's `.pill`). White, never
+    /// the tone, so a red or amber pill still reads as a quiet label on a neutral chip.
     ///
-    /// At the accessibility sizes the type is a fixed size that scales with Dynamic Type (`.caption2` bold), so a word
-    /// wider than the pill scales down instead of hyphenating ("Rest-ing") and a label wraps between words, `lines` at
-    /// most. At every smaller size it is `StrandFont.overline` with no line limit of its own, exactly as it always was.
+    /// The 13pt scales with Dynamic Type (`.footnote`). At the accessibility sizes a word wider than the pill scales
+    /// down instead of hyphenating ("Rest-ing") and a label wraps between words, `lines` at most. At every smaller size
+    /// there is no line limit of its own.
     func statePillLabel(lines: Int = 2) -> some View {
         modifier(StatePillLabelFit(lines: lines))
     }
 
-    /// The neutral pill: 10 / 5pt padding on the `pillFill` wash with a 1pt `pillStroke` edge. Colour is never in the
-    /// pill; a pill that carries a state brings its own 7pt dot (`StatePill`, `ScoreStatePill`) or uses `statePillChrome`.
+    /// The neutral pill: 26pt tall at least (10pt side padding) on the `pillFill` wash with a 1pt `pillStroke` edge.
+    /// Colour is never in the pill; a pill that carries a state brings its own 7pt dot (`StatePill`, `ScoreStatePill`)
+    /// or uses `statePillChrome`.
     public func neutralPillChrome() -> some View {
         self.padding(.horizontal, StatePillMetrics.horizontalPadding)
             .padding(.vertical, StatePillMetrics.verticalPadding)
+            .frame(minHeight: StatePillMetrics.minHeight)
             .background(Capsule(style: .continuous).fill(StrandPalette.pillFill))
             .overlay(Capsule(style: .continuous).stroke(StrandPalette.pillStroke, lineWidth: 1))
     }
@@ -108,29 +110,31 @@ struct PillToneDot: View {
 
 private struct StatePillLabelFit: ViewModifier {
     let lines: Int
-    @ScaledMetric(relativeTo: .caption2) private var size: CGFloat = 11
+    @ScaledMetric(relativeTo: .footnote) private var size: CGFloat = StatePillMetrics.labelSize
     @Environment(\.dynamicTypeSize) private var typeSize
 
     func body(content: Content) -> some View {
         if typeSize.isAccessibilitySize {
             content
-                .font(.system(size: size, weight: .bold, design: .default))
-                .tracking(0.4)
+                .font(.system(size: size, weight: .semibold, design: .default))
                 .foregroundStyle(StrandPalette.textPrimary)
                 .lineLimit(lines)
                 .minimumScaleFactor(0.5)
         } else {
             content
-                .font(StrandFont.overline)
-                .tracking(0.4)
+                .font(.system(size: size, weight: .semibold, design: .default))
                 .foregroundStyle(StrandPalette.textPrimary)
         }
     }
 }
 
 enum StatePillMetrics {
+    /// The pill's label: 13pt semibold (scaled with Dynamic Type from `.footnote`).
+    static let labelSize: CGFloat = 13
     static let horizontalPadding: CGFloat = 10
     static let verticalPadding: CGFloat = 5
+    /// The pill board's 26pt height; a label taller than that (larger text) grows the pill past it.
+    static let minHeight: CGFloat = 26
     static let dotDiameter: CGFloat = 7
     static let dotSpacing: CGFloat = 6
 }

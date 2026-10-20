@@ -82,6 +82,8 @@ public enum StrandPalette {
     public static let solidFill = Color(hex: "#F2F4F5")
     /// The dark label on `solidFill`.
     public static let onLightFill = canvas
+    /// The sheet grabber (the Strength design's #3A4246).
+    public static let grabber = Color(hex: "#3A4246")
 
     // MARK: Text
 

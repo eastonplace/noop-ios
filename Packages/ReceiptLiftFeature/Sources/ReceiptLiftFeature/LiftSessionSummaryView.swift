@@ -303,7 +303,7 @@ struct LiftStrainGauge: View {
             label("With your sets · \(number(combined))", foreground: StrandPalette.onLightFill, fill: StrandPalette.solidFill)
           }
         }
-        scaleEnds.padding(.top, 24)
+        scaleEnds.padding(.top, 6)
       }
     }
   }
@@ -367,12 +367,14 @@ struct LiftStrainGauge: View {
 }
 
 /// Places each child centred over its fraction of the width, kept inside the row, the first above the track and the
-/// second below its mark.
+/// second below its mark. The row is laid out against a track whose top edge is 38pt down (`LiftStrainGauge` pads the
+/// track by 30 and the 12pt bar sits in a 28pt frame): the first label's top is 30pt above the bar (12pt clear of it) and
+/// the second's 22pt below the bar top (10pt under the bar, 2pt under the mark), as in the approved design.
 private struct MarkerLabels: Layout {
   let fractions: [Double]
 
   func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-    CGSize(width: proposal.width ?? 0, height: 58)
+    CGSize(width: proposal.width ?? 0, height: 78)
   }
 
   func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
@@ -380,7 +382,7 @@ private struct MarkerLabels: Layout {
       let size = subview.sizeThatFits(.unspecified)
       let centre = bounds.minX + bounds.width * CGFloat(fractions[index])
       let x = min(max(centre - size.width / 2, bounds.minX), bounds.maxX - size.width)
-      let y = index == 0 ? bounds.minY : bounds.minY + 50
+      let y = index == 0 ? bounds.minY + 8 : bounds.minY + 60
       subview.place(at: CGPoint(x: x, y: y), anchor: .topLeading, proposal: .unspecified)
     }
   }

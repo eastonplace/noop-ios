@@ -995,7 +995,7 @@ public enum ScoreState: Sendable, Equatable {
 }
 
 /// The score-lifecycle chip, built from the shared state-pill parts so the app has ONE pill: a state-coloured
-/// dot, the white overline label, and the neutral 10 / 5pt capsule (`neutralPillChrome`, the `StatePill` chrome that the
+/// dot, the white 13pt label, and the neutral 26pt capsule (`neutralPillChrome`, the `StatePill` chrome that the
 /// Coach cards and Today's pills use): colour lives in the dot only. LIVE pulses its dot. `text` overrides the
 /// default state label (e.g. "Building — 2 of 4").
 public struct ScoreStatePill: View {
