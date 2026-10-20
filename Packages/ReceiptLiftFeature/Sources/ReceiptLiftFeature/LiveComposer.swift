@@ -24,6 +24,7 @@ struct LiveComposerSection: View {
   @Environment(\.dynamicTypeSize) private var typeSize
   @State private var focus: LiveDraftField?
   @State private var previousSets: [LiftSet] = []
+  @ScaledMetric(relativeTo: .footnote) private var estimateSize: CGFloat = 12.5
 
   var body: some View {
     VStack(alignment: .leading, spacing: NoopMetrics.space3) {
@@ -32,7 +33,7 @@ struct LiveComposerSection: View {
       bestEstimateLine
       toolChips
       Button(action: logSet) { Label("Log set", systemImage: "plus") }
-        .buttonStyle(NoopButtonStyle(.primary, fullWidth: true))
+        .buttonStyle(StrengthLogSetButtonStyle())
     }
     .padding(.vertical, NoopMetrics.space3)
     .onAppear { onComposed(exercise.id) }
@@ -121,32 +122,45 @@ struct LiveComposerSection: View {
       logged: loggedToday, previousSession: previousSets, target: setProgress.target, draftIsWarmup: draft.isWarmup)
   }
 
+  /// "Best estimate today: 234 lb one-rep max" with a NEW BEST tag on the right when it beats everything before today. It
+  /// shows once a working set is logged on this exercise.
   @ViewBuilder private var bestEstimateLine: some View {
     if let best = LiftSetTable.bestEstimate(
       logged: loggedToday, previousBest: store.previousBestEstimatedOneRepMax(for: exercise.id))
     {
       let value = format.weight(pounds: best.value)
-      HStack(alignment: .center, spacing: NoopMetrics.space2) {
-        Text("Best estimate today: **\(value)** one-rep max")
-          .font(StrandFont.footnote)
-          .foregroundStyle(StrandPalette.textSecondary)
-          .fixedSize(horizontal: false, vertical: true)
-        if best.isNewBest && LiftStore.prDetectionEnabled {
-          LiftTag(text: "NEW BEST", systemImage: "star.fill", tint: StrandPalette.signalYellow)
+      let text = Text(markdown: String(localized: "Best estimate today: **\(value)** one-rep max"), emphasis: StrandPalette.textPrimary)
+        .font(StrandFont.sized(estimateSize, weight: .regular))
+        .foregroundStyle(StrandPalette.textSecondary)
+      let tag = best.isNewBest && LiftStore.prDetectionEnabled
+      // One line beside the tag at the regular text sizes (it shrinks a little before it would wrap, so "one-rep max"
+      // never splits); the accessibility sizes stack the text over the tag and let it wrap.
+      if typeSize.isAccessibilitySize {
+        VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+          text.fixedSize(horizontal: false, vertical: true)
+          if tag { LiftTag(text: "NEW BEST", systemImage: "star.fill", tint: StrandPalette.signalYellow) }
         }
-        Spacer(minLength: 0)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+      } else {
+        HStack(alignment: .center, spacing: NoopMetrics.space2) {
+          text.lineLimit(1).minimumScaleFactor(0.75)
+          Spacer(minLength: 0)
+          if tag { LiftTag(text: "NEW BEST", systemImage: "star.fill", tint: StrandPalette.signalYellow) }
+        }
+        .accessibilityElement(children: .combine)
       }
-      .accessibilityElement(children: .combine)
     }
   }
 
   // MARK: Tools
 
+  /// Every tool is a choice chip: 34pt, 14pt side padding, a 1pt hairline, the light fill while it is on.
   @ViewBuilder private var chips: some View {
     if LiftPlateLoaderEligibility.isEligible(exercise) {
-      WidgetChipButton(
-        title: "Plate loader", systemImage: "scalemass", accessibilityLabel: "Plate loader",
-        accessibilityHint: "Shows plates for the current composer weight", action: onPresentPlates)
+      ChoiceChipButton(
+        title: "Plate loader", systemImage: "scalemass", accessibilityHint: "Shows plates for the current composer weight",
+        action: onPresentPlates)
     }
     ChoiceChipButton(
       title: "Warm-up", systemImage: draft.isWarmup ? "checkmark" : "flame", isSelected: draft.isWarmup
@@ -155,31 +169,33 @@ struct LiveComposerSection: View {
     }
     .accessibilityValue(draft.isWarmup ? Text("On") : Text("Off"))
     if liftShouldOfferWarmupSuggestion(completedWorkingSets: setProgress.completed) {
-      WidgetChipButton(
+      ChoiceChipButton(
         title: "Suggest a warm-up", systemImage: "figure.strengthtraining.traditional",
         accessibilityLabel: "Warm-up suggestion", accessibilityHint: "Shows suggested warm-up sets",
         action: onPresentWarmup)
     }
-    WidgetChipButton(
+    ChoiceChipButton(
       title: "Swap", systemImage: "arrow.triangle.2.circlepath", accessibilityLabel: "Swap exercise"
     ) { onPresentSwap(exercise) }
-    WidgetChipButton(title: "Superset", systemImage: "link", accessibilityLabel: "Superset") {
-      onPresentSuperset(exercise)
-    }
+    ChoiceChipButton(title: "Superset", systemImage: "link") { onPresentSuperset(exercise) }
     if let label = store.supersetLabel(for: exercise.id) {
       LiftTag(text: LocalizedStringKey(label), systemImage: "link")
     }
   }
 
+  /// One row that scrolls sideways edge to edge (its content starts at the page gutter), so no chip is ever cut at the
+  /// gutter; at the accessibility sizes the chips stack instead.
   @ViewBuilder private var toolChips: some View {
     if typeSize.isAccessibilitySize {
-      ChipRow { chips }
+      VStack(alignment: .leading, spacing: NoopMetrics.space2) { chips }
     } else {
       ScrollView(.horizontal) {
         HStack(spacing: NoopMetrics.space2) { chips }
           .padding(.vertical, 5)
       }
+      .contentMargins(.horizontal, StrengthMetrics.gutter, for: .scrollContent)
       .scrollIndicators(.hidden)
+      .padding(.horizontal, -StrengthMetrics.gutter)
     }
   }
 }

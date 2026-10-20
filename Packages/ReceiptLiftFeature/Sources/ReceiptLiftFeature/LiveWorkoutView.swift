@@ -386,7 +386,7 @@ struct LiveWorkoutView: View {
             inactiveReceipt
           }
         }
-        .padding(.horizontal, LiftChromeMetrics.gutter)
+        .padding(.horizontal, StrengthMetrics.gutter)
         .padding(.top, NoopMetrics.space3)
         .padding(.bottom, NoopMetrics.space6)
         .frame(maxWidth: LiftChromeMetrics.maxColumnWidth, alignment: .leading)
@@ -518,10 +518,10 @@ struct LiveWorkoutView: View {
       }
     }
     .frame(minHeight: 44)
-    .padding(.horizontal, LiftChromeMetrics.gutter)
+    .padding(.horizontal, StrengthMetrics.gutter)
     .padding(.top, NoopMetrics.space2)
     .padding(.bottom, NoopMetrics.space1)
-    .frame(maxWidth: LiftChromeMetrics.maxColumnWidth + LiftChromeMetrics.gutter * 2)
+    .frame(maxWidth: LiftChromeMetrics.maxColumnWidth + StrengthMetrics.gutter * 2)
     .frame(maxWidth: .infinity)
     .background(StrandPalette.appCanvas.ignoresSafeArea(edges: .top))
   }
@@ -582,9 +582,9 @@ struct LiveWorkoutView: View {
         }
       )
       .id(confirmationStamp.setID)
-      .padding(.horizontal, LiftChromeMetrics.gutter)
+      .padding(.horizontal, StrengthMetrics.gutter)
       .padding(.bottom, NoopMetrics.space3)
-      .frame(maxWidth: LiftChromeMetrics.maxColumnWidth + LiftChromeMetrics.gutter * 2)
+      .frame(maxWidth: LiftChromeMetrics.maxColumnWidth + StrengthMetrics.gutter * 2)
       .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
       .allowsHitTesting(false)
     }

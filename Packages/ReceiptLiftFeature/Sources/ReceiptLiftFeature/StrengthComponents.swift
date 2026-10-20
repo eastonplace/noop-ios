@@ -12,6 +12,30 @@ extension DomainTint {
   static var muscular: DomainTint { .custom(StrandPalette.muscularAccent) }
 }
 
+/// Fixed measures of the approved Strength design.
+enum StrengthMetrics {
+  /// The side gutter of Strength home, live logging and the summary (the design's 20pt, at every text size).
+  static let gutter: CGFloat = NoopMetrics.space5
+  /// What a 44pt icon button keeps empty around its glyph; the header's last icon sits this far past the gutter so the
+  /// glyph, not its tap area, lines up with the page edge.
+  static let iconInset: CGFloat = 11
+  /// The sheet grabber: 36 x 5, #3A4246.
+  static let grabberSize = CGSize(width: 36, height: 5)
+  static let grabberColor = Color(.sRGB, red: 0x3A / 255, green: 0x42 / 255, blue: 0x46 / 255)
+}
+
+/// The grabber the design draws at the top of the Strength sheet, 10pt above the header row.
+struct StrengthGrabber: View {
+  var body: some View {
+    Capsule(style: .continuous)
+      .fill(StrengthMetrics.grabberColor)
+      .frame(width: StrengthMetrics.grabberSize.width, height: StrengthMetrics.grabberSize.height)
+      .padding(.bottom, 10)
+      .frame(maxWidth: .infinity)
+      .accessibilityHidden(true)
+  }
+}
+
 /// The page header of the Strength screens: a letter-spaced caps title and the screen's own icon buttons.
 struct StrengthHeader<Trailing: View>: View {
   let title: LocalizedStringKey
@@ -141,18 +165,81 @@ struct StrengthStatStrip: View {
   }
 }
 
-/// An exercise picture in a quiet rounded tile, the way the mockup lays thumbnails out.
+/// An exercise picture in a quiet rounded tile, the way the mockup lays thumbnails out. With no `size` the tile is a square
+/// that fills the space it is given (inside a `StrengthTileRow`).
 struct StrengthExerciseTile: View {
   let exercise: LiftExercise?
-  var size: CGFloat = 58
+  var size: CGFloat? = 58
   var cornerRadius: CGFloat = 14
 
   var body: some View {
-    LiftExerciseThumb(exercise: exercise, size: size - 6, style: .paper)
-      .frame(width: size, height: size)
+    Group {
+      if let size {
+        tile(side: size).frame(width: size, height: size)
+      } else {
+        GeometryReader { proxy in tile(side: min(proxy.size.width, proxy.size.height)) }
+      }
+    }
+    .accessibilityHidden(true)
+  }
+
+  private func tile(side: CGFloat) -> some View {
+    LiftExerciseThumb(exercise: exercise, size: max(side - 6, 0), style: .paper)
+      .frame(width: side, height: side)
       .background(StrandPalette.card, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
       .overlay(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous).strokeBorder(StrandPalette.hairline, lineWidth: 1))
-      .accessibilityHidden(true)
+  }
+}
+
+/// A row of equal square tiles, at most `maxSide` each. When the row would not fit its width the tiles shrink together
+/// (the design's flex row) instead of overflowing, which would widen the page and eat into its gutters.
+struct StrengthTileRow: Layout {
+  var maxSide: CGFloat = 58
+  var spacing: CGFloat = 8
+
+  private func side(width: CGFloat?, count: Int) -> CGFloat {
+    guard count > 0 else { return 0 }
+    guard let width, width.isFinite else { return maxSide }
+    return max(min(maxSide, (width - spacing * CGFloat(count - 1)) / CGFloat(count)), 0)
+  }
+
+  func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+    let side = side(width: proposal.width, count: subviews.count)
+    let count = CGFloat(subviews.count)
+    return CGSize(width: side * count + spacing * max(count - 1, 0), height: side)
+  }
+
+  func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+    let side = side(width: bounds.width, count: subviews.count)
+    var x = bounds.minX
+    for subview in subviews {
+      subview.place(at: CGPoint(x: x, y: bounds.minY), anchor: .topLeading, proposal: ProposedViewSize(width: side, height: side))
+      x += side + spacing
+    }
+  }
+}
+
+/// The Log set button of the live card: the main button's look (solid light fill, dark label) at 44pt, so the REST and
+/// STRAIN cards stay above the fold with the set table, the best estimate and the tool chips over it.
+struct StrengthLogSetButtonStyle: ButtonStyle {
+  @Environment(\.isEnabled) private var isEnabled
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+  static let height: CGFloat = 44
+
+  func makeBody(configuration: Configuration) -> some View {
+    configuration.label
+      .labelStyle(.titleAndIcon)
+      .font(StrandFont.headline.weight(.semibold))
+      .lineLimit(1)
+      .minimumScaleFactor(0.9)
+      .foregroundStyle(StrandPalette.onLightFill)
+      .frame(maxWidth: .infinity, minHeight: Self.height)
+      .background(StrandPalette.solidFill, in: Capsule(style: .continuous))
+      .contentShape(Capsule(style: .continuous))
+      .opacity(isEnabled ? (configuration.isPressed ? 0.82 : 1) : 0.4)
+      .scaleEffect(configuration.isPressed && !reduceMotion ? 0.97 : 1)
+      .animation(reduceMotion ? nil : StrandMotion.interactive, value: configuration.isPressed)
   }
 }
 

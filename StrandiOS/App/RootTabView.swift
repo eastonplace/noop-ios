@@ -797,7 +797,8 @@ private struct PaperTabBar: View {
                     .font(.system(size: 18, weight: active ? .semibold : .regular))
                 PaperTabLabel(title: item.title, isActive: active)
             }
-            .foregroundStyle(active ? StrandPalette.ink : StrandPalette.textTertiary)
+            // The selected tab is the light ink; mint stays on the + and on "recording now" (the one pill system).
+            .foregroundStyle(active ? StrandPalette.solidFill : StrandPalette.textTertiary)
             .opacity(1 - 0.7 * Double(fanProgress))
             .frame(maxWidth: .infinity)
             .frame(maxHeight: .infinity)

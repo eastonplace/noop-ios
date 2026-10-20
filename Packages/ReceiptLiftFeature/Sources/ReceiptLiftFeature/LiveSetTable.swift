@@ -20,6 +20,7 @@ struct LiveSetTable: View {
   @Environment(\.dynamicTypeSize) private var typeSize
   @ScaledMetric(relativeTo: .body) private var cellSize: CGFloat = 17
   @ScaledMetric(relativeTo: .caption) private var headerSize: CGFloat = 11
+  @ScaledMetric(relativeTo: .body) private var columnScale: CGFloat = 1
 
   private var unit: LiftWeightUnit { format.unit }
 
@@ -29,37 +30,69 @@ struct LiveSetTable: View {
 
   // MARK: Table
 
+  /// The design's columns: SET | PREVIOUS (whatever is left) | load | REPS | RPE | check, 8pt apart. The fixed ones grow a
+  /// little with the text size (never past 1.2x) so a figure keeps its room.
+  private enum Column {
+    static let set: CGFloat = 30
+    static let load: CGFloat = 66
+    static let reps: CGFloat = 52
+    static let rpe: CGFloat = 48
+    static let check: CGFloat = 34
+    static let gap: CGFloat = 8
+    /// A figure box is 34pt tall and 9pt round; the row around it keeps the 44pt tap height.
+    static let box: CGFloat = 34
+    static let boxRadius: CGFloat = 9
+    /// The current row's wash reaches this far past the table on each side.
+    static let currentBleed: CGFloat = 8
+  }
+
+  private var columnFactor: CGFloat { min(columnScale, 1.2) }
+  private var setWidth: CGFloat { Column.set * columnFactor }
+  private var loadWidth: CGFloat { Column.load * columnFactor }
+  private var repsWidth: CGFloat { Column.reps * columnFactor }
+  private var rpeWidth: CGFloat { Column.rpe * columnFactor }
+  private var checkWidth: CGFloat { Column.check * columnFactor }
+
   private var tableLayout: some View {
     VStack(alignment: .leading, spacing: 0) {
-      Grid(alignment: .center, horizontalSpacing: 6, verticalSpacing: 0) {
-        GridRow {
-          header("Set").frame(width: 26, alignment: .leading)
-          header("Previous").frame(width: 66, alignment: .leading)
-          Text(verbatim: format.unitSymbol).headerStyle(headerSize).frame(maxWidth: .infinity)
-          header("Reps").frame(maxWidth: .infinity)
-          header("RPE").frame(maxWidth: .infinity)
-          Color.clear.frame(width: 40, height: 1)
+      HStack(spacing: Column.gap) {
+        header("Set").frame(width: setWidth, alignment: .leading)
+        header("Previous").frame(maxWidth: .infinity, alignment: .leading)
+        Text(verbatim: format.unitSymbol).headerStyle(headerSize).frame(width: loadWidth)
+        header("Reps").frame(width: repsWidth)
+        header("RPE").frame(width: rpeWidth)
+        Color.clear.frame(width: checkWidth, height: 1)
+      }
+      .frame(minHeight: 24)
+      ForEach(rows) { row in
+        let isCurrent = row.kind == .draft
+        HStack(spacing: Column.gap) {
+          Text(verbatim: row.label)
+            .font(StrandFont.sized(cellSize, weight: .regular))
+            .foregroundStyle(row.isWarmup ? StrandPalette.textTertiary : StrandPalette.textSecondary)
+            .frame(width: setWidth, alignment: .leading)
+            .accessibilityHidden(true)
+          Text(verbatim: previousText(row))
+            .font(StrandFont.sized(cellSize - 2, weight: .regular))
+            .foregroundStyle(StrandPalette.textTertiary)
+            .lineLimit(1)
+            .minimumScaleFactor(0.7)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityHidden(true)
+          valueCells(row)
+          trailing(row).frame(width: checkWidth)
         }
-        ForEach(rows) { row in
-          GridRow {
-            Text(verbatim: row.label)
-              .font(StrandFont.sized(cellSize, weight: .regular))
-              .foregroundStyle(row.isWarmup ? StrandPalette.textTertiary : StrandPalette.textSecondary)
-              .frame(width: 26, alignment: .leading)
-              .accessibilityHidden(true)
-            Text(verbatim: previousText(row))
-              .font(StrandFont.sized(cellSize - 2, weight: .regular))
-              .foregroundStyle(StrandPalette.textTertiary)
-              .lineLimit(1)
-              .minimumScaleFactor(0.7)
-              .frame(width: 66, alignment: .leading)
-              .accessibilityHidden(true)
-            valueCells(row)
-            trailing(row)
+        .frame(minHeight: 44)
+        // The current row sits on a quiet wash that reaches 8pt past the table on each side: the inset pads it in, the
+        // negative pad puts the columns back where every other row has them.
+        .padding(.horizontal, isCurrent ? Column.currentBleed : 0)
+        .background {
+          if isCurrent {
+            RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.white.opacity(0.04))
           }
-          .frame(minHeight: 44)
-          .modifier(RowAccessibility(row: row, label: rowSpoken(row)))
         }
+        .padding(.horizontal, isCurrent ? -Column.currentBleed : 0)
+        .modifier(RowAccessibility(row: row, label: rowSpoken(row)))
       }
       if let focus { tray(for: focus).padding(.top, NoopMetrics.space2) }
     }
@@ -72,17 +105,18 @@ struct LiveSetTable: View {
   @ViewBuilder private func valueCells(_ row: LiftSetTableRow) -> some View {
     switch row.kind {
     case .logged(let set):
-      plain(weightText(set.weight), dim: row.isWarmup)
-      plain("\(set.reps)", dim: row.isWarmup)
+      plain(weightText(set.weight), dim: row.isWarmup).frame(width: loadWidth)
+      plain("\(set.reps)", dim: row.isWarmup).frame(width: repsWidth)
       plain(LiftEffortValue.text(rpe: set.rpe, rated: set.effortRated == true, locale: format.locale), dim: row.isWarmup || set.effortRated != true)
+        .frame(width: rpeWidth)
     case .draft:
-      draftCell(.weight, text: weightText(draft.weight))
-      draftCell(.reps, text: "\(draft.reps)")
-      draftCell(.rpe, text: LiftEffortValue.text(rpe: draft.rpe, rated: draft.effortRated, locale: format.locale))
+      draftCell(.weight, text: weightText(draft.weight)).frame(width: loadWidth)
+      draftCell(.reps, text: "\(draft.reps)").frame(width: repsWidth)
+      draftCell(.rpe, text: LiftEffortValue.text(rpe: draft.rpe, rated: draft.effortRated, locale: format.locale)).frame(width: rpeWidth)
     case .planned:
-      ghost(weightText(draft.weight))
-      ghost("–")
-      ghost("–")
+      ghost(weightText(draft.weight)).frame(width: loadWidth)
+      ghost("–").frame(width: repsWidth)
+      ghost("–").frame(width: rpeWidth)
     }
   }
 
@@ -97,29 +131,34 @@ struct LiveSetTable: View {
       .accessibilityHidden(true)
   }
 
-  private func ghost(_ text: String) -> some View {
+  /// A figure box: 34pt tall, 9pt round, the card fill and a 12% white edge. The field being edited draws its edge in the
+  /// light ink instead (1pt, #F2F4F5).
+  private func figureBox(_ text: String, ink: Color, active: Bool) -> some View {
     Text(verbatim: text)
-      .font(StrandFont.sized(cellSize, weight: .regular))
-      .foregroundStyle(StrandPalette.textTertiary)
-      .frame(maxWidth: .infinity, minHeight: 36)
-      .background(StrandPalette.surfaceInset.opacity(0.6), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+      .font(StrandFont.sized(cellSize, weight: .semibold))
+      .monospacedDigit()
+      .foregroundStyle(ink)
+      .lineLimit(1)
+      .minimumScaleFactor(0.6)
+      .frame(maxWidth: .infinity, minHeight: Column.box)
+      .background(StrandPalette.card, in: RoundedRectangle(cornerRadius: Column.boxRadius, style: .continuous))
+      .overlay(
+        RoundedRectangle(cornerRadius: Column.boxRadius, style: .continuous)
+          .strokeBorder(active ? StrandPalette.solidFill : StrandPalette.pillStroke, lineWidth: 1))
+  }
+
+  /// A set still to come: the same box, with its figures in the quiet ink.
+  private func ghost(_ text: String) -> some View {
+    figureBox(text, ink: StrandPalette.textTertiary, active: false)
       .accessibilityHidden(true)
   }
 
+  /// The load is the field the steps start from, so it reads as the active one until another field is chosen.
+  private func isActive(_ field: LiveDraftField) -> Bool { (focus ?? .weight) == field }
+
   private func draftCell(_ field: LiveDraftField, text: String) -> some View {
-    let isFocused = focus == field
-    return Button { tap(field) } label: {
-      Text(verbatim: text)
-        .font(StrandFont.sized(cellSize, weight: .semibold))
-        .monospacedDigit()
-        .foregroundStyle(StrandPalette.textPrimary)
-        .lineLimit(1)
-        .minimumScaleFactor(0.6)
-        .frame(maxWidth: .infinity, minHeight: 36)
-        .background(isFocused ? StrandPalette.surfaceInset : StrandPalette.card, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .overlay(
-          RoundedRectangle(cornerRadius: 10, style: .continuous)
-            .strokeBorder(isFocused ? StrandPalette.textPrimary : StrandPalette.hairlineStrong, lineWidth: isFocused ? 1.5 : 1))
+    Button { tap(field) } label: {
+      figureBox(text, ink: StrandPalette.textPrimary, active: isActive(field))
         .frame(minHeight: 44)
         .contentShape(Rectangle())
     }
@@ -144,23 +183,23 @@ struct LiveSetTable: View {
         .foregroundStyle(row.isWarmup ? StrandPalette.textTertiary : StrandPalette.onLightFill)
         .frame(width: 28, height: 28)
         .background(row.isWarmup ? StrandPalette.tagFill : StrandPalette.solidFill, in: Circle())
-        .frame(width: 40, height: 44)
+        .frame(maxWidth: .infinity, minHeight: 44)
         .accessibilityHidden(true)
     case .draft:
       Button(action: onLog) {
         Circle()
           .strokeBorder(StrandPalette.hairlineStrong, lineWidth: 1.5)
           .frame(width: 28, height: 28)
-          .frame(width: 40, height: 44)
-          .contentShape(Rectangle())
+          .frame(maxWidth: .infinity, minHeight: 44)
+          .contentShape(Rectangle().inset(by: -5))
       }
       .buttonStyle(.plain)
       .accessibilityLabel("Log set")
     case .planned:
       Circle()
-        .strokeBorder(StrandPalette.hairline, lineWidth: 1.5)
+        .strokeBorder(StrandPalette.hairlineStrong, lineWidth: 1.5)
         .frame(width: 28, height: 28)
-        .frame(width: 40, height: 44)
+        .frame(maxWidth: .infinity, minHeight: 44)
         .accessibilityHidden(true)
     }
   }

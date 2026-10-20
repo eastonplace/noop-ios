@@ -37,7 +37,7 @@ struct LiftSessionSummaryView: View {
         FlatSectionSeparator()
         liftedSection
       }
-      .padding(.horizontal, LiftChromeMetrics.gutter)
+      .padding(.horizontal, StrengthMetrics.gutter)
       .padding(.top, NoopMetrics.space3)
       .padding(.bottom, NoopMetrics.space6)
       .frame(maxWidth: LiftChromeMetrics.maxColumnWidth, alignment: .leading)
@@ -77,10 +77,10 @@ struct LiftSessionSummaryView: View {
         HeaderChipButton("ticket", accessibilityLabel: "Receipt") { showsReceipt = true }
       }
     }
-    .padding(.horizontal, LiftChromeMetrics.gutter)
+    .padding(.horizontal, StrengthMetrics.gutter)
     .padding(.top, NoopMetrics.space3)
     .padding(.bottom, NoopMetrics.space1)
-    .frame(maxWidth: LiftChromeMetrics.maxColumnWidth + LiftChromeMetrics.gutter * 2)
+    .frame(maxWidth: LiftChromeMetrics.maxColumnWidth + StrengthMetrics.gutter * 2)
     .frame(maxWidth: .infinity)
     .background(StrandPalette.appCanvas)
   }

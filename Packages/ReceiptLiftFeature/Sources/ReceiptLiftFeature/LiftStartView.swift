@@ -45,7 +45,7 @@ struct LiftStartView: View {
           recentSection
         }
       }
-      .padding(.horizontal, LiftChromeMetrics.gutter)
+      .padding(.horizontal, StrengthMetrics.gutter)
       .padding(.top, NoopMetrics.space2)
       .padding(.bottom, NoopMetrics.space6)
       .frame(maxWidth: LiftChromeMetrics.maxColumnWidth, alignment: .leading)
@@ -64,6 +64,20 @@ struct LiftStartView: View {
   // MARK: Header
 
   private var header: some View {
+    VStack(spacing: 0) {
+      // The sheet's grabber, drawn the way the approved design has it, only where Lift is the root of the host's sheet.
+      if host.onClose != nil { StrengthGrabber() }
+      headerRow
+    }
+    .padding(.horizontal, StrengthMetrics.gutter)
+    .padding(.top, NoopMetrics.space3)
+    .padding(.bottom, NoopMetrics.space1)
+    .frame(maxWidth: LiftChromeMetrics.maxColumnWidth + StrengthMetrics.gutter * 2)
+    .frame(maxWidth: .infinity)
+    .background(StrandPalette.appCanvas)
+  }
+
+  private var headerRow: some View {
     StrengthHeader(title: "Strength", onBack: host.onBack) {
       HStack(spacing: 0) {
         StrengthIconButton(systemImage: "clock.arrow.circlepath", accessibilityLabel: "Lift history") { onOpen(.history) }
@@ -80,13 +94,8 @@ struct LiftStartView: View {
           StrengthIconButton(systemImage: "xmark", accessibilityLabel: "Close", action: onClose)
         }
       }
+      .padding(.trailing, -StrengthMetrics.iconInset)
     }
-    .padding(.horizontal, LiftChromeMetrics.gutter)
-    .padding(.top, NoopMetrics.space3)
-    .padding(.bottom, NoopMetrics.space1)
-    .frame(maxWidth: LiftChromeMetrics.maxColumnWidth + LiftChromeMetrics.gutter * 2)
-    .frame(maxWidth: .infinity)
-    .background(StrandPalette.appCanvas)
   }
 
   // MARK: Up next
@@ -183,15 +192,19 @@ struct LiftStartView: View {
   }
 
   private func thumbs(_ exercises: [LiftExercise], limit: Int, extra: Int) -> some View {
-    HStack(spacing: 8) {
+    // The tiles shrink together to fit the width (the design's flex row): at 58pt six of them are wider than the page
+    // and would push the whole column past its gutters.
+    StrengthTileRow(maxSide: typeSize.isAccessibilitySize ? 44 : 58, spacing: 8) {
       ForEach(Array(exercises.prefix(limit)), id: \.id) { exercise in
-        StrengthExerciseTile(exercise: exercise, size: typeSize.isAccessibilitySize ? 44 : 58)
+        StrengthExerciseTile(exercise: exercise, size: nil)
       }
       if extra > 0 {
         Text(verbatim: "+\(extra)")
           .font(StrandFont.subhead.weight(.semibold))
           .foregroundStyle(StrandPalette.textSecondary)
-          .frame(width: typeSize.isAccessibilitySize ? 44 : 58, height: typeSize.isAccessibilitySize ? 44 : 58)
+          .lineLimit(1)
+          .minimumScaleFactor(0.6)
+          .frame(maxWidth: .infinity, maxHeight: .infinity)
           .background(StrandPalette.card, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
           .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(StrandPalette.hairline, lineWidth: 1))
           .accessibilityHidden(true)
@@ -317,9 +330,28 @@ struct LiftStartView: View {
     recent = LiftTodayMath.recentCompletedSessions(in: store.sessions, limit: 3)
   }
 
+  /// Reads the stored Strain of the recent lifts, then again whenever the host says stored Strain changed: a lift's value
+  /// is written after its session lands in `store.sessions`, so a single read at that moment would miss it.
   private func loadRecentStrains() async {
-    guard let strainProvider, !recentIDs.isEmpty else { recentStrains = [:]; return }
-    recentStrains = await strainProvider.recentStrains(sessionIDs: recentIDs)
+    let ids = recentIDs
+    guard let strainProvider, !ids.isEmpty else { recentStrains = [:]; return }
+    await LiftRecentStrain.observe(provider: strainProvider, sessionIDs: ids) { recentStrains = $0 }
+  }
+}
+
+enum LiftRecentStrain {
+  /// Hands `apply` the stored Strain of `sessionIDs` now and again after every update the provider announces, until the
+  /// calling task is cancelled. The stream is opened before the first read so an update that lands during it is not lost.
+  @MainActor
+  static func observe(
+    provider: any LiftStrainProviding, sessionIDs: [String], apply: ([String: Double]) -> Void
+  ) async {
+    let updates = provider.updates()
+    apply(await provider.recentStrains(sessionIDs: sessionIDs))
+    for await _ in updates {
+      if Task.isCancelled { return }
+      apply(await provider.recentStrains(sessionIDs: sessionIDs))
+    }
   }
 }
 

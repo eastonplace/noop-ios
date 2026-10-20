@@ -206,15 +206,18 @@ public struct ChoiceChipButton: View {
     private let action: () -> Void
 
     /// A chip whose title is looked up in the app's string table.
+    ///
+    /// `accessibilityLabel` is for a chip whose spoken name is longer than what it shows ("Swap" reads "Swap exercise").
     public init(
         title: LocalizedStringKey,
         systemImage: String? = nil,
         isSelected: Bool = false,
+        accessibilityLabel: LocalizedStringKey? = nil,
         accessibilityHint: LocalizedStringKey? = nil,
         action: @escaping () -> Void
     ) {
         self.chip = ChoiceChip(title, systemImage: systemImage, isSelected: isSelected)
-        self.label = Text(title)
+        self.label = Text(accessibilityLabel ?? title)
         self.hint = accessibilityHint
         self.isSelected = isSelected
         self.action = action

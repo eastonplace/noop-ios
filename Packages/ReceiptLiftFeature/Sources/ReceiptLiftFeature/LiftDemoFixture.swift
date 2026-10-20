@@ -8,7 +8,7 @@ import Foundation
 /// Launch arguments (read by the host app and by the views' QA scene hooks):
 /// - `--noop-lift-demo <variant>` replaces what the coordinator loads with one of the variants below.
 ///   `full` (routines, fourteen weeks of history, a schedule), `empty` (no routines, no history),
-///   `session` (a lift in flight: three sets logged, rest timer idle), `session-rest` (nine working sets logged
+///   `session` (a lift in flight: three sets logged, rest timer idle), `session-rest` (eleven working sets logged
 ///   on Upper A with the rest timer running, the phone 3 capture), `session-bodyweight` (an open lift on the catalog
 ///   push-up, a body-weight exercise), `session-barbell` (a barbell routine with nothing logged yet), `session-open` (an open lift with no exercises) and `fresh` (the starter routines and no history).
 /// - `--noop-lift-scene <scene>` opens a deeper screen straight away; see `LiftQAScene`.
@@ -243,17 +243,19 @@ enum LiftDemoFixture {
   }
 
   /// The phone 3 lift: the routine's first three exercises done (one unrated warm-up and three rated working sets
-  /// each, 150 s apart, the last 11 s ago) and a rest running that was meant to be two minutes, so a capture 25 s
-  /// later reads about 1:24 / 2:00 with nine working sets logged.
+  /// each, 150 s apart) and the fourth, the one on screen, two sets in with a best estimate that beats the history, the
+  /// last set 11 s ago, and a rest running that was meant to be two minutes, so a capture 25 s later reads about
+  /// 1:24 / 2:00 with eleven working sets logged.
   private static func activeRestSession(routine: LiftRoutine, now: Date) -> LiftSession {
     let plans = routine.exercisePlans ?? []
-    // (load in pounds, reps, RPE) for each working set of the first three exercises.
+    // (load in pounds, reps, RPE) for each working set of the first four exercises.
     let working: [[(Double, Int, Double)]] = [
       [(130, 8, 8), (130, 8, 8.5), (130, 8, 9)],
       [(0, 8, 8), (0, 7, 8.5), (0, 6, 9)],
       [(50, 10, 8), (50, 10, 8), (50, 10, 8.5)],
+      [(115, 8, 8), (115, 8, 8.5)],
     ]
-    let total = 10
+    let total = 12
     let first = now.addingTimeInterval(-11 - Double(total - 1) * 150)
     var sets: [LiftSet] = []
     var index = 0
@@ -261,7 +263,7 @@ enum LiftDemoFixture {
       defer { index += 1 }
       return first.addingTimeInterval(Double(index) * 150)
     }
-    for (position, plan) in plans.prefix(3).enumerated() {
+    for (position, plan) in plans.prefix(working.count).enumerated() {
       if position == 0 {
         sets.append(LiftSet(id: UUID(), exerciseID: plan.exerciseID, setNumber: 1, weight: 65, reps: 8, rpe: 8,
                             isWarmup: true, completedAt: completedAt(), notes: ""))
