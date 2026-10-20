@@ -248,9 +248,9 @@ final class SelectedScreenDirectionTests: XCTestCase {
         let toggle = app.switches["settings.quickActions.\(name)"]
         try reveal(toggle, in: app, direction: direction)
         if try switchValue(toggle) != desired {
-            // Native Form exposes the full labelled row as a Switch. Aim at its visible trailing
-            // track instead of the row's blank center; the postcondition still checks the real value.
-            toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+            // Native Form exposes the full labelled row as a Switch. Its trailing track
+            // receives one human-length press; the postcondition checks the actual saved value.
+            toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).press(forDuration: 0.1)
         }
         let changed = XCTNSPredicateExpectation(
             predicate: NSPredicate(format: "value == %@", desired ? "1" : "0"), object: toggle

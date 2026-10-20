@@ -322,9 +322,14 @@ struct QuickActionFan: View {
                 .font(StrandFont.body)
                 .foregroundStyle(StrandPalette.textSecondary)
                 .multilineTextAlignment(.center)
-            Button("Choose quick actions") { perform(onChooseQuickActions) }
-                .font(StrandFont.body.weight(.semibold))
-                .frame(minHeight: 44)
+            Button { perform(onChooseQuickActions) } label: {
+                Text("Choose quick actions")
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, minHeight: 30)
+                    .contentShape(Rectangle())
+            }
+                .buttonStyle(PrimaryPillButtonStyle())
                 .accessibilityIdentifier("quickActions.choose")
                 .accessibilityFocused($primaryFocused)
         }

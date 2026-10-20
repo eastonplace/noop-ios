@@ -344,8 +344,14 @@ private struct BreathingContent: View {
                             let x = phase == .inhale
                                 ? inhaleWidth * CGFloat(elapsed / duration)
                                 : inhaleWidth + gap + (width - inhaleWidth) * CGFloat(elapsed / duration)
-                            Rectangle()
-                                .fill(StrandPalette.textPrimary)
+                            // Paired edge ticks retain the exact time position without
+                            // drawing a moving stroke through either duration label.
+                            VStack(spacing: 0) {
+                                Rectangle().frame(height: NoopMetrics.space2)
+                                Spacer(minLength: 0)
+                                Rectangle().frame(height: NoopMetrics.space2)
+                            }
+                                .foregroundStyle(StrandPalette.textPrimary)
                                 .frame(width: 2, height: timelineHeight)
                                 .offset(x: min(max(x, 0), max(0, geometry.size.width - 2)))
                                 .accessibilityHidden(true)

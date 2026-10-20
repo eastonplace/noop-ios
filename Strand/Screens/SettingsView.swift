@@ -3015,6 +3015,7 @@ private struct FormRow<Control: View>: View {
 
 /// 5A: native visibility switches; these never mutate a recording or Journal membership.
 private struct QuickActionsSettingsView: View {
+    @Environment(\.dynamicTypeSize) private var typeSize
     @AppStorage(QuickActionVisibilityID.journal.defaultsKey) private var journal = true
     @AppStorage(QuickActionVisibilityID.live.defaultsKey) private var live = true
     @AppStorage(QuickActionVisibilityID.workout.defaultsKey) private var workout = true
@@ -3072,7 +3073,7 @@ private struct QuickActionsSettingsView: View {
         .tint(.green)
         .navigationTitle("Quick Actions")
         #if os(iOS)
-        .navigationBarTitleDisplayMode(.large)
+        .navigationBarTitleDisplayMode(typeSize.isAccessibilitySize ? .inline : .large)
         #endif
     }
 
