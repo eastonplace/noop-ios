@@ -21,7 +21,38 @@ final class ExternalSurfaceProjectionTests: XCTestCase {
     func testEffortConversionRejectsNonFiniteStoredValues() {
         XCTAssertNil(ExternalSurfaceProjection.effortValue(.nan))
         XCTAssertNil(ExternalSurfaceProjection.effortValue(.infinity))
-        XCTAssertNotNil(ExternalSurfaceProjection.effortValue(10))
+        XCTAssertNil(ExternalSurfaceProjection.effortValue(-.infinity))
+    }
+
+    func testPassiveEffortConvertsStoredStrainToTheCanonicalDisplayScale() throws {
+        let display = try XCTUnwrap(ExternalSurfaceProjection.effortValue(43.6))
+        XCTAssertEqual(display, 9.156, accuracy: 0.000_001)
+        XCTAssertEqual(String(format: "%.1f", display), "9.2")
+        XCTAssertEqual(ExternalSurfaceProjection.effortValue(0), 0)
+        XCTAssertEqual(ExternalSurfaceProjection.effortValue(100), 21)
+    }
+
+    func testPassiveEffortUsesTheCanonicalClampingOfFiniteStoredValues() {
+        XCTAssertEqual(ExternalSurfaceProjection.effortValue(-.greatestFiniteMagnitude), 0)
+        XCTAssertEqual(ExternalSurfaceProjection.effortValue(.greatestFiniteMagnitude), 21)
+    }
+
+    @MainActor
+    func testCurrentProjectionAndRolloverFallbackMatchWidgetDisplayStrain() throws {
+        let ny = newYork()
+        let now = at(ny, 9, 4)
+        let current = ExternalSurfaceProjection(try projection(day: "2026-08-09", strain: 43.6))
+        let previous = ExternalSurfaceProjection(try projection(day: "2026-08-08", strain: 30))
+        let widget = WidgetSnapshot.publishing(
+            recovery: nil, storedStrain: 43.6, sleepScore: nil, bpm: nil,
+            batteryPct: nil, bonded: true, hrv: nil, restingHr: nil, updated: now)
+        let expected = try XCTUnwrap(widget.strain)
+
+        XCTAssertEqual(expected, 9.156, accuracy: 0.000_001)
+        XCTAssertEqual(current.effort(now: now, calendar: ny, todayStrain: { _ in nil }), expected)
+        XCTAssertEqual(previous.effort(now: now, calendar: ny, todayStrain: {
+            self.resolved($0, stored: 43.6)
+        }), expected)
     }
 
     // MARK: - The Live Activity's Strain is the current logical day's
@@ -61,8 +92,9 @@ final class ExternalSurfaceProjectionTests: XCTestCase {
 
         // Its own day, including 00:00 to 04:00 on the next calendar day.
         for now in [at(ny, 8, 15), at(ny, 8, 23, 59), at(ny, 9, 3, 59)] {
-            XCTAssertEqual(surface.effort(now: now, calendar: ny, todayStrain: { asked.append($0); return nil }), 30,
-                           "at \(now)")
+            XCTAssertEqual(try XCTUnwrap(surface.effort(now: now, calendar: ny, todayStrain: {
+                asked.append($0); return nil
+            })), 6.3, accuracy: 0.000_001, "at \(now)")
         }
         XCTAssertTrue(asked.isEmpty, "Today's Strain is not consulted while the projection is current")
 
@@ -70,8 +102,10 @@ final class ExternalSurfaceProjectionTests: XCTestCase {
         XCTAssertNil(surface.effort(now: at(ny, 9, 4), calendar: ny, todayStrain: { asked.append($0); return nil }))
         XCTAssertEqual(asked, ["2026-08-09"])
         XCTAssertEqual(
-            surface.effort(now: at(ny, 9, 10), calendar: ny, todayStrain: { self.resolved($0, stored: 12) }), 12,
-            "Today's Strain for the current logical day, in the stored scale the projection uses")
+            try XCTUnwrap(surface.effort(now: at(ny, 9, 10), calendar: ny, todayStrain: {
+                self.resolved($0, stored: 12)
+            })), 2.52, accuracy: 0.000_001,
+            "Today's stored Strain is converted to the Live Activity's display scale")
         XCTAssertNil(
             surface.effort(now: at(ny, 9, 10), calendar: ny, todayStrain: { _ in self.resolved("2026-08-08", stored: 30) }),
             "another day's resolved Strain is not today's")
@@ -85,6 +119,8 @@ final class ExternalSurfaceProjectionTests: XCTestCase {
         let bare = ExternalSurfaceProjection(try projection(day: "2026-08-08", strain: nil))
         XCTAssertNil(bare.effort(now: at(ny, 8, 15), calendar: ny, todayStrain: { self.resolved($0, stored: 12) }),
                      "on its own day the projection's Strain is the only one")
-        XCTAssertEqual(bare.effort(now: at(ny, 9, 10), calendar: ny, todayStrain: { self.resolved($0, stored: 12) }), 12)
+        XCTAssertEqual(try XCTUnwrap(bare.effort(now: at(ny, 9, 10), calendar: ny, todayStrain: {
+            self.resolved($0, stored: 12)
+        })), 2.52, accuracy: 0.000_001)
     }
 }
