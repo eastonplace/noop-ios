@@ -12,6 +12,7 @@ enum SettingsRouteID: String, CaseIterable, Hashable, Identifiable, Sendable {
     case backupExport
     case notificationsAlerts
     case appearanceUnits
+    case quickActions
     /// Workout detection, hydration, keep-screen-on and the Live Activity.
     case workouts
     case sleepAlarm
@@ -114,6 +115,7 @@ enum SettingsRouteCatalog {
                 .init(id: .notificationsAlerts, title: "Notifications & alerts"),
                 .init(id: .appearanceUnits, title: "Appearance & units"),
                 .init(id: .workouts, title: "Workouts"),
+                .init(id: .quickActions, title: "Quick Actions"),
             ]
         ),
         .init(
@@ -239,6 +241,13 @@ enum SettingsRouteCatalog {
             breadcrumb: "App Preferences › Appearance & units",
             route: .appearanceUnits,
             keywords: ["US", "metric", "imperial", "temperature", "Celsius", "Fahrenheit", "°C", "°F", "Strain scale", "Strain"]
+        ),
+        .init(
+            id: "quick-actions",
+            title: "Quick Actions",
+            breadcrumb: "App Preferences",
+            route: .quickActions,
+            keywords: ["plus", "+", "visibility", "show", "hide", "Journal", "Live HR", "Workout", "Strength", "Intervals", "Breathe", "recent activity"]
         ),
         .init(
             id: "workout-detection",

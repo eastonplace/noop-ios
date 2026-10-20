@@ -19,6 +19,7 @@ struct QuickActionFan: View {
     /// Opens the Lift flow, the one "Lift weights instead" on the workout setup page also leads to.
     let onStrength: () -> Void
     let onQuickStart: (_ sport: String) -> Void
+    let onChooseQuickActions: () -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dynamicTypeSize) private var typeSize
@@ -27,6 +28,7 @@ struct QuickActionFan: View {
     @AccessibilityFocusState private var primaryFocused: Bool
     @State private var quickStartSport: String?
     @State private var actionSelected = false
+    @State private var visibility = QuickActionVisibilityPolicy()
 
     // MARK: Geometry (the mockup's numbers, 1 pt = 1 pt)
 
@@ -50,7 +52,9 @@ struct QuickActionFan: View {
         ZStack {
             scrim
             GeometryReader { geo in
-                if usesStack(in: geo.size) {
+                if actions.isEmpty && recentSport == nil {
+                    emptyMenu
+                } else if usesStack(in: geo.size) {
                     stack
                 } else {
                     arc(in: geo.size)
@@ -75,6 +79,7 @@ struct QuickActionFan: View {
     /// the primary action once it is on screen.
     private func refresh() {
         actionSelected = false
+        visibility = QuickActionVisibilityPolicy(defaults: .standard)
         quickStartSport = WorkoutQuickStart.offer(recents: RecentSportsPrefs.recent(),
             gps: WorkoutQuickStart.currentGps(), blockedByLift: model.workoutStartBlock != nil)
         Task { @MainActor in
@@ -86,7 +91,10 @@ struct QuickActionFan: View {
     /// At accessibility sizes the arc has no room for its labels, and in a short window (landscape) it has no height:
     /// large rows above the + replace it.
     private func usesStack(in size: CGSize) -> Bool {
-        typeSize.isAccessibilitySize || size.height < 420
+        let chipClearance: CGFloat = recentSport == nil ? 0 : 58
+        let requiredHeight = QuickActionSlot.topClearance(for: actions.map(\.slot)) + chipClearance
+            + Self.plusCentreAboveBottom + 12
+        return typeSize.isAccessibilitySize || size.height < max(420, requiredHeight)
     }
 
     // MARK: Scrim
@@ -130,6 +138,14 @@ struct QuickActionFan: View {
 
     /// Left to right across the fan, which is also the order they spring out in.
     private var actions: [FanAction] {
+        var visible = allActions.filter { visibility.visibleActions.contains($0.slot.visibilityID) }
+        // The usual Start/Return action gets focus when visible; otherwise focus the first remaining action.
+        let focusedIndex = visible.firstIndex(where: \.takesFocus) ?? visible.indices.first
+        for index in visible.indices { visible[index].takesFocus = index == focusedIndex }
+        return visible
+    }
+
+    private var allActions: [FanAction] {
         [
             FanAction(id: "journal", title: "Journal", spokenTitle: "Log journal", symbol: "pencil.line",
                       tint: StrandPalette.journalAccent, hint: "Record how you feel", slot: .journal) { onPick(.journal) },
@@ -139,7 +155,7 @@ struct QuickActionFan: View {
             strengthAction,
             FanAction(id: "intervals", title: "Intervals", symbol: "timer", tint: StrandPalette.strainAccent,
                       hint: "Open your interval timer", slot: .intervals) { onPick(.intervals) },
-            // UX-07 is P3 and excluded. Preserve the existing unconditional entry and preferences.
+            // Visibility is a menu preference only; breathing availability and behavior stay unchanged.
             FanAction(id: "breathe", title: "Breathe", symbol: "wind", tint: StrandPalette.chargeAccent,
                       hint: "Open guided breathing", slot: .breathe) { onPick(.breathe) },
         ]
@@ -176,7 +192,7 @@ struct QuickActionFan: View {
     /// The "Start <last sport>" shortcut, offered only when starting it would not have to ask anything.
     private var recentSport: String? {
         guard model.activeWorkout == nil, !blockedByLift else { return nil }
-        return quickStartSport
+        return visibility.recentSport(eligible: quickStartSport)
     }
 
     private func perform(_ action: () -> Void) {
@@ -201,13 +217,13 @@ struct QuickActionFan: View {
         let plus = CGPoint(x: size.width / 2, y: size.height - Self.plusCentreAboveBottom)
         return ZStack(alignment: .topLeading) {
             ForEach(Array(actions.enumerated()), id: \.element.id) { index, action in
-                let target = action.slot.centre(plus: plus, width: size.width)
-                bubble(action, index: index, target: target,
-                       labelWidth: action.slot.labelWidth(width: size.width, maximum: Self.labelWidth), start: plus)
+                let target = action.slot.centre(plus: plus, width: size.width, index: index, count: actions.count)
+                let labelWidth = min(Self.labelWidth, 2 * (min(target.x, size.width - target.x) - QuickActionSlot.edgeMargin))
+                bubble(action, index: index, target: target, labelWidth: labelWidth, start: plus)
             }
             if let sport = recentSport {
                 // Above the two top actions, centred between them, as a quiet capsule.
-                let target = CGPoint(x: plus.x, y: plus.y + QuickActionSlot.chipOffsetY)
+                let target = CGPoint(x: plus.x, y: plus.y + QuickActionSlot.chipOffsetY(for: actions.map(\.slot)))
                 chip(sport: sport, target: target, start: plus, index: 2)
             }
         }
@@ -288,6 +304,7 @@ struct QuickActionFan: View {
         .buttonStyle(QuickActionPressStyle(reduceMotion: reduceMotion))
         .accessibilityHint("Starts the countdown using the eligible recent sport")
         .accessibilityIdentifier("quickActions.recentSport")
+        .modifier(PrimaryFocus(takesFocus: actions.isEmpty, focus: $primaryFocused))
         .opacity(Double(t))
         .animation(anim.fade, value: isOpen)
         .scaleEffect(reduceMotion ? 1 : 0.35 + 0.65 * t)
@@ -297,15 +314,48 @@ struct QuickActionFan: View {
         .animation(anim.move, value: isOpen)
     }
 
+    private var emptyMenu: some View {
+        let card = VStack(spacing: 12) {
+            Text("Choose quick actions")
+                .font(.title3.weight(.semibold))
+            Text("Add shortcuts to the + menu in Settings.")
+                .font(StrandFont.body)
+                .foregroundStyle(StrandPalette.textSecondary)
+                .multilineTextAlignment(.center)
+            Button("Choose quick actions") { perform(onChooseQuickActions) }
+                .font(StrandFont.body.weight(.semibold))
+                .frame(minHeight: 44)
+                .accessibilityIdentifier("quickActions.choose")
+                .accessibilityFocused($primaryFocused)
+        }
+        .padding(24)
+        .frame(maxWidth: 360)
+        .background(StrandPalette.card, in: RoundedRectangle(cornerRadius: 24))
+        .fixedSize(horizontal: false, vertical: true)
+        .padding(.horizontal, 16)
+        .padding(.bottom, 24)
+
+        // Keep the portrait card unchanged; short windows and large text can scroll to its action.
+        return ViewThatFits(in: .vertical) {
+            card.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+            ScrollView { card.frame(maxWidth: .infinity) }
+                .defaultScrollAnchor(.bottom)
+                .scrollIndicators(.hidden)
+                .scrollBounceBehavior(.basedOnSize)
+        }
+        .padding(.bottom, Self.barHeight)
+        .opacity(Double(progress))
+        .animation(.easeInOut(duration: 0.2), value: isOpen)
+    }
+
     // MARK: Accessibility sizes: large rows above the +
 
     private var stack: some View {
-        let ordered = actions.filter { !$0.isPrimary } + actions.filter { $0.isPrimary }
         let rows = VStack(spacing: 10) {
-            ForEach(Array(ordered.enumerated()), id: \.element.id) { index, action in
-                if action.slot == .workout, let sport = recentSport {
-                    recentRow(sport: sport, index: index)
-                }
+            if let sport = recentSport {
+                recentRow(sport: sport, index: 0)
+            }
+            ForEach(Array(actions.enumerated()), id: \.element.id) { index, action in
                 row(action, index: index)
             }
         }
@@ -393,6 +443,7 @@ struct QuickActionFan: View {
             .buttonStyle(QuickActionPressStyle(reduceMotion: reduceMotion))
             .accessibilityHint("Starts the countdown using the eligible recent sport")
             .accessibilityIdentifier("quickActions.recentSport")
+            .modifier(PrimaryFocus(takesFocus: actions.isEmpty, focus: $primaryFocused))
         }
     }
 }
@@ -402,6 +453,53 @@ struct QuickActionFan: View {
 /// numbers, lifted so the lowest labels clear the tab bar).
 enum QuickActionSlot: CaseIterable {
     case journal, live, workout, strength, intervals, breathe
+
+
+    var visibilityID: QuickActionVisibilityID {
+        switch self {
+        case .journal: .journal
+        case .live: .live
+        case .workout: .workout
+        case .strength: .strength
+        case .intervals: .intervals
+        case .breathe: .breathe
+        }
+    }
+
+    /// Compact layouts keep the selected catalog order, full-size targets and room for two-line labels.
+    /// All six retains the original geometry. Fewer items form a smaller, balanced arc.
+    private static func compactOffsets(count: Int) -> [CGPoint] {
+        switch count {
+        case 0: []
+        case 1: [CGPoint(x: 0, y: -170)]
+        case 2: [CGPoint(x: -54, y: -180), CGPoint(x: 54, y: -180)]
+        case 3: [CGPoint(x: -110, y: -132), CGPoint(x: 0, y: -254), CGPoint(x: 110, y: -132)]
+        case 4: [CGPoint(x: -142, y: -132), CGPoint(x: -54, y: -254),
+                 CGPoint(x: 54, y: -254), CGPoint(x: 142, y: -132)]
+        default: [CGPoint(x: -145, y: -132), CGPoint(x: -112, y: -254), CGPoint(x: 0, y: -314),
+                  CGPoint(x: 112, y: -254), CGPoint(x: 145, y: -132)]
+        }
+    }
+
+    func centre(plus: CGPoint, width: CGFloat, index: Int, count: Int) -> CGPoint {
+        if count == Self.allCases.count { return centre(plus: plus, width: width) }
+        let points = Self.compactOffsets(count: count)
+        guard points.indices.contains(index) else { return plus }
+        let point = points[index]
+        let reach = width / 2 - Self.edgeMargin - diameter / 2
+        let dx = min(abs(point.x) * width / Self.referenceWidth, reach)
+        return CGPoint(x: plus.x + (point.x < 0 ? -dx : dx), y: plus.y + point.y)
+    }
+
+    static func topClearance(for slots: [QuickActionSlot]) -> CGFloat {
+        slots.enumerated().map { index, slot in
+            -slot.centre(plus: .zero, width: referenceWidth, index: index, count: slots.count).y + slot.diameter / 2
+        }.max() ?? 112
+    }
+
+    static func chipOffsetY(for slots: [QuickActionSlot]) -> CGFloat {
+        -topClearance(for: slots) - 14 - 22
+    }
 
     /// The screen width the offsets were drawn for. Horizontal offsets scale with the real width.
     static let referenceWidth: CGFloat = 393

@@ -237,6 +237,7 @@ extension SettingsRouteID {
         case .notificationsAlerts: "bell.badge.fill"
         case .appearanceUnits: "textformat.size"
         case .workouts: "figure.run"
+        case .quickActions: "plus.circle.fill"
         case .sleepAlarm: "bed.double.fill"
         case .siriShortcuts: "waveform"
         case .diagnosticsExperimental: "wrench.and.screwdriver.fill"
@@ -258,6 +259,7 @@ extension SettingsRouteID {
         case .notificationsAlerts: .red
         case .appearanceUnits: .blue
         case .workouts: .orange
+        case .quickActions: .green
         case .sleepAlarm: .indigo
         case .siriShortcuts: .purple
         case .diagnosticsExperimental: .gray

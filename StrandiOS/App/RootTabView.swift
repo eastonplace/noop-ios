@@ -150,6 +150,10 @@ struct RootTabView: View {
                 }, onQuickStart: { sport in
                     closeFan()
                     router.workoutJourneyRequest = .quickStart(sport: sport)
+                }, onChooseQuickActions: {
+                    // Unmount first so Settings never appears behind the modal fan.
+                    closeFan(animated: false)
+                    router.openSettings(.quickActions)
                 })
         }
         PaperTabBar(selection: $selectedTab, fanOpen: fanOpen, fanProgress: fanProgress, onReselect: { tab in

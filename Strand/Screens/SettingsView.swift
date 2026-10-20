@@ -236,6 +236,8 @@ struct SettingsDetailHost: View {
             AutomationsView()
         case .appearanceUnits:
             displaySettingsDetail
+        case .quickActions:
+            QuickActionsSettingsView()
         case .workouts:
             featureSettingsDetail
         case .sleepAlarm:
@@ -3009,3 +3011,61 @@ private struct FormRow<Control: View>: View {
         .preferredColorScheme(.dark)
 }
 #endif
+
+
+/// 5A: native visibility switches; these never mutate a recording or Journal membership.
+private struct QuickActionsSettingsView: View {
+    private var preferences = QuickActionVisibilityPreferences()
+
+    var body: some View {
+        Form {
+            Section {
+                ForEach(QuickActionVisibilityID.allCases, id: \.self) { action in
+                    Toggle(isOn: preferences.binding(for: action)) {
+                        Label {
+                            Text(LocalizedStringKey(action.title))
+                        } icon: {
+                            Image(systemName: action.symbol)
+                                .foregroundStyle(.white)
+                                .frame(width: 28, height: 28)
+                                .background(tileColor(action), in: RoundedRectangle(cornerRadius: 6))
+                        }
+                    }
+                    .accessibilityIdentifier("settings.quickActions.\(action.rawValue)")
+                }
+            } header: {
+                Text("Show in +")
+            } footer: {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("\(preferences.shownCount) of 6 actions shown")
+                    Text("Workout and Strength become Return actions during a session. Hiding a shortcut keeps its data and its Resume bar.")
+                }
+            }
+
+            Section {
+                Toggle("Recent activity shortcut", isOn: preferences.$recentActivity)
+                    .accessibilityIdentifier("settings.quickActions.recentActivity")
+            } footer: {
+                Text("Offers your most recent sport when it can start without another setup question. This is independent of the Workout switch; workout, lift and GPS checks still apply.")
+            }
+        }
+        .formStyle(.grouped)
+        .environment(\.defaultMinListRowHeight, 44)
+        .tint(.green)
+        .navigationTitle("Quick Actions")
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
+    }
+
+    private func tileColor(_ action: QuickActionVisibilityID) -> Color {
+        switch action {
+        case .journal: .purple
+        case .live: .pink
+        case .workout: .green
+        case .strength: .purple
+        case .intervals: .blue
+        case .breathe: .teal
+        }
+    }
+}
