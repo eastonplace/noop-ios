@@ -5,7 +5,7 @@ import StrandDesign
 // The three parts of the day's score as rows for the "What set today's score" section. Pure and tested.
 
 struct StrainScoreRow: Equatable, Identifiable {
-    enum Kind: Int, CaseIterable { case cardio, steps, energy }
+    enum Kind: Int, CaseIterable { case cardio, steps, energy, lifting }
 
     let kind: Kind
     /// On the 0...21 display scale; nil when nothing feeds that part (no step count, no active energy).
@@ -31,22 +31,49 @@ struct StrainScoreParts: Equatable {
     /// True while active energy is not one of the rows: the score is then worked out from cardio and steps alone.
     var isScoredFromCardioAndSteps: Bool { !rows.contains { $0.kind == .energy } }
 
-    static func make(_ components: StrainScorerV2.DayStrainComponents, hero: Double?) -> StrainScoreParts? {
+    /// - Parameter liftLoad: the day's muscular load from the logged lifts (Strength Strain), 0 for none. The score is
+    ///   then `max(step floor, energy floor, combine(cardio, load))` and a Lifting row shows what the sets add.
+    static func make(_ components: StrainScorerV2.DayStrainComponents, hero: Double?,
+                     liftLoad: Double = 0) -> StrainScoreParts? {
         guard let score = components.score else { return nil }
-        let agrees = hero.map { abs(StrainScale.displayValue(fromStored: score) - $0) <= agreementTolerance } ?? false
+        let load = usable(liftLoad)
+        // The same day combine the stored settle and the live score use (A7).
+        let combinedScore = load > 0
+            ? StrengthStrainIntegration.dayCombine(hrStored: score, muscularLoad: load, components: components)
+            : score
+        let agrees = hero.map { abs(StrainScale.displayValue(fromStored: combinedScore) - $0) <= agreementTolerance } ?? false
+        let dominant = Self.dominant(components, liftLoad: load)
         func row(_ kind: StrainScoreRow.Kind, _ value: Double?) -> StrainScoreRow {
-            let dominant: StrainScorerV2.DayStrainComponents.Component
+            let part: StrainScorerV2.DayStrainComponents.Component
             switch kind {
-            case .cardio: dominant = .cardio
-            case .steps: dominant = .steps
-            case .energy: dominant = .energy
+            case .cardio: part = .cardio
+            case .steps: part = .steps
+            case .energy: part = .energy
+            case .lifting: return StrainScoreRow(kind: .lifting, value: value, setsScore: false)
             }
-            return StrainScoreRow(kind: kind, value: value, setsScore: agrees && components.dominant == dominant)
+            return StrainScoreRow(kind: kind, value: value, setsScore: agrees && dominant == part)
         }
-        return StrainScoreParts(
-            rows: [row(.cardio, components.cardio), row(.steps, components.steps), row(.energy, components.energy)]
-                .filter { $0.kind != .energy || $0.value != nil },
-            agreesWithHero: agrees)
+        var rows = [row(.cardio, components.cardio), row(.steps, components.steps), row(.energy, components.energy)]
+            .filter { $0.kind != .energy || $0.value != nil }
+        if load > 0 {
+            let add = StrainScale.displayValue(fromStored: combinedScore) - StrainScale.displayValue(fromStored: score)
+            rows.append(row(.lifting, add))
+        }
+        return StrainScoreParts(rows: rows, agreesWithHero: agrees)
     }
-}
 
+    /// The part that sets the day's score. With lifts the cardio part is the one carrying them, so it is compared as
+    /// `combine(cardio, load)`; without lifts it is the components' own dominant part.
+    static func dominant(_ components: StrainScorerV2.DayStrainComponents,
+                         liftLoad: Double) -> StrainScorerV2.DayStrainComponents.Component? {
+        let load = usable(liftLoad)
+        guard load > 0, let cardio = components.cardio else { return components.dominant }
+        let lifted = StrengthStrain.combinedDisplay(hrDisplay: cardio, muscularLoad: load)
+        let steps = components.steps ?? 0
+        let energy = components.energy ?? 0
+        if lifted >= steps, lifted >= energy { return .cardio }
+        return steps >= energy ? .steps : .energy
+    }
+
+    private static func usable(_ load: Double) -> Double { load.isFinite && load > 0 ? load : 0 }
+}

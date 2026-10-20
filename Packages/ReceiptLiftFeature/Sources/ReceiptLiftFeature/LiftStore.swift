@@ -587,7 +587,8 @@ final class LiftStore: ObservableObject {
     rpe: Double,
     isWarmup: Bool,
     notes: String = "",
-    restSeconds: TimeInterval? = nil
+    restSeconds: TimeInterval? = nil,
+    effortRated: Bool? = nil
   ) -> LiftSetOutcome? {
     guard var session = activeSession else { return nil }
     let nextSetNumber = session.sets.filter { $0.exerciseID == exercise.id }.count + 1
@@ -600,7 +601,8 @@ final class LiftStore: ObservableObject {
       rpe: rpe,
       isWarmup: isWarmup,
       completedAt: Date(),
-      notes: notes
+      notes: notes,
+      effortRated: effortRated
     )
     let personalRecord = personalRecord(for: set, exerciseID: exercise.id)
     session.sets.append(set)

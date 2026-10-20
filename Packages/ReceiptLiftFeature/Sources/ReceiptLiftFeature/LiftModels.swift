@@ -65,6 +65,9 @@ struct LiftSet: Identifiable, Codable, Equatable, Hashable, Sendable {
   var isWarmup: Bool
   var completedAt: Date
   var notes: String
+  /// True when the person picked an RPE for this set. Nil on sets saved before the RPE cell, which encode exactly as
+  /// they always did; the engine still reads `rpe` for every set (8 when untouched), so Strain math is unchanged.
+  var effortRated: Bool? = nil
 
   var volume: Double {
     guard weight.isFinite, weight > 0, reps > 0 else { return 0 }

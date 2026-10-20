@@ -87,12 +87,12 @@ struct ScheduleWeekStrip: View {
       VStack(spacing: 3) {
         Text(weekdaySymbol(for: day.date))
           .font(StrandFont.micro)
-          .foregroundStyle(isSelected ? StrandPalette.onInk : StrandPalette.textTertiary)
+          .foregroundStyle(isSelected ? StrandPalette.onLightFill : StrandPalette.textTertiary)
         Text(calendar.component(.day, from: day.date).formatted(.number.locale(locale)))
           .font(StrandFont.number(16))
-          .foregroundStyle(isSelected ? StrandPalette.onInk : StrandPalette.textPrimary)
+          .foregroundStyle(isSelected ? StrandPalette.onLightFill : StrandPalette.textPrimary)
         Circle()
-          .fill(isSelected ? StrandPalette.onInk : StrandPalette.accent)
+          .fill(isSelected ? StrandPalette.onLightFill : StrandPalette.accent)
           .frame(width: 4, height: 4)
           .opacity(day.isTrained ? 1 : 0)
           .accessibilityHidden(true)
@@ -105,7 +105,7 @@ struct ScheduleWeekStrip: View {
             cornerRadius: LiftDesignMetrics.ScheduleWeek.selectionCornerRadius,
             style: .continuous
           )
-          .fill(StrandPalette.ink)
+          .fill(StrandPalette.solidFill)
           .matchedGeometryEffect(id: "schedule-week-selection", in: selectionNamespace)
         }
       }

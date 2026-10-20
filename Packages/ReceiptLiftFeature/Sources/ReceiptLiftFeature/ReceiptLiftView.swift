@@ -46,6 +46,7 @@ public struct ReceiptLiftView: View {
         }
             .environment(\.liftHostChrome, host)
             .environment(\.liftWeightUnit, weightUnit)
+            .environment(\.liftStrainProvider, coordinator.strainProvider)
             .environmentObject(coordinator.store)
             .contentSurfacePresentation(.flat)
             .preferredColorScheme(.dark)

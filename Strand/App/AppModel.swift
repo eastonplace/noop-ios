@@ -650,7 +650,7 @@ final class AppModel: ObservableObject {
         #if os(iOS)
         self.localCoach = LocalCoachEngine(repo: repo)
         #endif
-        self.intelligence = IntelligenceEngine(repo: repo, profile: profile, deviceId: deviceId)
+        self.intelligence = IntelligenceEngine(repo: repo, profile: profile, deviceId: deviceId, isPrimary: true)
         // Route the engine's per-day scoring diagnostic into the SAME shareable strap log every other
         // subsystem writes to (PII-scrubbed by `live.append(log:)`), so a bug report ships proof of what
         // was computed per day. `live` is captured strongly (created just above) , the engine outlives the
@@ -841,9 +841,12 @@ final class AppModel: ObservableObject {
                 )
                 if cadenceDecision != .skip {
                     await self.intelligence.analyzeRecent(force: false)
+                    // Strength Strain: covers ticks the watermark short-circuits, where no pass runs to settle it.
+                    _ = await self.intelligence.settleLiftStrain()
                 }
                 #else
                 await self.intelligence.analyzeRecent(force: false)
+                _ = await self.intelligence.settleLiftStrain()
                 #endif
                 // v5: recompute the skin-temp suite snapshots (cycle phase + body clock) from the
                 // freshly-scored history so the Health hub cards read a ready result. Skipped while a run or

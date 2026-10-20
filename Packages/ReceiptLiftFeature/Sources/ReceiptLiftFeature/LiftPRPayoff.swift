@@ -39,7 +39,7 @@ struct LiftPRBadge: View {
   let record: LiftPersonalRecord
 
   var body: some View {
-    LiftTag(text: LocalizedStringKey(LiftPRPresentation.label(for: record)))
+    LiftTag(text: LocalizedStringKey(LiftPRPresentation.label(for: record)), systemImage: "star.fill", tint: StrandPalette.signalYellow)
       .accessibilityLabel(LiftPRPresentation.label(for: record))
   }
 }

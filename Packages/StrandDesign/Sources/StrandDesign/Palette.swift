@@ -68,6 +68,23 @@ public enum StrandPalette {
     /// The quiet capsule behind a small chip (`WidgetChip`): a 6% white wash.
     public static let chipFill = Color.white.opacity(0.06)
 
+    // MARK: One pill system (L4)
+    // Colour lives in a dot on a neutral pill, never in the pill. These tokens are the whole pill system's chrome.
+    /// The neutral pill's fill (same wash as `chipFill`).
+    public static let pillFill = chipFill
+    /// The neutral pill's 1pt edge, white at 12%.
+    public static let pillStroke = Color(hex: "#FFFFFF1F")
+    /// The fill of a tag (`LiftTag`, PR, Superset): the inset surface.
+    public static let tagFill = inset
+    /// The muscular-load hue ("Your sets add" segments on the strain breakdown).
+    public static let muscularAccent = Color(hex: "#8C7BFF")
+    /// The solid light fill of a selected chip and a primary button (the mock's #F2F4F5). The label on it is `onLightFill`.
+    public static let solidFill = Color(hex: "#F2F4F5")
+    /// The dark label on `solidFill`.
+    public static let onLightFill = canvas
+    /// The sheet grabber (the Strength design's #3A4246).
+    public static let grabber = Color(hex: "#3A4246")
+
     // MARK: Text
 
     public static let textPrimary = Color(hex: "#FFFFFF")

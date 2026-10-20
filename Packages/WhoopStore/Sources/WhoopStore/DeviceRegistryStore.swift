@@ -206,6 +206,9 @@ public struct DeviceRegistryStore: Sendable {
         // Lift Log rows are device-owned and must be removed with the rest of a device's data.
         "liftExercise", "liftProgramItem", "liftProgram", "liftSet", "liftSession",
         "liftReceiptState",
+        // Strength Strain bookkeeping. `liftStrainControl` is deliberately absent: it is one global row with no
+        // `deviceId` column, so deleting a device's data must never touch the kill switch.
+        "liftStrain", "liftStrainTarget", "liftStrainJob",
     ]
 
     /// Permanently delete every recorded sample/derived row belonging to one device, across all

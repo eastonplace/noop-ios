@@ -17,11 +17,11 @@ import SwiftUI
 
 /// The four button roles. Primary/destructive share the component-library 56pt / r22 geometry.
 public enum NoopButtonKind: Sendable {
-    /// Filled ink, on-ink label — the one primary action on a screen.
+    /// Solid light fill (#F2F4F5), dark label — the one primary action on a screen.
     case primary
-    /// Raised-surface fill, primary-text label, hairline edge — secondary actions.
+    /// Clear, `hairlineStrong` edge, primary-text label — secondary actions.
     case secondary
-    /// No fill, accent label — low-emphasis / inline actions.
+    /// No fill, primary-text label — low-emphasis / inline actions.
     case tertiary
     /// White card, destructive outline + label — destructive / irreversible actions.
     case destructive
@@ -32,10 +32,10 @@ public enum NoopButtonKind: Sendable {
 /// Fixed geometry shared by the convenience view and the ButtonStyle so the two paths
 /// are pixel-identical. The single source of truth for button shape.
 public enum NoopButtonMetrics {
-    /// Standard component-library primary/destructive control height.
-    public static let height: CGFloat = 56
-    /// Component-library button radius.
-    public static let cornerRadius: CGFloat = 22
+    /// Main-button height (the one pill system's 50pt).
+    public static let height: CGFloat = MainButtonInk.height
+    /// Main-button radius: half the height, so the button is a capsule.
+    public static let cornerRadius: CGFloat = MainButtonInk.height / 2
     /// Horizontal label inset.
     public static let hPadding: CGFloat = 18
     /// Spacing between a leading icon and the label.
@@ -62,16 +62,16 @@ struct NoopButtonAppearance {
     init(_ kind: NoopButtonKind) {
         switch kind {
         case .primary:
-            fill = StrandPalette.ink
-            label = StrandPalette.onInk
+            fill = MainButtonInk.primaryFill
+            label = MainButtonInk.primaryLabel
             border = nil
         case .secondary:
-            fill = StrandPalette.card
-            label = StrandPalette.textPrimary
-            border = StrandPalette.cardBorder
+            fill = nil
+            label = MainButtonInk.secondaryLabel
+            border = MainButtonInk.secondaryStroke
         case .tertiary:
             fill = nil
-            label = StrandPalette.link
+            label = StrandPalette.textPrimary
             border = nil
         case .destructive:
             fill = StrandPalette.card
@@ -237,13 +237,14 @@ public struct ChipButtonStyle: ButtonStyle {
     public func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .labelStyle(.titleAndIcon)
-            .font(StrandFont.caption.weight(.medium))
-            .foregroundStyle(StrandPalette.link)
+            .font(StrandFont.caption.weight(.semibold))
+            .foregroundStyle(StrandPalette.textSecondary)
             .lineLimit(1)
-            .padding(.horizontal, 12)
-            .frame(height: 32)
-            .background(StrandPalette.card, in: Capsule())
-            .overlay(Capsule().strokeBorder(StrandPalette.link, lineWidth: 1))
+            .padding(.horizontal, ChoiceChipMetrics.horizontalPadding)
+            .frame(minHeight: ChoiceChipMetrics.height)
+            .overlay(Capsule().strokeBorder(StrandPalette.hairlineStrong, lineWidth: 1))
+            // Drawn 34pt; a finger gets 44pt without the layout growing.
+            .contentShape(Rectangle().inset(by: -(ChoiceChipMetrics.hitTarget - ChoiceChipMetrics.height) / 2))
             .opacity(isEnabled ? (configuration.isPressed ? 0.72 : 1) : NoopButtonMetrics.disabledOpacity)
             .animation(StrandMotion.interactive, value: configuration.isPressed)
     }

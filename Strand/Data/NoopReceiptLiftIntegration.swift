@@ -1,6 +1,8 @@
 import Foundation
 import Combine
 import ReceiptLiftFeature
+import StrandAnalytics
+import WhoopProtocol
 import WhoopStore
 
 extension UnitSystem {
@@ -101,19 +103,36 @@ final class NoopReceiptLiftIntegration: ObservableObject {
             load: { if let demoState { return demoState }; return try await store.loadReceiptLiftState(sourceOwner: sourceOwner) },
             save: { [weak model] data, workouts in
                 let payload = NoopReceiptLiftPayload.make(owner: source, workouts: workouts)
+                // Strength Strain rows are computed here and saved in the same transaction as the lift, so a lift
+                // never exists without its muscular load. A body weight frozen with an earlier save is reused.
+                let frozen = (try? await store.liftStrainBodyweights(
+                    deviceId: source, liftSessionIds: workouts.map(\.id))) ?? [:]
+                let profileKg = ProfileStore.storedWeightKg()
+                let liftStrain = workouts.map {
+                    StrengthStrainIntegration.computed(for: $0, frozen: frozen[$0.id], profileKg: profileKg)
+                }
                 try await store.saveReceiptLiftStateAndWorkout(sourceOwner: sourceOwner, data: data,
-                    sessions: payload.sessions, sets: payload.sets, workouts: payload.workouts)
+                    sessions: payload.sessions, sets: payload.sets, workouts: payload.workouts,
+                    liftStrain: liftStrain)
                 if !workouts.isEmpty {
                     Task { @MainActor [weak model] in
-                            guard let model, model.repo.deviceId == source else { return }
-                            await model.intelligence.analyzeRecent(maxDays: 1, startOffset: 0, refreshRepository: true)
-                            _ = await model.repo.refresh(.currentDay)
+                        guard let model, model.repo.deviceId == source else { return }
+                        await LiftStrainSaveFollowUp.run(
+                            analyze: {
+                                await model.intelligence.analyzeRecent(maxDays: 1, startOffset: 0, refreshRepository: true)
+                            },
+                            settle: { _ = await model.intelligence.settleLiftStrain() },
+                            refresh: {
+                                await model.repo.refreshLiveDayStrain(maxHR: Double(model.profile.hrMax))
+                                _ = await model.repo.refresh(.currentDay)
+                            })
                     }
                 }
             }, canStart: { [weak model] in model?.activeWorkout == nil },
             // Before load(): a restored session redraws its Live Activity as part of loading.
             weightUnit: UnitSystem.stored.liftWeightUnit)
         guard model.repo.deviceId == source else { return }
+        feature.strainProvider = Self.strainProvider(model: model, store: store)
         owner = source
         selectedSourceOwner = sourceOwner
         coordinator = feature
@@ -134,6 +153,26 @@ final class NoopReceiptLiftIntegration: ObservableObject {
     }
 
     func consumeRestoredSession() { restoredSessionPending = false }
+
+    /// What Lift shows for Strain: the app's stored values, or (DEBUG) the simulator QA scenarios.
+    private static func strainProvider(model: AppModel, store: WhoopStore) -> any LiftStrainProviding {
+        #if DEBUG
+        if let demo = DemoLiftStrainProvider.requested() { return demo }
+        #endif
+        return AppLiftStrainProvider(
+            store: store,
+            deviceId: { [weak model] in model?.repo.deviceId ?? "" },
+            bpm: { [weak model] in model?.bpm },
+            startHR: { [weak model] in model?.startRealtimeHR() },
+            stopHR: { [weak model] in model?.stopRealtimeHR() },
+            maxHR: { [weak model] in Double(model?.profile.hrMax ?? 190) },
+            restingHR: { [weak model] in
+                let today = Repository.logicalDayKey(Date())
+                return model?.repo.days.last(where: { $0.day == today })?.restingHr.map(Double.init)
+                    ?? StrainScorerV2.defaultRestingHR
+            },
+            hrSamples: { [weak model] from, to in await model?.repo.hrSamples(from: from, to: to) ?? [] })
+    }
 
     /// Simulator QA only: `--demo-seed --noop-lift-demo <variant>` loads generated Lift data instead of the database's.
     /// What the person does afterwards is still saved to the database, so a relaunch without the flag restores it.

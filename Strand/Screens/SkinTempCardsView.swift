@@ -585,7 +585,7 @@ enum IllnessConfidence {
 
 // MARK: - Small chip flow (shared by Heads-Up)
 
-/// A wrapping row of small tinted chips. Used for fired signals / confounders so a long list
+/// A wrapping row of small neutral pills with a tone dot. Used for fired signals / confounders so a long list
 /// never clips. Decorative wrapping; the parent combines it into one VoiceOver stop.
 private struct FlowChips: View {
     let values: [String]
@@ -603,8 +603,7 @@ private struct FlowChips: View {
             Text(verbatim: v)
                 .font(StrandFont.captionNumber)
                 .foregroundStyle(StrandPalette.textPrimary)
-                .padding(.horizontal, 7).padding(.vertical, 2)
-                .background(tint.opacity(0.14), in: Capsule(style: .continuous))
+                .statePillChrome(tint: tint)
         }
     }
 }

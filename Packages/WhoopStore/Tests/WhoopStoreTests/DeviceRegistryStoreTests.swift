@@ -261,6 +261,55 @@ final class DeviceRegistryStoreTests: XCTestCase {
                       "deviceId-keyed tables missing from deviceScopedTables (deleteAllData would skip them): \(uncovered)")
     }
 
+    // Strength Strain: its three per-device tables are wiped with the device, and the one global switch is not.
+    func testLiftStrainTablesAreDeviceScopedAndTheControlRowSurvivesDeleteAllData() throws {
+        let dbq = try makeDB()
+        for table in ["liftStrain", "liftStrainTarget", "liftStrainJob"] {
+            XCTAssertTrue(DeviceRegistryStore.deviceScopedTables.contains(table), table)
+        }
+        XCTAssertFalse(DeviceRegistryStore.deviceScopedTables.contains("liftStrainControl"))
+        try dbq.read { db in
+            XCTAssertFalse(try db.columns(in: "liftStrainControl").map(\.name).contains("deviceId"))
+        }
+
+        try dbq.write { db in
+            for device in ["whoop-abc", "my-whoop"] {
+                try db.execute(sql: """
+                    INSERT INTO liftStrain (deviceId, liftSessionId, workoutStartTs, workoutSport, dayKey, formulaVersion,
+                        bodyweightKg, dose, volume, muscularLoad, workingSets, warmupSets, countedSets, skippedJSON,
+                        unmappedSets, computedAt, updatedAt)
+                    VALUES (?, 'L1', 1784300000, 'Strength Training', '2026-07-17', 1, 80, 50, 100, 10, 9, 2, 9, '{}', 0, 1, 1)
+                    """, arguments: [device])
+                try db.execute(sql: """
+                    INSERT INTO liftStrainTarget (deviceId, kind, keyTs, keyText, formulaVersion, snapshotAt, updatedAt)
+                    VALUES (?, 'workout', 1784300000, 'Strength Training', 1, 1, 1)
+                    """, arguments: [device])
+                try db.execute(sql: """
+                    INSERT INTO liftStrainJob (jobKey, deviceId, formulaVersion, state, upperDay, startedAt)
+                    VALUES (?, ?, 1, 'running', '2026-07-18', 1)
+                    """, arguments: ["job-\(device)", device])
+            }
+            try db.execute(sql: """
+                INSERT INTO liftStrainControl (scope, disabled, reason, updatedAt) VALUES ('global', 1, 'test', 1)
+                """)
+        }
+
+        try DeviceRegistryStore(dbQueue: dbq).deleteAllData(deviceId: "whoop-abc")
+
+        try dbq.read { db in
+            for table in ["liftStrain", "liftStrainTarget", "liftStrainJob"] {
+                XCTAssertEqual(try String.fetchAll(db, sql: "SELECT deviceId FROM \(table)"), ["my-whoop"], table)
+            }
+            XCTAssertEqual(try Int.fetchOne(db, sql: "SELECT disabled FROM liftStrainControl WHERE scope = 'global'"), 1)
+        }
+        try DeviceRegistryStore(dbQueue: dbq).deleteAllData(deviceId: "my-whoop")
+        try dbq.read { db in
+            XCTAssertEqual(try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM liftStrain"), 0)
+            XCTAssertEqual(try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM liftStrainControl"), 1,
+                           "the kill switch is not a device's data")
+        }
+    }
+
     func testDayOwnershipUpsertAndRead() throws {
         let store = DeviceRegistryStore(dbQueue: try makeDB())
         try store.setDayOwner(day: "2026-06-15", deviceId: "my-whoop", locked: true)

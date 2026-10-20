@@ -73,16 +73,18 @@ public struct LiveCircleButton: View {
     }
 }
 
-/// A quiet capsule for a choice that is not the main control: a 15% wash of `tint` with its words in `tint` (Try again, Keep
-/// recording), or the grey one (Discard). Two lines at most, then smaller; never cut off.
+/// A quiet capsule for a choice that is not the main control: the neutral secondary (Try again, Keep recording), the grey
+/// one (Discard), or a 15% wash of an explicit `tint`. Two lines at most, then smaller; never cut off.
 public struct LiveCapsuleButton: View {
     private let title: String
-    private let tint: Color
+    private let tint: Color?
     private let isGrey: Bool
     private let action: () -> Void
     @Environment(\.dynamicTypeSize) private var typeSize
 
-    public init(_ title: String, tint: Color = LivePalette.mint, isGrey: Bool = false, action: @escaping () -> Void) {
+    /// `tint` is for a caller that really is a recording-now control; left nil the button is the neutral secondary
+    /// (clear, a `hairlineStrong` edge, a `textPrimary` label), and `isGrey` is the quieter fill.
+    public init(_ title: String, tint: Color? = nil, isGrey: Bool = false, action: @escaping () -> Void) {
         self.title = title
         self.tint = tint
         self.isGrey = isGrey
@@ -92,13 +94,18 @@ public struct LiveCapsuleButton: View {
     public var body: some View {
         Button(action: action) {
             Text(verbatim: title)
-                .foregroundStyle(isGrey ? LivePalette.quietAction : tint)
+                .foregroundStyle(isGrey ? LivePalette.quietAction : (tint ?? StrandPalette.textPrimary))
                 .liveText(17, weight: .semibold, maxSize: 22, lines: 2)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity, minHeight: typeSize.isAccessibilitySize ? 56 : 52)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 6)
-                .background(Capsule(style: .continuous).fill(isGrey ? LivePalette.fill : tint.opacity(0.15)))
+                .background(Capsule(style: .continuous).fill(isGrey ? LivePalette.fill : (tint?.opacity(0.15) ?? Color.clear)))
+                .overlay {
+                    if !isGrey, tint == nil {
+                        Capsule(style: .continuous).strokeBorder(StrandPalette.hairlineStrong, lineWidth: 1)
+                    }
+                }
                 .contentShape(Capsule(style: .continuous))
         }
         .buttonStyle(LiveCirclePressStyle())

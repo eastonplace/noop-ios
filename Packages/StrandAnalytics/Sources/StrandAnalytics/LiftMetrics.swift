@@ -12,15 +12,21 @@ import WhoopStore
 //
 // WHAT IS DELIBERATELY ABSENT, and must stay absent:
 //
-//  • Anything that feeds `workout.strain` or daily Effort. NOOP's strain is HR-measured (Karvonen
-//    %HRR -> Edwards TRIMP). There is no validated public path from typed sets/reps/weight to a
-//    cardiovascular-strain equivalent — WHOOP's own muscular load runs velocity-based algorithms
-//    over strap accelerometer/gyroscope under an unpublished model — and deriving one here is the
-//    exact case `CLAUDE.md` warns about after the withdrawn PPG->HR estimate (#194).
+//  • Anything in THIS file that feeds `workout.strain` or daily Strain. NOOP's strain is HR-measured
+//    (Karvonen %HRR -> Edwards TRIMP), and `StrengthStrain` is the only sanctioned path from lift
+//    sets into it: no other code may turn typed sets/reps/weight into Strain. WHOOP's own muscular
+//    load runs velocity-based algorithms over strap accelerometer/gyroscope under an unpublished
+//    model, so there is no public formula to copy, and a cardiovascular-strain equivalent invented
+//    without guard rails is the exact case `CLAUDE.md` warns about after the withdrawn PPG->HR
+//    estimate (#194). `StrengthStrain` is therefore NOOP's own formula and claims no WHOOP parity.
+//    It departs from WHOOP's described model on purpose: no personal history baseline, no rep speed
+//    (the strap exposes none), and volume normalised by body weight.
 //
-//  • Per-exercise muscle weightings ("bench press = 0.7 triceps"). There is no published table to
-//    take them from. Inventing one would make every downstream per-muscle figure fiction wearing
-//    the costume of precision. The direct/indirect split is the resolution the evidence supports.
+//  • Per-exercise muscle weightings ("bench press = 0.7 triceps") in the figures below. There is no
+//    published table to take them from. Inventing one would make every downstream per-muscle figure
+//    fiction wearing the costume of precision. The direct/indirect split is the resolution the
+//    evidence supports. (`StrengthStrain`'s movement profile is a disclosed model weight inside one
+//    Strain formula, not a per-muscle figure, and never feeds these numbers.)
 //
 //  • Acute:chronic workload ratios or any injury-risk / overtraining warning. The construct's
 //    validity is actively disputed, and a health warning from a non-medical app is either ignored

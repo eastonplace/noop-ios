@@ -200,7 +200,7 @@ struct IntelligenceView: View {
                         .accessibilityHidden(true)
                     Text("How this works").font(StrandFont.headline).foregroundStyle(StrandPalette.textPrimary)
                 }
-                Text("Recovery weighs your HRV against your personal baseline (~55%), resting heart rate (~20%), rest quality (~15%), respiration (~5%) and skin-temperature deviation (~5%). Strain is a 0-\(UnitFormatter.effortScaleMax(effortScale)) cardiovascular load from time in heart-rate zones. Sleep is staged from movement and heart rate. Everything is computed here from the strap's raw data. It works for any day NOOP collected raw streams.")
+                Text(StrainCopy.intelligenceExplainer(scaleMax: UnitFormatter.effortScaleMax(effortScale)))
                     .font(StrandFont.subhead).foregroundStyle(StrandPalette.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
                 // The Charge model made concrete — the five weighted inputs, each its own metric accent.

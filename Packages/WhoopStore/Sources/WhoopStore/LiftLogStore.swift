@@ -12,9 +12,12 @@ import GRDB
 // through the workout table's natural key (deviceId, startTs, sport), which `liftSession` pins with
 // a UNIQUE index.
 //
-// Nothing here computes or stores a load score. `workout.strain` remains the HR-measured number the
-// analytics engine produces; volume is derived on read from the sets, where the arithmetic is
-// visible (`LiftSetRow.volumeKg`).
+// Nothing here computes a load score. `workout.strain` is the HR-measured number the analytics engine
+// produces; volume is derived on read from the sets, where the arithmetic is visible
+// (`LiftSetRow.volumeKg`). The one exception is Strength Strain: the app computes a muscular load from the
+// logged sets and hands it in as `liftStrain` rows, which are stored in the same transaction as the sets
+// (`LiftStrainStore.swift`). Workout strain may therefore include logged sets, but only through that
+// bookkeeping, and only ever by the targeted, reversible apply.
 
 // MARK: - Rows
 
@@ -709,6 +712,30 @@ extension WhoopStore {
         }
     }
 
+    /// Every device that has a ReceiptLiftFeature envelope, in a stable order. The Strength Strain backfill runs
+    /// once per owner in this list.
+    public func liftStrainOwnerIds() async throws -> [String] {
+        try syncRead { db in
+            try String.fetchAll(
+                db,
+                sql: "SELECT deviceId FROM \(LiftReceiptStateSchema.tableName) ORDER BY deviceId"
+            )
+        }
+    }
+
+    /// The exact owner token for a rescore of that owner's history. Unlike `receiptLiftSourceOwner`, an
+    /// archived owner is admitted: its workouts are still visible in history, so they are rescored too. A
+    /// missing, deleting or purged owner still throws.
+    public func liftStrainOwnerScope(deviceId: String) async throws -> HistoricalCursorScope {
+        guard !deviceId.isEmpty else { throw LiftReceiptStateError.emptyDeviceId }
+        return try syncRead { db in
+            let owner = try currentReceiptLiftSourceOwnerInTransaction(
+                deviceId: deviceId, db: db, allowArchived: true)
+            try assertReceiptLiftSourceOwner(owner, db: db, allowArchived: true)
+            return owner
+        }
+    }
+
     /// Reads the source-scoped ReceiptLiftFeature envelope for one device.
     public func loadReceiptLiftState(deviceId: String) async throws -> Data? {
         guard !deviceId.isEmpty else { throw LiftReceiptStateError.emptyDeviceId }
@@ -770,7 +797,8 @@ extension WhoopStore {
         data: Data,
         sessions: [LiftSessionRow],
         sets: [LiftSetRow],
-        workouts: [WorkoutRow]
+        workouts: [WorkoutRow],
+        liftStrain: [LiftStrainComputed] = []
     ) async throws {
         try await saveReceiptLiftStateAndWorkout(
             deviceId: deviceId,
@@ -778,6 +806,7 @@ extension WhoopStore {
             sessions: sessions,
             sets: sets,
             workouts: workouts,
+            liftStrain: liftStrain,
             sourceOwner: nil
         )
     }
@@ -788,7 +817,8 @@ extension WhoopStore {
         data: Data,
         sessions: [LiftSessionRow],
         sets: [LiftSetRow],
-        workouts: [WorkoutRow]
+        workouts: [WorkoutRow],
+        liftStrain: [LiftStrainComputed] = []
     ) async throws {
         try validateReceiptLiftSourceOwner(sourceOwner)
         try await saveReceiptLiftStateAndWorkout(
@@ -797,6 +827,7 @@ extension WhoopStore {
             sessions: sessions,
             sets: sets,
             workouts: workouts,
+            liftStrain: liftStrain,
             sourceOwner: sourceOwner
         )
     }
@@ -807,6 +838,7 @@ extension WhoopStore {
         sessions: [LiftSessionRow],
         sets: [LiftSetRow],
         workouts: [WorkoutRow],
+        liftStrain: [LiftStrainComputed],
         sourceOwner: HistoricalCursorScope?
     ) async throws {
         guard !deviceId.isEmpty else { throw LiftReceiptStateError.emptyDeviceId }
@@ -871,6 +903,14 @@ extension WhoopStore {
                     workout: workout
                 )
             }
+            // The Strength Strain inputs ride in the same transaction, behind the same source-owner fence, so a
+            // rejected save leaves neither the envelope, the workouts nor a half-written liftStrain row.
+            try Self.upsertLiftStrainComputed(
+                db: db,
+                deviceId: deviceId,
+                rows: liftStrain.filter { sessionIDs.contains($0.liftSessionId) },
+                now: Int(Date().timeIntervalSince1970)
+            )
         }
     }
 
@@ -920,9 +960,13 @@ extension WhoopStore {
     /// Resolve the current registry-backed source owner and reject a source transition that has
     /// entered deletion before the caller can write. This is called from the same GRDB transaction
     /// as the receipt upsert, so a delete transaction and a receipt transaction cannot interleave.
-    private func currentReceiptLiftSourceOwnerInTransaction(
+    ///
+    /// `allowArchived` is for the Strength Strain rescore only: an archived owner's workouts are still shown in
+    /// history, so they are rescored. Every save keeps the default `false` and still rejects an archived owner.
+    func currentReceiptLiftSourceOwnerInTransaction(
         deviceId: String,
-        db: Database
+        db: Database,
+        allowArchived: Bool = false
     ) throws -> HistoricalCursorScope {
         guard let row = try Row.fetchOne(
             db,
@@ -933,7 +977,7 @@ extension WhoopStore {
         }
 
         let status: String = row["status"]
-        guard status != DeviceStatus.archived.rawValue else {
+        guard allowArchived || status != DeviceStatus.archived.rawValue else {
             throw LiftReceiptStateError.ownerArchived(deviceId: deviceId)
         }
 
@@ -960,13 +1004,15 @@ extension WhoopStore {
         )
     }
 
-    private func assertReceiptLiftSourceOwner(
+    func assertReceiptLiftSourceOwner(
         _ owner: HistoricalCursorScope,
-        db: Database
+        db: Database,
+        allowArchived: Bool = false
     ) throws {
         let current = try currentReceiptLiftSourceOwnerInTransaction(
             deviceId: owner.deviceId,
-            db: db
+            db: db,
+            allowArchived: allowArchived
         )
         guard current.lineage == owner.lineage,
               current.cursorEpoch == owner.cursorEpoch else {

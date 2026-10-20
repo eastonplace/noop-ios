@@ -385,10 +385,10 @@ struct CoachView: View {
 
     private var connectedHeader: some View {
         HStack(spacing: 10) {
-            StatePill("\(coach.provider.displayName) · \(coach.model)", tone: .accent, showsDot: true)
+            StatePill("\(coach.provider.displayName) · \(coach.model)", tone: .neutral, showsDot: true)
             Spacer()
             if coach.sending {
-                StatePill("Thinking", tone: .accent, pulsing: true)
+                StatePill("Thinking", tone: .neutral, pulsing: true)
             }
         }
     }
@@ -562,8 +562,8 @@ struct CoachView: View {
                     }
                 }
                 .frame(width: 44, height: 38)
-                .foregroundStyle(StrandPalette.onInk)
-                .background(StrandPalette.ink,
+                .foregroundStyle(StrandPalette.onLightFill)
+                .background(StrandPalette.solidFill,
                             in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             }
             .buttonStyle(.plain)

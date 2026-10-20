@@ -172,11 +172,11 @@ enum MetricCatalog {
         d("noop_sleep_performance_v2", String(localized: "Sleep Performance (V2 preview)"), "Rest", "%", "my-whoop", "moon.stars.fill", 0, true,
           String(localized: "How completely and efficiently you met your dynamic Sleep Need, led by sleep sufficiency. On-device preview series; not yet the Sleep tab's headline score.")),
         d("noop_sleep_need_v2_min", String(localized: "Dynamic Sleep Need"), "Rest", "min", "my-whoop", "gauge", 0, nil,
-          String(localized: "Tonight's computed need: baseline, plus yesterday's Strain and sleep-debt repayment, minus nap credit.")),
+          StrainCopy.metricSleepNeedDescription),
 
         // ── Effort (was Strain)
         d("strain", String(localized: "Strain"), "Effort", "/21", "my-whoop", "flame", 1, nil,
-          String(localized: "Cardiovascular load for the day, on a 0-21 scale.")),
+          StrainCopy.metricStrainDescription),
         d("steps", String(localized: "Steps"), "Effort", "", "apple-health", "figure.walk", 0, true),
         // On-device steps ESTIMATE for a WHOOP 4.0 (no real step count over BLE): the strap's daily
         // motion volume scaled by a personal calibration. Stored under the computed "-noop" source, so

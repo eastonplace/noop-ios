@@ -555,7 +555,7 @@ private struct ScanStep: View {
             } else if live.connected {
                 StatePill("Connecting…", tone: .warning, pulsing: true)
             } else if scanning {
-                StatePill("Searching", tone: .accent, pulsing: true)
+                StatePill("Searching", tone: .neutral, pulsing: true)
             } else {
                 StatePill("Ready to scan", tone: .neutral, showsDot: false)
             }

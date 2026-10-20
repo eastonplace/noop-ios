@@ -306,7 +306,9 @@ private struct LiftWorkoutQueueActionRow: View {
 struct LiveComposerDraft: Equatable {
   var weight: Double
   var reps: Int
-  var rpe: Double = 8
+  var rpe: Double = LiftEffortValue.defaultRPE
+  /// False until the person rates the set: an untouched RPE is 8 for the engine but reads as "–" and is not "rated".
+  var effortRated = false
   var isWarmup = false
 }
 
@@ -314,6 +316,7 @@ struct LiveWorkoutView: View {
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @Environment(\.liftFormat) private var format
   @Environment(\.dynamicTypeSize) private var typeSize
+  @Environment(\.liftStrainProvider) private var strainProvider
   @EnvironmentObject private var store: LiftStore
   let onDismiss: () -> Void
   let onSessionSaved: (LiftSession) -> Void
@@ -326,6 +329,7 @@ struct LiveWorkoutView: View {
   @State private var isLibrarySelectionPending = false
   @State private var composerSwapStartedAt: TimeInterval?
   @State private var composerSwapTargetID: UUID?
+  @State private var vitals: LiftLiveVitals?
   @Namespace private var workspaceContinuityNamespace
 
   init(onDismiss: @escaping () -> Void, onSessionSaved: @escaping (LiftSession) -> Void = { _ in }) {
@@ -341,52 +345,67 @@ struct LiveWorkoutView: View {
     let upNextRows = queueRows.filter { $0.id != composerExerciseID && !$0.isDone }
     let printedRows = queueRows.filter { $0.id != composerExerciseID && $0.isDone }
 
-    ScrollView {
-      VStack(alignment: .leading, spacing: 0) {
-        if store.activeSession != nil {
-          if let composerExercise, let ordinal = composerOrdinal {
-            LiveComposerSection(
-              exercise: composerExercise,
-              store: store,
-              index: ordinal,
-              draft: $draft,
-              continuityNamespace: workspaceContinuityNamespace,
-              reduceMotion: reduceMotion,
-              onPresentSwap: presentSwapPicker,
-              onPresentSuperset: presentSupersetPicker,
-              onPresentHistory: presentExerciseHistory,
-              onPresentWarmup: { activeSheet = .warmup(composerExercise.id) },
-              onPresentPlates: { activeSheet = .plateLoader(composerExercise.id) },
-              onComposed: composerDidRender
+    ScrollViewReader { scrollProxy in
+      ScrollView {
+        VStack(alignment: .leading, spacing: 0) {
+          if store.activeSession != nil {
+            LiveStatsStrip(
+              vitals: vitals, workingSetsDone: store.activeSession?.workingSets.count ?? 0,
+              workingSetsPlanned: plannedWorkingSets(queueRows: queueRows)
             )
-            .id(composerExercise.id)
+            .padding(.bottom, NoopMetrics.space3)
+            FlatSectionSeparator()
+            if let composerExercise, let ordinal = composerOrdinal {
+              VStack(spacing: 0) {
+              LiveComposerSection(
+                exercise: composerExercise,
+                store: store,
+                index: ordinal,
+                draft: $draft,
+                continuityNamespace: workspaceContinuityNamespace,
+                reduceMotion: reduceMotion,
+                onPresentSwap: presentSwapPicker,
+                onPresentSuperset: presentSupersetPicker,
+                onPresentHistory: presentExerciseHistory,
+                onPresentWarmup: { activeSheet = .warmup(composerExercise.id) },
+                onPresentPlates: { activeSheet = .plateLoader(composerExercise.id) },
+                onComposed: composerDidRender,
+                onLog: logCurrentSet
+              )
+              .id(composerExercise.id)
+              }
+              .id("lift.composer")
+            } else {
+              emptyQueue
+            }
+            liveCards
+            queueSection(title: "Up next", symbol: "list.number", rows: upNextRows, isPrinted: false)
+            queueSection(title: "Done", symbol: "checkmark.circle", rows: printedRows, isPrinted: true)
+            if !activeExercises.isEmpty { addExerciseChip }
           } else {
-            emptyQueue
+            inactiveReceipt
           }
-          queueSection(title: "Up next", symbol: "list.number", rows: upNextRows, isPrinted: false)
-          queueSection(title: "Done", symbol: "checkmark.circle", rows: printedRows, isPrinted: true)
-          if !activeExercises.isEmpty { addExerciseChip }
-        } else {
-          inactiveReceipt
         }
+        .padding(.horizontal, StrengthMetrics.gutter)
+        .padding(.top, NoopMetrics.space3)
+        .padding(.bottom, NoopMetrics.space6)
+        .frame(maxWidth: LiftChromeMetrics.maxColumnWidth, alignment: .leading)
+        .frame(maxWidth: .infinity)
       }
-      .padding(.horizontal, LiftChromeMetrics.gutter)
-      .padding(.top, NoopMetrics.space2)
-      .padding(.bottom, NoopMetrics.space6)
-      .frame(maxWidth: LiftChromeMetrics.maxColumnWidth, alignment: .leading)
-      .frame(maxWidth: .infinity)
+      .scrollIndicators(.hidden)
+      .scrollDismissesKeyboard(.interactively)
+      .liftQAScene("live-composer") { scrollProxy.scrollTo("lift.composer", anchor: .top) }
     }
-    .scrollIndicators(.hidden)
-    .scrollDismissesKeyboard(.interactively)
     .background(StrandPalette.appCanvas.ignoresSafeArea())
     .safeAreaInset(edge: .top, spacing: 0) {
       if let session = store.activeSession {
-        workspaceHeader(session, queueRows: queueRows)
+        workspaceHeader(session)
       }
     }
-    .safeAreaInset(edge: .bottom, spacing: 0) {
-      footer(hasComposer: composerExercise != nil)
-    }
+    .safeAreaInset(edge: .bottom, spacing: 0) { footer }
+    .overlay(alignment: .bottom) { stampOverlay }
+    .task { if let strainProvider { await LiftLiveHeartRateSession.run(strainProvider) } }
+    .task(id: store.activeSession?.sets.count ?? 0) { await pollVitals() }
     .disabled(store.isFinishing)
     .interactiveDismissDisabled(store.isFinishing)
     .onChange(of: activeExercises.map(\.id), initial: true) { _, exerciseIDs in
@@ -471,35 +490,38 @@ struct LiveWorkoutView: View {
 
   // MARK: Header
 
-  private func workspaceHeader(
-    _ session: LiftSession,
-    queueRows: [LiftWorkoutQueueRowState]
-  ) -> some View {
-    // At the largest text sizes the title and the clock get the whole width: the chips sit on a row of their own above.
+  private func workspaceHeader(_ session: LiftSession) -> some View {
+    // At the largest text sizes the title and the clock get the whole width: the chips and Finish sit on rows of their own.
     Group {
       if typeSize.isAccessibilitySize {
-        VStack(alignment: .leading, spacing: NoopMetrics.space1) {
+        VStack(alignment: .leading, spacing: NoopMetrics.space2) {
           HStack(spacing: NoopMetrics.space2) {
             headerCloseChip
             Spacer(minLength: NoopMetrics.space2)
-            headerTrailingChips(session)
+            headerMenu(session)
           }
-          headerTitle(session, queueRows: queueRows)
+          LiveRecordingEyebrow(title: session.title)
+          ElapsedWorkoutClock(startedAt: session.startedAt)
+          finishButton
         }
       } else {
         HStack(alignment: .center, spacing: NoopMetrics.space2) {
           headerCloseChip
-          headerTitle(session, queueRows: queueRows)
+          VStack(alignment: .leading, spacing: 0) {
+            LiveRecordingEyebrow(title: session.title)
+            ElapsedWorkoutClock(startedAt: session.startedAt)
+          }
           Spacer(minLength: NoopMetrics.space2)
-          headerTrailingChips(session)
+          headerMenu(session)
+          finishButton
         }
       }
     }
     .frame(minHeight: 44)
-    .padding(.horizontal, LiftChromeMetrics.gutter)
+    .padding(.horizontal, StrengthMetrics.gutter)
     .padding(.top, NoopMetrics.space2)
     .padding(.bottom, NoopMetrics.space1)
-    .frame(maxWidth: LiftChromeMetrics.maxColumnWidth + LiftChromeMetrics.gutter * 2)
+    .frame(maxWidth: LiftChromeMetrics.maxColumnWidth + StrengthMetrics.gutter * 2)
     .frame(maxWidth: .infinity)
     .background(StrandPalette.appCanvas.ignoresSafeArea(edges: .top))
   }
@@ -508,83 +530,96 @@ struct LiveWorkoutView: View {
     HeaderChipButton("chevron.down", accessibilityLabel: "Close workout", action: onDismiss)
   }
 
-  private func headerTitle(_ session: LiftSession, queueRows: [LiftWorkoutQueueRowState]) -> some View {
-    VStack(alignment: .leading, spacing: 0) {
-      Text(verbatim: session.title)
-        .font(StrandFont.headline)
-        .foregroundStyle(StrandPalette.textPrimary)
-        .lineLimit(typeSize.isAccessibilitySize ? nil : 2)
-        .minimumScaleFactor(typeSize.isAccessibilitySize ? 1 : 0.7)
-        .fixedSize(horizontal: false, vertical: true)
-        .accessibilityAddTraits(.isHeader)
-      ElapsedWorkoutClock(startedAt: session.startedAt, setTotal: sessionSetTotal(queueRows: queueRows, session: session))
-    }
+  private var finishButton: some View {
+    Button(action: finishWorkout) { Text("Finish") }
+      .buttonStyle(NoopButtonStyle(.primary))
+      .accessibilityLabel("Finish workout")
   }
 
-  private func headerTrailingChips(_ session: LiftSession) -> some View {
-    HStack(spacing: 0) {
-      HeaderChipButton("ticket", accessibilityLabel: "Receipt") { activeSheet = .receipt(session) }
-      Menu {
-        Button("Add exercise", systemImage: "plus") {
-          presentExercisePicker()
-        }
-        Button("Finish workout", systemImage: "checkmark") {
-          finishWorkout()
-        }
-        Button("Discard workout", systemImage: "trash", role: .destructive) {
-          confirmsDiscard = true
-        }
-      } label: {
-        HeaderChipGlyph(systemImage: "ellipsis")
+  private func headerMenu(_ session: LiftSession) -> some View {
+    Menu {
+      Button("Add exercise", systemImage: "plus") {
+        presentExercisePicker()
       }
-      .accessibilityLabel("Workout actions")
+      Button("Receipt", systemImage: "ticket") { activeSheet = .receipt(session) }
+      Button("Finish workout", systemImage: "checkmark") {
+        finishWorkout()
+      }
+      Button("Discard workout", systemImage: "trash", role: .destructive) {
+        confirmsDiscard = true
+      }
+    } label: {
+      HeaderChipGlyph(systemImage: "ellipsis")
     }
+    .accessibilityLabel("Workout actions")
   }
 
   // MARK: Footer
 
-  @ViewBuilder
-  private func footer(hasComposer: Bool) -> some View {
-    let error = store.databaseSaveError
-    let isResting = store.restTimerEndDate != nil
-    if hasComposer || error != nil || isResting || confirmationStamp != nil {
-      VStack(spacing: NoopMetrics.space3) {
-        if let error {
-          HStack(spacing: NoopMetrics.space3) {
-            Text("Not saved yet: \(error)")
-              .font(StrandFont.caption)
-              .foregroundStyle(StrandPalette.textSecondary)
-              .frame(maxWidth: .infinity, alignment: .leading)
-            ChoiceChipButton(title: "Retry save") { store.flushPendingSave() }
-          }
-        }
-        if let confirmationStamp {
-          WorkoutConfirmationStampView(
-            setID: confirmationStamp.setID,
-            text: confirmationStamp.text,
-            isPersonalRecord: confirmationStamp.isPersonalRecord,
-            onRendered: {
-              liftWorkoutPerformanceEvent(
-                "LogToConfirmationSurface",
-                startedAt: confirmationStamp.startedAt
-              )
-            }
-          )
-          .id(confirmationStamp.setID)
-          .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
-          .allowsHitTesting(false)
-        }
-        if isResting {
-          MiniRestBar(onPresentOptions: presentRestOptions)
-        }
-        if hasComposer {
-          Button(action: logCurrentSet) {
-            Label("Log set", systemImage: "plus").liftPillLabel()
-          }
-          .buttonStyle(PrimaryPillButtonStyle())
-        }
+  /// Only a failed save pins to the bottom; the Log set button and the rest card are part of the page.
+  @ViewBuilder private var footer: some View {
+    if let error = store.databaseSaveError {
+      HStack(spacing: NoopMetrics.space3) {
+        Text("Not saved yet: \(error)")
+          .font(StrandFont.caption)
+          .foregroundStyle(StrandPalette.textSecondary)
+          .frame(maxWidth: .infinity, alignment: .leading)
+        ChoiceChipButton(title: "Retry save") { store.flushPendingSave() }
       }
       .liftFooterBar()
+    }
+  }
+
+  /// The confirmation of a logged set floats over the bottom edge for a moment, so the page never jumps to make room.
+  @ViewBuilder private var stampOverlay: some View {
+    if let confirmationStamp {
+      WorkoutConfirmationStampView(
+        setID: confirmationStamp.setID,
+        text: confirmationStamp.text,
+        isPersonalRecord: confirmationStamp.isPersonalRecord,
+        onRendered: {
+          liftWorkoutPerformanceEvent("LogToConfirmationSurface", startedAt: confirmationStamp.startedAt)
+        }
+      )
+      .id(confirmationStamp.setID)
+      .padding(.horizontal, StrengthMetrics.gutter)
+      .padding(.bottom, NoopMetrics.space3)
+      .frame(maxWidth: LiftChromeMetrics.maxColumnWidth + StrengthMetrics.gutter * 2)
+      .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
+      .allowsHitTesting(false)
+    }
+  }
+
+  /// The REST card while a rest runs, then the STRAIN SO FAR card.
+  @ViewBuilder private var liveCards: some View {
+    let isResting = store.restTimerEndDate != nil
+    if isResting || strainProvider != nil {
+      VStack(spacing: NoopMetrics.space3) {
+        if isResting { MiniRestBar(onPresentOptions: presentRestOptions) }
+        if strainProvider != nil { LiveStrainCard(vitals: vitals) }
+      }
+      .padding(.bottom, NoopMetrics.space3)
+    }
+  }
+
+  private func plannedWorkingSets(queueRows: [LiftWorkoutQueueRowState]) -> Int? {
+    let targets = queueRows.compactMap { row -> Int? in
+      let parts = row.progressLabel.split(separator: "/", omittingEmptySubsequences: false)
+      guard parts.count == 2 else { return nil }
+      return Int(parts[1])
+    }
+    guard !queueRows.isEmpty, targets.count == queueRows.count else { return nil }
+    return targets.reduce(0, +)
+  }
+
+  /// Live vitals, refreshed on a log and every 15 s: heart rate now and Strain so far.
+  private func pollVitals() async {
+    guard let provider = strainProvider else { vitals = nil; return }
+    while !Task.isCancelled {
+      guard let session = store.activeSession else { return }
+      let sets = LiftReceiptSetMapping.sets(for: session, exercise: { store.exercise(for: $0) })
+      vitals = await provider.liveVitals(start: session.startedAt, sets: sets)
+      try? await Task.sleep(for: .seconds(15))
     }
   }
 
@@ -679,23 +714,6 @@ struct LiveWorkoutView: View {
       actionTitle: "Close",
       action: onDismiss
     )
-  }
-
-  private func sessionSetTotal(
-    queueRows: [LiftWorkoutQueueRowState],
-    session: LiftSession
-  ) -> String {
-    let completed = session.workingSets.count
-    let targets = queueRows.compactMap { row -> Int? in
-      let parts = row.progressLabel.split(separator: "/", omittingEmptySubsequences: false)
-      guard parts.count == 2 else { return nil }
-      return Int(parts[1])
-    }
-    guard !queueRows.isEmpty, targets.count == queueRows.count else {
-      return LiftFormat.setCount(completed)
-    }
-    let target = targets.reduce(0, +)
-    return String(localized: "\(min(completed, target))/\(target) sets")
   }
 
   // MARK: Composer
@@ -808,11 +826,14 @@ struct LiveWorkoutView: View {
       reps: draft.reps,
       rpe: draft.rpe,
       isWarmup: draft.isWarmup,
-      restSeconds: store.restSecondsForNextSet(for: exercise.id)
+      restSeconds: store.restSecondsForNextSet(for: exercise.id),
+      effortRated: draft.effortRated
     ) else { return }
 
     let completedTarget = wasIncompleteWorkingTarget && store.setProgress(for: exercise.id).isComplete
     draft.isWarmup = false
+    draft.rpe = LiftEffortValue.defaultRPE
+    draft.effortRated = false
     handleLoggedOutcome(outcome, exercise: exercise, completedTarget: completedTarget, startedAt: startedAt)
   }
 
@@ -974,38 +995,21 @@ private enum LiveWorkoutSheet: Identifiable {
   }
 }
 
-/// How long the workout has run and how far through its sets, under the title: "22:10 · 5/21 sets".
+/// How long the workout has run, large under the recording eyebrow: "32:14".
 private struct ElapsedWorkoutClock: View {
   let startedAt: Date
-  let setTotal: String
 
-  @Environment(\.dynamicTypeSize) private var typeSize
+  @ScaledMetric(relativeTo: .largeTitle) private var size: CGFloat = 32
 
   var body: some View {
-    Group {
-      if typeSize.isAccessibilitySize {
-        VStack(alignment: .leading, spacing: 0) {
-          clock
-          Text(verbatim: setTotal)
-        }
-      } else {
-        HStack(spacing: 6) {
-          clock
-          Text(verbatim: "·")
-          Text(verbatim: setTotal)
-        }
-        .lineLimit(1)
-      }
-    }
-    .font(StrandFont.caption)
-    .foregroundStyle(StrandPalette.textTertiary)
-    .accessibilityElement(children: .ignore)
-    .accessibilityLabel("Elapsed")
-    .accessibilityValue(Text(timerInterval: startedAt...Date.distantFuture, countsDown: false))
-  }
-
-  private var clock: some View {
     Text(timerInterval: startedAt...Date.distantFuture, countsDown: false)
+      .font(StrandFont.sized(size, weight: .bold))
       .monospacedDigit()
+      .foregroundStyle(StrandPalette.textPrimary)
+      .lineLimit(1)
+      .minimumScaleFactor(0.7)
+      .accessibilityElement(children: .ignore)
+      .accessibilityLabel("Elapsed")
+      .accessibilityValue(Text(timerInterval: startedAt...Date.distantFuture, countsDown: false))
   }
 }

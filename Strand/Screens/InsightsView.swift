@@ -897,7 +897,7 @@ struct InsightsView: View {
             return .init(label: String(localized: "STRONGER SIGNAL"), tone: .positive)
         }
         if pairedCount >= 5 {
-            return .init(label: String(localized: "EARLY SIGNAL"), tone: .accent)
+            return .init(label: String(localized: "EARLY SIGNAL"), tone: .neutral)
         }
         return .init(label: String(localized: "LOW SIGNAL"), tone: .warning)
     }

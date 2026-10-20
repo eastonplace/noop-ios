@@ -8,8 +8,9 @@ import Foundation
 /// Launch arguments (read by the host app and by the views' QA scene hooks):
 /// - `--noop-lift-demo <variant>` replaces what the coordinator loads with one of the variants below.
 ///   `full` (routines, fourteen weeks of history, a schedule), `empty` (no routines, no history),
-///   `session` (a lift in flight: three sets logged, rest timer idle), `session-rest` (the same with the
-///   rest timer running), `session-barbell` (a barbell routine with nothing logged yet), `session-open` (an open lift with no exercises) and `fresh` (the starter routines and no history).
+///   `session` (a lift in flight: three sets logged, rest timer idle), `session-rest` (eleven working sets logged
+///   on Upper A with the rest timer running, the phone 3 capture), `session-bodyweight` (an open lift on the catalog
+///   push-up, a body-weight exercise), `session-barbell` (a barbell routine with nothing logged yet), `session-open` (an open lift with no exercises) and `fresh` (the starter routines and no history).
 /// - `--noop-lift-scene <scene>` opens a deeper screen straight away; see `LiftQAScene`.
 public enum ReceiptLiftDemo {
   public static var requestedVariant: String? {
@@ -41,7 +42,7 @@ enum LiftDemoFixture {
     case "fresh":
       let bank = starter()
       return base(routines: bank.routines, userExercises: bank.exercises, sessions: [], scheduled: [], active: nil)
-    case "full", "session", "session-rest", "session-barbell", "session-open":
+    case "full", "session", "session-rest", "session-barbell", "session-open", "session-bodyweight":
       let bank = starter()
       let basics = barbellBasics()
       let routines = bank.routines + [basics]
@@ -59,13 +60,24 @@ enum LiftDemoFixture {
         open.activeExerciseIDsOverride = []
         return open
       }
+      if variant == "session-bodyweight" {
+        guard let pushUp = LiftExerciseCatalog.records.first(where: { $0.name == "push-up" })?.liftExercise else { return nil }
+        var open = base(routines: routines, userExercises: bank.exercises, sessions: sessions, scheduled: scheduled,
+                        active: LiftSession(id: UUID(), routineID: nil, title: "Push-up",
+                                            startedAt: now.addingTimeInterval(-3 * 60), endedAt: nil, sets: []))
+        open.activeExerciseIDsOverride = [pushUp.id]
+        return open
+      }
       let barbell = variant == "session-barbell"
       guard let routine = routines.first(where: { $0.name == (barbell ? "Barbell Basics" : "Upper A") }) else { return nil }
+      let active = variant == "session-rest"
+        ? activeRestSession(routine: routine, now: now)
+        : activeSession(routine: routine, now: now, logsSets: !barbell)
       var envelope = base(routines: routines, userExercises: bank.exercises, sessions: sessions,
-                          scheduled: scheduled, active: activeSession(routine: routine, now: now, logsSets: !barbell))
+                          scheduled: scheduled, active: active)
       envelope.activeExerciseIDsOverride = routine.exerciseIDs
       envelope.activePlanOverrides = (routine.exercisePlans ?? []).reduce(into: [:]) { $0[$1.exerciseID] = $1 }
-      if variant == "session-rest" { envelope.restTimerEndDate = now.addingTimeInterval(1_500) }
+      if variant == "session-rest" { envelope.restTimerEndDate = now.addingTimeInterval(109) }
       return envelope
     default:
       return nil
@@ -181,7 +193,7 @@ enum LiftDemoFixture {
         sets.append(LiftSet(
           id: UUID(), exerciseID: plan.exerciseID, setNumber: number, weight: load,
           reps: max(reps - (number > 2 ? 1 : 0), 1), rpe: number == count ? 9 : 8, isWarmup: false,
-          completedAt: clock, notes: ""))
+          completedAt: clock, notes: "", effortRated: true))
       }
     }
     return LiftSession(id: UUID(), routineID: routine.id, title: routine.name, startedAt: start,
@@ -219,15 +231,51 @@ enum LiftDemoFixture {
       for number in 1...2 {
         sets.append(LiftSet(id: UUID(), exerciseID: first.exerciseID, setNumber: number, weight: 130, reps: 8,
                             rpe: 8, isWarmup: false, completedAt: start.addingTimeInterval(Double(number) * 300),
-                            notes: ""))
+                            notes: "", effortRated: true))
       }
     }
     if plans.count > 1 {
       sets.append(LiftSet(id: UUID(), exerciseID: plans[1].exerciseID, setNumber: 1, weight: 0, reps: 6, rpe: 8,
-                          isWarmup: false, completedAt: start.addingTimeInterval(1_020), notes: ""))
+                          isWarmup: false, completedAt: start.addingTimeInterval(1_020), notes: "", effortRated: true))
     }
     return LiftSession(id: UUID(), routineID: routine.id, title: routine.name, startedAt: start, endedAt: nil,
                        sets: sets)
+  }
+
+  /// The phone 3 lift: the routine's first three exercises done (one unrated warm-up and three rated working sets
+  /// each, 150 s apart) and the fourth, the one on screen, two sets in with a best estimate that beats the history, the
+  /// last set 11 s ago, and a rest running that was meant to be two minutes, so a capture 25 s later reads about
+  /// 1:24 / 2:00 with eleven working sets logged.
+  private static func activeRestSession(routine: LiftRoutine, now: Date) -> LiftSession {
+    let plans = routine.exercisePlans ?? []
+    // (load in pounds, reps, RPE) for each working set of the first four exercises.
+    let working: [[(Double, Int, Double)]] = [
+      [(130, 8, 8), (130, 8, 8.5), (130, 8, 9)],
+      [(0, 8, 8), (0, 7, 8.5), (0, 6, 9)],
+      [(50, 10, 8), (50, 10, 8), (50, 10, 8.5)],
+      [(115, 8, 8), (115, 8, 8.5)],
+    ]
+    let total = 12
+    let first = now.addingTimeInterval(-11 - Double(total - 1) * 150)
+    var sets: [LiftSet] = []
+    var index = 0
+    func completedAt() -> Date {
+      defer { index += 1 }
+      return first.addingTimeInterval(Double(index) * 150)
+    }
+    for (position, plan) in plans.prefix(working.count).enumerated() {
+      if position == 0 {
+        sets.append(LiftSet(id: UUID(), exerciseID: plan.exerciseID, setNumber: 1, weight: 65, reps: 8, rpe: 8,
+                            isWarmup: true, completedAt: completedAt(), notes: ""))
+      }
+      for (offset, entry) in working[position].enumerated() {
+        sets.append(LiftSet(id: UUID(), exerciseID: plan.exerciseID, setNumber: offset + 1, weight: entry.0,
+                            reps: entry.1, rpe: entry.2, isWarmup: false, completedAt: completedAt(), notes: "",
+                            effortRated: true))
+      }
+    }
+    return LiftSession(id: UUID(), routineID: routine.id, title: routine.name,
+                       startedAt: first.addingTimeInterval(-180), endedAt: nil, sets: sets)
   }
 }
 #endif

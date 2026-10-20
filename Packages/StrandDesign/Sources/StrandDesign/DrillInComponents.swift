@@ -11,17 +11,20 @@ import SwiftUI
 
 // MARK: - Value pill
 
-/// A short word or value on the shared state-pill chrome (the Coach "Stale" pill's size, a 12% wash and a
-/// hairline of `tint`, white type), for the tints `StatePill`'s five tones do not reach: a recovery band's
-/// yellow, strain's blue, the stress ramp. The caller passes text it has already localised.
+/// A short word or value on the shared state-pill chrome (the Coach "Stale" pill's size, the neutral pill with a
+/// leading dot in `tint`, white type), for the tints `StatePill`'s five tones do not reach: a recovery band's
+/// yellow, strain's blue, the stress ramp. `dotTint`, when given, colours the dot instead of `tint` (the strain band
+/// pill passes the strain accent). The caller passes text it has already localised.
 public struct ValuePill: View {
     private let text: String
     private let tint: Color
+    private let dotTint: Color?
     @Environment(\.dynamicTypeSize) private var typeSize
 
-    public init(_ text: String, tint: Color) {
+    public init(_ text: String, tint: Color, dotTint: Color? = nil) {
         self.text = text
         self.tint = tint
+        self.dotTint = dotTint
     }
 
     public var body: some View {
@@ -32,7 +35,7 @@ public struct ValuePill: View {
             .statePillLabel(lines: 3)
             .monospacedDigit()
             .lineLimit(wraps ? 3 : 1)
-            .statePillChrome(tint: tint)
+            .statePillChrome(tint: dotTint ?? tint)
             .fixedSize(horizontal: !wraps, vertical: true)
     }
 }

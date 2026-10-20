@@ -1,8 +1,11 @@
 import StrandDesign
 import SwiftUI
 
-/// The current exercise of a live workout: who it is, what you did last time and the set about to be logged. The set's
-/// figures live in `draft` (the workout view's, so the pinned "Log set" button reads them too).
+
+/// The current exercise of a live workout (the exercise card of the approved design): who it is, the set table whose
+/// draft row is the editor, and the best estimate so far today. Every tool that belongs to the set (warm-up, warm-up
+/// suggestion, plate loader, swap, superset) is in the "..." menu, so the REST and STRAIN cards sit right under the
+/// table. A set is logged on its row's check circle. The set's figures live in `draft` (the workout view's).
 struct LiveComposerSection: View {
   let exercise: LiftExercise
   let store: LiftStore
@@ -16,54 +19,61 @@ struct LiveComposerSection: View {
   let onPresentWarmup: () -> Void
   let onPresentPlates: () -> Void
   let onComposed: (UUID) -> Void
+  let onLog: () -> Void
 
   @Environment(\.liftFormat) private var format
   @Environment(\.dynamicTypeSize) private var typeSize
-  @State private var isEffortExpanded = false
-
-  private var unit: LiftWeightUnit { format.unit }
+  @State private var focus: LiveDraftField?
+  @State private var previousSets: [LiftSet] = []
+  @ScaledMetric(relativeTo: .footnote) private var estimateSize: CGFloat = 12.5
 
   var body: some View {
-    LiftFlatSection(
-      "Current exercise",
-      trailing: .text(
-        String(localized: "\((index + 1).formatted()) / \(max(store.activeExercises.count, 1).formatted())")),
-      contentSpacing: NoopMetrics.space3
-    ) {
-      VStack(alignment: .leading, spacing: WidgetMetrics.contentSpacing) {
-        identityRow
-        quickActions
-        lastSetsLine
-        steppers
-        effortEditor
-        optionChips
-      }
+    VStack(alignment: .leading, spacing: NoopMetrics.space3) {
+      identityRow
+      LiveSetTable(exercise: exercise, rows: tableRows, draft: $draft, focus: $focus, onLog: logSet)
+      bestEstimateLine
     }
+    .padding(.vertical, NoopMetrics.space3)
     .onAppear { onComposed(exercise.id) }
+    .task(id: exercise.id) { previousSets = LiftPreviousSets.lastSession(for: exercise.id, in: store.sessions) }
+  }
+
+  private func logSet() {
+    focus = nil
+    onLog()
   }
 
   // MARK: Identity
 
   private var identityRow: some View {
-    HStack(alignment: .top, spacing: NoopMetrics.space3) {
-      Button { onPresentHistory(exercise) } label: { artwork }
-        .buttonStyle(.plain)
-        .accessibilityLabel("View \(exercise.name) photo and muscles")
+    HStack(alignment: .center, spacing: NoopMetrics.space3) {
       Button { onPresentHistory(exercise) } label: {
-        VStack(alignment: .leading, spacing: 4) {
-          Text(exercise.name.liftDisplayName)
-            .font(StrandFont.title2)
-            .foregroundStyle(StrandPalette.textPrimary)
-            .multilineTextAlignment(.leading)
-            .lineLimit(3)
-            .minimumScaleFactor(0.8)
-            .fixedSize(horizontal: false, vertical: true)
-          Text(verbatim: setProgressText)
-            .font(StrandFont.caption.weight(.semibold))
-            .foregroundStyle(DomainTint.workout.accent)
-            .monospacedDigit()
+        HStack(alignment: .center, spacing: NoopMetrics.space3) {
+          artwork
+          VStack(alignment: .leading, spacing: 2) {
+            Text(exercise.name.liftDisplayName)
+              .font(StrandFont.headline)
+              .foregroundStyle(StrandPalette.textPrimary)
+              .multilineTextAlignment(.leading)
+              .lineLimit(3)
+              .minimumScaleFactor(0.8)
+              .fixedSize(horizontal: false, vertical: true)
+            let subtitle = LiftExerciseSubtitle.make(exercise)
+            if !subtitle.isEmpty {
+              Text(verbatim: subtitle)
+                .font(StrandFont.footnote)
+                .foregroundStyle(StrandPalette.textSecondary)
+                .multilineTextAlignment(.leading)
+                .lineLimit(typeSize.isAccessibilitySize ? 4 : 2)
+                .fixedSize(horizontal: false, vertical: true)
+            }
+            if let label = store.supersetLabel(for: exercise.id) {
+              LiftTag(text: LocalizedStringKey(label), systemImage: "link")
+                .padding(.top, 2)
+            }
+          }
+          .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
       }
       .buttonStyle(.plain)
@@ -74,12 +84,11 @@ struct LiveComposerSection: View {
   }
 
   @ViewBuilder private var artwork: some View {
+    let tile = StrengthExerciseTile(exercise: exercise, size: typeSize.isAccessibilitySize ? 48 : 60)
     if reduceMotion {
-      LiftExerciseThumb(exercise: exercise, size: LiftDesignMetrics.Composer.artworkSize)
-        .transition(.opacity)
+      tile.transition(.opacity)
     } else {
-      LiftExerciseThumb(exercise: exercise, size: LiftDesignMetrics.Composer.artworkSize)
-        .matchedGeometryEffect(id: exercise.id, in: continuityNamespace)
+      tile.matchedGeometryEffect(id: exercise.id, in: continuityNamespace)
     }
   }
 
@@ -94,156 +103,68 @@ struct LiveComposerSection: View {
       Button("Superset", systemImage: "link") {
         onPresentSuperset(exercise)
       }
+      Divider()
+      Toggle(isOn: $draft.isWarmup) {
+        Label("Warm-up", systemImage: "flame")
+      }
+      if liftShouldOfferWarmupSuggestion(completedWorkingSets: setProgress.completed) {
+        Button("Suggest a warm-up", systemImage: "figure.strengthtraining.traditional") {
+          onPresentWarmup()
+        }
+      }
+      if LiftPlateLoaderEligibility.isEligible(exercise) {
+        Button("Plate loader", systemImage: "scalemass") {
+          onPresentPlates()
+        }
+      }
     } label: {
-      Image(systemName: "ellipsis")
-        .font(.system(size: 16, weight: .semibold))
-        .foregroundStyle(StrandPalette.textTertiary)
-        .frame(width: 44, height: 44)
-        .contentShape(Rectangle())
+      StrengthIconGlyph(systemImage: "ellipsis")
     }
     .accessibilityLabel("Exercise tools")
   }
 
-  private var quickActions: some View {
-    ChipRow {
-      WidgetChipButton(
-        title: "Swap", systemImage: "arrow.triangle.2.circlepath", accessibilityLabel: "Swap exercise"
-      ) { onPresentSwap(exercise) }
-      WidgetChipButton(title: "Superset", systemImage: "link", accessibilityLabel: "Superset") {
-        onPresentSuperset(exercise)
-      }
-      if let label = store.supersetLabel(for: exercise.id) {
-        LiftTag(text: LocalizedStringKey(label))
-      }
-    }
+  // MARK: Table
+
+  private var loggedToday: [LiftSet] {
+    (store.activeSession?.sets ?? [])
+      .filter { $0.exerciseID == exercise.id }
+      .sorted { $0.completedAt < $1.completedAt }
   }
 
-  // MARK: Last sets
+  private var setProgress: LiftSetProgress { store.setProgress(for: exercise.id) }
 
-  private var savedWorkingSets: [LiftSet] {
-    Array(
-      store.sets(for: exercise.id, includeActive: false)
-        .filter { !$0.isWarmup }
-        .prefix(LiftDesignMetrics.Composer.lastSetLimit)
-    )
+  private var tableRows: [LiftSetTableRow] {
+    LiftSetTable.rows(
+      logged: loggedToday, previousSession: previousSets, target: setProgress.target, draftIsWarmup: draft.isWarmup)
   }
 
-  private var lastSetsLine: some View {
-    let sets = savedWorkingSets
-    let text = sets.isEmpty
-      ? String(localized: "No saved sets")
-      : LiftFormat.facts(sets.map { String(localized: "\(format.load(pounds: $0.weight, for: exercise)) × \($0.reps)") })
-    return VStack(alignment: .leading, spacing: 2) {
-      Text("Last").font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
-      Text(verbatim: text)
-        .font(StrandFont.footnote)
-        .foregroundStyle(sets.isEmpty ? StrandPalette.textTertiary : StrandPalette.textSecondary)
-        .fixedSize(horizontal: false, vertical: true)
-    }
-    .frame(maxWidth: .infinity, alignment: .leading)
-    .accessibilityElement(children: .combine)
-  }
-
-  private var setProgress: LiftSetProgress {
-    store.setProgress(for: exercise.id)
-  }
-
-  private var setProgressText: String {
-    guard let target = setProgress.target else {
-      return String(localized: "Set \(setProgress.completed + 1)")
-    }
-    return String(localized: "Set \(min(setProgress.completed + 1, target)) of \(target)")
-  }
-
-  // MARK: Steppers
-
-  private var steppers: some View {
-    VStack(spacing: NoopMetrics.space3) {
-      LiftBigStepper(
-        title: "Load",
-        value: format.load(pounds: draft.weight, for: exercise),
-        spokenValue: format.spokenLoad(pounds: draft.weight, for: exercise),
-        decrement: { stepWeight(up: false, large: false) },
-        increment: { stepWeight(up: true, large: false) },
-        decrementLarge: { stepWeight(up: false, large: true) },
-        incrementLarge: { stepWeight(up: true, large: true) },
-        increaseLargeLabel: String(localized: "Increase by \(format.spokenWeight(inUnit: unit.largeStep))"),
-        decreaseLargeLabel: String(localized: "Decrease by \(format.spokenWeight(inUnit: unit.largeStep))")
-      )
-      LiftBigStepper(
-        title: "Reps",
-        value: draft.reps.formatted(.number.locale(format.locale)),
-        spokenValue: String(localized: "\(draft.reps) reps"),
-        decrement: { draft.reps = max(1, draft.reps - 1) },
-        increment: { draft.reps += 1 }
-      )
-    }
-  }
-
-  private func stepWeight(up: Bool, large: Bool) {
-    draft.weight = unit.stepped(pounds: draft.weight, up: up, large: large)
-  }
-
-  // MARK: Effort
-
-  private var effortSelection: Binding<Int> {
-    Binding(get: { Int(draft.rpe) }, set: { draft.rpe = Double($0) })
-  }
-
-  private var effortEditor: some View {
-    VStack(alignment: .leading, spacing: NoopMetrics.space2) {
-      Button {
-        withAnimation(reduceMotion ? LiftMotion.reducedCrossfade : LiftMotion.surface) { isEffortExpanded.toggle() }
-      } label: {
-        HStack(spacing: NoopMetrics.space2) {
-          Text("lift.composer.effort")
-            .font(StrandFont.subhead)
-            .foregroundStyle(StrandPalette.textPrimary)
-          Spacer()
-          Text(draft.rpe.formatted(.number.precision(.fractionLength(0)).locale(format.locale)))
-            .font(StrandFont.number(17, weight: .semibold))
-            .foregroundStyle(StrandPalette.textPrimary)
-          Image(systemName: "chevron.down")
-            .font(.system(size: 12, weight: .semibold))
-            .foregroundStyle(StrandPalette.textTertiary)
-            .rotationEffect(.degrees(isEffortExpanded ? 180 : 0))
-            .accessibilityHidden(true)
+  /// "Best estimate today: 234 lb one-rep max" with a NEW BEST tag on the right when it beats everything before today. It
+  /// shows once a working set is logged on this exercise.
+  @ViewBuilder private var bestEstimateLine: some View {
+    if let best = LiftSetTable.bestEstimate(
+      logged: loggedToday, previousBest: store.previousBestEstimatedOneRepMax(for: exercise.id))
+    {
+      let value = format.weight(pounds: best.value)
+      let text = Text(markdown: String(localized: "Best estimate today: **\(value)** one-rep max"), emphasis: StrandPalette.textPrimary)
+        .font(StrandFont.sized(estimateSize, weight: .regular))
+        .foregroundStyle(StrandPalette.textSecondary)
+      let tag = best.isNewBest && LiftStore.prDetectionEnabled
+      // One line beside the tag at the regular text sizes (it shrinks a little before it would wrap, so "one-rep max"
+      // never splits); the accessibility sizes stack the text over the tag and let it wrap.
+      if typeSize.isAccessibilitySize {
+        VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+          text.fixedSize(horizontal: false, vertical: true)
+          if tag { LiftTag(text: "NEW BEST", systemImage: "star.fill", tint: StrandPalette.signalYellow) }
         }
-        .frame(minHeight: 44)
-        .contentShape(Rectangle())
-      }
-      .buttonStyle(.plain)
-      .accessibilityLabel("lift.composer.effortValue \(Int(draft.rpe))")
-      .accessibilityHint(isEffortExpanded ? Text("Collapses effort choices") : Text("Expands effort choices"))
-
-      if isEffortExpanded {
-        SegmentedPillControl(Array(6...10), selection: effortSelection) { $0.formatted(.number.locale(format.locale)) }
-          .frame(maxWidth: .infinity, alignment: .leading)
-      }
-    }
-    .overlay(alignment: .top) { FlatRowSeparator() }
-  }
-
-  // MARK: Options
-
-  private var optionChips: some View {
-    ChipRow {
-      if LiftPlateLoaderEligibility.isEligible(exercise) {
-        WidgetChipButton(
-          title: "Plate loader", systemImage: "scalemass", accessibilityLabel: "Plate loader",
-          accessibilityHint: "Shows plates for the current composer weight", action: onPresentPlates)
-      }
-      ChoiceChipButton(
-        title: "Warm-up", systemImage: draft.isWarmup ? "checkmark" : "flame", isSelected: draft.isWarmup
-      ) {
-        draft.isWarmup.toggle()
-      }
-      .accessibilityValue(draft.isWarmup ? Text("On") : Text("Off"))
-      if liftShouldOfferWarmupSuggestion(completedWorkingSets: setProgress.completed) {
-        WidgetChipButton(
-          title: "Suggest a warm-up", systemImage: "figure.strengthtraining.traditional",
-          accessibilityLabel: "Warm-up suggestion", accessibilityHint: "Shows suggested warm-up sets",
-          action: onPresentWarmup)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+      } else {
+        HStack(alignment: .center, spacing: NoopMetrics.space2) {
+          text.lineLimit(1).minimumScaleFactor(0.75)
+          Spacer(minLength: 0)
+          if tag { LiftTag(text: "NEW BEST", systemImage: "star.fill", tint: StrandPalette.signalYellow) }
+        }
+        .accessibilityElement(children: .combine)
       }
     }
   }
@@ -360,7 +281,7 @@ struct SupersetPairingSheet: View {
         LiftFlatSection("Paired", systemImage: "link") {
           VStack(alignment: .leading, spacing: NoopMetrics.space3) {
             HStack(spacing: NoopMetrics.space3) {
-              LiftTag(text: LocalizedStringKey(label))
+              LiftTag(text: LocalizedStringKey(label), systemImage: "link")
               Text(verbatim: currentPartnerText)
                 .font(StrandFont.subhead)
                 .foregroundStyle(StrandPalette.textPrimary)

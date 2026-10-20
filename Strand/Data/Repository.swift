@@ -1013,6 +1013,39 @@ final class Repository: ObservableObject {
 
     func importedStrain(for day: String) -> ResolvedStrain? { importedStrainByDay[day] }
 
+    /// The live day's stored Strain with the day's logged sets added (Strength Strain, A7). It is the same day combine
+    /// the stored settle and the day detail use (`StrengthStrainIntegration.dayCombine`): with the day's parts the
+    /// sets join the cardio part and the step and energy floors stay max-combined
+    /// (`max(floors, combine(cardio, M))`); the stored-score inversion is the documented fallback for a score whose
+    /// parts are missing or are not the score being combined. No lifts leaves `heartRateStored` bit for bit.
+    nonisolated static func liveDayStrainWithLifts(
+        heartRateStored: Double, components: StrainScorerV2.DayStrainComponents?, liftLoads: [Double]
+    ) -> Double {
+        let muscular = StrengthStrain.dayMuscularLoad(liftLoads)
+        guard muscular > 0 else { return heartRateStored }
+        return StrengthStrainIntegration.dayCombine(
+            hrStored: heartRateStored, muscularLoad: muscular, components: components)
+    }
+
+    /// Set by the primary engine: loads the parts (cardio, step and energy floors) of logical days into a combiner,
+    /// so a settle that runs outside the engine (a Workouts-tab re-key) combines days the way the engine's does.
+    /// Nil leaves days to the stored-score inversion.
+    var liftStrainDayPartsLoader: (@MainActor (_ days: [String], _ combiner: StrengthStrainDayCombiner) async -> Void)?
+
+    /// Drops every cache keyed on `refreshSeq` after Strength Strain's backfill changed stored Strain. A backfill can
+    /// touch only days older than the 30-day dashboard window, which no dashboard refresh diff sees, so Today's
+    /// history-wide cache, Insights and Apple Health would keep the old values until something else moved the counter.
+    func invalidateCachesAfterLiftStrainBackfill() {
+        todayHistoryWideCache = nil
+        todayHistoryWideLoadedSeq = -1
+        insightsCache = nil
+        insightsLoadedSeq = -1
+        appleHealthCache = nil
+        appleHealthLoadedSeq = -1
+        dataVersion &+= 1
+        refreshSeq &+= 1
+    }
+
     /// Internal (not private) so the publish-count test can drive two ticks directly.
     func setLiveDayStrain(_ value: ResolvedStrain?) {
         // `asOf` and the raw frontier are observational metadata, not new scoring input. UIP-3: the strap
@@ -1102,7 +1135,7 @@ final class Repository: ObservableObject {
 
     /// `yyyy-MM-dd` in the device's current civil zone, matching how `DailyMetric.day` is stored. Do not
     /// retain a DateFormatter with a launch-time zone: travel can change the local-day boundary mid-session.
-    static func localDayKey(_ date: Date, calendar: Calendar = .current) -> String {
+    nonisolated static func localDayKey(_ date: Date, calendar: Calendar = .current) -> String {
         let year = calendar.component(.year, from: date)
         let month = calendar.component(.month, from: date)
         let day = calendar.component(.day, from: date)
@@ -1119,16 +1152,16 @@ final class Repository: ObservableObject {
 
     /// The LOGICAL local day for `now`. This uses civil calendar arithmetic, not fixed seconds: at a DST
     /// transition local 04:00 still becomes the new logical day rather than drifting to 05:00 or 03:00.
-    static func logicalDay(_ now: Date, calendar: Calendar = .current,
-                           rolloverHour: Int = logicalDayRolloverHour) -> Date {
+    nonisolated static func logicalDay(_ now: Date, calendar: Calendar = .current,
+                                       rolloverHour: Int = logicalDayRolloverHour) -> Date {
         let start = calendar.startOfDay(for: now)
         guard calendar.component(.hour, from: now) < rolloverHour else { return start }
         return calendar.date(byAdding: .day, value: -1, to: start) ?? start
     }
 
     /// `yyyy-MM-dd` key for the logical day of `now` (see `logicalDay`).
-    static func logicalDayKey(_ now: Date, calendar: Calendar = .current,
-                              rolloverHour: Int = logicalDayRolloverHour) -> String {
+    nonisolated static func logicalDayKey(_ now: Date, calendar: Calendar = .current,
+                                          rolloverHour: Int = logicalDayRolloverHour) -> String {
         let logical = logicalDay(now, calendar: calendar, rolloverHour: rolloverHour)
         let year = calendar.component(.year, from: logical)
         let month = calendar.component(.month, from: logical)
@@ -3078,11 +3111,16 @@ final class Repository: ObservableObject {
         }
 
         guard let accumulator = liveStrainAccumulator,
-              let stored = accumulator.strain,
+              let heartRateStored = accumulator.strain,
               let frontier = accumulator.rawFrontierTs else {
             setLiveDayStrain(nil)
             return
         }
+        // Strength Strain: the day's logged sets join the live score exactly as the settle step joins them to the
+        // stored one. One indexed read per poll; no lifts today leaves the bits untouched.
+        let liftLoads = ((try? await store.liftStrainAppliedLoads(dayKey: dayKey)) ?? []).map(\.muscularLoad)
+        let stored = Self.liveDayStrainWithLifts(
+            heartRateStored: heartRateStored, components: accumulator.components, liftLoads: liftLoads)
         setLiveDayStrain(ResolvedStrain(
             day: dayKey, storedValue: stored, version: StrainScorerV2.version,
             origin: .liveDayV2, sourceId: deviceId, asOf: now,
@@ -4848,11 +4886,45 @@ final class Repository: ObservableObject {
     ///    history is never touched.
     func saveManualWorkout(_ row: WorkoutRow, replacing old: WorkoutRow? = nil) async {
         guard let store = await ensureStore() else { return }
+        var rekeyed = false
         if let old, WorkoutSource.classify(old.source) == .detected {
             await dismissDetected(old)
         } else if let old, old.startTs != row.startTs || old.sport != row.sport {
-            _ = try? await store.deleteWorkouts(deviceId: deviceId, sport: old.sport,
-                                                from: old.startTs, to: old.startTs)
+            // One transaction moves the workout to its new key. When the old row still holds a Strain that included
+            // logged sets, the new row gets the heart-rate value first, so sets never stay inside a value labelled
+            // heart rate, and both the old and the new day are settled before the transaction ends. A failed
+            // rekey preserves the old workout, its lift association, route and pauses for a later retry.
+            let newDayKey = Self.logicalDayKey(Date(timeIntervalSince1970: TimeInterval(row.startTs)))
+            let oldDayKey = Self.logicalDayKey(Date(timeIntervalSince1970: TimeInterval(old.startTs)))
+            // Both days are settled with the day combine that knows the days' parts (A7), so a floor-dominated day
+            // gets the value the live score and the day detail show.
+            let combiner = StrengthStrainDayCombiner()
+            do {
+                let days = try await store.liftStrainSettleDays(
+                    canonicalComputedDeviceId: canonicalComputedId, extraDayKeys: [newDayKey, oldDayKey])
+                await liftStrainDayPartsLoader?(days, combiner)
+                let settle = LiftStrainRekeySettle(
+                    canonicalComputedDeviceId: canonicalComputedId,
+                    newDayKey: newDayKey, oldDayKey: oldDayKey,
+                    now: Int(Date().timeIntervalSince1970),
+                    combine: StrengthStrainIntegration.combine, dayCombine: combiner.dayCombine)
+                do {
+                    _ = try await store.rekeyManualWorkout(deviceId: deviceId, old: old, new: row, settle: settle)
+                } catch is StrengthStrainDayCombiner.UnpreparedDay {
+                    // Another writer added a dirty day after preflight. The first transaction rolled back;
+                    // prepare the missed day and retry the same rekey once, including its association move.
+                    await liftStrainDayPartsLoader?(combiner.missedDays, combiner)
+                    _ = try await store.rekeyManualWorkout(deviceId: deviceId, old: old, new: row, settle: settle)
+                }
+                rekeyed = true
+                NotificationCenter.default.post(name: .liftStrainDidChange, object: nil)
+            } catch is StrengthStrainDayCombiner.UnpreparedDay {
+                NSLog("[strength-strain] workout rekey deferred: day parts unavailable")
+                return
+            } catch {
+                NSLog("[strength-strain] workout rekey failed: %@", "\(error)")
+                return
+            }
             // #10: the GPS route lives in RouteStore keyed by the natural key (startTs + sport), NOT in the
             // DB row. Re-keying the DB row above without moving the route would orphan it under the OLD key,
             // so the detail view's route + distance vanish after a sport/start edit. Re-key the route too:
@@ -4868,7 +4940,7 @@ final class Repository: ObservableObject {
         if let old, WorkoutSource.classify(old.source) != .detected {
             WorkoutPauseStore.follow(fromStartTs: old.startTs, fromSport: old.sport, to: row)
         }
-        _ = try? await store.upsertWorkouts([row], deviceId: deviceId)
+        if !rekeyed { _ = try? await store.upsertWorkouts([row], deviceId: deviceId) }
         // DL-03: a workout's strain belongs to its day; rescore the old and the new day.
         enqueueEditedDays([row.endTs] + (old.map { [$0.endTs] } ?? []))
     }

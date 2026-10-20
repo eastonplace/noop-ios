@@ -66,6 +66,8 @@ struct WorkoutDetailView: View {
     @State private var detailTab: DetailTab = Self.launchTab
     /// The average stored strain of the person's other NOOP-scored sessions of this sport, for the comparison.
     @State private var usualStored: Double?
+    /// What a Strength Training session says about the sets in its Strain; nil for any other session.
+    @State private var liftNote: WorkoutLiftStrainNote?
 
     /// QA: `--noop-qa-detail-tab heart|map` opens the detail on that tab (DEBUG only).
     private static var launchTab: DetailTab {
@@ -142,6 +144,13 @@ struct WorkoutDetailView: View {
         }
         #endif
         .task { await load() }
+        // A lift's sets are scored shortly after it is saved; the note and the dial catch up when that lands. Posted on
+        // whatever thread did the work, so hop to the main thread before touching view state.
+        .onReceive(NotificationCenter.default.publisher(for: .liftStrainDidChange)
+            .receive(on: DispatchQueue.main)) { _ in
+            guard displayRow.sport == StrengthStrainIntegration.sport else { return }
+            Task { await refreshLiftStrain() }
+        }
     }
 
     // MARK: - Load
@@ -207,6 +216,7 @@ struct WorkoutDetailView: View {
             self.zonesFromImport = fromImport
             self.loaded = true
         }
+        await loadLiftNote(for: target)
 
         // "Compared to your usual" is secondary context. Load it AFTER the useful detail is committed,
         // and skip per-row HR reconciliation because this calculation only needs each stored Strain value.
@@ -217,6 +227,26 @@ struct WorkoutDetailView: View {
                 && $0.sport.caseInsensitiveCompare(target.sport) == .orderedSame
         }.compactMap { StrainResolver.canonicalWorkout($0)?.storedValue }
         usualStored = comparison.isEmpty ? nil : comparison.reduce(0, +) / Double(comparison.count)
+    }
+
+    /// The lift note for `target`, from stored values only. Imported lifts have totals and no lift row, so they never read it.
+    private func loadLiftNote(for target: WorkoutRow) async {
+        let imported = WorkoutSource.classify(target.source) == .lifting
+        guard imported || target.sport == StrengthStrainIntegration.sport else { liftNote = nil; return }
+        let snapshot = imported ? nil : await repo.liftStrainSummary(startTs: target.startTs, sport: target.sport)
+        guard !Task.isCancelled else { return }
+        liftNote = WorkoutLiftStrainNote.make(sport: target.sport, source: target.source, snapshot: snapshot)
+    }
+
+    /// The sets were just (re)scored: read the session's row again so the dial and the note agree.
+    private func refreshLiftStrain() async {
+        let current = displayRow
+        let window = await repo.workoutRows(from: max(0, current.startTs - 60),
+                                            to: max(current.endTs, current.startTs + 1) + 60)
+        guard !Task.isCancelled else { return }
+        let fresh = window.first { $0.startTs == current.startTs && $0.sport == current.sport } ?? current
+        refreshedRow = fresh
+        await loadLiftNote(for: fresh)
     }
 
     // MARK: - Hero
@@ -243,6 +273,7 @@ struct WorkoutDetailView: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
+                if let liftNote { liftStrainNote(liftNote) }
                 // With no other scored session of this sport to compare against there is nothing to say.
                 if case .noop(_, let delta?) = heroStrain { comparedToUsual(delta) }
             }
@@ -319,6 +350,25 @@ struct WorkoutDetailView: View {
         let start = AppClock.hourMinute(startDate)
         guard displayRow.endTs > displayRow.startTs else { return start }
         return String(localized: "from \(start) to \(AppClock.hourMinute(Date(timeIntervalSince1970: TimeInterval(displayRow.endTs))))")
+    }
+
+    /// "Heart rate only 10.0 → With your sets 15.1" and what it includes, or the one line that says why the sets are not counted.
+    private func liftStrainNote(_ note: WorkoutLiftStrainNote) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            if let line = note.line {
+                Text(verbatim: line)
+                    .font(StrandFont.subhead)
+                    .foregroundStyle(StrandPalette.textPrimary)
+                    .monospacedDigit()
+            }
+            Text(verbatim: note.caption)
+                .font(StrandFont.micro)
+                .foregroundStyle(StrandPalette.textTertiary)
+        }
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(verbatim: note.spoken))
     }
 
     private func comparedToUsual(_ delta: Double) -> some View {

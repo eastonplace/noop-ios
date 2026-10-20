@@ -451,7 +451,7 @@ struct PreSleepHeartRateFeedbackSection: View {
 
     private var loadingCard: some View {
         FlatSection("Pre-sleep HR", systemImage: "heart.text.square", tint: .heart,
-                     trailing: .pill("On", tone: .accent)) {
+                     trailing: .pill("On", tone: .neutral)) {
             HStack(alignment: .top, spacing: NoopMetrics.space3) {
                 ProgressView()
                     .tint(DomainTint.heart.accent)
@@ -471,7 +471,7 @@ struct PreSleepHeartRateFeedbackSection: View {
 
     private var buildingCard: some View {
         FlatSection("Pre-sleep HR", systemImage: "heart.text.square", tint: .heart,
-                     trailing: .pill("On", tone: .accent)) {
+                     trailing: .pill("On", tone: .neutral)) {
             Text("Needs another complete pre-sleep window")
                 .font(StrandFont.body)
                 .foregroundStyle(StrandPalette.textPrimary)
@@ -488,7 +488,7 @@ struct PreSleepHeartRateFeedbackSection: View {
     /// sentence, then the context and the honesty line in quieter ink.
     private func enabledCard(_ feedback: PreSleepHeartRateFeedback.Feedback) -> some View {
         FlatSection("Pre-sleep HR", systemImage: "heart.text.square", tint: .heart,
-                     trailing: .pill("On", tone: .accent)) {
+                     trailing: .pill("On", tone: .neutral)) {
             if let observation = feedback.observation {
                 HeroValue(value: String(format: "%.0f", observation.meanBpm), unit: "bpm")
             }

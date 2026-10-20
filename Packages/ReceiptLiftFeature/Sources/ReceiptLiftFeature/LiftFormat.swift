@@ -335,6 +335,7 @@ func liftUsesBodyweightLoad(_ exercise: LiftExercise) -> Bool {
   let name = exercise.name.lowercased()
   let equipment = exercise.equipment.lowercased()
   return equipment.contains("bodyweight")
+    || equipment.contains("body weight")
     || name.contains("pull-up")
     || name.contains("dead hang")
     || name.contains("plank")

@@ -182,7 +182,7 @@ struct StorageView: View {
         var rows: [SettingsRowModel] = []
         if loading && report == nil {
             rows.append(.custom(id: "measuring") {
-                StatePill("Measuring…", tone: .accent, pulsing: true).padding(13)
+                StatePill("Measuring…", tone: .neutral, pulsing: true).padding(13)
             })
         } else if let report {
             rows.append(.custom(id: "breakdown") { breakdownCard(report).padding(13) })

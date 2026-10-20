@@ -97,18 +97,18 @@ extension View {
     }
 }
 
-/// A short status pill tinted at about 13%: the delta to the average, a recovery band, an efficiency figure.
+/// A short status pill: neutral chrome with the tone as a leading dot (the delta to the average, a recovery band, an
+/// efficiency figure).
 struct CoachTintPill: View {
     let text: Text
     let tint: Color
 
     var body: some View {
         text.coachFont(13, .semibold, relativeTo: .footnote, digits: true)
-            .foregroundStyle(tint)
+            .foregroundStyle(StrandPalette.textPrimary)
             .lineLimit(1).minimumScaleFactor(0.8)
-            .padding(.horizontal, 10)
+            .statePillChrome(tint: tint)
             .frame(minHeight: 26)
-            .background(Capsule(style: .continuous).fill(tint.opacity(0.14)))
     }
 }
 

@@ -15,6 +15,7 @@ struct ExerciseProgressView: View {
   @State private var referenceNow = Date()
   @State private var selectedRange: LiftProgressRange = .twelveWeeks
   @State private var showsInformation = false
+  @State private var qaReceiptSessionID: UUID?
   @State private var snapshot: LiftExerciseProgressSnapshot?
 
   init(exerciseID: UUID, showsInformation: Bool = false, closesModal: Bool = false) {
@@ -66,6 +67,15 @@ struct ExerciseProgressView: View {
     }
     .onChange(of: store.sessions) { refresh() }
     .liftQAScene("exercise-info") { showsInformation = true }
+    .navigationDestination(item: $qaReceiptSessionID) { id in
+      if let session = store.sessions.first(where: { $0.id == id }) {
+        CompletedReceiptView(session: session, presentation: .settled)
+          .environmentObject(store)
+      }
+    }
+    .liftQAScene("exercise-receipt", after: .milliseconds(1_800)) {
+      qaReceiptSessionID = snapshot?.recentSets.first?.session.id
+    }
   }
 
   private func refresh() {

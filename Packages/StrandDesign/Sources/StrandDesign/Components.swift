@@ -403,15 +403,16 @@ public struct TrendChip: View {
         return nil
     }
     public var body: some View {
+        // A tag (neutral `tagFill`, r6) with the delta's direction arrow in `color`; the text stays primary ink.
         HStack(spacing: 3) {
-            if let symbol { Image(systemName: symbol).font(.system(size: 8, weight: .bold)) }
+            if let symbol { Image(systemName: symbol).font(.system(size: 8, weight: .bold)).foregroundStyle(color) }
             // One line, always: a long chip (e.g. a workout's kcal) truncates rather than wraps, so
             // the pill never grows a tile past its floor. Matches Android's unconditional ellipsize (#934).
             Text(text).font(StrandFont.captionNumber).lineLimit(1)
         }
         .foregroundStyle(StrandPalette.textPrimary)
         .padding(.horizontal, 6).padding(.vertical, 2)
-        .background(color.opacity(0.14), in: Capsule(style: .continuous))
+        .background(StrandPalette.tagFill, in: RoundedRectangle(cornerRadius: TagMetrics.cornerRadius, style: .continuous))
         .accessibilityHidden(true)
     }
 }
@@ -837,11 +838,10 @@ public struct SourceBadge: View {
     let text: LocalizedStringKey; var tint: Color = StrandPalette.accent
     public init(_ text: LocalizedStringKey, tint: Color = StrandPalette.accent) { self.text = text; self.tint = tint }
     public var body: some View {
+        // A neutral pill with a tone dot: the source's colour is the dot, not the pill.
         Text(text).textCase(.uppercase).font(.system(size: 10, weight: .semibold, design: .rounded)).tracking(0.5)
-            .padding(.horizontal, 9).padding(.vertical, 3)
-            .background(tint.opacity(0.16), in: Capsule(style: .continuous))
             .foregroundStyle(StrandPalette.textPrimary)
-            .overlay(Capsule(style: .continuous).strokeBorder(tint.opacity(0.34), lineWidth: 1))
+            .statePillChrome(tint: tint)
     }
 }
 
@@ -995,8 +995,8 @@ public enum ScoreState: Sendable, Equatable {
 }
 
 /// The score-lifecycle chip, built from the shared state-pill parts so the app has ONE pill: a state-coloured
-/// dot, the white overline label, and the 10 / 5pt capsule with a 12% wash and a 28% hairline of the state hue
-/// (the `StatePill` chrome that the Coach cards and Today's pills use). LIVE pulses its dot. `text` overrides the
+/// dot, the white 13pt label, and the neutral 26pt capsule (`neutralPillChrome`, the `StatePill` chrome that the
+/// Coach cards and Today's pills use): colour lives in the dot only. LIVE pulses its dot. `text` overrides the
 /// default state label (e.g. "Building — 2 of 4").
 public struct ScoreStatePill: View {
     public var state: ScoreState
@@ -1011,7 +1011,7 @@ public struct ScoreStatePill: View {
             Text(text ?? state.label)
                 .statePillLabel()
         }
-        .statePillChrome(tint: hue)
+        .neutralPillChrome()
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(text ?? state.label)
     }

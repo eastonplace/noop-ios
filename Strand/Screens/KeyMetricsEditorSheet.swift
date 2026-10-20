@@ -158,10 +158,10 @@ struct KeyMetricsEditorSheet: View {
             }
             .buttonStyle(.plain)
             .font(StrandFont.body.weight(.semibold))
-            .foregroundStyle(StrandPalette.surfaceBase)
+            .foregroundStyle(StrandPalette.onLightFill)
             .padding(.horizontal, 18)
             .padding(.vertical, 10)
-            .background(Capsule().fill(StrandPalette.textPrimary))
+            .background(Capsule().fill(StrandPalette.solidFill))
             // At least one tile must stay visible — an empty grid reads as a bug, not a choice.
             .disabled(!items.contains { $0.enabled })
             .accessibilityLabel("Done editing Key Metrics")

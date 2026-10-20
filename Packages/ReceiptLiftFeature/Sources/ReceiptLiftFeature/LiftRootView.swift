@@ -33,7 +33,16 @@ enum LiftAutoResumePolicy {
     hasActiveSession: Bool,
     alreadyAutoResumed: Bool
   ) -> Bool {
-    destination == .start && hasActiveSession && !alreadyAutoResumed
+    destination == .start && hasActiveSession && !alreadyAutoResumed && !suppressedByLaunchFlag
+  }
+
+  /// DEBUG `--noop-lift-no-auto-resume` keeps the home on screen with a lift in flight, so it can be captured.
+  static var suppressedByLaunchFlag: Bool {
+    #if DEBUG
+    ProcessInfo.processInfo.arguments.contains("--noop-lift-no-auto-resume")
+    #else
+    false
+    #endif
   }
 }
 
@@ -48,6 +57,9 @@ struct LiftRootView: View {
   @State private var hasAutoResumed = false
   @State private var printedSession: LiftSession?
   @State private var selectedHistorySegment = LiftHistorySegment.receipts
+  #if DEBUG
+  @State private var qaReceipt: LiftQAReceiptRequest?
+  #endif
 
   var body: some View {
     NavigationStack(path: $navigation.path) {
@@ -84,9 +96,15 @@ struct LiftRootView: View {
       previewRoutine = store.routines.first { $0.name == "Upper A" } ?? store.routines.first
     }
     .liftQAScene("settings") { showsSettings = true }
+    #if DEBUG
     .liftQAScene("receipt", "receipt-export-white", "receipt-export-cream") {
-      printedSession = store.sessions.filter { $0.endedAt != nil }.max { $0.startedAt < $1.startedAt }
+      qaReceipt = latestCompleted.map { LiftQAReceiptRequest(session: $0, presentation: .freshlyCompleted) }
     }
+    .liftQAScene("receipt-settled") {
+      qaReceipt = latestCompleted.map { LiftQAReceiptRequest(session: $0, presentation: .settled) }
+    }
+    .liftQAScene("summary") { printedSession = latestCompleted }
+    #endif
     .fullScreenCover(isPresented: workoutPresentation) {
       LiveWorkoutView(
         onDismiss: { isWorkoutPresented = false },
@@ -99,18 +117,37 @@ struct LiftRootView: View {
       .environmentObject(store)
     }
     .fullScreenCover(item: $printedSession) { session in
+      NavigationStack {
+        LiftSessionSummaryView(
+          session: session,
+          context: .freshlyCompleted,
+          onClose: { printedSession = nil },
+          onViewReceipts: {
+            printedSession = nil
+            navigation.showCompletedHistory()
+          }
+        )
+      }
+      .environmentObject(store)
+    }
+    #if DEBUG
+    .fullScreenCover(item: $qaReceipt) { request in
       CompletedReceiptView(
-        session: session,
-        presentation: .freshlyCompleted,
-        onClose: { printedSession = nil },
-        onViewReceipts: {
-          printedSession = nil
-          navigation.showCompletedHistory()
-        }
+        session: request.session,
+        presentation: request.presentation,
+        onClose: { qaReceipt = nil },
+        onViewReceipts: { qaReceipt = nil }
       )
       .environmentObject(store)
     }
+    #endif
   }
+
+  #if DEBUG
+  private var latestCompleted: LiftSession? {
+    store.sessions.filter { $0.endedAt != nil }.max { $0.startedAt < $1.startedAt }
+  }
+  #endif
 
   @ViewBuilder private var rootPage: some View {
     if navigation.showsCompletedHistory {
@@ -122,6 +159,7 @@ struct LiftRootView: View {
           onOpenSettings: { showsSettings = true },
           onResume: { isWorkoutPresented = true },
           onStartOpen: startOpenLift,
+          onStartRoutine: startRoutineNow,
           onPreview: presentPreview,
           onOpen: { navigation.path.append($0) }
         )
@@ -167,6 +205,14 @@ struct LiftRootView: View {
     isWorkoutPresented = store.activeSession != nil
   }
 
+  /// "Start <routine>" on the home: the same start as the preview's Begin, without the page in between.
+  private func startRoutineNow(_ routine: LiftRoutine) {
+    guard !isWorkoutPresented, store.activeSession == nil else { return }
+    previewRoutine = nil
+    store.startRoutine(routine)
+    isWorkoutPresented = store.activeSession != nil
+  }
+
   private func startOpenLift() {
     guard !isWorkoutPresented, store.activeSession == nil else { return }
     previewRoutine = nil
@@ -196,3 +242,12 @@ struct LiftRootView: View {
     )
   }
 }
+
+#if DEBUG
+/// QA harness only: asks `LiftRootView` to present a receipt directly.
+struct LiftQAReceiptRequest: Identifiable {
+  let id = UUID()
+  let session: LiftSession
+  let presentation: LiftReceiptPresentation
+}
+#endif

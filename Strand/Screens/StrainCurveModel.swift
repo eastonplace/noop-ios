@@ -18,10 +18,12 @@ enum StrainCurveRelation: Equatable {
     /// The parts do not add up to the hero (another source or moment): the curve is cardio only, and says no more.
     case scoreDiffers
 
-    static func make(components: StrainScorerV2.DayStrainComponents, hero: Double?) -> StrainCurveRelation {
-        guard let hero, let parts = StrainScoreParts.make(components, hero: hero) else { return .none }
+    static func make(components: StrainScorerV2.DayStrainComponents, hero: Double?,
+                     liftLoad: Double = 0) -> StrainCurveRelation {
+        guard let hero, let parts = StrainScoreParts.make(components, hero: hero, liftLoad: liftLoad)
+        else { return .none }
         guard parts.agreesWithHero else { return .scoreDiffers }
-        switch components.dominant {
+        switch StrainScoreParts.dominant(components, liftLoad: liftLoad) {
         case .cardio?: return .cardioSetsScore
         case .steps?: return .otherSetsScore(.steps)
         case .energy?: return .otherSetsScore(.energy)
@@ -47,6 +49,9 @@ struct StrainDayAnalysis: Equatable, Sendable {
     let curve: [StrainScorerV2.CumulativeCardioPoint]
     /// When the score's gate opened (20 readings over 10 minutes of coverage), nil while it has not.
     let gateOpenedAt: Date?
+    /// The day's muscular load from the logged lifts (Strength Strain), 0 when there are none. When above 0 the curve
+    /// already carries it; `components` stay heart-rate only, and the parts and the relation add it back.
+    var liftMuscularLoad: Double = 0
 
     var gateOpen: Bool { gateOpenedAt != nil }
 
@@ -214,7 +219,8 @@ struct StrainCurveContent: Equatable {
         let analysis = result.analysis
         guard let shape = StrainCurveShape.make(
             curve: analysis.curve, wake: result.wake, now: live ? result.end : nil) else { return nil }
-        let relation = StrainCurveRelation.make(components: analysis.components, hero: hero)
+        let relation = StrainCurveRelation.make(
+            components: analysis.components, hero: hero, liftLoad: analysis.liftMuscularLoad)
         var seed: Double?
         if let first = analysis.curve.first, (sleepMinutes ?? 0) > 0, first.value > 0,
            abs(shape.startValue - first.value) < 0.2 {
@@ -244,7 +250,7 @@ extension StrainCurveContent {
         case .otherSetsScore(.energy):
             return isToday ? String(localized: "Today's score comes from active energy")
                            : String(localized: "That day's score came from active energy")
-        case .otherSetsScore(.cardio), .scoreDiffers, .cardioSetsScore, .none:
+        case .otherSetsScore(.cardio), .otherSetsScore(.lifting), .scoreDiffers, .cardioSetsScore, .none:
             return nil
         }
     }
@@ -259,7 +265,7 @@ extension StrainCurveContent {
         case .otherSetsScore(.energy):
             return isToday ? String(localized: "Today's score comes from active energy.")
                            : String(localized: "That day's score came from active energy.")
-        case .otherSetsScore(.cardio), .scoreDiffers, .cardioSetsScore, .none:
+        case .otherSetsScore(.cardio), .otherSetsScore(.lifting), .scoreDiffers, .cardioSetsScore, .none:
             return nil
         }
     }

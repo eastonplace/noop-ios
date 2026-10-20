@@ -66,6 +66,8 @@ struct StrainThroughDaySection: View {
     @ViewBuilder
     private func curve(_ content: StrainCurveContent, result: StrainDayResult) -> some View {
         let marker = content.markerLabel(isToday: isToday)
+        // The curve already carries the day's logged lifting when it has any (Strength Strain), so it is named for both.
+        let lifting = result.analysis.liftMuscularLoad > 0
         VStack(alignment: .leading, spacing: WidgetMetrics.contentSpacing) {
             StrainDayCurve(
                 points: content.shape.points,
@@ -83,12 +85,12 @@ struct StrainThroughDaySection: View {
                 timeLabel: { StressDayRibbon.hourLabel(Calendar.current.component(.hour, from: $0), locale: locale) },
                 readoutCaption: { date in
                     if let date { return AppClock.hourMinute(date) }
-                    return isToday ? String(localized: "Cardio load so far") : String(localized: "Cardio load that day")
+                    return StrainCopy.curveReadoutCaption(isToday: isToday, lifting: lifting)
                 },
                 spokenReading: { point in
                     String(localized: "\(AppClock.hourMinute(point.t)), \(DrillInFormat.number(point.value, fractionDigits: 1)) of 21")
                 },
-                summary: summary(content, marker: content.markerSentence(isToday: isToday)),
+                summary: summary(content, marker: content.markerSentence(isToday: isToday), lifting: lifting),
                 hint: String(localized: "Touch and hold, then drag to read a time. With VoiceOver, swipe up or down to move through the day.")
             )
             if !content.gateOpen {
@@ -102,11 +104,11 @@ struct StrainThroughDaySection: View {
 
     /// The plot's spoken summary: whole sentences, each with its own punctuation, joined through one format key so the
     /// language decides the gap.
-    private func summary(_ content: StrainCurveContent, marker: String?) -> String {
+    private func summary(_ content: StrainCurveContent, marker: String?, lifting: Bool) -> String {
         let start = DrillInFormat.number(content.shape.startValue, fractionDigits: 1)
         let end = DrillInFormat.number(content.shape.endValue, fractionDigits: 1)
         let time = AppClock.hourMinute(content.shape.points.last?.t ?? content.shape.domain.upperBound)
-        var sentences = [String(localized: "Cardio load through the day, from \(start) to \(end) by \(time).")]
+        var sentences = [StrainCopy.curveSummary(start: start, end: end, time: time, lifting: lifting)]
         if !content.segments.isEmpty {
             sentences.append(String(localized: "\(content.segments.count) workouts marked."))
         }
@@ -164,6 +166,9 @@ struct StrainScorePartsSection: View {
             return String(localized: "\(steps) steps")
         case .energy:
             return String(localized: "Active energy")
+        case .lifting:
+            let add = DrillInFormat.number(parts.rows.first(where: { $0.kind == .lifting })?.value ?? 0, fractionDigits: 1)
+            return StrainCopy.liftingRowDetail(add: add)
         }
     }
 }
@@ -199,6 +204,7 @@ private struct StrainScoreRowView: View {
         case .cardio: return String(localized: "Cardio")
         case .steps: return String(localized: "Steps")
         case .energy: return String(localized: "Active energy")
+        case .lifting: return StrainCopy.liftingRowLabel
         }
     }
 
@@ -207,15 +213,19 @@ private struct StrainScoreRowView: View {
         case .cardio: return "heart.fill"
         case .steps: return "figure.walk"
         case .energy: return "bolt.fill"
+        case .lifting: return "dumbbell.fill"
         }
     }
 
     private var valueText: String {
-        row.value.map { DrillInFormat.number($0, fractionDigits: 1) } ?? WidgetMetrics.missingValue
+        guard let value = row.value else { return WidgetMetrics.missingValue }
+        let number = DrillInFormat.number(value, fractionDigits: 1)
+        // The Lifting row is what the sets add to the score, not a part of its own out of 21.
+        return row.kind == .lifting ? "+\(number)" : number
     }
 
     private var pill: some View {
-        ValuePill(String(localized: "Sets score"), tint: tint)
+        ValuePill(StrainCopy.decidesScore, tint: tint)
     }
 
     @ViewBuilder private var titleLine: some View {
@@ -280,7 +290,7 @@ private struct StrainScoreRowView: View {
             Text(valueText)
                 .font(StrandFont.bodyNumber)
                 .foregroundStyle(row.value == nil ? StrandPalette.textTertiary : StrandPalette.textPrimary)
-            if row.value != nil {
+            if row.value != nil, row.kind != .lifting {
                 Text("of 21").font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
             }
         }
@@ -306,6 +316,7 @@ private struct StrainScoreRowView: View {
     private var spoken: String {
         guard let value = row.value else { return String(localized: "\(label), \(detail)") }
         let number = DrillInFormat.number(value, fractionDigits: 1)
+        if row.kind == .lifting { return StrainCopy.liftingRowSpoken(label: label, add: number) }
         return row.setsScore
             ? String(localized: "\(label), \(number) of 21, \(detail), sets the score")
             : String(localized: "\(label), \(number) of 21, \(detail)")

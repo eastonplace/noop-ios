@@ -145,47 +145,54 @@ extension WhoopStore {
     @discardableResult
     public func upsertWorkouts(_ rows: [WorkoutRow], deviceId: String) async throws -> Int {
         try syncWrite { db in
-            var n = 0
-            for r in rows {
-                try db.execute(sql: """
-                    INSERT INTO workout
-                        (deviceId, startTs, endTs, sport, source, durationS, energyKcal,
-                         avgHr, maxHr, strain, distanceM, zonesJSON, notes, strainVersion)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ON CONFLICT(deviceId, startTs, sport) DO UPDATE SET
-                        endTs = excluded.endTs,
-                        source = excluded.source,
-                        durationS = excluded.durationS,
-                        energyKcal = excluded.energyKcal,
-                        avgHr = excluded.avgHr,
-                        maxHr = excluded.maxHr,
-                        strain = CASE
-                            WHEN workout.strainVersion = 2 AND COALESCE(excluded.strainVersion, 0) < 2
-                            THEN workout.strain ELSE excluded.strain END,
-                        distanceM = excluded.distanceM,
-                        zonesJSON = excluded.zonesJSON,
-                        notes = excluded.notes,
-                        strainVersion = CASE
-                            WHEN workout.strainVersion = 2 AND COALESCE(excluded.strainVersion, 0) < 2
-                            THEN workout.strainVersion ELSE excluded.strainVersion END
-                    WHERE workout.endTs IS NOT excluded.endTs
-                       OR workout.source IS NOT excluded.source
-                       OR workout.durationS IS NOT excluded.durationS
-                       OR workout.energyKcal IS NOT excluded.energyKcal
-                       OR workout.avgHr IS NOT excluded.avgHr
-                       OR workout.maxHr IS NOT excluded.maxHr
-                       OR workout.strain IS NOT CASE WHEN workout.strainVersion = 2 AND COALESCE(excluded.strainVersion, 0) < 2 THEN workout.strain ELSE excluded.strain END
-                       OR workout.distanceM IS NOT excluded.distanceM
-                       OR workout.zonesJSON IS NOT excluded.zonesJSON
-                       OR workout.notes IS NOT excluded.notes
-                       OR workout.strainVersion IS NOT CASE WHEN workout.strainVersion = 2 AND COALESCE(excluded.strainVersion, 0) < 2 THEN workout.strainVersion ELSE excluded.strainVersion END
-                    """, arguments: [deviceId, r.startTs, r.endTs, r.sport, r.source, r.durationS,
-                                     r.energyKcal, r.avgHr, r.maxHr, r.strain, r.distanceM,
-                                     r.zonesJSON, r.notes, r.strainVersion])
-                n += db.changesCount
-            }
-            return n
+            try Self.upsertWorkoutRows(db: db, rows: rows, deviceId: deviceId)
         }
+    }
+
+    /// The workout upsert, callable from inside another transaction (the Workouts-tab re-key). Same SQL and
+    /// the same preserve-a-stored-v2-value rule as `upsertWorkouts`, which now calls it.
+    @discardableResult
+    static func upsertWorkoutRows(db: Database, rows: [WorkoutRow], deviceId: String) throws -> Int {
+        var n = 0
+        for r in rows {
+            try db.execute(sql: """
+                INSERT INTO workout
+                    (deviceId, startTs, endTs, sport, source, durationS, energyKcal,
+                     avgHr, maxHr, strain, distanceM, zonesJSON, notes, strainVersion)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(deviceId, startTs, sport) DO UPDATE SET
+                    endTs = excluded.endTs,
+                    source = excluded.source,
+                    durationS = excluded.durationS,
+                    energyKcal = excluded.energyKcal,
+                    avgHr = excluded.avgHr,
+                    maxHr = excluded.maxHr,
+                    strain = CASE
+                        WHEN workout.strainVersion = 2 AND COALESCE(excluded.strainVersion, 0) < 2
+                        THEN workout.strain ELSE excluded.strain END,
+                    distanceM = excluded.distanceM,
+                    zonesJSON = excluded.zonesJSON,
+                    notes = excluded.notes,
+                    strainVersion = CASE
+                        WHEN workout.strainVersion = 2 AND COALESCE(excluded.strainVersion, 0) < 2
+                        THEN workout.strainVersion ELSE excluded.strainVersion END
+                WHERE workout.endTs IS NOT excluded.endTs
+                   OR workout.source IS NOT excluded.source
+                   OR workout.durationS IS NOT excluded.durationS
+                   OR workout.energyKcal IS NOT excluded.energyKcal
+                   OR workout.avgHr IS NOT excluded.avgHr
+                   OR workout.maxHr IS NOT excluded.maxHr
+                   OR workout.strain IS NOT CASE WHEN workout.strainVersion = 2 AND COALESCE(excluded.strainVersion, 0) < 2 THEN workout.strain ELSE excluded.strain END
+                   OR workout.distanceM IS NOT excluded.distanceM
+                   OR workout.zonesJSON IS NOT excluded.zonesJSON
+                   OR workout.notes IS NOT excluded.notes
+                   OR workout.strainVersion IS NOT CASE WHEN workout.strainVersion = 2 AND COALESCE(excluded.strainVersion, 0) < 2 THEN workout.strainVersion ELSE excluded.strainVersion END
+                """, arguments: [deviceId, r.startTs, r.endTs, r.sport, r.source, r.durationS,
+                                 r.energyKcal, r.avgHr, r.maxHr, r.strain, r.distanceM,
+                                 r.zonesJSON, r.notes, r.strainVersion])
+            n += db.changesCount
+        }
+        return n
     }
 
     /// Delete one source's workouts of a given sport whose startTs is in [from, to]
