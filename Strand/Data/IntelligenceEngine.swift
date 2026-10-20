@@ -490,7 +490,7 @@ final class IntelligenceEngine: ObservableObject {
     /// or skipping an unchanged-HR tick. v2 (AN-02): days bucket by their civil interval and own offset.
     /// v3 (AN-05): Effort's cycle runs from the day's main-night onset to the next day's cycle start.
     /// v4 (D3b): the daily calorie total fills resting energy for the hours without valid heart rate.
-    nonisolated static let analyzeScanVersion = "cache-v4"
+    nonisolated static let analyzeScanVersion = "cache-v5"
 
     /// F2: each scored night's raw skin-temperature mean (°C), persisted under the computed id so the skin
     /// baseline folds the whole history, as HRV / resting HR / respiration do from the computed rows.
@@ -891,9 +891,12 @@ final class IntelligenceEngine: ObservableObject {
     // values: as-of-yesterday Charge baselines (AN-01/AN-04), civil-day DST bucketing (AN-02) and the
     // sleep-to-sleep Effort cycle (AN-05). Every historical Charge value changes once. The same pass rewrites
     // each stored day's calorie total with the resting-energy fill for its off-wrist hours (D3b).
-    static let effortRescoreFlagKey = "intelligence.strainV2CalendarHistory.v3.done"
-    static let effortRescoreOffsetKey = "intelligence.strainV2CalendarHistory.v3.offset"
-    static let effortRescoreDurableProgressKey = "effort-rescore-v3"
+    // v4: revisit source-backed days after the WHOOP R-R read/quality policy, nightly physiology, and
+    // optional-baseline eligibility changes. Advance both UserDefaults identities and both durable passes
+    // together: a completed v3 pass or its cursor must not suppress corrected historical rows or settlement.
+    static let effortRescoreFlagKey = "intelligence.strainV2CalendarHistory.v4.done"
+    static let effortRescoreOffsetKey = "intelligence.strainV2CalendarHistory.v4.offset"
+    static let effortRescoreDurableProgressKey = "effort-rescore-v4"
     static let effortRescoreChunkDays = 30
     private enum EffortRescoreMigrationError: Error { case chunkDidNotComplete }
 
@@ -916,7 +919,7 @@ final class IntelligenceEngine: ObservableObject {
     }
     private var effortRescoreRunning = false
 
-    /// True while the v3 rescore or its settle pass still has chunks to run (or has not started). The scene-edge
+    /// True while the current rescore or its settle pass still has chunks to run (or has not started). The scene-edge
     /// grant and the rescore BGProcessingTask use it to decide whether another wake is worth arming. It reads the
     /// same durable progress rows `runEffortRescoreIfNeeded` writes, so an install with nothing to rescore settles to
     /// false after one run.
@@ -926,7 +929,7 @@ final class IntelligenceEngine: ObservableObject {
         if let v3 {
             guard v3.state == .complete else { return true }
         } else if !UserDefaults.standard.bool(forKey: Self.effortRescoreFlagKey) {
-            return true   // v3 has not started
+            return true   // the current generation has not started
         }
         guard let settle = try? await store.durableMigrationProgress(key: Self.effortRescoreSettleDurableProgressKey) else {
             return true
@@ -977,7 +980,7 @@ final class IntelligenceEngine: ObservableObject {
         } catch {
             return
         }
-        // Review round 7 (4): v3 complete, the settle pass takes this grant.
+        // Review round 7 (4): the main pass is complete; the settle pass takes this grant.
         guard persistedProgress.state != .complete else {
             await runEffortRescoreSettleIfNeeded(store: store, historyDays: historyDays, reference: reference,
                                                  calendar: calendar, shouldPause: shouldPause)
@@ -1029,12 +1032,12 @@ final class IntelligenceEngine: ObservableObject {
         }
     }
 
-    /// Review round 7 (4): the settle pass. v3 rescores newest first, so each chunk's Charge baselines read the
+    /// Review round 7 (4): the settle pass. The main pass rescores newest first, so Charge baselines read the
     /// older days' resting HR and HRV as stored before those days' own rescore. One more pass over the same
     /// chunks, with the same cursor, chunking and safety net, scores every Charge against the rescored history,
-    /// the result a from-scratch oldest-first run gives. It starts only once v3's durable progress is complete,
-    /// so it never runs while v3 is incomplete, after an app kill mid-v3 included.
-    static let effortRescoreSettleDurableProgressKey = "effort-rescore-v3-settle"
+    /// the result a from-scratch oldest-first run gives. It starts only once this generation's main pass is complete,
+    /// so an app kill during that pass cannot start settlement early.
+    static let effortRescoreSettleDurableProgressKey = "effort-rescore-v4-settle"
 
     private func runEffortRescoreSettleIfNeeded(store: WhoopStore, historyDays: Int, reference: Date,
                                                 calendar: Calendar, shouldPause: () -> Bool) async {
@@ -1101,7 +1104,7 @@ final class IntelligenceEngine: ObservableObject {
     }
 
     /// One background maintenance grant's batch of a full-history rescore whose durable cursor is `progressKey`
-    /// (v3, then its settle pass). Each chunk keeps the days it can't produce (review round 7, 1). Returns the
+    /// (the current generation, then its settle pass). Each chunk keeps the days it can't produce (review round 7, 1). Returns the
     /// driver's outcome and the cursor reached.
     private func runFullHistoryRescoreBatch(
         store: WhoopStore,
@@ -1687,6 +1690,9 @@ final class IntelligenceEngine: ObservableObject {
                         cycleFingerprint += ":\(tail.count):\(tail.maxTs)"
                         try CooperativeAnalysisCancellation.checkpoint()
                     }
+                    let rrFingerprint = try? await store.rrScoringFingerprint(
+                        deviceId: owner, from: from, to: to)
+                    try CooperativeAnalysisCancellation.checkpoint()
                     let key = AnalyzeRecentDayCache.cacheKey(
                         owner: owner,
                         hrCount: fingerprint.count,
@@ -1695,10 +1701,12 @@ final class IntelligenceEngine: ObservableObject {
                         sleepEditFingerprint: sleepEditFingerprint,
                         persistedSleepFingerprint: persistedSleepFingerprint,
                         cycleFingerprint: cycleFingerprint,
+                        rrFingerprint: rrFingerprint ?? "",
                         hrvWindowDetail: dayStart == currentCivilDayStart,
                         calorieFillEnd: dayInterval.upperBound > now ? now : nil)   // D3b: today fills to now
-                    dayCacheKey = key
-                    if let cached = cacheSnapshot[day], cached.key == key {
+                    // An unreadable R-R witness cannot authorize reuse or seed a cache entry.
+                    dayCacheKey = rrFingerprint == nil ? nil : key
+                    if rrFingerprint != nil, let cached = cacheSnapshot[day], cached.key == key {
                         // A hit replaces pass 1 only. The cached scan still enters the normal main-actor fold
                         // and all pass-2/persistence/reconciliation work below.
                         try CooperativeAnalysisCancellation.checkpoint()
@@ -3699,8 +3707,8 @@ final class IntelligenceEngine: ObservableObject {
     /// `analyzeRecent(force:)` shorthand passes `maxDays: 1`.
     static let backstopWindowDays = 21
 
-    /// The backstop window's raw-HR change witness (DL-02): row count and newest timestamp per candidate
-    /// owner over the read window the tick scores, plus the scan version and the hour. Empty when a read
+    /// The backstop window's HR and R-R change witnesses per candidate owner over the
+    /// read window the tick scores, plus the scan version and the hour. Empty when a read
     /// fails, so the gate never skips on an unreadable store.
     /// Review round 3 (D): today's calorie total fills resting energy up to now (D3b), so it must rise while the
     /// strap is off-wrist and no heart rate arrives. The hour term lets the first tick of each hour run; the
@@ -3721,7 +3729,10 @@ final class IntelligenceEngine: ObservableObject {
             guard let fingerprint = try? await store.hrFingerprint(deviceId: owner, from: from, to: to) else {
                 return ""
             }
-            parts.append("\(owner)=\(fingerprint.count):\(fingerprint.maxTs)")
+            guard let rr = try? await store.rrScoringFingerprint(deviceId: owner, from: from, to: to) else {
+                return ""
+            }
+            parts.append("\(owner)=\(fingerprint.count):\(fingerprint.maxTs):rr\(rr.utf8.count):\(rr)")
         }
         return parts.joined(separator: "|") + "|\(Self.analyzeScanVersion)"
             + "|h\(Int(reference.timeIntervalSince1970) / Self.todayFillTickSeconds)"
@@ -4763,8 +4774,9 @@ extension IntelligenceEngine {
     }
 
     /// Reconstruct the still-open day's missing overnight fields from durable computed sleep sessions.
-    /// The main-night selector and stage aggregate match normal analysis, while RHR/HRV retain normal
-    /// all-sessions-for-the-wake-day semantics. Unsupported fields remain untouched.
+    /// The main-night selector and stage aggregate match normal analysis. RHR uses the longest
+    /// session's existing floor; HRV retains the wake day's duration-weighted session mean.
+    /// Unsupported fields remain untouched.
     nonisolated static func rebuildingMissingOvernightFields(
         in fresh: DailyMetric,
         from persistedSessions: [CachedSleepSession],
@@ -4796,7 +4808,9 @@ extension IntelligenceEngine {
             interFragmentAwakeSeconds: interFragmentAwakeSeconds
         )
 
-        let restingHr = matched.compactMap(\.restingHr).min()
+        let restingHr = PrimaryNightRestingHR.floor(matched.map {
+            (start: $0.effectiveStartTs, end: $0.endTs, restingHR: $0.restingHr)
+        })
         let hrvPairs = matched.compactMap { session -> (value: Double, weight: Double)? in
             guard let value = session.avgHrv, value.isFinite else { return nil }
             let (duration, overflow) = session.endTs.subtractingReportingOverflow(

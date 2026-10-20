@@ -641,16 +641,14 @@ public enum AnalyticsEngine {
             }
         }
 
-        // #525 NOTE: the sleep-DURATION figures above are main-night-only (the headline "your night"),
-        // but the physiological aggregates below (resting HR, HRV, respiration) intentionally stay over
-        // ALL matched sessions. This is deliberate, not an oversight: recovery should reflect the body's
-        // best resting physiology for the day, the main overnight dominates these anyway (it is far longer
-        // than any nap and HRV is in-bed-weighted by duration), and narrowing them to the main night would
-        // widen the change's blast radius into the recovery score right at a release boundary for a
-        // negligible shift. The Rest/sleep-quality term is main-night; the recovery physiology is
-        // day-best-resting, night-dominated. Keep these two definitions distinct on purpose.
-        // Daily resting HR = lowest per-session resting HR across matched sessions.
-        let restingHRDaily = matched.compactMap { $0.restingHR }.min()
+        // RHR uses the longest session's existing lowest-sustained 5-min floor (upstream #2522).
+        // Select the session before reading its value: a lower nap floor must not set the day's RHR,
+        // and a main night without valid HR must stay nil. The whole-session mean remains shadow-only.
+        // Sleep duration still uses the learned main-night group above; HRV and respiration retain
+        // their existing all-matched-session aggregation below.
+        let restingHRDaily = PrimaryNightRestingHR.floor(matched.map {
+            (start: $0.start, end: $0.end, restingHR: $0.restingHR)
+        })
         // Daily avg HRV = in-bed-weighted mean of per-session avg HRV.
         let avgHRVDaily: Double? = {
             if deepHrvWindow {

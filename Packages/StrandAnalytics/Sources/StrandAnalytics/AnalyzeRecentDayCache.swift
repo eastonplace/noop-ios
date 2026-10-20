@@ -40,6 +40,8 @@ public enum AnalyzeRecentDayCache {
     /// - `cycleFingerprint`: where this day's Effort cycle ends (the next day's cycle start) plus the HR
     ///   fingerprint of any readings past the night window up to it (AN-05). A new night tomorrow, or late
     ///   post-midnight readings, change this day's Effort without moving its own night-window fingerprint.
+    /// - rrFingerprint: bounded R-R provenance, quality, and ordering witness. Late
+    ///   R-R backfill or a quality annotation invalidates reuse even when HR is unchanged.
     ///
     /// Inputs that feed `analyzeDay` but are pass-global rather than per-day (profile, baselines1, sleep
     /// need / consistency, habitual midsleep, tz, stager toggles) are NOT in this key — the engine drops the
@@ -48,6 +50,7 @@ public enum AnalyzeRecentDayCache {
                                 sleepEditFingerprint: String = "",
                                 persistedSleepFingerprint: String = "",
                                 cycleFingerprint: String = "",
+                                rrFingerprint: String = "",
                                 // #1575: whether this day is the one that emits the PER-WINDOW HRV detail
                                 // (`dayStart == nowLocalMidnight`). Now that an active trace no longer
                                 // disables reuse, this has to invalidate: the night cached as "today" with
@@ -64,7 +67,7 @@ public enum AnalyzeRecentDayCache {
                                 calorieFillEnd: Int? = nil) -> String {
         let anchor = skinAnchorRaw.map { String($0.bitPattern) } ?? "nil"
         return "\(owner)|\(hrCount):\(hrMaxTs):\(anchor):\(sleepEditFingerprint):\(persistedSleepFingerprint):"
-            + "\(cycleFingerprint):\(hrvWindowDetail ? "d" : "s")"
+            + "\(cycleFingerprint):rr\(rrFingerprint.utf8.count):\(rrFingerprint):\(hrvWindowDetail ? "d" : "s")"
             + (calorieFillEnd.map { ":f\($0)" } ?? "")
     }
 }
