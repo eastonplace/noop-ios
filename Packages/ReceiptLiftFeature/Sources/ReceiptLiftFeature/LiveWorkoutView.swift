@@ -947,6 +947,10 @@ private struct WorkoutConfirmationStampView: View {
       DomainTint.workout.accent.opacity(isPersonalRecord ? 0.2 : 0.12),
       in: RoundedRectangle(cornerRadius: NoopMetrics.radius2, style: .continuous)
     )
+    .background(
+      StrandPalette.surfaceOverlay,
+      in: RoundedRectangle(cornerRadius: NoopMetrics.radius2, style: .continuous)
+    )
     .overlay {
       RoundedRectangle(cornerRadius: NoopMetrics.radius2, style: .continuous)
         .strokeBorder(DomainTint.workout.accent.opacity(isPersonalRecord ? 0.7 : 0.35), lineWidth: 1)

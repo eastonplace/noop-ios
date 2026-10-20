@@ -14,8 +14,8 @@ final class CoachKeyboardLayoutTests: XCTestCase {
         defer { app.terminate() }
 
         let composer = app.descendants(matching: .any).matching(identifier: "coach.composer").firstMatch
-        let navigation = ["app.tab.0", "app.tab.1", "app.quickActions", "app.tab.4", "app.tab.2"]
-            .map { app.buttons[$0] }
+        let navigationIdentifiers = ["app.tab.0", "app.tab.1", "app.quickActions", "app.tab.4", "app.tab.2"]
+        let navigation = navigationIdentifiers.map { app.buttons[$0] }
         XCTAssertTrue(composer.waitForExistence(timeout: 30))
         for button in navigation { XCTAssertTrue(button.isHittable) }
         let restingNavigationY = app.buttons["app.quickActions"].frame.minY
@@ -27,11 +27,14 @@ final class CoachKeyboardLayoutTests: XCTestCase {
         XCTAssertTrue(keyboard.waitForExistence(timeout: 5))
         capture(app, "coach-keyboard-02-editing")
 
+        // Resolve all navigation identifiers in one accessibility snapshot. Six sequential
+        // missing-element `exists` queries can exhaust this wait on a busy CI simulator
+        // even when every element has already been removed.
+        let navigationElements = app.descendants(matching: .any).matching(
+            NSPredicate(format: "identifier IN %@", ["app.bottomNavigation"] + navigationIdentifiers)
+        )
         let navigationIsHidden = XCTNSPredicateExpectation(
-            predicate: NSPredicate { _, _ in
-                !app.descendants(matching: .any).matching(identifier: "app.bottomNavigation").firstMatch.exists
-                    && navigation.allSatisfy { !$0.exists }
-            }, object: app
+            predicate: NSPredicate { _, _ in navigationElements.count == 0 }, object: app
         )
         XCTAssertEqual(XCTWaiter.wait(for: [navigationIsHidden], timeout: 5), .completed,
                        "Global navigation must be removed while typing so its glow cannot show through the keyboard")
