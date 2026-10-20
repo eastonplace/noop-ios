@@ -141,6 +141,38 @@ struct LiftRoutinesRoundTripTests {
     #expect(snapshot.workouts.first?.sets.count == 2)
   }
 
+  @Test func startingTheSelectedSavedRoutinePersistsItsIdentityAndPlanWithoutChangingRoutinesOrSchedule() async throws {
+    let fixture = Self.fixture()
+    let harness = RoundTripHarness(initial: try Self.encode(fixture))
+    let coordinator = makeCoordinator(harness)
+    await coordinator.load()
+    let selected = try #require(coordinator.store.routines.first { $0.id == Self.routineBID })
+
+    coordinator.store.startRoutine(selected)
+    coordinator.store.flushPendingSave()
+    await coordinator.store.waitForPendingSave()
+
+    let snapshot = await harness.snapshot()
+    let saved = try Self.decode(#require(snapshot.data))
+    #expect(saved.activeSession?.routineID == Self.routineBID)
+    #expect(saved.activeSession?.title == "Fixture Pull")
+    #expect(saved.activeSession?.sets.isEmpty == true)
+    #expect(saved.sessions == fixture.sessions, "Starting does not complete or replace history")
+    #expect(saved.activeExerciseIDsOverride == [Self.rowID])
+    #expect(saved.activePlanOverrides[Self.rowID]?.sets == "4")
+    #expect(saved.activePlanOverrides[Self.rowID]?.reps == "8-12")
+    #expect(saved.activePlanOverrides[Self.benchID] == nil)
+    #expect(try Self.encode(saved.routines) == Self.encode(fixture.routines))
+    #expect(try Self.encode(saved.scheduledWorkouts) == Self.encode(fixture.scheduledWorkouts))
+
+    let reloaded = makeCoordinator(harness)
+    await reloaded.load()
+    #expect(reloaded.store.activeSession?.id == saved.activeSession?.id)
+    #expect(reloaded.store.activeSession?.routineID == Self.routineBID)
+    #expect(reloaded.store.activeExercises.map(\.id) == [Self.rowID])
+    #expect(reloaded.store.activePlan(for: Self.rowID)?.sets == "4")
+  }
+
   @Test func aPreExistingSessionsSetsEncodeByteIdentically() async throws {
     let fixture = Self.fixture()
     let originalSets = try Self.encode(fixture.sessions[0].sets)

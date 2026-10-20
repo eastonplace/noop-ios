@@ -32,9 +32,13 @@ private struct BreathingContent: View {
 
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var live: LiveState
-    /// When the user has Reduce Motion on, the large repeating inhale/exhale orb zoom is
-    /// suppressed — the breath is cued by the phase word + haptics instead. (a11y)
+    /// Reduce Motion hides the moving timeline cursor; the phase word and haptics still cue the breath.
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var typeSize
+    @ScaledMetric(relativeTo: .title2) private var timelineHeight: CGFloat = 70
+    @ScaledMetric(relativeTo: .title3) private var readoutValueSize: CGFloat = 20
+    @ScaledMetric(relativeTo: .subheadline) private var modeFontSize: CGFloat = 14
+    @ScaledMetric(relativeTo: .subheadline) private var modeChipHeight: CGFloat = 34
 
     /// The L1/L2 session controller (walks the engines, fires the buzz path). View-owned, created lazily
     /// from the environment model + live state on first appear (a `@StateObject` can't read the
@@ -165,7 +169,8 @@ private struct BreathingContent: View {
                        subtitle: "Haptic-paced breathing · find your pace · calm down",
                        // Liquid finish: the same full-bleed day-of-sky backdrop Today + the other liquid
                        // tabs carry, so Breathe sits in one atmosphere.
-                       topBackground: nil) {
+                       topBackground: nil,
+                       usesCompactUtilityHeader: true) {
 
             modeSwitch
             StressCheckInCard(center: nudgeCenter) { startOneMinuteCue() }
@@ -210,20 +215,54 @@ private struct BreathingContent: View {
     // MARK: - Mode switch
 
     private var modeSwitch: some View {
-        SegmentedPillControl(Mode.allCases, selection: $mode) { $0.label }
-            .frame(maxWidth: .infinity, alignment: .center)
-            .accessibilityLabel("Breathe mode")
+        let layout = typeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: NoopMetrics.space2))
+            : AnyLayout(HStackLayout(spacing: NoopMetrics.space2))
+        return layout {
+            ForEach(Mode.allCases, id: \.self) { item in
+                Button {
+                    mode = item
+                } label: {
+                    Text(verbatim: item.label)
+                        .font(StrandFont.sized(modeFontSize, weight: mode == item ? .bold : .semibold))
+                        .foregroundStyle(mode == item ? StrandPalette.textPrimary : StrandPalette.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, NoopMetrics.space2)
+                        .padding(.vertical, typeSize.isAccessibilitySize ? NoopMetrics.space2 : 0)
+                        .frame(maxWidth: .infinity, minHeight: modeChipHeight)
+                        .background(mode == item ? StrandPalette.inset : .clear,
+                                    in: Capsule(style: .continuous))
+                        .overlay {
+                            Capsule(style: .continuous)
+                                .strokeBorder(mode == item ? StrandPalette.hairlineStrong : StrandPalette.pillStroke,
+                                              lineWidth: 1)
+                        }
+                        .frame(minHeight: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(mode == item ? .isSelected : [])
+                .accessibilityIdentifier("breathe.mode.\(String(describing: item))")
+            }
+        }
+        .segmentedPillTint(nil)
+        .strandHaptic(.selection, trigger: mode)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Breathe mode")
     }
 
     // MARK: - Breathe mode (the shipped fixed-pace trainer)
 
     @ViewBuilder private var breatheMode: some View {
         statusRow
-        orbCard
-        controlRow
-        if let line = outcomeLine { outcomeCard(line) }
+        breathTimeline
+        sessionReadout
         readoutRow
+        pacePills
+        audioCueToggle
+        controlRow
         coherenceCard
+        if let line = outcomeLine { outcomeCard(line) }
         if !live.bonded { hapticHint }
     }
 
@@ -243,84 +282,169 @@ private struct BreathingContent: View {
             StatePill(running ? "Session live" : "Ready",
                       tone: running ? .accent : .neutral,
                       pulsing: running)
-
-            if live.bonded {
-                StatePill("Haptics on", tone: .positive, showsDot: true)
-            } else {
-                StatePill("Visual only", tone: .warning, showsDot: true)
-            }
-
+                .accessibilityIdentifier("breathe.status")
             Spacer()
+            Text(live.bonded ? "Haptics on" : "Visual only")
+                .font(StrandFont.footnote)
+                .foregroundStyle(StrandPalette.textSecondary)
+        }
+    }
 
-            HStack(spacing: 6) {
-                Text(timeString(sessionSeconds))
-                    .font(StrandFont.number(15))
+    // MARK: - Breath timeline (display only; the existing phase clock owns pacing)
+
+    private var breathTimeline: some View {
+        VStack(alignment: .leading, spacing: NoopMetrics.space4) {
+            VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+                Text(running ? phaseWord : String(localized: "Ready to breathe"))
+                    .font(StrandFont.largeTitle.weight(.semibold))
                     .foregroundStyle(StrandPalette.textPrimary)
-                Text("·").foregroundStyle(StrandPalette.textTertiary)
-                Text("\(breathCount) breaths")
-                    .font(StrandFont.captionNumber)
-                    .foregroundStyle(StrandPalette.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("breathe.phase")
+                Text("\(pace.label) · \(durationText(pace.cycle(lockedBpm: lockedBpm)))-second cycle")
+                    .font(StrandFont.footnote)
+                    .foregroundStyle(StrandPalette.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
+
+            if typeSize.isAccessibilitySize {
+                VStack(spacing: NoopMetrics.space2) {
+                    phaseSegment(.inhale)
+                    phaseSegment(.exhale)
+                }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Breathing cycle")
+                .accessibilityValue("Inhale \(durationText(pace.inhale(lockedBpm: lockedBpm))) seconds, exhale \(durationText(pace.exhale(lockedBpm: lockedBpm))) seconds")
+                .accessibilityIdentifier("breathe.timeline")
+            } else {
+                timelineTrack
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var timelineTrack: some View {
+        VStack(spacing: NoopMetrics.space2) {
+            TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !running || reduceMotion)) { context in
+                GeometryReader { geometry in
+                    let gap = NoopMetrics.space1
+                    let width = max(0, geometry.size.width - gap)
+                    let inhale = pace.inhale(lockedBpm: lockedBpm)
+                    let cycle = pace.cycle(lockedBpm: lockedBpm)
+                    let inhaleWidth = width * CGFloat(inhale / cycle)
+
+                    HStack(spacing: gap) {
+                        phaseSegment(.inhale).frame(width: inhaleWidth)
+                        phaseSegment(.exhale).frame(width: width - inhaleWidth)
+                    }
+                    .overlay(alignment: .leading) {
+                        if running && !reduceMotion {
+                            // Read the existing deadline without writing phase, timing, or session state.
+                            let duration = phase == .inhale ? inhale : cycle - inhale
+                            let elapsed = min(max(duration - phaseDeadline.timeIntervalSince(context.date), 0), duration)
+                            let x = phase == .inhale
+                                ? inhaleWidth * CGFloat(elapsed / duration)
+                                : inhaleWidth + gap + (width - inhaleWidth) * CGFloat(elapsed / duration)
+                            // Paired edge ticks retain the exact time position without
+                            // drawing a moving stroke through either duration label.
+                            VStack(spacing: 0) {
+                                Rectangle().frame(height: NoopMetrics.space2)
+                                Spacer(minLength: 0)
+                                Rectangle().frame(height: NoopMetrics.space2)
+                            }
+                                .foregroundStyle(StrandPalette.textPrimary)
+                                .frame(width: 2, height: timelineHeight)
+                                .offset(x: min(max(x, 0), max(0, geometry.size.width - 2)))
+                                .accessibilityHidden(true)
+                        }
+                    }
+                }
+                .frame(height: timelineHeight)
+            }
+            // The durations below are spoken once; cursor updates are decorative.
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Breathing cycle")
+            .accessibilityValue("Inhale \(durationText(pace.inhale(lockedBpm: lockedBpm))) seconds, exhale \(durationText(pace.exhale(lockedBpm: lockedBpm))) seconds")
+            .accessibilityIdentifier("breathe.timeline")
+
+            HStack {
+                Text("0")
+                Spacer()
+                Text("\(durationText(pace.inhale(lockedBpm: lockedBpm)))s in")
+                Spacer()
+                Text("\(durationText(pace.cycle(lockedBpm: lockedBpm)))s cycle")
+            }
+            .font(StrandFont.captionNumber)
+            .foregroundStyle(StrandPalette.textTertiary)
+            .accessibilityHidden(true)
         }
     }
 
-    // MARK: - The orb
+    private func phaseSegment(_ segment: Phase) -> some View {
+        let active = running && phase == segment
+        let duration = segment == .inhale ? pace.inhale(lockedBpm: lockedBpm) : pace.exhale(lockedBpm: lockedBpm)
+        return VStack(alignment: .leading, spacing: NoopMetrics.space1) {
+            Text(segment == .inhale ? "IN" : "OUT")
+                .font(StrandFont.overline)
+                .tracking(StrandFont.overlineTracking)
+                .foregroundStyle(StrandPalette.textSecondary)
+            Text("\(durationText(duration)) s")
+                .font(StrandFont.number(readoutValueSize))
+                .foregroundStyle(StrandPalette.textPrimary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        .padding(.horizontal, NoopMetrics.space4)
+        .padding(.vertical, NoopMetrics.space3)
+        .background(active ? StrandPalette.inset : StrandPalette.surfaceRaised,
+                    in: RoundedRectangle(cornerRadius: NoopMetrics.radius2, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: NoopMetrics.radius2, style: .continuous)
+                .strokeBorder(active ? StrandPalette.hairlineStrong : StrandPalette.hairline, lineWidth: 1)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(segment == .inhale ? "Inhale" : "Exhale")
+        .accessibilityValue("\(durationText(duration)) seconds")
+    }
 
-    private var orbCard: some View {
-        StrandCard(padding: 24, tint: StrandPalette.restColor) {
-            VStack(spacing: 18) {
-                HStack {
-                    Text(pace.label.uppercased()).strandOverline()
-                    Spacer()
-                    Text(String(format: "%.1f br/min", pace.bpm(lockedBpm: lockedBpm)))
-                        .font(StrandFont.captionNumber)
-                        .foregroundStyle(StrandPalette.textSecondary)
-                }
-
-                ZStack {
-                    RoundedRectangle(cornerRadius: NoopMetrics.cardRadius, style: .continuous)
-                        .fill(StrandPalette.inset)
-                    breathingOrb
-                        .padding(.vertical, 6)
-                }
-                .frame(height: 320)
-                .frame(maxWidth: .infinity)
-
-                Text(running ? phaseWord : pace.tagline(lockedBpm: lockedBpm))
-                    .font(StrandFont.subhead)
-                    .foregroundStyle(running ? StrandPalette.restBright : StrandPalette.textSecondary)
-                    .animation(.easeInOut(duration: 0.2), value: phaseWord)
-                    .animation(.easeInOut(duration: 0.2), value: running)
-
-                pacePills
-                audioCueToggle
-            }
+    private var sessionReadout: some View {
+        let layout = typeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: NoopMetrics.space2))
+            : AnyLayout(HStackLayout(alignment: .firstTextBaseline))
+        return layout {
+            Text(timeString(sessionSeconds))
+                .font(StrandFont.title2.monospacedDigit())
+                .foregroundStyle(StrandPalette.textPrimary)
+                .accessibilityLabel("Elapsed time \(timeString(sessionSeconds))")
+            if !typeSize.isAccessibilitySize { Spacer() }
+            Text("\(breathCount) breaths")
+                .font(StrandFont.captionNumber)
+                .foregroundStyle(StrandPalette.textTertiary)
         }
     }
 
-    /// Opt-in audio pacer toggle, sitting on the orb card so it reads as part of the breathing setup.
+    private func durationText(_ seconds: Double) -> String {
+        seconds.formatted(.number.precision(.fractionLength(0...1)))
+    }
+
+    /// Opt-in audio pacer toggle, next to the breathing setup.
     /// Default off; flipping it primes/tears down the tone engine via the onChange hook above.
     private var audioCueToggle: some View {
-        HStack(spacing: 10) {
-            Image(systemName: audioCues ? "speaker.wave.2.fill" : "speaker.slash.fill")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(audioCues ? StrandPalette.restBright : StrandPalette.textTertiary)
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 1) {
+        HStack(spacing: NoopMetrics.space3) {
+            VStack(alignment: .leading, spacing: NoopMetrics.space1) {
                 Text("Audio cues")
-                    .font(StrandFont.footnote)
+                    .font(StrandFont.subhead.weight(.semibold))
                     .foregroundStyle(StrandPalette.textSecondary)
-                Text("Soft tone on each phase · respects silent mode")
-                    .font(StrandFont.caption)
+                Text("Phase tones · respects silent mode")
+                    .font(StrandFont.micro)
                     .foregroundStyle(StrandPalette.textTertiary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 8)
             Toggle("", isOn: $audioCues)
-                .labelsHidden().toggleStyle(.switch).tint(StrandPalette.ink)
+                .labelsHidden().toggleStyle(.switch).tint(StrandPalette.textSecondary)
                 .accessibilityLabel("Audio cues")
+                .accessibilityIdentifier("breathe.audioCues")
         }
+        .frame(minHeight: 44)
     }
 
     /// Preset pills — the locked-resonance pill only shows once a pace has been locked (it reads the
@@ -330,10 +454,26 @@ private struct BreathingContent: View {
     }
 
     private var pacePills: some View {
-        // Up to four pills (incl. locked Resonance) overflow a narrow iPhone — let a
-        // horizontal scroll govern the width rather than truncating inside a fixed frame.
-        ScrollView(.horizontal, showsIndicators: false) {
-            SegmentedPillControl(availablePaces, selection: $pace, stacksAtAccessibilitySizes: false) { $0.label }
+        Group {
+            if typeSize.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: NoopMetrics.space2) { paceChoices }
+            } else {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: NoopMetrics.space2) { paceChoices }
+                }
+            }
+        }
+        .segmentedPillTint(nil)
+        .strandHaptic(.selection, trigger: pace)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Breathing pace")
+    }
+
+    private var paceChoices: some View {
+        ForEach(availablePaces, id: \.self) { item in
+            ChoiceChipButton(verbatimTitle: item.label, isSelected: pace == item) { pace = item }
+                .frame(minHeight: 44)
+                .accessibilityIdentifier("breathe.pace.\(String(describing: item))")
         }
     }
 
@@ -344,59 +484,42 @@ private struct BreathingContent: View {
         }
     }
 
-    private var breathingOrb: some View {
-        GeometryReader { geo in
-            let maxDiameter = min(geo.size.width, geo.size.height)
-            // The breath ring — the resting track the vessel breathes within. Crisp 1px stroke, no glow.
-            ZStack {
-                Circle()
-                    .strokeBorder(StrandPalette.restColor.opacity(0.28), lineWidth: 1)
-                    .frame(width: maxDiameter, height: maxDiameter)
-
-                // The pacer is now the canonical liquid vessel: it FILLS on the inhale and drains on the
-                // exhale as `orbProgress` (0 contracted → 1 expanded) drives the level, so the breath is
-                // cued by water rising and falling rather than a swelling disc. Sleep-tinted to match the
-                // world; under Reduce Motion `orbProgress` parks at a steady mid-level (no pulsing), and
-                // the phase word + haptics still carry the pace.
-                PaperGauge(value: orbProgress, tint: StrandPalette.restColor, animated: running)
-                    .frame(width: maxDiameter, height: maxDiameter)
-
-                VStack(spacing: 2) {
-                    if let bpm = model.bpm {
-                        CountUpText(value: Double(bpm),
-                                    format: { "\(Int($0.rounded()))" },
-                                    font: StrandFont.number(40),
-                                    color: StrandPalette.textPrimary)
-                    } else {
-                        Text("—")
-                            .font(StrandFont.number(40))
-                            .foregroundStyle(StrandPalette.textPrimary)
-                    }
-                    Text(String(localized: "BPM"))
-                        .font(StrandFont.footnote)
-                        .tracking(0.8)
-                        .foregroundStyle(StrandPalette.textTertiary)
-                }
-                .allowsHitTesting(false)   // taps fall through to the vessel → splash
-            }
-            .frame(width: geo.size.width, height: geo.size.height)
-        }
-    }
-
     // MARK: - Controls
 
     private var controlRow: some View {
-        HStack(spacing: NoopMetrics.space3) {
-            NoopButton(running ? "Stop session" : "Start session",
-                       systemImage: running ? "stop.fill" : "play.fill",
-                       kind: running ? .destructive : .primary, fullWidth: true) {
+        VStack(spacing: NoopMetrics.space2) {
+            Button(role: running ? .destructive : nil) {
                 running ? stop() : start()
+            } label: {
+                Text(running ? "Stop session" : "Start session")
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, minHeight: 30)
             }
+            .buttonStyle(PrimaryPillButtonStyle())
+            .accessibilityIdentifier(running ? "breathe.stop" : "breathe.start")
 
-            NoopButton("Test buzz", systemImage: "waveform.path", kind: .secondary) {
+            Button {
                 model.buzz(loops: 1)
+            } label: {
+                HStack(spacing: NoopMetrics.space3) {
+                    VStack(alignment: .leading, spacing: NoopMetrics.space1) {
+                        Text("Test buzz").font(StrandFont.subhead)
+                        Text("Single pulse · bonded strap required")
+                            .font(StrandFont.micro)
+                            .foregroundStyle(StrandPalette.textTertiary)
+                    }
+                    Spacer(minLength: 0)
+                    Image(systemName: "waveform.path").accessibilityHidden(true)
+                }
+                .foregroundStyle(live.bonded ? StrandPalette.textSecondary : StrandPalette.textTertiary)
+                .padding(.vertical, NoopMetrics.space1)
+                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                .contentShape(Rectangle())
             }
+            .buttonStyle(FlatRowPressStyle())
             .disabled(!live.bonded)
+            .accessibilityIdentifier("breathe.testBuzz")
             .help("Fire a single haptic pulse on the strap (requires a bonded connection)")
         }
     }
@@ -453,79 +576,102 @@ private struct BreathingContent: View {
     // MARK: - Readouts
 
     private var readoutRow: some View {
-        HStack(spacing: NoopMetrics.gap) {
+        let layout = typeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: NoopMetrics.space4))
+            : AnyLayout(HStackLayout(alignment: .top, spacing: NoopMetrics.space3))
+        return layout {
             readoutTile(label: String(localized: "Heart rate"),
                         value: model.bpm.map { "\($0)" } ?? "—",
                         unit: "bpm",
-                        accent: StrandPalette.metricRose,
-                        caption: live.worn ? String(localized: "Live") : String(localized: "Strap not worn"))
+                        caption: !live.worn ? String(localized: "Strap not worn")
+                            : model.bpm == nil ? String(localized: "No reading") : String(localized: "Latest reading"))
 
             readoutTile(label: String(localized: "HRV (RMSSD)"),
                         value: rmssd.map { String(format: "%.0f", $0) } ?? "—",
                         unit: "ms",
-                        accent: StrandPalette.metricPurple,
                         caption: rrBuffer.isEmpty ? String(localized: "Waiting for R-R") : String(localized: "Last \(rrBuffer.count) beats"))
 
             readoutTile(label: String(localized: "Pace"),
                         value: String(format: "%.1f", pace.bpm(lockedBpm: lockedBpm)),
                         unit: "br/min",
-                        accent: StrandPalette.restBright,
-                        caption: String(format: "%.0f / %.0fs",
-                                        pace.inhale(lockedBpm: lockedBpm), pace.exhale(lockedBpm: lockedBpm)))
+                        caption: String(localized: "\(durationText(pace.inhale(lockedBpm: lockedBpm)))s in · \(durationText(pace.exhale(lockedBpm: lockedBpm)))s out"))
         }
+        .padding(.vertical, NoopMetrics.space3)
+        .overlay(alignment: .top) { Divider().overlay(StrandPalette.hairline) }
+        .overlay(alignment: .bottom) { Divider().overlay(StrandPalette.hairline) }
     }
 
-    private func readoutTile(label: String, value: String, unit: String,
-                             accent: Color, caption: String) -> some View {
-        StrandCard(padding: 14, tint: StrandPalette.restColor) {
-            VStack(alignment: .leading, spacing: 0) {
-                Text(label.uppercased()).strandOverline()
-                Spacer(minLength: 6)
-                HStack(alignment: .firstTextBaseline, spacing: 4) {
-                    Text(value)
-                        .font(StrandFont.number(26))
-                        .foregroundStyle(accent)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.6)
-                        .contentTransition(.numericText())
+    private func readoutTile(label: String, value: String, unit: String, caption: String) -> some View {
+        VStack(alignment: .leading, spacing: NoopMetrics.space1) {
+            Text(label)
+                .font(StrandFont.micro)
+                .foregroundStyle(StrandPalette.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(alignment: .firstTextBaseline, spacing: NoopMetrics.space1) {
+                Text(value)
+                    .font(StrandFont.number(readoutValueSize))
+                    .foregroundStyle(value == "—" ? StrandPalette.textTertiary : StrandPalette.textPrimary)
+                    .contentTransition(.numericText())
+                if value != "—" {
                     Text(unit)
                         .font(StrandFont.caption)
                         .foregroundStyle(StrandPalette.textTertiary)
                 }
-                Text(caption)
-                    .font(StrandFont.footnote)
-                    .foregroundStyle(StrandPalette.textTertiary)
-                    .lineLimit(1)
-                    .padding(.top, 4)
             }
+            Text(caption)
+                .font(StrandFont.micro)
+                .foregroundStyle(StrandPalette.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
         }
-        .frame(height: NoopMetrics.tileHeight)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
     }
 
     // MARK: - Coherence estimate
 
     private var coherenceCard: some View {
-        StrandCard(tint: StrandPalette.restColor) {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack {
-                    Text("Coherence estimate").strandOverline()
-                    Spacer()
-                    StatePill("\(coherenceLabel)", tone: coherenceTone, showsDot: true)
+        VStack(alignment: .leading, spacing: NoopMetrics.space3) {
+            let layout = typeSize.isAccessibilitySize
+                ? AnyLayout(VStackLayout(alignment: .leading, spacing: NoopMetrics.space2))
+                : AnyLayout(HStackLayout())
+            layout {
+                Text("Coherence estimate")
+                    .font(StrandFont.caption)
+                    .foregroundStyle(StrandPalette.textTertiary)
+                if !typeSize.isAccessibilitySize { Spacer() }
+                HStack(spacing: NoopMetrics.space1) {
+                    Circle()
+                        .fill(coherenceTone.color)
+                        .frame(width: 5, height: 5)
+                        .accessibilityHidden(true)
+                    Text(coherenceLabel)
+                        .font(StrandFont.caption.weight(.semibold))
+                        .foregroundStyle(StrandPalette.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
+                .padding(.horizontal, NoopMetrics.space2)
+                .padding(.vertical, NoopMetrics.space1)
+                .background(StrandPalette.pillFill, in: Capsule(style: .continuous))
+                .overlay {
+                    Capsule(style: .continuous).strokeBorder(StrandPalette.pillStroke, lineWidth: 1)
+                }
+                .accessibilityElement(children: .combine)
+            }
 
-                // The coherence estimate as a filling liquid tube (the same horizontal vessel Today's Key
-                // Metrics use), Sleep-tinted, filling to the RMSSD-derived fraction — replaces the flat
-                // gradient capsule. Live so it sloshes as the reading updates through a session.
+            if rmssd != nil {
                 PaperProgressBar(frac: coherenceFraction, tint: StrandPalette.restBright, height: 10)
                     .accessibilityLabel("Coherence estimate")
                     .accessibilityValue("\(Int(coherenceFraction * 100)) percent")
-
-                Text("Estimate only: a higher RMSSD while paced usually means your parasympathetic \"rest\" branch is engaging. It is not a clinical reading; trends over a session matter more than any single number.")
-                    .font(StrandFont.footnote)
-                    .foregroundStyle(StrandPalette.textTertiary)
-                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("breathe.coherenceProgress")
             }
+
+            Text("Estimate only: a higher RMSSD while paced usually means your parasympathetic \"rest\" branch is engaging. It is not a clinical reading; trends over a session matter more than any single number.")
+                .font(StrandFont.footnote)
+                .foregroundStyle(StrandPalette.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
         }
+        .padding(.top, NoopMetrics.space3)
+        .overlay(alignment: .top) { Divider().overlay(StrandPalette.hairline) }
     }
 
     private var coherenceFraction: CGFloat {

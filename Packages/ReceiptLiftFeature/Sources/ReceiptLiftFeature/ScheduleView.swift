@@ -186,7 +186,7 @@ struct ScheduleView: View {
 
   private func routineRow(_ routine: LiftRoutine) -> some View {
     HStack(spacing: 0) {
-      Button { editorRoute = .edit(routine) } label: {
+      Button { onStartRoutine(routine) } label: {
         LiftListRow(
           title: routine.name,
           details: [LiftFormat.facts([LiftFormat.exerciseCount(routine.exerciseIDs.count), routine.trainingMode.title])],
@@ -195,7 +195,7 @@ struct ScheduleView: View {
       }
       .buttonStyle(FlatRowPressStyle())
       .accessibilityElement(children: .combine)
-      .accessibilityHint("Edits this routine")
+      .accessibilityHint("Opens routine preview without starting")
       LiftRowMenu(label: "Routine actions") {
         Button("Edit", systemImage: "pencil") { editorRoute = .edit(routine) }
         Button("Schedule", systemImage: "calendar.badge.plus") { scheduleRoute = .create(prefill: routine.id) }

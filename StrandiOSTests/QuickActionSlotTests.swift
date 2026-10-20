@@ -107,3 +107,36 @@ final class QuickActionSlotTests: XCTestCase {
         XCTAssertLessThan(abs(narrow), abs(Slot.live.offset.x))
     }
 }
+
+extension QuickActionSlotTests {
+    func testEveryFilteredArcKeepsFullTargetsAndLabelsInsidePhoneEdges() {
+        let catalog = QuickActionSlot.allCases
+        for mask in 1..<(1 << catalog.count) {
+            let slots = catalog.enumerated().compactMap { index, slot in mask & (1 << index) != 0 ? slot : nil }
+            for width in [CGFloat(375), 393, 440] {
+                let plus = CGPoint(x: width / 2, y: 0)
+                for (index, slot) in slots.enumerated() {
+                    let point = slot.centre(plus: plus, width: width, index: index, count: slots.count)
+                    XCTAssertGreaterThanOrEqual(point.x - slot.diameter / 2, QuickActionSlot.edgeMargin - 0.001)
+                    XCTAssertLessThanOrEqual(point.x + slot.diameter / 2, width - QuickActionSlot.edgeMargin + 0.001)
+                    let labelWidth = min(CGFloat(92), 2 * (min(point.x, width - point.x) - QuickActionSlot.edgeMargin))
+                    XCTAssertGreaterThanOrEqual(labelWidth, 56, "mask \(mask), \(slot)")
+                    for (otherIndex, other) in slots.enumerated() where otherIndex > index {
+                        let otherPoint = other.centre(plus: plus, width: width, index: otherIndex, count: slots.count)
+                        let circleGap = hypot(point.x - otherPoint.x, point.y - otherPoint.y) - (slot.diameter + other.diameter) / 2
+                        XCTAssertGreaterThan(circleGap, 8, "mask \(mask), \(slot), \(other)")
+                    }
+                }
+            }
+        }
+    }
+
+    func testFilteredRecentChipClearsTheHighestVisibleCircleIncludingNoFixedActions() {
+        let catalog = QuickActionSlot.allCases
+        for mask in 0..<(1 << catalog.count) {
+            let slots = catalog.enumerated().compactMap { index, slot in mask & (1 << index) != 0 ? slot : nil }
+            let bottom = QuickActionSlot.chipOffsetY(for: slots) + 22
+            XCTAssertEqual(-QuickActionSlot.topClearance(for: slots) - bottom, 14, accuracy: 0.001)
+        }
+    }
+}

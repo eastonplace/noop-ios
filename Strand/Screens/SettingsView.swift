@@ -236,6 +236,8 @@ struct SettingsDetailHost: View {
             AutomationsView()
         case .appearanceUnits:
             displaySettingsDetail
+        case .quickActions:
+            QuickActionsSettingsView()
         case .workouts:
             featureSettingsDetail
         case .sleepAlarm:
@@ -3009,3 +3011,105 @@ private struct FormRow<Control: View>: View {
         .preferredColorScheme(.dark)
 }
 #endif
+
+
+/// 5A: native visibility switches; these never mutate a recording or Journal membership.
+private struct QuickActionsSettingsView: View {
+    @Environment(\.dynamicTypeSize) private var typeSize
+    @AppStorage(QuickActionVisibilityID.journal.defaultsKey) private var journal = true
+    @AppStorage(QuickActionVisibilityID.live.defaultsKey) private var live = true
+    @AppStorage(QuickActionVisibilityID.workout.defaultsKey) private var workout = true
+    @AppStorage(QuickActionVisibilityID.strength.defaultsKey) private var strength = true
+    @AppStorage(QuickActionVisibilityID.intervals.defaultsKey) private var intervals = true
+    @AppStorage(QuickActionVisibilityID.breathe.defaultsKey) private var breathe = true
+    @AppStorage(QuickActionVisibilityID.recentActivityKey) private var recentActivity = true
+    @ScaledMetric(relativeTo: .body) private var tileSide: CGFloat = 29
+
+    var body: some View {
+        Form {
+            Section {
+                ForEach(QuickActionVisibilityID.allCases, id: \.self) { action in
+                    Toggle(isOn: binding(for: action)) {
+                        Label {
+                            Text(LocalizedStringKey(action.title))
+                        } icon: {
+                            iconTile(action.symbol, color: tileColor(action))
+                        }
+                    }
+                    .accessibilityIdentifier("settings.quickActions.\(action.rawValue)")
+                }
+            } header: {
+                VStack(alignment: .leading, spacing: 20) {
+                    Text("Choose what appears when you tap +.")
+                        .font(.subheadline)
+                        .textCase(nil)
+                    Text("Shown in + · \(shownCount) of 6")
+                        .font(.caption)
+                        .textCase(.uppercase)
+                }
+            } footer: {
+                Text("Hiding a shortcut keeps its data. Active workouts and lifts keep their Resume bar.")
+            }
+
+            Section {
+                Toggle(isOn: $recentActivity) {
+                    Label {
+                        Text("Recent activity")
+                    } icon: {
+                        iconTile("clock.arrow.circlepath", color: .gray)
+                    }
+                }
+                .accessibilityIdentifier("settings.quickActions.recentActivity")
+            } header: {
+                Text("Automatic shortcut")
+                    .font(.caption)
+                    .textCase(.uppercase)
+            } footer: {
+                Text("Shows your last sport when it is ready to start. Existing workout and GPS checks still apply.")
+            }
+        }
+        .formStyle(.grouped)
+        .environment(\.defaultMinListRowHeight, 44)
+        .tint(.green)
+        .navigationTitle("Quick Actions")
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(typeSize.isAccessibilitySize ? .inline : .large)
+        #endif
+    }
+
+    private var shownCount: Int {
+        [journal, live, workout, strength, intervals, breathe].filter { $0 }.count
+    }
+
+    private func binding(for action: QuickActionVisibilityID) -> Binding<Bool> {
+        switch action {
+        case .journal: $journal
+        case .live: $live
+        case .workout: $workout
+        case .strength: $strength
+        case .intervals: $intervals
+        case .breathe: $breathe
+        }
+    }
+
+    private func iconTile(_ symbol: String, color: Color) -> some View {
+        let side = min(tileSide, 44)
+        return Image(systemName: symbol)
+            .font(.system(size: side * 0.55, weight: .medium))
+            .foregroundStyle(.white)
+            .frame(width: side, height: side)
+            .background(color, in: RoundedRectangle(cornerRadius: side * 0.24, style: .continuous))
+            .accessibilityHidden(true)
+    }
+
+    private func tileColor(_ action: QuickActionVisibilityID) -> Color {
+        switch action {
+        case .journal: .purple
+        case .live: .pink
+        case .workout: .green
+        case .strength: .purple
+        case .intervals: .blue
+        case .breathe: .teal
+        }
+    }
+}

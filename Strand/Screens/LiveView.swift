@@ -8,17 +8,10 @@ import StrandAnalytics
 import WhoopProtocol
 import WhoopStore
 
-/// Live — the connected strap in real time, in the liquid finish. Built on the shared design system
-/// (ScreenScaffold chrome + day-of-sky backdrop, StrandPalette, StrandFont) and the liquid vocabulary
-/// (PaperGauge for the live BPM gauge, PaperSparkline for the live HR trace, PaperProgressBar for the effort
-/// bars, frosted `card {}` surfaces, PaperPressStyle on tappable rows) so it lines up with the Today
-/// screen instead of the old flat-card layout.
-///
-/// LiveState (which publishes at ~1 Hz while a strap streams) is observed ONLY in leaf views
-/// (`LiveHeartReadout`, `LivePhysiology`, `LiveHeaderStats`, `LiveSignalTrustRail`,
-/// `LiveLogCard`, …) — the Today pattern — so a fresh HR / R-R / frame notify re-renders just that leaf,
-/// never the whole screen. The parent only observes the coarse connection transitions it needs to re-arm
-/// the stream and gate the layout.
+/// Live Body Console — the approved native instrument composition. Connection and sample
+/// freshness remain separate, with the current BPM as the primary reading. High-frequency
+/// values are observed in the mounted leaf views so packet arrivals do not invalidate the
+/// parent screen. Older console/trace helpers below remain unmounted.
 struct LiveView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dynamicTypeSize) private var typeSize
@@ -61,13 +54,14 @@ struct LiveView: View {
         ScreenScaffold(title: "Live Body Console",
                        subtitle: nil,
                        topBackground: nil,
-                       backAction: scaffoldBackAction) {
-            VStack(alignment: .leading, spacing: NoopMetrics.sectionGap) {
-                if let message = live.bluetoothUnavailableMessage {
-                    NoteCard(LocalizedStringKey(message), title: "Bluetooth unavailable", style: .warning)
-                }
+                       backAction: scaffoldBackAction,
+                       usesCompactUtilityHeader: true) {
+            VStack(alignment: .leading, spacing: NoopMetrics.space3) {
                 PaperLiveDeviceCard(deviceName: activeDeviceName,
                                     activeConnection: activeConnection)
+                if let message = live.bluetoothUnavailableMessage {
+                    bluetoothWarning(message)
+                }
                 // Can't-connect-at-all guidance: the strap wiped its bond (firmware update / WHOOP app
                 // re-bond), so connects loop on "Peer removed pairing information". Show the re-pair steps
                 // right here instead of silently retrying. (5/MG firmware reset, 2026-06)
@@ -76,7 +70,6 @@ struct LiveView: View {
                 // also appears in Settings). A 5/MG strap still bonded to the WHOOP app refuses pairing
                 // with "Encryption is insufficient" — this tells the user to free it and re-pair.
                 if let hint = live.pairingHint { pairingHintBanner(hint) }
-                scanButton
                 PaperLiveHeartCard(hrMax: model.profile.hrMax,
                                    restingHR: repo.today?.restingHr)
                 PaperLiveStatusCard(activeConnection: activeConnection)
@@ -87,6 +80,7 @@ struct LiveView: View {
                 if Self.shouldShowStandardHRNote(live.standardHRMode) {
                     standardHRNote(live.standardHRMode ?? "")
                 }
+                scanButton
                 startWorkoutPath
                 advancedControlsCard
             }
@@ -214,26 +208,69 @@ struct LiveView: View {
     /// E2: Live keeps the reference-composition workout entry, while stream inspection and diagnostic
     /// controls live in Test Centre. This uses the same current workout flow as the former Session card.
     private var startWorkoutPath: some View {
-        NoopButton(model.activeWorkout == nil ? "Start workout" : "Open active workout",
-                   systemImage: model.activeWorkout == nil ? "figure.run" : "timer",
-                   kind: .primary, fullWidth: true) {
+        Button {
             if model.activeWorkout == nil { router.beginWorkout() }
             else { router.openActiveWorkout() }
+        } label: {
+            Text(model.activeWorkout == nil ? "Start workout" : "Open active workout")
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, minHeight: 30)
         }
+        .buttonStyle(PrimaryPillButtonStyle())
+        .accessibilityIdentifier("live.hr.startWorkout")
     }
 
     private var advancedControlsCard: some View {
-        PaperCard {
-            VStack(alignment: .leading, spacing: NoopMetrics.cardInnerSpacing) {
-                SectionHeader("Advanced controls")
-                if !activeConnection { modelPicker }
-                HStack(spacing: NoopMetrics.rowSpacing) {
+        VStack(alignment: .leading, spacing: NoopMetrics.space3) {
+            Text("Advanced controls")
+                .font(StrandFont.footnote)
+                .foregroundStyle(StrandPalette.textSecondary)
+            if !activeConnection { modelPicker }
+            if typeSize.isAccessibilitySize {
+                VStack(spacing: NoopMetrics.space3) {
                     buzzButton
                     disconnectButton
                 }
-                manageDevicesRow
+            } else {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: NoopMetrics.space3) {
+                        buzzButton
+                        disconnectButton
+                    }
+                    VStack(spacing: NoopMetrics.space3) {
+                        buzzButton
+                        disconnectButton
+                    }
+                }
+            }
+            manageDevicesRow
+        }
+    }
+
+    /// Keep the full system warning visible without giving it the weight of another card title.
+    private func bluetoothWarning(_ message: String) -> some View {
+        HStack(alignment: .top, spacing: NoopMetrics.space2) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(StrandFont.footnote.weight(.semibold))
+                .foregroundStyle(StrandPalette.warning)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: NoopMetrics.space1) {
+                Text("Bluetooth unavailable")
+                    .font(StrandFont.caption.weight(.semibold))
+                    .foregroundStyle(StrandPalette.textPrimary)
+                Text(LocalizedStringKey(message))
+                    .font(StrandFont.micro)
+                    .foregroundStyle(StrandPalette.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
+        .padding(.horizontal, NoopMetrics.space3)
+        .padding(.vertical, NoopMetrics.space2)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(StrandPalette.warning.opacity(0.10),
+                    in: RoundedRectangle(cornerRadius: NoopMetrics.space3, style: .continuous))
+        .accessibilityElement(children: .combine)
     }
 
     private func reconnectGuideBanner(_ guide: String) -> some View {
@@ -370,19 +407,14 @@ struct LiveView: View {
     private var manageDevicesRow: some View {
         Button { router.openDevices() } label: {
             HStack(spacing: 12) {
-                Image(systemName: "badge.plus.radiowaves.right")
-                    .font(StrandFont.headline)
-                    .foregroundStyle(StrandPalette.accent)
-                    .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Manage devices")
-                        .font(StrandFont.subhead)
+                        .font(StrandFont.subhead.weight(.semibold))
                         .foregroundStyle(StrandPalette.textPrimary)
                     Text(manageDevicesDetail)
-                        .font(StrandFont.footnote)
+                        .font(StrandFont.micro)
                         .foregroundStyle(StrandPalette.textSecondary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.7)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 0)
                 Image(systemName: "chevron.right")
@@ -390,11 +422,12 @@ struct LiveView: View {
                     .foregroundStyle(StrandPalette.textTertiary)
                     .accessibilityHidden(true)
             }
-            .padding(.vertical, NoopMetrics.space3)
+            .padding(.vertical, NoopMetrics.space2)
             .frame(minHeight: 44)
             .contentShape(Rectangle())
         }
         .buttonStyle(PaperPressStyle())
+        .accessibilityIdentifier("live.hr.manageDevices")
         .accessibilityLabel("Manage devices")
         .accessibilityHint("Opens the Devices screen, where you pair and switch bands.")
     }
@@ -403,8 +436,8 @@ struct LiveView: View {
     /// it's the live link ("Connected to …") or just the band Scan would target ("… is your active band").
     private var manageDevicesDetail: String {
         activeConnection
-            ? String(localized: "Connected to \(activeDeviceName). Pair or switch bands in Devices.")
-            : String(localized: "\(activeDeviceName) is your active band. Pair or switch bands in Devices.")
+            ? String(localized: "Connected to \(activeDeviceName)")
+            : String(localized: "Active band: \(activeDeviceName)")
     }
 
     // MARK: - Controls
@@ -431,34 +464,51 @@ struct LiveView: View {
         #endif
     }
 
-    // The connect / buzz / disconnect controls, all routed through the unified NOOP button system:
-    // a filled primary for the lead Scan action, a secondary surface for Buzz, and the destructive
-    // role for Disconnect — sentence-case, single line, optical-centred at controlHeight.
+    // Scan stays visible as a quiet full-width command; workout is the primary action.
     private var scanButton: some View {
-        NoopButton(live.connected ? "Re-scan" : "Scan & connect",
-                   systemImage: "antenna.radiowaves.left.and.right",
-                   kind: .primary, fullWidth: true) {
-            model.scan(model: selectedModel)
+        Button { model.scan(model: selectedModel) } label: {
+            HStack(spacing: 12) {
+                Text(live.connected ? "Re-scan" : "Scan & connect")
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 8)
+                Image(systemName: "chevron.right")
+                    .accessibilityHidden(true)
+            }
+            .font(StrandFont.subhead)
+            .foregroundStyle(StrandPalette.textSecondary)
+            .frame(maxWidth: .infinity, minHeight: 44)
+            .contentShape(Rectangle())
         }
+        .buttonStyle(PaperPressStyle())
+        .accessibilityIdentifier("live.hr.scan")
     }
 
     private var buzzButton: some View {
-        NoopButton("Buzz strap", systemImage: "waveform.path",
-                   kind: .secondary, fullWidth: true) {
-            // #921: the confirmed one-shot sequence (pattern + RUN_ALARM, acked). A bare pattern
-            // write here was the same silent no-buzz path the Siri shortcut hit on a WHOOP 4.0.
+        Button {
+            // Keep the confirmed one-shot pattern + RUN_ALARM sequence.
             model.buzzStrapOnce()
+        } label: {
+            Text("Buzz strap")
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, minHeight: 30)
         }
+        .buttonStyle(SecondaryPillButtonStyle())
         .disabled(!activeConnection)
+        .accessibilityIdentifier("live.hr.buzz")
         .help("Fire a test haptic buzz on the strap (requires an active strap connection)")
     }
 
     private var disconnectButton: some View {
-        NoopButton("Disconnect", systemImage: "xmark.circle",
-                   kind: .destructive, fullWidth: true) {
-            model.disconnect()
+        Button { model.disconnect() } label: {
+            Text("Disconnect")
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, minHeight: 30)
         }
+        .buttonStyle(SecondaryPillButtonStyle())
         .disabled(!live.connected)
+        .accessibilityIdentifier("live.hr.disconnect")
     }
 
     /// Live tab appeared: take a ref-count on the realtime stream (arms it on the 0→1 edge) and pull a
@@ -483,38 +533,68 @@ struct LiveView: View {
 
 private struct PaperLiveDeviceCard: View {
     @EnvironmentObject private var live: LiveState
+    @Environment(\.dynamicTypeSize) private var typeSize
     let deviceName: String
     let activeConnection: Bool
 
     var body: some View {
-        PaperCard {
-            HStack(spacing: 14) {
-                Image(systemName: "sensor.tag.radiowaves.forward.fill")
-                    .font(.system(size: 28, weight: .medium))
-                    .foregroundStyle(StrandPalette.textPrimary)
-                    .frame(width: 56, height: 56)
-                    .background(StrandPalette.inset,
-                                in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                VStack(alignment: .leading, spacing: 5) {
-                    Text(deviceName == "WHOOP" ? "NOOP Strap" : deviceName)
-                        .font(StrandFont.cardTitle)
-                        .foregroundStyle(StrandPalette.textPrimary)
-                    StatusBadge(activeConnection ? "Connected" : "Not connected",
-                                style: activeConnection ? .connected : .notConnected)
-                    Text(deviceDetail)
-                        .font(StrandFont.micro)
-                        .foregroundStyle(StrandPalette.textTertiary)
-                        .lineLimit(1)
+        HStack(spacing: NoopMetrics.space2) {
+            Image(systemName: "antenna.radiowaves.left.and.right")
+                .font(StrandFont.subhead)
+                .foregroundStyle(StrandPalette.textSecondary)
+                .accessibilityHidden(true)
+            if typeSize.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: 8) {
+                    deviceIdentity
+                    connectionStatus
                 }
-                Spacer(minLength: 0)
+            } else {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: NoopMetrics.space2) {
+                        deviceIdentity
+                        Spacer(minLength: 0)
+                        connectionStatus
+                    }
+                    VStack(alignment: .leading, spacing: 8) {
+                        deviceIdentity
+                        connectionStatus
+                    }
+                }
             }
         }
+        .padding(.horizontal, NoopMetrics.cardPadding)
+        .padding(.vertical, NoopMetrics.space3)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(StrandPalette.surfaceRaised,
+                    in: RoundedRectangle(cornerRadius: NoopMetrics.cardRadius, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: NoopMetrics.cardRadius, style: .continuous)
+                .strokeBorder(StrandPalette.hairline, lineWidth: 1)
+        }
+        .accessibilityIdentifier("live.hr.device")
+    }
+
+    private var deviceIdentity: some View {
+        VStack(alignment: .leading, spacing: NoopMetrics.space1) {
+            Text(deviceName == "WHOOP" ? "NOOP Strap" : deviceName)
+                .font(StrandFont.subhead.weight(.semibold))
+                .foregroundStyle(StrandPalette.textPrimary)
+            Text(deviceDetail)
+                .font(StrandFont.micro)
+                .foregroundStyle(StrandPalette.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var connectionStatus: some View {
+        StatePill(activeConnection ? "Connected" : "Not connected",
+                  tone: activeConnection ? .positive : .neutral)
     }
 
     private var deviceDetail: String {
         let battery = live.batteryPct.map { "Battery \(Int($0))%" } ?? String(localized: "Battery —")
         let worn = activeConnection ? (live.worn ? String(localized: "Worn") : String(localized: "Not worn")) : String(localized: "Wear unknown")
-        return "\(battery) · \(worn) · \(LiveSyncFormat.compactStatus(live))"
+        return "\(worn) · \(battery)"
     }
 }
 
@@ -530,6 +610,9 @@ private struct PaperLiveHeartCard: View {
     @State private var lastHRArrival: Date?
     @State private var freshnessNow = Date()
     @Environment(\.dynamicTypeSize) private var typeSize
+    @ScaledMetric(relativeTo: .largeTitle) private var bpmSize: CGFloat = 92
+    @ScaledMetric(relativeTo: .largeTitle) private var missingBPMSize: CGFloat = 48
+    @ScaledMetric(relativeTo: .title3) private var metricValueSize: CGFloat = 20
 
     private var bpm: Int? { model.bpm }
     private var zoneSet: HRZoneSet { HRZones.zones(maxHR: Double(max(1, hrMax)), source: "profile") }
@@ -543,28 +626,22 @@ private struct PaperLiveHeartCard: View {
     }
 
     var body: some View {
-        PaperCard {
-            VStack(alignment: .leading, spacing: 14) {
-                Text("HEART RATE")
-                    .font(StrandFont.sectionOverline)
-                    .tracking(StrandFont.sectionOverlineTracking)
-                    .foregroundStyle(StrandPalette.textSecondary)
-                if typeSize.isAccessibilitySize {
-                    // The ring and the three rows are too wide for one line at the accessibility sizes (the rows
-                    // squeezed to a sliver of text beside the ring and ran into each other), so they stack.
-                    VStack(alignment: .leading, spacing: 14) {
-                        ringColumn
-                        metricRows
-                    }
-                } else {
-                    HStack(spacing: 20) {
-                        ringColumn
-                        metricRows
-                        Spacer(minLength: 0)
-                    }
-                }
+        VStack(alignment: .leading, spacing: NoopMetrics.space3) {
+            // The numeral supplies its own line-height. Small interior gaps keep the instrument
+            // together instead of adding section-sized space above and below the reading.
+            VStack(alignment: .leading, spacing: NoopMetrics.space1) {
+                instrumentHeader
+                instrumentReading
+                zoneIndicator
+            }
+            Divider().overlay(StrandPalette.hairline)
+            if typeSize.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: NoopMetrics.space4) { metricColumns }
+            } else {
+                HStack(alignment: .top, spacing: NoopMetrics.space3) { metricColumns }
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .onReceive(LiveVitalArrivalPolicy.newArrivals(from: live.$heartRate)) { rawBPM in
             guard activeConnection, let rawBPM, (30...220).contains(rawBPM) else { return }
             let arrival = Date()
@@ -585,40 +662,136 @@ private struct PaperLiveHeartCard: View {
         }
     }
 
-    private var ringColumn: some View {
-        VStack(spacing: 8) {
-            if let bpm {
-                ScoreRing(value: Double(bpm), range: 0...Double(max(1, hrMax)),
-                          accent: StrandPalette.liveRed, size: 96,
-                          format: { "\(Int($0.rounded()))" }, centerCaption: "BPM")
-            } else {
-                ZStack {
-                    Circle().stroke(StrandPalette.inset, lineWidth: 7)
-                    VStack(spacing: 1) {
-                        Text("—").font(StrandFont.ringScoreLarge)
-                        Text("BPM").font(StrandFont.micro)
-                    }
-                    .foregroundStyle(StrandPalette.textTertiary)
-                }
-                .frame(width: 96, height: 96)
+    private var instrumentHeader: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: NoopMetrics.space3) {
+                heartRateHeading
+                Spacer(minLength: 0)
+                freshnessPill
             }
-            StatePill(
-                vitalPresentation.label,
-                tone: vitalPresentation.tone,
-                pulsing: vitalPresentation.pulsing
-            )
+            VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+                heartRateHeading
+                freshnessPill
+            }
         }
     }
 
-    private var metricRows: some View {
-        VStack(spacing: 0) {
-            metricRow(label: zone > 0 ? "ZONE \(zone)" : "ZONE 1",
-                      value: zoneThreshold)
-            metricRow(label: "HRV", value: rollingRMSSD.map { "\(Int($0.rounded())) ms" } ?? "—",
-                      positive: rollingRMSSD != nil)
-            metricRow(label: "RHR", value: restingHR.map { "\($0) bpm" } ?? "—",
-                      divider: false)
+    private var instrumentReading: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if typeSize.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: 0) {
+                    bpmValue
+                    bpmUnit
+                }
+            } else {
+                HStack(alignment: .firstTextBaseline, spacing: NoopMetrics.space2) {
+                    bpmValue
+                    bpmUnit
+                }
+            }
+            Text("Current heart rate")
+                .font(StrandFont.footnote)
+                .foregroundStyle(StrandPalette.textTertiary)
         }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Heart rate")
+        .accessibilityValue(
+            Text(bpm.map { "\($0) beats per minute. " } ?? "No reading. ")
+            + Text(vitalPresentation.label)
+        )
+    }
+
+    private var heartRateHeading: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "heart")
+                .foregroundStyle(StrandPalette.liveRed)
+                .accessibilityHidden(true)
+            Text("HEART RATE")
+                .tracking(StrandFont.sectionOverlineTracking)
+                .foregroundStyle(StrandPalette.textSecondary)
+        }
+        .font(StrandFont.sectionOverline)
+    }
+
+    private var freshnessPill: some View {
+        StatePill(vitalPresentation.label, tone: vitalPresentation.tone,
+                  pulsing: vitalPresentation.pulsing)
+            .accessibilityIdentifier("live.hr.freshness")
+            .accessibilityLabel("Heart rate freshness")
+            .accessibilityValue(Text(vitalPresentation.label))
+    }
+
+    private var bpmValue: some View {
+        let size = bpm == nil ? missingBPMSize : bpmSize
+        return Text(bpm.map { "\($0)" } ?? "—")
+            .font(StrandFont.sized(size, weight: .semibold).monospacedDigit())
+            .tracking(-size * 0.04)
+            .foregroundStyle(bpm == nil ? StrandPalette.textTertiary : StrandPalette.textPrimary)
+            .lineLimit(1)
+            .minimumScaleFactor(0.35)
+            .accessibilityLabel(bpm.map { "\($0) beats per minute" } ?? "No heart rate reading")
+    }
+
+    private var bpmUnit: some View {
+        Text("bpm")
+            .font(StrandFont.body)
+            .foregroundStyle(StrandPalette.textSecondary)
+            .accessibilityHidden(true)
+    }
+
+    /// Decorative zone context uses the same resolved zone as the text below. Retained readings
+    /// remain visible offline; the adjacent freshness pill states whether they are current.
+    private var zoneIndicator: some View {
+        VStack(spacing: 6) {
+            HStack(spacing: 4) {
+                ForEach(1...5, id: \.self) { number in
+                    Capsule(style: .continuous)
+                        .fill(zone == number ? StrandPalette.hrZoneColor(number) : StrandPalette.inset)
+                        .frame(height: 6)
+                        .overlay {
+                            if zone == number {
+                                Rectangle().fill(StrandPalette.textPrimary)
+                                    .frame(width: 2, height: 12)
+                            }
+                        }
+                }
+            }
+            HStack {
+                Text("Zone 1")
+                Spacer()
+                Text("Zone 5")
+            }
+            .font(StrandFont.micro)
+            .foregroundStyle(StrandPalette.textTertiary)
+        }
+        .accessibilityHidden(true)
+    }
+
+    @ViewBuilder private var metricColumns: some View {
+        metricColumn(label: "Heart-rate zone", value: zoneValue,
+                     detail: zoneThreshold)
+            .accessibilityIdentifier("live.hr.zone")
+        metricColumn(label: "HRV · RMSSD", value: rollingRMSSD.map { "\(Int($0.rounded()))" } ?? "—",
+                     unit: "ms", detail: "\(min(12, live.rrRecent.count)) recent R-R beats")
+        metricColumn(label: "Resting HR", value: restingHR.map { "\($0)" } ?? "—",
+                     unit: "bpm", detail: "Today")
+    }
+
+    private func metricColumn(label: String, value: String, unit: String? = nil,
+                              detail: String) -> some View {
+        VStack(alignment: .leading, spacing: NoopMetrics.space1) {
+            Text(LocalizedStringKey(label))
+                .font(StrandFont.micro)
+                .foregroundStyle(StrandPalette.textTertiary)
+            UnitValueText(value: value, unit: unit.map { LocalizedStringKey($0) },
+                          size: metricValueSize)
+            Text(detail)
+                .font(StrandFont.micro)
+                .foregroundStyle(StrandPalette.textTertiary)
+        }
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
     }
 
     private var activeConnection: Bool { live.connected && live.bonded }
@@ -630,22 +803,18 @@ private struct PaperLiveHeartCard: View {
         return sqrt(differences.map { $0 * $0 }.reduce(0, +) / Double(differences.count))
     }
 
-    private var zoneThreshold: String {
-        let selected = zoneSet.zones.first(where: { $0.number == max(1, zone) }) ?? zoneSet.zones[0]
-        return "< \(Int(selected.upper.rounded())) bpm"
+    private var zoneValue: String {
+        guard bpm != nil else { return "—" }
+        return zone > 0 ? "Z\(zone)" : String(localized: "Below Zone 1")
     }
 
-    private func metricRow(label: String, value: String, positive: Bool = false,
-                           divider: Bool = true) -> some View {
-        HStack(spacing: 8) {
-            ValueToken(LocalizedStringKey(label), value: value)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            if positive { MicroStatusDot(color: StrandPalette.success) }
+    private var zoneThreshold: String {
+        guard bpm != nil else { return String(localized: "No reading") }
+        if zone == 0 {
+            // Zone intervals are lower-inclusive; ceil is the first whole BPM in Zone 1.
+            return "< \(Int(ceil(zoneSet.zones[0].lower))) bpm"
         }
-        .frame(minHeight: 43)
-        .overlay(alignment: .bottom) {
-            if divider { Rectangle().fill(StrandPalette.hairline).frame(height: 1) }
-        }
+        return zoneSet.bpmRangeLabel(forZone: zone) ?? "—"
     }
 }
 
@@ -706,29 +875,37 @@ private struct PaperLiveStatusCard: View {
     let activeConnection: Bool
 
     var body: some View {
-        PaperCard {
-            HStack(spacing: 12) {
-                Image(systemName: activeConnection ? "checkmark" : "antenna.radiowaves.left.and.right")
-                    .font(.system(size: 17, weight: .bold))
-                    .foregroundStyle(activeConnection ? StrandPalette.success : StrandPalette.textSecondary)
-                    .frame(width: 38, height: 38)
-                    .background((activeConnection ? StrandPalette.chargeTint : StrandPalette.inset), in: Circle())
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("PHYSIOLOGY STATUS")
-                        .font(StrandFont.sectionOverline)
-                        .tracking(StrandFont.sectionOverlineTracking)
-                        .foregroundStyle(StrandPalette.textSecondary)
-                    Text(activeConnection ? LiveSyncFormat.compactStatus(live) : "Ready to connect")
-                        .font(StrandFont.body)
-                        .foregroundStyle(StrandPalette.textPrimary)
-                    Text(activeConnection
-                         ? LiveSyncFormat.status(live).primary
-                         : "Connect a strap to begin live monitoring")
-                        .font(StrandFont.micro)
-                        .foregroundStyle(StrandPalette.textTertiary)
-                }
+        HStack(alignment: .top, spacing: NoopMetrics.space2) {
+            Image(systemName: "shield")
+                .font(StrandFont.subhead)
+                .foregroundStyle(StrandPalette.textSecondary)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: NoopMetrics.space1) {
+                Text(activeConnection ? LiveSyncFormat.compactStatus(live) : "Ready to connect")
+                    .font(StrandFont.subhead.weight(.semibold))
+                    .foregroundStyle(StrandPalette.textPrimary)
+                Text(historyDetail)
+                    .font(StrandFont.micro)
+                    .foregroundStyle(StrandPalette.textSecondary)
             }
+            .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, NoopMetrics.space2)
+        .overlay(alignment: .top) {
+            Rectangle().fill(StrandPalette.hairline).frame(height: 1)
+        }
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(StrandPalette.hairline).frame(height: 1)
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private var historyDetail: String {
+        let status = LiveSyncFormat.status(live)
+        if activeConnection || status.savedHistory != nil { return status.primary }
+        return String(localized: "Live signal and history sync are separate.")
     }
 }
 

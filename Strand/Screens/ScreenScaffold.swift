@@ -115,6 +115,8 @@ struct ScreenScaffold<Content: View, Trailing: View>: View {
     /// say). Pushed screens drop `subtitle` from their header, so anything the subtitle said that matters belongs
     /// here or in the screen's content. Ignored everywhere else.
     var headerContext: String? = nil
+    /// Opt-in compact title for modal utility roots. Other presentations keep their existing chrome.
+    var usesCompactUtilityHeader: Bool = false
     /// Optional element pinned to the header's trailing edge (e.g. the strap-battery badge on Today).
     /// Defaults to `EmptyView` via the convenience init below, so other screens are unaffected.
     @ViewBuilder var trailing: () -> Trailing
@@ -175,7 +177,7 @@ struct ScreenScaffold<Content: View, Trailing: View>: View {
         .coordinateSpace(.named("screen-scaffold-scroll"))
         .overlay(alignment: .top) {
             // Never at a tab root: the pinned chrome stays put and its title row scrolls away like Today's.
-            if showsCompactHeader, !showsAppHeaderChrome, title != nil || subtitle != nil {
+            if showsCompactHeader, !showsAppHeaderChrome, !showsUtilityHeader, title != nil || subtitle != nil {
                 compactHeader
                 .padding(.horizontal, 16)
                 .padding(.vertical, 6)
@@ -186,7 +188,14 @@ struct ScreenScaffold<Content: View, Trailing: View>: View {
         }
         .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: showsCompactHeader)
         .safeAreaInset(edge: .top, spacing: 0) {
-            if showsAppHeaderChrome { AppHeaderChrome() }
+            if showsAppHeaderChrome {
+                AppHeaderChrome()
+            } else if showsUtilityHeader {
+                utilityHeader
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 4)
+                    .background(StrandPalette.appCanvas)
+            }
         }
         // This is a vertical screen contract. Because the exact-width column cannot overflow, size-based
         // horizontal bounce resolves to disabled and the page cannot expose an off-canvas edge.
@@ -266,7 +275,7 @@ struct ScreenScaffold<Content: View, Trailing: View>: View {
                         showsCompactHeader = isPastTop
                     }
                 }
-        } else if presentation == .standard, title != nil || subtitle != nil {
+        } else if presentation == .standard, !showsUtilityHeader, title != nil || subtitle != nil {
             expandedHeader
                 .accessibilityHidden(showsCompactHeader)
                 .onGeometryChange(for: Bool.self) { proxy in
@@ -287,6 +296,50 @@ struct ScreenScaffold<Content: View, Trailing: View>: View {
     /// back chevron instead, and a modal sheet owns a close button, so neither stacks a second header.
     private var showsAppHeaderChrome: Bool {
         presentation == .standard && appHeaderChromeVisibility == .visible && navigationRole == .root
+    }
+
+    private var showsUtilityHeader: Bool {
+        usesCompactUtilityHeader && presentation == .standard && navigationRole == .root
+            && !showsAppHeaderChrome && title != nil
+    }
+
+    /// The title stays above the scrolling controls and grows vertically at accessibility sizes.
+    private var utilityHeader: some View {
+        HStack(spacing: 8) {
+            Group {
+                if let close = resolvedCloseAction {
+                    Button(action: close) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(StrandPalette.textPrimary)
+                            .frame(width: 44, height: 44)
+                            .background {
+                                Circle().fill(StrandPalette.surfaceRaised).frame(width: 32, height: 32)
+                            }
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Close")
+                } else {
+                    Color.clear.frame(width: 44, height: 44).accessibilityHidden(true)
+                }
+            }
+
+            if let title {
+                Text(title)
+                    .font(StrandFont.screenOverline)
+                    .tracking(StrandFont.screenOverlineTracking)
+                    .textCase(.uppercase)
+                    .foregroundStyle(StrandPalette.textPrimary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity)
+                    .accessibilityAddTraits(.isHeader)
+            }
+
+            HStack(spacing: 0) { trailing() }
+                .frame(minWidth: 44, minHeight: 44)
+        }
     }
 
     /// The back action of a pushed screen that wears the compact title row, nil for every other screen: a tab
@@ -428,12 +481,14 @@ extension ScreenScaffold where Trailing == EmptyView {
          showsSubtitleInExpandedHeader: Bool = true,
          backAction: (() -> Void)? = nil,
          headerContext: String? = nil,
+         usesCompactUtilityHeader: Bool = false,
          @ViewBuilder content: @escaping () -> Content) {
         self.init(title: title, subtitle: subtitle, onRefresh: onRefresh, lazy: lazy,
                   topBackground: topBackground,
                   showsSubtitleInExpandedHeader: showsSubtitleInExpandedHeader,
                   backAction: backAction,
                   headerContext: headerContext,
+                  usesCompactUtilityHeader: usesCompactUtilityHeader,
                   trailing: { EmptyView() }, content: content)
     }
 }
