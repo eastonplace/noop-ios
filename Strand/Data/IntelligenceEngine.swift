@@ -64,12 +64,16 @@ final class IntelligenceEngine: ObservableObject {
     }
 
     /// One day's heart-rate-only parts (cardio, step and energy floors), rebuilt the way the day detail rebuilds them
-    /// from the day's readings. Nil when the day has no computed row or no parts, which leaves the day to the
-    /// stored-score inversion.
-    private func liftStrainDayParts(day: String) async -> StrainScorerV2.DayStrainComponents? {
-        if let seam = liftStrainDayPartsForTesting { return await seam(day) }
+    /// from the day's readings. `.none` when the day has no computed row or no parts (a definite answer, cached),
+    /// which leaves the day to the stored-score inversion. `.unavailable` when the answer is only temporarily
+    /// missing (the task was cancelled or the repository has not loaded): never cached, so a later pass retries.
+    private func liftStrainDayParts(day: String) async -> LiftStrainDayPartsLookup {
+        if let seam = liftStrainDayPartsForTesting {
+            return await seam(day).map(LiftStrainDayPartsLookup.found) ?? .none
+        }
+        guard repo.loaded, !Task.isCancelled else { return .unavailable }
         guard let start = Self.logicalStart(ofDayKey: day), let basis = await repo.computedDailyMetric(day: day)
-        else { return nil }
+        else { return Task.isCancelled || !repo.loaded ? .unavailable : .none }
         let isToday = day == Repository.logicalDayKey(Date())
         let maxHR = isToday ? Double(profile.hrMax) : profile.hrMaxForBatchScoring
         let resting = basis.restingHr.map(Double.init) ?? StrainScorerV2.defaultRestingHR
@@ -77,15 +81,19 @@ final class IntelligenceEngine: ObservableObject {
             day: day, storedBits: basis.strain?.bitPattern, steps: basis.steps,
             sleepBits: basis.totalSleepMin?.bitPattern, restingBits: resting.bitPattern,
             maxHRBits: maxHR.bitPattern, ticksBits: profile.stepTicksPerStep.bitPattern, isToday: isToday)
-        if let hit = dayPartsCache[key] { return hit.parts }
+        if let hit = dayPartsCache[key] { return hit.parts.map(LiftStrainDayPartsLookup.found) ?? .none }
         let request = StrainDayRequest(
             dayKey: day, logicalStart: start, isToday: isToday, maxHR: maxHR, restingHR: resting,
             steps: basis.steps, stepTicksPerStep: profile.stepTicksPerStep, sleepMinutes: basis.totalSleepMin,
             heroTenths: nil, refreshSeq: repo.refreshSeq)
-        let parts = await StrainDayLoader.load(request, repo: repo, useCache: false)?.analysis.components
+        let result = await StrainDayLoader.load(request, repo: repo, useCache: false)
+        // The loader also answers nil when this task was cancelled or the repository is not loaded; that is not
+        // "the day has no parts", so it is neither cached nor final.
+        guard !Task.isCancelled, repo.loaded else { return .unavailable }
+        let parts = result?.analysis.components
         if dayPartsCache.count >= 64 { dayPartsCache.removeAll() }
         dayPartsCache[key] = DayPartsEntry(parts: parts)
-        return parts
+        return parts.map(LiftStrainDayPartsLookup.found) ?? .none
     }
 
     /// Loads the parts of `days` into `combiner` (the Repository's re-key settle goes through this too).
