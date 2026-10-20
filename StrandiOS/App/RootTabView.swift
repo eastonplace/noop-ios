@@ -19,6 +19,8 @@ struct RootTabView: View {
     @State private var fanOpen = false
     /// The fan is in the view tree from just before it opens until its closing animation has finished.
     @State private var fanMounted = false
+    /// Remove global navigation and its reserved space while the software keyboard is visible.
+    @State private var keyboardVisible = false
     /// Presents the Devices manager (pair / switch bands) when a screen asks the shell to open it.
     @State private var showDevices = false
     /// Presents the Lift flow. Owned here, not by `LiftResumeCard`, so the shell can open it on its own after a
@@ -131,7 +133,9 @@ struct RootTabView: View {
             WorkoutResumeBarHost(coverIsUp: journey != nil)
             LiftResumeCard(onResume: { showLift = true }).padding(.horizontal, 16)
             // The tab bar is drawn after the Quick Actions scrim so it stays above it; this is the layout space it takes.
-            Color.clear.frame(height: PaperTabBar.height).accessibilityHidden(true)
+            if !keyboardVisible {
+                Color.clear.frame(height: PaperTabBar.height).accessibilityHidden(true)
+            }
         }
         if fanMounted {
             QuickActionFan(isOpen: fanOpen, frozenProgress: fanFrozenProgress, onClose: { closeFan() },
@@ -156,16 +160,26 @@ struct RootTabView: View {
                     router.openSettings(.quickActions)
                 })
         }
-        PaperTabBar(selection: $selectedTab, fanOpen: fanOpen, fanProgress: fanProgress, onReselect: { tab in
-            // Only Today owns a current-day data refresh. Reselecting Trends, Coach, or Sleep
-            // must not wake the store or rebuild unrelated health state.
-            guard tab == 0 else { return }
-            Task { _ = await repo.refresh(.currentDay) }
-        }, onQuickActions: {
-            if fanOpen { closeFan() } else { openFan() }
-        })
+        if !keyboardVisible {
+            PaperTabBar(selection: $selectedTab, fanOpen: fanOpen, fanProgress: fanProgress, onReselect: { tab in
+                // Only Today owns a current-day data refresh. Reselecting Trends, Coach, or Sleep
+                // must not wake the store or rebuild unrelated health state.
+                guard tab == 0 else { return }
+                Task { _ = await repo.refresh(.currentDay) }
+            }, onQuickActions: {
+                if fanOpen { closeFan() } else { openFan() }
+            })
+        }
         }
         .background(StrandPalette.appCanvas.ignoresSafeArea(.container, edges: .bottom))
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
+            keyboardVisible = true
+        }
+        // Wait for dismissal to finish so interactive dismissal cannot reveal the bar
+        // above a keyboard that is still on screen.
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidHideNotification)) { _ in
+            keyboardVisible = false
+        }
         .background {
             SmartAlarmCommandReconciler()
                 .allowsHitTesting(false)

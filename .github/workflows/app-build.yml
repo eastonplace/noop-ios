@@ -172,6 +172,7 @@ jobs:
             -collect-test-diagnostics never \
             -only-testing:NOOPCoachUITests/LiftRoutineSelectionTests \
             -only-testing:NOOPCoachUITests/SelectedScreenDirectionTests \
+            -only-testing:NOOPCoachUITests/CoachKeyboardLayoutTests \
             -resultBundlePath qa-artifacts/selected-ui.xcresult \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
