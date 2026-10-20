@@ -173,6 +173,8 @@ jobs:
             -only-testing:NOOPCoachUITests/LiftRoutineSelectionTests \
             -only-testing:NOOPCoachUITests/SelectedScreenDirectionTests \
             -only-testing:NOOPCoachUITests/CoachKeyboardLayoutTests \
+            -only-testing:NOOPCoachUITests/ApprovedDashboardUITests/testSharedBatteryHeaderAndRecentUpdatesNormal \
+            -only-testing:NOOPCoachUITests/ApprovedDashboardUITests/testSharedBatteryHeaderAndRecentUpdatesAccessibilityXXXL \
             -only-testing:NOOPCoachUITests/ApprovedDashboardUITests \
             -resultBundlePath qa-artifacts/selected-ui.xcresult \
             CODE_SIGNING_ALLOWED=NO \
