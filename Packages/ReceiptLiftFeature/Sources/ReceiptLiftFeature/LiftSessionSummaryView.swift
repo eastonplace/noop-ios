@@ -402,14 +402,14 @@ struct LiftSummaryLiftRow: View {
     Group {
       if typeSize.isAccessibilitySize {
         VStack(alignment: .leading, spacing: 6) {
-          StrengthExerciseTile(exercise: lift.exercise, size: 48, cornerRadius: 12)
+          StrengthExerciseTile(exercise: lift.exercise, size: 48)
           titleLine
           Text(verbatim: setLine).font(StrandFont.footnote).foregroundStyle(StrandPalette.textSecondary)
           figureStack(figure, caption, alignment: .leading)
         }
       } else {
         HStack(spacing: 12) {
-          StrengthExerciseTile(exercise: lift.exercise, size: 48, cornerRadius: 12)
+          StrengthExerciseTile(exercise: lift.exercise, size: 48)
           VStack(alignment: .leading, spacing: 2) {
             titleLine
             Text(verbatim: setLine).font(StrandFont.footnote).foregroundStyle(StrandPalette.textSecondary)

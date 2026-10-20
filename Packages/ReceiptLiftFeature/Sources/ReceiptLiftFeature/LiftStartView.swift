@@ -192,7 +192,7 @@ struct LiftStartView: View {
   }
 
   private func thumbs(_ exercises: [LiftExercise], limit: Int, extra: Int) -> some View {
-    // The tiles shrink together to fit the width (the design's flex row): at 58pt six of them are wider than the page
+    // The figures shrink together to fit the width (the design's flex row): at 58pt six of them are wider than the page
     // and would push the whole column past its gutters.
     StrengthTileRow(maxSide: typeSize.isAccessibilitySize ? 44 : 58, spacing: 8) {
       ForEach(Array(exercises.prefix(limit)), id: \.id) { exercise in
@@ -205,8 +205,6 @@ struct LiftStartView: View {
           .lineLimit(1)
           .minimumScaleFactor(0.6)
           .frame(maxWidth: .infinity, maxHeight: .infinity)
-          .background(StrandPalette.card, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-          .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(StrandPalette.hairline, lineWidth: 1))
           .accessibilityHidden(true)
       }
     }

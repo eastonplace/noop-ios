@@ -165,29 +165,27 @@ struct StrengthStatStrip: View {
   }
 }
 
-/// An exercise picture in a quiet rounded tile, the way the mockup lays thumbnails out. With no `size` the tile is a square
-/// that fills the space it is given (inside a `StrengthTileRow`).
+/// An exercise picture drawn bare: the catalog art is a background-removed cutout, so the figure sits straight on the page
+/// with no card, fill or border behind it. With no `size` the figure's square fills the space it is given (inside a
+/// `StrengthTileRow`).
 struct StrengthExerciseTile: View {
   let exercise: LiftExercise?
   var size: CGFloat? = 58
-  var cornerRadius: CGFloat = 14
 
   var body: some View {
     Group {
       if let size {
-        tile(side: size).frame(width: size, height: size)
+        figure(side: size)
       } else {
-        GeometryReader { proxy in tile(side: min(proxy.size.width, proxy.size.height)) }
+        GeometryReader { proxy in figure(side: min(proxy.size.width, proxy.size.height)) }
       }
     }
     .accessibilityHidden(true)
   }
 
-  private func tile(side: CGFloat) -> some View {
-    LiftExerciseThumb(exercise: exercise, size: max(side - 6, 0), style: .paper)
+  private func figure(side: CGFloat) -> some View {
+    LiftExerciseThumb(exercise: exercise, size: side, style: .paper)
       .frame(width: side, height: side)
-      .background(StrandPalette.card, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-      .overlay(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous).strokeBorder(StrandPalette.hairline, lineWidth: 1))
   }
 }
 
