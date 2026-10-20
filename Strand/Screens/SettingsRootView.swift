@@ -1,7 +1,7 @@
 import SwiftUI
 import StrandDesign
 
-/// The Settings root, in the idiom of the iOS Settings app: a large "Settings" title, a search field under it, an
+/// The Settings root uses a native inline "Settings" title beside Done, a search field under it, an
 /// Apple-ID-style row for the person's profile, and grouped lists of rows that each start with a coloured rounded-square
 /// tile. Everything is a native List, NavigationLink and `.searchable`; the only custom drawing is the tile.
 struct SettingsRootView: View {
@@ -37,7 +37,7 @@ struct SettingsRootView: View {
         }
         .navigationTitle("Settings")
         #if os(iOS)
-        .navigationBarTitleDisplayMode(.large)
+        .navigationBarTitleDisplayMode(.inline)
         #endif
         .settingsSearch(text: $query)
     }

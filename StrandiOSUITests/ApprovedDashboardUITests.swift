@@ -26,6 +26,35 @@ final class ApprovedDashboardUITests: XCTestCase {
     func testDashboardSettingsAccessibilityXXXL() throws { try assertSettingsAccessibility() }
     func testWHOOPSettingsNormal() throws { try assertWHOOPSettings(size: .normal) }
     func testWHOOPSettingsAccessibilityXXXL() throws { try assertWHOOPSettings(size: .accessibilityXXXL) }
+    func testSettingsRootDoneAlignmentNormal() throws { try assertSettingsRootDone(size: .normal) }
+    func testSettingsRootDoneAlignmentAccessibilityXXXL() throws { try assertSettingsRootDone(size: .accessibilityXXXL) }
+
+    private func assertSettingsRootDone(size: TextSize) throws {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        launch(app, route: "settings", size: size)
+        defer { app.terminate() }
+        let navigation = app.navigationBars["Settings"]
+        try requireExists(navigation, in: app, timeout: 60)
+        let title = navigation.staticTexts.matching(NSPredicate(format: "label ==[cd] %@", "Settings")).firstMatch
+        try requireExists(title, in: app)
+        let done = app.buttons["settings.done"]
+        try reveal(done, in: app)
+        capture(app, "settings-root-\(size)-plain-done-title-alignment")
+        XCTAssertTrue(navigation.frame.contains(title.frame), "Settings uses the native navigation title")
+        XCTAssertTrue(navigation.frame.contains(done.frame), "Done stays in the native navigation bar")
+        XCTAssertEqual(title.frame.midY, done.frame.midY, accuracy: 4, "Done aligns vertically with the Settings title")
+        XCTAssertGreaterThanOrEqual(done.frame.width, 44, "Done retains a usable touch-target width")
+        XCTAssertGreaterThanOrEqual(done.frame.height, 44, "Done retains a usable touch-target height")
+        XCTAssertTrue(done.isEnabled)
+        done.tap()
+        try waitFor(done, predicate: "exists == false", in: app)
+        let today = app.buttons["app.deviceStatus"]
+        try requireExists(today, in: app)
+        XCTAssertTrue(today.label.contains("Today"), "Done dismisses Settings to Today")
+        XCTAssertTrue(app.frame.contains(today.frame))
+        capture(app, "settings-root-\(size)-done-dismissed-to-today")
+    }
 
     func testDeviceRegistryRemainsReachableWithoutCommandDashboard() throws {
         continueAfterFailure = false
@@ -70,7 +99,8 @@ final class ApprovedDashboardUITests: XCTestCase {
         capture(app, "preserved-sleep-stages-presentation")
     }
 
-    private func launch(_ app: XCUIApplication, route: String? = nil, size: TextSize = .normal) {
+    private func launch(_ app: XCUIApplication, route: String? = nil, size: TextSize = .normal,
+                        preserveDemoPreferences: Bool = false) {
         app.terminate()
         app.launchArguments = [
             "--noop-coach-shell-qa", "--demo-seed", "--noop-lift-demo", "fresh",
@@ -78,6 +108,7 @@ final class ApprovedDashboardUITests: XCTestCase {
             "-UIPreferredContentSizeCategoryName", size.rawValue,
             "-AppleLanguages", "(en)", "-AppleLocale", "en_US", "-AppleInterfaceStyle", "Dark",
         ]
+        if preserveDemoPreferences { app.launchArguments.append("--noop-qa-preserve-preferences") }
         if let route { app.launchArguments += ["--noop-qa-route", route] }
         app.launch()
     }
@@ -91,7 +122,7 @@ final class ApprovedDashboardUITests: XCTestCase {
         try requireExists(device, in: app, timeout: 60)
         for id in ["app.deviceStatus", "app.notifications", "app.settings"] {
             let button = app.buttons[id]
-            try reveal(button, in: app)
+            try reveal(button, in: app, needsHitTarget: id != "app.deviceStatus")
             XCTAssertGreaterThanOrEqual(button.frame.height, 44, "\(id) retains its touch target")
             XCTAssertFalse(button.label.isEmpty)
         }
@@ -123,7 +154,9 @@ final class ApprovedDashboardUITests: XCTestCase {
         try reveal(app.buttons["today.health.dataSources"], in: app)
         capture(app, "today-\(size)-M1-health-footer")
         assertPinnedHeader(device, initialY: headerY, in: app)
-        device.tap()
+        // Prove the physical touch and its navigation outcome. The pinned SwiftUI
+        // header can report false isHittable above its clipped scrolling sibling.
+        device.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         try requireExists(element("settings.whoop.connection", in: app), in: app)
         capture(app, "today-\(size)-scrolled-header-opens-native-whoop")
         try closeSettingsToToday(in: app)
@@ -171,23 +204,33 @@ final class ApprovedDashboardUITests: XCTestCase {
 
         let changed = Selection(summary: ["strain", "recovery"], health: ["hrv", "restingHr", "respiratory"])
         try setSelection(changed, in: app)
-        launch(app, route: "settings-todayDashboard")
+        try setSwitch("today.summary.strain", to: false, in: app, direction: .down)
+        XCTAssertEqual(try selection(in: app), Selection(summary: ["recovery"], health: changed.health),
+                       "Disabling one of two scores leaves the exact remaining score and preserves Health selection")
+        let lastScore = app.switches["today.summary.recovery"]
+        try reveal(lastScore, in: app, direction: .down, needsHitTarget: false)
+        XCTAssertFalse(lastScore.isEnabled, "The final enabled summary metric cannot be hidden")
+        try setSelection(changed, in: app)
+        launch(app, route: "settings-todayDashboard", preserveDemoPreferences: true)
         XCTAssertEqual(try selection(in: app), changed, "Both ordered selections persist across process relaunch")
         capture(app, "dashboard-settings-persisted-summary-order")
         try reveal(app.switches["today.health.respiratory"], in: app)
         capture(app, "dashboard-settings-persisted-health-selection")
 
         try closeSettingsToToday(in: app)
-        try requireExists(app.buttons["today.summary.pillar.strain"], in: app, timeout: 60)
-        let strain = app.buttons["today.summary.pillar.strain"]
-        let recovery = app.buttons["today.summary.pillar.recovery"]
-        try reveal(strain, in: app)
-        try reveal(recovery, in: app)
-        XCTAssertFalse(app.buttons["today.summary.pillar.sleep"].exists)
+        try requireExists(element("today.summary.pillar.strain", in: app), in: app, timeout: 60)
+        let strain = element("today.summary.pillar.strain", in: app)
+        let recovery = element("today.summary.pillar.recovery", in: app)
+        let viewport = app.scrollViews.firstMatch
+        try reveal(strain, in: app, needsHitTarget: false, viewport: viewport)
+        try reveal(recovery, in: app, needsHitTarget: false, viewport: viewport)
+        XCTAssertFalse(element("today.summary.pillar.sleep", in: app).exists)
         XCTAssertLessThan(strain.frame.midX, recovery.frame.midX, "Today follows the saved summary order")
         capture(app, "today-selected-summary-order")
-        for name in changed.health { try reveal(app.buttons["today.health.tile.\(name)"], in: app) }
-        XCTAssertFalse(app.buttons["today.health.tile.sleep"].exists)
+        for name in changed.health {
+            try reveal(element("today.health.tile.\(name)", in: app), in: app, needsHitTarget: false, viewport: viewport)
+        }
+        XCTAssertFalse(element("today.health.tile.sleep", in: app).exists)
         capture(app, "today-three-selected-health-metrics")
         try openTodayDashboardSettings(in: app)
         try setSelection(original, in: app)
@@ -368,12 +411,66 @@ final class ApprovedDashboardUITests: XCTestCase {
         }
         let previous = try switchValue(row)
         XCTAssertEqual(try switchValue(control), previous)
+        let fields = id.split(separator: ".").map(String.init)
+        guard fields.count == 3, fields[0] == "today", ["summary", "health"].contains(fields[1]) else {
+            throw HarnessError.invalidValue("Unexpected dashboard switch identifier: \(id)")
+        }
+        let before = try selection(in: app)
+        let group = fields[1]
+        let metric = fields[2]
+        var expectedGroup = group == "summary" ? before.summary : before.health
+        XCTAssertEqual(expectedGroup.contains(metric), previous, "The native switch agrees with its saved selection before activation")
+        if desired, !expectedGroup.contains(metric) {
+            expectedGroup.append(metric)
+        } else if !desired {
+            expectedGroup.removeAll { $0 == metric }
+        }
+        let expected = group == "summary"
+            ? Selection(summary: expectedGroup, health: before.health)
+            : Selection(summary: before.summary, health: expectedGroup)
         if previous != desired {
             XCTAssertTrue(control.isEnabled, "\(id) permits the requested selection change")
-            control.tap()
+            let nativeFrame = control.frame
+            XCTAssertTrue(row.frame.contains(nativeFrame), "The native switch remains fully inside its validated row")
+            XCTAssertTrue(app.frame.contains(nativeFrame), "The native switch center is inside the visible app")
+            print("[dashboard-toggle-center-tap] switch=\(id) nativeFrame=\(nativeFrame) center=(\(nativeFrame.midX),\(nativeFrame.midY)) previous=\(previous) desired=\(desired)")
+            control.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).press(forDuration: 0.2)
         }
-        try waitFor(row, predicate: desired ? "value == '1'" : "value == '0'", in: app)
-        XCTAssertEqual(try switchValue(control), desired)
+        // Enabled rows move ahead of disabled rows. A successful native toggle can
+        // therefore move this row out of the List's accessibility viewport. Verify
+        // the entire ordered selection without retaining the moved child proxy.
+        let expectedValue = "summary:" + expected.summary.joined(separator: ",")
+            + ";health:" + expected.health.joined(separator: ",")
+        let saved = element("todayDashboard.settings", in: app)
+        let committed = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "exists == true AND value == %@", expectedValue), object: saved
+        )
+        guard XCTWaiter.wait(for: [committed], timeout: 8) == .completed else {
+            let actualValue = String(describing: saved.value)
+            let parsedSelection: String
+            do {
+                let actual = try selection(in: app)
+                parsedSelection = "summary:" + actual.summary.joined(separator: ",")
+                    + ";health:" + actual.health.joined(separator: ",")
+            } catch {
+                parsedSelection = "Could not parse direct selection: \(error)"
+            }
+            let currentRow = app.switches[id]
+            let rowValue = currentRow.exists ? String(describing: currentRow.value) : "Row is virtualized"
+            let state = "switch=\(id)\nprevious=\(previous)\ndesired=\(desired)\nexpectedValue=\(expectedValue)\nsaved.value=\(actualValue)\ndirectParsedSelection=\(parsedSelection)\ncurrentRowValue=\(rowValue)"
+            print("[dashboard-toggle-readback-failure] \(state)")
+            let readback = XCTAttachment(string: state)
+            readback.name = "dashboard-toggle-readback-failure"
+            readback.lifetime = .keepAlways
+            add(readback)
+            captureFailure(in: app)
+            throw HarnessError.invalidValue("The native toggle did not save the exact expected selection for \(id)")
+        }
+        XCTAssertEqual(try selection(in: app), expected, "The toggle preserves both ordered selections")
+        let updatedRow = app.switches[id]
+        if updatedRow.exists {
+            XCTAssertEqual(try switchValue(updatedRow), desired, "A remaining native row reflects its saved value")
+        }
     }
 
     private func switchValue(_ toggle: XCUIElement) throws -> Bool {
@@ -398,7 +495,7 @@ final class ApprovedDashboardUITests: XCTestCase {
         let exists = device.exists
         let frame = device.frame
         let hittable = device.isHittable
-        if !exists || !hittable || !app.frame.contains(frame) || abs(frame.minY - initialY) > 1 {
+        if !exists || !app.frame.contains(frame) || abs(frame.minY - initialY) > 1 {
             let state = XCTAttachment(string: "exists=\(exists)\nlabel=\(device.label)\nisHittable=\(hittable)\nframe=\(frame)\ninitialY=\(initialY)\nappFrame=\(app.frame)")
             state.name = "pinned-header-hit-test-state"
             state.lifetime = .keepAlways
@@ -406,7 +503,6 @@ final class ApprovedDashboardUITests: XCTestCase {
             captureFailure(in: app)
         }
         XCTAssertTrue(device.exists, "The Today device header remains in the accessibility tree after Health scrolling")
-        XCTAssertTrue(device.isHittable, "The pinned Today device entry point remains tappable after Health scrolling")
         XCTAssertTrue(app.frame.contains(device.frame), "The pinned Today header remains fully on screen")
         XCTAssertEqual(device.frame.minY, initialY, accuracy: 1, "Health scrolling preserves the header's vertical position")
     }
@@ -422,7 +518,7 @@ final class ApprovedDashboardUITests: XCTestCase {
                         viewport: XCUIElement? = nil) throws {
         for attempt in 0..<20 {
             let visibleFrame = viewport.map { $0.frame.intersection(app.frame) } ?? app.frame
-            if element.identifier == "today.health.title", attempt < 4 {
+            if element.exists, element.identifier == "today.health.title", attempt < 4 {
                 print("[health-scroll] attempt=\(attempt) targetFrame=\(element.frame) viewportFrame=\(String(describing: viewport?.frame)) isHittable=\(element.isHittable)")
                 capture(app, "health-scroll-attempt-\(attempt)")
             }
@@ -433,9 +529,21 @@ final class ApprovedDashboardUITests: XCTestCase {
                 ?? app.tables.allElementsBoundByIndex.first(where: \.isHittable) ?? app
             // Search both ways: native Settings reorders enabled rows after a switch changes.
             let forward = attempt < 10
+            let scrollUp: Bool
             switch (direction, forward) {
-            case (.up, true), (.down, false): surface.swipeUp()
-            case (.down, true), (.up, false): surface.swipeDown()
+            case (.up, true), (.down, false): scrollUp = true
+            case (.down, true), (.up, false): scrollUp = false
+            }
+            if surface.elementType == .scrollView {
+                // Start inside the 2% gutter, outside Today chart interaction areas.
+                // Each bounded drag stays within the actual ScrollView viewport.
+                let start = surface.coordinate(withNormalizedOffset: CGVector(dx: 0.02, dy: scrollUp ? 0.8 : 0.2))
+                let end = surface.coordinate(withNormalizedOffset: CGVector(dx: 0.02, dy: scrollUp ? 0.2 : 0.8))
+                start.press(forDuration: 0.05, thenDragTo: end)
+            } else if scrollUp {
+                surface.swipeUp()
+            } else {
+                surface.swipeDown()
             }
         }
         captureFailure(in: app)

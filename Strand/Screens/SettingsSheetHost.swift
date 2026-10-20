@@ -32,16 +32,32 @@ struct SettingsSheetHost: View {
             SettingsView()
                 .background(Color(.systemGroupedBackground).ignoresSafeArea())
                 .toolbar {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button("Done", action: onClose)
-                            .foregroundStyle(StrandPalette.accent)
-                            .accessibilityIdentifier("settings.done")
+                    if #available(iOS 26, *) {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            doneButton
+                        }
+                        .sharedBackgroundVisibility(.hidden)
+                    } else {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            doneButton
+                        }
                     }
                 }
         }
         .environment(\.screenScaffoldPresentation, .settingsDetail)
         .environment(\.appHeaderChromeVisibility, .hidden)
         .environment(\.screenScaffoldCloseAction, nil)
+    }
+
+    private var doneButton: some View {
+        Button(action: onClose) {
+            Text("Done")
+                .foregroundStyle(.white)
+                .frame(minWidth: 44, minHeight: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("settings.done")
     }
 }
 #endif

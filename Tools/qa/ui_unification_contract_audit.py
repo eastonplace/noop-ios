@@ -280,7 +280,7 @@ try:
         "NoopButton(",
         "StatePill(",
     )
-    # Settings is the iOS Settings idiom: native lists, native navigation titles, `.searchable`, and a root of
+    # Settings is the iOS Settings idiom: native lists, an inline title aligned with Done, `.searchable`, and a root of
     # coloured icon tiles behind an Apple-ID-style profile row. None of the widget-language kit lives here.
     require(
         "Strand/Screens/SettingsRootView.swift",
@@ -289,7 +289,7 @@ try:
         "SettingsProfileRow()",
         "SettingsIconTile(",
         "NavigationLink(value: route)",
-        ".navigationBarTitleDisplayMode(.large)",
+        ".navigationBarTitleDisplayMode(.inline)",
         "searchable(",
     )
     forbid(
