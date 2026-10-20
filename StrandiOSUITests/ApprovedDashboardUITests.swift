@@ -5,6 +5,9 @@ import XCTest
 /// Run against the task simulator. No device command or log export is activated.
 @MainActor
 final class ApprovedDashboardUITests: XCTestCase {
+    // Ignore only floating-point representation error in native touch-target dimensions.
+    private let targetDimensionRoundingTolerance: CGFloat = 0.000001
+
     private enum TextSize: String {
         case normal = "UICTContentSizeCategoryL"
         case accessibilityXXXL = "UICTContentSizeCategoryAccessibilityXXXL"
@@ -44,8 +47,8 @@ final class ApprovedDashboardUITests: XCTestCase {
         XCTAssertTrue(navigation.frame.contains(title.frame), "Settings uses the native navigation title")
         XCTAssertTrue(navigation.frame.contains(done.frame), "Done stays in the native navigation bar")
         XCTAssertEqual(title.frame.midY, done.frame.midY, accuracy: 4, "Done aligns vertically with the Settings title")
-        XCTAssertGreaterThanOrEqual(done.frame.width, 44, "Done retains a usable touch-target width")
-        XCTAssertGreaterThanOrEqual(done.frame.height, 44, "Done retains a usable touch-target height")
+        XCTAssertGreaterThanOrEqual(done.frame.width + targetDimensionRoundingTolerance, 44, "Done retains a usable touch-target width")
+        XCTAssertGreaterThanOrEqual(done.frame.height + targetDimensionRoundingTolerance, 44, "Done retains a usable touch-target height")
         XCTAssertTrue(done.isEnabled)
         done.tap()
         try waitFor(done, predicate: "exists == false", in: app)
@@ -123,7 +126,7 @@ final class ApprovedDashboardUITests: XCTestCase {
         for id in ["app.deviceStatus", "app.notifications", "app.settings"] {
             let button = app.buttons[id]
             try reveal(button, in: app, needsHitTarget: id != "app.deviceStatus")
-            XCTAssertGreaterThanOrEqual(button.frame.height, 44, "\(id) retains its touch target")
+            XCTAssertGreaterThanOrEqual(button.frame.height + targetDimensionRoundingTolerance, 44, "\(id) retains its touch target")
             XCTAssertFalse(button.label.isEmpty)
         }
         XCTAssertTrue(device.label.contains("Today"), "The page title remains part of the device entry point")
@@ -133,7 +136,7 @@ final class ApprovedDashboardUITests: XCTestCase {
         let plus = app.buttons["app.quickActions"]
         try reveal(plus, in: app)
         XCTAssertEqual(plus.label, "Quick Actions")
-        XCTAssertGreaterThanOrEqual(plus.frame.height, 54)
+        XCTAssertGreaterThanOrEqual(plus.frame.height + targetDimensionRoundingTolerance, 54)
         plus.tap()
         try requireExists(app.buttons["quickActions.close"], in: app)
         capture(app, "today-\(size)-quick-actions-open")
@@ -150,7 +153,7 @@ final class ApprovedDashboardUITests: XCTestCase {
         assertPinnedHeader(device, initialY: headerY, in: app)
         let allMetrics = app.buttons["today.health.allMetrics"]
         try reveal(allMetrics, in: app)
-        XCTAssertGreaterThanOrEqual(allMetrics.frame.height, 44)
+        XCTAssertGreaterThanOrEqual(allMetrics.frame.height + targetDimensionRoundingTolerance, 44)
         try reveal(app.buttons["today.health.dataSources"], in: app)
         capture(app, "today-\(size)-M1-health-footer")
         assertPinnedHeader(device, initialY: headerY, in: app)
@@ -171,8 +174,9 @@ final class ApprovedDashboardUITests: XCTestCase {
     private func assertSettingsRoundTrip() throws {
         continueAfterFailure = false
         let app = XCUIApplication()
-        launch(app, route: "settings-todayDashboard")
+        launch(app, route: "settings")
         defer { app.terminate() }
+        try openTodayDashboardSettings(in: app)
         let original = try selection(in: app)
         var restoredOriginal = false
         // The exact enabled order is restored through the same native controls, including
@@ -211,7 +215,8 @@ final class ApprovedDashboardUITests: XCTestCase {
         try reveal(lastScore, in: app, direction: .down, needsHitTarget: false)
         XCTAssertFalse(lastScore.isEnabled, "The final enabled summary metric cannot be hidden")
         try setSelection(changed, in: app)
-        launch(app, route: "settings-todayDashboard", preserveDemoPreferences: true)
+        launch(app, route: "settings", preserveDemoPreferences: true)
+        try openTodayDashboardSettings(in: app)
         XCTAssertEqual(try selection(in: app), changed, "Both ordered selections persist across process relaunch")
         capture(app, "dashboard-settings-persisted-summary-order")
         try reveal(app.switches["today.health.respiratory"], in: app)
@@ -343,7 +348,7 @@ final class ApprovedDashboardUITests: XCTestCase {
             // Disabled offline controls still must be visible. Reaching a command is
             // distinct from activating BLE, pairing, or a log export.
             try reveal(command, in: app, needsHitTarget: false)
-            XCTAssertGreaterThanOrEqual(command.frame.height, 44)
+            XCTAssertGreaterThanOrEqual(command.frame.height + targetDimensionRoundingTolerance, 44)
             if id == "sync" || id == "manageDevices" { capture(app, "whoop-\(size)-controls-\(id)") }
         }
         for id in ["copyLog", "saveLog", "testCentre"] {
