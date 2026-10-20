@@ -383,6 +383,11 @@ struct LiveSetTable: View {
       stackedField(.weight, value: weightText(draft.weight) + (liftUsesBodyweightLoad(exercise) ? "" : " " + format.unitSymbol))
       stackedField(.reps, value: "\(draft.reps)")
       stackedField(.rpe, value: LiftEffortValue.text(rpe: draft.rpe, rated: draft.effortRated, locale: format.locale))
+      Button(action: onLog) {
+        Text("Log set")
+          .frame(maxWidth: .infinity, minHeight: 44)
+      }
+      .buttonStyle(PrimaryPillButtonStyle())
     }
   }
 

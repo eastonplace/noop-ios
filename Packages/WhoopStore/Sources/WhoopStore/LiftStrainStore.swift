@@ -25,8 +25,9 @@ public typealias LiftStrainCombine = @Sendable (_ hrStored: Double, _ muscularLo
 /// The day-level counterpart of ``LiftStrainCombine`` (A7): combines a day's heart-rate-only stored Strain with the
 /// day's muscular load, and may know the day's parts (cardio, step and energy floors) so the floors stay
 /// max-combined. `day` is the logical day key. Called inside the settle transaction: it must be synchronous and
-/// must not touch the store. When absent the day settle uses ``LiftStrainCombine``, the stored-score inversion.
-public typealias LiftStrainDayCombine = @Sendable (_ day: String, _ hrStored: Double, _ muscularLoad: Double) -> Double
+/// must not touch the store. Throw to roll back the entire settle when required parts are not ready.
+/// When absent the day settle uses ``LiftStrainCombine``, the stored-score inversion.
+public typealias LiftStrainDayCombine = @Sendable (_ day: String, _ hrStored: Double, _ muscularLoad: Double) throws -> Double
 
 public enum LiftStrainRowState: String, Sendable, Codable {
     /// Computed, never applied.
@@ -1162,7 +1163,7 @@ extension WhoopStore {
             var stored = current
             if current.version == 2, let base {
                 load = mDay
-                let target = mDay > 0 ? (dayCombine?(day, base, mDay) ?? combine(base, mDay)) : base
+                let target = mDay > 0 ? (try dayCombine?(day, base, mDay) ?? combine(base, mDay)) : base
                 if !LiftStrainBits.same(target, current.strain) {
                     try db.execute(sql: """
                         UPDATE dailyMetric SET strain = ?, strainVersion = 2

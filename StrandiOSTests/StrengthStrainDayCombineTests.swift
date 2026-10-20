@@ -1,5 +1,6 @@
 import Foundation
 import StrandAnalytics
+import WhoopProtocol
 import WhoopStore
 import XCTest
 @testable import NOOP
@@ -174,7 +175,7 @@ final class StrengthStrainDayCombineTests: XCTestCase {
         await loader(["2026-07-17"], combiner)
         let stored = try XCTUnwrap(parts.score)
         XCTAssertEqual(
-            combiner.dayCombine("2026-07-17", stored, 10).bitPattern,
+            try combiner.dayCombine("2026-07-17", stored, 10).bitPattern,
             StrengthStrainIntegration.dayCombine(hrStored: stored, muscularLoad: 10, components: parts).bitPattern)
         XCTAssertEqual(combiner.missedDays, [])
 
@@ -182,52 +183,326 @@ final class StrengthStrainDayCombineTests: XCTestCase {
         XCTAssertNil(secondaryRepo.liftStrainDayPartsLoader, "a transient engine never installs a loader")
     }
 
+    func testUnavailableBackfillKeepsPendingWorkForALaterLoadedSettle() async throws {
+        let parts = floorDominated()
+        let base = try XCTUnwrap(parts.score)
+        let lift = Fixtures.Lift(start: Fixtures.noon(daysAgo: 3), kg: 100, sets: 12)
+        let (store, computed, _) = try await pendingStore(dayStored: base, lift: lift)
+        let (engine, repo) = Fixtures.makeEngine(store: store)
+        let day = Repository.logicalDayKey(lift.start)
+        repo.loaded = false
+
+        await engine.runStrengthStrainBackfillIfNeeded()
+
+        let deferred = try await Fixtures.dayBits(store, day: day)
+        XCTAssertEqual(deferred, Fixtures.Bits(base, 2), "unavailable parts must not commit the inversion")
+        let deferredRow = try await Fixtures.liftRow(store, id: lift.id)
+        XCTAssertEqual(deferredRow?.state, .pending, "the next normal settle must still see dirty work")
+        let job = try await store.liftStrainJob(jobKey: "strength-strain-backfill-v\(StrengthStrain.version):\(Fixtures.owner)")
+        XCTAssertEqual(job?.state, .running)
+        XCTAssertNil(job?.cursorDay, "unavailable parts must not advance the durable backfill cursor")
+        XCTAssertFalse(engine.strengthBackfillDone)
+
+        repo.loaded = true
+        engine.liftStrainDayPartsForTesting = { _ in parts }
+        _ = await engine.settleLiftStrain()
+
+        let actual = try await Fixtures.dayBits(store, day: day)
+        let expected = StrengthStrainIntegration.dayCombine(
+            hrStored: base, muscularLoad: computed.muscularLoad, components: parts)
+        XCTAssertNotEqual(expected.bitPattern, inversion(base, computed.muscularLoad).bitPattern)
+        XCTAssertEqual(actual, Fixtures.Bits(expected, 2), "the later loaded settle must persist the parts-aware result")
+    }
+
+    func testEngineReloadsPartsWhenRawChangesBeforeRepositoryRefresh() async throws {
+        let store = try await WhoopStore.inMemory()
+        try Fixtures.register(store, ids: [Fixtures.owner])
+        let (engine, repo) = Fixtures.makeEngine(store: store)
+        repo.loaded = true
+        let date = Fixtures.noon(daysAgo: 3)
+        let day = Repository.logicalDayKey(date)
+        let start = Calendar.current.startOfDay(for: date)
+        let ts = Int(date.timeIntervalSince1970)
+        let profile = ProfileStore()
+        let floor = StrainScorerV2.stepFloor(20_000)
+        let base = StrainScorerV2.storedValue(fromDisplay: floor)
+        let basis = Fixtures.dailyMetric(day, strain: base, steps: 20_000)
+        try await store.upsertDailyMetrics([basis], deviceId: Fixtures.canonical)
+        var streams = Streams()
+        streams.hr = stride(from: ts, to: ts + 600, by: 10).map { HRSample(ts: $0, bpm: 70) }
+        _ = try await store.insert(streams, deviceId: Fixtures.owner)
+        let first = StrengthStrainDayCombiner()
+        await engine.loadLiftStrainDayParts([day], into: first)
+        let firstValue = try first.dayCombine(day, base, 20)
+
+        // New raw HR raises cardio, while the step floor and every stored daily input stay the same.
+        streams.hr = stride(from: ts + 600, to: ts + 1_200, by: 10).map { HRSample(ts: $0, bpm: 130) }
+        _ = try await store.insert(streams, deviceId: Fixtures.owner)
+        // In-pass settle runs before the repository refresh, so its published sequence has not moved.
+        let request = StrainDayRequest(
+            dayKey: day, logicalStart: start, isToday: false, maxHR: profile.hrMaxForBatchScoring,
+            restingHR: 52, steps: 20_000, stepTicksPerStep: profile.stepTicksPerStep,
+            sleepMinutes: 420, heroTenths: nil, refreshSeq: repo.refreshSeq)
+        let freshResult = await StrainDayLoader.load(request, repo: repo, useCache: false)
+        let fresh = try XCTUnwrap(freshResult?.analysis.components)
+        XCTAssertEqual(fresh.score?.bitPattern, base.bitPattern, "the stored score remains floor dominated")
+        let expected = StrengthStrainIntegration.dayCombine(hrStored: base, muscularLoad: 20, components: fresh)
+        XCTAssertNotEqual(firstValue.bitPattern, expected.bitPattern, "new cardio must change the combined lift score")
+        let second = StrengthStrainDayCombiner()
+        await engine.loadLiftStrainDayParts([day], into: second)
+        XCTAssertEqual(try second.dayCombine(day, base, 20).bitPattern, expected.bitPattern,
+                       "new raw readings must be used before the repository publishes a refresh")
+    }
+
+    func testNewlyDiscoveredUnavailableDayRollsBackAndRetriesWhenLoaded() async throws {
+        let parts = floorDominated()
+        let base = try XCTUnwrap(parts.score)
+        let firstLift = Fixtures.Lift(start: Fixtures.noon(daysAgo: 4), kg: 100, sets: 12)
+        let newLift = Fixtures.Lift(start: Fixtures.noon(daysAgo: 3), kg: 100, sets: 12)
+        let (store, firstComputed, _) = try await pendingStore(dayStored: base, lift: firstLift)
+        let newWorkout = try XCTUnwrap(Fixtures.workouts([newLift]).first)
+        let newComputed = StrengthStrainIntegration.computed(for: newWorkout, frozen: nil, profileKg: 80)
+        let firstDay = Repository.logicalDayKey(firstLift.start)
+        let newDay = Repository.logicalDayKey(newLift.start)
+        let (engine, repo) = Fixtures.makeEngine(store: store)
+        var injected = false
+        var injectionError: Error?
+        engine.liftStrainDayPartsForTesting = { day in
+            if day == firstDay, !injected {
+                injected = true
+                do {
+                    // This writer lands after preflight listed A, before the apply transaction chooses A and B.
+                    _ = try await Fixtures.seed(store, lifts: [firstLift, newLift], workoutStrain: 30, dayStrain: base)
+                    try await store.upsertLiftStrainComputed(deviceId: Fixtures.owner, rows: [newComputed], now: 11)
+                } catch { injectionError = error }
+                repo.loaded = false
+                engine.liftStrainDayPartsForTesting = nil
+            }
+            return parts
+        }
+
+        let deferred = await engine.settleLiftStrain()
+
+        XCTAssertTrue(injected)
+        XCTAssertNil(injectionError)
+        XCTAssertNil(deferred, "the transaction must defer when it discovers an unprepared day")
+        for (day, lift) in [(firstDay, firstLift), (newDay, newLift)] {
+            let value = try await Fixtures.dayBits(store, day: day)
+            let row = try await Fixtures.liftRow(store, id: lift.id)
+            XCTAssertEqual(value, Fixtures.Bits(base, 2), "the entire transaction rolls back, including known A")
+            XCTAssertEqual(row?.state, .pending, "unavailable B must remain durable dirty work")
+        }
+
+        repo.loaded = true
+        engine.liftStrainDayPartsForTesting = { _ in parts }
+        _ = await engine.settleLiftStrain()
+
+        for (day, computed) in [(firstDay, firstComputed), (newDay, newComputed)] {
+            let actual = try await Fixtures.dayBits(store, day: day)
+            let expected = StrengthStrainIntegration.dayCombine(
+                hrStored: base, muscularLoad: computed.muscularLoad, components: parts)
+            XCTAssertEqual(actual, Fixtures.Bits(expected, 2), "a normal loaded settle must correct both days")
+        }
+    }
+
+    func testNewlyDiscoveredReadyDayRetriesOnlyTheRolledBackSettle() async throws {
+        let parts = floorDominated()
+        let base = try XCTUnwrap(parts.score)
+        let firstLift = Fixtures.Lift(start: Fixtures.noon(daysAgo: 4), kg: 100, sets: 12)
+        let newLift = Fixtures.Lift(start: Fixtures.noon(daysAgo: 3), kg: 100, sets: 12)
+        let (store, firstComputed, _) = try await pendingStore(dayStored: base, lift: firstLift)
+        let newWorkout = try XCTUnwrap(Fixtures.workouts([newLift]).first)
+        let newComputed = StrengthStrainIntegration.computed(for: newWorkout, frozen: nil, profileKg: 80)
+        let firstDay = Repository.logicalDayKey(firstLift.start)
+        let newDay = Repository.logicalDayKey(newLift.start)
+        let (engine, _) = Fixtures.makeEngine(store: store)
+        var injected = false
+        var injectionError: Error?
+        var loadedDays: [String] = []
+        engine.liftStrainDayPartsForTesting = { day in
+            loadedDays.append(day)
+            if day == firstDay, !injected {
+                injected = true
+                do {
+                    _ = try await Fixtures.seed(store, lifts: [firstLift, newLift], workoutStrain: 30, dayStrain: base)
+                    try await store.upsertLiftStrainComputed(deviceId: Fixtures.owner, rows: [newComputed], now: 11)
+                } catch { injectionError = error }
+            }
+            return parts
+        }
+
+        let result = await engine.settleLiftStrain()
+
+        XCTAssertNil(injectionError)
+        XCTAssertEqual(Array(loadedDays.prefix(2)), [firstDay, newDay])
+        XCTAssertEqual(result?.rowsVisited, 2, "rolled-back work must not be counted as applied")
+        XCTAssertEqual(result?.workoutWrites, 2)
+        XCTAssertEqual(result?.dayWrites, 2, "B must never commit a fallback before its parts-aware write")
+        for (day, computed) in [(firstDay, firstComputed), (newDay, newComputed)] {
+            let actual = try await Fixtures.dayBits(store, day: day)
+            let expected = StrengthStrainIntegration.dayCombine(
+                hrStored: base, muscularLoad: computed.muscularLoad, components: parts)
+            XCTAssertEqual(actual, Fixtures.Bits(expected, 2))
+        }
+    }
+
+    func testRepositoryRekeyPreservesLiftAssociationWithAnUnrelatedDirtyDay() async throws {
+        try await assertRepositoryRekeyWithUnrelatedDay(injectDuringPartsLoad: false)
+    }
+
+    func testRepositoryRekeyRetriesTheOriginalMoveWhenANewDirtyDayIsDiscovered() async throws {
+        try await assertRepositoryRekeyWithUnrelatedDay(injectDuringPartsLoad: true)
+    }
+
+    private func assertRepositoryRekeyWithUnrelatedDay(injectDuringPartsLoad: Bool) async throws {
+        let parts = floorDominated()
+        let base = try XCTUnwrap(parts.score)
+        let movingLift = Fixtures.Lift(start: Fixtures.noon(daysAgo: 4), kg: 100, sets: 12)
+        let unrelatedLift = Fixtures.Lift(start: Fixtures.noon(daysAgo: 3), kg: 100, sets: 12)
+        let store = try await WhoopStore.inMemory()
+        try Fixtures.register(store, ids: [Fixtures.owner])
+        let workouts = try await Fixtures.seed(
+            store, lifts: [movingLift, unrelatedLift], workoutStrain: 30, dayStrain: base)
+        let movingWorkout = try XCTUnwrap(workouts.first { $0.id == movingLift.id.uuidString })
+        let unrelatedWorkout = try XCTUnwrap(workouts.first { $0.id == unrelatedLift.id.uuidString })
+        let moving = StrengthStrainIntegration.computed(for: movingWorkout, frozen: nil, profileKg: 80)
+        let unrelated = StrengthStrainIntegration.computed(for: unrelatedWorkout, frozen: nil, profileKg: 80)
+        try await store.upsertLiftStrainComputed(deviceId: Fixtures.owner, rows: [moving], now: 10)
+        _ = try await store.applyLiftStrain(
+            canonicalComputedDeviceId: Fixtures.canonical, now: 11, combine: StrengthStrainIntegration.combine,
+            dayCombine: { _, hr, load in
+                StrengthStrainIntegration.dayCombine(hrStored: hr, muscularLoad: load, components: parts)
+            })
+        if !injectDuringPartsLoad {
+            try await store.upsertLiftStrainComputed(deviceId: Fixtures.owner, rows: [unrelated], now: 12)
+        }
+        let oldStart = Int(movingLift.start.timeIntervalSince1970)
+        let rows = try await store.workouts(deviceId: Fixtures.owner, from: oldStart, to: oldStart, limit: 10)
+        let old = try XCTUnwrap(rows.first { $0.sport == Fixtures.sport })
+        let newStart = Int(Fixtures.noon(daysAgo: 2).timeIntervalSince1970)
+        let edited = old.replacing(startTs: newStart, endTs: newStart + 3_000)
+        let newDay = Repository.logicalDayKey(Date(timeIntervalSince1970: TimeInterval(newStart)))
+        try await store.upsertDailyMetrics([Fixtures.dailyMetric(newDay, strain: base)], deviceId: Fixtures.canonical)
+        let (engine, repo) = Fixtures.makeEngine(store: store)
+        var injected = false
+        var injectionError: Error?
+        var loadedDays: [String] = []
+        engine.liftStrainDayPartsForTesting = { day in
+            loadedDays.append(day)
+            if injectDuringPartsLoad, !injected {
+                injected = true
+                do {
+                    try await store.upsertLiftStrainComputed(deviceId: Fixtures.owner, rows: [unrelated], now: 12)
+                } catch { injectionError = error }
+            }
+            return parts
+        }
+
+        await repo.saveManualWorkout(edited, replacing: old)
+        withExtendedLifetime(engine) {}
+
+        XCTAssertNil(injectionError)
+        XCTAssertTrue(loadedDays.contains(Repository.logicalDayKey(unrelatedLift.start)),
+                      "the unrelated day must be prepared before the successful rekey")
+        let moved = try await Fixtures.liftRow(store, id: movingLift.id)
+        XCTAssertEqual(moved?.workoutStartTs, newStart, "the association must move in the same rekey transaction")
+        XCTAssertEqual(moved?.dayKey, newDay)
+        XCTAssertEqual(moved?.state, .applied)
+        XCTAssertEqual(moved?.hrOnlyStrain?.bitPattern, Double(30).bitPattern,
+                       "the old combined workout must be normalized to heart-rate-only before recombining")
+        let newValue = try await Fixtures.workoutBits(store, start: newStart)
+        XCTAssertEqual(newValue, Fixtures.Bits(StrengthStrain.combine(hrStored: 30, muscularLoad: moving.muscularLoad), 2))
+        let oldDay = Repository.logicalDayKey(movingLift.start)
+        let oldDayValue = try await Fixtures.dayBits(store, day: oldDay)
+        XCTAssertEqual(oldDayValue, Fixtures.Bits(base, 2), "the moved lift leaves the old day heart-rate-only")
+        let newDayValue = try await Fixtures.dayBits(store, day: newDay)
+        XCTAssertEqual(newDayValue, Fixtures.Bits(StrengthStrainIntegration.dayCombine(
+            hrStored: base, muscularLoad: moving.muscularLoad, components: parts), 2))
+        let unrelatedDay = Repository.logicalDayKey(unrelatedLift.start)
+        let unrelatedValue = try await Fixtures.dayBits(store, day: unrelatedDay)
+        XCTAssertEqual(unrelatedValue, Fixtures.Bits(StrengthStrainIntegration.dayCombine(
+            hrStored: base, muscularLoad: unrelated.muscularLoad, components: parts), 2))
+    }
+
+    func testRepositoryRekeyDefersWithoutChangingTheWorkoutWhenPartsAreUnavailable() async throws {
+        let parts = floorDominated()
+        let base = try XCTUnwrap(parts.score)
+        let lift = Fixtures.Lift(start: Fixtures.noon(daysAgo: 4), kg: 100, sets: 12)
+        let (store, _, oldStart) = try await pendingStore(dayStored: base, lift: lift)
+        _ = try await store.applyLiftStrain(
+            canonicalComputedDeviceId: Fixtures.canonical, now: 11, combine: StrengthStrainIntegration.combine,
+            dayCombine: { _, hr, load in
+                StrengthStrainIntegration.dayCombine(hrStored: hr, muscularLoad: load, components: parts)
+            })
+        let rows = try await store.workouts(deviceId: Fixtures.owner, from: oldStart, to: oldStart, limit: 10)
+        let old = try XCTUnwrap(rows.first { $0.sport == Fixtures.sport })
+        let newStart = Int(Fixtures.noon(daysAgo: 2).timeIntervalSince1970)
+        let edited = old.replacing(startTs: newStart, endTs: newStart + 3_000)
+        let newDay = Repository.logicalDayKey(Date(timeIntervalSince1970: TimeInterval(newStart)))
+        try await store.upsertDailyMetrics([Fixtures.dailyMetric(newDay, strain: base)], deviceId: Fixtures.canonical)
+        let before = try await Fixtures.strainDump(store)
+        let beforeLift = try await Fixtures.liftRow(store, id: lift.id)
+        let (engine, repo) = Fixtures.makeEngine(store: store)
+        repo.loaded = false
+
+        await repo.saveManualWorkout(edited, replacing: old)
+
+        let after = try await Fixtures.strainDump(store)
+        let afterLift = try await Fixtures.liftRow(store, id: lift.id)
+        XCTAssertEqual(after, before, "temporary unavailability must not run the delete/upsert fallback")
+        XCTAssertEqual(afterLift, beforeLift, "the workout, target and association must stay atomic")
+        let newValue = try await Fixtures.workoutBits(store, start: newStart)
+        XCTAssertNil(newValue)
+        withExtendedLifetime(engine) {}
+    }
+
     // MARK: The combiner
 
-    func testCombinerRecordsADayItWasNeverAskedToLoadAndForgetsItOnceLoaded() async {
+    func testCombinerRecordsADayItWasNeverAskedToLoadAndForgetsItOnceLoaded() async throws {
         let combiner = StrengthStrainDayCombiner()
         let parts = floorDominated()
         let stored = parts.score ?? 0
         await combiner.load(["2026-07-17"]) { _ in .found(parts) }
 
-        let known = combiner.dayCombine("2026-07-17", stored, 10)
+        let known = try combiner.dayCombine("2026-07-17", stored, 10)
         XCTAssertEqual(known.bitPattern,
                        StrengthStrainIntegration.dayCombine(hrStored: stored, muscularLoad: 10, components: parts).bitPattern)
         XCTAssertEqual(combiner.missedDays, [])
 
-        let unknown = combiner.dayCombine("2026-07-18", stored, 10)
-        XCTAssertEqual(unknown.bitPattern, inversion(stored, 10).bitPattern, "no parts: the inversion")
+        XCTAssertThrowsError(try combiner.dayCombine("2026-07-18", stored, 10)) { error in
+            XCTAssertTrue(error is StrengthStrainDayCombiner.UnpreparedDay)
+        }
         XCTAssertEqual(combiner.missedDays, ["2026-07-18"])
 
         await combiner.load(["2026-07-18"]) { _ in .found(parts) }
         XCTAssertEqual(combiner.missedDays, [])
-        XCTAssertEqual(combiner.dayCombine("2026-07-18", stored, 10).bitPattern, known.bitPattern)
+        XCTAssertEqual(try combiner.dayCombine("2026-07-18", stored, 10).bitPattern, known.bitPattern)
     }
 
-    func testCombinerTreatsNilPartsAsAFinalAnswer() async {
+    func testCombinerTreatsNilPartsAsAFinalAnswer() async throws {
         let combiner = StrengthStrainDayCombiner()
         var asked = 0
         await combiner.load(["2026-07-17"]) { _ in asked += 1; return .none }
         await combiner.load(["2026-07-17"]) { _ in asked += 1; return .none }
         XCTAssertEqual(asked, 1)
-        _ = combiner.dayCombine("2026-07-17", 40, 10)
+        _ = try combiner.dayCombine("2026-07-17", 40, 10)
         XCTAssertEqual(combiner.missedDays, [], "a day with no parts is not retried")
     }
 
-    func testCombinerRetriesADayWhoseLookupWasUnavailable() async {
+    func testCombinerRetriesADayWhoseLookupWasUnavailable() async throws {
         let combiner = StrengthStrainDayCombiner()
         let parts = floorDominated()
         let stored = parts.score ?? 0
         var asked = 0
         await combiner.load(["2026-07-17"]) { _ in asked += 1; return .unavailable }
-        _ = combiner.dayCombine("2026-07-17", stored, 10)
+        XCTAssertThrowsError(try combiner.dayCombine("2026-07-17", stored, 10))
         XCTAssertEqual(combiner.missedDays, ["2026-07-17"], "an unavailable lookup leaves the day missed")
 
         await combiner.load(["2026-07-17"]) { _ in asked += 1; return .found(parts) }
         XCTAssertEqual(asked, 2, "and it is looked for again")
         XCTAssertEqual(combiner.missedDays, [])
         XCTAssertEqual(
-            combiner.dayCombine("2026-07-17", stored, 10).bitPattern,
+            try combiner.dayCombine("2026-07-17", stored, 10).bitPattern,
             StrengthStrainIntegration.dayCombine(hrStored: stored, muscularLoad: 10, components: parts).bitPattern,
             "the retry settles by the parts, not the inversion")
     }
@@ -241,7 +516,7 @@ final class StrengthStrainDayCombineTests: XCTestCase {
         repo.loaded = false
         let early = StrengthStrainDayCombiner()
         await engine.loadLiftStrainDayParts([day], into: early)
-        _ = early.dayCombine(day, 40, 10)
+        XCTAssertThrowsError(try early.dayCombine(day, 40, 10))
         XCTAssertEqual(early.missedDays, [day])
 
         // A cancelled task is the same.
@@ -253,13 +528,13 @@ final class StrengthStrainDayCombineTests: XCTestCase {
         }
         task.cancel()
         await task.value
-        _ = cancelled.dayCombine(day, 40, 10)
+        XCTAssertThrowsError(try cancelled.dayCombine(day, 40, 10))
         XCTAssertEqual(cancelled.missedDays, [day])
 
         // Neither left a cached answer behind: the next look, loaded and not cancelled, gives a definite one.
         let later = StrengthStrainDayCombiner()
         await engine.loadLiftStrainDayParts([day], into: later)
-        _ = later.dayCombine(day, 40, 10)
+        _ = try later.dayCombine(day, 40, 10)
         XCTAssertEqual(later.missedDays, [], "the day has no computed row: a final answer this time")
     }
 }

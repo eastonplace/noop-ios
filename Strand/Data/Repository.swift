@@ -4892,34 +4892,38 @@ final class Repository: ObservableObject {
         } else if let old, old.startTs != row.startTs || old.sport != row.sport {
             // One transaction moves the workout to its new key. When the old row still holds a Strain that included
             // logged sets, the new row gets the heart-rate value first, so sets never stay inside a value labelled
-            // heart rate, and both the old and the new day are settled before the transaction ends. Only if that
-            // fails does the older delete-then-upsert path run.
+            // heart rate, and both the old and the new day are settled before the transaction ends. A failed
+            // rekey preserves the old workout, its lift association, route and pauses for a later retry.
             let newDayKey = Self.logicalDayKey(Date(timeIntervalSince1970: TimeInterval(row.startTs)))
             let oldDayKey = Self.logicalDayKey(Date(timeIntervalSince1970: TimeInterval(old.startTs)))
             // Both days are settled with the day combine that knows the days' parts (A7), so a floor-dominated day
             // gets the value the live score and the day detail show.
             let combiner = StrengthStrainDayCombiner()
-            await liftStrainDayPartsLoader?([newDayKey, oldDayKey], combiner)
-            let settle = LiftStrainRekeySettle(
-                canonicalComputedDeviceId: canonicalComputedId,
-                newDayKey: newDayKey, oldDayKey: oldDayKey,
-                now: Int(Date().timeIntervalSince1970),
-                combine: StrengthStrainIntegration.combine, dayCombine: combiner.dayCombine)
-            if (try? await store.rekeyManualWorkout(deviceId: deviceId, old: old, new: row, settle: settle)) != nil {
-                rekeyed = true
-                // Any other day the settle reached whose parts were not loaded is settled again with its parts.
-                let missed = combiner.missedDays
-                if !missed.isEmpty, let loader = liftStrainDayPartsLoader {
-                    await loader(missed, combiner)
-                    _ = try? await store.applyLiftStrain(
-                        canonicalComputedDeviceId: canonicalComputedId, now: Int(Date().timeIntervalSince1970),
-                        combine: StrengthStrainIntegration.combine, dayCombine: combiner.dayCombine,
-                        extraDayKeys: missed)
+            do {
+                let days = try await store.liftStrainSettleDays(
+                    canonicalComputedDeviceId: canonicalComputedId, extraDayKeys: [newDayKey, oldDayKey])
+                await liftStrainDayPartsLoader?(days, combiner)
+                let settle = LiftStrainRekeySettle(
+                    canonicalComputedDeviceId: canonicalComputedId,
+                    newDayKey: newDayKey, oldDayKey: oldDayKey,
+                    now: Int(Date().timeIntervalSince1970),
+                    combine: StrengthStrainIntegration.combine, dayCombine: combiner.dayCombine)
+                do {
+                    _ = try await store.rekeyManualWorkout(deviceId: deviceId, old: old, new: row, settle: settle)
+                } catch is StrengthStrainDayCombiner.UnpreparedDay {
+                    // Another writer added a dirty day after preflight. The first transaction rolled back;
+                    // prepare the missed day and retry the same rekey once, including its association move.
+                    await liftStrainDayPartsLoader?(combiner.missedDays, combiner)
+                    _ = try await store.rekeyManualWorkout(deviceId: deviceId, old: old, new: row, settle: settle)
                 }
+                rekeyed = true
                 NotificationCenter.default.post(name: .liftStrainDidChange, object: nil)
-            } else {
-                _ = try? await store.deleteWorkouts(deviceId: deviceId, sport: old.sport,
-                                                    from: old.startTs, to: old.startTs)
+            } catch is StrengthStrainDayCombiner.UnpreparedDay {
+                NSLog("[strength-strain] workout rekey deferred: day parts unavailable")
+                return
+            } catch {
+                NSLog("[strength-strain] workout rekey failed: %@", "\(error)")
+                return
             }
             // #10: the GPS route lives in RouteStore keyed by the natural key (startTs + sport), NOT in the
             // DB row. Re-keying the DB row above without moving the route would orphan it under the OLD key,

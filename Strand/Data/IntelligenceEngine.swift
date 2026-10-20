@@ -40,23 +40,6 @@ final class IntelligenceEngine: ObservableObject {
     /// Test seam: supplies a day's parts instead of rebuilding them from the day's readings.
     var liftStrainDayPartsForTesting: (@MainActor (String) async -> StrainScorerV2.DayStrainComponents?)?
 
-    private struct DayPartsKey: Hashable {
-        let day: String
-        let storedBits: UInt64?
-        let steps: Int?
-        let sleepBits: UInt64?
-        let restingBits: UInt64
-        let maxHRBits: UInt64
-        let ticksBits: UInt64
-        let isToday: Bool
-    }
-
-    private struct DayPartsEntry { let parts: StrainScorerV2.DayStrainComponents? }
-
-    /// The parts rebuilt for a settle, keyed by every input that shapes them (the stored score included), so a later
-    /// pass over unchanged days reads no readings.
-    private var dayPartsCache: [DayPartsKey: DayPartsEntry] = [:]
-
     private static func logicalStart(ofDayKey dayKey: String, calendar: Calendar = .current) -> Date? {
         let parts = dayKey.split(separator: "-").compactMap { Int($0) }
         guard parts.count == 3 else { return nil }
@@ -64,9 +47,10 @@ final class IntelligenceEngine: ObservableObject {
     }
 
     /// One day's heart-rate-only parts (cardio, step and energy floors), rebuilt the way the day detail rebuilds them
-    /// from the day's readings. `.none` when the day has no computed row or no parts (a definite answer, cached),
-    /// which leaves the day to the stored-score inversion. `.unavailable` when the answer is only temporarily
-    /// missing (the task was cancelled or the repository has not loaded): never cached, so a later pass retries.
+    /// from the day's readings. `.none` when the day has no computed row or no parts (a definite answer), which
+    /// leaves the day to the stored-score inversion. `.unavailable` is temporary and defers the transaction.
+    /// Parts live only in this settle's combiner: raw reads can land before the repository refresh counter moves.
+    /// Unchanged settles remain cheap because the store lists only dirty days.
     private func liftStrainDayParts(day: String) async -> LiftStrainDayPartsLookup {
         if let seam = liftStrainDayPartsForTesting {
             return await seam(day).map(LiftStrainDayPartsLookup.found) ?? .none
@@ -77,53 +61,57 @@ final class IntelligenceEngine: ObservableObject {
         let isToday = day == Repository.logicalDayKey(Date())
         let maxHR = isToday ? Double(profile.hrMax) : profile.hrMaxForBatchScoring
         let resting = basis.restingHr.map(Double.init) ?? StrainScorerV2.defaultRestingHR
-        let key = DayPartsKey(
-            day: day, storedBits: basis.strain?.bitPattern, steps: basis.steps,
-            sleepBits: basis.totalSleepMin?.bitPattern, restingBits: resting.bitPattern,
-            maxHRBits: maxHR.bitPattern, ticksBits: profile.stepTicksPerStep.bitPattern, isToday: isToday)
-        if let hit = dayPartsCache[key] { return hit.parts.map(LiftStrainDayPartsLookup.found) ?? .none }
         let request = StrainDayRequest(
             dayKey: day, logicalStart: start, isToday: isToday, maxHR: maxHR, restingHR: resting,
             steps: basis.steps, stepTicksPerStep: profile.stepTicksPerStep, sleepMinutes: basis.totalSleepMin,
             heroTenths: nil, refreshSeq: repo.refreshSeq)
         let result = await StrainDayLoader.load(request, repo: repo, useCache: false)
         // The loader also answers nil when this task was cancelled or the repository is not loaded; that is not
-        // "the day has no parts", so it is neither cached nor final.
+        // "the day has no parts", so it cannot finalize the settle.
         guard !Task.isCancelled, repo.loaded else { return .unavailable }
         let parts = result?.analysis.components
-        if dayPartsCache.count >= 64 { dayPartsCache.removeAll() }
-        dayPartsCache[key] = DayPartsEntry(parts: parts)
         return parts.map(LiftStrainDayPartsLookup.found) ?? .none
     }
 
     /// Loads the parts of `days` into `combiner` (the Repository's re-key settle goes through this too).
-    func loadLiftStrainDayParts(_ days: [String], into combiner: StrengthStrainDayCombiner) async {
-        await combiner.load(days) { [self] day in await liftStrainDayParts(day: day) }
+    @discardableResult
+    func loadLiftStrainDayParts(_ days: [String], into combiner: StrengthStrainDayCombiner) async -> [String] {
+        var unavailable: [String] = []
+        await combiner.load(days) { [self] day in
+            let lookup = await liftStrainDayParts(day: day)
+            if case .unavailable = lookup { unavailable.append(day) }
+            return lookup
+        }
+        return unavailable
     }
 
+    private enum LiftStrainSettleError: Error { case partsUnavailable }
+
     /// Runs one apply with a day combine that knows the parts of the days it will settle. The days are listed first
-    /// (read only), their parts gathered, then `run` applies. A day the settle reached that was not listed is settled
-    /// again once its parts are loaded; the settle is idempotent from the heart-rate value, so the re-run writes only
-    /// the days whose value changes. A day with no parts is settled by the stored-score inversion (documented).
+    /// (read only), their parts gathered, then `run` applies. A day the settle reached that was not listed is
+    /// retried once after loading its parts. The store rolls back an unprepared day, including workout writes and
+    /// the backfill cursor; retrying the original operation preserves that atomicity. A definite `.none` uses the
+    /// documented stored-score inversion. An unavailable lookup or a second new day leaves durable work pending.
     private func applyLiftStrain(
         store: WhoopStore, extraDayKeys: [String] = [],
         run: (_ dayCombine: @escaping LiftStrainDayCombine) async throws -> LiftStrainApplyResult
     ) async throws -> LiftStrainApplyResult {
         let canonical = deviceId + "-noop"
         let combiner = StrengthStrainDayCombiner()
-        let days = (try? await store.liftStrainSettleDays(
-            canonicalComputedDeviceId: canonical, extraDayKeys: extraDayKeys)) ?? extraDayKeys
-        await loadLiftStrainDayParts(days, into: combiner)
-        var result = try await run(combiner.dayCombine)
-        let missed = combiner.missedDays
-        if !missed.isEmpty {
-            await loadLiftStrainDayParts(missed, into: combiner)
-            let again = try await store.applyLiftStrain(
-                canonicalComputedDeviceId: canonical, now: Int(Date().timeIntervalSince1970),
-                combine: StrengthStrainIntegration.combine, dayCombine: combiner.dayCombine, extraDayKeys: missed)
-            result.add(again)
+        let days = try await store.liftStrainSettleDays(
+            canonicalComputedDeviceId: canonical, extraDayKeys: extraDayKeys)
+        let unavailable = await loadLiftStrainDayParts(days, into: combiner)
+        // No transaction may consume pending targets or advance a backfill cursor with a temporary fallback.
+        // Leave the durable work untouched so a later loaded, uncancelled settle can apply the actual parts.
+        guard unavailable.isEmpty else { throw LiftStrainSettleError.partsUnavailable }
+        do {
+            return try await run(combiner.dayCombine)
+        } catch is StrengthStrainDayCombiner.UnpreparedDay {
+            let missed = combiner.missedDays
+            let unavailable = await loadLiftStrainDayParts(missed, into: combiner)
+            guard unavailable.isEmpty else { throw LiftStrainSettleError.partsUnavailable }
+            return try await run(combiner.dayCombine)
         }
-        return result
     }
 
     /// In-pass apply: called while `computing == true`. Returns the workout and day writes.
@@ -766,7 +754,7 @@ final class IntelligenceEngine: ObservableObject {
         self.repo = repo; self.profile = profile; self.deviceId = deviceId; self.isPrimary = isPrimary
         if isPrimary {
             repo.liftStrainDayPartsLoader = { [weak self] days, combiner in
-                await self?.loadLiftStrainDayParts(days, into: combiner)
+                _ = await self?.loadLiftStrainDayParts(days, into: combiner)
             }
         }
     }

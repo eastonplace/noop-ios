@@ -80,10 +80,10 @@ enum StrengthStrainFixtures {
         try ReceiptLiftHistory.completedWorkouts(fromStateData: stateData(lifts))
     }
 
-    static func dailyMetric(_ day: String, strain: Double?, version: Int? = 2, restingHr: Int = 52) -> DailyMetric {
+    static func dailyMetric(_ day: String, strain: Double?, version: Int? = 2, restingHr: Int = 52, steps: Int = 9_000) -> DailyMetric {
         DailyMetric(day: day, totalSleepMin: 420, efficiency: 0.9, deepMin: 80, remMin: 90, lightMin: 250,
                     disturbances: 3, restingHr: restingHr, avgHrv: 61, recovery: 70, strain: strain, exerciseCount: 1,
-                    steps: 9_000, activeKcalEst: 400, strainVersion: version)
+                    steps: steps, activeKcalEst: 400, strainVersion: version)
     }
 
     static func register(_ store: WhoopStore, ids: [String]) throws {
@@ -179,6 +179,7 @@ enum StrengthStrainFixtures {
     static func makeEngine(store: WhoopStore, primary: Bool = true) -> (engine: IntelligenceEngine, repo: Repository) {
         let repo = Repository(deviceId: Repository.whoopSource)
         repo.setStoreForTesting(store)
+        repo.loaded = true
         let engine = IntelligenceEngine(
             repo: repo, profile: ProfileStore(), deviceId: Repository.whoopSource, isPrimary: primary)
         return (engine, repo)

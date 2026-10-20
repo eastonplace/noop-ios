@@ -147,8 +147,9 @@ enum LiftStrainDayPartsLookup {
 
 /// Holds the parts of the days a settle will combine, and hands the store a synchronous day combine over them
 /// (the store calls it inside its write transaction, so it cannot read anything itself). A day whose parts were
-/// never looked for is recorded as missed, so the caller can load it and settle that day again.
+/// never looked for is recorded as missed and throws, so the store rolls back before the caller loads and retries.
 final class StrengthStrainDayCombiner: @unchecked Sendable {
+    struct UnpreparedDay: Error { let day: String }
     private let lock = NSLock()
     private var parts: [String: StrainScorerV2.DayStrainComponents] = [:]
     private var attempted: Set<String> = []
@@ -184,8 +185,11 @@ final class StrengthStrainDayCombiner: @unchecked Sendable {
 
     var dayCombine: LiftStrainDayCombine {
         { [self] day, hrStored, muscularLoad in
-            let components: StrainScorerV2.DayStrainComponents? = locked {
-                if !attempted.contains(day) { missed.insert(day) }
+            let components: StrainScorerV2.DayStrainComponents? = try locked {
+                guard attempted.contains(day) else {
+                    missed.insert(day)
+                    throw UnpreparedDay(day: day)
+                }
                 return parts[day]
             }
             return StrengthStrainIntegration.dayCombine(
@@ -193,10 +197,10 @@ final class StrengthStrainDayCombiner: @unchecked Sendable {
         }
     }
 
-    private func locked<T>(_ body: () -> T) -> T {
+    private func locked<T>(_ body: () throws -> T) rethrows -> T {
         lock.lock()
         defer { lock.unlock() }
-        return body()
+        return try body()
     }
 }
 
