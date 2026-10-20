@@ -231,6 +231,9 @@ struct RootTabView: View {
         }
         #endif
         .task {
+            #if DEBUG && targetEnvironment(simulator)
+            QANotificationResponse.injectIfRequested()
+            #endif
             router.installNotificationResponseRouting()
             routePendingNotification()
             routePendingCoachRequest()

@@ -1,8 +1,36 @@
 #if DEBUG && os(iOS)
 import SwiftUI
+import StrandAnalytics
 import StrandDesign
 import ReceiptLiftFeature
 import WhoopStore
+
+#if targetEnvironment(simulator)
+/// Queues normal versioned response payloads before the shell installs its production router.
+/// Repeat `--noop-qa-notification-destination <JSON>` to exercise dismissal between queued taps.
+/// This seam neither reads records nor changes source/session/readiness guards. The ordinary
+/// simulator demo owns its dated records; a payload intentionally has no source-context override.
+@MainActor
+enum QANotificationResponse {
+    private static var injected = false
+
+    static func injectIfRequested() {
+        let arguments = ProcessInfo.processInfo.arguments
+        guard !injected, arguments.contains("--demo-seed"),
+              arguments.contains("--noop-coach-shell-qa") else { return }
+        injected = true
+        for index in arguments.indices where arguments[index] == "--noop-qa-notification-destination" {
+            guard arguments.indices.contains(index + 1),
+                  (try? JSONDecoder().decode(NotificationDestination.self,
+                      from: Data(arguments[index + 1].utf8))) != nil else { continue }
+            NavRouter.receiveNotificationResponse(userInfo: [
+                "noopNotificationVersion": 1,
+                "noopNotificationDestination": arguments[index + 1],
+            ])
+        }
+    }
+}
+#endif
 
 /// Screenshot/QA harness, DEBUG only: `--noop-qa-route <route>` opens a deep screen straight from launch so
 /// it can be captured without UI automation. Each route is presented the way the app normally reaches it:
