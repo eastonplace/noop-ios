@@ -31,6 +31,8 @@ Two regression additions cover this newer integration:
 
 The history fixtures disable autonomous constructor tasks through the default-on `startRuntimeTasks` lifecycle parameter, then drive the real background entry explicitly. This isolates grant execution from launch bootstrap and source-coordinator startup; it does not claim cold-launch coverage.
 
+A final accessibility review also found a preexisting translucent receipt confirmation stamp on merged PR #61. The candidate adds the existing opaque overlay surface beneath its tint so underlying workout text cannot show through. Placement and logging behavior are unchanged. This is one local UI correction outside the packet paths.
+
 These describe source assertions. Their presence alone does not establish execution or a passing result.
 
 ## Verification and remaining limits
