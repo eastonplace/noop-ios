@@ -299,28 +299,42 @@ final class NotificationCoordinator: ObservableObject {
     }
 
     func reconcile() async {
-        guard inFlight.isEmpty, let store = await storeProvider() else { return }
-        guard !context().sourceContext.hasPrefix("unavailable:") else { return }
+        // A store belongs to the source selected before it was opened. A replacement
+        // during any await must not let that store remove the new source's requests.
+        let source = context().sourceContext
+        guard inFlight.isEmpty, !source.hasPrefix("unavailable:"),
+              let store = await storeProvider(), context().sourceContext == source else { return }
         let pending = await center.pendingIdentifiers()
+        guard context().sourceContext == source else { return }
         let delivered = await center.deliveredIdentifiers()
+        guard context().sourceContext == source else { return }
         let details = await center.identifiersContainingDetails()
+        guard context().sourceContext == source else { return }
         do {
             try await store.reconcileNotifications(pending: pending, delivered: delivered, now: clock())
+            guard context().sourceContext == source else { return }
             let rows = try await store.notificationRecords()
+            guard context().sourceContext == source else { return }
             let known = Set(rows.map(\.requestIdentifier))
             let orphans = (pending.union(delivered)).filter { $0.hasPrefix(Self.namespace) && !known.contains($0) }
             center.remove(Array(orphans), delivered: true)
             for row in rows where row.requestIdentifier.hasPrefix(Self.namespace) {
-                let obsolete = row.sourceContext != context().sourceContext || row.expiresAt <= clock()
+                guard context().sourceContext == source else { return }
+                let obsolete = row.sourceContext != source || row.expiresAt <= clock()
                 let group = NotificationGroup.allCases.first { row.ruleID.hasPrefix($0.rawValue) || row.ruleID == "noop." + $0.rawValue }
                 let disabled = group.map { preferences().mode(for: $0) != .notify } ?? false
                 if obsolete || disabled || (!preferences().showHealthDetails && details.contains(row.requestIdentifier)) {
                     center.remove([row.requestIdentifier], delivered: true)
                     try await store.withdrawNotification(occurrenceID: row.occurrenceID, now: clock())
+                    guard context().sourceContext == source else { return }
                 }
             }
             try await store.pruneNotificationDecisions(now: clock(), retentionDays: 30)
-        } catch { setupStatus = "Notification status could not be checked. Open the app again to retry." }
+            guard context().sourceContext == source else { return }
+        } catch {
+            guard context().sourceContext == source else { return }
+            setupStatus = "Notification status could not be checked. Open the app again to retry."
+        }
     }
 
     func dismissInApp(occurrenceID: String) {

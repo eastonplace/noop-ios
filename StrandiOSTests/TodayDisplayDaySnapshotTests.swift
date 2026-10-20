@@ -23,6 +23,22 @@ final class TodayDisplayDaySnapshotTests: XCTestCase {
         }
     }
 
+    func testNotificationCivilDayResolvesToSameRecordAfterTimezoneChange() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let selected = "2026-10-20"
+        let opened = try XCTUnwrap(TodayView.notificationSelectionDate(dayKey: selected, calendar: calendar))
+        XCTAssertEqual(Repository.localDayKey(opened, calendar: calendar), selected)
+        calendar.timeZone = try XCTUnwrap(TimeZone(identifier: "America/Los_Angeles"))
+        XCTAssertEqual(Repository.localDayKey(opened, calendar: calendar), "2026-10-19")
+        let afterTravel = try XCTUnwrap(TodayView.notificationSelectionDate(dayKey: selected, calendar: calendar))
+        XCTAssertEqual(Repository.localDayKey(afterTravel, calendar: calendar), selected)
+        let rows = [day("2026-10-19", sleepMin: 400), day(selected, sleepMin: 430)]
+        XCTAssertEqual(TodayView.resolveDisplayDay(days: rows, selectedDayOffset: 0,
+            logicalKey: "2026-10-19", localKey: "2026-10-19", selectedDayKey: selected,
+            exactDaySelection: true)?.day, selected)
+    }
+
     func testSnapshotPreservesPreFourAMBankedLocalDay() {
         let logicalKey = "2026-06-13", localKey = "2026-06-14"
         let rows = [

@@ -1064,7 +1064,7 @@ private struct NotificationDestinationScreen: View {
     @State private var journalNumeric: [String: Double] = [:]
     @State private var journalQuestions: [String] = []
     @State private var dayOffset = 0
-    @State private var journalSelectedDate: Date?
+    @State private var journalSelectedDayKey: String?
     @State private var sleepByDay: [String: Double] = [:]
     @State private var openedSource: String?
 
@@ -1092,7 +1092,7 @@ private struct NotificationDestinationScreen: View {
                 if Self.date(day) != nil, loaded {
                     ScrollView {
                         JournalLogCard(importedQuestions: journalQuestions, answers: journalAnswers,
-                            numericAnswers: journalNumeric, dayOffset: $dayOffset, selectedDate: $journalSelectedDate,
+                            numericAnswers: journalNumeric, dayOffset: $dayOffset, selectedDayKey: $journalSelectedDayKey,
                             onChanged: {
                                 loaded = false
                                 journalAnswers = [:]
@@ -1146,7 +1146,7 @@ private struct NotificationDestinationScreen: View {
             await lift.selectCurrentSource()
         case .journal(let day):
             if let date = Self.date(day) {
-                journalSelectedDate = date
+                journalSelectedDayKey = day
                 dayOffset = Calendar.current.dateComponents([.day], from: date, to: Calendar.current.startOfDay(for: Date())).day ?? 0
                 let imported = await repo.importedJournalEntries()
                 journalQuestions = Array(Set(imported.map(\.question))).sorted()
@@ -1160,11 +1160,10 @@ private struct NotificationDestinationScreen: View {
         loaded = true
     }
     private func loadJournal() async {
-        guard let date = journalSelectedDate else { return }
-        let day = Repository.localDayKey(date)
+        guard let day = journalSelectedDayKey else { return }
         let answers = await repo.nativeJournalAnswers(day: day)
         let numeric = await repo.nativeJournalNumeric(day: day)
-        guard journalSelectedDate == date else { return }
+        guard journalSelectedDayKey == day else { return }
         journalAnswers = answers
         journalNumeric = numeric
     }

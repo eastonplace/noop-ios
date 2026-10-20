@@ -11,9 +11,13 @@ final class NotificationCoordinatorTests: XCTestCase {
         var additions = 0
         var failure: Error?
         var duringAdd: (() -> Void)?
+        var duringPendingRead: (() -> Void)?
         var details: Set<String> = []
         func isAuthorized() async -> Bool { permission }
-        func pendingIdentifiers() async -> Set<String> { Set(requests.keys) }
+        func pendingIdentifiers() async -> Set<String> {
+            duringPendingRead?()
+            return Set(requests.keys)
+        }
         func deliveredIdentifiers() async -> Set<String> { [] }
         func add(_ request: NotificationDeliveryRequest) async throws {
             additions += 1
@@ -116,6 +120,48 @@ final class NotificationCoordinatorTests: XCTestCase {
         await coordinator(store: store, center: center).reconcile()
         XCTAssertNil(center.requests[orphan])
         XCTAssertNotNil(center.requests["smart-alarm-backup"])
+    }
+    func testSourceChangeDuringReconciliationPreservesNewSourceRequest() async throws {
+        let oldStore = try await WhoopStore.inMemory()
+        let newStore = try await WhoopStore.inMemory()
+        let center = Center()
+        var source = "database-a:device"
+        let reminder = NotificationSchedulePlanner.candidate(group: .journalCheckIn, id: "day",
+            scheduledAt: now.addingTimeInterval(3600), source: "database-b:device",
+            destination: .journal(logicalDay: "2027-01-19"), now: now)
+        let identifier = NotificationCoordinator.requestIdentifier(reminder.occurrenceID)
+        _ = try await newStore.claimNotification(.init(occurrenceID: reminder.occurrenceID,
+            attentionKey: reminder.attentionKey, ruleID: reminder.ruleID, sourceContext: reminder.sourceContext,
+            evidenceRevision: reminder.evidenceRevision, logicalDay: reminder.logicalDay,
+            requestIdentifier: identifier, isProactive: false, expiresAt: reminder.expiresAt), now: now)
+        _ = try await newStore.markNotificationSubmitting(occurrenceID: reminder.occurrenceID, now: now)
+        try await newStore.markNotificationSubmitted(occurrenceID: reminder.occurrenceID, now: now)
+        let runtime = NotificationCoordinator(center: center, clock: { self.now },
+            preferences: { .init(modes: [.journalCheckIn: .notify]) },
+            context: { .init(sourceContext: source, logicalDay: "2027-01-19") },
+            store: { source == "database-a:device" ? oldStore : newStore }, dryRun: { false })
+        center.duringPendingRead = {
+            source = "database-b:device"
+            center.requests[identifier] = .init(identifier: identifier, title: reminder.genericTitle,
+                body: reminder.genericBody, candidate: reminder)
+        }
+        await runtime.reconcile()
+        XCTAssertNotNil(center.requests[identifier], "An old database pass must not remove a new source's request")
+        let rows = try await newStore.notificationRecords()
+        XCTAssertEqual(rows.first?.state, .submitted)
+    }
+    func testSourceChangeWhileOpeningReconciliationStoreAbandonsOldStore() async throws {
+        let oldStore = try await WhoopStore.inMemory()
+        let center = Center()
+        var source = "database-a:device"
+        let identifier = NotificationCoordinator.requestIdentifier("database-b:current")
+        center.requests[identifier] = .init(identifier: identifier, title: "Current", body: "Current", candidate: candidate())
+        let runtime = NotificationCoordinator(center: center, clock: { self.now },
+            preferences: { .init(modes: [.workoutSummary: .notify]) },
+            context: { .init(sourceContext: source, logicalDay: "2027-01-19") },
+            store: { source = "database-b:device"; return oldStore }, dryRun: { false })
+        await runtime.reconcile()
+        XCTAssertNotNil(center.requests[identifier])
     }
     func testReservedBeforeInvocationCanResumeOnce() async throws {
         let store = try await WhoopStore.inMemory()

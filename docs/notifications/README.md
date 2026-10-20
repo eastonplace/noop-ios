@@ -56,9 +56,12 @@ The temporary Linux Swift 6.3.3 harnesses compiled the exact new policy sources 
 - Policy harness: 13 tests passed.
 - SQLite ledger harness: 20 tests passed, including separate writer connections, disk reopen, unknown submission outcomes, bounded retry, retention, local-calendar budgets and migration ordering. A repeated-reconciliation regression was reproduced and fixed before the final run.
 - A pure Foundation schedule harness verified DST spring/fall resolution and skipping date-only or completed plans.
+- A civil-date regression harness reproduced the wrong journal date after a timezone change. The corrected date helpers passed nine checks, including midnight and UTC-to-Los-Angeles travel.
 - All 12 required source audits passed. Swift syntax parsing has passed for the changed implementation areas. Parsing does not establish Apple SDK type checking.
 
 The existing GitHub workflows run the real retained packages, Xcode app build and iOS unit tests on the pushed PR. Their current status is recorded in the PR description. Linux cannot run Xcode, render SwiftUI screenshots or exercise device notification behavior.
+
+Independent review checked the initial implementation and the follow-up source/date fixes. Notification cleanup now stops when the full source context changes during an awaited operation. Lift plan evidence requires completed restoration and matching source ownership.
 
 Before merge, review the hosted Apple checks and manually verify normal/large-text Settings, lock-screen privacy, Focus behavior, cold-launch taps, permission revocation, timezone travel, reconnects and a real Lift completion. Physical-device checks and rendered UI screenshots are not claimed by this implementation report.
 

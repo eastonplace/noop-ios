@@ -28,18 +28,18 @@ struct JournalLogCard: View {
     /// question → numeric value for the selected day, native rows only (drives the numeric fields).
     let numericAnswers: [String: Double]
     @Binding var dayOffset: Int            // -1 = tomorrow, 0 = today, 1 = yesterday
-    /// Notification-hosted entries pin one calendar date across midnight. Existing callers retain offsets.
-    @Binding private var selectedDate: Date?
+    /// Notification-hosted entries retain the civil record key across midnight and timezone changes.
+    @Binding private var selectedDayKey: String?
     let onChanged: () -> Void              // parent re-runs load() after a write
 
     init(importedQuestions: [String], answers: [String: Bool],
          numericAnswers: [String: Double] = [:], dayOffset: Binding<Int>,
-         selectedDate: Binding<Date?> = .constant(nil), onChanged: @escaping () -> Void) {
+         selectedDayKey: Binding<String?> = .constant(nil), onChanged: @escaping () -> Void) {
         self.importedQuestions = importedQuestions
         self.answers = answers
         self.numericAnswers = numericAnswers
         self._dayOffset = dayOffset
-        self._selectedDate = selectedDate
+        self._selectedDayKey = selectedDayKey
         self.onChanged = onChanged
     }
 
@@ -60,13 +60,26 @@ struct JournalLogCard: View {
     @State private var selectedMood: Int?
     @State private var loggedWindow: [Bool] = []
 
-    nonisolated static func entryDate(selectedDate: Date?, dayOffset: Int, now: Date = Date(), calendar: Calendar = .current) -> Date {
-        if let selectedDate { return calendar.startOfDay(for: selectedDate) }
-        return calendar.startOfDay(for: calendar.date(byAdding: .day, value: -dayOffset, to: now) ?? now)
+    nonisolated static func entryDayKey(selectedDayKey: String?, dayOffset: Int, now: Date = Date(), calendar: Calendar = .current) -> String {
+        if let selectedDayKey { return selectedDayKey }
+        let date = calendar.date(byAdding: .day, value: -dayOffset, to: now) ?? now
+        return Repository.localDayKey(date, calendar: calendar)
     }
 
     private var dayKey: String {
-        Repository.localDayKey(Self.entryDate(selectedDate: selectedDate, dayOffset: dayOffset))
+        Self.entryDayKey(selectedDayKey: selectedDayKey, dayOffset: dayOffset)
+    }
+
+    private var selectedDate: Date? {
+        guard let selectedDayKey else { return nil }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.timeZone = .current
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.isLenient = false
+        guard let date = formatter.date(from: selectedDayKey), formatter.string(from: date) == selectedDayKey else { return nil }
+        return date
     }
 
     /// The resolved, grouped catalog for the current imported set. Hidden items included only while
@@ -459,10 +472,10 @@ struct JournalLogCard: View {
     // MARK: - Controls
 
     private func dayPill(_ label: LocalizedStringKey, offset: Int) -> some View {
-        let target = Self.entryDate(selectedDate: nil, dayOffset: offset)
-        let isSelected = selectedDate.map { Calendar.current.isDate($0, inSameDayAs: target) } ?? (dayOffset == offset)
+        let target = Self.entryDayKey(selectedDayKey: nil, dayOffset: offset)
+        let isSelected = selectedDayKey.map { $0 == target } ?? (dayOffset == offset)
         return pillButton(label, selected: isSelected) {
-            if selectedDate != nil { selectedDate = target }
+            if selectedDayKey != nil { selectedDayKey = target }
             dayOffset = offset
             onChanged()   // reload the selected day's answers
         }

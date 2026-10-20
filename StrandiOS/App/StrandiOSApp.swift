@@ -583,8 +583,10 @@ struct StrandiOSApp: App {
                 .environmentObject(receiptLift)
                 .task(id: model.repo.notificationSourceContext) {
                     await receiptLift.selectCurrentSource()
-                    NotificationCoordinator.shared.workoutPlans = { [weak receiptLift] in
-                        receiptLift?.coordinator?.notificationPlans.map {
+                    NotificationCoordinator.shared.workoutPlans = { [weak receiptLift, weak model] in
+                        guard let receiptLift, let model, receiptLift.isNotificationSourceReady,
+                              receiptLift.notificationSourceContext == model.repo.notificationSourceContext else { return [] }
+                        return receiptLift.coordinator?.notificationPlans.map {
                             NotificationWorkoutPlan(id: $0.id, plannedAt: $0.plannedAt,
                                 completedSessionID: $0.completedSessionID, hasExplicitTime: $0.hasExplicitTime, revision: $0.revision)
                         } ?? []
