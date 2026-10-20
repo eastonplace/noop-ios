@@ -581,7 +581,7 @@ struct StrandiOSApp: App {
                 .environmentObject(health)
                 .environmentObject(router)
                 .environmentObject(receiptLift)
-                .task(id: model.repo.notificationSourceContext) {
+                .task(id: model.repo.notificationSourceContext) { [receiptLift, model] in
                     await receiptLift.selectCurrentSource()
                     NotificationCoordinator.shared.workoutPlans = { [weak receiptLift, weak model] in
                         guard let receiptLift, let model, receiptLift.isNotificationSourceReady,
