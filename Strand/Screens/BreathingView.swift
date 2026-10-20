@@ -32,11 +32,13 @@ private struct BreathingContent: View {
 
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var live: LiveState
-    /// When the user has Reduce Motion on, the large repeating inhale/exhale orb zoom is
-    /// suppressed — the breath is cued by the phase word + haptics instead. (a11y)
+    /// Reduce Motion hides the moving timeline cursor; the phase word and haptics still cue the breath.
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dynamicTypeSize) private var typeSize
-    @ScaledMetric(relativeTo: .title2) private var timelineHeight: CGFloat = 76
+    @ScaledMetric(relativeTo: .title2) private var timelineHeight: CGFloat = 70
+    @ScaledMetric(relativeTo: .title3) private var readoutValueSize: CGFloat = 20
+    @ScaledMetric(relativeTo: .subheadline) private var modeFontSize: CGFloat = 14
+    @ScaledMetric(relativeTo: .subheadline) private var modeChipHeight: CGFloat = 34
 
     /// The L1/L2 session controller (walks the engines, fires the buzz path). View-owned, created lazily
     /// from the environment model + live state on first appear (a `@StateObject` can't read the
@@ -218,11 +220,28 @@ private struct BreathingContent: View {
             : AnyLayout(HStackLayout(spacing: NoopMetrics.space2))
         return layout {
             ForEach(Mode.allCases, id: \.self) { item in
-                ChoiceChipButton(verbatimTitle: item.label, isSelected: mode == item) {
+                Button {
                     mode = item
+                } label: {
+                    Text(verbatim: item.label)
+                        .font(StrandFont.sized(modeFontSize, weight: mode == item ? .bold : .semibold))
+                        .foregroundStyle(mode == item ? StrandPalette.textPrimary : StrandPalette.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, NoopMetrics.space2)
+                        .padding(.vertical, typeSize.isAccessibilitySize ? NoopMetrics.space2 : 0)
+                        .frame(maxWidth: .infinity, minHeight: modeChipHeight)
+                        .background(mode == item ? StrandPalette.inset : .clear,
+                                    in: Capsule(style: .continuous))
+                        .overlay {
+                            Capsule(style: .continuous)
+                                .strokeBorder(mode == item ? StrandPalette.hairlineStrong : StrandPalette.pillStroke,
+                                              lineWidth: 1)
+                        }
+                        .frame(minHeight: 44)
+                        .contentShape(Rectangle())
                 }
-                .frame(minHeight: 44)
-                .frame(maxWidth: .infinity)
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(mode == item ? .isSelected : [])
                 .accessibilityIdentifier("breathe.mode.\(String(describing: item))")
             }
         }
@@ -277,12 +296,12 @@ private struct BreathingContent: View {
         VStack(alignment: .leading, spacing: NoopMetrics.space4) {
             VStack(alignment: .leading, spacing: NoopMetrics.space2) {
                 Text(running ? phaseWord : String(localized: "Ready to breathe"))
-                    .font(StrandFont.largeTitle)
+                    .font(StrandFont.largeTitle.weight(.semibold))
                     .foregroundStyle(StrandPalette.textPrimary)
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("breathe.phase")
                 Text("\(pace.label) · \(durationText(pace.cycle(lockedBpm: lockedBpm)))-second cycle")
-                    .font(StrandFont.subhead)
+                    .font(StrandFont.footnote)
                     .foregroundStyle(StrandPalette.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -327,7 +346,7 @@ private struct BreathingContent: View {
                                 : inhaleWidth + gap + (width - inhaleWidth) * CGFloat(elapsed / duration)
                             Rectangle()
                                 .fill(StrandPalette.textPrimary)
-                                .frame(width: 2, height: timelineHeight + NoopMetrics.space2)
+                                .frame(width: 2, height: timelineHeight)
                                 .offset(x: min(max(x, 0), max(0, geometry.size.width - 2)))
                                 .accessibilityHidden(true)
                         }
@@ -357,17 +376,18 @@ private struct BreathingContent: View {
     private func phaseSegment(_ segment: Phase) -> some View {
         let active = running && phase == segment
         let duration = segment == .inhale ? pace.inhale(lockedBpm: lockedBpm) : pace.exhale(lockedBpm: lockedBpm)
-        return VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+        return VStack(alignment: .leading, spacing: NoopMetrics.space1) {
             Text(segment == .inhale ? "IN" : "OUT")
                 .font(StrandFont.overline)
-                .tracking(2)
+                .tracking(StrandFont.overlineTracking)
                 .foregroundStyle(StrandPalette.textSecondary)
             Text("\(durationText(duration)) s")
-                .font(StrandFont.title2.monospacedDigit())
+                .font(StrandFont.number(readoutValueSize))
                 .foregroundStyle(StrandPalette.textPrimary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-        .padding(NoopMetrics.space4)
+        .padding(.horizontal, NoopMetrics.space4)
+        .padding(.vertical, NoopMetrics.space3)
         .background(active ? StrandPalette.inset : StrandPalette.surfaceRaised,
                     in: RoundedRectangle(cornerRadius: NoopMetrics.radius2, style: .continuous))
         .overlay {
@@ -402,17 +422,13 @@ private struct BreathingContent: View {
     /// Opt-in audio pacer toggle, next to the breathing setup.
     /// Default off; flipping it primes/tears down the tone engine via the onChange hook above.
     private var audioCueToggle: some View {
-        HStack(spacing: 10) {
-            Image(systemName: audioCues ? "speaker.wave.2.fill" : "speaker.slash.fill")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(audioCues ? StrandPalette.restBright : StrandPalette.textTertiary)
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 1) {
+        HStack(spacing: NoopMetrics.space3) {
+            VStack(alignment: .leading, spacing: NoopMetrics.space1) {
                 Text("Audio cues")
-                    .font(StrandFont.footnote)
+                    .font(StrandFont.subhead.weight(.semibold))
                     .foregroundStyle(StrandPalette.textSecondary)
-                Text("Soft tone on each phase · respects silent mode")
-                    .font(StrandFont.caption)
+                Text("Phase tones · respects silent mode")
+                    .font(StrandFont.micro)
                     .foregroundStyle(StrandPalette.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -422,6 +438,7 @@ private struct BreathingContent: View {
                 .accessibilityLabel("Audio cues")
                 .accessibilityIdentifier("breathe.audioCues")
         }
+        .frame(minHeight: 44)
     }
 
     /// Preset pills — the locked-resonance pill only shows once a pace has been locked (it reads the
@@ -469,16 +486,11 @@ private struct BreathingContent: View {
                 running ? stop() : start()
             } label: {
                 Text(running ? "Stop session" : "Start session")
-                    .font(StrandFont.headline)
+                    .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
-                    .foregroundStyle(StrandPalette.onLightFill)
-                    .frame(maxWidth: .infinity)
-                    .padding(.horizontal, NoopMetrics.space4)
-                    .padding(.vertical, NoopMetrics.space4)
-                    .frame(minHeight: 50)
-                    .background(StrandPalette.solidFill, in: Capsule())
+                    .frame(maxWidth: .infinity, minHeight: 30)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(PrimaryPillButtonStyle())
             .accessibilityIdentifier(running ? "breathe.stop" : "breathe.start")
 
             Button {
@@ -488,20 +500,19 @@ private struct BreathingContent: View {
                     VStack(alignment: .leading, spacing: NoopMetrics.space1) {
                         Text("Test buzz").font(StrandFont.subhead)
                         Text("Single pulse · bonded strap required")
-                            .font(StrandFont.caption)
+                            .font(StrandFont.micro)
                             .foregroundStyle(StrandPalette.textTertiary)
                     }
                     Spacer(minLength: 0)
                     Image(systemName: "waveform.path").accessibilityHidden(true)
                 }
-                .foregroundStyle(StrandPalette.textSecondary)
+                .foregroundStyle(live.bonded ? StrandPalette.textSecondary : StrandPalette.textTertiary)
+                .padding(.vertical, NoopMetrics.space1)
                 .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                .padding(.vertical, NoopMetrics.space2)
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(FlatRowPressStyle())
             .disabled(!live.bonded)
-            .opacity(live.bonded ? 1 : NoopButtonMetrics.disabledOpacity)
             .accessibilityIdentifier("breathe.testBuzz")
             .help("Fire a single haptic pulse on the strap (requires a bonded connection)")
         }
@@ -587,20 +598,22 @@ private struct BreathingContent: View {
     private func readoutTile(label: String, value: String, unit: String, caption: String) -> some View {
         VStack(alignment: .leading, spacing: NoopMetrics.space1) {
             Text(label)
-                .font(StrandFont.caption)
+                .font(StrandFont.micro)
                 .foregroundStyle(StrandPalette.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
             HStack(alignment: .firstTextBaseline, spacing: NoopMetrics.space1) {
                 Text(value)
-                    .font(StrandFont.title2.monospacedDigit())
-                    .foregroundStyle(StrandPalette.textPrimary)
+                    .font(StrandFont.number(readoutValueSize))
+                    .foregroundStyle(value == "—" ? StrandPalette.textTertiary : StrandPalette.textPrimary)
                     .contentTransition(.numericText())
-                Text(unit)
-                    .font(StrandFont.caption)
-                    .foregroundStyle(StrandPalette.textTertiary)
+                if value != "—" {
+                    Text(unit)
+                        .font(StrandFont.caption)
+                        .foregroundStyle(StrandPalette.textTertiary)
+                }
             }
             Text(caption)
-                .font(StrandFont.caption)
+                .font(StrandFont.micro)
                 .foregroundStyle(StrandPalette.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -616,14 +629,35 @@ private struct BreathingContent: View {
                 ? AnyLayout(VStackLayout(alignment: .leading, spacing: NoopMetrics.space2))
                 : AnyLayout(HStackLayout())
             layout {
-                Text("Coherence estimate").strandOverline()
+                Text("Coherence estimate")
+                    .font(StrandFont.caption)
+                    .foregroundStyle(StrandPalette.textTertiary)
                 if !typeSize.isAccessibilitySize { Spacer() }
-                StatePill("\(coherenceLabel)", tone: coherenceTone, showsDot: true)
+                HStack(spacing: NoopMetrics.space1) {
+                    Circle()
+                        .fill(coherenceTone.color)
+                        .frame(width: 5, height: 5)
+                        .accessibilityHidden(true)
+                    Text(coherenceLabel)
+                        .font(StrandFont.caption.weight(.semibold))
+                        .foregroundStyle(StrandPalette.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.horizontal, NoopMetrics.space2)
+                .padding(.vertical, NoopMetrics.space1)
+                .background(StrandPalette.pillFill, in: Capsule(style: .continuous))
+                .overlay {
+                    Capsule(style: .continuous).strokeBorder(StrandPalette.pillStroke, lineWidth: 1)
+                }
+                .accessibilityElement(children: .combine)
             }
 
-            PaperProgressBar(frac: coherenceFraction, tint: StrandPalette.restBright, height: 10)
-                .accessibilityLabel("Coherence estimate")
-                .accessibilityValue("\(Int(coherenceFraction * 100)) percent")
+            if rmssd != nil {
+                PaperProgressBar(frac: coherenceFraction, tint: StrandPalette.restBright, height: 10)
+                    .accessibilityLabel("Coherence estimate")
+                    .accessibilityValue("\(Int(coherenceFraction * 100)) percent")
+                    .accessibilityIdentifier("breathe.coherenceProgress")
+            }
 
             Text("Estimate only: a higher RMSSD while paced usually means your parasympathetic \"rest\" branch is engaging. It is not a clinical reading; trends over a session matter more than any single number.")
                 .font(StrandFont.footnote)

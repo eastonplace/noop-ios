@@ -27,6 +27,9 @@ final class SelectedScreenDirectionTests: XCTestCase {
     private func launch(_ app: XCUIApplication, route: String, size: TextSize) {
         app.terminate()
         app.launchArguments = [
+            // Use the existing simulator-only shell host so consent/onboarding overlays
+            // cannot intercept taps on a QA-presented sheet. This records no acceptance.
+            "--noop-coach-shell-qa",
             "--demo-seed", "--noop-qa-route", route,
             // Load the existing simulator-only idle Lift fixture so a preceding routine
             // test's active session cannot resume over this route or disable Workout.
@@ -47,6 +50,10 @@ final class SelectedScreenDirectionTests: XCTestCase {
         let freshness = element("live.hr.freshness", in: app)
         try reveal(freshness, in: app)
         XCTAssertEqual(freshness.value as? String, "Offline", "A demo launch without a strap must identify the offline state")
+        let zone = element("live.hr.zone", in: app)
+        try reveal(zone, in: app)
+        XCTAssertTrue(zone.label.contains("No reading"), "Missing heart rate cannot imply a measured heart-rate zone")
+        XCTAssertFalse(zone.label.contains("Z1"), "A missing reading must not be rendered as Zone 1")
         capture(app, "live-hr-\(size)-overview")
 
         // Reachability matters at large sizes even when a command starts below the fold.
@@ -70,6 +77,8 @@ final class SelectedScreenDirectionTests: XCTestCase {
         try requireExists(app.buttons["breathe.mode.breathe"], timeout: 60)
         try reveal(phase, in: app)
         XCTAssertEqual(phase.label, "Ready to breathe")
+        XCTAssertFalse(element("breathe.coherenceProgress", in: app).exists,
+                       "Missing R-R data must not be announced as a zero-percent coherence estimate")
         try reveal(element("breathe.timeline", in: app), in: app)
         capture(app, "breathe-\(size)-ready-timeline")
 
@@ -238,7 +247,11 @@ final class SelectedScreenDirectionTests: XCTestCase {
                            direction: ScrollDirection = .up) throws {
         let toggle = app.switches["settings.quickActions.\(name)"]
         try reveal(toggle, in: app, direction: direction)
-        if try switchValue(toggle) != desired { toggle.tap() }
+        if try switchValue(toggle) != desired {
+            // Native Form exposes the full labelled row as a Switch. Aim at its visible trailing
+            // track instead of the row's blank center; the postcondition still checks the real value.
+            toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+        }
         let changed = XCTNSPredicateExpectation(
             predicate: NSPredicate(format: "value == %@", desired ? "1" : "0"), object: toggle
         )

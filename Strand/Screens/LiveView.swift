@@ -56,11 +56,11 @@ struct LiveView: View {
                        topBackground: nil,
                        backAction: scaffoldBackAction,
                        usesCompactUtilityHeader: true) {
-            VStack(alignment: .leading, spacing: NoopMetrics.sectionGap) {
+            VStack(alignment: .leading, spacing: NoopMetrics.space3) {
                 PaperLiveDeviceCard(deviceName: activeDeviceName,
                                     activeConnection: activeConnection)
                 if let message = live.bluetoothUnavailableMessage {
-                    NoteCard(LocalizedStringKey(message), title: "Bluetooth unavailable", style: .warning)
+                    bluetoothWarning(message)
                 }
                 // Can't-connect-at-all guidance: the strap wiped its bond (firmware update / WHOOP app
                 // re-bond), so connects loop on "Peer removed pairing information". Show the re-pair steps
@@ -222,23 +222,23 @@ struct LiveView: View {
     }
 
     private var advancedControlsCard: some View {
-        VStack(alignment: .leading, spacing: NoopMetrics.cardInnerSpacing) {
+        VStack(alignment: .leading, spacing: NoopMetrics.space3) {
             Text("Advanced controls")
                 .font(StrandFont.footnote)
                 .foregroundStyle(StrandPalette.textSecondary)
             if !activeConnection { modelPicker }
             if typeSize.isAccessibilitySize {
-                VStack(spacing: NoopMetrics.rowSpacing) {
+                VStack(spacing: NoopMetrics.space3) {
                     buzzButton
                     disconnectButton
                 }
             } else {
                 ViewThatFits(in: .horizontal) {
-                    HStack(spacing: NoopMetrics.rowSpacing) {
+                    HStack(spacing: NoopMetrics.space3) {
                         buzzButton
                         disconnectButton
                     }
-                    VStack(spacing: NoopMetrics.rowSpacing) {
+                    VStack(spacing: NoopMetrics.space3) {
                         buzzButton
                         disconnectButton
                     }
@@ -246,6 +246,31 @@ struct LiveView: View {
             }
             manageDevicesRow
         }
+    }
+
+    /// Keep the full system warning visible without giving it the weight of another card title.
+    private func bluetoothWarning(_ message: String) -> some View {
+        HStack(alignment: .top, spacing: NoopMetrics.space2) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(StrandFont.footnote.weight(.semibold))
+                .foregroundStyle(StrandPalette.warning)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: NoopMetrics.space1) {
+                Text("Bluetooth unavailable")
+                    .font(StrandFont.caption.weight(.semibold))
+                    .foregroundStyle(StrandPalette.textPrimary)
+                Text(LocalizedStringKey(message))
+                    .font(StrandFont.micro)
+                    .foregroundStyle(StrandPalette.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(.horizontal, NoopMetrics.space3)
+        .padding(.vertical, NoopMetrics.space2)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(StrandPalette.warning.opacity(0.10),
+                    in: RoundedRectangle(cornerRadius: NoopMetrics.space3, style: .continuous))
+        .accessibilityElement(children: .combine)
     }
 
     private func reconnectGuideBanner(_ guide: String) -> some View {
@@ -384,10 +409,10 @@ struct LiveView: View {
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Manage devices")
-                        .font(StrandFont.subhead)
+                        .font(StrandFont.subhead.weight(.semibold))
                         .foregroundStyle(StrandPalette.textPrimary)
                     Text(manageDevicesDetail)
-                        .font(StrandFont.footnote)
+                        .font(StrandFont.micro)
                         .foregroundStyle(StrandPalette.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -397,7 +422,7 @@ struct LiveView: View {
                     .foregroundStyle(StrandPalette.textTertiary)
                     .accessibilityHidden(true)
             }
-            .padding(.vertical, NoopMetrics.space3)
+            .padding(.vertical, NoopMetrics.space2)
             .frame(minHeight: 44)
             .contentShape(Rectangle())
         }
@@ -411,8 +436,8 @@ struct LiveView: View {
     /// it's the live link ("Connected to …") or just the band Scan would target ("… is your active band").
     private var manageDevicesDetail: String {
         activeConnection
-            ? String(localized: "Connected to \(activeDeviceName). Pair or switch bands in Devices.")
-            : String(localized: "\(activeDeviceName) is your active band. Pair or switch bands in Devices.")
+            ? String(localized: "Connected to \(activeDeviceName)")
+            : String(localized: "Active band: \(activeDeviceName)")
     }
 
     // MARK: - Controls
@@ -513,9 +538,9 @@ private struct PaperLiveDeviceCard: View {
     let activeConnection: Bool
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: NoopMetrics.space2) {
             Image(systemName: "antenna.radiowaves.left.and.right")
-                .font(StrandFont.headline)
+                .font(StrandFont.subhead)
                 .foregroundStyle(StrandPalette.textSecondary)
                 .accessibilityHidden(true)
             if typeSize.isAccessibilitySize {
@@ -525,7 +550,7 @@ private struct PaperLiveDeviceCard: View {
                 }
             } else {
                 ViewThatFits(in: .horizontal) {
-                    HStack(spacing: 12) {
+                    HStack(spacing: NoopMetrics.space2) {
                         deviceIdentity
                         Spacer(minLength: 0)
                         connectionStatus
@@ -537,7 +562,8 @@ private struct PaperLiveDeviceCard: View {
                 }
             }
         }
-        .padding(NoopMetrics.cardPadding)
+        .padding(.horizontal, NoopMetrics.cardPadding)
+        .padding(.vertical, NoopMetrics.space3)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(StrandPalette.surfaceRaised,
                     in: RoundedRectangle(cornerRadius: NoopMetrics.cardRadius, style: .continuous))
@@ -549,9 +575,9 @@ private struct PaperLiveDeviceCard: View {
     }
 
     private var deviceIdentity: some View {
-        VStack(alignment: .leading, spacing: 3) {
+        VStack(alignment: .leading, spacing: NoopMetrics.space1) {
             Text(deviceName == "WHOOP" ? "NOOP Strap" : deviceName)
-                .font(StrandFont.cardTitle)
+                .font(StrandFont.subhead.weight(.semibold))
                 .foregroundStyle(StrandPalette.textPrimary)
             Text(deviceDetail)
                 .font(StrandFont.micro)
@@ -568,7 +594,7 @@ private struct PaperLiveDeviceCard: View {
     private var deviceDetail: String {
         let battery = live.batteryPct.map { "Battery \(Int($0))%" } ?? String(localized: "Battery —")
         let worn = activeConnection ? (live.worn ? String(localized: "Worn") : String(localized: "Not worn")) : String(localized: "Wear unknown")
-        return "\(worn) · \(battery) · \(LiveSyncFormat.compactStatus(live))"
+        return "\(worn) · \(battery)"
     }
 }
 
@@ -585,6 +611,8 @@ private struct PaperLiveHeartCard: View {
     @State private var freshnessNow = Date()
     @Environment(\.dynamicTypeSize) private var typeSize
     @ScaledMetric(relativeTo: .largeTitle) private var bpmSize: CGFloat = 92
+    @ScaledMetric(relativeTo: .largeTitle) private var missingBPMSize: CGFloat = 48
+    @ScaledMetric(relativeTo: .title3) private var metricValueSize: CGFloat = 20
 
     private var bpm: Int? { model.bpm }
     private var zoneSet: HRZoneSet { HRZones.zones(maxHR: Double(max(1, hrMax)), source: "profile") }
@@ -598,46 +626,19 @@ private struct PaperLiveHeartCard: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 12) {
-                    heartRateHeading
-                    Spacer(minLength: 0)
-                    freshnessPill
-                }
-                VStack(alignment: .leading, spacing: 10) {
-                    heartRateHeading
-                    freshnessPill
-                }
+        VStack(alignment: .leading, spacing: NoopMetrics.space3) {
+            // The numeral supplies its own line-height. Small interior gaps keep the instrument
+            // together instead of adding section-sized space above and below the reading.
+            VStack(alignment: .leading, spacing: NoopMetrics.space1) {
+                instrumentHeader
+                instrumentReading
+                zoneIndicator
             }
-            VStack(alignment: .leading, spacing: 4) {
-                if typeSize.isAccessibilitySize {
-                    VStack(alignment: .leading, spacing: 0) {
-                        bpmValue
-                        bpmUnit
-                    }
-                } else {
-                    HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        bpmValue
-                        bpmUnit
-                    }
-                }
-                Text("Current heart rate")
-                    .font(StrandFont.footnote)
-                    .foregroundStyle(StrandPalette.textTertiary)
-            }
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel("Heart rate")
-            .accessibilityValue(
-                Text(bpm.map { "\($0) beats per minute. " } ?? "No reading. ")
-                + Text(vitalPresentation.label)
-            )
-            zoneIndicator
             Divider().overlay(StrandPalette.hairline)
             if typeSize.isAccessibilitySize {
-                VStack(alignment: .leading, spacing: 18) { metricColumns }
+                VStack(alignment: .leading, spacing: NoopMetrics.space4) { metricColumns }
             } else {
-                HStack(alignment: .top, spacing: 16) { metricColumns }
+                HStack(alignment: .top, spacing: NoopMetrics.space3) { metricColumns }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -661,6 +662,45 @@ private struct PaperLiveHeartCard: View {
         }
     }
 
+    private var instrumentHeader: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: NoopMetrics.space3) {
+                heartRateHeading
+                Spacer(minLength: 0)
+                freshnessPill
+            }
+            VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+                heartRateHeading
+                freshnessPill
+            }
+        }
+    }
+
+    private var instrumentReading: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if typeSize.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: 0) {
+                    bpmValue
+                    bpmUnit
+                }
+            } else {
+                HStack(alignment: .firstTextBaseline, spacing: NoopMetrics.space2) {
+                    bpmValue
+                    bpmUnit
+                }
+            }
+            Text("Current heart rate")
+                .font(StrandFont.footnote)
+                .foregroundStyle(StrandPalette.textTertiary)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Heart rate")
+        .accessibilityValue(
+            Text(bpm.map { "\($0) beats per minute. " } ?? "No reading. ")
+            + Text(vitalPresentation.label)
+        )
+    }
+
     private var heartRateHeading: some View {
         HStack(spacing: 8) {
             Image(systemName: "heart")
@@ -682,9 +722,10 @@ private struct PaperLiveHeartCard: View {
     }
 
     private var bpmValue: some View {
-        Text(bpm.map { "\($0)" } ?? "—")
-            .font(StrandFont.sized(bpmSize, weight: .semibold).monospacedDigit())
-            .tracking(-bpmSize * 0.04)
+        let size = bpm == nil ? missingBPMSize : bpmSize
+        return Text(bpm.map { "\($0)" } ?? "—")
+            .font(StrandFont.sized(size, weight: .semibold).monospacedDigit())
+            .tracking(-size * 0.04)
             .foregroundStyle(bpm == nil ? StrandPalette.textTertiary : StrandPalette.textPrimary)
             .lineLimit(1)
             .minimumScaleFactor(0.35)
@@ -693,8 +734,8 @@ private struct PaperLiveHeartCard: View {
 
     private var bpmUnit: some View {
         Text("bpm")
-            .font(StrandFont.title2)
-            .foregroundStyle(StrandPalette.liveRed)
+            .font(StrandFont.body)
+            .foregroundStyle(StrandPalette.textSecondary)
             .accessibilityHidden(true)
     }
 
@@ -727,8 +768,9 @@ private struct PaperLiveHeartCard: View {
     }
 
     @ViewBuilder private var metricColumns: some View {
-        metricColumn(label: "Heart-rate zone", value: zone > 0 ? "Z\(zone)" : "Z1",
+        metricColumn(label: "Heart-rate zone", value: zoneValue,
                      detail: zoneThreshold)
+            .accessibilityIdentifier("live.hr.zone")
         metricColumn(label: "HRV · RMSSD", value: rollingRMSSD.map { "\(Int($0.rounded()))" } ?? "—",
                      unit: "ms", detail: "\(min(12, live.rrRecent.count)) recent R-R beats")
         metricColumn(label: "Resting HR", value: restingHR.map { "\($0)" } ?? "—",
@@ -737,20 +779,12 @@ private struct PaperLiveHeartCard: View {
 
     private func metricColumn(label: String, value: String, unit: String? = nil,
                               detail: String) -> some View {
-        VStack(alignment: .leading, spacing: 5) {
+        VStack(alignment: .leading, spacing: NoopMetrics.space1) {
             Text(LocalizedStringKey(label))
                 .font(StrandFont.micro)
                 .foregroundStyle(StrandPalette.textTertiary)
-            HStack(alignment: .firstTextBaseline, spacing: 3) {
-                Text(value)
-                    .font(StrandFont.title1.monospacedDigit())
-                    .foregroundStyle(StrandPalette.textPrimary)
-                if let unit {
-                    Text(unit)
-                        .font(StrandFont.micro)
-                        .foregroundStyle(StrandPalette.textSecondary)
-                }
-            }
+            UnitValueText(value: value, unit: unit.map { LocalizedStringKey($0) },
+                          size: metricValueSize)
             Text(detail)
                 .font(StrandFont.micro)
                 .foregroundStyle(StrandPalette.textTertiary)
@@ -769,9 +803,18 @@ private struct PaperLiveHeartCard: View {
         return sqrt(differences.map { $0 * $0 }.reduce(0, +) / Double(differences.count))
     }
 
+    private var zoneValue: String {
+        guard bpm != nil else { return "—" }
+        return zone > 0 ? "Z\(zone)" : String(localized: "Below Zone 1")
+    }
+
     private var zoneThreshold: String {
-        let selected = zoneSet.zones.first(where: { $0.number == max(1, zone) }) ?? zoneSet.zones[0]
-        return "< \(Int(selected.upper.rounded())) bpm"
+        guard bpm != nil else { return String(localized: "No reading") }
+        if zone == 0 {
+            // Zone intervals are lower-inclusive; ceil is the first whole BPM in Zone 1.
+            return "< \(Int(ceil(zoneSet.zones[0].lower))) bpm"
+        }
+        return zoneSet.bpmRangeLabel(forZone: zone) ?? "—"
     }
 }
 
@@ -832,29 +875,24 @@ private struct PaperLiveStatusCard: View {
     let activeConnection: Bool
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
+        HStack(alignment: .top, spacing: NoopMetrics.space2) {
             Image(systemName: "shield")
-                .font(StrandFont.headline)
+                .font(StrandFont.subhead)
                 .foregroundStyle(StrandPalette.textSecondary)
                 .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 5) {
+            VStack(alignment: .leading, spacing: NoopMetrics.space1) {
                 Text(activeConnection ? LiveSyncFormat.compactStatus(live) : "Ready to connect")
-                    .font(StrandFont.subhead)
+                    .font(StrandFont.subhead.weight(.semibold))
                     .foregroundStyle(StrandPalette.textPrimary)
-                Text("Live signal and history sync are separate.")
+                Text(historyDetail)
                     .font(StrandFont.micro)
                     .foregroundStyle(StrandPalette.textSecondary)
-                Text(activeConnection
-                     ? LiveSyncFormat.status(live).primary
-                     : "Connect a strap to begin live monitoring")
-                    .font(StrandFont.micro)
-                    .foregroundStyle(StrandPalette.textTertiary)
             }
             .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.vertical, NoopMetrics.space3)
+        .padding(.vertical, NoopMetrics.space2)
         .overlay(alignment: .top) {
             Rectangle().fill(StrandPalette.hairline).frame(height: 1)
         }
@@ -862,6 +900,12 @@ private struct PaperLiveStatusCard: View {
             Rectangle().fill(StrandPalette.hairline).frame(height: 1)
         }
         .accessibilityElement(children: .combine)
+    }
+
+    private var historyDetail: String {
+        let status = LiveSyncFormat.status(live)
+        if activeConnection || status.savedHistory != nil { return status.primary }
+        return String(localized: "Live signal and history sync are separate.")
     }
 }
 

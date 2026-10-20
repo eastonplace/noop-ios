@@ -53,8 +53,7 @@ final class LiftRoutineSelectionTests: XCTestCase {
         let actions = app.buttons["Routine actions"].firstMatch
         reveal(actions, in: app)
         actions.tap()
-        readyAction("Edit", in: app).tap()
-        let save = readyAction("Save", in: app)
+        let save = openRoutineEditor(in: app)
         XCTAssertNil(visibleAction("Start workout", in: app))
         XCTAssertNil(visibleAction("Finish workout", in: app))
         save.tap()
@@ -69,6 +68,7 @@ final class LiftRoutineSelectionTests: XCTestCase {
     private func launch() -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = [
+            "--noop-coach-shell-qa",
             "--demo-seed", "--noop-qa-route", "lift", "--noop-lift-demo", "fresh",
             "-AppleLanguages", "(en)", "-AppleLocale", "en_US", "-AppleInterfaceStyle", "Dark",
         ]
@@ -91,6 +91,19 @@ final class LiftRoutineSelectionTests: XCTestCase {
     private func visibleAction(_ label: String, in app: XCUIApplication) -> XCUIElement? {
         app.buttons.matching(NSPredicate(format: "label == %@ OR identifier == %@", label, label))
             .allElementsBoundByIndex.first { $0.isHittable }
+    }
+
+    private func openRoutineEditor(in app: XCUIApplication) -> XCUIElement {
+        let edit = readyAction("Edit", in: app)
+        edit.tap()
+        let save = app.buttons.matching(NSPredicate(format: "label == 'Save' OR identifier == 'Save'")).firstMatch
+        if !save.waitForExistence(timeout: 5), edit.exists && edit.isHittable {
+            // Native menu taps can leave the same popup open on Simulator. Retry once on
+            // the label side only while Edit is still visible; never bypass the menu route.
+            capture(app, "edit-menu-still-open-before-retry")
+            edit.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.5)).tap()
+        }
+        return readyAction("Save", in: app)
     }
 
     private func readyAction(_ label: String, in app: XCUIApplication) -> XCUIElement {

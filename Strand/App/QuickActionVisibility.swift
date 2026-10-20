@@ -1,4 +1,4 @@
-import SwiftUI
+import Foundation
 
 /// Stable, app-local identities. These preferences affect the + menu only.
 enum QuickActionVisibilityID: String, CaseIterable, Hashable {
@@ -59,31 +59,5 @@ struct QuickActionVisibilityPolicy: Equatable {
 
     func isEmpty(eligibleRecentSport: String?) -> Bool {
         visibleActions.isEmpty && recentSport(eligible: eligibleRecentSport) == nil
-    }
-}
-
-/// Native switches stay reactive while Settings is open. The fan takes a new snapshot on each presentation.
-struct QuickActionVisibilityPreferences: DynamicProperty {
-    @AppStorage(QuickActionVisibilityID.journal.defaultsKey) private var journal = true
-    @AppStorage(QuickActionVisibilityID.live.defaultsKey) private var live = true
-    @AppStorage(QuickActionVisibilityID.workout.defaultsKey) private var workout = true
-    @AppStorage(QuickActionVisibilityID.strength.defaultsKey) private var strength = true
-    @AppStorage(QuickActionVisibilityID.intervals.defaultsKey) private var intervals = true
-    @AppStorage(QuickActionVisibilityID.breathe.defaultsKey) private var breathe = true
-    @AppStorage(QuickActionVisibilityID.recentActivityKey) var recentActivity = true
-
-    func binding(for action: QuickActionVisibilityID) -> Binding<Bool> {
-        switch action {
-        case .journal: $journal
-        case .live: $live
-        case .workout: $workout
-        case .strength: $strength
-        case .intervals: $intervals
-        case .breathe: $breathe
-        }
-    }
-
-    var shownCount: Int {
-        QuickActionVisibilityID.allCases.filter { binding(for: $0).wrappedValue }.count
     }
 }
