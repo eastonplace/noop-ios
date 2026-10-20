@@ -3,6 +3,7 @@
 #if os(iOS)
 import Foundation
 import NoopPhase34Core
+import StrandDesign
 import WhoopStore
 
 struct ExternalSurfaceProjection: Equatable {
@@ -11,7 +12,7 @@ struct ExternalSurfaceProjection: Equatable {
     let generation: Int64
     let logicalDayKey: String
     let recovery: Int?
-    /// The verified projection's own Strain, which is its logical day's. Read it through `effort(...)`.
+    /// The verified projection's own Strain on the 0...21 display scale, for its logical day. Read through `effort(...)`.
     private let verifiedEffort: Double?
     let sleepScore: Int?
 
@@ -23,7 +24,8 @@ struct ExternalSurfaceProjection: Equatable {
     }
 
     static func effortValue(_ value: Double) -> Double? {
-        value.isFinite ? value : nil
+        guard value.isFinite else { return nil }
+        return StrainScale.displayValue(fromStored: value)
     }
 
     init(_ projection: VerifiedHealthProjection) {
@@ -36,7 +38,7 @@ struct ExternalSurfaceProjection: Equatable {
         sleepScore = projection.visibleMetric(.sleepScore).flatMap { Int(exactly: $0.value.rounded()) }
     }
 
-    /// The Strain the Live Activity may show at `now`: the projection's own while its logical day is the one
+    /// The display-scale Strain the Live Activity may show at `now`: the projection's own while its logical day is the one
     /// Today is on, and otherwise the one Today shows for the current logical day (`todayStrain`), or none.
     /// After the 04:00 rollover the newest projection can still be yesterday's, and its Strain is not today's;
     /// this is the rule the widget core and the live overlay follow. The surface is held between drives, so

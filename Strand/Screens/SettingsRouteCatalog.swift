@@ -2,6 +2,7 @@ import SwiftUI
 import StrandDesign
 
 enum SettingsRouteID: String, CaseIterable, Hashable, Identifiable, Sendable {
+    case recentUpdates
     /// Who you are, and what the scores are computed from. The Recovery baseline lives at the foot of this page.
     case personalProfile
     case whoop
@@ -12,6 +13,8 @@ enum SettingsRouteID: String, CaseIterable, Hashable, Identifiable, Sendable {
     case backupExport
     case notificationsAlerts
     case appearanceUnits
+    case todayDashboard
+    case quickActions
     /// Workout detection, hydration, keep-screen-on and the Live Activity.
     case workouts
     case sleepAlarm
@@ -87,6 +90,9 @@ struct SettingsSearchItem: Identifiable, Equatable, Sendable {
 }
 
 enum SettingsRouteCatalog {
+    /// Kept above the profile row so the inbox is the first Settings destination.
+    static let recentUpdates = SettingsRootRoute(id: .recentUpdates, title: "Recent updates")
+
     /// The sections under the profile hero. The hero is the Profile section (it opens `personalProfile`), so the
     /// list starts at Device & Sync.
     static let rootSections: [SettingsRootSection] = [
@@ -113,7 +119,9 @@ enum SettingsRouteCatalog {
             routes: [
                 .init(id: .notificationsAlerts, title: "Notifications"),
                 .init(id: .appearanceUnits, title: "Appearance & units"),
+                .init(id: .todayDashboard, title: "Today dashboard"),
                 .init(id: .workouts, title: "Workouts"),
+                .init(id: .quickActions, title: "Quick Actions"),
             ]
         ),
         .init(
@@ -142,6 +150,13 @@ enum SettingsRouteCatalog {
     ]
 
     static let searchItems: [SettingsSearchItem] = [
+        .init(
+            id: "recent-updates",
+            title: "Recent updates",
+            breadcrumb: "Settings",
+            route: .recentUpdates,
+            keywords: ["updates", "unread", "inbox", "release notes", "dismissed cards"]
+        ),
         .init(
             id: "personal-profile",
             title: "Personal profile",
@@ -239,6 +254,20 @@ enum SettingsRouteCatalog {
             breadcrumb: "App Preferences › Appearance & units",
             route: .appearanceUnits,
             keywords: ["US", "metric", "imperial", "temperature", "Celsius", "Fahrenheit", "°C", "°F", "Strain scale", "Strain"]
+        ),
+        .init(
+            id: "today-dashboard",
+            title: "Today dashboard",
+            breadcrumb: "App Preferences",
+            route: .todayDashboard,
+            keywords: ["summary", "metrics", "health monitor", "customization", "cards", "visibility"]
+        ),
+        .init(
+            id: "quick-actions",
+            title: "Quick Actions",
+            breadcrumb: "App Preferences",
+            route: .quickActions,
+            keywords: ["plus", "+", "visibility", "show", "hide", "Journal", "Live HR", "Workout", "Strength", "Intervals", "Breathe", "recent activity"]
         ),
         .init(
             id: "workout-detection",

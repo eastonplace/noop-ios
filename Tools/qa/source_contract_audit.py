@@ -105,14 +105,64 @@ def require_plain_device_content(errors: list[str], path: Path) -> None:
         "let model: AppModel",
         "let live: LiveState",
         "DeviceSummaryLiveObservation(live: live)",
-        "DeviceCommandCenterSnapshotObservation(live: live)",
     ):
         if contract not in body:
-            errors.append(f"{label}: missing scoped device command-center contract {contract!r}.")
+            errors.append(f"{label}: missing scoped device-list contract {contract!r}.")
+    for forbidden in ("DeviceCommandCenterLiveSnapshot", "DeviceCommandCenterSnapshotObservation", "TimelineView("):
+        if forbidden in body:
+            errors.append(f"{label}: WHOOP command-centre observation belongs in WHOOP Settings, not the device list ({forbidden!r}).")
+    require_plain_live_references(errors, body, label)
+
+
+def require_plain_live_references(errors: list[str], body: str, label: str) -> None:
+    """Registry observation is allowed; AppModel/LiveState must stay unobserved references."""
+    if re.search(r"(?m)^\s*@(?:EnvironmentObject|ObservedObject|StateObject)[^\n]*\b(?:AppModel|LiveState)\b", body):
+        errors.append(f"{label}: AppModel/LiveState must remain plain references; observe only the narrow snapshot.")
+
+
+def require_whoop_settings_snapshot_owner(errors: list[str]) -> None:
+    """The native WHOOP Settings page owns live commands and samples packet age every five seconds."""
+    path = ROOT / "Strand/Screens/WhoopDeviceSettingsView.swift"
+    if not path.exists():
+        errors.append(f"{relative(path)} is missing.")
+        return
+    source = strip_swift_comments(path.read_text(encoding="utf-8"))
+    contracts = {
+        "WhoopDeviceSettingsView": (
+            "@State private var model: AppModel?",
+            "@State private var live: LiveState?",
+            "AppModelReferenceCapture(reference: $model)",
+            "LiveStateReferenceCapture(reference: $live)",
+            "WhoopDeviceSettingsContent(model: model, live: live, registry: registry)",
+        ),
+        "WhoopDeviceSettingsContent": (
+            "let model: AppModel",
+            "let live: LiveState",
+            "@StateObject private var observation: DeviceCommandCenterLiveSnapshot",
+            "_observation = StateObject(wrappedValue: DeviceCommandCenterLiveSnapshot(live: live))",
+            "TimelineView(.periodic(from: .now, by: 5))",
+            "let value = observation.value",
+            "let now = context.date",
+            "lastFrameUnix: live.lastFrameAtUnix",
+            "nowUnix: Int(now.timeIntervalSince1970)",
+        ),
+    }
+    for type_name, markers in contracts.items():
+        body = swift_type_body(source, type_name)
+        label = f"{relative(path)} {type_name}"
+        if body is None:
+            errors.append(f"{label}: declaration is missing.")
+            continue
+        require_plain_live_references(errors, body, label)
+        for marker in markers:
+            if marker not in body:
+                errors.append(f"{label}: missing scoped WHOOP Settings contract {marker!r}.")
+        if ".onReceive(" in body or re.search(r"\blive\.\$", body):
+            errors.append(f"{label}: live subscriptions must stay in DeviceCommandCenterLiveSnapshot.")
 
 
 def require_device_command_center_snapshot(errors: list[str]) -> None:
-    """Pin the narrow, deduplicated command-centre adapter and timer/sync leaves."""
+    """Pin the narrow, deduplicated command-centre adapter and its native Settings owner."""
     snapshot = ROOT / "Strand/Screens/DeviceCommandCenterLiveSnapshot.swift"
     if not snapshot.exists():
         errors.append(f"{relative(snapshot)} is missing.")
@@ -123,23 +173,18 @@ def require_device_command_center_snapshot(errors: list[str]) -> None:
         ".removeDuplicates()",
         "live.syncChunksPublisher",
         "live.$historicalSyncPassProgress",
+        "bind(live.$lastSyncedAt, to: \\.lastSyncedAt)",
+        "bind(live.$historicalDataFrontierAt, to: \\.historicalDataFrontierAt)",
+        "bind(live.$historicalSyncSessionState, to: \\.historicalSyncSessionState)",
+        "bind(live.$streamingLiveHR, to: \\.liveHeartRateAvailable)",
     ):
         if contract not in snapshot_text:
             errors.append(f"{relative(snapshot)} is missing narrow snapshot contract {contract!r}.")
-    for forbidden in ("live.$heartRate", "live.$rr", "live.$log"):
+    for forbidden in ("live.$heartRate", "live.$rr", "live.$log", "live.$lastFrameAtUnix", "live.objectWillChange"):
         if forbidden in snapshot_text:
             errors.append(f"{relative(snapshot)} must not subscribe to high-frequency field {forbidden!r}.")
 
-    devices = ROOT / "Strand/Screens/DevicesView.swift"
-    devices_text = devices.read_text(encoding="utf-8")
-    for contract in (
-        "private struct DeviceCommandHeroTimerLeaf",
-        "private struct DeviceCommandSystemsTimerLeaf",
-        "private struct DeviceCommandTelemetryTimerLeaf",
-        "private struct DeviceHistoricalSyncProgressLeaf",
-    ):
-        if contract not in devices_text:
-            errors.append(f"{relative(devices)} is missing command-centre leaf {contract!r}.")
+    require_whoop_settings_snapshot_owner(errors)
 
 
 def strip_swift_comments(source: str) -> str:

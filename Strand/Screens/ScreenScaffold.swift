@@ -115,6 +115,10 @@ struct ScreenScaffold<Content: View, Trailing: View>: View {
     /// say). Pushed screens drop `subtitle` from their header, so anything the subtitle said that matters belongs
     /// here or in the screen's content. Ignored everywhere else.
     var headerContext: String? = nil
+    /// Opt-in compact title for modal utility roots. Other presentations keep their existing chrome.
+    var usesCompactUtilityHeader: Bool = false
+    /// Opt-in tab-root tools that belong beside the pinned page title instead of in a scrolling row.
+    var placesTrailingInAppHeader: Bool = false
     /// Optional element pinned to the header's trailing edge (e.g. the strap-battery badge on Today).
     /// Defaults to `EmptyView` via the convenience init below, so other screens are unaffected.
     @ViewBuilder var trailing: () -> Trailing
@@ -140,6 +144,57 @@ struct ScreenScaffold<Content: View, Trailing: View>: View {
     #endif
 
     var body: some View {
+        scaffoldLayout
+        // The flat canvas, plus an optional full-bleed TOP backdrop (Today's day-cycle scene) drawn behind
+        // the scroll content — edge-to-edge under the status bar. The scene is CONFINED to the header+hero
+        // band (see SceneScreenBackground.height) so it fades out ABOVE the dashboard cards, which then sit
+        // on the opaque canvas and stay fully legible (2026-06-23: cards were "losing the data").
+        .background(alignment: .top) {
+            ZStack(alignment: .top) {
+                #if os(iOS)
+                StrandPalette.appCanvas
+                #else
+                StrandPalette.surfaceBase
+                #endif
+                topBackground
+            }
+            .ignoresSafeArea()
+        }
+        .modifier(ScreenScaffoldSettingsNavigation(title: title, presentation: presentation))
+        #if os(iOS)
+        .modifier(ScreenScaffoldPushedNavigationBar(
+            hidden: presentation == .standard && navigationRole == .detail, backAction: detailBackAction))
+        #endif
+        #if os(macOS)
+        // The mac window toolbar's default vibrant material washed the top of the liquid day-of-sky WHITE
+        // (the scroll-under-titlebar blend). Hide it so the sky reads edge-to-edge and dark, like iOS.
+        .toolbarBackground(.hidden, for: .windowToolbar)
+        #endif
+    }
+
+    /// A tab root gives the header its own layout and hit-test region. Clipping the scroll viewport
+    /// keeps scrolling content and its gestures below that sibling instead of under an inset overlay.
+    @ViewBuilder private var scaffoldLayout: some View {
+        #if os(iOS)
+        if showsAppHeaderChrome {
+            VStack(spacing: 0) {
+                AppHeaderChrome(title: title ?? "Today",
+                                titleActions: placesTrailingInAppHeader ? AnyView(headerTrailing) : nil)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .zIndex(1)
+                scrollViewport
+                    .clipped()
+                    .contentShape(Rectangle())
+            }
+        } else {
+            scrollViewport
+        }
+        #else
+        scrollViewport
+        #endif
+    }
+
+    private var scrollViewport: some View {
         ScrollView(.vertical) {
             column
             #if os(iOS)
@@ -174,8 +229,8 @@ struct ScreenScaffold<Content: View, Trailing: View>: View {
         }
         .coordinateSpace(.named("screen-scaffold-scroll"))
         .overlay(alignment: .top) {
-            // Never at a tab root: the pinned chrome stays put and its title row scrolls away like Today's.
-            if showsCompactHeader, !showsAppHeaderChrome, title != nil || subtitle != nil {
+            // Tab roots keep their page header outside this scroll viewport.
+            if showsCompactHeader, !showsAppHeaderChrome, !showsUtilityHeader, title != nil || subtitle != nil {
                 compactHeader
                 .padding(.horizontal, 16)
                 .padding(.vertical, 6)
@@ -186,38 +241,18 @@ struct ScreenScaffold<Content: View, Trailing: View>: View {
         }
         .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: showsCompactHeader)
         .safeAreaInset(edge: .top, spacing: 0) {
-            if showsAppHeaderChrome { AppHeaderChrome() }
+            if showsUtilityHeader {
+                utilityHeader
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 4)
+                    .background(StrandPalette.appCanvas)
+            }
         }
         // This is a vertical screen contract. Because the exact-width column cannot overflow, size-based
         // horizontal bounce resolves to disabled and the page cannot expose an off-canvas edge.
         .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
         #endif
-        // The flat canvas, plus an optional full-bleed TOP backdrop (Today's day-cycle scene) drawn behind
-        // the scroll content — edge-to-edge under the status bar. The scene is CONFINED to the header+hero
-        // band (see SceneScreenBackground.height) so it fades out ABOVE the dashboard cards, which then sit
-        // on the opaque canvas and stay fully legible (2026-06-23: cards were "losing the data").
-        .background(alignment: .top) {
-            ZStack(alignment: .top) {
-                #if os(iOS)
-                StrandPalette.appCanvas
-                #else
-                StrandPalette.surfaceBase
-                #endif
-                topBackground
-            }
-            .ignoresSafeArea()
-        }
         .modifier(RefreshableIfNeeded(onRefresh: onRefresh))
-        .modifier(ScreenScaffoldSettingsNavigation(title: title, presentation: presentation))
-        #if os(iOS)
-        .modifier(ScreenScaffoldPushedNavigationBar(
-            hidden: presentation == .standard && navigationRole == .detail, backAction: detailBackAction))
-        #endif
-        #if os(macOS)
-        // The mac window toolbar's default vibrant material washed the top of the liquid day-of-sky WHITE
-        // (the scroll-under-titlebar blend). Hide it so the sky reads edge-to-edge and dark, like iOS.
-        .toolbarBackground(.hidden, for: .windowToolbar)
-        #endif
     }
 
     #if os(iOS)
@@ -247,11 +282,15 @@ struct ScreenScaffold<Content: View, Trailing: View>: View {
 
     @ViewBuilder private var headerForColumn: some View {
         #if os(iOS)
-        if showsAppHeaderChrome, let title {
-            // A tab root already has the pinned chrome row (and its wordmark) above the content, so it gets
-            // one compact title row, like Today's, instead of a second wordmark, a large title and a subtitle.
-            NoopTabTitleRow(title, hasTrailing: Trailing.self != EmptyView.self || resolvedCloseAction != nil) {
-                headerTrailing
+        if showsAppHeaderChrome {
+            // Screens can opt their tools into the pinned title row. Other tab roots retain their
+            // scrolling action row, and pushed/modal presentations retain their own header tools.
+            if !placesTrailingInAppHeader, Trailing.self != EmptyView.self || resolvedCloseAction != nil {
+                HStack(spacing: 8) {
+                    Spacer(minLength: 0)
+                    headerTrailing
+                }
+                .frame(minHeight: 44)
             }
         } else if let title, let back = detailBackAction {
             // A pushed screen gets one compact row of its own: back chip, caps title, optional context. No
@@ -266,7 +305,7 @@ struct ScreenScaffold<Content: View, Trailing: View>: View {
                         showsCompactHeader = isPastTop
                     }
                 }
-        } else if presentation == .standard, title != nil || subtitle != nil {
+        } else if presentation == .standard, !showsUtilityHeader, title != nil || subtitle != nil {
             expandedHeader
                 .accessibilityHidden(showsCompactHeader)
                 .onGeometryChange(for: Bool.self) { proxy in
@@ -287,6 +326,50 @@ struct ScreenScaffold<Content: View, Trailing: View>: View {
     /// back chevron instead, and a modal sheet owns a close button, so neither stacks a second header.
     private var showsAppHeaderChrome: Bool {
         presentation == .standard && appHeaderChromeVisibility == .visible && navigationRole == .root
+    }
+
+    private var showsUtilityHeader: Bool {
+        usesCompactUtilityHeader && presentation == .standard && navigationRole == .root
+            && !showsAppHeaderChrome && title != nil
+    }
+
+    /// The title stays above the scrolling controls and grows vertically at accessibility sizes.
+    private var utilityHeader: some View {
+        HStack(spacing: 8) {
+            Group {
+                if let close = resolvedCloseAction {
+                    Button(action: close) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(StrandPalette.textPrimary)
+                            .frame(width: 44, height: 44)
+                            .background {
+                                Circle().fill(StrandPalette.surfaceRaised).frame(width: 32, height: 32)
+                            }
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Close")
+                } else {
+                    Color.clear.frame(width: 44, height: 44).accessibilityHidden(true)
+                }
+            }
+
+            if let title {
+                Text(title)
+                    .font(StrandFont.screenOverline)
+                    .tracking(StrandFont.screenOverlineTracking)
+                    .textCase(.uppercase)
+                    .foregroundStyle(StrandPalette.textPrimary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity)
+                    .accessibilityAddTraits(.isHeader)
+            }
+
+            HStack(spacing: 0) { trailing() }
+                .frame(minWidth: 44, minHeight: 44)
+        }
     }
 
     /// The back action of a pushed screen that wears the compact title row, nil for every other screen: a tab
@@ -428,12 +511,14 @@ extension ScreenScaffold where Trailing == EmptyView {
          showsSubtitleInExpandedHeader: Bool = true,
          backAction: (() -> Void)? = nil,
          headerContext: String? = nil,
+         usesCompactUtilityHeader: Bool = false,
          @ViewBuilder content: @escaping () -> Content) {
         self.init(title: title, subtitle: subtitle, onRefresh: onRefresh, lazy: lazy,
                   topBackground: topBackground,
                   showsSubtitleInExpandedHeader: showsSubtitleInExpandedHeader,
                   backAction: backAction,
                   headerContext: headerContext,
+                  usesCompactUtilityHeader: usesCompactUtilityHeader,
                   trailing: { EmptyView() }, content: content)
     }
 }

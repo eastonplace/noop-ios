@@ -85,26 +85,43 @@ struct TrendsView: View {
             },
             lazy: true,
             topBackground: nil,
+            placesTrailingInAppHeader: true,
             trailing: {
                 HStack(spacing: 8) {
                     NavigationLink {
                         TrendsExploreHubView()
                     } label: {
+                        #if os(iOS)
+                        WidgetChip(appTitle: "Explore", systemImage: "square.grid.2x2", showsChevron: false,
+                                   overhangs: false)
+                            .frame(minWidth: 44, minHeight: 44)
+                            .contentShape(Rectangle())
+                        #else
                         WidgetChip(appTitle: "Explore", systemImage: "square.grid.2x2", showsChevron: false,
                                    overhangs: false)
                             .chipHitTarget()
+                        #endif
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Explore insights and metrics")
                     .accessibilityHint("Opens insights, comparisons, metrics, and experiments")
+                    .accessibilityIdentifier("trends.explore")
                     Button { showingReport = true } label: {
                         WidgetChip(systemImage: "square.and.arrow.up", showsChevron: false, overhangs: false)
+                            #if os(iOS)
+                            .frame(minWidth: 44, minHeight: 44)
+                            .contentShape(Rectangle())
+                            #else
                             .chipHitTarget()
+                            #endif
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Share Trends")
                     .accessibilityHint("Opens a shareable Trends report")
+                    .accessibilityIdentifier("trends.share")
                 }
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("app.header.actions")
             }
         ) {
             if let message = loadState.errorMessage {

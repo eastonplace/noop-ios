@@ -94,7 +94,10 @@ enum AppleDemoSeeder {
     /// Seed only if requested AND the store is empty. Safe to call on every launch.
     static func seedIfRequested(into store: WhoopStore) async {
         guard requested else { return }
-        seedDemoPreferences()
+        // Persistence QA keeps the demo database and fixtures without resetting saved preferences.
+        if !CommandLine.arguments.contains("--noop-qa-preserve-preferences") {
+            seedDemoPreferences()
+        }
         seedDemoDevicesIfNeeded(into: store)
         let auditFormatter = DateFormatter()
         auditFormatter.locale = Locale(identifier: "en_US_POSIX")

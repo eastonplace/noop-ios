@@ -15,6 +15,7 @@ on:
       - 'StrandiOSShared/**'
       - 'StrandiOSWidgets/**'
       - 'StrandiOSTests/**'
+      - 'StrandiOSUITests/**'
       - 'Packages/**'
       - 'Tools/qa/**'
       - 'Tools/linux-capture/**'
@@ -29,6 +30,7 @@ on:
       - 'StrandiOSShared/**'
       - 'StrandiOSWidgets/**'
       - 'StrandiOSTests/**'
+      - 'StrandiOSUITests/**'
       - 'Packages/**'
       - 'Tools/qa/**'
       - 'Tools/linux-capture/**'
@@ -157,6 +159,27 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             test 2>&1 | tee qa-artifacts/xcodebuild-test.txt
+
+      - name: Run routine and selected-screen UI regressions
+        shell: bash
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -scheme NOOPCoachUI \
+            -configuration Debug \
+            -destination 'platform=iOS Simulator,id=${{ steps.simulator.outputs.udid }}' \
+            -parallel-testing-enabled NO \
+            -collect-test-diagnostics never \
+            -only-testing:NOOPCoachUITests/LiftRoutineSelectionTests \
+            -only-testing:NOOPCoachUITests/SelectedScreenDirectionTests \
+            -only-testing:NOOPCoachUITests/CoachKeyboardLayoutTests \
+            -only-testing:NOOPCoachUITests/ApprovedDashboardUITests/testSharedBatteryHeaderAndRecentUpdatesNormal \
+            -only-testing:NOOPCoachUITests/ApprovedDashboardUITests/testSharedBatteryHeaderAndRecentUpdatesAccessibilityXXXL \
+            -only-testing:NOOPCoachUITests/ApprovedDashboardUITests \
+            -resultBundlePath qa-artifacts/selected-ui.xcresult \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            test 2>&1 | tee qa-artifacts/selected-ui.txt
 
       - name: Run retained Swift package tests
         if: always()

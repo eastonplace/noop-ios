@@ -173,7 +173,6 @@ private struct TodayScreenSnapshot: Equatable {
 
     struct Health: Equatable {
         let tiles: [HealthDashboardTileModel]
-        let status: String
     }
 
     let hero: Hero
@@ -236,15 +235,13 @@ private struct TodaySnapshotStressSection: View, @preconcurrency Equatable {
 private struct TodaySnapshotHealthSection: View, @preconcurrency Equatable {
     let snapshot: TodayScreenSnapshot.Health
     let onTile: (String) -> Void
-    let onCustomize: () -> Void
     let onShowAll: () -> Void
     let onDataSources: () -> Void
 
     static func == (lhs: Self, rhs: Self) -> Bool { lhs.snapshot == rhs.snapshot }
 
     var body: some View {
-        HealthDashboardCard(tiles: snapshot.tiles, status: snapshot.status, onTile: onTile,
-                            onCustomize: onCustomize, onShowAll: onShowAll,
+        HealthDashboardCard(tiles: snapshot.tiles, onTile: onTile, onShowAll: onShowAll,
                             onDataSources: onDataSources)
     }
 }
@@ -306,6 +303,8 @@ struct TodayView: View {
     @AppStorage(KeyMetricPrefs.layoutKey) private var keyMetricsRaw = ""
     @State private var showingMetricsEditor = false
     private var enabledKeyMetrics: [KeyMetric] { KeyMetricPrefs.decodeEnabled(keyMetricsRaw) }
+
+    @AppStorage(TodaySummaryPreferences.selectionKey) private var summaryMetricsRaw = ""
 
     // "Your cards" customisable dashboard (WHOOP "My Dashboard"), a persisted, reorderable selection of
     // metric cards. Empty/unset shows the sensible default set (Stress / Fitness age / Vitality + HRV +
@@ -1399,15 +1398,8 @@ struct TodayView: View {
         #endif
     }
 
-    /// The big scaffold title, suppressed on iOS, where `todayTopBar` replaces it; macOS keeps its
-    /// "Control Center" header.
-    private var scaffoldTitle: LocalizedStringKey? {
-        #if os(iOS)
-        nil
-        #else
-        screenTitle
-        #endif
-    }
+    /// The shared header owns the page title; the local bar retains only the selected date.
+    private var scaffoldTitle: LocalizedStringKey? { screenTitle }
 
     #if os(iOS)
     /// The day-nav label: relative for today/yesterday, else a short date.
@@ -1499,16 +1491,13 @@ struct TodayView: View {
 
     @ViewBuilder private var todayTopBar: some View {
         HStack(alignment: .firstTextBaseline) {
-            Text("TODAY")
-                .font(StrandFont.screenOverline)
-                .tracking(StrandFont.screenOverlineTracking)
-                .foregroundStyle(StrandPalette.textPrimary)
             Spacer(minLength: 8)
             Button { showDayPicker = true } label: {
                 animatedDayNavText
                     .font(StrandFont.caption)
                     .foregroundStyle(StrandPalette.textSecondary)
                     .lineLimit(1)
+                    .frame(minHeight: 44)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("\(dayNavLabel). Swipe or tap to change day")
@@ -1676,7 +1665,8 @@ struct TodayView: View {
             intraday: stressIntraday
         )
         return TodayScreenSnapshot(
-            hero: .init(pillars: pillars, glance: paperGlanceText(calories: calories),
+            hero: .init(pillars: TodaySummaryPreferences.orderedValues(pillars, raw: summaryMetricsRaw, id: \.id),
+                        glance: paperGlanceText(calories: calories),
                         showsWorkoutAction: usesCurrentDayResolution),
             heart: .init(samples: heartSamples, restingHR: day?.restingHr.map(Double.init)),
             stress: .init(
@@ -1689,8 +1679,7 @@ struct TodayView: View {
                 presentationMode: stressMode,
                 baselineBuilding: !stressHasHistory && stressDaily == nil
             ),
-            health: .init(tiles: tiles,
-                          status: String(localized: "\(enabledDashboardCards.count) of 9 metrics selected"))
+            health: .init(tiles: tiles)
         )
     }
 
@@ -1880,7 +1869,6 @@ struct TodayView: View {
                     selectedDashboardDestination = card
                     showingDashboardDestination = true
                 },
-                onCustomize: { showingDashboardEditor = true },
                 onShowAll: { showingDashboardCatalog = true },
                 onDataSources: { showingDashboardDataSources = true }
             )
@@ -2089,6 +2077,7 @@ struct TodayView: View {
             Task { await reloadHydration() }
         }
         .onChangeCompat(of: dashboardCardsRaw) { _ in refreshScreenSnapshot() }
+        .onChangeCompat(of: summaryMetricsRaw) { _ in refreshScreenSnapshot() }
         // #755: NO per-edge safety net here, on purpose. A deep offload segments into many slices that each
         // flip `backfilling` false→true, so re-running the heavy history-wide reads on that edge would re-fire
         // them dozens of times mid-offload and re-create the very write-contention this fix removes. The

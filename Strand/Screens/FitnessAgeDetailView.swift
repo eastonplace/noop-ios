@@ -9,12 +9,17 @@ import WhoopStore
 struct FitnessAgeDetailView: View {
     @EnvironmentObject private var repo: Repository
     @EnvironmentObject private var profile: ProfileStore
+    #if os(iOS)
+    @EnvironmentObject private var router: NavRouter
+    #endif
 
     @State private var series: [(day: String, value: Double)] = []
     @State private var vo2max: Double?
     @State private var loaded = false
-    /// Open Settings from the checklist's "Fix in Settings" or the "Review profile" row.
+    #if os(macOS)
+    /// The desktop profile settings remain on this navigation stack.
     @State private var showProfile = false
+    #endif
 
     var body: some View {
         ScreenScaffold(
@@ -32,10 +37,19 @@ struct FitnessAgeDetailView: View {
         .toolbar(.hidden, for: .navigationBar)
         #endif
         .environment(\.screenScaffoldNavigationRole, .detail)
+        #if os(macOS)
         .navigationDestination(isPresented: $showProfile) {
-            // TODO(lane-merge): openSettings(.personalProfile)
             SettingsView()
         }
+        #endif
+    }
+
+    private func openProfileSettings() {
+        #if os(iOS)
+        router.openSettings(.personalProfile)
+        #else
+        showProfile = true
+        #endif
     }
 
     @ViewBuilder private var content: some View {
@@ -163,8 +177,8 @@ struct FitnessAgeDetailView: View {
             SectionEyebrow("Still calibrating", systemImage: "figure.run", tint: HealthTint.fitnessAge)
             FitnessAgeReadinessList(
                 readiness: readiness, rhrDays: coverage.rhrDays, activityDays: coverage.activityDays,
-                lead: nil, onFix: { showProfile = true })
-            Button { showProfile = true } label: {
+                lead: nil, onFix: openProfileSettings)
+            Button(action: openProfileSettings) {
                 HealthLinkRowLabel(title: String(localized: "Review profile"),
                                    subtitle: String(localized: "Age, sex, height, weight, and optional waist"),
                                    symbol: "person.crop.circle")

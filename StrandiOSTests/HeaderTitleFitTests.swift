@@ -77,14 +77,91 @@ final class HeaderTitleFitTests: XCTestCase {
         XCTAssertLessThan(captionNarrow, caption * 1.4)
     }
 
-    func testTheHeaderChromeKeepsItsWordmarkOnOneLineAtTheLargestTextSize() {
-        func chrome() -> HeaderChromeRow {
-            HeaderChromeRow(strapState: .offline, battery: 68, syncState: .idle, unreadCount: 2, initials: "",
-                            recovery: 72, onStrap: {}, onSync: {}, onUpdates: {}, onProfile: {})
+    func testTheH2HeaderKeepsEveryPageTitleAndStatusWithinANarrowPhone() {
+        let titles: [LocalizedStringKey] = ["Today", "Trends", "Coach", "Sleep"]
+        for title in titles {
+            func chrome() -> HeaderChromeRow {
+                HeaderChromeRow(title: title, strapState: .offline, battery: 68, syncState: .idle,
+                                initials: "", recovery: 72,
+                                onStrap: {}, onSync: {}, onProfile: {})
+            }
+            let regular = height(width: 288, size: .large) { chrome() }
+            let accessible = height(width: 288) { chrome() }
+            XCTAssertGreaterThanOrEqual(regular, 44, "the action row keeps its minimum touch height")
+            XCTAssertGreaterThan(accessible, regular + 44, "large text moves account actions below the full title and status")
+            let wide = height(width: 3000) { chrome() }
+            XCTAssertLessThan(accessible, wide * 1.8, "a narrow phone may wrap status words, but never stack individual title letters")
         }
-        let wide = height(width: 3000) { chrome() }
-        let phone = height(width: 370) { chrome() }
-        XCTAssertLessThan(phone, wide * 1.4, "letters stacking one per line would make the row several lines tall")
+    }
+
+    func testTheHeaderBatteryStaysOnOneLineAtPhoneWidthsAndAccessibilitySizes() {
+        func chrome(_ battery: Int?) -> HeaderChromeRow {
+            HeaderChromeRow(title: "Today", strapState: .offline, battery: battery, syncState: .idle,
+                            initials: "", recovery: 72, onStrap: {}, onSync: {}, onProfile: {})
+        }
+        let phoneWidths: [CGFloat] = [320, 375, 402]
+        let typeSizes: [DynamicTypeSize] = [.large, .accessibility5]
+        let batteryLevels: [Int?] = [nil, 0, 15, 100]
+        for phoneWidth in phoneWidths {
+            let contentWidth = phoneWidth - 32 // AppHeaderChrome's horizontal padding.
+            for size in typeSizes {
+                let reference = height(width: contentWidth, size: size) { chrome(68) }
+                for battery in batteryLevels {
+                    let measured = height(width: contentWidth, size: size) { chrome(battery) }
+                    XCTAssertEqual(measured, reference, accuracy: 0.5,
+                                   "battery values stay horizontal without adding a line at \(phoneWidth) pt and \(size)")
+                    XCTAssertGreaterThanOrEqual(measured, 44, "header actions keep their minimum touch height")
+                }
+            }
+        }
+    }
+
+    func testTheHeaderBatterySymbolsExistOnTheSupportedPlatform() {
+        let symbols = ["battery.0percent", "battery.25percent", "battery.50percent",
+                       "battery.75percent", "battery.100percent"]
+        for symbol in symbols {
+            XCTAssertNotNil(UIImage(systemName: symbol), "header battery symbol must resolve: \(symbol)")
+        }
+    }
+
+    private func trendsHeaderWithTools(_ battery: Int? = 68, syncState: AppSyncState = .error) -> HeaderChromeRow {
+        HeaderChromeRow(title: "Trends", strapState: .offline, battery: battery, syncState: syncState,
+                        initials: "", recovery: 72, onStrap: {}, onSync: {}, onProfile: {},
+                        titleActions: AnyView(HStack(spacing: 8) {
+                            Button {} label: {
+                                WidgetChip(appTitle: "Explore", systemImage: "square.grid.2x2",
+                                           showsChevron: false, overhangs: false)
+                                    .frame(minWidth: 44, minHeight: 44)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            Button {} label: {
+                                WidgetChip(systemImage: "square.and.arrow.up", showsChevron: false, overhangs: false)
+                                    .frame(minWidth: 44, minHeight: 44)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                        }))
+    }
+
+    func testTrendsToolsFitBesideTheTitleOnA402PointPhone() {
+        let idle = height(width: 370, size: .large) { trendsHeaderWithTools(syncState: .idle) }
+        for battery in [nil, 0, 68, 100] as [Int?] {
+            let withTools = height(width: 370, size: .large) { trendsHeaderWithTools(battery) }
+            XCTAssertEqual(withTools, 88, accuracy: 0.5,
+                           "title controls and status each keep a 44 pt touch row at 402 pt")
+            XCTAssertEqual(withTools, idle, accuracy: 0.5,
+                           "the full offline/error status gets its own width without adding a tools band")
+        }
+    }
+
+    func testTrendsToolsReflowAtNarrowWidthsAndAccessibilitySizes() {
+        let compact = height(width: 370, size: .large) { trendsHeaderWithTools() }
+        let narrow = height(width: 288, size: .large) { trendsHeaderWithTools() }
+        let accessible = height(width: 288) { trendsHeaderWithTools() }
+        XCTAssertGreaterThanOrEqual(narrow, compact, "narrow phones retain both 44 pt header rows")
+        XCTAssertLessThanOrEqual(narrow, compact + 44, "a narrow status/tools fallback adds at most one touch row")
+        XCTAssertGreaterThan(accessible, narrow + 44, "accessibility text stacks tools and account controls")
     }
 
     private func pillar(_ id: String, _ label: String, _ state: String) -> TodayPillarModel {
@@ -157,15 +234,16 @@ final class HeaderTitleFitTests: XCTestCase {
         XCTAssertLessThan(labelAX, height(width: 3000) { uncapped() })
     }
 
-    func testTheTopBarKeepsTheStrapWordsUntilAnAccessibilitySize() {
-        func chrome() -> HeaderChromeRow {
-            HeaderChromeRow(strapState: .offline, battery: 68, syncState: .idle, unreadCount: 2, initials: "",
-                            recovery: 72, onStrap: {}, onSync: {}, onUpdates: {}, onProfile: {})
+    func testTheH2HeaderLetsTheActualSyncErrorWrapAtAccessibilitySizes() {
+        func chrome(_ state: AppSyncState) -> HeaderChromeRow {
+            HeaderChromeRow(title: "Today", strapState: .offline, battery: 68, syncState: state,
+                            initials: "", recovery: 72,
+                            onStrap: {}, onSync: {}, onProfile: {})
         }
-        let largest = naturalWidth(size: .xxxLarge) { chrome() }
-        let firstAccessibility = naturalWidth(size: .accessibility1) { chrome() }
-        // The words and the battery number ("Offline", "68%") are on screen at xxxLarge, so the row is wider than the
-        // condensed one at the first accessibility size, whose type is larger.
-        XCTAssertGreaterThan(largest, firstAccessibility)
+        let offline = height(width: 288) { chrome(.idle) }
+        let error = height(width: 288) { chrome(.error) }
+        XCTAssertGreaterThan(error, offline, "the real sync error takes more lines instead of being clipped or condensed away")
+        // Extra state changes the status text, never the stable pair of account action targets.
+        XCTAssertGreaterThanOrEqual(height(width: 288, size: .large) { chrome(.syncing) }, 44)
     }
 }
