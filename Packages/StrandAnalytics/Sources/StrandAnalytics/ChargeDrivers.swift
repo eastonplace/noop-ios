@@ -143,11 +143,16 @@ extension RecoveryScorer {
                                      sleepPerf: Double?,
                                      skinTempDev: Double? = nil) -> [ChargeDriver] {
 
+        // Keep optional personal-baseline eligibility identical to the scored terms. Calibrating
+        // and stale baselines are absent; provisional and trusted baselines retain their weights.
+        let rhrB = rhrBaseline.flatMap { $0.usable ? $0 : nil }
+        let respB = respBaseline.flatMap { $0.usable ? $0 : nil }
+
         // No score => no real contributions to attribute (cold-start). recovery(...) enforces
         // the usable gate; mirror it so a nil headline never yields fabricated driver rows.
         guard let full = recovery(hrv: hrv, rhr: rhr, resp: resp,
-                                  hrvBaseline: hrvBaseline, rhrBaseline: rhrBaseline,
-                                  respBaseline: respBaseline, sleepPerf: sleepPerf,
+                                  hrvBaseline: hrvBaseline, rhrBaseline: rhrB,
+                                  respBaseline: respB, sleepPerf: sleepPerf,
                                   skinTempDev: skinTempDev) else {
             return []
         }
@@ -174,19 +179,19 @@ extension RecoveryScorer {
         drivers.append(chargeDriver(
             term: .hrv,
             deltaPoints: points(recovery(hrv: hrvBaseline.baseline, rhr: rhr, resp: resp,
-                                         hrvBaseline: hrvBaseline, rhrBaseline: rhrBaseline,
-                                         respBaseline: respBaseline, sleepPerf: sleepPerf,
+                                         hrvBaseline: hrvBaseline, rhrBaseline: rhrB,
+                                         respBaseline: respB, sleepPerf: sleepPerf,
                                          skinTempDev: skinTempDev)),
             value: hrv, baseline: hrvBaseline.baseline))
 
         // ── Resting HR (lower vs baseline supports recovery) ─────────────────────
         // Neutral = resting HR at the baseline mean.
-        if let b = rhrBaseline {
+        if let b = rhrB {
             drivers.append(chargeDriver(
                 term: .restingHR,
                 deltaPoints: points(recovery(hrv: hrv, rhr: b.baseline, resp: resp,
-                                             hrvBaseline: hrvBaseline, rhrBaseline: rhrBaseline,
-                                             respBaseline: respBaseline, sleepPerf: sleepPerf,
+                                             hrvBaseline: hrvBaseline, rhrBaseline: rhrB,
+                                             respBaseline: respB, sleepPerf: sleepPerf,
                                              skinTempDev: skinTempDev)),
                 value: rhr, baseline: b.baseline))
         }
@@ -196,20 +201,20 @@ extension RecoveryScorer {
             drivers.append(chargeDriver(
                 term: .sleep,
                 deltaPoints: points(recovery(hrv: hrv, rhr: rhr, resp: resp,
-                                             hrvBaseline: hrvBaseline, rhrBaseline: rhrBaseline,
-                                             respBaseline: respBaseline, sleepPerf: sleepPerfCenter,
+                                             hrvBaseline: hrvBaseline, rhrBaseline: rhrB,
+                                             respBaseline: respB, sleepPerf: sleepPerfCenter,
                                              skinTempDev: skinTempDev)),
                 value: sp, baseline: nil))
         }
 
         // ── Respiration (lower vs baseline supports recovery) ────────────────────
         // Neutral = respiration at the baseline mean.
-        if let r = resp, let b = respBaseline {
+        if let r = resp, let b = respB {
             drivers.append(chargeDriver(
                 term: .resp,
                 deltaPoints: points(recovery(hrv: hrv, rhr: rhr, resp: b.baseline,
-                                             hrvBaseline: hrvBaseline, rhrBaseline: rhrBaseline,
-                                             respBaseline: respBaseline, sleepPerf: sleepPerf,
+                                             hrvBaseline: hrvBaseline, rhrBaseline: rhrB,
+                                             respBaseline: respB, sleepPerf: sleepPerf,
                                              skinTempDev: skinTempDev)),
                 value: r, baseline: b.baseline))
         }
@@ -220,8 +225,8 @@ extension RecoveryScorer {
             drivers.append(chargeDriver(
                 term: .skinTemp,
                 deltaPoints: points(recovery(hrv: hrv, rhr: rhr, resp: resp,
-                                             hrvBaseline: hrvBaseline, rhrBaseline: rhrBaseline,
-                                             respBaseline: respBaseline, sleepPerf: sleepPerf,
+                                             hrvBaseline: hrvBaseline, rhrBaseline: rhrB,
+                                             respBaseline: respB, sleepPerf: sleepPerf,
                                              skinTempDev: 0)),
                 value: dev, baseline: nil))
         }

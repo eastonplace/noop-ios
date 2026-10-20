@@ -39,10 +39,15 @@ extension RecoveryScorer {
         var lines: [String] = []
         var nilTerms: [String] = []
 
+        // Keep optional personal-baseline eligibility identical to the scored terms. Calibrating
+        // and stale baselines are absent; provisional and trusted baselines retain their weights.
+        let rhrB = rhrBaseline.flatMap { $0.usable ? $0 : nil }
+        let respB = respBaseline.flatMap { $0.usable ? $0 : nil }
+
         // The score the dashboard reads, verbatim, so the trace cannot diverge from it.
         let score = recovery(hrv: hrv, rhr: rhr, resp: resp,
-                             hrvBaseline: hrvBaseline, rhrBaseline: rhrBaseline,
-                             respBaseline: respBaseline, sleepPerf: sleepPerf,
+                             hrvBaseline: hrvBaseline, rhrBaseline: rhrB,
+                             respBaseline: respB, sleepPerf: sleepPerf,
                              skinTempDev: skinTempDev)
 
         // Cold-start gate: HRV baseline not usable -> recovery() returns nil before any term is built.
@@ -58,11 +63,11 @@ extension RecoveryScorer {
         // baseline arg here (skinTempDev is already a deviation), so it has no baseline line.
         lines.append("charge baseline hrv mean=\(r2(hrvBaseline.baseline)) spread=\(r2(hrvBaseline.spread)) "
             + "nValid=\(hrvBaseline.nValid) status=\(hrvBaseline.status.rawValue)")
-        if let b = rhrBaseline {
+        if let b = rhrB {
             lines.append("charge baseline rhr mean=\(r2(b.baseline)) spread=\(r2(b.spread)) "
                 + "nValid=\(b.nValid) status=\(b.status.rawValue)")
         }
-        if let b = respBaseline {
+        if let b = respB {
             lines.append("charge baseline resp mean=\(r2(b.baseline)) spread=\(r2(b.spread)) "
                 + "nValid=\(b.nValid) status=\(b.status.rawValue)")
         }
@@ -80,7 +85,7 @@ extension RecoveryScorer {
         lines.append("charge term hrv z=\(r2(hrvZ)) w=\(r2(wHRV)) (higher HRV is better)")
 
         // RHR term: lower is better -> (mu - x) / sigma.
-        if let b = rhrBaseline {
+        if let b = rhrB {
             let z = zScore(b.baseline, mean: rhr, spread: b.spread)
             terms.append(("rhr", z, wRHR))
             lines.append("charge term rhr z=\(r2(z)) w=\(r2(wRHR)) (lower RHR is better)")
@@ -89,7 +94,7 @@ extension RecoveryScorer {
         }
 
         // Resp term: lower is better, optional (needs BOTH the value and a baseline).
-        if let r = resp, let b = respBaseline {
+        if let r = resp, let b = respB {
             let z = zScore(b.baseline, mean: r, spread: b.spread)
             terms.append(("resp", z, wResp))
             lines.append("charge term resp z=\(r2(z)) w=\(r2(wResp)) (lower resp is better)")

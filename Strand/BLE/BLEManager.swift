@@ -6599,6 +6599,24 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
         DataRange.oldestUnix(from: frame)
     }
 
+    /// Preserve the existing frame sequence while making pre-parser resynchronization visible in a
+    /// Connection Test Centre capture. Counters belong to the current per-characteristic windows, so
+    /// reset/reconnect needs no separate absorbed-total bookkeeping. No history decision uses them.
+    private func reassembleFrames(_ bytes: [UInt8], from characteristic: CBUUID) -> [[UInt8]] {
+        let previousHeaderDrops = reassemblers.headerChecksumDrops
+        let previousOversizedDrops = reassemblers.oversizedLengthDrops
+        let frames = reassemblers.feed(bytes, from: characteristic)
+        let headerDrops = reassemblers.headerChecksumDrops - previousHeaderDrops
+        let oversizedDrops = reassemblers.oversizedLengthDrops - previousOversizedDrops
+        if (headerDrops > 0 || oversizedDrops > 0), TestCentre.active(.connection) {
+            state.append(log: "frameResync characteristic=\(characteristic.uuidString.lowercased()) "
+                + "headerChecksumMismatch=\(headerDrops) oversizedLength=\(oversizedDrops) "
+                + "headerDropsSinceReset=\(reassemblers.headerChecksumDrops) "
+                + "oversizedDropsSinceReset=\(reassemblers.oversizedLengthDrops)", domain: .connection)
+        }
+        return frames
+    }
+
     public func peripheral(_ peripheral: CBPeripheral,
                            didUpdateValueFor characteristic: CBCharacteristic,
                            error: Error?) {
@@ -6647,7 +6665,7 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
              BLEManager.cmdNotifyChar,
              BLEManager.eventNotifyChar:
             // Reassemble (no-op for already-complete frames) then route each complete frame.
-            for frame in reassemblers.feed(bytes, from: characteristic.uuid) {
+            for frame in reassembleFrames(bytes, from: characteristic.uuid) {
                 if backfilling, BLEManager.isOffloadFrame(frame, family: .whoop4) {
                     // Historical replay is bulk sync traffic, not live UI traffic. Feed it only to
                     // the Backfiller; parsing every record through FrameRouter updates SwiftUI for
@@ -6766,7 +6784,7 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
             // timestamps are already real-unix seconds.) Live HR/battery still also come from the
             // standard 0x2A37 / 0x2A19 profiles handled above.
             if BLEManager.whoop5NotifyChars.contains(characteristic.uuid) {
-                for frame in reassemblers.feed(bytes, from: characteristic.uuid) {
+                for frame in reassembleFrames(bytes, from: characteristic.uuid) {
                     let parsed = parseFrame(frame, family: .whoop5)
                     handleWhoop5CommandResponse(parsed, frame: frame)
                     let integrityValid = parsed.envelopeOK

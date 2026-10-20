@@ -2079,7 +2079,8 @@ public enum SleepStager {
     }
 
     /// One 5-min HRV window: its start ts, the sleep stage at its center, the clean-beat count, and the
-    /// window RMSSD (nil when <2 clean beats). Drives both `sessionAvgHRV` and the HRV test-mode trace. (#141)
+    /// window RMSSD (nil below `HRVAnalyzer.minBeats` clean intervals). Drives both `sessionAvgHRV`
+    /// and the HRV test-mode trace. (#141)
     public struct HrvWindow: Sendable {
         public let startTs: Int
         public let stage: String
@@ -2088,7 +2089,8 @@ public enum SleepStager {
     }
 
     /// Mean RMSSD over 5-min tumbling windows across the session (ms), or nil.
-    /// Uses the same range-filter + ≥2-valid-interval rule as hrv.rmssd().
+    /// Each contributing window must contain at least `HRVAnalyzer.minBeats` clean intervals after
+    /// range and ectopic rejection. Thin windows do not receive the same weight as a full window.
     static func sessionAvgHRV(start: Int, end: Int, rr: [RRInterval]) -> Double? {
         let vals = sessionHrvWindows(start: start, end: end, rr: rr, stages: []).compactMap { $0.rmssd }
         return vals.isEmpty ? nil : vals.reduce(0, +) / Double(vals.count)
@@ -2118,7 +2120,8 @@ public enum SleepStager {
             // #204/#195: gap-aware — a successive difference straddling a dropped beat is skipped so a
             // removed out-of-range/ectopic beat can't splice its neighbours into a spurious delta.
             let cleaned = HRVAnalyzer.cleanRRGapAware(bucket)
-            let rmssd: Double? = (cleaned.nn.count >= 2) ? HRVAnalyzer.rmssdGapAware(cleaned.nn, cleaned.contiguous) : nil
+            let rmssd: Double? = (cleaned.nn.count >= HRVAnalyzer.minBeats)
+                ? HRVAnalyzer.rmssdGapAware(cleaned.nn, cleaned.contiguous) : nil
             guard let center = SleepTimestampMath.adding(windowS / 2, to: t) else { return [] }
             let stage = stages.first { center >= $0.start && center < $0.end }?.stage ?? "?"
             out.append(HrvWindow(startTs: t, stage: stage, cleanBeats: cleaned.nn.count, rmssd: rmssd))

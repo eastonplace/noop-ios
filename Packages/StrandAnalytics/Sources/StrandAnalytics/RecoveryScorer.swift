@@ -273,8 +273,8 @@ public enum RecoveryScorer {
         return max(0.0, min(100.0, score))
     }
 
-    /// Convenience overload taking BaselineState directly. Enforces the cold-start
-    /// gate using `hrvBaseline.usable`.
+    /// Convenience overload taking BaselineState directly. HRV must be usable for a score;
+    /// unusable optional personal baselines are omitted before weight renormalization.
     public static func recovery(hrv: Double,
                                 rhr: Double,
                                 resp: Double?,
@@ -287,8 +287,8 @@ public enum RecoveryScorer {
                  rhr: rhr,
                  resp: resp,
                  hrvBaseline: DriverBaseline(hrvBaseline),
-                 rhrBaseline: rhrBaseline.map(DriverBaseline.init),
-                 respBaseline: respBaseline.map(DriverBaseline.init),
+                 rhrBaseline: rhrBaseline.flatMap { $0.usable ? $0 : nil }.map(DriverBaseline.init),
+                 respBaseline: respBaseline.flatMap { $0.usable ? $0 : nil }.map(DriverBaseline.init),
                  sleepPerf: sleepPerf,
                  skinTempDev: skinTempDev,
                  hrvBaselineUsable: hrvBaseline.usable)

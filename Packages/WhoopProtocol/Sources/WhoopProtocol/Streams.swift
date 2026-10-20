@@ -44,6 +44,9 @@ public enum RRSource: String, Codable, Sendable, CaseIterable {
         case 5: return .whoop5Historical
         case 6: return .whoop5Realtime
         case 7: return .whoop5Standard
+        case 8: return .whoop4Historical
+        case 9: return .whoop4Realtime
+        case 10: return .whoop4Standard
         default: return .legacy
         }
     }
