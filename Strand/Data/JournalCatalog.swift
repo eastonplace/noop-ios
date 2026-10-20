@@ -51,7 +51,7 @@ final class JournalCatalogStore: ObservableObject {
     /// Persisted as a single JSON blob under `journal.catalog.v2`.
     @Published var items: [JournalCatalogItem] { didSet { persistItems() } }
 
-    private let d = UserDefaults.standard
+    private let d: UserDefaults
     private enum K {
         static let items = "journal.catalog.v2"
         // Legacy (v1) keys, read once for the one-time migration, never written again.
@@ -59,7 +59,8 @@ final class JournalCatalogStore: ObservableObject {
         static let hidden = "journal.hiddenQuestions"
     }
 
-    init() {
+    init(defaults: UserDefaults = .standard) {
+        d = defaults
         if let blob = d.data(forKey: K.items),
            let decoded = try? JSONDecoder().decode([JournalCatalogItem].self, from: blob) {
             items = decoded
@@ -76,6 +77,7 @@ final class JournalCatalogStore: ObservableObject {
 
     private func persistItems() {
         if let blob = try? JSONEncoder().encode(items) { d.set(blob, forKey: K.items) }
+        NotificationCenter.default.post(name: .init("noop.notificationJournalDidChange"), object: nil)
     }
 
     /// Build the v2 item list from the legacy custom/hidden arrays. Custom questions → `.bool`

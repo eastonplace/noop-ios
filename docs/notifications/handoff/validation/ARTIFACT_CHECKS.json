@@ -1,0 +1,20 @@
+{
+  "status": "passed",
+  "catalog_report": "VALIDATION_REPORT.json",
+  "csv_rows": 540,
+  "csv_id_order_matches_json": true,
+  "csv_rendered_copy_matches_json": true,
+  "workbook_sheets": [
+    "Overview",
+    "Catalog",
+    "Families"
+  ],
+  "workbook_formula_count": 74,
+  "workbook_cached_formula_errors": [],
+  "workbook_family_count_formulas": "54 of 54 equal ten",
+  "workbook_overview_counts_match_json": true,
+  "workbook_archive_integrity": "passed",
+  "pdf_pages": 6,
+  "visual_review": "Three workbook sheets and all six PDF pages rendered and reviewed.",
+  "app_execution": "Not run; these are document and catalog checks."
+}

@@ -108,15 +108,27 @@ final class RRReconciliationStoreIntegrationTests: XCTestCase {
                 INSERT INTO hrSample(deviceId,ts,bpm) VALUES ('strap',100,80);
                 """)
         }
-        try migrator.migrate(queue)
-        try queue.read { db in
-            XCTAssertEqual(try db.primaryKey("rrInterval").columns, ["deviceId", "ts", "rrMs", "seq"])
-            let row = try XCTUnwrap(Row.fetchOne(db, sql: "SELECT * FROM rrInterval WHERE deviceId='strap'"))
-            XCTAssertEqual(row["rrMs"] as Int, 500)
-            XCTAssertEqual(row["sourceOrdinal"] as Int, 4)
-            XCTAssertEqual(row["tsSuspect"] as Int?, 1)
+        let before = try queue.read { db in
+            let columns = try db.columns(in: "rrInterval").map(\.name)
+            return (columns,
+                    try MigrationPreservationFixture.snapshot(db, sql: MigrationPreservationFixture.rawRRSQL(columns: columns)),
+                    try MigrationPreservationFixture.snapshot(db, sql: "SELECT * FROM hrSample ORDER BY deviceId, ts"))
         }
-        XCTAssertEqual(WhoopStoreInfo.schemaVersion, 60)
+        for _ in 1...2 {
+            try migrator.migrate(queue)
+            try queue.read { db in
+                XCTAssertEqual(try db.primaryKey("rrInterval").columns, ["deviceId", "ts", "rrMs", "seq"])
+                XCTAssertEqual(try MigrationPreservationFixture.snapshot(db, sql: MigrationPreservationFixture.rawRRSQL(columns: before.0)), before.1)
+                XCTAssertEqual(try MigrationPreservationFixture.snapshot(db, sql: "SELECT * FROM hrSample ORDER BY deviceId, ts"), before.2)
+                let row = try XCTUnwrap(Row.fetchOne(db, sql: "SELECT * FROM rrInterval WHERE deviceId='strap'"))
+                XCTAssertEqual(row["tsSuspect"] as Int?, 1)
+                try MigrationPreservationFixture.assertNotificationTablesEmpty(db)
+                let identifiers = try String.fetchAll(db, sql: "SELECT identifier FROM grdb_migrations ORDER BY rowid")
+                XCTAssertEqual(Array(identifiers.suffix(3)), [LiftStrainMigration.identifier, RRQualityMigration.identifier, NotificationDecisionMigration.identifier])
+                XCTAssertEqual(Set(identifiers).count, identifiers.count)
+            }
+        }
+        XCTAssertEqual(WhoopStoreInfo.schemaVersion, 61)
     }
 
     func testCurrentMigratorUpgradesV59WithoutChangingStrengthStateOrRawRR() throws {
@@ -127,82 +139,24 @@ final class RRReconciliationStoreIntegrationTests: XCTestCase {
             XCTAssertFalse(try db.columns(in: "rrInterval").contains { $0.name == "tsSuspect" })
             XCTAssertEqual(try String.fetchAll(db, sql: "SELECT identifier FROM grdb_migrations ORDER BY rowid").last,
                            "v59-lift-strain")
-            // Every column is explicit, including reversible Strength snapshots, bookkeeping,
-            // nullable values, JSON bytes, and the original timestamps.
-            try db.execute(sql: """
-                INSERT INTO liftStrain
-                    (deviceId, liftSessionId, workoutStartTs, workoutSport, dayKey, formulaVersion,
-                     bodyweightKg, bodyweightIsDefault, dose, volume, muscularLoad, workingSets,
-                     warmupSets, countedSets, skippedJSON, unmappedSets, hrOnlyStrain, combinedStrain,
-                     appliedMuscularLoad, state, computedAt, updatedAt)
-                VALUES
-                    ('strap','lift-applied',1784300000,'Strength Training','2026-07-17',1,
-                     81.25,0,50.125,1234.5,10.25,9,2,8,'[ {"reason":"unmapped"} ]',1,
-                     30.125,50.625,10.25,'applied',1784304001,1784304002),
-                    ('strap','lift-detached',1784390000,'Strength Training','2026-07-18',2,
-                     80.5,1,12.375,456.75,3.125,4,1,3,'[]',0,
-                     NULL,NULL,0,'detached',1784394001,1784394002);
-                INSERT INTO liftStrainTarget
-                    (deviceId, kind, keyTs, keyText, origStrain, origStrainVersion, hrOnlyStrain,
-                     writtenStrain, writtenStrainVersion, appliedMuscularLoad, formulaVersion, snapshotAt, updatedAt)
-                VALUES
-                    ('strap','workout',1784300000,'Strength Training',33.3,NULL,30.125,
-                     50.625,2,10.25,1,1784304003,1784304004),
-                    ('strap-noop','day',0,'2026-07-17',NULL,2,NULL,
-                     60.875,2,10.25,1,1784304005,1784304006);
-                INSERT INTO liftStrainJob
-                    (jobKey, deviceId, formulaVersion, state, cursorDay, upperDay, liftsApplied,
-                     liftsSkipped, daysApplied, conflicts, startedAt, completedAt, refreshedAt)
-                VALUES
-                    ('strength:1:strap','strap',1,'running','2026-07-17','2026-07-18',7,2,3,1,
-                     1784304010,NULL,1784304020),
-                    ('strength:2:strap','strap',2,'complete',NULL,'2026-07-18',8,1,4,0,
-                     1784394010,1784394020,NULL);
-                INSERT INTO liftStrainControl (scope, disabled, reason, updatedAt)
-                VALUES ('global',1,'fixture: preserve disabled state',1784394030);
-                INSERT INTO workout
-                    (deviceId, startTs, endTs, sport, source, durationS, energyKcal, avgHr, maxHr,
-                     strain, distanceM, zonesJSON, notes, strainVersion)
-                VALUES
-                    ('strap',1784300000,1784303600,'Strength Training','manual',3600.25,250.5,120,151,
-                     50.625,12.75,'[ 1, 2, 3 ]','preserve applied lift',2),
-                    ('strap',1784390000,1784391800,'Strength Training','manual',1800,NULL,NULL,NULL,
-                     NULL,NULL,NULL,NULL,NULL);
-                INSERT INTO dailyMetric
-                    (deviceId, day, totalSleepMin, efficiency, deepMin, remMin, lightMin, disturbances,
-                     restingHr, avgHrv, recovery, strain, exerciseCount, spo2Pct, skinTempDevC,
-                     respRateBpm, steps, activeKcalEst, spo2Red, spo2Ir, strainVersion)
-                VALUES
-                    ('strap-noop','2026-07-17',420.5,0.9125,80.25,90.5,249.75,3,
-                     52,61.125,70.25,60.875,1,97.125,-0.375,14.25,9001,400.5,12345,23456,2),
-                    ('strap-noop','2026-07-18',NULL,NULL,NULL,NULL,NULL,NULL,
-                     NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL);
-                INSERT INTO rrInterval (deviceId, ts, rrMs, seq, synced, source, sourceOrdinal)
-                VALUES
-                    ('strap',100,500,0,1,'whoop5_historical',9),
-                    ('strap',100,500,1,0,'whoop5_historical',4),
-                    ('strap',101,500,0,1,'whoop5_standard_2a37',7),
-                    ('strap',102,821,0,0,'whoop5_standard_2a37',5);
-                INSERT INTO hrSample (deviceId, ts, bpm, synced)
-                VALUES ('strap',100,80,1), ('strap',101,80,0), ('strap',102,80,1);
-                """)
+            try MigrationPreservationFixture.seedStrengthAndRawRR(db)
         }
         let before = try queue.read { db in
             let rrColumns = try db.columns(in: "rrInterval").map(\.name)
-            return (try Self.strengthSnapshots(db), rrColumns,
-                    try Self.snapshot(db, sql: Self.rawRRSQL(columns: rrColumns)),
-                    try Self.snapshot(db, sql: "SELECT * FROM hrSample ORDER BY deviceId, ts"))
+            return (try MigrationPreservationFixture.strengthSnapshots(db), rrColumns,
+                    try MigrationPreservationFixture.snapshot(db, sql: MigrationPreservationFixture.rawRRSQL(columns: rrColumns)),
+                    try MigrationPreservationFixture.snapshot(db, sql: "SELECT * FROM hrSample ORDER BY deviceId, ts"))
         }
 
         var firstMigrationIDs: [String]?
         for pass in 1...2 {
             try migrator.migrate(queue)
             let identifiers = try queue.read { db in
-                XCTAssertEqual(try Self.strengthSnapshots(db), before.0,
+                XCTAssertEqual(try MigrationPreservationFixture.strengthSnapshots(db), before.0,
                                "Pass \(pass) must preserve every Strength cell and timestamp")
-                XCTAssertEqual(try Self.snapshot(db, sql: Self.rawRRSQL(columns: before.1)), before.2,
+                XCTAssertEqual(try MigrationPreservationFixture.snapshot(db, sql: MigrationPreservationFixture.rawRRSQL(columns: before.1)), before.2,
                                "Pass \(pass) must preserve all raw RR values, keys, timestamps, and order")
-                XCTAssertEqual(try Self.snapshot(db, sql: "SELECT * FROM hrSample ORDER BY deviceId, ts"), before.3)
+                XCTAssertEqual(try MigrationPreservationFixture.snapshot(db, sql: "SELECT * FROM hrSample ORDER BY deviceId, ts"), before.3)
                 XCTAssertEqual(try db.primaryKey("rrInterval").columns, ["deviceId", "ts", "rrMs", "seq"])
                 XCTAssertEqual(try db.columns(in: "rrInterval").map(\.name), before.1 + ["tsSuspect"])
                 let annotations = try Row.fetchAll(db, sql: """
@@ -210,10 +164,11 @@ final class RRReconciliationStoreIntegrationTests: XCTestCase {
                     """).map { $0["tsSuspect"] as Int? }
                 XCTAssertEqual(annotations, [1, 1, 1, nil])
                 let identifiers = try String.fetchAll(db, sql: "SELECT identifier FROM grdb_migrations ORDER BY rowid")
-                for identifier in ["v59-lift-strain", "v60-rr-quality-policy"] {
+                for identifier in [LiftStrainMigration.identifier, RRQualityMigration.identifier, NotificationDecisionMigration.identifier] {
                     XCTAssertEqual(identifiers.filter { $0 == identifier }.count, 1, identifier)
                 }
-                XCTAssertEqual(Array(identifiers.suffix(2)), ["v59-lift-strain", "v60-rr-quality-policy"])
+                XCTAssertEqual(Array(identifiers.suffix(3)), [LiftStrainMigration.identifier, RRQualityMigration.identifier, NotificationDecisionMigration.identifier])
+                try MigrationPreservationFixture.assertNotificationTablesEmpty(db)
                 return identifiers
             }
             if let firstMigrationIDs {
@@ -222,12 +177,142 @@ final class RRReconciliationStoreIntegrationTests: XCTestCase {
                 firstMigrationIDs = identifiers
             }
         }
-        XCTAssertEqual(WhoopStoreInfo.schemaVersion, 60)
+        XCTAssertEqual(WhoopStoreInfo.schemaVersion, 61)
+    }
+}
+
+/// Real pre-upgrade data shared by recovery-first and notification-first migration tests.
+enum MigrationPreservationFixture {
+    static func seedStrengthAndRawRR(_ db: Database) throws {
+        // Every column is explicit, including reversible Strength snapshots, bookkeeping,
+        // nullable values, JSON bytes, and the original timestamps.
+        try db.execute(sql: """
+            INSERT INTO liftStrain
+                (deviceId, liftSessionId, workoutStartTs, workoutSport, dayKey, formulaVersion,
+                 bodyweightKg, bodyweightIsDefault, dose, volume, muscularLoad, workingSets,
+                 warmupSets, countedSets, skippedJSON, unmappedSets, hrOnlyStrain, combinedStrain,
+                 appliedMuscularLoad, state, computedAt, updatedAt)
+            VALUES
+                ('strap','lift-applied',1784300000,'Strength Training','2026-07-17',1,
+                 81.25,0,50.125,1234.5,10.25,9,2,8,'[ {"reason":"unmapped"} ]',1,
+                 30.125,50.625,10.25,'applied',1784304001,1784304002),
+                ('strap','lift-detached',1784390000,'Strength Training','2026-07-18',2,
+                 80.5,1,12.375,456.75,3.125,4,1,3,'[]',0,
+                 NULL,NULL,0,'detached',1784394001,1784394002);
+            INSERT INTO liftStrainTarget
+                (deviceId, kind, keyTs, keyText, origStrain, origStrainVersion, hrOnlyStrain,
+                 writtenStrain, writtenStrainVersion, appliedMuscularLoad, formulaVersion, snapshotAt, updatedAt)
+            VALUES
+                ('strap','workout',1784300000,'Strength Training',33.3,NULL,30.125,
+                 50.625,2,10.25,1,1784304003,1784304004),
+                ('strap-noop','day',0,'2026-07-17',NULL,2,NULL,
+                 60.875,2,10.25,1,1784304005,1784304006);
+            INSERT INTO liftStrainJob
+                (jobKey, deviceId, formulaVersion, state, cursorDay, upperDay, liftsApplied,
+                 liftsSkipped, daysApplied, conflicts, startedAt, completedAt, refreshedAt)
+            VALUES
+                ('strength:1:strap','strap',1,'running','2026-07-17','2026-07-18',7,2,3,1,
+                 1784304010,NULL,1784304020),
+                ('strength:2:strap','strap',2,'complete',NULL,'2026-07-18',8,1,4,0,
+                 1784394010,1784394020,NULL);
+            INSERT INTO liftStrainControl (scope, disabled, reason, updatedAt)
+            VALUES ('global',1,'fixture: preserve disabled state',1784394030);
+            INSERT INTO workout
+                (deviceId, startTs, endTs, sport, source, durationS, energyKcal, avgHr, maxHr,
+                 strain, distanceM, zonesJSON, notes, strainVersion)
+            VALUES
+                ('strap',1784300000,1784303600,'Strength Training','manual',3600.25,250.5,120,151,
+                 50.625,12.75,'[ 1, 2, 3 ]','preserve applied lift',2),
+                ('strap',1784390000,1784391800,'Strength Training','manual',1800,NULL,NULL,NULL,
+                 NULL,NULL,NULL,NULL,NULL);
+            INSERT INTO dailyMetric
+                (deviceId, day, totalSleepMin, efficiency, deepMin, remMin, lightMin, disturbances,
+                 restingHr, avgHrv, recovery, strain, exerciseCount, spo2Pct, skinTempDevC,
+                 respRateBpm, steps, activeKcalEst, spo2Red, spo2Ir, strainVersion)
+            VALUES
+                ('strap-noop','2026-07-17',420.5,0.9125,80.25,90.5,249.75,3,
+                 52,61.125,70.25,60.875,1,97.125,-0.375,14.25,9001,400.5,12345,23456,2),
+                ('strap-noop','2026-07-18',NULL,NULL,NULL,NULL,NULL,NULL,
+                 NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL);
+            INSERT INTO rrInterval (deviceId, ts, rrMs, seq, synced, source, sourceOrdinal)
+            VALUES
+                ('strap',100,500,0,1,'whoop5_historical',9),
+                ('strap',100,500,1,0,'whoop5_historical',4),
+                ('strap',101,500,0,1,'whoop5_standard_2a37',7),
+                ('strap',102,821,0,0,'whoop5_standard_2a37',5);
+            INSERT INTO hrSample (deviceId, ts, bpm, synced)
+            VALUES ('strap',100,80,1), ('strap',101,80,0), ('strap',102,80,1);
+            """)
+    }
+
+    static let notificationTables = ["notificationDecision", "notificationEvaluation", "notificationIdentity", "notificationEpisode"]
+
+    static func assertNotificationTablesEmpty(_ db: Database, file: StaticString = #filePath, line: UInt = #line) throws {
+        for table in notificationTables {
+            XCTAssertEqual(try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM \(table)"), 0, table, file: file, line: line)
+        }
+    }
+
+    static func seedHealthAndLiftLog(_ db: Database) throws {
+        try db.execute(sql: """
+            INSERT INTO sleepSession
+                (deviceId, startTs, endTs, efficiency, restingHr, avgHrv, stagesJSON, userEdited, startTsAdjusted)
+            VALUES ('strap-noop',1784260000,1784288800,0.9125,52,61.125,'[ {"stage":"light"} ]',1,1784260060);
+            INSERT INTO metricSeries (deviceId, day, key, value)
+            VALUES ('strap-noop','2026-07-17','sleep_performance',88.125),
+                   ('strap-noop','2026-07-17','stress',21.375);
+            INSERT INTO sleepRecoveryAttempt
+                (id,deviceId,source,requestedStartTs,requestedEndTs,outcome,confidence,reason,
+                 resultStartTs,resultEndTs,stagesAvailable,restingHr,avgHrv,algorithmVersion,createdAt,updatedAt)
+            VALUES ('recovered-night','strap-noop','manual_window',1784260000,1784288800,'complete',0.8125,
+                    'preserve recovered night',1784260000,1784288800,1,52,61.125,'fixture-v1',1784303000,1784303001);
+            INSERT INTO sleepRecoveryDailyOverride
+                (deviceId,day,sessionStartTs,totalSleepMin,efficiency,deepMin,remMin,lightMin,disturbances,
+                 restingHr,avgHrv,recovery,restScore,chargeWeightedSumWithoutSleep,chargeWeightWithoutSleep,
+                 chargeBaselineUsable,sleepNeedHours,sleepConsistency,updatedAt)
+            VALUES ('strap-noop','2026-07-17',1784260000,420.5,0.9125,80.25,90.5,249.75,3,
+                    52,61.125,70.25,88.125,22.375,0.625,1,8.125,NULL,1784303002);
+            INSERT INTO liftExercise (id,deviceId,name,primaryMuscle,secondaryMuscles,createdAt,lastUsedTs)
+            VALUES ('exercise','strap','Squat','quads','[ "glutes" ]',1784300000,NULL);
+            INSERT INTO liftProgram (id,deviceId,name,note,createdAt,updatedAt,archived)
+            VALUES ('program','strap','Strength','preserve program',1784200000,1784300000,0);
+            INSERT INTO liftProgramItem
+                (id,deviceId,programId,ord,exercise,targetSets,targetRepsLow,targetRepsHigh,targetRpe,targetWeightKg,restSec,note)
+            VALUES ('item','strap','program',0,'Squat',3,5,8,8.125,81.25,120,NULL);
+            INSERT INTO liftSession (id,deviceId,startTs,endTs,sport,programId,programName,sessionRpe,note)
+            VALUES ('lift-applied','strap',1784300000,1784303600,'Strength Training','program','Strength',8.125,'preserve session');
+            INSERT INTO liftSet
+                (id,deviceId,sessionId,ord,exercise,primaryMuscle,secondaryMuscles,setIndex,weightKg,reps,rpe,
+                 isWarmup,startTs,endTs,restSec,note)
+            VALUES ('set','strap','lift-applied',0,'Squat','quads',NULL,1,81.25,7,8.125,0,1784300100,1784300130,120,'preserve set');
+            INSERT INTO liftReceiptState (deviceId,data) VALUES ('strap',X'0001027B226B6579223A2276616C7565227DFF');
+            """)
+    }
+
+    static func healthAndLiftSnapshots(_ db: Database) throws -> [String: TableSnapshot] {
+        var result = try strengthSnapshots(db)
+        for (table, order) in [
+            ("sleepSession", "deviceId, startTs"), ("metricSeries", "deviceId, day, key"),
+            ("sleepRecoveryAttempt", "id"), ("sleepRecoveryDailyOverride", "deviceId, day"),
+            ("liftExercise", "id"), ("liftProgram", "id"), ("liftProgramItem", "id"),
+            ("liftSession", "id"), ("liftSet", "id"), ("liftReceiptState", "deviceId")
+        ] {
+            result[table] = try snapshot(db, sql: "SELECT * FROM \(table) ORDER BY \(order)")
+        }
+        return result
+    }
+
+    static func notificationSnapshots(_ db: Database) throws -> [String: TableSnapshot] {
+        var result: [String: TableSnapshot] = [:]
+        for table in notificationTables {
+            result[table] = try snapshot(db, sql: "SELECT * FROM \(table) ORDER BY 1, 2")
+        }
+        return result
     }
 
     /// Compare exact SQLite storage classes, UTF-8/blob bytes, and floating-point bits.
     /// Row descriptions and numeric equality alone can hide storage or rounding changes.
-    private enum SQLiteCell: Equatable {
+    enum SQLiteCell: Equatable, Sendable {
         case null
         case integer(Int64)
         case real(UInt64)
@@ -245,12 +330,12 @@ final class RRReconciliationStoreIntegrationTests: XCTestCase {
         }
     }
 
-    private struct TableSnapshot: Equatable {
+    struct TableSnapshot: Equatable, Sendable {
         let columns: [String]
         let rows: [[SQLiteCell]]
     }
 
-    private static func snapshot(_ db: Database, sql: String) throws -> TableSnapshot {
+    static func snapshot(_ db: Database, sql: String) throws -> TableSnapshot {
         let rows = try Row.fetchAll(db, sql: sql)
         return TableSnapshot(columns: rows.first.map { Array($0.columnNames) } ?? [], rows: rows.map { row in
             row.columnNames.map { column in
@@ -260,7 +345,7 @@ final class RRReconciliationStoreIntegrationTests: XCTestCase {
         })
     }
 
-    private static func strengthSnapshots(_ db: Database) throws -> [String: TableSnapshot] {
+    static func strengthSnapshots(_ db: Database) throws -> [String: TableSnapshot] {
         let tables = [
             ("liftStrain", "deviceId, liftSessionId"),
             ("liftStrainTarget", "deviceId, kind, keyTs, keyText"),
@@ -276,7 +361,7 @@ final class RRReconciliationStoreIntegrationTests: XCTestCase {
         return result
     }
 
-    private static func rawRRSQL(columns: [String]) -> String {
+    static func rawRRSQL(columns: [String]) -> String {
         "SELECT \(columns.joined(separator: ", ")) FROM rrInterval ORDER BY deviceId, ts, rrMs, seq"
     }
 }

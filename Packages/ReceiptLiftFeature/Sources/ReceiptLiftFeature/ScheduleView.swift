@@ -324,11 +324,12 @@ private struct ScheduleWorkoutEditor: View {
     guard let routineID else { return }
     switch route {
     case .create:
-      store.scheduleWorkout(routineID: routineID, at: plannedAt, note: note)
+      store.scheduleWorkout(routineID: routineID, at: plannedAt, note: note, notificationTimeExplicit: true)
     case .edit(let workout):
       var updated = workout
       updated.routineID = routineID
       updated.plannedAt = plannedAt
+      updated.notificationTimeExplicit = true
       updated.note = note
       store.updateScheduledWorkout(updated)
     }

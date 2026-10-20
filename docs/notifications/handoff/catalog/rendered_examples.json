@@ -1,0 +1,2702 @@
+[
+  {
+    "id": "SR001",
+    "title": "Plan for your earlier wake",
+    "body": "Your selected wake is 06:00. A bedtime near 22:00 leaves 8 hours, matching the current sleep-need estimate."
+  },
+  {
+    "id": "SR002",
+    "title": "Choose tonight's timing",
+    "body": "Tomorrow's wake is 08:30. You can keep your usual bedtime or review a later sleep opportunity."
+  },
+  {
+    "id": "SR003",
+    "title": "Your sleep plan has less time",
+    "body": "This plan leaves 7 hours, compared with the current need estimate of 8 hours. Review either time if you want more room."
+  },
+  {
+    "id": "SR004",
+    "title": "See the time remaining tonight",
+    "body": "Your selected wake is 07:00, with 6 hours 40 minutes left until then. Review the remaining opportunity if your plans changed."
+  },
+  {
+    "id": "SR005",
+    "title": "Check the dates on this sleep plan",
+    "body": "This opportunity runs from Tuesday 02:00 to Tuesday 10:00. Confirm both dates before scheduling a reminder."
+  },
+  {
+    "id": "SR006",
+    "title": "Tomorrow uses your wake override",
+    "body": "Your next wake is set to 05:45 instead of 07:00. Review tonight's sleep opportunity for that change."
+  },
+  {
+    "id": "SR007",
+    "title": "Sleep need updated your planned bedtime",
+    "body": "The updated need estimate is 8 hours 30 minutes, making the suggested bedtime 22:00. Review its source and the revised reminder time."
+  },
+  {
+    "id": "SR008",
+    "title": "Your routine now starts earlier",
+    "body": "Your sleep times stay 23:00 to 07:00; the new lead starts wind-down at 22:00. Review that preparation time."
+  },
+  {
+    "id": "SR009",
+    "title": "Check sleep time across the clock change",
+    "body": "Your saved times span a clock change, leaving 7 hours of actual time. Review tonight's plan if you want to adjust it."
+  },
+  {
+    "id": "SR010",
+    "title": "Review your schedule's timezone",
+    "body": "Your phone now uses Europe/Paris. Check that the next wake shown as 07:00 is the time you intend."
+  },
+  {
+    "id": "SR011",
+    "title": "Your wind-down time is here",
+    "body": "This is the wind-down time you chose. Open your sleep plan if tonight's timing needs a change."
+  },
+  {
+    "id": "SR012",
+    "title": "An earlier routine for your earlier wake",
+    "body": "Tonight's reminder follows the earlier wake time you selected. Review the plan if tomorrow has changed."
+  },
+  {
+    "id": "SR013",
+    "title": "Start the routine for your next wake",
+    "body": "This reminder belongs to your next selected wake, even though it falls on the previous calendar day. Open the plan to check its dates."
+  },
+  {
+    "id": "SR014",
+    "title": "Choose a shorter wind-down tonight",
+    "body": "Your workout finished after the usual routine start. Review the time left before bed and choose what fits tonight."
+  },
+  {
+    "id": "SR015",
+    "title": "Your wind-down snooze is up",
+    "body": "You asked for this reminder again. Open the plan when you are ready to begin your routine."
+  },
+  {
+    "id": "SR016",
+    "title": "Tonight's new routine time has passed",
+    "body": "The new wake time moves wind-down earlier than now. Review tonight's plan; tomorrow's reminder will use the updated schedule."
+  },
+  {
+    "id": "SR017",
+    "title": "Your chosen bedtime reminder",
+    "body": "You set this reminder for bedtime itself. Open the plan if you want a preparation reminder earlier on future nights."
+  },
+  {
+    "id": "SR018",
+    "title": "Your wind-down reminder moved",
+    "body": "The next reminder is set for 21:45. Review the new time before leaving the sleep plan."
+  },
+  {
+    "id": "SR019",
+    "title": "Your week has different wind-down times",
+    "body": "Your saved wake overrides create more than one routine time this week. Review the whole week together."
+  },
+  {
+    "id": "SR020",
+    "title": "Choose how to use this reminder",
+    "body": "Notifications are off for NOOP. You can open system settings or keep your sleep plan available in the app."
+  },
+  {
+    "id": "SR021",
+    "title": "Review the strap's wake time",
+    "body": "The strap reports 07:00; your saved plan says 06:15. Open alarm settings to review the mismatch."
+  },
+  {
+    "id": "SR022",
+    "title": "Check tomorrow's alarm setup",
+    "body": "NOOP has not confirmed the next alarm on your strap. Open its settings and use a separate alarm if you need a dependable wake."
+  },
+  {
+    "id": "SR023",
+    "title": "Your backup notification needs attention",
+    "body": "NOOP cannot schedule its ordinary backup notification with notifications off. Review the setting and keep a separate alarm for a dependable wake."
+  },
+  {
+    "id": "SR024",
+    "title": "No strap wake is set for tomorrow",
+    "body": "Tomorrow is not in your selected alarm days. Add it if you intended an alarm for that morning."
+  },
+  {
+    "id": "SR025",
+    "title": "The strap reports your earlier wake",
+    "body": "The next strap alarm reads 05:30 on Tuesday. Review the phone backup separately if you use it."
+  },
+  {
+    "id": "SR026",
+    "title": "Your wake reminders disagree",
+    "body": "The strap is set for 06:30; the phone backup is set for 07:00. Review both before bed."
+  },
+  {
+    "id": "SR027",
+    "title": "Review how your wake setup works",
+    "body": "The strap alarm and ordinary phone backup are configured. Phone sound can still follow system settings, so keep a separate alarm when the wake matters."
+  },
+  {
+    "id": "SR028",
+    "title": "Confirm the wake during the clock change",
+    "body": "The clock change affects your selected local wake time. Choose the intended occurrence before NOOP updates the alarm."
+  },
+  {
+    "id": "SR029",
+    "title": "Check the alarm on this strap",
+    "body": "Your active strap changed after alarm setup. Open the device's alarm settings to confirm the next wake."
+  },
+  {
+    "id": "SR030",
+    "title": "The new phone backup was not scheduled",
+    "body": "The latest backup change did not finish. Review the status before relying on the new wake time."
+  },
+  {
+    "id": "SR031",
+    "title": "Your sleep ledger is ready to review",
+    "body": "There are 7 recorded nights with matching need estimates. Open the ledger to see each night and its target."
+  },
+  {
+    "id": "SR032",
+    "title": "Review your next sleep opportunity",
+    "body": "Your recent sleep ledger shows an estimated shortfall of 1 hour 20 minutes against its nightly targets. Review tonight's timing if you want more room for sleep."
+  },
+  {
+    "id": "SR033",
+    "title": "Your recent sleep opportunity is trending shorter",
+    "body": "The ledger shortfall grew across three recorded nights. Review the pattern and decide whether the next few sleep opportunities can change."
+  },
+  {
+    "id": "SR034",
+    "title": "Your sleep ledger is moving closer to target",
+    "body": "The estimated shortfall is smaller after your recent nights. Review which sleep opportunities were easier to keep."
+  },
+  {
+    "id": "SR035",
+    "title": "Your sleep ledger is near its nightly targets",
+    "body": "The current ledger is within its on-target band. This is an estimate from recorded nights, not a measure of how rested you must feel."
+  },
+  {
+    "id": "SR036",
+    "title": "Review the surplus as an estimate",
+    "body": "The ledger records more sleep than its nightly targets. Review how you feel; this arithmetic surplus does not justify cutting future sleep."
+  },
+  {
+    "id": "SR037",
+    "title": "Your two-week sleep view is complete",
+    "body": "All 14 nights in this window have recorded sleep and matching need estimates. Review the full pattern before changing your next sleep plan."
+  },
+  {
+    "id": "SR038",
+    "title": "A revised need estimate changed the ledger",
+    "body": "A corrected need estimate changed one night's ledger target to 8 hours. The recorded sleep is unchanged; review the revised calculation."
+  },
+  {
+    "id": "SR039",
+    "title": "Your sleep correction updated the ledger",
+    "body": "The corrected night changes the estimate by 45 minutes. Review the new total before updating tonight's plan."
+  },
+  {
+    "id": "SR040",
+    "title": "Review what fits tonight",
+    "body": "Your ledger shows a recent shortfall, and tonight's saved plan has 7 hours. Review the available timing without trying to make up the whole estimate at once."
+  },
+  {
+    "id": "SR041",
+    "title": "Your chosen caffeine cutoff is coming up",
+    "body": "Your selected cutoff is 13:00. Open the goal if today's timing needs a change."
+  },
+  {
+    "id": "SR042",
+    "title": "Your selected caffeine cutoff",
+    "body": "This is the cutoff time you chose for your sleep plan. Review or change the goal if it no longer fits today."
+  },
+  {
+    "id": "SR043",
+    "title": "Review caffeine timing for the earlier bedtime",
+    "body": "Your earlier bedtime moves the modeled cutoff to 11:30. This is a rough timing guide; confirm the goal you want to use."
+  },
+  {
+    "id": "SR044",
+    "title": "Keep or review your caffeine cutoff",
+    "body": "Your bedtime changed, but your chosen cutoff remains 13:00. Keep it or review the goal yourself."
+  },
+  {
+    "id": "SR045",
+    "title": "Review this caffeine entry",
+    "body": "You logged caffeine at 15:20, after your chosen cutoff. Add an amount if you want a rough quantity estimate."
+  },
+  {
+    "id": "SR046",
+    "title": "A rough estimate from your caffeine log",
+    "body": "The model estimates about 42 mg from logged drinks at bedtime. This varies between people and is not a measurement."
+  },
+  {
+    "id": "SR047",
+    "title": "See which logged drinks contribute",
+    "body": "The bedtime estimate includes 3 logged intakes. Review their times and amounts to see each contribution."
+  },
+  {
+    "id": "SR048",
+    "title": "Check a possible duplicate caffeine entry",
+    "body": "A Health entry may match a drink you logged manually. Review the pair before using the combined estimate."
+  },
+  {
+    "id": "SR049",
+    "title": "Check which sleep plan this entry uses",
+    "body": "This entry is matched to your sleep plan for Tuesday morning. Confirm that plan before reviewing caffeine timing."
+  },
+  {
+    "id": "SR050",
+    "title": "Review how the cutoff fit your week",
+    "body": "Your log includes 2 entries after your selected cutoff. Review whether the goal or your logging needs a change."
+  },
+  {
+    "id": "SR051",
+    "title": "Your planned nap time",
+    "body": "This is the nap time you chose. Open the plan to start, move, or skip it."
+  },
+  {
+    "id": "SR052",
+    "title": "Your requested nap time is up",
+    "body": "The duration you selected has ended. Open the nap plan to record how it went."
+  },
+  {
+    "id": "SR053",
+    "title": "These sleep plans overlap",
+    "body": "Your nap runs into the bedtime already saved for tonight. Review whether to move the nap or update the main sleep plan."
+  },
+  {
+    "id": "SR054",
+    "title": "Your nap reminder moved",
+    "body": "The next reminder is set for 14:30. Review the plan if that is not the time you intended."
+  },
+  {
+    "id": "SR055",
+    "title": "Choose the end time for this nap",
+    "body": "You started later than planned. Keep the original end or choose a new duration before starting a timer."
+  },
+  {
+    "id": "SR056",
+    "title": "Does this recording match your planned nap?",
+    "body": "A recorded sleep episode overlaps your nap plan. Review its times before marking the plan complete."
+  },
+  {
+    "id": "SR057",
+    "title": "Review how the nap went",
+    "body": "The timer ended, but a sleep record is not available yet. You can note the nap yourself or wait for the next sync."
+  },
+  {
+    "id": "SR058",
+    "title": "The nap timer could not be set",
+    "body": "NOOP could not arm this timer. Use another timer if you need a dependable end to the nap."
+  },
+  {
+    "id": "SR059",
+    "title": "NOOP's routine nudges are paused",
+    "body": "Routine NOOP nudges are paused until 14:50, as you requested for this nap. System alarms and other apps keep their own settings."
+  },
+  {
+    "id": "SR060",
+    "title": "Review the naps you planned",
+    "body": "You completed 2 recorded nap plans this week. Review their timing alongside the main sleep schedule."
+  },
+  {
+    "id": "SR061",
+    "title": "Review whether bedtime still fits",
+    "body": "Your latest two recorded bedtimes were later than the plan you chose. Review the target if your routine has changed."
+  },
+  {
+    "id": "SR062",
+    "title": "Your recorded wakes are earlier than the plan",
+    "body": "The last two recorded wakes ended before your selected time. Review the records and your wake schedule together."
+  },
+  {
+    "id": "SR063",
+    "title": "Bedtime is the changing part of your week",
+    "body": "Your recorded wakes were relatively steady, while bedtimes varied more. Review whether an earlier preparation cue would help your chosen routine."
+  },
+  {
+    "id": "SR064",
+    "title": "Wake timing varied more than bedtime",
+    "body": "Your recorded bedtimes were steady, while wake times varied. Review weekday overrides and the sleep records before changing anything."
+  },
+  {
+    "id": "SR065",
+    "title": "Your two schedules have different sleep timing",
+    "body": "The earlier-wake and later-wake days show different recorded sleep timing. Review both groups if you want a more consistent routine."
+  },
+  {
+    "id": "SR066",
+    "title": "Your sleep timing has been moving later",
+    "body": "Five recorded nights show a gradual shift later. Review whether your current wake and wind-down settings still match your intentions."
+  },
+  {
+    "id": "SR067",
+    "title": "Your chosen routine fit much of this week",
+    "body": "On 5 recorded nights, bedtime and wake were close to your saved targets. Review which timing felt practical."
+  },
+  {
+    "id": "SR068",
+    "title": "Review timing since your schedule change",
+    "body": "Recorded sleep timing is steadier in the newer window. Compare the two periods and decide whether to keep the schedule."
+  },
+  {
+    "id": "SR069",
+    "title": "Does your saved wake time still fit?",
+    "body": "Your recent recorded wake timing differs from the saved schedule. Review the setting if your routine has changed."
+  },
+  {
+    "id": "SR070",
+    "title": "Review your week on the current clock",
+    "body": "Seven recorded nights now share the current timezone. Review this local pattern separately from the earlier time zone."
+  },
+  {
+    "id": "SR071",
+    "title": "Your planned daylight window is starting",
+    "body": "Your chosen schedule plan includes daylight around this time. Open the plan for its timing and adjust it if today does not fit."
+  },
+  {
+    "id": "SR072",
+    "title": "Your planned dimming time",
+    "body": "Your chosen schedule plan suggests a quieter, dimmer routine now. Open the plan if tonight's timing needs to change."
+  },
+  {
+    "id": "SR073",
+    "title": "Review tomorrow's earlier schedule step",
+    "body": "The next step moves your chosen sleep and wake times earlier. Review the plan before applying its reminders."
+  },
+  {
+    "id": "SR074",
+    "title": "Review the later schedule step",
+    "body": "Your next accepted step shifts sleep and wake later. Review that day's guidance rather than reusing the earlier-shift routine."
+  },
+  {
+    "id": "SR075",
+    "title": "Review the plan on the destination clock",
+    "body": "Your confirmed arrival activates the plan for Asia/Tokyo. Check the next local sleep and daylight windows before using the reminders."
+  },
+  {
+    "id": "SR076",
+    "title": "Your chosen predeparture step is ready",
+    "body": "You selected a schedule step before departure. Open today's plan and keep it only if it fits your plans."
+  },
+  {
+    "id": "SR077",
+    "title": "Review a revised schedule plan",
+    "body": "You skipped a step and asked for an update. Review the remaining times before any new reminders are scheduled."
+  },
+  {
+    "id": "SR078",
+    "title": "Treat this timing estimate as tentative",
+    "body": "The current rhythm estimate has limited confidence. Review the schedule you chose and use the estimate as optional context."
+  },
+  {
+    "id": "SR079",
+    "title": "Choose the schedule to keep",
+    "body": "You completed the final day of your chosen plan. Review the sleep and wake times you want to keep next."
+  },
+  {
+    "id": "SR080",
+    "title": "Review the next step after your change",
+    "body": "The next remaining step is now 18:30. Completed steps stay recorded; review the revised timing before continuing."
+  },
+  {
+    "id": "SR081",
+    "title": "Your latest night is ready",
+    "body": "You recorded 7 hours 45 minutes of sleep; Rest is 82 and Charge is 71. Open the summary to review the night and today's context."
+  },
+  {
+    "id": "SR082",
+    "title": "Your sleep summary is ready",
+    "body": "You recorded 7 hours 20 minutes of sleep with Rest 76. A current recovery score is not available yet."
+  },
+  {
+    "id": "SR083",
+    "title": "Your recorded sleep duration is ready",
+    "body": "The completed record contains 6 hours 55 minutes of sleep. Stage detail is not available for this episode."
+  },
+  {
+    "id": "SR084",
+    "title": "Review your latest night and tonight's plan",
+    "body": "You recorded 6 hours 30 minutes, below that night's need estimate of 8 hours. Review the night first, then choose what is practical for tonight."
+  },
+  {
+    "id": "SR085",
+    "title": "Your latest night was longer than usual",
+    "body": "The record shows 9 hours, longer than your recent recorded pattern. Open it to check the timing and how it felt."
+  },
+  {
+    "id": "SR086",
+    "title": "Review the wake time in this record",
+    "body": "The recorded sleep ended at 08:05; your saved wake was 07:00. Review the record if that difference looks unexpected."
+  },
+  {
+    "id": "SR087",
+    "title": "Your latest sleep record has synced",
+    "body": "Your latest night is now available after syncing. Review the recorded 7 hours 10 minutes and any updated daily scores."
+  },
+  {
+    "id": "SR088",
+    "title": "Review the periods in your latest night",
+    "body": "Your latest night includes 2 recorded sleep periods totaling 7 hours 35 minutes. Open the record to check how they were grouped."
+  },
+  {
+    "id": "SR089",
+    "title": "A new sleep record is available",
+    "body": "Your latest night contains 7 hours 50 minutes of recorded sleep. Earlier missing records remain unknown rather than counted as no sleep."
+  },
+  {
+    "id": "SR090",
+    "title": "Your reviewed night has updated results",
+    "body": "Your boundary change updated recorded sleep to 7 hours 55 minutes. Review the revised summary before using the daily scores."
+  },
+  {
+    "id": "SR091",
+    "title": "Tonight's plan leaves more room",
+    "body": "The latest record was below that night's need estimate, and tonight's saved plan leaves 8 hours. Review the plan if it still fits."
+  },
+  {
+    "id": "SR092",
+    "title": "Review the recent short nights",
+    "body": "Three recorded nights were below their corresponding need estimates. Review the pattern and decide what can realistically change in the next few nights."
+  },
+  {
+    "id": "SR093",
+    "title": "Your latest record met its need estimate",
+    "body": "The latest recorded night met its corresponding need estimate after several shorter nights. Review its timing if you want to keep that opportunity."
+  },
+  {
+    "id": "SR094",
+    "title": "Recorded sleep met most nightly estimates",
+    "body": "The records met their corresponding need estimates on 5 nights this week. Review which schedule was easiest to maintain."
+  },
+  {
+    "id": "SR095",
+    "title": "Your recent recorded sleep is longer",
+    "body": "The newer week's median duration is 7 hours 35 minutes, compared with 6 hours 55 minutes in the earlier week. Review the records behind the change."
+  },
+  {
+    "id": "SR096",
+    "title": "Review bedtime room in the recent schedule",
+    "body": "Recorded sleep duration is lower in the newer week while wake timing is similar. Review whether the bedtime opportunity still fits."
+  },
+  {
+    "id": "SR097",
+    "title": "Check the timing of this longer record",
+    "body": "This record is longer than your recent pattern. Review the start and end before relying on its duration."
+  },
+  {
+    "id": "SR098",
+    "title": "See night sleep and nap time separately",
+    "body": "The main night contains 6 hours 40 minutes; the recorded nap adds 25 minutes. Review each episode before comparing the day with your usual nights."
+  },
+  {
+    "id": "SR099",
+    "title": "Review this earlier recorded wake",
+    "body": "Bedtime was close to your recent pattern, but the record ended earlier. Check the endpoint and note any context you want to remember."
+  },
+  {
+    "id": "SR100",
+    "title": "Review opportunity and recorded sleep separately",
+    "body": "The saved plan allowed more time, while recorded sleep changed little. Review the sleep record before deciding whether the schedule needs another change."
+  },
+  {
+    "id": "SR101",
+    "title": "Review how the recorded night was distributed",
+    "body": "Sleep duration met your chosen target, while recorded efficiency was below your recent pattern. Open the timeline for context."
+  },
+  {
+    "id": "SR102",
+    "title": "Review the recent continuity pattern",
+    "body": "Three recorded nights show lower efficiency than your earlier pattern. Review the timelines and add context if you want to track what changed."
+  },
+  {
+    "id": "SR103",
+    "title": "Review the recorded interruptions",
+    "body": "The app counted more interruptions than in your recent nights. Open the timeline to see what was recorded, and correct it if needed."
+  },
+  {
+    "id": "SR104",
+    "title": "Review the longer awake interval",
+    "body": "A longer recorded awake interval accounts for much of this night's interruption time. Check the timeline before interpreting the summary."
+  },
+  {
+    "id": "SR105",
+    "title": "See the pattern of shorter interruptions",
+    "body": "This record contains several shorter awake intervals. Review their distribution rather than relying only on the count."
+  },
+  {
+    "id": "SR106",
+    "title": "Your edit changed the efficiency estimate",
+    "body": "The new sleep boundaries changed the efficiency calculation. Review the revised timeline before comparing it with other nights."
+  },
+  {
+    "id": "SR107",
+    "title": "Efficiency and duration tell different parts",
+    "body": "The recorded night was relatively consolidated, but shorter than its need estimate. Review the total sleep opportunity as well as the percentage."
+  },
+  {
+    "id": "SR108",
+    "title": "Check the full recorded window",
+    "body": "The record covers a long window with lower efficiency than usual. Review the boundaries and awake intervals before changing your sleep plan."
+  },
+  {
+    "id": "SR109",
+    "title": "Recorded continuity is closer to your prior pattern",
+    "body": "The latest two records are closer to your earlier efficiency range. Review them alongside any context you chose to log."
+  },
+  {
+    "id": "SR110",
+    "title": "Compare continuity within each source",
+    "body": "These records use different sources or scoring versions. Review each group separately before interpreting a change in efficiency."
+  },
+  {
+    "id": "SR111",
+    "title": "Review the deep-sleep estimate in context",
+    "body": "The newer week has a lower deep-sleep estimate with similar total duration. Stage labels are estimates; review coverage and the full night pattern."
+  },
+  {
+    "id": "SR112",
+    "title": "Review total sleep alongside the REM estimate",
+    "body": "Both recorded duration and the REM estimate are lower in the newer week. Review the whole sleep window before focusing on a stage."
+  },
+  {
+    "id": "SR113",
+    "title": "More sleep time explains much of the stage total",
+    "body": "The estimate contains more restorative-stage minutes, while their share is similar to recent nights. Review total duration as well as stage minutes."
+  },
+  {
+    "id": "SR114",
+    "title": "Check stage minutes as well as the percentage",
+    "body": "The estimated stage share is higher, but its minutes and total sleep are lower. Review the amounts before interpreting the percentage."
+  },
+  {
+    "id": "SR115",
+    "title": "There is now enough stage data to review",
+    "body": "This week includes 5 usable staged nights. Earlier sparse records remain unknown rather than counted as missing sleep stages."
+  },
+  {
+    "id": "SR116",
+    "title": "Your sleep edit changed the stage estimate",
+    "body": "The revised boundaries changed the stage totals. Review the updated timeline; this reflects the edit, not a new overnight measurement."
+  },
+  {
+    "id": "SR117",
+    "title": "This stage estimate uses a newer calculation",
+    "body": "The recorded night is the same, but its stage calculation changed. Review the version note before comparing the two results."
+  },
+  {
+    "id": "SR118",
+    "title": "The sources estimate stages differently",
+    "body": "These sources recorded the same sleep period but assign stages differently. Review both timelines and keep source identity visible."
+  },
+  {
+    "id": "SR119",
+    "title": "Stage estimates are similar across these weeks",
+    "body": "The weekly deep and REM estimates are close across the two windows. Review them as part of the full sleep pattern, not as a score to optimize."
+  },
+  {
+    "id": "SR120",
+    "title": "Review the limits of this stage estimate",
+    "body": "This night's stage estimate has limited confidence. Use the recorded timing and duration for context rather than drawing conclusions from the stage split."
+  },
+  {
+    "id": "SR121",
+    "title": "Your sleep record has a timing update",
+    "body": "New data changed the recorded sleep timing by 35 minutes. Review the revised boundaries before using the updated summary."
+  },
+  {
+    "id": "SR122",
+    "title": "Choose which sleep record to use",
+    "body": "Two sources recorded this sleep period. Review their timelines and choose the source you want NOOP to use."
+  },
+  {
+    "id": "SR123",
+    "title": "Review why the main-night selection changed",
+    "body": "New recorded blocks changed which periods the app uses for the main night. Review the selected periods and the stated reason before comparing summaries."
+  },
+  {
+    "id": "SR124",
+    "title": "Your sleep edit is still in place",
+    "body": "Later data suggests different timing, but your edit was preserved. Compare the new data if you want to reconsider it."
+  },
+  {
+    "id": "SR125",
+    "title": "Check the overlap in these records",
+    "body": "A recorded sleep period overlaps a logged workout. Review their times before using the sleep summary."
+  },
+  {
+    "id": "SR126",
+    "title": "This sleep estimate uses heart-rate data",
+    "body": "This record was estimated from heart-rate data without the full usual sleep signals. Review the timing and treat finer detail cautiously."
+  },
+  {
+    "id": "SR127",
+    "title": "Your source choice updated the night",
+    "body": "The selected source now reports 7 hours 25 minutes. Review the new summary before comparing it with the earlier source."
+  },
+  {
+    "id": "SR128",
+    "title": "The duplicate was removed from your total",
+    "body": "The sleep total now counts the reviewed episode once. Open the corrected summary to see the updated result."
+  },
+  {
+    "id": "SR129",
+    "title": "The sleep record is restored",
+    "body": "Your undone deletion restored the recorded sleep period. Review the recalculated summary to see how the restored episode is included."
+  },
+  {
+    "id": "SR130",
+    "title": "The mistaken sleep record is removed",
+    "body": "The daily summary has been recalculated without that episode. Missing values stay unknown until a valid record is available."
+  },
+  {
+    "id": "SR131",
+    "title": "Review today with your latest recovery context",
+    "body": "Your current signals align with the app's primed read, and recorded sleep met that night's need estimate. Review today's plan and how you feel before deciding."
+  },
+  {
+    "id": "SR132",
+    "title": "Your current recovery summary is ready",
+    "body": "The app's current read is balanced, with no strong change in the included signals. Open the summary to review the details before planning today."
+  },
+  {
+    "id": "SR133",
+    "title": "Review the HRV change behind today's read",
+    "body": "HRV contributes most to today's changed readiness read. Review it alongside the other signals and how you feel before choosing effort."
+  },
+  {
+    "id": "SR134",
+    "title": "Review recent load before choosing today's effort",
+    "body": "Recent load contributes to the app's strained read while the available overnight signals are steadier. Open the load view for context."
+  },
+  {
+    "id": "SR135",
+    "title": "Consider a lighter plan after reviewing today's signals",
+    "body": "Several current readings differ from your personal pattern. Review the details and how you feel before deciding on today's effort."
+  },
+  {
+    "id": "SR136",
+    "title": "Look at sleep as well as the recovery score",
+    "body": "Charge is 74, while recorded sleep was 6 hours 20 minutes. Review both before deciding how much effort fits today."
+  },
+  {
+    "id": "SR137",
+    "title": "Review what contributed beyond sleep duration",
+    "body": "Recorded sleep met that night's need estimate, while Charge is 31. Open the breakdown to see the other current contributors."
+  },
+  {
+    "id": "SR138",
+    "title": "Your current signals are mixed",
+    "body": "Some readings are closer to your usual range while others differ. Review the breakdown and your own context before choosing today's effort."
+  },
+  {
+    "id": "SR139",
+    "title": "Your readiness view is starting to take shape",
+    "body": "A first readiness read is available, with a baseline that is still building. Review the included nights and treat the result as provisional."
+  },
+  {
+    "id": "SR140",
+    "title": "Review the readings that are available",
+    "body": "Today's recovery score is unavailable, but current overnight readings are ready. Open the detail view to see the measured values without a guessed score."
+  },
+  {
+    "id": "SR141",
+    "title": "Review the recent recovery trend",
+    "body": "The last three recovery readings moved down. Review the nights and recent activity before deciding whether your next few days need adjustment."
+  },
+  {
+    "id": "SR142",
+    "title": "Your recent recovery readings are rising",
+    "body": "Three readings moved upward after a lower stretch. Review the trend and keep today's effort guided by current context."
+  },
+  {
+    "id": "SR143",
+    "title": "Readings are closer to your earlier range",
+    "body": "The latest two recovery readings are back within your earlier personal range. Review the current breakdown before changing your plans."
+  },
+  {
+    "id": "SR144",
+    "title": "Review the lower recovery week",
+    "body": "The newer week's median Charge is 49, compared with 63 before. Review the recorded context rather than assuming one cause."
+  },
+  {
+    "id": "SR145",
+    "title": "Review the stronger recovery week",
+    "body": "The newer week's median Charge is higher in the recorded data. Review what changed in your routine without treating the comparison as proof of a cause."
+  },
+  {
+    "id": "SR146",
+    "title": "The average hides a more variable week",
+    "body": "The recent median changed little, but the readings vary more from day to day. Review the individual nights rather than relying only on the weekly number."
+  },
+  {
+    "id": "SR147",
+    "title": "Review the component behind the steady score",
+    "body": "Overall recovery is similar across these windows, while the same-source HRV pattern differs. Open the component view for context."
+  },
+  {
+    "id": "SR148",
+    "title": "One recovery component has changed",
+    "body": "Resting heart rate is closer to its earlier range, while the overall recovery read remains lower. Review the other current contributors."
+  },
+  {
+    "id": "SR149",
+    "title": "A new recovery comparison window is ready",
+    "body": "There are now enough recent recorded nights to review a fresh trend. The missing interval stays separate from this comparison."
+  },
+  {
+    "id": "SR150",
+    "title": "Your recent recovery pattern is fairly steady",
+    "body": "The two recorded weekly windows are similar overall. Review the details if useful; this comparison does not determine how you should feel."
+  },
+  {
+    "id": "SR151",
+    "title": "Review the current heart-rate and HRV changes",
+    "body": "Resting heart rate and HRV both differ from your personal pattern. Review the recorded values and add context if you want to track how you feel."
+  },
+  {
+    "id": "SR152",
+    "title": "Review the temperature observation in context",
+    "body": "The skin-temperature deviation contributes to this multi-signal observation. It is not a body-temperature diagnosis; review its source and the other readings."
+  },
+  {
+    "id": "SR153",
+    "title": "Review the overnight respiration estimate",
+    "body": "The respiration estimate and another current reading differ from your personal pattern. Review coverage and the measured context before drawing conclusions."
+  },
+  {
+    "id": "SR154",
+    "title": "A small change to review if useful",
+    "body": "The included readings show a mild difference from your personal pattern. Review the values if useful; the app is not identifying a condition."
+  },
+  {
+    "id": "SR155",
+    "title": "Review the readings alongside your journal",
+    "body": "Your alcohol entry is included as context for this observation. Review it with the readings; the app cannot determine the cause of the change."
+  },
+  {
+    "id": "SR156",
+    "title": "Review the readings with your workout entry",
+    "body": "Your workout journal answer is included as context for this observation. Review it with the readings without assuming it explains the change."
+  },
+  {
+    "id": "SR157",
+    "title": "Keep your own context beside the readings",
+    "body": "You logged feeling unwell. Review the current readings as context and choose what support or rest feels appropriate to you."
+  },
+  {
+    "id": "SR158",
+    "title": "Current readings are closer to their earlier ranges",
+    "body": "The measurements behind the earlier observation are closer to their personal ranges today. This describes the recordings, not a medical all-clear."
+  },
+  {
+    "id": "SR159",
+    "title": "Your added context updated the explanation",
+    "body": "The readings are unchanged, but your new journal entry changes how the app presents their context. Review the revised explanation if useful."
+  },
+  {
+    "id": "SR160",
+    "title": "A new reading adds context to this night",
+    "body": "An additional current-night reading is now available. Review the fuller set of measurements; the earlier observation has not become a new event."
+  },
+  {
+    "id": "SR161",
+    "title": "Review effort alongside the recent load",
+    "body": "Current recovery is lower while recent load is elevated in the app's model. Consider a lighter option after reviewing how you feel."
+  },
+  {
+    "id": "SR162",
+    "title": "Include recent load in today's decision",
+    "body": "Today's recovery is favorable, while recent load remains elevated. Review both before adding more effort."
+  },
+  {
+    "id": "SR163",
+    "title": "Review overnight context beyond training load",
+    "body": "Recovery is lower today while recent load is near its usual pattern. Review the overnight contributors and your journal without assuming one cause."
+  },
+  {
+    "id": "SR164",
+    "title": "Review load and sleep together this week",
+    "body": "Recent effort is higher while recorded sleep duration is lower. Review the upcoming schedule before deciding what to add."
+  },
+  {
+    "id": "SR165",
+    "title": "Review how effort is distributed",
+    "body": "The model flags similar effort across recent days rather than a large total-load increase. Review the pattern before deciding whether variety fits your plans."
+  },
+  {
+    "id": "SR166",
+    "title": "Review the return to your usual effort",
+    "body": "Recent recorded load is lower and recovery is closer to its earlier range. Review today's options rather than trying to make up missed effort."
+  },
+  {
+    "id": "SR167",
+    "title": "Recovery and load have different history coverage",
+    "body": "Today's recovery is available, but the longer load view needs more observed days after a gap. Review the known overnight result without treating missing load as rest."
+  },
+  {
+    "id": "SR168",
+    "title": "Review morning recovery beside today's completed work",
+    "body": "Your recovery result describes the earlier night, while today's workout is now recorded. Review both timelines without treating the morning score as a post-workout measurement."
+  },
+  {
+    "id": "SR169",
+    "title": "Review the time left before your chosen bedtime",
+    "body": "Your workout ended close to the bedtime in your plan. Review the remaining routine and sleep opportunity if tonight needs an adjustment."
+  },
+  {
+    "id": "SR170",
+    "title": "Review today with the available information",
+    "body": "Recent load is available, but part of the overnight picture is missing. Review the known measurements and your own context before choosing effort."
+  },
+  {
+    "id": "SR171",
+    "title": "An estimate for the plan you selected",
+    "body": "The planning model gives a range of 52 to 72 for tomorrow's Charge. It uses prior data and planned sleep, not measurements from the coming night."
+  },
+  {
+    "id": "SR172",
+    "title": "Compare the longer opportunity as a scenario",
+    "body": "The model changes from 48 to 68 to 54 to 74 for the longer plan. This is a scenario estimate, not a promise of more sleep or recovery."
+  },
+  {
+    "id": "SR173",
+    "title": "Review the shorter plan as a scenario",
+    "body": "The shorter opportunity changes the modeled range to 45 to 67. Review the assumptions and decide what is practical without treating the estimate as certain."
+  },
+  {
+    "id": "SR174",
+    "title": "See how recent effort affects this estimate",
+    "body": "Today's recorded effort is above the model's recent average, which changes its planning estimate. Review that assumption alongside the chosen sleep opportunity."
+  },
+  {
+    "id": "SR175",
+    "title": "Review the lower-effort assumption",
+    "body": "The model uses a lower recorded effort input for today. That can change its estimate, but it does not guarantee how tomorrow's readings will look."
+  },
+  {
+    "id": "SR176",
+    "title": "This planning estimate uses limited history",
+    "body": "Only 6 usable baseline nights support this estimate. Review the broad range as tentative context rather than a target."
+  },
+  {
+    "id": "SR177",
+    "title": "The model leaves a wide range",
+    "body": "Recent readings vary enough that this estimate spans 40 to 82. Use the range to understand uncertainty, not to chase a single score."
+  },
+  {
+    "id": "SR178",
+    "title": "Review the hypothetical need assumption",
+    "body": "This scenario uses a hypothetical need of 8 hours 15 minutes. Compare the model ranges knowing that the app's canonical need estimate has not changed."
+  },
+  {
+    "id": "SR179",
+    "title": "This estimate reaches the edge of the scale",
+    "body": "The modeled range reaches the score scale's boundary. Review the uncertainty and inputs; the boundary does not make the estimate certain."
+  },
+  {
+    "id": "SR180",
+    "title": "New data changed the planning estimate",
+    "body": "The refreshed estimate uses new committed data. Review which input changed before comparing it with the earlier range."
+  },
+  {
+    "id": "WT001",
+    "title": "Your first workout recap is ready",
+    "body": "Your 34-minute workout is saved with Strain 8.1. Open the recap to see the recorded details."
+  },
+  {
+    "id": "WT002",
+    "title": "Your route and recap are ready",
+    "body": "You recorded 5.2 km over 31 active minutes. Your route and session details are ready to review."
+  },
+  {
+    "id": "WT003",
+    "title": "Your session's zone picture is ready",
+    "body": "Most recorded HR time was in Zone 2, across 38 covered minutes. Review the distribution and any gaps."
+  },
+  {
+    "id": "WT004",
+    "title": "Your active time is saved",
+    "body": "Your workout contains 42 active minutes and 9 minutes paused. The recap keeps those times separate."
+  },
+  {
+    "id": "WT005",
+    "title": "Your imported workout is ready",
+    "body": "Your workout is saved with its original WHOOP Strain 10.4. The source is shown in the recap."
+  },
+  {
+    "id": "WT006",
+    "title": "One recap for your workout",
+    "body": "Your matching recordings now appear as one workout. Review the retained timing, route and recorded metrics."
+  },
+  {
+    "id": "WT007",
+    "title": "Your workout score is ready",
+    "body": "Your 46-minute workout now has a final Strain of 11.2. The saved recap has been updated."
+  },
+  {
+    "id": "WT008",
+    "title": "Your distance and time are saved",
+    "body": "You recorded 18.7 km in 53 active minutes. This recap includes the measurements available for this session."
+  },
+  {
+    "id": "WT009",
+    "title": "Your strength recap is connected",
+    "body": "Your logged sets and recorded heart-rate session are linked. Open the recap to review both contributions."
+  },
+  {
+    "id": "WT010",
+    "title": "Your corrected recap is ready",
+    "body": "The timing and metrics for your edited workout are updated. Review the revised record before comparing it with other sessions."
+  },
+  {
+    "id": "WT011",
+    "title": "A longer session in your workout history",
+    "body": "Strain was 2.3 above your usual for this sport, with 18 more active minutes. Review the session alongside the comparison."
+  },
+  {
+    "id": "WT012",
+    "title": "Review this session's intensity",
+    "body": "Your session was a similar length to recent ones, with Strain 2.1 higher. The HR and zone record can help explain the difference."
+  },
+  {
+    "id": "WT013",
+    "title": "Your shorter session is in context",
+    "body": "This session was 17 minutes shorter than your recent median, with lower Strain. Review the recorded work rather than the score alone."
+  },
+  {
+    "id": "WT014",
+    "title": "A distance comparison is ready",
+    "body": "You recorded 6.1 km over a similar active time to the comparison session. Review both routes and conditions before drawing conclusions."
+  },
+  {
+    "id": "WT015",
+    "title": "Compare active time, not just the clock",
+    "body": "The two sessions had similar active time, but different pauses. Open the timing breakdown before comparing the totals."
+  },
+  {
+    "id": "WT016",
+    "title": "A comparison is now available",
+    "body": "You now have several recorded sessions of this sport. Your latest recap can show how its Strain compares with that history."
+  },
+  {
+    "id": "WT017",
+    "title": "Your comparison comes from an earlier session",
+    "body": "The previous comparable workout was on 12 September. Review that dated record alongside today without assuming the gap means no training."
+  },
+  {
+    "id": "WT018",
+    "title": "Your zone comparison has a new basis",
+    "body": "Your HR-zone settings changed between these sessions. Review heart rate and duration before comparing zone totals."
+  },
+  {
+    "id": "WT019",
+    "title": "These scores use different methods",
+    "body": "This workout carries a WHOOP score while your comparison history uses NOOP. Review time and recorded HR; a score delta is not shown."
+  },
+  {
+    "id": "WT020",
+    "title": "Your comparison reflects the edit",
+    "body": "The comparison now uses the corrected workout details. Review the revised session and its reference group together."
+  },
+  {
+    "id": "WT021",
+    "title": "Your planned routine is coming up",
+    "body": "You scheduled Full Body A for 18:00. Open the plan when you are ready to review or adjust it."
+  },
+  {
+    "id": "WT022",
+    "title": "Today's saved routine is ready to review",
+    "body": "Your saved plan includes Upper Body 1 today. Choose a time or adjust the day in your schedule."
+  },
+  {
+    "id": "WT023",
+    "title": "Review your new routine before you start",
+    "body": "Your first scheduled Lower Body B session is today. Open the exercise list and targets before starting."
+  },
+  {
+    "id": "WT024",
+    "title": "Your updated routine time is coming up",
+    "body": "You moved Pull Session to 17:30. Open the updated schedule to review the session."
+  },
+  {
+    "id": "WT025",
+    "title": "Review today's saved routines",
+    "body": "Your schedule contains 2 routines today. Open the day to keep, move or remove the sessions you want."
+  },
+  {
+    "id": "WT026",
+    "title": "One routine remains on your schedule",
+    "body": "Your earlier session is marked complete. Mobility Strength is still scheduled for 18:30; review it if your plans have changed."
+  },
+  {
+    "id": "WT027",
+    "title": "Your weekend routine is on the schedule",
+    "body": "You chose 10:30 for Full Body B today. Open it to review the exercises or change the plan."
+  },
+  {
+    "id": "WT028",
+    "title": "Tomorrow's routine is ready to review",
+    "body": "Your schedule includes Legs 2 tomorrow. Take a look at the exercise list and adjust the day if needed."
+  },
+  {
+    "id": "WT029",
+    "title": "Your routine reminder is back",
+    "body": "You asked to be reminded about Push Session now. Open the schedule to review or move it."
+  },
+  {
+    "id": "WT030",
+    "title": "Your next saved routine is coming up",
+    "body": "Reminders are back on for your schedule. Full Body C is planned for 19:00."
+  },
+  {
+    "id": "WT031",
+    "title": "Your routine has a revised exercise list",
+    "body": "Upper Body A includes changes since your last recorded session. Review the exercise list before you begin."
+  },
+  {
+    "id": "WT032",
+    "title": "Check your revised rep targets",
+    "body": "The saved rep targets in Full Body A changed. Review the plan before reusing last session's loads."
+  },
+  {
+    "id": "WT033",
+    "title": "Your routine's rest plan changed",
+    "body": "Pull Session has updated rest intervals. Review them so the timer matches the session you intend to do."
+  },
+  {
+    "id": "WT034",
+    "title": "Set targets are now part of your routine",
+    "body": "Lower Body A now has saved working-set targets. Open the plan to review them and make any changes you want."
+  },
+  {
+    "id": "WT035",
+    "title": "One exercise is new to your log",
+    "body": "Seated cable row has no recorded working sets yet. Review its instructions and choose your own starting setup."
+  },
+  {
+    "id": "WT036",
+    "title": "Your saved Coach routine is ready",
+    "body": "Full Body 1 is the first session in the plan you saved. Review its exercises, targets and time budget before starting."
+  },
+  {
+    "id": "WT037",
+    "title": "Your reference sets are from an earlier session",
+    "body": "The last logged Lower Body B session was on 8 September. Review those dated sets and choose today's loads yourself."
+  },
+  {
+    "id": "WT038",
+    "title": "Review your routine's new setup",
+    "body": "You changed the saved training mode for Upper Body B. Check its exercise targets before using the previous session as a reference."
+  },
+  {
+    "id": "WT039",
+    "title": "Review one exercise in your saved routine",
+    "body": "One exercise in Full Body B has unavailable catalog details. Open the routine to review or replace that entry before starting."
+  },
+  {
+    "id": "WT040",
+    "title": "Your routine preview is up to date",
+    "body": "This preview shows the changes you just saved. Check the targets before choosing Start workout."
+  },
+  {
+    "id": "WT041",
+    "title": "Your planned sets are saved",
+    "body": "You logged the planned working sets for Full Body A. The receipt is ready to review."
+  },
+  {
+    "id": "WT042",
+    "title": "Your completed session is saved",
+    "body": "You logged 9 working sets and chose to finish. Open the receipt to review what you recorded."
+  },
+  {
+    "id": "WT043",
+    "title": "Your strength session is saved",
+    "body": "You logged 4 exercises across 12 working sets. Review the receipt or use it as a reference next time."
+  },
+  {
+    "id": "WT044",
+    "title": "Your receipt separates warm-ups and work",
+    "body": "You logged 4 warm-up sets and 10 working sets. The receipt keeps both visible."
+  },
+  {
+    "id": "WT045",
+    "title": "Your effort notes are saved with the sets",
+    "body": "You rated 10 of 12 working sets. Open the receipt to review those ratings alongside the loads and reps."
+  },
+  {
+    "id": "WT046",
+    "title": "Your bodyweight session is saved",
+    "body": "You logged 8 working sets of bodyweight exercises. Review reps and exercise history in the receipt."
+  },
+  {
+    "id": "WT047",
+    "title": "Your routine is marked complete",
+    "body": "Your saved Upper Body A session is linked to today's schedule. Review the receipt or the remaining plan."
+  },
+  {
+    "id": "WT048",
+    "title": "Your resumed session is saved",
+    "body": "The sets from before and after resuming are in one receipt. Open it to review the completed session."
+  },
+  {
+    "id": "WT049",
+    "title": "Your session changes are in the receipt",
+    "body": "You logged exercise changes and notes in Full Body B. Review them before using this session as your next reference."
+  },
+  {
+    "id": "WT050",
+    "title": "Your receipt reflects the corrected set",
+    "body": "The saved set details are updated. Review the receipt before comparing volume or records."
+  },
+  {
+    "id": "WT051",
+    "title": "A new estimated strength record",
+    "body": "Your Bench press set of 60 kg for 6 reps produced a new estimated 1RM. Review the set; the estimate is not a tested maximum."
+  },
+  {
+    "id": "WT052",
+    "title": "More reps moved your estimate",
+    "body": "You logged 9 reps at 40 kg for Overhead press. That set raised the estimated 1RM in your recorded history."
+  },
+  {
+    "id": "WT053",
+    "title": "A new repetition record is saved",
+    "body": "Your Cable row set reached 15 reps at 35 kg. Open the record to see the earlier comparable sets."
+  },
+  {
+    "id": "WT054",
+    "title": "A bodyweight rep record is saved",
+    "body": "You logged 12 reps for Pull-up. Review the recorded set and your earlier rep history."
+  },
+  {
+    "id": "WT055",
+    "title": "Your session includes several recorded bests",
+    "body": "The receipt contains new records for 3 exercises. Open one grouped review of the sets behind them."
+  },
+  {
+    "id": "WT056",
+    "title": "Your final record set is ready to review",
+    "body": "Several Squat sets improved your record today. The receipt highlights the final best and preserves the earlier sets."
+  },
+  {
+    "id": "WT057",
+    "title": "A new best in your recorded exercise history",
+    "body": "Your latest Deadlift set exceeds the earlier recorded best from 3 September. Review both dated entries."
+  },
+  {
+    "id": "WT058",
+    "title": "Your first comparison-supported record",
+    "body": "You now have a new recorded best for Dumbbell row beyond your starting session. Open the two sessions to see the change."
+  },
+  {
+    "id": "WT059",
+    "title": "This week's recorded bests are ready",
+    "body": "Your weekly review contains records from 2 completed sessions. Open the sets behind those changes."
+  },
+  {
+    "id": "WT060",
+    "title": "Your record history reflects the edit",
+    "body": "The record ledger now uses the corrected set. Review the updated set and its comparison history."
+  },
+  {
+    "id": "WT061",
+    "title": "Review the next step for this exercise",
+    "body": "You reached the saved rep targets for Goblet squat in three recorded sessions. Review the next routine targets when you choose."
+  },
+  {
+    "id": "WT062",
+    "title": "Your reps and effort notes can be reviewed",
+    "body": "You logged more reps for Lat pulldown with similar selected effort ratings. Review the three sessions before changing your plan."
+  },
+  {
+    "id": "WT063",
+    "title": "Your saved targets differ from your recent sets",
+    "body": "Your recent Seated row sets went beyond the saved rep target. Review the routine if you want the plan to match your practice."
+  },
+  {
+    "id": "WT064",
+    "title": "Your routine can match what you choose to log",
+    "body": "Recent Split squat sessions used fewer sets than the saved plan. Review the target if you want to adjust it."
+  },
+  {
+    "id": "WT065",
+    "title": "Review your recent effort notes",
+    "body": "The same logged work for Bench press received higher effort ratings recently. Review the sessions and your plan together."
+  },
+  {
+    "id": "WT066",
+    "title": "Your new set setup is recorded",
+    "body": "Your latest Squat sets used more load and fewer reps. Review them against the revised plan rather than rep count alone."
+  },
+  {
+    "id": "WT067",
+    "title": "Your new exercise has its own starting point",
+    "body": "Dumbbell incline press now has a recorded reference session. Review its sets separately from the exercise it replaced."
+  },
+  {
+    "id": "WT068",
+    "title": "Your exercise trend has more than one dimension",
+    "body": "Recorded volume rose while the best estimated 1RM was lower for Leg press. Review the sets and rep ranges behind both figures."
+  },
+  {
+    "id": "WT069",
+    "title": "Your recent exercise setup has stayed consistent",
+    "body": "The last three Overhead press sessions used the same logged sets, reps and load. Review the routine if you want to keep or change it."
+  },
+  {
+    "id": "WT070",
+    "title": "Your exercise trend is updated",
+    "body": "The progression view now uses your corrected sets. Review the updated history before editing the next routine."
+  },
+  {
+    "id": "WT071",
+    "title": "Some muscle work came from assisting roles",
+    "body": "Your triceps total includes direct sets and assisting credit. Open the breakdown to see the exercises behind it."
+  },
+  {
+    "id": "WT072",
+    "title": "Your logged week had a clear focus",
+    "body": "Most direct-set credit went to legs. Review the exercise mix if you want the next plan to have a different focus."
+  },
+  {
+    "id": "WT073",
+    "title": "Your recorded split is ready to review",
+    "body": "Your saved split has completed sessions across 3 days. Review how the logged sets were distributed."
+  },
+  {
+    "id": "WT074",
+    "title": "One planned focus has no linked session",
+    "body": "The saved lower body session has no completion linked this week. Review the schedule or connect the workout you recorded."
+  },
+  {
+    "id": "WT075",
+    "title": "Your set mix reflects the exercise you logged",
+    "body": "The exercise substitution changed where set credit appears. Review the logged mix alongside the saved routine."
+  },
+  {
+    "id": "WT076",
+    "title": "Review the spacing in your logged week",
+    "body": "You recorded direct chest work on consecutive days. Open the week to review the spacing you chose."
+  },
+  {
+    "id": "WT077",
+    "title": "More sessions changed your weekly set total",
+    "body": "You logged more sessions and more direct back sets this week. Review both frequency and sets before planning the next week."
+  },
+  {
+    "id": "WT078",
+    "title": "Your muscle chart has a coverage note",
+    "body": "Some logged exercises have no muscle mapping and are excluded from those bars. They remain in your session receipts."
+  },
+  {
+    "id": "WT079",
+    "title": "Warm-ups remain separate in your set review",
+    "body": "Your receipts include 15 warm-up sets. Muscle bars count the working sets, so the totals describe different things."
+  },
+  {
+    "id": "WT080",
+    "title": "The shaded band is a reference",
+    "body": "The muscle chart's shaded range is a guide, not your personal target. Review your logged sets in the context of the routine you chose."
+  },
+  {
+    "id": "WT081",
+    "title": "Your score includes the sets you logged",
+    "body": "This session's Strain includes a contribution from logged lifting. Open the breakdown to see it beside the heart-rate contribution."
+  },
+  {
+    "id": "WT082",
+    "title": "Your logged sets add to the session picture",
+    "body": "The combined score includes lifting that the heart-rate component alone does not describe. Review both recorded contributions."
+  },
+  {
+    "id": "WT083",
+    "title": "Your daily total uses the largest supported term",
+    "body": "The day's activity floor already exceeds the combined workout term. Your lift is saved, while the daily score follows its existing combination rule."
+  },
+  {
+    "id": "WT084",
+    "title": "Some effort inputs used the model default",
+    "body": "You did not select an effort rating for 6 working sets. Their score used the model default; the receipt preserves that distinction."
+  },
+  {
+    "id": "WT085",
+    "title": "This estimate used a bodyweight assumption",
+    "body": "The lifting estimate used a model fallback for bodyweight. Review the calculation inputs before treating the score as a precise comparison."
+  },
+  {
+    "id": "WT086",
+    "title": "Bodyweight work is represented in this estimate",
+    "body": "Your supported bodyweight sets contributed through modeled effective mass. Open the breakdown to see the assumptions and counted sets."
+  },
+  {
+    "id": "WT087",
+    "title": "Warm-ups stay visible in your receipt",
+    "body": "The score's working-set contribution excludes the sets marked as warm-ups. Those sets remain part of your saved session."
+  },
+  {
+    "id": "WT088",
+    "title": "Some logged work is outside this score model",
+    "body": "The receipt keeps your held or timed work, but those entries do not receive a muscular estimate here. Review what the model counted."
+  },
+  {
+    "id": "WT089",
+    "title": "Part of this estimate used general mapping",
+    "body": "Some exercises lacked a specific muscle mapping. The score used its documented fallback for those sets; review the affected entries."
+  },
+  {
+    "id": "WT090",
+    "title": "Your score reflects the corrected sets",
+    "body": "The saved set edit changed the calculation inputs. Review the updated session and daily components together."
+  },
+  {
+    "id": "WT091",
+    "title": "Your first weekly workout review is ready",
+    "body": "You recorded 4 sessions across 3 days. Review the week's activity and choose what to keep next week."
+  },
+  {
+    "id": "WT092",
+    "title": "Your recorded time was spread across more sessions",
+    "body": "You logged 5 sessions with shorter typical duration this week. Review how that schedule worked for you."
+  },
+  {
+    "id": "WT093",
+    "title": "Your recorded time was concentrated in fewer sessions",
+    "body": "This week's sessions were typically longer, with similar total active time. Review whether that pattern fits your next week."
+  },
+  {
+    "id": "WT094",
+    "title": "Your saved routine week is complete",
+    "body": "The routines you kept on this week's schedule have linked completed sessions. Review their receipts and next week's plan."
+  },
+  {
+    "id": "WT095",
+    "title": "Your week has sessions to review against the plan",
+    "body": "Some recorded sessions may belong to unfinished schedule entries. Open the week to review the links; nothing is changed automatically."
+  },
+  {
+    "id": "WT096",
+    "title": "Your recorded week includes several sources",
+    "body": "Your weekly review brings the sessions together and labels their sources. Compare recorded time without adding different Strain scores."
+  },
+  {
+    "id": "WT097",
+    "title": "Your strength logs tell this week's story",
+    "body": "You logged 28 working sets across 3 sessions. HR detail is limited, so the review focuses on the sets you recorded."
+  },
+  {
+    "id": "WT098",
+    "title": "Your week included different kinds of sessions",
+    "body": "You recorded 3 activity types across 4 days. Review the mix and choose what suits next week."
+  },
+  {
+    "id": "WT099",
+    "title": "Your week is ready with a coverage note",
+    "body": "Your saved workouts are available, but some daily load observations are missing. Review the recorded sessions without assuming those gaps were rest."
+  },
+  {
+    "id": "WT100",
+    "title": "Your first week back in the log is ready",
+    "body": "Your new sessions are together in this week's review. Look at what you recorded and decide what you want to carry forward."
+  },
+  {
+    "id": "WT101",
+    "title": "Your recent load is above its longer baseline",
+    "body": "The workload ratio is now 1.12. Review the recent sessions and the longer baseline behind this change."
+  },
+  {
+    "id": "WT102",
+    "title": "Your recent load has risen relative to its base",
+    "body": "The workload ratio is 1.36, in the page's high band. Review recent sessions and upcoming choices; this is a load comparison, not an injury prediction."
+  },
+  {
+    "id": "WT103",
+    "title": "Your workload ratio has moved down a band",
+    "body": "The ratio is now 1.18, below its recent high band. Review how the recorded sessions and both model horizons changed."
+  },
+  {
+    "id": "WT104",
+    "title": "Your recent load is lower than its longer baseline",
+    "body": "The workload ratio is 0.73. Review the quieter recorded period and decide whether it matches the plan you want."
+  },
+  {
+    "id": "WT105",
+    "title": "Your recent load is closer to its longer baseline",
+    "body": "The workload ratio is now 0.91. Open the trend to review the sessions behind the change."
+  },
+  {
+    "id": "WT106",
+    "title": "Review your load before tomorrow's routine",
+    "body": "Your workload ratio is 1.27, near the page's high band. Open the load view and tomorrow's saved plan before choosing your next session."
+  },
+  {
+    "id": "WT107",
+    "title": "Your load model reflects the recorded rest days",
+    "body": "Both model lines changed through the two recorded zero-load days. Review the trend; the ratio alone does not measure recovery."
+  },
+  {
+    "id": "WT108",
+    "title": "This load trend includes a short data gap",
+    "body": "The model decays through the missing day without calling it a recorded rest day. Review the coverage note alongside the ratio."
+  },
+  {
+    "id": "WT109",
+    "title": "Your training-load view is now building",
+    "body": "There is enough recorded history to show the load model. The longer baseline is still building, and the page explains its coverage."
+  },
+  {
+    "id": "WT110",
+    "title": "Your load model has more recorded history",
+    "body": "The model has reached its established-history state. Review the recent and longer-term lines and the days behind them."
+  },
+  {
+    "id": "WT111",
+    "title": "Recent load is changing faster than its baseline",
+    "body": "The recent-load line rose faster over the last two weeks. Review which recorded sessions contributed to the change."
+  },
+  {
+    "id": "WT112",
+    "title": "Your longer load baseline has moved upward",
+    "body": "The longer-term line rose while recent load stayed similar. Review the recorded weeks behind that model change."
+  },
+  {
+    "id": "WT113",
+    "title": "Your load model reflects the quieter weeks",
+    "body": "Both load lines moved down during the recorded break. Review the history when deciding what you want next."
+  },
+  {
+    "id": "WT114",
+    "title": "More recorded training days changed the trend",
+    "body": "The latest four weeks include more workout days and a higher observed daily average. Review the schedule pattern and session drivers."
+  },
+  {
+    "id": "WT115",
+    "title": "Your load changed with a similar schedule",
+    "body": "The recent four-week average rose without more recorded workout days. Review the daily drivers and sessions behind the difference."
+  },
+  {
+    "id": "WT116",
+    "title": "Your daily load includes more than workout sessions",
+    "body": "Days without a saved workout also contributed to the week's pattern. Review the daily view alongside your recorded sessions."
+  },
+  {
+    "id": "WT117",
+    "title": "One session stands out in this week's record",
+    "body": "Saturday's long ride is the highest scored workout in the week's driver list. Review its details and the separate daily load trend."
+  },
+  {
+    "id": "WT118",
+    "title": "Your recorded pattern has stayed fairly steady",
+    "body": "The two four-week windows have similar daily averages and workout-day counts. Review whether that pattern matches what you want to keep."
+  },
+  {
+    "id": "WT119",
+    "title": "Your load view has started a new supported run",
+    "body": "The longer gap ended the previous model run. This view now uses the new recorded history and shows where it starts."
+  },
+  {
+    "id": "WT120",
+    "title": "Your trend uses the repaired history",
+    "body": "The weekly model now reflects the corrected source records. Review the updated date range and coverage before comparing old screenshots."
+  },
+  {
+    "id": "WT121",
+    "title": "Review tomorrow with the longer trend in mind",
+    "body": "The rest-day illustration still sits in the high ratio band because both model lines carry prior days. Open Tomorrow to explore the scenarios."
+  },
+  {
+    "id": "WT122",
+    "title": "Tomorrow's choices have different model outcomes",
+    "body": "The rest and moderate illustrations land in different load bands. Review both; they are examples, not instructions for your workout."
+  },
+  {
+    "id": "WT123",
+    "title": "A Tomorrow comparison is ready",
+    "body": "The moderate illustration stays in the current band while the higher-load example changes it. Open the page to compare their assumptions."
+  },
+  {
+    "id": "WT124",
+    "title": "Tomorrow's examples span a wider range",
+    "body": "The higher-load illustration reaches a different band from the moderate example. Review the model before deciding what kind of day you want."
+  },
+  {
+    "id": "WT125",
+    "title": "The examples share a band, with different values",
+    "body": "All three Tomorrow illustrations stay in one band. Open the values to see how the model differs within that range."
+  },
+  {
+    "id": "WT126",
+    "title": "Explore Tomorrow while your baseline builds",
+    "body": "The examples are available, but the longer load baseline is still building. Review the history note alongside the scenarios."
+  },
+  {
+    "id": "WT127",
+    "title": "Review tomorrow's routine beside the load examples",
+    "body": "Your saved Full Body A routine is tomorrow. The load scenarios are illustrations, not an exact prediction for that routine."
+  },
+  {
+    "id": "WT128",
+    "title": "Your Tomorrow examples reflect the latest session",
+    "body": "The completed workout changed the current day's load input. Review the updated scenarios before deciding on tomorrow."
+  },
+  {
+    "id": "WT129",
+    "title": "This illustration changes both load lines",
+    "body": "The selected example applies one hypothetical day's Strain to the recent and longer-term models. It does not schedule or alter a workout."
+  },
+  {
+    "id": "WT130",
+    "title": "Tomorrow is open in your saved schedule",
+    "body": "No routine is saved for tomorrow. Your review includes the load examples if you want to consider the day ahead."
+  },
+  {
+    "id": "WT131",
+    "title": "Your recorded session is ready to resume",
+    "body": "Your active workout was restored with its saved progress. Open it to review the state before continuing."
+  },
+  {
+    "id": "WT132",
+    "title": "Your lifting session is still here",
+    "body": "The saved sets are available in your active session. Open it to review the next set or finish when you choose."
+  },
+  {
+    "id": "WT133",
+    "title": "Your workout is paused",
+    "body": "The session remains paused. Open it when you want to review, resume or finish."
+  },
+  {
+    "id": "WT134",
+    "title": "Live heart rate is waiting for a fresh reading",
+    "body": "The workout is still open, but its live HR value is currently unavailable. Review the recording source if you want to check it."
+  },
+  {
+    "id": "WT135",
+    "title": "Fresh heart-rate readings are back",
+    "body": "The active workout has accepted new HR data. Review the trace if you want to see where coverage resumed."
+  },
+  {
+    "id": "WT136",
+    "title": "Your saved route progress is restored",
+    "body": "The active workout has its recorded route checkpoint. Open the map to review what is available before continuing."
+  },
+  {
+    "id": "WT137",
+    "title": "A session is already recording",
+    "body": "Open the current session to review or finish it before starting another. Your saved routine remains available."
+  },
+  {
+    "id": "WT138",
+    "title": "The saved set target is reached",
+    "body": "The logged working sets now meet this exercise's saved target. Review the next exercise or finish when you choose."
+  },
+  {
+    "id": "WT139",
+    "title": "Your selected rest interval has ended",
+    "body": "The timer you started has finished. Continue when you are ready, or adjust the session."
+  },
+  {
+    "id": "WT140",
+    "title": "You are back in your active session",
+    "body": "This is the same workout that was recording. Review its current time, pause state and measurements."
+  },
+  {
+    "id": "WT141",
+    "title": "Review your previous routine before returning",
+    "body": "Your last recorded Full Body A session was on 5 September. Open the dated sets and decide how you want to approach the new session."
+  },
+  {
+    "id": "WT142",
+    "title": "Your return uses a new routine",
+    "body": "Full Body C has no completed session in your log yet. Review its exercises and choose your own first-session setup."
+  },
+  {
+    "id": "WT143",
+    "title": "Review the older entries in your schedule",
+    "body": "Some saved routines still have past dates. Open the schedule to move or remove the entries you no longer want."
+  },
+  {
+    "id": "WT144",
+    "title": "Your return plan uses the targets you chose",
+    "body": "The saved return routine has fewer planned sets than before. Review the current plan without treating the older session as a requirement."
+  },
+  {
+    "id": "WT145",
+    "title": "Your return routine has a different setup",
+    "body": "This plan uses bodyweight exercises. Review its reps and exercise instructions rather than comparing external-load totals with your earlier routine."
+  },
+  {
+    "id": "WT146",
+    "title": "Your new reference session is saved",
+    "body": "Today's sets give you a recent record to review before the next session. Your earlier history remains available for context."
+  },
+  {
+    "id": "WT147",
+    "title": "Your return-session effort notes are ready",
+    "body": "You recorded effort ratings with the new sets. Review those notes before deciding whether to keep or adjust the next routine."
+  },
+  {
+    "id": "WT148",
+    "title": "Your chosen return session is complete",
+    "body": "The one routine you kept on this week's plan has a saved session. Review it and choose whether to schedule anything next."
+  },
+  {
+    "id": "WT149",
+    "title": "Review the older unfinished session",
+    "body": "An earlier session is still open in your saved state. Review its sets and choose how to finish or discard it before starting today."
+  },
+  {
+    "id": "WT150",
+    "title": "Your recent history is now visible",
+    "body": "Newly available sessions filled the earlier gap in your log. Review the updated recent history before using a return plan."
+  },
+  {
+    "id": "WT151",
+    "title": "Your first component load review is ready",
+    "body": "Both component estimates meet their coverage rules for this week. Open the definitions and the recorded sessions behind the split."
+  },
+  {
+    "id": "WT152",
+    "title": "Longer sessions changed the component picture",
+    "body": "The aerobic estimate rose alongside longer eligible sessions. Review those sessions and the method before changing your next week."
+  },
+  {
+    "id": "WT153",
+    "title": "One session stands out in the component review",
+    "body": "Tuesday's interval session accounts for much of the week's anaerobic estimate. Open its supporting observations and the component method."
+  },
+  {
+    "id": "WT154",
+    "title": "A similar total can contain a different mix",
+    "body": "The supported total stayed similar while the component mix changed. Review the sessions behind the shift before comparing only the headline."
+  },
+  {
+    "id": "WT155",
+    "title": "Your lifting contribution has its own meaning",
+    "body": "Logged muscular load is kept separate from the aerobic and anaerobic estimates. Review the definitions before comparing the three quantities."
+  },
+  {
+    "id": "WT156",
+    "title": "Review the component trend beside Tomorrow",
+    "body": "Your aerobic trend is available beneath Tomorrow. Compare the history with the existing example days without treating them as component forecasts."
+  },
+  {
+    "id": "WT157",
+    "title": "Shorter recorded time can have a different load mix",
+    "body": "Your eligible shorter sessions changed the anaerobic estimate. Review the supported session evidence rather than comparing duration alone."
+  },
+  {
+    "id": "WT158",
+    "title": "One component is available for this week",
+    "body": "The supported component can be reviewed, while the other remains unavailable. A missing estimate is not zero load."
+  },
+  {
+    "id": "WT159",
+    "title": "Review the pattern you chose for this week",
+    "body": "The recorded component mix differs from your saved review preference. Open the evidence and decide whether to keep or change the next plan."
+  },
+  {
+    "id": "WT160",
+    "title": "This component view uses the updated method",
+    "body": "The historical split was recalculated with the approved model version. Review the method note before comparing it with older screenshots."
+  },
+  {
+    "id": "WT161",
+    "title": "Review the session you chose for this week",
+    "body": "You asked for a reminder about your weekly session plan. Open the commitment to review the remaining choices or change it."
+  },
+  {
+    "id": "WT162",
+    "title": "Your chosen zone-time review is due",
+    "body": "You asked to review your personal zone-time goal now. Open the measured minutes and coverage before deciding what to do next."
+  },
+  {
+    "id": "WT163",
+    "title": "Choose the session date that works for you",
+    "body": "Your commitment has two possible dates. Open it to choose one, move it or pause the reminder."
+  },
+  {
+    "id": "WT164",
+    "title": "Your chosen practice reminder is here",
+    "body": "You asked to revisit Goblet squat. Open your saved instructions and notes before deciding how to use the session."
+  },
+  {
+    "id": "WT165",
+    "title": "Your plan leaves today open",
+    "body": "You chose to leave today without a scheduled workout. Review the plan if your preference has changed."
+  },
+  {
+    "id": "WT166",
+    "title": "Review your session preparation list",
+    "body": "You asked to check the equipment list for Full Body B. Open the checklist before your chosen session time."
+  },
+  {
+    "id": "WT167",
+    "title": "Your chosen session reflection is ready",
+    "body": "You asked to reflect after this session. Open your notes to record how it felt, if you still want to."
+  },
+  {
+    "id": "WT168",
+    "title": "Your weekly plan review is on the calendar",
+    "body": "You asked to review session spacing now. Open your recorded week and decide what to keep or change."
+  },
+  {
+    "id": "WT169",
+    "title": "Review the return session you chose",
+    "body": "You asked for a reminder about your return plan. Open it to review, adjust or pause the commitment."
+  },
+  {
+    "id": "WT170",
+    "title": "Your commitment review has recorded evidence",
+    "body": "The weekly review links the sessions relevant to the commitment you saved. Open the evidence and decide what you want next."
+  },
+  {
+    "id": "WT171",
+    "title": "Your recorded day has reached its Strain range",
+    "body": "Today's Strain is 12.4, within the current target range. Review the day and choose what you want to do next."
+  },
+  {
+    "id": "WT172",
+    "title": "Your lifting session brought the day into range",
+    "body": "With the logged sets settled, today's Strain is 11.8 within its current range. Open the day to review the combined contributions."
+  },
+  {
+    "id": "WT173",
+    "title": "Review the rest of today's plan",
+    "body": "Your recorded day is already within its current Strain range, and Full Body A is saved for later. Review both before deciding how to use that session."
+  },
+  {
+    "id": "WT174",
+    "title": "Your recorded day is above its current range",
+    "body": "Today's Strain is 15.7, above the current target range. Review the recorded contributions and choose the rest of your day."
+  },
+  {
+    "id": "WT175",
+    "title": "Your day is within today's lower Strain range",
+    "body": "The current range reflects today's Recovery, and your recorded Strain is 6.8. Open the context before choosing any further activity."
+  },
+  {
+    "id": "WT176",
+    "title": "Today's Strain range is now available",
+    "body": "Your final Recovery has supplied today's range, and your recorded Strain is within it. Review the newly available day context."
+  },
+  {
+    "id": "WT177",
+    "title": "Today's range reflects the corrected Recovery",
+    "body": "The target range changed because the Recovery input was corrected. Your recorded Strain did not change with that update."
+  },
+  {
+    "id": "WT178",
+    "title": "Your recorded day is now within its range",
+    "body": "The latest supported day score has reached its current range. Continue, pause or finish according to your own plan."
+  },
+  {
+    "id": "WT179",
+    "title": "Today's review includes your Strain range",
+    "body": "Your recorded day reached its current target range. The evening review shows the final available score and the contributions behind it."
+  },
+  {
+    "id": "WT180",
+    "title": "The edited record changes today's Strain position",
+    "body": "Your corrected session details now place the recorded day within its range. Open the updated contributions to review the change."
+  },
+  {
+    "id": "HC001",
+    "title": "Your morning journal check-in",
+    "body": "Take a moment to record yesterday in your journal. Answer only what you remember."
+  },
+  {
+    "id": "HC002",
+    "title": "Your evening journal check-in",
+    "body": "Your chosen journal time is here. Record the parts of today you want to track."
+  },
+  {
+    "id": "HC003",
+    "title": "A quick journal check-in",
+    "body": "You chose a single question for this check-in. Open it when you have a moment."
+  },
+  {
+    "id": "HC004",
+    "title": "Return to your journal",
+    "body": "You asked to return to this journal entry. Continue from your saved answers."
+  },
+  {
+    "id": "HC005",
+    "title": "Record your observation",
+    "body": "Your reminder to record a journal observation is due. Leave it blank if you do not know the value."
+  },
+  {
+    "id": "HC006",
+    "title": "Try your shorter journal",
+    "body": "Your selected check-in is ready with the questions you kept. You can change the set at any time."
+  },
+  {
+    "id": "HC007",
+    "title": "Your custom check-in is ready",
+    "body": "You asked to start tracking a new journal question. Add the first answer when it suits you."
+  },
+  {
+    "id": "HC008",
+    "title": "Review a journal answer",
+    "body": "You marked a journal answer to revisit. Review it before using it in your reflections."
+  },
+  {
+    "id": "HC009",
+    "title": "Your journal check-in resumes",
+    "body": "Your scheduled check-in resumes today. Start with today and leave past gaps as they are."
+  },
+  {
+    "id": "HC010",
+    "title": "Your journal catch-up time",
+    "body": "Review the journal days you selected for this check-in. It is fine to leave uncertain answers blank."
+  },
+  {
+    "id": "HC011",
+    "title": "Your water check-in",
+    "body": "This is the water check-in you chose for the start of your day. Have water if it suits you, and log it if you want."
+  },
+  {
+    "id": "HC012",
+    "title": "Review your water log",
+    "body": "Your midday water check-in is due. Review what you have logged and add anything you remember."
+  },
+  {
+    "id": "HC013",
+    "title": "Prepare your water bottle",
+    "body": "You asked for a reminder to prepare a water bottle. Check what you want to bring."
+  },
+  {
+    "id": "HC014",
+    "title": "Your refill reminder",
+    "body": "You asked to be reminded to refill your water bottle. Take a moment if it is convenient."
+  },
+  {
+    "id": "HC015",
+    "title": "Finish your water log",
+    "body": "Your planned water-log review is due. Record what you remember; there is no need to catch up to a number tonight."
+  },
+  {
+    "id": "HC016",
+    "title": "Your water shortcut is ready",
+    "body": "At this check-in, you can use the container size you saved. Log only what you actually drank."
+  },
+  {
+    "id": "HC017",
+    "title": "Your water check-ins resume",
+    "body": "Your selected water check-ins resume today. You can adjust or pause them whenever you like."
+  },
+  {
+    "id": "HC018",
+    "title": "Your later water check-in",
+    "body": "This is the later check-in you requested. Review your water routine when it works for you."
+  },
+  {
+    "id": "HC019",
+    "title": "Review your water goal",
+    "body": "You asked to review your water goal today. Keep or edit it to fit your own plan."
+  },
+  {
+    "id": "HC020",
+    "title": "Do these check-ins still fit?",
+    "body": "You planned to review your water check-in times. Keep the useful ones and remove the rest."
+  },
+  {
+    "id": "HC021",
+    "title": "Your logged water goal is reached",
+    "body": "You have logged 1800 ml against your chosen 1800 ml goal. Further goal reminders are paused for today."
+  },
+  {
+    "id": "HC022",
+    "title": "Your first water-log review is ready",
+    "body": "Your first daily water-log review is ready. You can review or correct any of its saved entries."
+  },
+  {
+    "id": "HC023",
+    "title": "Your water-log week is ready",
+    "body": "Review the days with saved entries and how their logged amounts varied. Gaps are not counted as zero intake."
+  },
+  {
+    "id": "HC024",
+    "title": "Your water log is ready to review",
+    "body": "You logged 1350 ml today against your chosen goal. Review the record without trying to make up the difference now."
+  },
+  {
+    "id": "HC025",
+    "title": "Your water-log correction is saved",
+    "body": "The revised logged total is 1250 ml. Your daily view now uses the corrected entries."
+  },
+  {
+    "id": "HC026",
+    "title": "Your earlier water log is saved",
+    "body": "Your entries for October 17 are saved to that day. Today’s water total is unchanged."
+  },
+  {
+    "id": "HC027",
+    "title": "Your water-log summary is ready",
+    "body": "Your logged total is above your chosen goal. Review it for accuracy; a higher number is not a new target."
+  },
+  {
+    "id": "HC028",
+    "title": "Your container edits are saved",
+    "body": "The entries you selected now use the revised container amount. Review the updated total if you need to."
+  },
+  {
+    "id": "HC029",
+    "title": "Your monthly water-log review",
+    "body": "You logged water on 18 days this month. Review the record and decide whether your logging routine still fits."
+  },
+  {
+    "id": "HC030",
+    "title": "Your water goal change is saved",
+    "body": "Your chosen goal is saved. Review the new amount and the reminders you selected."
+  },
+  {
+    "id": "HC031",
+    "title": "A moment for a movement break",
+    "body": "Your recent record shows a long low-movement stretch. If it works for you, take a comfortable movement break."
+  },
+  {
+    "id": "HC032",
+    "title": "Your seated break check-in",
+    "body": "This is a chance for the seated movement break you chose. Pick a comfortable movement or skip it."
+  },
+  {
+    "id": "HC033",
+    "title": "A brief change of position",
+    "body": "You chose standing breaks for these check-ins. Change position if comfortable, or skip this one."
+  },
+  {
+    "id": "HC034",
+    "title": "Your planned break window",
+    "body": "Your chosen break window is open. A short, comfortable change of activity may fit here."
+  },
+  {
+    "id": "HC035",
+    "title": "A new movement break opportunity",
+    "body": "Your movement check-ins have resumed. This is a fresh opportunity for a break if it suits you."
+  },
+  {
+    "id": "HC036",
+    "title": "Another chance to change pace",
+    "body": "A new low-movement stretch is in your recent record. Take a comfortable break if this is a good moment."
+  },
+  {
+    "id": "HC037",
+    "title": "The later break you requested",
+    "body": "You asked to revisit this break later. Change activity if useful, or dismiss the check-in."
+  },
+  {
+    "id": "HC038",
+    "title": "Review today’s break opportunities",
+    "body": "Your selected review shows today’s recorded low-movement periods. Use their timing to decide whether your chosen break windows fit."
+  },
+  {
+    "id": "HC039",
+    "title": "Review your movement-break pattern",
+    "body": "Your covered days include several long low-movement periods. Review their timing and adjust your optional check-ins."
+  },
+  {
+    "id": "HC040",
+    "title": "Review your break check-ins",
+    "body": "Check whether your movement reminders fit your day. You can narrow their hours or pause them."
+  },
+  {
+    "id": "HC041",
+    "title": "Your routine reminder",
+    "body": "It is time for the routine you selected. Complete it, skip it, or adjust the plan."
+  },
+  {
+    "id": "HC042",
+    "title": "Prepare for your routine",
+    "body": "You asked for a preparation reminder before your routine. Check the step you saved."
+  },
+  {
+    "id": "HC043",
+    "title": "Return to your chosen routine",
+    "body": "This is the later reminder you selected. Continue, skip, or choose a different plan."
+  },
+  {
+    "id": "HC044",
+    "title": "Your routine resumes today",
+    "body": "Your chosen routine resumes today. Past skipped days do not need to be made up."
+  },
+  {
+    "id": "HC045",
+    "title": "Your selected routine is due",
+    "body": "This reminder follows the days you selected. Open the routine or skip today’s occurrence."
+  },
+  {
+    "id": "HC046",
+    "title": "Your routine trial is complete",
+    "body": "The routine period you chose has ended. Review it before deciding whether to continue."
+  },
+  {
+    "id": "HC047",
+    "title": "Your revised routine starts",
+    "body": "Your reminder now follows the shorter routine you saved. Use the version that fits today."
+  },
+  {
+    "id": "HC048",
+    "title": "Would a different routine fit?",
+    "body": "You skipped the last few scheduled occurrences. Review the routine or pause its reminders."
+  },
+  {
+    "id": "HC049",
+    "title": "Your planned transition reminder",
+    "body": "You asked for a reminder at this time. Open the routine note you saved."
+  },
+  {
+    "id": "HC050",
+    "title": "Check your routine times",
+    "body": "Your time zone changed. Choose how your saved routine times should follow the change."
+  },
+  {
+    "id": "HC051",
+    "title": "A journal comparison is ready",
+    "body": "You now have enough explicit yes and no answers to compare a behavior with recorded recovery. This shows an association, not a cause."
+  },
+  {
+    "id": "HC052",
+    "title": "Your journal groups look similar",
+    "body": "The average recovery values in this comparison are close. Review the group sizes before drawing a conclusion."
+  },
+  {
+    "id": "HC053",
+    "title": "Review a journal association",
+    "body": "Recorded recovery averaged higher on explicit yes days in this window. Other differences between those days may explain the pattern."
+  },
+  {
+    "id": "HC054",
+    "title": "A journal pattern to review",
+    "body": "Recorded recovery averaged lower on explicit yes days in this window. Review the data and context before changing a habit."
+  },
+  {
+    "id": "HC055",
+    "title": "Your journal pattern changed",
+    "body": "This comparison points in a different direction from the previous window. Review both periods rather than treating either as a rule."
+  },
+  {
+    "id": "HC056",
+    "title": "Check the balance of your answers",
+    "body": "This journal comparison has uneven group sizes. Review the counts alongside the averages."
+  },
+  {
+    "id": "HC057",
+    "title": "Your corrected comparison is ready",
+    "body": "Your journal correction changed the comparison. The updated view shows the revised groups and their recorded outcomes."
+  },
+  {
+    "id": "HC058",
+    "title": "New answers update your comparison",
+    "body": "New explicit journal answers have updated this comparison. Review the new period and its group sizes."
+  },
+  {
+    "id": "HC059",
+    "title": "Your renamed journal item is ready",
+    "body": "Your renamed item still uses its original answer history. Review the comparison under the new display name."
+  },
+  {
+    "id": "HC060",
+    "title": "Review the context around this pattern",
+    "body": "Other logged behaviors also varied across these days. Review that context beside the comparison."
+  },
+  {
+    "id": "HC061",
+    "title": "Your breathing practice reminder",
+    "body": "You chose this time for a brief breathing practice. Start if it feels useful, or skip today."
+  },
+  {
+    "id": "HC062",
+    "title": "Your pre-event breathing reminder",
+    "body": "You asked for a breathing reminder before your event. Take a comfortable pause if you have time."
+  },
+  {
+    "id": "HC063",
+    "title": "Your after-event pause",
+    "body": "This is the breathing pause you scheduled after your event. Use it if it fits how you feel now."
+  },
+  {
+    "id": "HC064",
+    "title": "Your planned midday pause",
+    "body": "Your selected breathing-practice time is here. Choose a comfortable session or skip this check-in."
+  },
+  {
+    "id": "HC065",
+    "title": "Practice at your saved pace",
+    "body": "You scheduled a practice using your saved pace. Review it before starting."
+  },
+  {
+    "id": "HC066",
+    "title": "Your shorter practice is ready",
+    "body": "Your reminder follows the shorter practice you selected. Start only if this is a good moment."
+  },
+  {
+    "id": "HC067",
+    "title": "Your later breathing reminder",
+    "body": "This is the later reminder you requested. Open your practice or dismiss it."
+  },
+  {
+    "id": "HC068",
+    "title": "Your practice reminders resume",
+    "body": "Your selected breathing reminders resume today. Keep them only if they are useful."
+  },
+  {
+    "id": "HC069",
+    "title": "Review your breathing routine",
+    "body": "You planned to review this routine today. Keep, change, or pause the reminders."
+  },
+  {
+    "id": "HC070",
+    "title": "A check-in you requested",
+    "body": "Take a moment to notice how you feel. You can choose a practice, record a note, or move on."
+  },
+  {
+    "id": "HC071",
+    "title": "A moment to check in",
+    "body": "Your recent HRV dipped during a low-movement period. If useful, check how you feel before choosing a next step."
+  },
+  {
+    "id": "HC072",
+    "title": "A breathing option is available",
+    "body": "You noted feeling stressed today, and a fresh body-signal change was recorded. A brief breathing practice is available if you want it."
+  },
+  {
+    "id": "HC073",
+    "title": "Your feeling and body signal may differ",
+    "body": "Your journal answer and this HRV signal describe different observations. Review their timing without treating either as a diagnosis."
+  },
+  {
+    "id": "HC074",
+    "title": "Add context if it is useful",
+    "body": "A recent HRV dip was recorded during low movement. You can add what was happening, or leave the moment unlabelled."
+  },
+  {
+    "id": "HC075",
+    "title": "Review a recent body-signal change",
+    "body": "A recent live HRV window dipped below your detector baseline. Review the recorded window and its limits."
+  },
+  {
+    "id": "HC076",
+    "title": "Your saved practice is available",
+    "body": "A body-signal check-in is available. If you want a breathing pause, your saved pace is ready to review."
+  },
+  {
+    "id": "HC077",
+    "title": "A change in this recorded window",
+    "body": "This live window shows an HRV dip during low movement. You can inspect the data or choose a check-in."
+  },
+  {
+    "id": "HC078",
+    "title": "Optional context for this entry",
+    "body": "A recent HRV dip was recorded during low movement. Add it as context only if it seems relevant to you."
+  },
+  {
+    "id": "HC079",
+    "title": "A check-in from your current source",
+    "body": "Your current source has recorded a fresh HRV-dip event. Review its data and decide whether a pause would be useful."
+  },
+  {
+    "id": "HC080",
+    "title": "A recent check-in is available",
+    "body": "A recent body-signal change is available to review. You can inspect it or dismiss this check-in."
+  },
+  {
+    "id": "HC081",
+    "title": "Your daily check-in review is ready",
+    "body": "Review your recorded body-signal changes beside how you said you felt. They describe different parts of your day."
+  },
+  {
+    "id": "HC082",
+    "title": "Add context to your day if useful",
+    "body": "Your body-signal record is ready to review. You can add how the day felt, or leave that context unknown."
+  },
+  {
+    "id": "HC083",
+    "title": "Review how your day felt",
+    "body": "Your self-report matters even when the detector shows no matching episode. Review or add context to your journal."
+  },
+  {
+    "id": "HC084",
+    "title": "Activity adds context to your record",
+    "body": "Some recorded activation overlapped a logged activity. Review that context before interpreting the daily total."
+  },
+  {
+    "id": "HC085",
+    "title": "Your practice review is ready",
+    "body": "Compare the recorded windows before and after your practice. A change in this session does not prove an effect."
+  },
+  {
+    "id": "HC086",
+    "title": "Two views of the same moment",
+    "body": "Your self-report and recorded body signal differed in this interval. Review the context without treating either as a diagnosis."
+  },
+  {
+    "id": "HC087",
+    "title": "A timing pattern to review",
+    "body": "Several covered days show body-signal changes in the same part of the day. Review what was happening before choosing any change."
+  },
+  {
+    "id": "HC088",
+    "title": "Your weekly pattern looks different",
+    "body": "The covered weeks show a different pattern of recorded activation. Review coverage and context alongside the comparison."
+  },
+  {
+    "id": "HC089",
+    "title": "Your week has no clear timing pattern",
+    "body": "The recorded episodes were spread across your covered days. Review the record without assuming a single routine explains it."
+  },
+  {
+    "id": "HC090",
+    "title": "Your selected reflection is ready",
+    "body": "The interval you selected is ready to review. Its summary describes recorded observations and the context you supplied."
+  },
+  {
+    "id": "HC091",
+    "title": "Your journal question can be revisited",
+    "body": "The comparison you asked about now has both explicit-answer groups. Review the evidence and its limits with your saved question."
+  },
+  {
+    "id": "HC092",
+    "title": "Your water-log question is ready",
+    "body": "The selected water-log interval is ready to review. Your saved question will use logged entries and leave missing intake unknown."
+  },
+  {
+    "id": "HC093",
+    "title": "The source detail you asked for is ready",
+    "body": "The selected value now has an available source record. Review it alongside your saved question."
+  },
+  {
+    "id": "HC094",
+    "title": "Your journal-history question is ready",
+    "body": "The selected question’s history is ready to review under its current label. Open your saved question for the details."
+  },
+  {
+    "id": "HC095",
+    "title": "Your selected trend is ready to discuss",
+    "body": "The interval you asked about is ready. Review the observed values and any remaining limits with your saved question."
+  },
+  {
+    "id": "HC096",
+    "title": "Your question has updated evidence",
+    "body": "The correction you requested is now reflected in the saved comparison. Review the revised evidence before drawing conclusions."
+  },
+  {
+    "id": "HC097",
+    "title": "Return to your saved question",
+    "body": "You asked to revisit a question at this time. Open it when you are ready."
+  },
+  {
+    "id": "HC098",
+    "title": "Your selected follow-up is available",
+    "body": "The follow-up you chose to resume is ready. Open the saved question to review its current evidence."
+  },
+  {
+    "id": "HC099",
+    "title": "Your requested review is ready",
+    "body": "The topics you selected are gathered into one review. Open them together when convenient."
+  },
+  {
+    "id": "HC100",
+    "title": "Use the updated evidence",
+    "body": "The earlier review is out of date. A newer view is ready to use with this question."
+  },
+  {
+    "id": "HC101",
+    "title": "Your chosen commitment is due",
+    "body": "This is the reminder you approved. Review the commitment, mark it done, or change your plan."
+  },
+  {
+    "id": "HC102",
+    "title": "Prepare for your chosen step",
+    "body": "You asked for a preparation reminder. Open the step you approved before deciding what to do."
+  },
+  {
+    "id": "HC103",
+    "title": "How did your chosen step go?",
+    "body": "You asked for a follow-up on your commitment. Record what happened, including a skip or a change of plan."
+  },
+  {
+    "id": "HC104",
+    "title": "Your revised step is ready",
+    "body": "This reminder follows the smaller step you approved. The previous version has been replaced."
+  },
+  {
+    "id": "HC105",
+    "title": "Your rescheduled commitment",
+    "body": "This is the later time you chose. Review the step or update the plan again if needed."
+  },
+  {
+    "id": "HC106",
+    "title": "Review your trial commitment",
+    "body": "The trial period you chose has ended. Review what helped and decide whether to continue."
+  },
+  {
+    "id": "HC107",
+    "title": "Your chosen step is complete",
+    "body": "You marked your success check complete. Review the commitment or close it here."
+  },
+  {
+    "id": "HC108",
+    "title": "Review before you resume",
+    "body": "Your chosen pause ends today. Review the commitment before deciding to resume reminders."
+  },
+  {
+    "id": "HC109",
+    "title": "Revisit the step that did not fit",
+    "body": "You asked to review an obstacle to this commitment. Change the step, choose another time, or close it."
+  },
+  {
+    "id": "HC110",
+    "title": "Choose the version you want",
+    "body": "Two versions of this commitment need your review. Select one before its reminders continue."
+  },
+  {
+    "id": "HC111",
+    "title": "Your first habits review is ready",
+    "body": "Review the habits you explicitly logged this week. This is a starting point, not a verdict on your routine."
+  },
+  {
+    "id": "HC112",
+    "title": "A full week of journal observations",
+    "body": "Your selected journal questions have answers on every day this week. Review what you noticed and what you want to keep tracking."
+  },
+  {
+    "id": "HC113",
+    "title": "Compare your journal coverage",
+    "body": "Some selected questions have more recorded days than others. Review coverage before comparing their patterns."
+  },
+  {
+    "id": "HC114",
+    "title": "Your journal item joins the review",
+    "body": "The review shows the first available answers for this item. Earlier behavior remains unknown."
+  },
+  {
+    "id": "HC115",
+    "title": "Your habit records are together",
+    "body": "Review your logged water and selected journal answers in one place. Their overlap does not show that one caused the other."
+  },
+  {
+    "id": "HC116",
+    "title": "Review your shorter routine",
+    "body": "Your weekly review follows the questions you chose to keep. Removed items are not treated as missed tasks."
+  },
+  {
+    "id": "HC117",
+    "title": "Your review includes your choices",
+    "body": "Explicitly skipped routine entries are shown separately from unlogged days. Review whether your reminder schedule still suits you."
+  },
+  {
+    "id": "HC118",
+    "title": "One habit was consistent in your log",
+    "body": "This item had the same recorded answer across its observed days. Review it as a pattern, not a yes-versus-no comparison."
+  },
+  {
+    "id": "HC119",
+    "title": "Your two-week habit review is ready",
+    "body": "Compare the same selected questions across two covered weeks. Review the observation counts alongside any differences."
+  },
+  {
+    "id": "HC120",
+    "title": "Choose what to keep tracking",
+    "body": "Review whether your selected questions still help you. Keep, hide, or revise the items you chose."
+  },
+  {
+    "id": "HC121",
+    "title": "Your device battery is low",
+    "body": "Your device reports 15% battery. Charge when convenient to keep collecting data."
+  },
+  {
+    "id": "HC122",
+    "title": "Plan a device charge",
+    "body": "Your device has roughly 20 hours of estimated battery left, based on its recent discharge. Plan a charge when it fits."
+  },
+  {
+    "id": "HC123",
+    "title": "Check your device battery",
+    "body": "The device reports 18% battery. Its roughly 19 hours estimate uses a typical runtime because personal discharge data is limited."
+  },
+  {
+    "id": "HC124",
+    "title": "A device charge would be useful",
+    "body": "Your device reports 13% battery with roughly 14 hours estimated remaining. One charge can address both warnings."
+  },
+  {
+    "id": "HC125",
+    "title": "Check battery before your alarm",
+    "body": "The current battery estimate may not cover your armed alarm time. Charge the device and review the alarm status."
+  },
+  {
+    "id": "HC126",
+    "title": "Your chosen charge reminder",
+    "body": "You asked for a charge reminder at this time. Check the current device battery before deciding what to do."
+  },
+  {
+    "id": "HC127",
+    "title": "Battery needs your attention",
+    "body": "The current device reports 12% battery. This view will update when a new reading arrives."
+  },
+  {
+    "id": "HC128",
+    "title": "Your device reports charging",
+    "body": "The latest reading confirms charging. Check the live battery view for progress."
+  },
+  {
+    "id": "HC129",
+    "title": "Check battery after your recording",
+    "body": "Your recording has ended and the device has a current charge warning. Review its battery details and charge when convenient."
+  },
+  {
+    "id": "HC130",
+    "title": "Charge before using this device again",
+    "body": "This device is reporting a low battery while off-body. Check its charge before relying on another recording."
+  },
+  {
+    "id": "HC131",
+    "title": "Your device reports a full charge",
+    "body": "The latest reading is 100%. Your current battery details are ready to review."
+  },
+  {
+    "id": "HC132",
+    "title": "Your chosen charge target is reached",
+    "body": "The device reached the 80% charge target you selected. Check its current status before disconnecting the charger."
+  },
+  {
+    "id": "HC133",
+    "title": "Your battery estimate meets your target",
+    "body": "The measured estimate now meets your selected 24-hour target. Runtime can vary, so review the current details."
+  },
+  {
+    "id": "HC134",
+    "title": "Your device is charged for review",
+    "body": "The device reports 100% and is currently off-body. Check it when you are ready to wear it again."
+  },
+  {
+    "id": "HC135",
+    "title": "The device reports 100%",
+    "body": "The latest battery reading is full. Your recording can stay on screen while you review details later."
+  },
+  {
+    "id": "HC136",
+    "title": "Your charge target is reached",
+    "body": "The current reading meets the target you selected. Review the battery details here."
+  },
+  {
+    "id": "HC137",
+    "title": "Your device reports 100%",
+    "body": "The latest battery reading is 100%. The charging state is unknown, so check the device details if you need confirmation."
+  },
+  {
+    "id": "HC138",
+    "title": "Your requested charge check is complete",
+    "body": "The device reached the charge target from your earlier request. Review the current battery when convenient."
+  },
+  {
+    "id": "HC139",
+    "title": "Your charge update",
+    "body": "The device reached your selected charge target earlier in this review window. Check the current reading before relying on the estimate."
+  },
+  {
+    "id": "HC140",
+    "title": "Your top-up status is ready",
+    "body": "The device now reports 62% after your top-up. Review the latest details before planning more recording."
+  },
+  {
+    "id": "HC141",
+    "title": "Turn on Bluetooth to connect",
+    "body": "Bluetooth is currently off. Turn it on, then return to your device connection."
+  },
+  {
+    "id": "HC142",
+    "title": "Review Bluetooth access",
+    "body": "The system reports that Bluetooth access is unavailable to Noop. Review access in Settings, then try the connection again."
+  },
+  {
+    "id": "HC143",
+    "title": "Reconnect your selected device",
+    "body": "The selected device is still disconnected. Check that it is nearby and use the connection controls here."
+  },
+  {
+    "id": "HC144",
+    "title": "Check how the device is worn",
+    "body": "The device reports that it is off-body. Check its fit if you are trying to collect live data."
+  },
+  {
+    "id": "HC145",
+    "title": "Review the pairing guide",
+    "body": "Repeated pairing attempts need attention. Follow the existing reconnect guide before trying again."
+  },
+  {
+    "id": "HC146",
+    "title": "This source has no live check-in feed",
+    "body": "Live HRV check-ins are unavailable for this source. Its supported historical views remain available."
+  },
+  {
+    "id": "HC147",
+    "title": "Refresh the battery reading",
+    "body": "The displayed battery reading is from yesterday at 16:10. Reconnect for a current reading; the estimate is not counting down from stale data."
+  },
+  {
+    "id": "HC148",
+    "title": "Finish device time recovery",
+    "body": "The device’s time recovery is still pending. Follow the connection guidance before relying on newly dated records."
+  },
+  {
+    "id": "HC149",
+    "title": "Choose how to reconnect",
+    "body": "Automatic reconnect attempts are paused. Review the device and choose whether to retry or use the pairing guide."
+  },
+  {
+    "id": "HC150",
+    "title": "Choose a device for live data",
+    "body": "No live device is selected for this view. Choose a source when you are ready to continue."
+  },
+  {
+    "id": "HC151",
+    "title": "Today’s record is not available yet",
+    "body": "The latest available record is dated October 19. Review your sources for newer data; yesterday’s values are not today’s results."
+  },
+  {
+    "id": "HC152",
+    "title": "No readable samples in this range",
+    "body": "No samples were returned for the selected range. Check available data and source settings without assuming a permission was denied."
+  },
+  {
+    "id": "HC153",
+    "title": "Health data is temporarily unavailable",
+    "body": "The system reports protected health data is unavailable. Return after unlocking the device to try the read again."
+  },
+  {
+    "id": "HC154",
+    "title": "The live view needs a fresh reading",
+    "body": "The most recent accepted sample is from 14:05. Check the active source before interpreting this as live data."
+  },
+  {
+    "id": "HC155",
+    "title": "Your import contains earlier dates",
+    "body": "This import ends on October 16. It adds history but does not supply a current-day record."
+  },
+  {
+    "id": "HC156",
+    "title": "Your data is still being processed",
+    "body": "The records were received, and their analysis is still pending. New results will appear after a verified calculation completes."
+  },
+  {
+    "id": "HC157",
+    "title": "Your history task is paused",
+    "body": "The history task is paused under the current execution conditions. Keep this view available if you want to continue now."
+  },
+  {
+    "id": "HC158",
+    "title": "Choose your current data source",
+    "body": "Your stored history is available, but no current source is selected. Choose the source you want to use for new data."
+  },
+  {
+    "id": "HC159",
+    "title": "This value comes from another source",
+    "body": "The displayed value comes from Apple Health for this day. Review its provenance before comparing it with another source."
+  },
+  {
+    "id": "HC160",
+    "title": "Your edit is awaiting an updated result",
+    "body": "The edit is saved. Its affected results are waiting for verified recomputation, so the previous values are not treated as current."
+  },
+  {
+    "id": "HC161",
+    "title": "Review this source change",
+    "body": "This comparison includes a change of source. Review each source’s records before interpreting a difference as a personal trend."
+  },
+  {
+    "id": "HC162",
+    "title": "Check this journal answer",
+    "body": "Imported and local answers differ for this item. The local explicit answer is being used; review it if that is not what you intended."
+  },
+  {
+    "id": "HC163",
+    "title": "Review this journal unit change",
+    "body": "Earlier values used a different unit. Review the record before comparing numbers under the new unit."
+  },
+  {
+    "id": "HC164",
+    "title": "Review these similar water entries",
+    "body": "These entries are close together and have the same amount. Keep both if intentional, or edit the log yourself."
+  },
+  {
+    "id": "HC165",
+    "title": "Check the dates around your time change",
+    "body": "Your local time zone changed while this view was open. Review the displayed local dates before comparing daily totals."
+  },
+  {
+    "id": "HC166",
+    "title": "Compare like-for-like calculations",
+    "body": "These records use different calculation versions. Choose a compatible range before interpreting the change."
+  },
+  {
+    "id": "HC167",
+    "title": "Your journal history stays connected",
+    "body": "Only this item’s display name changed. Earlier answers remain connected to the same journal question."
+  },
+  {
+    "id": "HC168",
+    "title": "You are viewing an archived source",
+    "body": "These are historical records from an archived source. They do not change the source selected for new observations."
+  },
+  {
+    "id": "HC169",
+    "title": "Review this record’s date",
+    "body": "This imported record is dated in the future. Review its source date before including it in current comparisons."
+  },
+  {
+    "id": "HC170",
+    "title": "Your saved edit is being used",
+    "body": "This view uses your verified edit for the selected day. The original source value remains available to review."
+  },
+  {
+    "id": "HC171",
+    "title": "Your import review is ready",
+    "body": "The import you requested has finished. Review its date coverage and included sources."
+  },
+  {
+    "id": "HC172",
+    "title": "Your recalculated review is ready",
+    "body": "The selected range has finished recalculating. Review the updated values and their calculation version."
+  },
+  {
+    "id": "HC173",
+    "title": "Your journal review is ready",
+    "body": "The comparison you requested is ready with its observation counts and limits. Open it when convenient."
+  },
+  {
+    "id": "HC174",
+    "title": "Your source comparison is ready",
+    "body": "The sources you selected are ready to compare separately. Review their coverage and measurement differences."
+  },
+  {
+    "id": "HC175",
+    "title": "Your water-history review is ready",
+    "body": "The water-log range you selected is ready to review. Missing logs remain unknown intake."
+  },
+  {
+    "id": "HC176",
+    "title": "Your selected trend review is ready",
+    "body": "The date range you requested is ready. Review its observed days, source, and calculation version."
+  },
+  {
+    "id": "HC177",
+    "title": "Your battery-history review is ready",
+    "body": "Review the device readings you selected and how its estimates were formed. Future runtime can still vary."
+  },
+  {
+    "id": "HC178",
+    "title": "Your requested export is ready",
+    "body": "The local export you requested is ready to review. Open it to decide what to do next."
+  },
+  {
+    "id": "HC179",
+    "title": "Your combined review is ready",
+    "body": "The items you selected are gathered in one completed review. Open the combined result when convenient."
+  },
+  {
+    "id": "HC180",
+    "title": "Your result is updated",
+    "body": "The verified result is now available in this view. Review the updated details here."
+  }
+]

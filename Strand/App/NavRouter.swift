@@ -1,5 +1,6 @@
 import SwiftUI
 import Combine
+import StrandAnalytics
 
 // MARK: - NavRouter
 //
@@ -31,6 +32,57 @@ struct WorkoutJourneyEntry: Identifiable, Equatable {
 
 @MainActor
 final class NavRouter: ObservableObject {
+    private static weak var notificationResponseRouter: NavRouter?
+    private static var coldNotificationResponses: [[AnyHashable: Any]] = []
+    @Published private(set) var pendingNotificationDestinations: [NotificationDestination] = []
+    private var pendingNotificationSources: [String?] = []
+    var visibleNotificationDestinations: Set<NotificationDestination> = []
+    static var currentVisibleNotificationDestinations: Set<NotificationDestination> {
+        notificationResponseRouter?.visibleNotificationDestinations ?? []
+    }
+
+    /// Presenter callbacks can arrive before the root/environment exists.
+    static func receiveNotificationResponse(userInfo: [AnyHashable: Any]) {
+        if let router = notificationResponseRouter { router.handleNotificationResponse(userInfo: userInfo) }
+        else { coldNotificationResponses.append(userInfo) }
+    }
+    func installNotificationResponseRouting() {
+        Self.notificationResponseRouter = self
+        let queued = Self.coldNotificationResponses
+        Self.coldNotificationResponses.removeAll()
+        for payload in queued { handleNotificationResponse(userInfo: payload) }
+    }
+    func handleNotificationResponse(userInfo: [AnyHashable: Any]) {
+        guard (userInfo["noopNotificationVersion"] as? Int) == 1,
+              let json = userInfo["noopNotificationDestination"] as? String,
+              let destination = try? JSONDecoder().decode(NotificationDestination.self, from: Data(json.utf8)) else {
+            handleNotificationDestination(.settings(group: nil))
+            return
+        }
+        handleNotificationDestination(destination, sourceID: userInfo["noopNotificationSourceContext"] as? String)
+    }
+    func handleNotificationDestination(_ destination: NotificationDestination, sourceID: String? = nil) {
+        pendingNotificationSources.append(sourceID)
+        pendingNotificationDestinations.append(destination)
+    }
+    nonisolated static func notificationSourceIsReady(repositoryLoaded: Bool, repositoryFenced: Bool,
+        liftRestorationComplete: Bool, liftSourceContext: String?, currentSourceContext: String) -> Bool {
+        repositoryLoaded && !repositoryFenced && liftRestorationComplete
+            && liftSourceContext == currentSourceContext
+    }
+
+    /// Taking a tap is read-only navigation. It never requests a workout journey or changes a plan.
+    func takePendingNotification(sourceReady: Bool, activeWorkout: Bool, sourceID: String? = nil) -> NotificationDestination? {
+        guard sourceReady, !activeWorkout, !isAutoPresentBlocked, !pendingNotificationDestinations.isEmpty else { return nil }
+        let destination = pendingNotificationDestinations.removeFirst()
+        let expectedSource = pendingNotificationSources.removeFirst()
+        if let expectedSource, let sourceID, expectedSource != sourceID {
+            shellToast = String(localized: "This notification belongs to a different data source. Open that source to review it.")
+            return .settings(group: nil)
+        }
+        return destination
+    }
+
     /// A top-level destination a screen can ask the shell to open. Deliberately minimal — the Devices
     /// manager, the v5 pillar screens the new in-hub rows deep-link to (Insights hub, Lab Book, the
     /// fused record, the experimental Rhythm visualization), Trends, and the active-workout deep-link key (the shell

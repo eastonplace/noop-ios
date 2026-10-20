@@ -210,6 +210,29 @@ final class Repository: ObservableObject {
     var activeProjectionContributorIds: Set<String> {
         Set(importedReadIds + computedReadIds + [Self.appleHealthSource, Self.activityFileSource])
     }
+    /// Stable ownership across evidence generations, changed by database/source replacement.
+    var notificationSourceContext: String {
+        guard let context = todayHealthSnapshotContext else { return "unavailable:\(deviceId)" }
+        return [deviceId, context.databaseInstanceId, context.dashboardProfileId, context.sourceLineage]
+            .map { "\($0.utf8.count):\($0)" }.joined()
+    }
+
+    /// The notification ledger shares the canonical database and its replacement lifecycle.
+    func notificationDecisionStore() async -> WhoopStore? { await ensureStore() }
+
+    private func notifyCanonicalCommit() {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let owner = self.deviceId
+            let plan = await self.canonicalSleepNeedPlan(onOrBefore: Self.dayString(Date()))
+            guard self.deviceId == owner else { return }
+            WindDownNudge.updateCanonicalNeedMinutes(plan.minutes)
+            await NotificationCoordinator.shared.process(facts: NotificationFactBuilder.canonicalFacts(repository: self, now: Date()))
+            await NotificationCoordinator.shared.processPendingLiveWorkouts(repository: self)
+            await NotificationCoordinator.shared.reconcileSchedules()
+        }
+    }
+
     private var store: WhoopStore?
     /// Blocks ordinary readers from reopening the database between restore quiesce and the verified
     /// replacement reopen. MainActor isolation makes admission changes atomic with every `ensureStore` call.
@@ -2561,6 +2584,7 @@ final class Repository: ObservableObject {
         guard !unchanged else {
             let persistence = await refreshTodayHealthSnapshotFromCurrentCachesAndPersist(
                 now: now, refreshGeneration: myGen, authoritativeDayRange: fromDay...toDay)
+            if myGen == refreshGen && persistence.completesRefresh { notifyCanonicalCommit() }
             return myGen == refreshGen && persistence.completesRefresh
         }
 
@@ -2579,6 +2603,7 @@ final class Repository: ObservableObject {
         self.refreshSeq += 1
         let persistence = await refreshTodayHealthSnapshotFromCurrentCachesAndPersist(
             now: now, refreshGeneration: myGen, authoritativeDayRange: fromDay...toDay)
+        if myGen == refreshGen && persistence.completesRefresh { notifyCanonicalCommit() }
         return myGen == refreshGen && persistence.completesRefresh
     }
 
@@ -4530,6 +4555,7 @@ final class Repository: ObservableObject {
     /// ORG-10: a journal write doesn't move `refreshSeq`, so the Insights same-seq cache restored the old
     /// answers when the classic journal reopened. Drop it and bump the data version.
     private func journalDidChange() {
+        Task { @MainActor in await NotificationCoordinator.shared.reconcileSchedules() }
         insightsCache = nil
         dataVersion &+= 1
     }
@@ -6011,7 +6037,7 @@ extension Repository {
             )
         }
         invalidateSuspendedTodayWritersForVerifiedPublication()
-        return try commitHistoricalPresentationAtomically(
+        let outcome = try commitHistoricalPresentationAtomically(
             HistoricalPublicationPreparedState(
                 exactDays: exactDays,
                 snapshotReceipt: durableReceipt,
@@ -6025,6 +6051,8 @@ extension Repository {
                 importedStrain: nextImportedStrain,
                 canonicalHealth: nextCanonical
             ))
+        notifyCanonicalCommit()
+        return outcome
     }
 
     private nonisolated static func durableProjectionSourceIds(

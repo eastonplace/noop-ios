@@ -1,0 +1,74 @@
+{
+  "schemaVersion": 1,
+  "scope": "First release from the approved 540-case design library. The catalog is a product backlog, not 540 notification jobs.",
+  "base": "00eadc67c23fee97fd064f1aeb6d79b7a7f2e537",
+  "rules": [
+    {
+      "group": "morningSummary",
+      "catalogFamilies": [
+        "SLP09",
+        "REC01"
+      ],
+      "availability": "recovery update required",
+      "contract": "Current finalized main night plus repaired recovery. Never use yesterday display carry."
+    },
+    {
+      "group": "windDown",
+      "catalogFamilies": [
+        "SLP02",
+        "SLP01"
+      ],
+      "availability": "selected schedule",
+      "contract": "Current canonical Sleep Need planning estimate, chosen wake times and lead. Generic future copy."
+    },
+    {
+      "group": "workoutPlan",
+      "catalogFamilies": [
+        "WT03"
+      ],
+      "availability": "selected schedule",
+      "contract": "Explicit saved Lift date/time and unfinished plan. Legacy plans need a saved time."
+    },
+    {
+      "group": "workoutSummary",
+      "catalogFamilies": [
+        "WT01",
+        "WT05"
+      ],
+      "availability": "opt in",
+      "contract": "New local completion, settled current strain model, within 60 minutes. Stable session route."
+    },
+    {
+      "group": "strainTarget",
+      "catalogFamilies": [
+        "WT18"
+      ],
+      "availability": "recovery update required",
+      "contract": "Canonical stored 0..100 converts through app display 0..21. Repaired current recovery target only."
+    },
+    {
+      "group": "chargeReminder",
+      "catalogFamilies": [
+        "HC13"
+      ],
+      "availability": "preserved legacy choice",
+      "contract": "One device discharge episode combines percentage/runtime. Full charge separately owned."
+    },
+    {
+      "group": "weeklyReview",
+      "catalogFamilies": [
+        "WT10"
+      ],
+      "availability": "selected schedule",
+      "contract": "Generic chosen review prompt opens the prior complete Monday-Sunday local week. No future score claim."
+    },
+    {
+      "group": "journalCheckIn",
+      "catalogFamilies": [
+        "HC01"
+      ],
+      "availability": "selected schedule",
+      "contract": "Chosen weekdays/time, generic private copy; completion checked when the app executes."
+    }
+  ]
+}

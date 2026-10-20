@@ -125,11 +125,6 @@ struct AutomationsView: View {
             }
 
             Section {
-                Toggle("Illness early-warning", isOn: $behavior.illnessWatch)
-                    .onChangeCompat(of: behavior.illnessWatch) { enabled in
-                        model.reevaluateIllness()
-                        if enabled { IllnessNotifier.requestAuthorization() }
-                    }
                 if cycleOptInApplies {
                     Toggle("Cycle awareness", isOn: $cycleAwareness)
                         .onChangeCompat(of: cycleAwareness) { enabled in
@@ -147,18 +142,9 @@ struct AutomationsView: View {
                 Text("These optional on-device signals are for awareness only and are not diagnoses.")
             }
 
-            Section {
-                Toggle("Low and full battery alerts", isOn: $behavior.batteryAlerts)
-                    .onChangeCompat(of: behavior.batteryAlerts) { enabled in
-                        if enabled { BatteryNotifier.requestAuthorization() }
-                    }
-            } header: {
-                Text("Battery")
-            } footer: {
-                Text("Notifies at low battery and again when charging reaches full, at most once per charge cycle.")
-            }
+
         }
-        .navigationTitle("Notifications & alerts")
+        .navigationTitle("Wrist alerts & actions")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
@@ -176,9 +162,7 @@ struct AutomationsView: View {
             .custom(id: "wear") { wearCard.padding(13) },
             .custom(id: "coaching") { coachingCard.padding(13) },
             .custom(id: "inactivity") { inactivityCard.padding(13) },
-            .custom(id: "illness") { illnessCard.padding(13) },
-            .custom(id: "health-insights") { healthInsightsCard.padding(13) },
-            .custom(id: "battery") { batteryCard.padding(13) }
+            .custom(id: "health-insights") { healthInsightsCard.padding(13) }
         ])
         return [.init(id: "automations", header: "On-device Automations",
                       footer: "Every action and reminder uses the existing production stores.", rows: rows)]
@@ -474,22 +458,6 @@ struct AutomationsView: View {
         .frame(minHeight: 42).padding(.vertical, 4)
     }
 
-    // MARK: - Illness early-warning
-
-    private var illnessCard: some View {
-        Section2(icon: "waveform.path.ecg", title: String(localized: "Illness early-warning"),
-                 blurb: String(localized: "Watches your resting HR, HRV, skin temperature and respiration against your own 28-day baseline. On-device and approximate: informational only, not a diagnosis."),
-                 active: behavior.illnessWatch) {
-            ToggleRow(label: String(localized: "Watch for early-illness signs"),
-                      help: String(localized: "Needs at least 14 days of history. When two or more signals drift together you get a banner on the dashboard and a notification, at most once a day."),
-                      isOn: $behavior.illnessWatch)
-                .onChangeCompat(of: behavior.illnessWatch) { _ in
-                    model.reevaluateIllness()
-                    if behavior.illnessWatch { IllnessNotifier.requestAuthorization() }
-                }
-        }
-    }
-
     // MARK: - Health insights (v5: cycle awareness opt-in · experimental Rhythm)
 
     private var healthInsightsCard: some View {
@@ -527,21 +495,6 @@ struct AutomationsView: View {
                     .frame(minHeight: 42).padding(.vertical, 4)
                 }
             }
-        }
-    }
-
-    // MARK: - Strap battery alerts
-
-    private var batteryCard: some View {
-        Section2(icon: "battery.25", title: String(localized: "Battery alerts"),
-                 blurb: String(localized: "Get a notification when the strap battery runs low (15%) so you can top it up before tonight, and when it finishes charging."),
-                 active: behavior.batteryAlerts) {
-            ToggleRow(label: String(localized: "Notify on low and full battery"),
-                      help: String(localized: "A reminder to recharge before bed when the strap drops to 15%, and a heads-up when it reaches 100%, each at most once per charge cycle."),
-                      isOn: $behavior.batteryAlerts)
-                .onChangeCompat(of: behavior.batteryAlerts) { on in
-                    if on { BatteryNotifier.requestAuthorization() }
-                }
         }
     }
 

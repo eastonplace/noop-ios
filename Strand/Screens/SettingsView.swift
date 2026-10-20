@@ -236,7 +236,7 @@ struct SettingsDetailHost: View {
         case .backupExport:
             backupExportSettingsDetail
         case .notificationsAlerts:
-            AutomationsView()
+            NotificationSettingsView()
         case .appearanceUnits:
             displaySettingsDetail
         case .todayDashboard:

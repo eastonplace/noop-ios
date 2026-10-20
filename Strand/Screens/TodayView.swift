@@ -433,6 +433,34 @@ struct TodayView: View {
     // trend and Sleep score) resolves to the selected day instead of always showing today. Mirrors the
     // Android TodayScreen.selectedDayOffset. Loads re-run when this changes (see .task(id:)).
     @State private var selectedDayOffset = 0
+    @State private var notificationSelectedDayKey: String?
+    @State private var notificationTimeZoneIdentifier = TimeZone.current.identifier
+
+    /// A civil record key stays fixed; date-based queries use that day in the current timezone.
+    nonisolated static func notificationSelectionDate(dayKey: String, calendar: Calendar = .current) -> Date? {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.timeZone = calendar.timeZone
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.isLenient = false
+        guard let date = formatter.date(from: dayKey), formatter.string(from: date) == dayKey else { return nil }
+        return date
+    }
+
+    /// Notification taps use the existing historical-day navigation without changing the day or plan.
+    init(notificationDay: String? = nil) {
+        var offset = 0
+        var selectedKey: String?
+        if let notificationDay, let date = Self.notificationSelectionDate(dayKey: notificationDay) {
+            selectedKey = notificationDay
+            offset = Calendar.current.dateComponents([.day], from: date,
+                to: Calendar.current.startOfDay(for: Repository.logicalDay(Date()))).day ?? 0
+        }
+        _selectedDayOffset = State(initialValue: max(0, offset))
+        _notificationSelectedDayKey = State(initialValue: selectedKey)
+    }
+
     // #762: the hero ring row's measured width, set by a zero-impact background preference reader so the
     // three rings size off the real available width without a height-clamped GeometryReader clipping the
     // badge under the Sleep/Charge ring. 0 until first layout (the row falls back to a sensible default
@@ -583,7 +611,10 @@ struct TodayView: View {
     /// The logical day the selector resolves to: offset 0 is today's logical day (rolls at 04:00 like
     /// `repo.today`), past offsets count back from it. Presentation-only, used to pick which stored row
     /// is on screen and to anchor the HR-trend window. Mirrors Android TodayScreen.selectedDay.
+    private var usesCurrentDayResolution: Bool { notificationSelectedDayKey == nil && selectedDayOffset == 0 }
+
     private var selectedLogicalDay: Date {
+        if let notificationSelectedDayKey, let date = Self.notificationSelectionDate(dayKey: notificationSelectedDayKey) { return date }
         let base = Repository.logicalDay(Date())
         return Calendar.current.date(byAdding: .day, value: -selectedDayOffset, to: base) ?? base
     }
@@ -592,7 +623,8 @@ struct TodayView: View {
     /// non-UTC pre-04:00 case (#304) where Today is the LOCAL-calendar-day row, not the logical-day one.
     /// Falls back to the logical key when no row is banked yet. Past offsets use the logical key directly.
     private var selectedDayKey: String {
-        if selectedDayOffset == 0,
+        if let notificationSelectedDayKey { return notificationSelectedDayKey }
+        if usesCurrentDayResolution,
            let snapshot = displayDaySnapshot,
            snapshot.key == displayDayKey,
            let todayKey = snapshot.day?.day {
@@ -607,6 +639,7 @@ struct TodayView: View {
         let refreshSeq: Int
         let todayHealthSnapshotRevision: Int
         let offset: Int
+        let exactDaySelection: Bool
         let logicalKey: String
         let localKey: String
         let selectedDayKey: String
@@ -626,9 +659,10 @@ struct TodayView: View {
             refreshSeq: repo.refreshSeq,
             todayHealthSnapshotRevision: repo.todayHealthSnapshotRevision,
             offset: selectedDayOffset,
+            exactDaySelection: notificationSelectedDayKey != nil,
             logicalKey: Repository.logicalDayKey(now),
             localKey: Repository.localDayKey(now),
-            selectedDayKey: Repository.localDayKey(selectedDay))
+            selectedDayKey: notificationSelectedDayKey ?? Repository.localDayKey(selectedDay))
     }
 
     /// Stable value identity for the `.task(id:)` reload contract. A temporal
@@ -637,14 +671,14 @@ struct TodayView: View {
     /// its day-scoped snapshot instead of retaining yesterday's cached fields.
     private var presentationDayLoadKey: String {
         let key = displayDayKey
-        return "\(key.logicalKey)|\(key.localKey)|\(key.selectedDayKey)"
+        return "\(key.logicalKey)|\(key.localKey)|\(key.selectedDayKey)|exact:\(key.exactDaySelection)|zone:\(notificationTimeZoneIdentifier)"
     }
 
     /// This is intentionally separate from the snapshot revision. A new first-paint snapshot can arrive
     /// without invalidating a completed score read for the same selected day.
     private var restScorePresentationKey: String {
         let key = displayDayKey
-        return "\(key.logicalKey)|\(key.localKey)|\(key.selectedDayKey)|\(key.offset)|canonical:\(repo.canonicalHealth.presentationRevision)"
+        return "\(key.logicalKey)|\(key.localKey)|\(key.selectedDayKey)|\(key.offset)|exact:\(key.exactDaySelection)|zone:\(notificationTimeZoneIdentifier)|canonical:\(repo.canonicalHealth.presentationRevision)"
     }
 
     /// Pure selection policy behind the snapshot. The selected-day case remains a backward lookup, while
@@ -652,8 +686,8 @@ struct TodayView: View {
     /// byte-for-byte shared with Repository.
     nonisolated static func resolveDisplayDay(days: [DailyMetric], selectedDayOffset: Int,
                                               logicalKey: String, localKey: String,
-                                              selectedDayKey: String) -> DailyMetric? {
-        if selectedDayOffset == 0 {
+                                              selectedDayKey: String, exactDaySelection: Bool = false) -> DailyMetric? {
+        if selectedDayOffset == 0 && !exactDaySelection {
             return Repository.resolveToday(days: days, logicalKey: logicalKey, localKey: localKey)
         }
         return days.last(where: { $0.day == selectedDayKey })
@@ -706,6 +740,7 @@ struct TodayView: View {
     /// during the midnight/04:00 handoff, but it must never describe a future day. Past-day navigation
     /// always reads the normal history.
     private func firstPaintSnapshot(for key: DisplayDayKey) -> TodayHealthSnapshot? {
+        guard notificationSelectedDayKey == nil else { return nil }
         guard let snapshot = repo.todayHealthSnapshot,
               Self.acceptsFirstPaintSnapshot(
                 displayDay: snapshot.displayDay,
@@ -867,7 +902,8 @@ struct TodayView: View {
                                       selectedDayOffset: key.offset,
                                       logicalKey: key.logicalKey,
                                       localKey: key.localKey,
-                                      selectedDayKey: key.selectedDayKey)
+                                      selectedDayKey: key.selectedDayKey,
+                                      exactDaySelection: notificationSelectedDayKey != nil)
     }
 
     /// The exact Sleep/Rest score that shares the durable first-paint handoff with Recovery and Strain.
@@ -894,7 +930,7 @@ struct TodayView: View {
     /// the moment recovery populates, and never claims "calibrating" at/above the seed gate.
     /// Mirrors Android TodayScreen.recoveryCalibrationNights (7b5f212). Only meaningful for today,     /// a past day with no recovery is missing data, not mid-calibration, so navigated days return nil.
     private var recoveryCalibration: Int? {
-        guard selectedDayOffset == 0 else { return nil }
+        guard usesCurrentDayResolution else { return nil }
         if derivedKey == todayInputKey, let d = derived { return d.calibration }
         return computeCalibration()
     }
@@ -914,7 +950,7 @@ struct TodayView: View {
         Self.lastScoredRecoveryDay(
             days: repo.days,
             selectedDayKey: selectedDayKey,
-            isToday: selectedDayOffset == 0,
+            isToday: usesCurrentDayResolution,
             todayScored: displayDay?.recovery != nil,
             isCalibrating: recoveryCalibration != nil)
     }
@@ -925,7 +961,7 @@ struct TodayView: View {
     /// vitals — it is read PER-FIELD, today-first, so today's own value always wins. Only on today (a
     /// navigated past day shows its own row verbatim); today's own key bounds it so it can't echo today.
     private var lastVitalsDay: DailyMetric? {
-        guard selectedDayOffset == 0 else { return nil }
+        guard usesCurrentDayResolution else { return nil }
         return Repository.lastVitalsDay(days: repo.days, todayKey: displayDay?.day ?? selectedDayKey)
     }
 
@@ -1258,7 +1294,7 @@ struct TodayView: View {
     /// value is missing data, not mid-calibration), mirroring `recoveryCalibration`'s today-only gate, and
     /// only when the value itself is absent (a scored watch day shows its "Apple Watch" chip + confidence).
     private func watchNeedsMoreData(_ metricKey: String) -> Bool {
-        guard selectedDayOffset == 0, isWatchOnlyContext, !ringHasValue(metricKey) else { return false }
+        guard usesCurrentDayResolution, isWatchOnlyContext, !ringHasValue(metricKey) else { return false }
         return watchScoreState(metricKey) == .calibrating
     }
 
@@ -1332,7 +1368,7 @@ struct TodayView: View {
     }
 
     private func computeCalibration() -> Int? {
-        guard selectedDayOffset == 0 else { return nil }
+        guard usesCurrentDayResolution else { return nil }
         return RecoveryScorer.calibrationNights(nightlyHrv: repo.days.map(\.avgHrv),
                                                 dayKeys: repo.days.map(\.day),
                                                 hasRecovery: displayDay?.recovery != nil)
@@ -1368,6 +1404,7 @@ struct TodayView: View {
     #if os(iOS)
     /// The day-nav label: relative for today/yesterday, else a short date.
     private var dayNavLabel: String {
+        if notificationSelectedDayKey != nil { return selectedLogicalDay.formatted(date: .abbreviated, time: .omitted) }
         switch selectedDayOffset {
         case 0:  return String(localized: "Today")
         case 1:  return String(localized: "Yesterday")
@@ -1387,12 +1424,13 @@ struct TodayView: View {
     /// "Yesterday" word and no prev/next arrows. Day-change is by horizontal swipe or by tapping to open
     /// the picker; the date remains visible while the affordance is discoverable through accessibility.
     private var dayNavDateText: String {
+        if notificationSelectedDayKey != nil { return selectedLogicalDay.formatted(date: .abbreviated, time: .omitted) }
         // At offset 0 date off the row the resolver actually surfaces (`repo.today?.day`, same as
         // `selectedDayKey`) so the top-bar date matches Android (which dates off `today?.day`) and the
         // data on screen, including the pre-04:00 case where `repo.today` is still the logical day's row
         // but raw `selectedLogicalDay` formatting could read a calendar day ahead (#15). Past offsets, and
         // a not-yet-banked today, fall back to the logical day.
-        if selectedDayOffset == 0, let day = displayDay?.day, let date = Self.dayParser.date(from: day) {
+        if usesCurrentDayResolution, let day = displayDay?.day, let date = Self.dayParser.date(from: day) {
             return Self.navDayFmt.string(from: date)
         }
         return Self.navDayFmt.string(from: selectedLogicalDay)
@@ -1430,7 +1468,7 @@ struct TodayView: View {
                 let next = Self.clampedDayOffset(current: selectedDayOffset, delta: delta,
                                                  maxOffset: earliestDayOffset)
                 guard next != selectedDayOffset else { return }
-                withAnimation(StrandMotion.interactive) { selectedDayOffset = next }
+                withAnimation(StrandMotion.interactive) { notificationSelectedDayKey = nil; selectedDayOffset = next }
             }
     }
 
@@ -1443,6 +1481,7 @@ struct TodayView: View {
             set: { newValue in
                 // Offset from today's logical day (pure helper, unit-tested), so a pick in the rollover
                 // window maps to the same offset the visible date and a11y label count back from (#16).
+                notificationSelectedDayKey = nil
                 selectedDayOffset = Self.pickedDayOffset(pickedDate: newValue,
                                                          anchorLogicalDay: Repository.logicalDay(Date()))
                 showDayPicker = false
@@ -1601,15 +1640,15 @@ struct TodayView: View {
         let calories = caloriesCard
         let tiles = enabledDashboardCards.map { healthDashboardTile($0, day: day, calories: calories) }
         let stressTargetDay = day?.day ?? selectedDayKey
-        let stressDaily = selectedDayOffset == 0
+        let stressDaily = usesCurrentDayResolution
             ? stressToday
             : StressPresentation.dailyScore(
                 for: stressTargetDay,
                 days: repo.days,
                 stored: stressStored
             )
-        let stressIntraday = selectedDayOffset == 0 ? daytimeStress : nil
-        let stressHasHistory = selectedDayOffset == 0
+        let stressIntraday = usesCurrentDayResolution ? daytimeStress : nil
+        let stressHasHistory = usesCurrentDayResolution
             ? stressHistoryAvailable
             : StressPresentation.historyAvailable(
                 for: stressTargetDay,
@@ -1628,13 +1667,13 @@ struct TodayView: View {
         return TodayScreenSnapshot(
             hero: .init(pillars: TodaySummaryPreferences.orderedValues(pillars, raw: summaryMetricsRaw, id: \.id),
                         glance: paperGlanceText(calories: calories),
-                        showsWorkoutAction: selectedDayOffset == 0),
+                        showsWorkoutAction: usesCurrentDayResolution),
             heart: .init(samples: heartSamples, restingHR: day?.restingHr.map(Double.init)),
             stress: .init(
-                hours: selectedDayOffset == 0 ? stressRibbonSlots : Array(repeating: nil, count: 24),
+                hours: usesCurrentDayResolution ? stressRibbonSlots : Array(repeating: nil, count: 24),
                 value: stressValue,
                 nowHour: demoSceneHour,
-                dateContext: selectedDayOffset == 0
+                dateContext: usesCurrentDayResolution
                     ? .today
                     : .historical(date: selectedLogicalDay),
                 presentationMode: stressMode,
@@ -1652,7 +1691,7 @@ struct TodayView: View {
     /// by the one-shot task itself when the next deadline is reached.
     private var firstPaintFreshnessScheduleKey: String {
         let key = displayDayKey
-        return "\(key.refreshSeq)|\(key.todayHealthSnapshotRevision)|\(key.offset)|\(key.logicalKey)|\(key.localKey)|\(key.selectedDayKey)|\(firstPaintFreshnessScheduleRevision)"
+        return "\(key.refreshSeq)|\(key.todayHealthSnapshotRevision)|\(key.offset)|\(key.logicalKey)|\(key.localKey)|\(key.selectedDayKey)|exact:\(key.exactDaySelection)|\(firstPaintFreshnessScheduleRevision)"
     }
 
     private func refreshFirstPaintFreshnessWhenDue() async {
@@ -1981,7 +2020,7 @@ struct TodayView: View {
                 todayTopBar
                 #else
                 DayNavBar(selectedOffset: selectedDayOffset,
-                          today: Repository.logicalDay(Date())) { selectedDayOffset = $0 }
+                          today: Repository.logicalDay(Date())) { notificationSelectedDayKey = nil; selectedDayOffset = $0 }
                 #endif
                 HealthAlertBanner()
                 AutoWorkoutCard()
@@ -2023,6 +2062,9 @@ struct TodayView: View {
             offset: selectedDayOffset,
             presentationDay: "\(presentationDayLoadKey)|canonical:\(repo.canonicalHealth.presentationRevision)"
         )) { await loadAll() }
+        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name.NSSystemTimeZoneDidChange)) { _ in
+            if notificationSelectedDayKey != nil { notificationTimeZoneIdentifier = TimeZone.current.identifier }
+        }
         // Freshness is time-based even while the repository is quiet. This is a one-shot task, not a
         // periodic redraw: it wakes only at the earliest direct metric-evidence expiry.
         .task(id: firstPaintFreshnessScheduleKey) { await refreshFirstPaintFreshnessWhenDue() }
@@ -2437,7 +2479,7 @@ struct TodayView: View {
             // saying "calibrating" twice in two phrasings. `.scored` renders nothing (the ring has the
             // value). TODAY-only: the "No data for today" copy would be wrong on a navigated past day, and
             // a past day with no score is missing data the user can't act on now, so it keeps a bare ring.
-            if selectedDayOffset == 0 && !chargeScoreState.isCalibrating {
+            if usesCurrentDayResolution && !chargeScoreState.isCalibrating {
                 explainedScoreNote(chargeScoreState)
             }
 
@@ -2447,7 +2489,7 @@ struct TodayView: View {
             // TODAY (a past day with no Charge is missing data, not mid-calibration).
             // #827: this repeats nightly through the calibration window, so it's dismissible into the inbox
             // (restorable) instead of nagging a returning user every day. Hidden once dismissed.
-            if selectedDayOffset == 0, !calibratingDismissed, let banked = recoveryCalibration {
+            if usesCurrentDayResolution, !calibratingDismissed, let banked = recoveryCalibration {
                 chargeCalibrationCountdown(banked: banked)
                     // A small × tucks the calibration note into the Updates inbox (restorable from there).
                     .overlay(alignment: .topTrailing) {
@@ -2819,7 +2861,7 @@ struct TodayView: View {
     /// than vanishing, so the section is stable; it's hidden only when the user has no cards selected at all.
     @ViewBuilder
     private var yourCardsSection: some View {
-        if selectedDayOffset == 0 && !enabledDashboardCards.isEmpty {
+        if usesCurrentDayResolution && !enabledDashboardCards.isEmpty {
             VStack(alignment: .leading, spacing: NoopMetrics.gap) {
                 // Section header: the "Your cards" label + a right-aligned BLUE "CUSTOMISE" action link (the
                 // WHOOP "My Dashboard" ✎ affordance). Opens a local sheet, no new nav destination.
@@ -3574,7 +3616,7 @@ struct TodayView: View {
     /// peaks). Only for today, only when the score is ~0 and a score exists (a no-data ring shows its
     /// own overlay, a past day isn't annotated).
     private var effortZeroNote: String? {
-        guard selectedDayOffset == 0, let s = effortStrain(displayDay), s < 1.0 else { return nil }
+        guard usesCurrentDayResolution, let s = effortStrain(displayDay), s < 1.0 else { return nil }
         return String(localized: "No cardio load yet. Strain builds once your heart rate climbs into your training zone (around 50% of your heart-rate reserve). A calm day honestly reads near zero.")
     }
 
@@ -3634,7 +3676,7 @@ struct TodayView: View {
                 SectionHeader("Heart Rate", overline: "\(selectedDayOverline)")
                 ChartCard(
                     title: "Beats per minute",
-                    subtitle: selectedDayOffset == 0 ? String(localized: "5-minute average · since midnight") : String(localized: "5-minute average · selected day"),
+                    subtitle: usesCurrentDayResolution ? String(localized: "5-minute average · since midnight") : String(localized: "5-minute average · selected day"),
                     trailing: v.last.map { String(localized: "\(Int($0.rounded())) bpm") },
                     tint: StrandPalette.metricRose
                 ) {
@@ -3688,13 +3730,13 @@ struct TodayView: View {
                 SectionHeader("Heart Rate", overline: "\(selectedDayOverline)")
                 ChartCard(
                     title: "Beats per minute",
-                    subtitle: selectedDayOffset == 0
+                    subtitle: usesCurrentDayResolution
                         ? String(localized: "Calibrating, no heart rate banked yet today")
                         : String(localized: "No heart rate for this day"),
                     trailing: nil,
                     tint: StrandPalette.metricRose
                 ) {
-                    Text(selectedDayOffset == 0
+                    Text(usesCurrentDayResolution
                         ? "Your curve fills in as the strap offloads its history."
                         : "Step back to a day the strap was worn.")
                         .font(StrandFont.footnote)
@@ -3929,7 +3971,7 @@ struct TodayView: View {
         // H10, an empty vital on TODAY reads honestly ("After tonight's sleep") instead of a lone unit
         // beside a bare ", ", which looked like a fault; a navigated PAST day keeps the plain unit (it's
         // genuinely missing data the user can't act on now). Pure copy via `emptyVitalCaption`.
-        if let honest = Self.emptyVitalCaption(unit: unit, isToday: selectedDayOffset == 0) {
+        if let honest = Self.emptyVitalCaption(unit: unit, isToday: usesCurrentDayResolution) {
             return ("—", honest)
         }
         return ("—", unit)
@@ -4656,11 +4698,12 @@ struct TodayView: View {
         let loadDayKey = selectedDayKey
         let loadRestScoreKey = restScorePresentationKey
         let loadSelectedDayOffset = selectedDayOffset
+        let loadUsesCurrentDayResolution = usesCurrentDayResolution
         let loadSelectedLogicalDay = selectedLogicalDay
-        if repo.todayDayScopedLoadedSeq == loadSeq,
+        if notificationSelectedDayKey == nil, repo.todayDayScopedLoadedSeq == loadSeq,
            repo.todayDayScopedLoadedDayKey == loadDayKey,
            let cached = repo.todayDayScopedCache,
-           loadSelectedDayOffset != 0 || Date().timeIntervalSince(cached.bankedAt) < Self.todayCacheMaxAge {
+           !loadUsesCurrentDayResolution || Date().timeIntervalSince(cached.bankedAt) < Self.todayCacheMaxAge {
             guard Self.shouldCommitDayScopedLoad(
                 loadSeq: loadSeq,
                 currentSeq: repo.refreshSeq,
@@ -4671,7 +4714,7 @@ struct TodayView: View {
                 isCancelled: Task.isCancelled
             ) else { return false }
             restoreDayScoped(cached, loadKey: loadRestScoreKey)
-            if loadSelectedDayOffset == 0, let axis = hrAxis {
+            if loadUsesCurrentDayResolution, let axis = hrAxis {
                 let nowEnd = Date()
                 if nowEnd > axis.upperBound {
                     let extended = axis.lowerBound ... nowEnd
@@ -4709,7 +4752,7 @@ struct TodayView: View {
         // to the No-Data state instead of freezing.
         let restScoreLocal = Self.freshRestScore(
             todayValue: restByDay[loadDayKey], lastDay: restSeries.last?.day,
-            lastValue: restSeries.last?.value, isTodaySelected: loadSelectedDayOffset == 0,
+            lastValue: restSeries.last?.value, isTodaySelected: loadUsesCurrentDayResolution,
             todayKey: loadDayKey)
 
         // Component 4, resolve the REAL per-day merge winner for the selected day's derived scores. The
@@ -4742,7 +4785,7 @@ struct TodayView: View {
         // blanking to an empty new-calendar-day axis (#144).
         let dayStart = Calendar.current.startOfDay(for: loadSelectedLogicalDay)
         let windowStart = Int(dayStart.timeIntervalSince1970)
-        let windowEnd: Int = loadSelectedDayOffset == 0
+        let windowEnd: Int = loadUsesCurrentDayResolution
             ? Int(Date().timeIntervalSince1970)
             : Int((Calendar.current.date(byAdding: .day, value: 1, to: dayStart) ?? dayStart).timeIntervalSince1970)
         let hrPointsLocal = await repo.hrBuckets(from: windowStart, to: windowEnd, bucketSeconds: 300)
@@ -4812,6 +4855,7 @@ struct TodayView: View {
         hrZoomDomain = Self.reclampHrZoom(hrZoomDomain, oldAxis: hrAxis, newAxis: newAxis)
         hrAxis = newAxis
         sleepToday = sleepTodayLocal
+        if notificationSelectedDayKey == nil {
         repo.todayDayScopedCache = TodayDayScopedCache(
             restSpark: restSparkLocal,
             restScore: restScoreLocal,
@@ -4824,6 +4868,7 @@ struct TodayView: View {
             bankedAt: Date())
         repo.todayDayScopedLoadedSeq = loadSeq
         repo.todayDayScopedLoadedDayKey = loadDayKey
+        }
         return true
     }
 
@@ -4836,7 +4881,7 @@ struct TodayView: View {
     /// history never re-announces. The count of newly-forward days is real (keys strictly above the
     /// previous max), never fabricated. Links to Trends.
     private func announceNewDaysIfNeeded() {
-        guard selectedDayOffset == 0 else { return }
+        guard usesCurrentDayResolution else { return }
         guard let newestKey = repo.days.map(\.day).max() else { return }   // no history yet
         let previousKey = lastAnnouncedDayKey
         defer { lastAnnouncedDayKey = newestKey }
@@ -4918,7 +4963,7 @@ struct TodayView: View {
         f.locale = Locale(identifier: "en_US_POSIX")
         f.dateFormat = "EEEE, d MMMM"
         // The selected day's date when navigated; today's banked-row date (or today) at offset 0.
-        if selectedDayOffset == 0, let day = repo.today?.day, let date = Self.dayParser.date(from: day) {
+        if usesCurrentDayResolution, let day = repo.today?.day, let date = Self.dayParser.date(from: day) {
             return f.string(from: date)
         }
         return f.string(from: selectedLogicalDay)
@@ -4926,6 +4971,7 @@ struct TodayView: View {
 
     /// Hero title that names the selected day, "Today's"/"Yesterday's"/"Day's" Synthesis.
     private var synthesisTitle: LocalizedStringKey {
+        if notificationSelectedDayKey != nil { return "Synthesis" }
         switch selectedDayOffset {
         case 0:  return "Today’s Synthesis"
         case 1:  return "Yesterday’s Synthesis"
@@ -4935,6 +4981,7 @@ struct TodayView: View {
 
     /// Section overline naming the selected day, "Today"/"Yesterday"/"EEE d MMM".
     private var selectedDayOverline: String {
+        if notificationSelectedDayKey != nil { return selectedLogicalDay.formatted(date: .abbreviated, time: .omitted) }
         switch selectedDayOffset {
         case 0:  return String(localized: "Today")
         case 1:  return String(localized: "Yesterday")
@@ -5008,7 +5055,7 @@ struct TodayView: View {
     /// a navigated PAST day with no score honestly stays a bare ", " (missing data, not mid-calibration).
     /// Mirrors the recoveryCalibration today-only rule the Charge tile uses for its "N of 4" treatment.
     private func buildingHint(_ metric: KeyMetric) -> String? {
-        Self.buildingHintCopy(metric, isToday: selectedDayOffset == 0)
+        Self.buildingHintCopy(metric, isToday: usesCurrentDayResolution)
     }
 
     /// The Component-2 "needs the strap" tile caption, the honest no-data state word a Charge/Sleep tile

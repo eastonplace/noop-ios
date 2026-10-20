@@ -133,6 +133,7 @@ private struct LiftStableDigest {
 @MainActor
 final class LiftStore: ObservableObject {
   static let prDetectionEnabled = true
+  var notificationCompletion: (@MainActor (Date, Date) -> Void)?
 
   @Published private(set) var exercises: [LiftExercise] = []
   @Published private(set) var routines: [LiftRoutine] = []
@@ -497,9 +498,9 @@ final class LiftStore: ObservableObject {
   }
 
   @discardableResult
-  func scheduleWorkout(routineID: UUID, at date: Date, note: String) -> ScheduledWorkout {
+  func scheduleWorkout(routineID: UUID, at date: Date, note: String, notificationTimeExplicit: Bool = false) -> ScheduledWorkout {
     let workout = ScheduledWorkout(
-      id: UUID(), routineID: routineID, plannedAt: date, note: note, completedSessionID: nil
+      id: UUID(), routineID: routineID, plannedAt: date, note: note, completedSessionID: nil, notificationTimeExplicit: notificationTimeExplicit, notificationRevision: 1
     )
     scheduledWorkouts.append(workout)
     status = "Scheduled workout"
@@ -509,7 +510,9 @@ final class LiftStore: ObservableObject {
 
   func updateScheduledWorkout(_ workout: ScheduledWorkout) {
     guard let index = scheduledWorkouts.firstIndex(where: { $0.id == workout.id }) else { return }
-    scheduledWorkouts[index] = workout
+    var revised = workout
+    revised.notificationRevision = (scheduledWorkouts[index].notificationRevision ?? 0) + 1
+    scheduledWorkouts[index] = revised
     status = "Updated schedule"
     save()
   }
@@ -1355,7 +1358,10 @@ final class LiftStore: ObservableObject {
       generation: generation,
       delay: saveDebounceInterval
     ) { [weak self] errorMessage in
-      guard let errorMessage else { return }
+      guard let errorMessage else {
+        Task { @MainActor in NotificationCenter.default.post(name: Notification.Name("noop.notificationPlansDidChange"), object: nil) }
+        return
+      }
       Task { @MainActor [weak self] in
         self?.status = "Save failed: \(errorMessage)"
       }
@@ -1473,7 +1479,10 @@ final class LiftStore: ObservableObject {
       guard let self, !self.databaseInvalidated, generation == self.saveGeneration else { return }
       do {
         try await database.save(envelope, generation: generation)
-        if generation == self.saveGeneration { self.databaseSaveError = nil }
+        if generation == self.saveGeneration {
+          self.databaseSaveError = nil
+          NotificationCenter.default.post(name: Notification.Name("noop.notificationPlansDidChange"), object: nil)
+        }
       } catch {
         if generation == self.saveGeneration {
           self.databaseSaveError = error.localizedDescription
@@ -1528,6 +1537,8 @@ final class LiftStore: ObservableObject {
       LiftLiveActivityManager.shared.finish(session: session, progress: progress,
         currentMove: liveActivityMoveName(for: progress), restTimerEndDate: nil, weightUnit: weightUnit)
       apply(envelope)
+      if let endedAt = session.endedAt { notificationCompletion?(session.startedAt, endedAt) }
+      NotificationCenter.default.post(name: Notification.Name("noop.notificationPlansDidChange"), object: nil)
       databaseSaveError = nil
       status = "Saved \(session.workingSets.count) working sets"
       finishDate = nil

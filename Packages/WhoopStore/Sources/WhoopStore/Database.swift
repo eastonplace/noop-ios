@@ -1031,6 +1031,7 @@ extension WhoopStore {
         StoreIndexHygieneMigration.register(on: &migrator)
         LiftStrainMigration.register(on: &migrator)
         RRQualityMigration.register(on: &migrator)
+        NotificationDecisionMigration.register(on: &migrator)
         return migrator
     }
 }

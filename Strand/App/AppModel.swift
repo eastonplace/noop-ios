@@ -694,16 +694,17 @@ final class AppModel: ObservableObject {
         // crossing state, so feeding it every battery reading is safe.
         live.onBatteryUpdate = { [weak self] pct in
             guard let self else { return }
-            BatteryNotifier.onBatteryUpdate(pct: Int(pct.rounded()),
-                                            charging: self.live.charging,
-                                            enabled: self.behavior.batteryAlerts)
-            // Predictive runtime alert: the same reading just banked into the SoC buffer, so
-            // batteryEstimate is fresh here. Nil estimate (no readings yet) is a no-op — the 15%
-            // alert above remains the safety net.
-            BatteryNotifier.onRuntimeEstimate(remainingHours: self.live.batteryEstimate?.remainingHours,
-                                              charging: self.live.charging,
-                                              enabled: self.behavior.batteryAlerts
-                                                    && self.behavior.batteryPredictiveAlerts)
+            guard let physicalDevice = self.ble.connectedPeripheralUUID else { return }
+            let source = self.repo.notificationSourceContext
+            let charging = self.live.charging
+            let runtime = self.live.batteryEstimate?.remainingHours
+            let observedAt = Date()
+            Task { @MainActor in
+                await BatteryNotifier.observe(deviceID: physicalDevice, sourceContext: source,
+                    pct: Int(pct.rounded()), remainingHours: runtime, charging: charging,
+                    enabled: NotificationPreferences.shared.batteryAlerts,
+                    predictiveEnabled: NotificationPreferences.shared.batteryPredictiveAlerts, now: observedAt)
+            }
         }
         // HR-zone haptic coaching watches the smoothed bpm.
         $bpm.sink { [weak self] hr in self?.coachZone(hr) }.store(in: &hrCancellables)
@@ -2967,7 +2968,17 @@ final class AppModel: ObservableObject {
             }
             // Verified: settle it as saved before anything else is awaited, then refresh.
             commitVerifiedWorkoutSave(saved)
-            _ = await repo.refresh(.currentDay)
+            let notificationSource = repo.notificationSourceContext
+            let notificationRefreshSucceeded = await repo.refresh(.currentDay)
+            if notificationRefreshSucceeded, notificationSource == repo.notificationSourceContext {
+                let currentRows = await repo.workoutRows(from: saved.startTs, to: saved.startTs + 1, reconcileHR: false)
+                if notificationSource == repo.notificationSourceContext,
+                   let current = currentRows.first(where: { $0.startTs == saved.startTs && $0.sport == saved.sport }),
+                   let fact = NotificationFactBuilder.workout(current, source: notificationSource,
+                    revision: "v2:\(repo.canonicalHealth.sourceGeneration)", now: Date(), isLiveCompletion: true) {
+                    await NotificationCoordinator.shared.process(facts: [fact])
+                }
+            }
             replayDeferredSessionWorkIfIdle()
             emitWorkoutsTrace(WorkoutsTrace.sessionLine(
                 event: "end", sportKey: WorkoutSource.traceSportKey(w.sport), hrSamples: samples.count,
@@ -3381,6 +3392,14 @@ final class AppModel: ObservableObject {
     var liftDoubleTapHandler: (() -> Void)?
     var discardLiftForDeletedSource: ((String) -> Void)?
     var hasActiveReceiptLift: (() -> Bool)?
+    var notificationSessionRestorationReady: (() -> Bool)?
+    var notificationSessionsReady: Bool {
+        #if os(iOS)
+        notificationSessionRestorationReady?() == true
+        #else
+        true
+        #endif
+    }
 
     /// A run or a lift is in flight. Heavy post-sync processing waits for this to clear (see
     /// `ActiveSessionWorkPolicy`).

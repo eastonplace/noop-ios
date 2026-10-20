@@ -28,15 +28,18 @@ struct JournalLogCard: View {
     /// question → numeric value for the selected day, native rows only (drives the numeric fields).
     let numericAnswers: [String: Double]
     @Binding var dayOffset: Int            // -1 = tomorrow, 0 = today, 1 = yesterday
+    /// Notification-hosted entries retain the civil record key across midnight and timezone changes.
+    @Binding private var selectedDayKey: String?
     let onChanged: () -> Void              // parent re-runs load() after a write
 
     init(importedQuestions: [String], answers: [String: Bool],
          numericAnswers: [String: Double] = [:], dayOffset: Binding<Int>,
-         onChanged: @escaping () -> Void) {
+         selectedDayKey: Binding<String?> = .constant(nil), onChanged: @escaping () -> Void) {
         self.importedQuestions = importedQuestions
         self.answers = answers
         self.numericAnswers = numericAnswers
         self._dayOffset = dayOffset
+        self._selectedDayKey = selectedDayKey
         self.onChanged = onChanged
     }
 
@@ -57,9 +60,26 @@ struct JournalLogCard: View {
     @State private var selectedMood: Int?
     @State private var loggedWindow: [Bool] = []
 
+    nonisolated static func entryDayKey(selectedDayKey: String?, dayOffset: Int, now: Date = Date(), calendar: Calendar = .current) -> String {
+        if let selectedDayKey { return selectedDayKey }
+        let date = calendar.date(byAdding: .day, value: -dayOffset, to: now) ?? now
+        return Repository.localDayKey(date, calendar: calendar)
+    }
+
     private var dayKey: String {
-        Repository.localDayKey(
-            Calendar.current.date(byAdding: .day, value: -dayOffset, to: Date()) ?? Date())
+        Self.entryDayKey(selectedDayKey: selectedDayKey, dayOffset: dayOffset)
+    }
+
+    private var selectedDate: Date? {
+        guard let selectedDayKey else { return nil }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.timeZone = .current
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.isLenient = false
+        guard let date = formatter.date(from: selectedDayKey), formatter.string(from: date) == selectedDayKey else { return nil }
+        return date
     }
 
     /// The resolved, grouped catalog for the current imported set. Hidden items included only while
@@ -97,6 +117,11 @@ struct JournalLogCard: View {
                     dayPill("Today", offset: 0)
                     dayPill("Yesterday", offset: 1)
                 }
+            }
+            if let selectedDate {
+                Text(selectedDate.formatted(date: .complete, time: .omitted))
+                    .font(.headline)
+                    .accessibilityLabel("Journal date: \(selectedDate.formatted(date: .complete, time: .omitted))")
             }
             PaperCard {
                 VStack(alignment: .leading, spacing: 10) {
@@ -447,7 +472,10 @@ struct JournalLogCard: View {
     // MARK: - Controls
 
     private func dayPill(_ label: LocalizedStringKey, offset: Int) -> some View {
-        pillButton(label, selected: dayOffset == offset) {
+        let target = Self.entryDayKey(selectedDayKey: nil, dayOffset: offset)
+        let isSelected = selectedDayKey.map { $0 == target } ?? (dayOffset == offset)
+        return pillButton(label, selected: isSelected) {
+            if selectedDayKey != nil { selectedDayKey = target }
             dayOffset = offset
             onChanged()   // reload the selected day's answers
         }

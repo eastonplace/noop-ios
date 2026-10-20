@@ -173,6 +173,8 @@ jobs:
             -only-testing:NOOPCoachUITests/LiftRoutineSelectionTests \
             -only-testing:NOOPCoachUITests/SelectedScreenDirectionTests \
             -only-testing:NOOPCoachUITests/CoachKeyboardLayoutTests \
+            -only-testing:NOOPCoachUITests/NotificationSettingsUITests \
+            -only-testing:NOOPCoachUITests/NotificationDestinationUITests \
             -only-testing:NOOPCoachUITests/ApprovedDashboardUITests/testSharedBatteryHeaderAndRecentUpdatesNormal \
             -only-testing:NOOPCoachUITests/ApprovedDashboardUITests/testSharedBatteryHeaderAndRecentUpdatesAccessibilityXXXL \
             -only-testing:NOOPCoachUITests/ApprovedDashboardUITests \

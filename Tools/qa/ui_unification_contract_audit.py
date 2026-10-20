@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Static release contract for the Trends / alarm / Settings / More unification."""
 from pathlib import Path
+import re
 import sys
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -18,6 +19,14 @@ def require(rel: str, *needles: str) -> None:
     for needle in needles:
         if needle not in source:
             raise AssertionError(f"{rel}: missing contract marker {needle!r}")
+
+
+def require_settings_sheet_binding(rel: str) -> None:
+    # onDismiss clears notification-origin visibility after the actual dismissal. Keep validating
+    # the Settings item binding while allowing that legitimate optional SwiftUI callback argument.
+    pattern = r"\.sheet\s*\(\s*item\s*:\s*\$settingsSheet\s*(?:\)|,\s*onDismiss\s*:)"
+    if re.search(pattern, text(rel)) is None:
+        raise AssertionError(f"{rel}: missing Settings sheet item binding")
 
 
 def forbid(rel: str, *needles: str) -> None:
@@ -341,10 +350,10 @@ try:
     )
     # Settings left the tab bar: it is a sheet the shell presents for the top bar's profile button, hosted by
     # SettingsSheetHost (which owns the navigation stack and the environment the Settings pages read).
+    require_settings_sheet_binding("StrandiOS/App/RootTabView.swift")
     require(
         "StrandiOS/App/RootTabView.swift",
         "SmartAlarmCommandReconciler()",
-        ".sheet(item: $settingsSheet)",
         "SettingsSheetHost(request: request",
         ".presentationDetents([.large])",
         ".presentationDragIndicator(.hidden)",

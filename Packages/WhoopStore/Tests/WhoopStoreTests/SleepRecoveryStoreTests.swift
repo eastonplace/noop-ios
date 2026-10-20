@@ -187,7 +187,7 @@ final class SleepRecoveryStoreTests: XCTestCase {
 
     func testFeatureMigrationCreatesRecoveryTablesAndIndexes() async throws {
         let store = try await WhoopStore.inMemory()
-        XCTAssertEqual(WhoopStoreInfo.schemaVersion, 60)
+        XCTAssertEqual(WhoopStoreInfo.schemaVersion, 61)
         let tables = try await store.tableNames()
         XCTAssertTrue(tables.contains("sleepRecoveryAttempt"))
         XCTAssertTrue(tables.contains("sleepRecoveryDailyOverride"))
