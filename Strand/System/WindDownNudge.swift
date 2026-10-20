@@ -174,6 +174,7 @@ enum WindDownNudge {
             // Clear the single trigger AND any per-day triggers (PR#554) so disabling leaves nothing behind.
             UNUserNotificationCenter.current()
                 .removePendingNotificationRequests(withIdentifiers: [requestId] + perDayRequestIds)
+            Task { @MainActor in await NotificationCoordinator.shared.reconcileSchedules() }
             completion?(.off)
             return
         }
@@ -229,39 +230,9 @@ enum WindDownNudge {
     private static var perDayRequestIds: [String] { (1...7).map { "\(requestId)-wd\($0)" } }
 
     private static func schedule() {
-        let center = UNUserNotificationCenter.current()
-        // Clear BOTH the single trigger and any per-day triggers so switching between the two modes (or
-        // editing an override) never double-fires or leaves an orphaned reminder.
-        center.removePendingNotificationRequests(withIdentifiers: [requestId] + perDayRequestIds)
-
-        let content = UNMutableNotificationContent()
-        content.title = String(localized: "Time to wind down")
-        content.body = String(localized: "A calm hour now helps you hit your wake time well-rested.")
-        content.sound = .default
-
-        // PR#554 — with per-day overrides set, fan out to seven weekday-pinned triggers each at that day's
-        // own nudge time; with none, keep the single daily trigger (identical to the pre-#554 behaviour).
-        if hasPerDayOverrides {
-            for weekday in 1...7 {
-                let minute = nudgeMinuteOfDay(forWeekday: weekday)
-                var comps = DateComponents()
-                comps.weekday = nudgeWeekday(forWeekday: weekday)   // Calendar weekday 1=Sun…7=Sat; the evening before when the nudge wraps past midnight
-                comps.hour = minute / 60
-                comps.minute = minute % 60
-                let trigger = UNCalendarNotificationTrigger(dateMatching: comps, repeats: true)
-                center.add(UNNotificationRequest(identifier: "\(requestId)-wd\(weekday)",
-                                                 content: content, trigger: trigger))
-            }
-            return
-        }
-
-        let minute = nudgeMinuteOfDay()
-        var comps = DateComponents()
-        comps.hour = minute / 60
-        comps.minute = minute % 60
-        // repeats: true → a daily calendar trigger; survives relaunch (it lives in the notification
-        // center, not the process), so the nudge keeps firing each evening without the app running.
-        let trigger = UNCalendarNotificationTrigger(dateMatching: comps, repeats: true)
-        center.add(UNNotificationRequest(identifier: requestId, content: content, trigger: trigger))
+        NotificationPreferences.shared.bumpScheduleRevision()
+        // Retire only this producer's historical identifiers. Alarm/session requests are untouched.
+        UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: [requestId] + perDayRequestIds)
+        Task { @MainActor in await NotificationCoordinator.shared.reconcileSchedules() }
     }
 }

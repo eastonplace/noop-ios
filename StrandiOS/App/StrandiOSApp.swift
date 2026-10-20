@@ -91,6 +91,10 @@ struct StrandiOSApp: App {
         let receiptLift = NoopReceiptLiftIntegration(model: model)
         model.discardLiftForDeletedSource = { [weak receiptLift] owner in receiptLift?.discardSource(owner) }
         model.hasActiveReceiptLift = { [weak receiptLift] in receiptLift?.coordinator?.hasActiveSession == true }
+        model.notificationSessionRestorationReady = { [weak receiptLift, weak model] in
+            guard let receiptLift, let model else { return false }
+            return receiptLift.isNotificationSourceReady && receiptLift.notificationSourceContext == model.repo.notificationSourceContext
+        }
         ActiveSessionGate.isActive = { [weak model] in model?.hasActiveWorkoutSession == true }
         // The Pause / Resume button on the workout's Live Activity runs in this process. The workout was restored by
         // `AppModel.init`, so a request that woke a relaunched app is applied here, before the first frame.
@@ -577,7 +581,16 @@ struct StrandiOSApp: App {
                 .environmentObject(health)
                 .environmentObject(router)
                 .environmentObject(receiptLift)
-                .task(id: model.repo.deviceId) { await receiptLift.selectCurrentSource() }
+                .task(id: model.repo.notificationSourceContext) {
+                    await receiptLift.selectCurrentSource()
+                    NotificationCoordinator.shared.workoutPlans = { [weak receiptLift] in
+                        receiptLift?.coordinator?.notificationPlans.map {
+                            NotificationWorkoutPlan(id: $0.id, plannedAt: $0.plannedAt,
+                                completedSessionID: $0.completedSessionID, hasExplicitTime: $0.hasExplicitTime, revision: $0.revision)
+                        } ?? []
+                    }
+                    await NotificationCoordinator.shared.start()
+                }
                 .task {
                     #if DEBUG
                     guard CommandLine.arguments.contains("--noop-sleep-sync-probe") else { return }
@@ -757,6 +770,7 @@ struct StrandiOSApp: App {
             #endif
             model.setApplicationActiveOptimized(phase == .active)
             if phase == .active {
+                Task { await NotificationCoordinator.shared.reconcileSchedules() }
                 model.drainPendingIntents()
                 WorkoutPauseCommand.drain()
                 // ActivityKit refuses a request made from the background, so a missed one is asked again the moment the app

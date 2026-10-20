@@ -35,6 +35,8 @@ final class LiftWeightUnitFollower {
 final class NoopReceiptLiftIntegration: ObservableObject {
     @Published private(set) var coordinator: ReceiptLiftCoordinator?
     @Published private(set) var owner: String?
+    @Published private(set) var notificationSourceContext: String?
+    @Published private(set) var isNotificationSourceReady = false
     @Published private(set) var error: String?
     /// One-shot, once per process: a lift session that was in flight when NOOP last closed has just been
     /// restored from disk. The shell consumes it to re-present the workout without a tap.
@@ -81,13 +83,13 @@ final class NoopReceiptLiftIntegration: ObservableObject {
     func selectCurrentSource() async {
         guard !selecting, let model else { return }
         let source = model.repo.deviceId
-        guard !source.isEmpty, owner != source else { return }
-        // A source switch must never reattribute an in-progress workout.
-        guard coordinator?.hasActiveSession != true else { return }
+        guard !source.isEmpty else { return }
+        let startingContext = model.repo.notificationSourceContext
+        if startingContext != notificationSourceContext { isNotificationSourceReady = false }
         selecting = true
         defer {
             selecting = false
-            if model.repo.deviceId != source {
+            if model.repo.deviceId != source || model.repo.notificationSourceContext != startingContext {
                 Task { [weak self] in await self?.selectCurrentSource() }
             }
         }
@@ -95,9 +97,31 @@ final class NoopReceiptLiftIntegration: ObservableObject {
             error = "Your workout log is unavailable. Try again when NOOP finishes opening its database."
             return
         }
+        guard model.repo.deviceId == source, model.repo.notificationSourceContext == startingContext else {
+            isNotificationSourceReady = false
+            return
+        }
+        let storageContext = startingContext
         let sourceOwner: HistoricalCursorScope
         do { sourceOwner = try await store.receiptLiftSourceOwner(deviceId: source) }
         catch { self.error = "Couldn’t open this source’s workout log: \(error.localizedDescription)"; return }
+        let currentContext = model.repo.notificationSourceContext
+        guard !currentContext.hasPrefix("unavailable:"), currentContext == storageContext,
+              model.repo.deviceId == source else {
+            isNotificationSourceReady = false
+            return
+        }
+        if owner == source, notificationSourceContext == currentContext,
+           selectedSourceOwner == sourceOwner, isNotificationSourceReady { return }
+        isNotificationSourceReady = false
+        // A restored database with the same device name cannot reuse the old captured store.
+        if owner == source, notificationSourceContext != currentContext {
+            coordinator?.discard()
+            coordinator = nil
+            observation = nil
+        }
+        // A switch to another device still cannot reattribute an active session.
+        guard coordinator?.hasActiveSession != true else { return }
         let demoState = Self.demoState()
         let feature = ReceiptLiftCoordinator(
             load: { if let demoState { return demoState }; return try await store.loadReceiptLiftState(sourceOwner: sourceOwner) },
@@ -116,7 +140,8 @@ final class NoopReceiptLiftIntegration: ObservableObject {
                     liftStrain: liftStrain)
                 if !workouts.isEmpty {
                     Task { @MainActor [weak model] in
-                        guard let model, model.repo.deviceId == source else { return }
+                        guard let model, model.repo.deviceId == source,
+                              model.repo.notificationSourceContext == currentContext else { return }
                         await LiftStrainSaveFollowUp.run(
                             analyze: {
                                 await model.intelligence.analyzeRecent(maxDays: 1, startOffset: 0, refreshRepository: true)
@@ -126,19 +151,39 @@ final class NoopReceiptLiftIntegration: ObservableObject {
                                 await model.repo.refreshLiveDayStrain(maxHR: Double(model.profile.hrMax))
                                 _ = await model.repo.refresh(.currentDay)
                             })
+                        guard model.repo.notificationSourceContext == currentContext else { return }
+                        await NotificationCoordinator.shared.processPendingLiveWorkouts(repository: model.repo)
                     }
                 }
             }, canStart: { [weak model] in model?.activeWorkout == nil },
             // Before load(): a restored session redraws its Live Activity as part of loading.
             weightUnit: UnitSystem.stored.liftWeightUnit)
-        guard model.repo.deviceId == source else { return }
+        guard model.repo.deviceId == source, model.repo.notificationSourceContext == currentContext else {
+            feature.discard(); return
+        }
         feature.strainProvider = Self.strainProvider(model: model, store: store)
+        feature.setNotificationCompletionHandler { [weak model] start, end in
+            guard let model, model.repo.notificationSourceContext == currentContext else { return }
+            NotificationCoordinator.shared.registerLiveWorkout(startTs: Int(start.timeIntervalSince1970),
+                sport: "Strength Training", endedAt: end, sourceContext: currentContext)
+            Task { @MainActor [weak model] in
+                guard let model else { return }
+                await NotificationCoordinator.shared.processPendingLiveWorkouts(repository: model.repo)
+            }
+        }
+        await feature.load()
+        guard model.repo.deviceId == source, model.repo.notificationSourceContext == currentContext,
+              feature.notificationRestorationComplete else {
+            feature.discard()
+            error = feature.saveError ?? "Your workout log is still loading. Reopen Lift to retry."
+            return
+        }
         owner = source
         selectedSourceOwner = sourceOwner
+        notificationSourceContext = currentContext
         coordinator = feature
+        isNotificationSourceReady = true
         error = nil
-        await feature.load()
-        guard coordinator === feature else { return }
         observation = feature.objectWillChange.sink { [weak self] _ in
             self?.objectWillChange.send()
             self?.replayDeferredWorkAfterLiftChange()
@@ -199,6 +244,8 @@ final class NoopReceiptLiftIntegration: ObservableObject {
         coordinator = nil
         owner = nil
         selectedSourceOwner = nil
+        notificationSourceContext = nil
+        isNotificationSourceReady = false
         observation = nil
     }
 }

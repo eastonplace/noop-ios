@@ -211852,6 +211852,776 @@
           }
         }
       }
+    },
+    "Notification permission": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notification permission"
+          }
+        }
+      }
+    },
+    "Enable notifications": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable notifications"
+          }
+        }
+      }
+    },
+    "Open system notification settings": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open system notification settings"
+          }
+        }
+      }
+    },
+    "Delivery status": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delivery status"
+          }
+        }
+      }
+    },
+    "Your choices are saved even when system permission is off. Focus and system settings can delay delivery. New notifications are quiet by default.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your choices are saved even when system permission is off. Focus and system settings can delay delivery. New notifications are quiet by default."
+          }
+        }
+      }
+    },
+    "Preview Essentials": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preview Essentials"
+          }
+        }
+      }
+    },
+    "Optional: morning and workout summaries, with at most 2 proactive notices per day. Your chosen reminders and device alerts keep their existing settings.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Optional: morning and workout summaries, with at most 2 proactive notices per day. Your chosen reminders and device alerts keep their existing settings."
+          }
+        }
+      }
+    },
+    "Morning summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Morning summary"
+          }
+        }
+      }
+    },
+    "Wake time by weekday": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wake time by weekday"
+          }
+        }
+      }
+    },
+    "One reminder each evening, calculated from the next wake time, current Sleep Need and your chosen lead.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "One reminder each evening, calculated from the next wake time, current Sleep Need and your chosen lead."
+          }
+        }
+      }
+    },
+    "Morning summaries will be available after the recovery update. Your choice is saved. Wind-down reminders use generic copy and your chosen schedule.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Morning summaries will be available after the recovery update. Your choice is saved. Wind-down reminders use generic copy and your chosen schedule."
+          }
+        }
+      }
+    },
+    "Scheduled workout": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scheduled workout"
+          }
+        }
+      }
+    },
+    "One reminder per workout with a saved date and time. Edit a workout's schedule in Lift.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "One reminder per workout with a saved date and time. Edit a workout's schedule in Lift."
+          }
+        }
+      }
+    },
+    "Workout summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workout summary"
+          }
+        }
+      }
+    },
+    "Daily strain target": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Daily strain target"
+          }
+        }
+      }
+    },
+    "Daily strain target alerts will be available after the recovery update. Your choice is saved. A reminder opens your plan and never starts a workout.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Daily strain target alerts will be available after the recovery update. Your choice is saved. A reminder opens your plan and never starts a workout."
+          }
+        }
+      }
+    },
+    "Journal check-in": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Journal check-in"
+          }
+        }
+      }
+    },
+    "Check-in time": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check-in time"
+          }
+        }
+      }
+    },
+    "Check-in days": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check-in days"
+          }
+        }
+      }
+    },
+    "Reminders stay separate from tool visibility. Hiding Journal does not cancel a chosen check-in. Breathe and Hydrate have no automatic schedule here.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reminders stay separate from tool visibility. Hiding Journal does not cancel a chosen check-in. Breathe and Hydrate have no automatic schedule here."
+          }
+        }
+      }
+    },
+    "Existing battery choices are preserved. Related low-battery and runtime warnings share one charging episode.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Existing battery choices are preserved. Related low-battery and runtime warnings share one charging episode."
+          }
+        }
+      }
+    },
+    "Review day": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Review day"
+          }
+        }
+      }
+    },
+    "Review time": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Review time"
+          }
+        }
+      }
+    },
+    "Reviews": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reviews"
+          }
+        }
+      }
+    },
+    "At most one reminder each week. Details require a complete review period with enough valid data.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "At most one reminder each week. Details require a complete review period with enough valid data."
+          }
+        }
+      }
+    },
+    "Health-pattern alerts": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Health-pattern alerts"
+          }
+        }
+      }
+    },
+    "Your existing choice is preserved. Health-pattern phone alerts will be available after the recovery update. Patterns are informational, not diagnoses.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your existing choice is preserved. Health-pattern phone alerts will be available after the recovery update. Patterns are informational, not diagnoses."
+          }
+        }
+      }
+    },
+    "Proactive notifications": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proactive notifications"
+          }
+        }
+      }
+    },
+    "Preview new advice without sending": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preview new advice without sending"
+          }
+        }
+      }
+    },
+    "Quiet hours for proactive advice": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quiet hours for proactive advice"
+          }
+        }
+      }
+    },
+    "Show health details in previews": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show health details in previews"
+          }
+        }
+      }
+    },
+    "Timing & privacy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Timing & privacy"
+          }
+        }
+      }
+    },
+    "Proactive advice is limited to 2 notices per day, 10 per rolling week and 3 hours between notices. Turn it off to pause advice while keeping chosen reminders and wake alarms. Preview mode records new advice locally without sending it. Private previews are the default; sensitive journal details are never included. iOS preview settings still apply.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proactive advice is limited to 2 notices per day, 10 per rolling week and 3 hours between notices. Turn it off to pause advice while keeping chosen reminders and wake alarms. Preview mode records new advice locally without sending it. Private previews are the default; sensitive journal details are never included. iOS preview settings still apply."
+          }
+        }
+      }
+    },
+    "Wrist alerts & actions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wrist alerts & actions"
+          }
+        }
+      }
+    },
+    "Manage inactivity reminders, stress check-ins, coaching and physical strap actions.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manage inactivity reminders, stress check-ins, coaching and physical strap actions."
+          }
+        }
+      }
+    },
+    "Choose Essentials?": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose Essentials?"
+          }
+        }
+      }
+    },
+    "Use Essentials": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use Essentials"
+          }
+        }
+      }
+    },
+    "Turn on morning and completed-workout summaries. At most 2 proactive notices per day, 10 per rolling week, with 3 hours between them. Morning summaries become available after the recovery update. No new timed reminders are added.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turn on morning and completed-workout summaries. At most 2 proactive notices per day, 10 per rolling week, with 3 hours between them. Morning summaries become available after the recovery update. No new timed reminders are added."
+          }
+        }
+      }
+    },
+    "Use a different wake time": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use a different wake time"
+          }
+        }
+      }
+    },
+    "In app": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In app"
+          }
+        }
+      }
+    },
+    "Notify": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notify"
+          }
+        }
+      }
+    },
+    "Allowed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allowed"
+          }
+        }
+      }
+    },
+    "Quiet delivery": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quiet delivery"
+          }
+        }
+      }
+    },
+    "Temporary permission": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Temporary permission"
+          }
+        }
+      }
+    },
+    "Off in system settings": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Off in system settings"
+          }
+        }
+      }
+    },
+    "Not requested": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not requested"
+          }
+        }
+      }
+    },
+    "Permission could not be requested. Open system notification settings to try again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permission could not be requested. Open system notification settings to try again."
+          }
+        }
+      }
+    },
+    "Opening your plan…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opening your plan…"
+          }
+        }
+      }
+    },
+    "Opening workout…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opening workout…"
+          }
+        }
+      }
+    },
+    "Opening journal…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opening journal…"
+          }
+        }
+      }
+    },
+    "Notification update": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notification update"
+          }
+        }
+      }
+    },
+    "Plan unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plan unavailable"
+          }
+        }
+      }
+    },
+    "Scheduled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scheduled"
+          }
+        }
+      }
+    },
+    "This planned workout has already been completed.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This planned workout has already been completed."
+          }
+        }
+      }
+    },
+    "Plan no longer available": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plan no longer available"
+          }
+        }
+      }
+    },
+    "This workout or its routine was removed. Your other plans are unchanged.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This workout or its routine was removed. Your other plans are unchanged."
+          }
+        }
+      }
+    },
+    "This notification belongs to a different data source. Open that source to review it.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This notification belongs to a different data source. Open that source to review it."
+          }
+        }
+      }
+    },
+    "The data source changed. Reopen the notification from its original source.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The data source changed. Reopen the notification from its original source."
+          }
+        }
+      }
+    },
+    "This device is no longer the current source.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This device is no longer the current source."
+          }
+        }
+      }
+    },
+    "This plan is no longer available for the current source.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This plan is no longer available for the current source."
+          }
+        }
+      }
+    },
+    "This workout was removed or is no longer available from the current source.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This workout was removed or is no longer available from the current source."
+          }
+        }
+      }
+    },
+    "The journal date is no longer available.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The journal date is no longer available."
+          }
+        }
+      }
+    },
+    "There are not enough current records for this review period.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "There are not enough current records for this review period."
+          }
+        }
+      }
+    },
+    "The review date is no longer available.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The review date is no longer available."
+          }
+        }
+      }
+    },
+    "This day's records are no longer available.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This day's records are no longer available."
+          }
+        }
+      }
+    },
+    "One reminder per workout with a saved date and time. Reminders are prepared seven days ahead and refreshed when Noop opens. Edit a workout's schedule in Lift.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "One reminder per workout with a saved date and time. Reminders are prepared seven days ahead and refreshed when Noop opens. Edit a workout's schedule in Lift."
+          }
+        }
+      }
+    },
+    "Check-ins are prepared seven days ahead and refreshed when Noop opens. Hiding Journal does not cancel a chosen check-in. Breathe and Hydrate have no automatic schedule here.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check-ins are prepared seven days ahead and refreshed when Noop opens. Hiding Journal does not cancel a chosen check-in. Breathe and Hydrate have no automatic schedule here."
+          }
+        }
+      }
+    },
+    "At most one reminder each week. Weekly and wind-down reminders repeat without opening Noop. Review details require a complete period with enough valid data.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "At most one reminder each week. Weekly and wind-down reminders repeat without opening Noop. Review details require a complete period with enough valid data."
+          }
+        }
+      }
+    },
+    "Predictive battery reminders": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Predictive battery reminders"
+          }
+        }
+      }
+    },
+    "Journal date: %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Journal date: %@"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

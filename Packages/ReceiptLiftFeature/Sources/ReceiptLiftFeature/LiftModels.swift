@@ -118,6 +118,9 @@ struct ScheduledWorkout: Identifiable, Codable, Equatable, Hashable, Sendable {
   var plannedAt: Date
   var note: String
   var completedSessionID: UUID?
+  /// Nil on legacy/date-only plans. Only a saved time selection authorizes a reminder.
+  var notificationTimeExplicit: Bool? = nil
+  var notificationRevision: Int? = nil
 }
 
 struct LiftSettings: Codable, Equatable, Sendable {

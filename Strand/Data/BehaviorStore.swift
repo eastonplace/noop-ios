@@ -57,15 +57,23 @@ final class BehaviorStore: ObservableObject {
     }
 
     // MARK: Illness early-warning
-    @Published var illnessWatch: Bool { didSet { d.set(illnessWatch, forKey: K.illness) } }
+    var illnessWatch: Bool {
+        get { NotificationPreferences.shared.illnessWatch }
+        set { objectWillChange.send(); NotificationPreferences.shared.illnessWatch = newValue }
+    }
 
     // MARK: Strap battery alerts
-    @Published var batteryAlerts: Bool { didSet { d.set(batteryAlerts, forKey: K.batteryAlerts) } }
-    @Published var batteryPredictiveAlerts: Bool {
-        didSet { d.set(batteryPredictiveAlerts, forKey: K.batteryPredictiveAlerts) }
+    var batteryAlerts: Bool {
+        get { NotificationPreferences.shared.batteryAlerts }
+        set { objectWillChange.send(); NotificationPreferences.shared.batteryAlerts = newValue }
+    }
+    var batteryPredictiveAlerts: Bool {
+        get { NotificationPreferences.shared.batteryPredictiveAlerts }
+        set { objectWillChange.send(); NotificationPreferences.shared.batteryPredictiveAlerts = newValue }
     }
 
     private let d = UserDefaults.standard
+    private var phonePreferenceObservation: AnyCancellable?
 
     private enum K {
         static let dtAction = "behavior.doubleTapAction"
@@ -104,9 +112,9 @@ final class BehaviorStore: ObservableObject {
         smartAlarmWeekdays = Set(
             (d.array(forKey: K.alarmWeekdays) as? [Int] ?? []).filter { (1...7).contains($0) }
         )
-        illnessWatch = d.object(forKey: K.illness) as? Bool ?? false
-        batteryAlerts = d.object(forKey: K.batteryAlerts) as? Bool ?? true
-        batteryPredictiveAlerts = d.object(forKey: K.batteryPredictiveAlerts) as? Bool ?? true
+        phonePreferenceObservation = NotificationPreferences.shared.objectWillChange.sink { [weak self] _ in
+            self?.objectWillChange.send()
+        }
     }
 
     // MARK: Charge baseline recalibration

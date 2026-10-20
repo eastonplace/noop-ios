@@ -1,0 +1,186 @@
+import XCTest
+import StrandAnalytics
+import WhoopStore
+@testable import NOOP
+
+@MainActor
+final class NotificationCoordinatorTests: XCTestCase {
+    final class Center: NotificationCenterClient {
+        var permission = true
+        var requests: [String: NotificationDeliveryRequest] = [:]
+        var additions = 0
+        var failure: Error?
+        var duringAdd: (() -> Void)?
+        var details: Set<String> = []
+        func isAuthorized() async -> Bool { permission }
+        func pendingIdentifiers() async -> Set<String> { Set(requests.keys) }
+        func deliveredIdentifiers() async -> Set<String> { [] }
+        func add(_ request: NotificationDeliveryRequest) async throws {
+            additions += 1
+            if let failure { throw failure }
+            requests[request.identifier] = request
+            duringAdd?()
+        }
+        func identifiersContainingDetails() async -> Set<String> { details }
+        func removeDelivered(_ identifiers: [String]) {}
+        func remove(_ identifiers: [String], delivered: Bool) { identifiers.forEach { requests[$0] = nil } }
+    }
+    let now = Date(timeIntervalSince1970: 1_800_360_000)
+    func candidate() -> NotificationCandidate {
+        .init(ruleID: "workoutSummary", group: .workoutSummary, subjectID: "workout", occurrenceID: "workout:1", attentionKey: "workout:1", evidenceRevision: "v2", sourceContext: "device", logicalDay: "2027-01-19", observedAt: now, generatedAt: now, expiresAt: now.addingTimeInterval(3600), destination: .workout(id: "workout"), genericTitle: "Workout ready", genericBody: "Review your result.", detailBody: "Private health values")
+    }
+    func coordinator(store: WhoopStore, center: Center, preferences: @escaping () -> NotificationPreferencesSnapshot = { .init(modes: [.workoutSummary: .notify], quietHoursEnabled: false) }) -> NotificationCoordinator {
+        NotificationCoordinator(center: center, clock: { self.now }, preferences: preferences, context: { .init(sourceContext: "device", logicalDay: "2027-01-19") }, store: { store }, dryRun: { false })
+    }
+    func testAcceptedSubmissionIsPrivateAndDurableAcrossRestart() async throws {
+        let store = try await WhoopStore.inMemory()
+        let center = Center()
+        await coordinator(store: store, center: center).process(candidates: [candidate()])
+        XCTAssertEqual(center.additions, 1)
+        XCTAssertEqual(center.requests.values.first?.body, "Review your result.")
+        let submittedRows = try await store.notificationRecords()
+        XCTAssertEqual(submittedRows.first?.state, .submitted)
+        await coordinator(store: store, center: center).process(candidates: [candidate()])
+        XCTAssertEqual(center.additions, 1)
+    }
+    func testPermissionDeniedDoesNotConsumeClaim() async throws {
+        let store = try await WhoopStore.inMemory()
+        let center = Center(); center.permission = false
+        let runtime = coordinator(store: store, center: center)
+        await runtime.process(candidates: [candidate()])
+        let deniedRows = try await store.notificationRecords()
+        XCTAssertTrue(deniedRows.isEmpty)
+        center.permission = true
+        await runtime.process(candidates: [candidate()])
+        XCTAssertEqual(center.additions, 1)
+    }
+    func testSettingsChangeDuringAddWithdrawsAcceptedRequest() async throws {
+        let store = try await WhoopStore.inMemory()
+        let center = Center()
+        var enabled = true
+        center.duringAdd = { enabled = false }
+        let runtime = coordinator(store: store, center: center, preferences: {
+            .init(modes: [.workoutSummary: enabled ? .notify : .off], quietHoursEnabled: false)
+        })
+        await runtime.process(candidates: [candidate()])
+        XCTAssertTrue(center.requests.isEmpty)
+        let withdrawnRows = try await store.notificationRecords()
+        XCTAssertEqual(withdrawnRows.first?.state, .withdrawn)
+    }
+    func testKnownFailureHasOnlyOneRetry() async throws {
+        let store = try await WhoopStore.inMemory()
+        let center = Center(); center.failure = NotificationSubmissionError.knownFailure
+        let runtime = coordinator(store: store, center: center)
+        await runtime.process(candidates: [candidate()])
+        await runtime.process(candidates: [candidate()])
+        XCTAssertEqual(center.additions, 2)
+    }
+    func testUnknownOutcomeIsNeverBlindlyRetried() async throws {
+        let store = try await WhoopStore.inMemory()
+        let center = Center(); center.failure = NotificationSubmissionError.uncertain
+        let runtime = coordinator(store: store, center: center)
+        await runtime.process(candidates: [candidate()])
+        await runtime.process(candidates: [candidate()])
+        XCTAssertEqual(center.additions, 1)
+        let uncertainRows = try await store.notificationRecords()
+        XCTAssertEqual(uncertainRows.first?.state, .submissionUncertain)
+    }
+    func testDefaultPrivateReconciliationPreservesGenericPendingRequest() async throws {
+        let store = try await WhoopStore.inMemory()
+        let center = Center()
+        let runtime = coordinator(store: store, center: center)
+        await runtime.process(candidates: [candidate()])
+        await runtime.reconcile()
+        XCTAssertEqual(center.requests.count, 1)
+        XCTAssertEqual(center.additions, 1)
+    }
+    func testSourceChangeDuringAddWithdrawsOldSource() async throws {
+        let store = try await WhoopStore.inMemory()
+        let center = Center()
+        var source = "device"
+        center.duringAdd = { source = "different-device" }
+        let runtime = NotificationCoordinator(center: center, clock: { self.now },
+            preferences: { .init(modes: [.workoutSummary: .notify], quietHoursEnabled: false) },
+            context: { .init(sourceContext: source, logicalDay: "2027-01-19") }, store: { store }, dryRun: { false })
+        await runtime.process(candidates: [candidate()])
+        XCTAssertTrue(center.requests.isEmpty)
+        let rows = try await store.notificationRecords()
+        XCTAssertEqual(rows.first?.state, .withdrawn)
+    }
+    func testReplacementDatabaseRemovesOnlyOwnedOrphans() async throws {
+        let store = try await WhoopStore.inMemory()
+        let center = Center()
+        let orphan = NotificationCoordinator.requestIdentifier("old-database")
+        center.requests[orphan] = .init(identifier: orphan, title: "Old", body: "Old", candidate: candidate())
+        center.requests["smart-alarm-backup"] = .init(identifier: "smart-alarm-backup", title: "Alarm", body: "Alarm", candidate: candidate())
+        await coordinator(store: store, center: center).reconcile()
+        XCTAssertNil(center.requests[orphan])
+        XCTAssertNotNil(center.requests["smart-alarm-backup"])
+    }
+    func testReservedBeforeInvocationCanResumeOnce() async throws {
+        let store = try await WhoopStore.inMemory()
+        let center = Center()
+        let fact = candidate()
+        _ = try await store.claimNotification(.init(occurrenceID: fact.occurrenceID, attentionKey: fact.attentionKey,
+            ruleID: fact.ruleID, sourceContext: fact.sourceContext, evidenceRevision: fact.evidenceRevision,
+            logicalDay: fact.logicalDay, requestIdentifier: NotificationCoordinator.requestIdentifier(fact.occurrenceID),
+            isProactive: true, expiresAt: fact.expiresAt), now: now)
+        await coordinator(store: store, center: center).process(candidates: [fact])
+        XCTAssertEqual(center.additions, 1)
+        let rows = try await store.notificationRecords()
+        XCTAssertEqual(rows.first?.state, .submitted)
+    }
+    func testPrivacyChangeWithdrawsDetailedContentButNotGenericRequests() async throws {
+        let store = try await WhoopStore.inMemory()
+        let center = Center()
+        var details = true
+        let runtime = coordinator(store: store, center: center, preferences: {
+            .init(modes: [.workoutSummary: .notify], quietHoursEnabled: false, showHealthDetails: details)
+        })
+        await runtime.process(candidates: [candidate()])
+        let identifier = NotificationCoordinator.requestIdentifier(candidate().occurrenceID)
+        center.details = [identifier]
+        details = false
+        await runtime.reconcile()
+        XCTAssertTrue(center.requests.isEmpty)
+        let rows = try await store.notificationRecords()
+        XCTAssertEqual(rows.first?.state, .withdrawn)
+    }
+
+    func testPermissionRaceRearmsChosenReminderWithNewScheduleRevision() async throws {
+        let store = try await WhoopStore.inMemory()
+        let center = Center()
+        var revision = 0
+        let runtime = NotificationCoordinator(center: center, clock: { self.now },
+            preferences: { .init(modes: [.journalCheckIn: .notify]) },
+            context: { .init(sourceContext: "device", logicalDay: "2027-01-19") }, store: { store }, dryRun: { false },
+            authorizationChange: { previous, current in if previous == false && current { revision += 1 } })
+        func reminder() -> NotificationCandidate {
+            NotificationSchedulePlanner.candidate(group: .journalCheckIn, id: "day", scheduledAt: now.addingTimeInterval(3600),
+                source: "device", destination: .journal(logicalDay: "2027-01-19"), now: now, revision: revision)
+        }
+        center.duringAdd = { center.permission = false; center.duringAdd = nil }
+        await runtime.process(candidates: [reminder()])
+        XCTAssertTrue(center.requests.isEmpty)
+        center.permission = true
+        // Authorization transition invalidates the old saved schedule revision; the observer rebuilds it.
+        await runtime.process(candidates: [reminder()])
+        XCTAssertEqual(revision, 1)
+        await runtime.process(candidates: [reminder()])
+        XCTAssertEqual(center.additions, 2)
+        XCTAssertEqual(center.requests.count, 1)
+        let rows = try await store.notificationRecords()
+        XCTAssertEqual(rows.filter { $0.state == .submitted }.count, 1)
+    }
+    func testInAppCandidateRemainsAvailableWithoutSystemPermission() async throws {
+        let store = try await WhoopStore.inMemory()
+        let center = Center(); center.permission = false
+        let runtime = coordinator(store: store, center: center, preferences: { .init(modes: [.workoutSummary: .inApp]) })
+        await runtime.process(candidates: [candidate()])
+        XCTAssertEqual(runtime.inAppCandidates.map(\.occurrenceID), [candidate().occurrenceID])
+        XCTAssertEqual(center.additions, 0)
+        runtime.dismissInApp(occurrenceID: candidate().occurrenceID)
+        XCTAssertTrue(runtime.inAppCandidates.isEmpty)
+    }
+
+}

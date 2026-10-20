@@ -11,6 +11,18 @@ final class TodayDisplayDaySnapshotTests: XCTestCase {
                     strain: 40, exerciseCount: nil)
     }
 
+    func testNotificationPinsExactDayBeforeFourAMWithAndWithoutBankedLocalNight() {
+        let logical = "2026-10-19", local = "2026-10-20"
+        for localSleep: Double? in [430, nil] {
+            let rows = [day(logical, sleepMin: 400), day(local, sleepMin: localSleep)]
+            for requested in [logical, local] {
+                XCTAssertEqual(TodayView.resolveDisplayDay(days: rows, selectedDayOffset: 0,
+                    logicalKey: logical, localKey: local, selectedDayKey: requested,
+                    exactDaySelection: true)?.day, requested)
+            }
+        }
+    }
+
     func testSnapshotPreservesPreFourAMBankedLocalDay() {
         let logicalKey = "2026-06-13", localKey = "2026-06-14"
         let rows = [

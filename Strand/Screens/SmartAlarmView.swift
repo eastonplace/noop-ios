@@ -16,16 +16,6 @@ struct SmartAlarmView: View {
     @EnvironmentObject private var alarmMode: SmartAlarmAdaptiveModeStore
     @EnvironmentObject private var alarmRuntime: SmartAlarmRuntimeController
 
-    @State private var windDownOn = WindDownNudge.isEnabled
-    @State private var windDownPermissionDenied = false
-    /// Earliest wake time the nudge is derived from (minutes since midnight). Seeded from the store.
-    @State private var wakeMinutes = WindDownNudge.wakeMinutes
-
-    // PR#554 (MumiZed) — per-day wake overrides. `perDayOn` reflects whether ANY override is set; the
-    // `overrides` map mirrors the store so the pickers stay in sync. Additive: with none set, the nudge
-    // behaves exactly as before (one wake time for every evening).
-    @State private var perDayOn = WindDownNudge.hasPerDayOverrides
-    @State private var overrides: [Int: Int] = WindDownNudge.perDayWakeOverrides
     /// Calendar weekday numbers laid out Monday-first (Mon…Sun → 2,3,4,5,6,7,1), matching AutomationsView.
     nonisolated private static let weekdayOrder = [2, 3, 4, 5, 6, 7, 1]
 
@@ -41,11 +31,11 @@ struct SmartAlarmView: View {
                 nativeSettingsBody
             } else {
                 ScreenScaffold(title: "Alarms",
-                               subtitle: "Wake and wind-down controls.") {
+                               subtitle: "Wake alarm controls.") {
                     VStack(alignment: .leading, spacing: NoopMetrics.sectionGap) {
                         alarmHeroSection
                         scheduleAndStrapTools
-                        windDownCard
+                        notificationsLink
                         honestyCard
                     }
                 }
@@ -56,11 +46,7 @@ struct SmartAlarmView: View {
             await resolveCanonicalNeed()
             alarmRuntime.refreshStatus()
         }
-        .alert("Notifications are off", isPresented: $windDownPermissionDenied) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text("Allow notifications in Settings before enabling the wind-down nudge.")
-        }
+
     }
 
     private var nativeSettingsBody: some View {
@@ -103,45 +89,9 @@ struct SmartAlarmView: View {
             }
 
             Section {
-                Toggle("Wind-down reminder", isOn: $windDownOn)
-                    .onChangeCompat(of: windDownOn) { enabled in
-                        WindDownNudge.setEnabled(enabled) { outcome in
-                            switch outcome {
-                            case .scheduled, .off:
-                                windDownOn = WindDownNudge.isEnabled
-                            case .denied:
-                                windDownOn = false
-                                windDownPermissionDenied = true
-                            }
-                        }
-                    }
-                if windDownOn {
-                    DatePicker("Default wake time", selection: wakeBinding, displayedComponents: .hourAndMinute)
-                    LabeledContent("Reminder time", value: Self.windDownTimeLabel(WindDownNudge.nudgeMinuteOfDay()))
-                    Toggle("Different time per day", isOn: $perDayOn)
-                        .onChangeCompat(of: perDayOn) { enabled in
-                            if !enabled {
-                                WindDownNudge.setWakeOverrides([:])
-                                overrides = [:]
-                            }
-                        }
-                }
-            } header: {
-                Text("Wind-down")
+                notificationsLink
             } footer: {
-                Text("The reminder is calculated from your wake time and current Sleep Need. It is a suggestion, not an alarm.")
-            }
-
-            if windDownOn && perDayOn {
-                Section("Daily wake times") {
-                    ForEach(Self.weekdayOrder, id: \.self) { weekday in
-                        DatePicker(
-                            Self.weekdayName(weekday),
-                            selection: overrideBinding(weekday, effective: overrides[weekday] ?? wakeMinutes),
-                            displayedComponents: .hourAndMinute
-                        )
-                    }
-                }
+                Text("Wind-down and other reminders are managed in Notifications.")
             }
 
             if let evidence = alarmRuntime.evidence {
@@ -157,6 +107,13 @@ struct SmartAlarmView: View {
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
+    }
+
+    private var notificationsLink: some View {
+        NavigationLink("Notifications") {
+            NotificationSettingsView()
+                .environment(\.screenScaffoldPresentation, .settingsDetail)
+        }
     }
 
     private var recoveryHistoryCount: Int {
@@ -182,8 +139,16 @@ struct SmartAlarmView: View {
             VStack(alignment: .leading, spacing: 16) {
                 Toggle("Wake alarm", isOn: $behavior.smartAlarmEnabled)
                     .font(StrandFont.headline)
-                DatePicker("Wake time", selection: alarmTimeBinding, displayedComponents: .hourAndMinute)
-                    .font(StrandFont.subhead)
+                ViewThatFits(in: .horizontal) {
+                    DatePicker("Wake time", selection: alarmTimeBinding, displayedComponents: .hourAndMinute)
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Wake time")
+                        DatePicker("Wake time", selection: alarmTimeBinding, displayedComponents: .hourAndMinute)
+                            .labelsHidden()
+                            .accessibilityLabel("Wake time")
+                    }
+                }
+                .font(StrandFont.subhead)
                 Divider()
                 Picker("Wake mode", selection: SleepAlarmEditorSupport.modeBinding(alarmMode)) {
                     ForEach(wakeModes) { mode in
@@ -336,224 +301,11 @@ struct SmartAlarmView: View {
         }
     }
 
-    private var windDownCard: some View {
-        StrandCard(padding: 20, tint: windDownOn ? StrandPalette.restColor : nil) {
-            VStack(alignment: .leading, spacing: 16) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Evening").strandOverline()
-                    HStack(spacing: 10) {
-                        Image(systemName: "moon.zzz.fill")
-                            .foregroundStyle(StrandPalette.restColor)
-                            .accessibilityHidden(true)
-                        Text("Wind-down nudge")
-                            .font(StrandFont.title2)
-                            .foregroundStyle(StrandPalette.textPrimary)
-                    }
-                }
-
-                HStack(alignment: .center, spacing: 16) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Remind me to wind down")
-                            .font(StrandFont.body)
-                            .foregroundStyle(StrandPalette.textPrimary)
-                        Text("A calm evening reminder, timed from your wake time and usual sleep need. It's a suggestion, not an alarm.")
-                            .font(StrandFont.footnote)
-                            .foregroundStyle(StrandPalette.textTertiary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    Spacer()
-                    Toggle("", isOn: $windDownOn)
-                        .labelsHidden().toggleStyle(.switch).tint(StrandPalette.ink)
-                        .accessibilityLabel("Remind me to wind down")
-                        .onChangeCompat(of: windDownOn) { on in
-                            WindDownNudge.setEnabled(on) { outcome in
-                                switch outcome {
-                                case .scheduled, .off:
-                                    windDownOn = WindDownNudge.isEnabled
-                                case .denied:
-                                    windDownOn = false
-                                    windDownPermissionDenied = true
-                                }
-                            }
-                        }
-                }
-                .frame(minHeight: 42)
-
-                if windDownOn {
-                    Divider().overlay(StrandPalette.hairline)
-                    ViewThatFits(in: .horizontal) {
-                        HStack {
-                            windDownWakeTimeCopy
-                            Spacer(minLength: 12)
-                            DatePicker("Wake time", selection: wakeBinding, displayedComponents: .hourAndMinute)
-                                .labelsHidden()
-                                .accessibilityLabel("Wake time")
-                        }
-                        VStack(alignment: .leading, spacing: 10) {
-                            windDownWakeTimeCopy
-                            DatePicker("Wake time", selection: wakeBinding, displayedComponents: .hourAndMinute)
-                                .labelsHidden()
-                                .accessibilityLabel("Wake time")
-                        }
-                    }
-                    Text("You'll be reminded around \(Self.windDownTimeLabel(WindDownNudge.nudgeMinuteOfDay())).")
-                        .font(StrandFont.footnote)
-                        .foregroundStyle(StrandPalette.textSecondary)
-
-                    Divider().overlay(StrandPalette.hairline)
-                    perDaySection
-                }
-            }
-        }
-    }
-
-    private var windDownWakeTimeCopy: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text("Wake time")
-                .font(StrandFont.body)
-                .foregroundStyle(StrandPalette.textPrimary)
-            Text("The nudge fires \(SleepAlarmTime.duration(WindDownNudge.sleepNeedMinutes + WindDownNudge.leadMinutes)) before this.")
-                .font(StrandFont.footnote)
-                .foregroundStyle(StrandPalette.textTertiary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-    }
-
-    @ViewBuilder private var perDaySection: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(alignment: .center, spacing: 16) {
-                perDayCopy
-                Spacer(minLength: 12)
-                perDayToggle
-            }
-            VStack(alignment: .leading, spacing: 10) {
-                perDayCopy
-                perDayToggle
-            }
-        }
-        .frame(minHeight: 44)
-
-        if perDayOn {
-            VStack(spacing: 8) {
-                ForEach(Self.weekdayOrder, id: \.self) { weekday in
-                    weekdayOverrideRow(weekday)
-                }
-            }
-            .padding(.top, 4)
-        }
-    }
-
-    private var perDayCopy: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text("Different wake time per day")
-                .font(StrandFont.body)
-                .foregroundStyle(StrandPalette.textPrimary)
-            Text("Set a wake time for specific days (a lie-in at the weekend, say). Days you leave alone use the time above.")
-                .font(StrandFont.footnote)
-                .foregroundStyle(StrandPalette.textTertiary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-    }
-
-    private var perDayToggle: some View {
-        Toggle("Different wake time per day", isOn: $perDayOn)
-            .labelsHidden().toggleStyle(.switch).tint(StrandPalette.ink)
-            .accessibilityLabel("Different wake time per day")
-            .onChangeCompat(of: perDayOn) { on in
-                if !on {
-                    WindDownNudge.setWakeOverrides([:])
-                    overrides = [:]
-                }
-            }
-    }
-
-    private func weekdayOverrideRow(_ weekday: Int) -> some View {
-        let effective = overrides[weekday] ?? wakeMinutes
-        let hasOverride = overrides[weekday] != nil
-        return ViewThatFits(in: .horizontal) {
-            HStack(spacing: 12) {
-                weekdayOverrideLabel(weekday, hasOverride: hasOverride)
-                Spacer(minLength: 0)
-                weekdayOverrideControls(weekday, effective: effective, hasOverride: hasOverride)
-            }
-            VStack(alignment: .leading, spacing: 8) {
-                weekdayOverrideLabel(weekday, hasOverride: hasOverride)
-                weekdayOverrideControls(weekday, effective: effective, hasOverride: hasOverride)
-            }
-        }
-    }
-
-    private func weekdayOverrideLabel(_ weekday: Int, hasOverride: Bool) -> some View {
-        Text(Self.weekdayName(weekday))
-            .font(StrandFont.subhead)
-            .foregroundStyle(hasOverride ? StrandPalette.textPrimary : StrandPalette.textSecondary)
-            .fixedSize(horizontal: false, vertical: true)
-    }
-
-    private func weekdayOverrideControls(_ weekday: Int, effective: Int, hasOverride: Bool) -> some View {
-        HStack(spacing: 8) {
-            if hasOverride {
-                Button {
-                    WindDownNudge.setWakeOverride(weekday: weekday, minutes: nil)
-                    overrides[weekday] = nil
-                } label: {
-                    Image(systemName: "arrow.uturn.backward")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(StrandPalette.textTertiary)
-                        .frame(width: 44, height: 44)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Clear \(Self.weekdayName(weekday)) override")
-                .accessibilityHint("Uses the default wake time")
-            }
-            DatePicker("\(Self.weekdayName(weekday)) wake time",
-                       selection: overrideBinding(weekday, effective: effective),
-                       displayedComponents: .hourAndMinute)
-                .labelsHidden()
-                .accessibilityLabel("\(Self.weekdayName(weekday)) wake time")
-        }
-    }
-
-    private func overrideBinding(_ weekday: Int, effective: Int) -> Binding<Date> {
-        Binding(
-            get: {
-                var c = DateComponents()
-                c.hour = effective / 60
-                c.minute = effective % 60
-                return Calendar.current.date(from: c) ?? Date()
-            },
-            set: { date in
-                let c = Calendar.current.dateComponents([.hour, .minute], from: date)
-                let m = (c.hour ?? 7) * 60 + (c.minute ?? 0)
-                WindDownNudge.setWakeOverride(weekday: weekday, minutes: m)
-                overrides[weekday] = m
-            }
-        )
-    }
-
     private static func weekdayName(_ dow: Int) -> String {
         let names = [String(localized: "Sunday"), String(localized: "Monday"), String(localized: "Tuesday"),
                      String(localized: "Wednesday"), String(localized: "Thursday"), String(localized: "Friday"),
                      String(localized: "Saturday")]
         return (1...7).contains(dow) ? names[dow - 1] : String(localized: "Day \(dow)")
-    }
-
-    private var wakeBinding: Binding<Date> {
-        Binding(
-            get: {
-                var c = DateComponents()
-                c.hour = wakeMinutes / 60
-                c.minute = wakeMinutes % 60
-                return Calendar.current.date(from: c) ?? Date()
-            },
-            set: { date in
-                let c = Calendar.current.dateComponents([.hour, .minute], from: date)
-                let m = (c.hour ?? 7) * 60 + (c.minute ?? 0)
-                wakeMinutes = m
-                WindDownNudge.setWakeMinutes(m)
-            }
-        )
     }
 
     nonisolated static func windDownTimeLabel(

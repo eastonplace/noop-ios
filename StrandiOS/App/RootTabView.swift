@@ -2,10 +2,17 @@
 import SwiftUI
 import StrandDesign
 import StrandAnalytics
+import WhoopStore
+import ReceiptLiftFeature
 
 /// iOS navigation shell. On iPhone the natural structure is a `TabView` with the most-used screens as
 /// first-class tabs and contextual tools reached from their owning surfaces.
 struct RootTabView: View {
+    @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var lift: NoopReceiptLiftIntegration
+    @ObservedObject private var notificationCoordinator = NotificationCoordinator.shared
+    @State private var notificationDestination: NotificationSheetDestination?
+    @State private var notificationRoutingRetry: Task<Void, Never>?
     @EnvironmentObject private var repo: Repository
     @EnvironmentObject private var localCoach: LocalCoachEngine
     @Environment(\.scenePhase) private var scenePhase
@@ -161,6 +168,16 @@ struct RootTabView: View {
             if fanOpen { closeFan() } else { openFan() }
         })
         }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if let candidate = visibleInAppNotification {
+                NotificationInAppCard(candidate: candidate, onOpen: {
+                    notificationCoordinator.dismissInApp(occurrenceID: candidate.occurrenceID)
+                    router.handleNotificationDestination(candidate.destination, sourceID: candidate.sourceContext)
+                }, onDismiss: {
+                    notificationCoordinator.dismissInApp(occurrenceID: candidate.occurrenceID)
+                })
+            }
+        }
         .background(StrandPalette.appCanvas.ignoresSafeArea(.container, edges: .bottom))
         .background {
             SmartAlarmCommandReconciler()
@@ -170,7 +187,7 @@ struct RootTabView: View {
         .background {
             ActiveSessionAutoPresenter(
                 otherPresentationActive: journey != nil || quickAction != nil || fanOpen || showDevices || routedPillar != nil || showLift
-                    || settingsSheet != nil || settingsClosing,
+                    || settingsSheet != nil || settingsClosing || notificationDestination != nil,
                 presentRun: autoPresentJourney,
                 presentLift: { showLift = true })
         }
@@ -183,6 +200,8 @@ struct RootTabView: View {
         }
         #endif
         .task {
+            router.installNotificationResponseRouting()
+            routePendingNotification()
             routePendingCoachRequest()
             // AppModel owns the one initial full-history repository load. This shell only performs the
             // independent backup catch-up, avoiding two equivalent launch refreshes racing each other.
@@ -191,6 +210,28 @@ struct RootTabView: View {
                 await FolderBackup.catchUpIfDue(checkpoint: { await backupRepo.checkpointForBackup() })
             }
         }
+        .sheet(item: $notificationDestination, onDismiss: {
+            router.visibleNotificationDestinations = []
+            routePendingNotification()
+        }) { request in
+            NavigationStack {
+                NotificationDestinationScreen(destination: request.destination, sourceContext: request.sourceContext)
+                    .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { notificationDestination = nil } } }
+            }
+        }
+        .onChange(of: router.pendingNotificationDestinations) { _, _ in routePendingNotification() }
+        .onChange(of: repo.loaded) { _, _ in routePendingNotification() }
+        .onChange(of: router.isAutoPresentBlocked) { _, _ in routePendingNotification() }
+        .onChange(of: model.activeWorkout?.sessionID) { _, _ in routePendingNotification() }
+        .onChange(of: lift.coordinator?.hasActiveSession) { _, _ in routePendingNotification() }
+        .onChange(of: lift.isNotificationSourceReady) { _, _ in routePendingNotification() }
+        .onChange(of: lift.notificationSourceContext) { _, _ in routePendingNotification() }
+        .onChange(of: repo.notificationSourceContext) { _, _ in routePendingNotification() }
+        .onChange(of: journey) { _, _ in routePendingNotification() }
+        .onChange(of: showLift) { _, _ in routePendingNotification() }
+        .onChange(of: quickAction) { _, _ in routePendingNotification() }
+        .onChange(of: routedPillar) { _, _ in routePendingNotification() }
+        .onChange(of: settingsSheet) { _, _ in routePendingNotification() }
         .sheet(item: $quickAction) { action in
             quickActionDestination(action)
         }
@@ -283,11 +324,12 @@ struct RootTabView: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: LocalCoachIntentBridge.notification)) { _ in routePendingCoachRequest() }
-        .onChange(of: scenePhase) { _, phase in if phase == .active { routePendingCoachRequest() } }
+        .onChange(of: scenePhase) { _, phase in if phase == .active { routePendingCoachRequest(); routePendingNotification() } }
         .onChange(of: localCoach.preferences) { _, _ in routePendingCoachRequest() }
         .onChange(of: repo.todayHealthSnapshotScopeId) { _, _ in routePendingCoachRequest() }
         .onChange(of: repo.liveSourceState.lineageComponent) { _, _ in routePendingCoachRequest() }
-        .onChange(of: repo.verifiedExternalSurfaceFenced) { _, _ in routePendingCoachRequest() }
+        .onChange(of: repo.verifiedExternalSurfaceFenced) { _, _ in routePendingCoachRequest(); routePendingNotification() }
+        .onDisappear { notificationRoutingRetry?.cancel() }
     }
 
     #if DEBUG
@@ -451,6 +493,54 @@ struct RootTabView: View {
             settingsClosing = false
             present()
         }
+    }
+
+    private var notificationSourceReady: Bool {
+        NavRouter.notificationSourceIsReady(repositoryLoaded: repo.loaded,
+            repositoryFenced: repo.verifiedExternalSurfaceFenced,
+            liftRestorationComplete: lift.isNotificationSourceReady,
+            liftSourceContext: lift.notificationSourceContext,
+            currentSourceContext: repo.notificationSourceContext)
+    }
+
+    private var visibleInAppNotification: NotificationCandidate? {
+        guard scenePhase == .active, notificationSourceReady, !router.isAutoPresentBlocked,
+              model.activeWorkout == nil, lift.coordinator?.hasActiveSession != true,
+              notificationDestination == nil, journey == nil, !showLift, !showDevices,
+              quickAction == nil, routedPillar == nil, settingsSheet == nil, !settingsClosing,
+              !fanOpen, !ShellModalCollapse.isCollapsing else { return nil }
+        return notificationCoordinator.inAppCandidates.last {
+            $0.expiresAt > Date() && $0.sourceContext == repo.notificationSourceContext
+        }
+    }
+
+    private func routePendingNotification() {
+        guard scenePhase == .active, notificationDestination == nil, notificationSourceReady,
+              journey == nil, !showLift, quickAction == nil, routedPillar == nil,
+              settingsSheet == nil, !settingsClosing, !ShellModalCollapse.isCollapsing,
+              model.activeWorkout == nil, lift.coordinator?.hasActiveSession != true,
+              !router.isAutoPresentBlocked, !router.pendingNotificationDestinations.isEmpty else { return }
+        // Dismissal callbacks can precede UIKit releasing its presenter. Keep the tap queued
+        // until that transition ends; this task never reads records or runs notification policy.
+        if ModalPresentationProbe.isAnyModalPresented {
+            notificationRoutingRetry?.cancel()
+            notificationRoutingRetry = Task { @MainActor in
+                do { try await Task.sleep(for: .milliseconds(400)) } catch { return }
+                guard !Task.isCancelled else { return }
+                routePendingNotification()
+            }
+            return
+        }
+        notificationRoutingRetry?.cancel()
+        notificationRoutingRetry = nil
+        guard let destination = router.takePendingNotification(
+            sourceReady: notificationSourceReady,
+            activeWorkout: model.activeWorkout != nil || lift.coordinator?.hasActiveSession == true,
+            sourceID: repo.notificationSourceContext
+        ) else { return }
+        closeFan()
+        router.visibleNotificationDestinations = [destination]
+        notificationDestination = NotificationSheetDestination(destination: destination, sourceContext: repo.notificationSourceContext)
     }
 
     private func routePendingCoachRequest() {
@@ -924,6 +1014,161 @@ enum QAFan {
     }()
 }
 #endif
+
+/// A quiet in-app message, shown only in an idle shell. Opening is an explicit navigation action.
+private struct NotificationInAppCard: View {
+    let candidate: NotificationCandidate
+    let onOpen: () -> Void
+    let onDismiss: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(candidate.genericTitle).font(.headline)
+            Text(candidate.genericBody).font(.subheadline).foregroundStyle(.secondary)
+            HStack {
+                Button("Open", action: onOpen)
+                Spacer()
+                Button("Dismiss", action: onDismiss)
+            }
+        }
+        .padding()
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.regularMaterial)
+        .accessibilityElement(children: .contain)
+        .task(id: "\(candidate.occurrenceID)|\(candidate.expiresAt.timeIntervalSince1970)") {
+            let remaining = candidate.expiresAt.timeIntervalSinceNow
+            if remaining > 0 {
+                do { try await Task.sleep(for: .seconds(remaining)) } catch { return }
+            }
+            guard !Task.isCancelled else { return }
+            onDismiss()
+        }
+    }
+}
+
+private struct NotificationSheetDestination: Identifiable {
+    let id = UUID()
+    let destination: NotificationDestination
+    let sourceContext: String
+}
+
+/// Resolves current records after the shell has passed its launch and active-session guards.
+private struct NotificationDestinationScreen: View {
+    let destination: NotificationDestination
+    let sourceContext: String
+    @EnvironmentObject private var repo: Repository
+    @EnvironmentObject private var lift: NoopReceiptLiftIntegration
+    @State private var workout: WorkoutRow?
+    @State private var loaded = false
+    @State private var journalAnswers: [String: Bool] = [:]
+    @State private var journalNumeric: [String: Double] = [:]
+    @State private var journalQuestions: [String] = []
+    @State private var dayOffset = 0
+    @State private var journalSelectedDate: Date?
+    @State private var sleepByDay: [String: Double] = [:]
+    @State private var openedSource: String?
+
+    var body: some View {
+        Group {
+            if sourceContext != repo.notificationSourceContext || (openedSource != nil && openedSource != repo.notificationSourceContext) {
+                unavailable("The data source changed. Reopen the notification from its original source.")
+            } else {
+            switch destination {
+            case .settings:
+                NotificationSettingsView().environment(\.screenScaffoldPresentation, .settingsDetail)
+            case .device(let id):
+                if id == repo.deviceId { DevicesView() } else { unavailable("This device is no longer the current source.") }
+            case .plannedWorkout(let id):
+                if let coordinator = lift.coordinator, lift.isNotificationSourceReady,
+                   lift.notificationSourceContext == repo.notificationSourceContext {
+                    ReceiptLiftNotificationDestinationView(coordinator: coordinator, plannedWorkoutID: id)
+                } else if loaded { unavailable("This plan is no longer available for the current source.") }
+                else { ProgressView("Opening your plan…") }
+            case .workout:
+                if let workout { WorkoutDetailView(row: workout) }
+                else if loaded { unavailable("This workout was removed or is no longer available from the current source.") }
+                else { ProgressView("Opening workout…") }
+            case .journal(let day):
+                if Self.date(day) != nil, loaded {
+                    ScrollView {
+                        JournalLogCard(importedQuestions: journalQuestions, answers: journalAnswers,
+                            numericAnswers: journalNumeric, dayOffset: $dayOffset, selectedDate: $journalSelectedDate,
+                            onChanged: {
+                                loaded = false
+                                journalAnswers = [:]
+                                journalNumeric = [:]
+                                Task { await loadJournal(); loaded = true }
+                            }).padding()
+                    }.navigationTitle("Journal")
+                } else if loaded { unavailable("The journal date is no longer available.") }
+                else { ProgressView("Opening journal…") }
+            case .weeklyReview(let week):
+                if Self.date(week) != nil {
+                    let digest = WeeklyDigestSource.digest(from: repo.canonicalDays, anchorDay: week, sleepByDay: sleepByDay)
+                    if digest.isEmpty { unavailable("There are not enough current records for this review period.") }
+                    else { ScrollView { WeeklyDigestContent(digest: digest).padding() }.navigationTitle("Week in review") }
+                } else { unavailable("The review date is no longer available.") }
+            case .day(let day), .health(let day):
+                if Self.date(day) != nil, repo.canonicalDays.contains(where: { $0.day == day }) {
+                    TodayView(notificationDay: day)
+                } else { unavailable("This day's records are no longer available.") }
+            case .sleepPlan:
+                SleepView()
+            }
+            }
+        }
+        .task(id: destination) { await load() }
+    }
+    private func unavailable(_ message: LocalizedStringKey) -> some View {
+        ContentUnavailableView("Notification update", systemImage: "bell", description: Text(message))
+    }
+    private static func date(_ day: String) -> Date? {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.timeZone = .current
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.isLenient = false
+        guard let date = formatter.date(from: day), formatter.string(from: date) == day else { return nil }
+        return date
+    }
+    private func load() async {
+        loaded = false
+        openedSource = repo.notificationSourceContext
+        switch destination {
+        case .workout(let id):
+            let pieces = id.split(separator: ":", maxSplits: 1).map(String.init)
+            if pieces.count == 2, let timestamp = Int(pieces[0]) {
+                let rows = await repo.workoutRows(from: timestamp, to: timestamp + 1, reconcileHR: false)
+                workout = rows.first { $0.startTs == timestamp && $0.sport == pieces[1] }
+            }
+        case .plannedWorkout:
+            await lift.selectCurrentSource()
+        case .journal(let day):
+            if let date = Self.date(day) {
+                journalSelectedDate = date
+                dayOffset = Calendar.current.dateComponents([.day], from: date, to: Calendar.current.startOfDay(for: Date())).day ?? 0
+                let imported = await repo.importedJournalEntries()
+                journalQuestions = Array(Set(imported.map(\.question))).sorted()
+                await loadJournal()
+            }
+        case .weeklyReview:
+            let rows = await repo.exploreSeries(key: "sleep_performance", source: "my-whoop")
+            sleepByDay = Dictionary(rows.map { ($0.day, $0.value) }, uniquingKeysWith: { _, latest in latest })
+        default: break
+        }
+        loaded = true
+    }
+    private func loadJournal() async {
+        guard let date = journalSelectedDate else { return }
+        let day = Repository.localDayKey(date)
+        let answers = await repo.nativeJournalAnswers(day: day)
+        let numeric = await repo.nativeJournalNumeric(day: day)
+        guard journalSelectedDate == date else { return }
+        journalAnswers = answers
+        journalNumeric = numeric
+    }
+}
 #endif
 
 /// When a request that needs the whole screen (a routed pillar, the Devices sheet, the live workout, Coach) may be made

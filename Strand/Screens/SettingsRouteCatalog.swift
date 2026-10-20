@@ -15,7 +15,7 @@ enum SettingsRouteID: String, CaseIterable, Hashable, Identifiable, Sendable {
     /// Workout detection, hydration, keep-screen-on and the Live Activity.
     case workouts
     case sleepAlarm
-    /// Siri and the Shortcuts app. The Automations page is Notifications & alerts, listed once.
+    /// Siri and the Shortcuts app. The Automations page is Notifications, listed once.
     case siriShortcuts
     case diagnosticsExperimental
     case testCentre
@@ -111,7 +111,7 @@ enum SettingsRouteCatalog {
             id: .appPreferences,
             title: "App Preferences",
             routes: [
-                .init(id: .notificationsAlerts, title: "Notifications & alerts"),
+                .init(id: .notificationsAlerts, title: "Notifications"),
                 .init(id: .appearanceUnits, title: "Appearance & units"),
                 .init(id: .workouts, title: "Workouts"),
             ]
@@ -221,10 +221,10 @@ enum SettingsRouteCatalog {
         ),
         .init(
             id: "notifications",
-            title: "Notifications & alerts",
+            title: "Notifications",
             breadcrumb: "App Preferences",
             route: .notificationsAlerts,
-            keywords: ["notification", "reminders", "stress alert", "inactivity", "coaching", "automation", "Automations", "Automations & Shortcuts", "triggers", "double tap", "rules"]
+            keywords: ["notification", "reminders", "stress alert", "inactivity", "coaching", "automation", "Automations", "Automations & Shortcuts", "triggers", "double tap", "rules", "wind-down", "journal check-in", "weekly review", "quiet hours", "preview", "scheduled workout"]
         ),
         .init(
             id: "appearance",

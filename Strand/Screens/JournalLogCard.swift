@@ -28,15 +28,18 @@ struct JournalLogCard: View {
     /// question → numeric value for the selected day, native rows only (drives the numeric fields).
     let numericAnswers: [String: Double]
     @Binding var dayOffset: Int            // -1 = tomorrow, 0 = today, 1 = yesterday
+    /// Notification-hosted entries pin one calendar date across midnight. Existing callers retain offsets.
+    @Binding private var selectedDate: Date?
     let onChanged: () -> Void              // parent re-runs load() after a write
 
     init(importedQuestions: [String], answers: [String: Bool],
          numericAnswers: [String: Double] = [:], dayOffset: Binding<Int>,
-         onChanged: @escaping () -> Void) {
+         selectedDate: Binding<Date?> = .constant(nil), onChanged: @escaping () -> Void) {
         self.importedQuestions = importedQuestions
         self.answers = answers
         self.numericAnswers = numericAnswers
         self._dayOffset = dayOffset
+        self._selectedDate = selectedDate
         self.onChanged = onChanged
     }
 
@@ -57,9 +60,13 @@ struct JournalLogCard: View {
     @State private var selectedMood: Int?
     @State private var loggedWindow: [Bool] = []
 
+    nonisolated static func entryDate(selectedDate: Date?, dayOffset: Int, now: Date = Date(), calendar: Calendar = .current) -> Date {
+        if let selectedDate { return calendar.startOfDay(for: selectedDate) }
+        return calendar.startOfDay(for: calendar.date(byAdding: .day, value: -dayOffset, to: now) ?? now)
+    }
+
     private var dayKey: String {
-        Repository.localDayKey(
-            Calendar.current.date(byAdding: .day, value: -dayOffset, to: Date()) ?? Date())
+        Repository.localDayKey(Self.entryDate(selectedDate: selectedDate, dayOffset: dayOffset))
     }
 
     /// The resolved, grouped catalog for the current imported set. Hidden items included only while
@@ -97,6 +104,11 @@ struct JournalLogCard: View {
                     dayPill("Today", offset: 0)
                     dayPill("Yesterday", offset: 1)
                 }
+            }
+            if let selectedDate {
+                Text(selectedDate.formatted(date: .complete, time: .omitted))
+                    .font(.headline)
+                    .accessibilityLabel("Journal date: \(selectedDate.formatted(date: .complete, time: .omitted))")
             }
             PaperCard {
                 VStack(alignment: .leading, spacing: 10) {
@@ -447,7 +459,10 @@ struct JournalLogCard: View {
     // MARK: - Controls
 
     private func dayPill(_ label: LocalizedStringKey, offset: Int) -> some View {
-        pillButton(label, selected: dayOffset == offset) {
+        let target = Self.entryDate(selectedDate: nil, dayOffset: offset)
+        let isSelected = selectedDate.map { Calendar.current.isDate($0, inSameDayAs: target) } ?? (dayOffset == offset)
+        return pillButton(label, selected: isSelected) {
+            if selectedDate != nil { selectedDate = target }
             dayOffset = offset
             onChanged()   // reload the selected day's answers
         }
