@@ -17,6 +17,24 @@ approximate; downloads are on the [Releases](https://github.com/NoopApp/noop/rel
 
 ---
 
+## This app's releases
+
+Easton Place's iPhone fork of NOOP, forked at upstream 9.0.1 in July 2026. Versions restart at 1.0.0;
+see AGENTS.md for how releases are numbered.
+
+- **1.7.0 (October 2026):** cold-start splash, a tidier Today header with a month calendar, an inline strap status panel, Health Monitor sparklines, plain-text values with coloured deltas, Coach-written weekly insight, a simpler Trends page, a redrawn live heart-rate card, and a real version history and About page.
+- **1.6.0 (October 2026):** Strength Strain and a redone Strength flow, unified Notifications settings, reconciled overnight physiology, and polish.
+- **1.5.0 (October 2026):** UI v2, a redone Training load, data-loss fixes and faster loading.
+- **1.4.0 (October 2026):** unified widgets and Live Activity, native Settings, the workout journey.
+- **1.3.0 (September 2026):** Sleep state repair, more reliable workouts, Xcode 27 builds.
+- **1.2.0 (August 2026):** one dark design system, faster history import, Settings search.
+- **1.1.0 (August 2026):** missed-night recovery, WHOOP 5/MG compatibility, hardening.
+- **1.0.0 (July 2026):** the fork. Paper UI, Strain V2, performance work.
+
+---
+
+## Upstream NOOP history
+
 ## Unreleased
 
 - **Strength Strain.** Strain now counts the working sets you log in Strength, on top of heart rate. Past lifts were rescored once when you updated; only Strain changed on lift days (recovery, calories, sleep, heart rate, Fitness Age and VO2max are unchanged). Warm-ups don't count; lifts with no sets and imported lifts stay heart rate only.

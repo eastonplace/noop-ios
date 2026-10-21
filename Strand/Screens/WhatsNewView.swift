@@ -7,24 +7,19 @@ import StrandDesign
 struct WhatsNewView: View {
     let onClose: () -> Void
 
-    private let ios21Highlights = [
-        "Recover a missed night by retrying automatic detection or setting an approximate sleep window. NOOP reprocesses recorded physiology instead of inventing stages or vitals.",
-        "Improved WHOOP 5/MG compatibility, device identification, raw-frame validation, and fail-closed handling for unsupported protocol families.",
-        "A clearly separated SpO₂ Candidate (Beta) surface for experimental WHOOP 5/MG evidence. It never feeds Blood Oxygen, Apple Health, Charge, illness detection, or medical claims.",
-        "Additional local-data integrity, privacy deletion, persistence, accessibility, and performance hardening across sleep, imports, widgets, and background processing."
-    ]
-
     var body: some View {
         // PERF: the changelog grows with every release, so build off-screen cards lazily.
         ScreenScaffold(title: "NOOP \(AppChangelog.currentVersion)",
-                       subtitle: "iOS 2.1 release candidate",
+                       subtitle: "Every release, newest first",
                        lazy: true,
                        trailing: { NoopIconButton("xmark", accessibilityLabel: "Close", action: onClose) }) {
-            ios21ReleaseCard
-            expectationsCard
             ForEach(Array(AppChangelog.releases.enumerated()), id: \.element.id) { index, release in
+                if release.version == AppChangelog.firstUpstreamVersion {
+                    upstreamDivider
+                }
                 releaseCard(release, isLatest: index == 0)
             }
+            expectationsCard
         }
         .safeAreaInset(edge: .bottom, spacing: 0) { footer.sheetFooterBar() }
         .sheetScreenScaffoldEnvironment()
@@ -36,45 +31,19 @@ struct WhatsNewView: View {
         #endif
     }
 
-    private var ios21ReleaseCard: some View {
-        PaperCard {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(spacing: 8) {
-                    SourceBadge("iOS 2.1")
-                    Text("More reliable sleep and WHOOP data")
-                        .font(StrandFont.headline)
-                        .foregroundStyle(StrandPalette.textPrimary)
-                    Spacer()
-                    Text("Release candidate")
-                        .font(StrandFont.caption)
-                        .foregroundStyle(StrandPalette.textTertiary)
-                }
-
-                Text("This update combines the live WHOOP compatibility work and missed-sleep recovery into one local-first iPhone release.")
-                    .font(StrandFont.subhead)
-                    .foregroundStyle(StrandPalette.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                ForEach(Array(ios21Highlights.enumerated()), id: \.offset) { _, item in
-                    HStack(alignment: .top, spacing: 8) {
-                        Image(systemName: "checkmark.circle.fill")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(StrandPalette.accent)
-                            .padding(.top, 2)
-                        Text(item)
-                            .font(StrandFont.subhead)
-                            .foregroundStyle(StrandPalette.textSecondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-
-                Text("Experimental features remain opt-in and clearly labelled. NOOP is not a medical device, and this build should complete simulator and physical-device QA before release.")
-                    .font(StrandFont.caption)
-                    .foregroundStyle(StrandPalette.textTertiary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
+    /// Marks where this app's own history ends and the upstream NOOP releases it was forked from begin.
+    private var upstreamDivider: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("BEFORE THE FORK").font(StrandFont.overline)
+                .tracking(StrandFont.overlineTracking)
+                .foregroundStyle(StrandPalette.textSecondary)
+            Text("Releases of the original open-source NOOP, which this app was forked from at 9.0.1.")
+                .font(StrandFont.caption)
+                .foregroundStyle(StrandPalette.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.top, 12)
     }
 
     private var expectationsCard: some View {
@@ -118,7 +87,9 @@ struct WhatsNewView: View {
                     HStack(alignment: .top, spacing: 8) {
                         Circle().fill(StrandPalette.accent).frame(width: 5, height: 5)
                             .padding(.top, 7)
-                        Text(item).font(StrandFont.subhead)
+                        // Items carry **bold** lead-ins: render them as Markdown, not literal asterisks.
+                        Text((try? AttributedString(markdown: item)) ?? AttributedString(item))
+                            .font(StrandFont.subhead)
                             .foregroundStyle(StrandPalette.textSecondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
