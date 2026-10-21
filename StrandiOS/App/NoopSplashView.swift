@@ -9,6 +9,8 @@ struct NoopSplashView: View {
     static var shouldShowOnLaunch: Bool {
         let args = CommandLine.arguments
         if args.contains("--noop-splash") { return true }
+        // A background launch (BLE state restoration, a notification) has no one watching: skip the splash.
+        if MainActor.assumeIsolated({ UIApplication.shared.applicationState == .background }) { return false }
         if args.contains("--no-splash") || args.contains("--demo-seed") || args.contains("--demo-tab")
             || args.contains("--storage-recovery-qa") || args.contains(where: { $0.hasPrefix("--noop-") }) {
             return false
@@ -113,13 +115,12 @@ struct NoopSplashView: View {
 private final class SplashClock {
     private var last: Date?
     private var elapsed = 0.0
-    private var lastDate: Date?
 
     func advance(to date: Date) -> Double {
         // Body can be evaluated more than once per frame; only a later date moves the clock.
-        if let lastDate, date <= lastDate { return elapsed }
+        if let last, date <= last { return elapsed }
         if let last { elapsed += min(date.timeIntervalSince(last), 0.05) }
-        last = date; lastDate = date
+        last = date
         return elapsed
     }
 }

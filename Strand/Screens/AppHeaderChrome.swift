@@ -116,26 +116,27 @@ private struct DeviceStatusPanel: View {
     private var syncValue: String {
         if live.backfilling {
             let n = live.syncChunksThisSession
-            return n > 0 ? "Syncing, \(n) chunk\(n == 1 ? "" : "s") pulled" : "Syncing"
+            return n > 0 ? String(localized: "Syncing, \(n) chunks pulled") : String(localized: "Syncing")
         }
-        if live.lastSyncError != nil { return "Sync failed" }
-        return live.connected ? "Caught up" : "Not syncing"
+        if live.lastSyncError != nil { return String(localized: "Sync failed") }
+        return live.connected ? String(localized: "Caught up") : String(localized: "Not syncing")
     }
 
     private var lastSyncValue: String {
-        live.lastSyncedAt.map { relativeAgo($0) } ?? "Never"
+        live.lastSyncedAt.map { relativeAgo($0) } ?? String(localized: "Never")
     }
 
     private var batteryValue: String {
         guard let pct = live.batteryPct else { return "--" }
-        return "\(Int(pct.rounded()))%" + (live.charging == true ? " charging" : "")
+        let level = "\(Int(pct.rounded()))%"
+        return live.charging == true ? String(localized: "\(level) charging") : level
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            row("Strap", live.connected ? "Connected" : "Disconnected", dot: live.connected)
+            row("Strap", live.connected ? String(localized: "Connected") : String(localized: "Disconnected"), dot: live.connected)
             row("Battery", batteryValue)
-            row("Live heart rate", live.streamingLiveHR ? "Streaming" : "Not streaming")
+            row("Live heart rate", live.streamingLiveHR ? String(localized: "Streaming") : String(localized: "Not streaming"))
             row("Sync", syncValue)
             row("Last sync", lastSyncValue)
             Rectangle().fill(StrandPalette.hairline).frame(height: 1).padding(.vertical, 8)

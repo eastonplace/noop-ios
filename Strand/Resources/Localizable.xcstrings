@@ -212744,6 +212744,162 @@
           }
         }
       }
+    },
+    "Streaming": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Streaming"
+          }
+        }
+      }
+    },
+    "Not streaming": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not streaming"
+          }
+        }
+      }
+    },
+    "Caught up": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Caught up"
+          }
+        }
+      }
+    },
+    "Not syncing": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not syncing"
+          }
+        }
+      }
+    },
+    "Sync failed": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sync failed"
+          }
+        }
+      }
+    },
+    "Steady this month": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Steady this month"
+          }
+        }
+      }
+    },
+    "%@ charging": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ charging"
+          }
+        }
+      }
+    },
+    "↓%lld this month": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "↓%lld this month"
+          }
+        }
+      }
+    },
+    "↑%lld this month": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "↑%lld this month"
+          }
+        }
+      }
+    },
+    "Syncing, %lld chunks pulled": {
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Syncing, %lld chunk pulled"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Syncing, %lld chunks pulled"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "↓%lld yrs this month": {
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "↓%lld yr this month"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "↓%lld yrs this month"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "↑%lld yrs this month": {
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "↑%lld yr this month"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "↑%lld yrs this month"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "version": "1.0"

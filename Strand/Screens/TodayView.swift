@@ -345,6 +345,8 @@ struct TodayView: View {
 
     // 14-day sparkline series, keyed by metric key. Loaded once in .task.
     @State private var sparks: [String: [Double]] = [:]
+    /// Day key of the last point of the strap-derived steps sparkline (nil when it came from Apple Health).
+    @State private var stepsSparkLastDay: String?
     @State private var workouts: [WorkoutRow] = []
     @State private var appleDays: [AppleDaily] = []
     // Design Reset / #582, the pinned "Your cards" values (Stress / Fitness age / Vitality), surfaced
@@ -1930,15 +1932,24 @@ struct TodayView: View {
         case .sleep: return nonEmpty(sparks["sleep_total_min"]) ?? dailySpark { $0.totalSleepMin }
         // Cumulative day totals: today is still filling in, so its partial value would read as a cliff.
         case .steps:
-            return droppingPartialToday(nonEmpty(sparks["steps"]) ?? dailySpark { $0.steps.map(Double.init) })
-        case .calories: return droppingPartialToday((calories ?? caloriesCard).sparkline)
+            if let series = nonEmpty(sparks["steps"]) {
+                return droppingPartialToday(series, lastDay: stepsSparkLastDay)
+            }
+            return droppingPartialToday(dailySpark { $0.steps.map(Double.init) },
+                                        lastDay: repo.days.suffix(14).last(where: { $0.steps != nil })?.day)
+        case .calories:
+            let card = calories ?? caloriesCard
+            // The card's sparkline ends on the shown day's own number whenever it has one.
+            return droppingPartialToday(card.sparkline, lastDay: card.value != nil ? selectedDayKey : nil)
         default: return []
         }
     }
 
-    /// Ends a cumulative metric's sparkline on yesterday while today's row is the newest one.
-    private func droppingPartialToday(_ values: [Double]) -> [Double] {
-        guard values.count > 2, repo.days.last?.day == Repository.localDayKey(Date()) else { return values }
+    /// Ends a cumulative metric's sparkline on yesterday when the series' last point is today's still-filling total.
+    /// `lastDay` is the day key of that last point (nil when unknown, which never drops). Today is the logical day
+    /// the repository keys `days` by.
+    private func droppingPartialToday(_ values: [Double], lastDay: String?) -> [Double] {
+        guard values.count > 2, let lastDay, lastDay == Repository.logicalDayKey(Date()) else { return values }
         return Array(values.dropLast())
     }
 
@@ -1957,12 +1968,12 @@ struct TodayView: View {
         guard let values = sparks[key], values.count > 1, let first = values.first, let last = values.last else { return nil }
         let delta = Int((last - first).rounded())
         if delta == 0 { return String(localized: "Steady this month") }
-        let arrow = delta < 0 ? "↓" : "↑"
         let magnitude = abs(delta)
+        let down = delta < 0
         if card == .fitnessAge {
-            return "\(arrow)\(magnitude) \(magnitude == 1 ? "yr" : "yrs") this month"
+            return down ? String(localized: "↓\(magnitude) yrs this month") : String(localized: "↑\(magnitude) yrs this month")
         }
-        return "\(arrow)\(magnitude) this month"
+        return down ? String(localized: "↓\(magnitude) this month") : String(localized: "↑\(magnitude) this month")
     }
 
     private func dashboardRail(
@@ -2063,6 +2074,9 @@ struct TodayView: View {
                 #endif
                 HealthAlertBanner()
                 AutoWorkoutCard()
+                // Keeps an empty Recovery honest while a historical offload is still writing: only when the displayed
+                // day has no Recovery yet (the header spinner covers an ordinary sync).
+                if displayDay?.recovery == nil { SyncingHistoryNoteIfBackfilling() }
                 paperSections
                 // D17 (Easton, 2026-07-10): Key Metrics section removed — it duplicated the
                 // pillar trio + Health Monitor. The editor/prefs code stays; only the Today
@@ -4553,7 +4567,12 @@ struct TodayView: View {
         // Apple Health series above when the strap supplied no steps (#276). This synchronous overwrite
         // must run AFTER sparks["steps"] is assigned from the Apple-Health read above (unchanged order).
         let strapSteps = repo.days.suffix(14).compactMap { $0.steps.map(Double.init) }
-        if !strapSteps.isEmpty { sparks["steps"] = strapSteps }
+        if !strapSteps.isEmpty {
+            sparks["steps"] = strapSteps
+            stepsSparkLastDay = repo.days.suffix(14).last(where: { $0.steps != nil })?.day
+        } else {
+            stepsSparkLastDay = nil
+        }
         sparks["weight"]      = await weightSpark
 
         // Steps ESTIMATE per day (WHOOP 4.0 motion → calibrated steps), the Mi-Band series, workout +
@@ -5305,6 +5324,15 @@ private struct RecordingStatusLight: View {
         .buttonStyle(.plain)
         .disabled(state == nil)
         .accessibilityLabel(state?.accessibilityText ?? String(localized: "Recording status, not shown for a past day"))
+    }
+}
+
+/// The "Syncing strap history…" note, shown only while a historical offload is running (#77). Owns the
+/// `LiveState` observation so the chunk count ticks without re-rendering the rest of Today.
+private struct SyncingHistoryNoteIfBackfilling: View {
+    @EnvironmentObject private var live: LiveState
+    var body: some View {
+        if live.backfilling { SyncingHistoryNote(chunks: live.syncChunksThisSession) }
     }
 }
 

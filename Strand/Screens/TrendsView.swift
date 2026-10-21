@@ -22,6 +22,10 @@ struct TrendsView: View {
     @State private var screenSnapshot: TrendsScreenSnapshot?
     @State private var loadState = LatestWinsLoadState()
     @State private var civilContext = TrendsCivilContext.current()
+    /// The Coach's weekly insight, observed as raw bytes so the readout re-renders when it is saved or cleared,
+    /// and decoded once per change rather than on every render.
+    @AppStorage(WeeklyCoachInsightStore.defaultsKey) var coachInsightData: Data?
+    @State var coachInsight: WeeklyCoachInsight?
     @State var selectedMetric: ProductionTrendMetric = .recovery
     @State var selectedRange: TrendRange = .month
     /// Zero is the current Monday-Sunday digest; negative values step backward.
@@ -122,6 +126,9 @@ struct TrendsView: View {
                 // Today's first section sits this far below the tab title row; match it.
                 .padding(.top, 9)
             }
+        }
+        .onChange(of: coachInsightData, initial: true) { _, data in
+            coachInsight = WeeklyCoachInsightStore.decode(data)
         }
         .sheet(isPresented: $showingReport) {
             TrendsReportSheet(days: canonicalDays)

@@ -439,6 +439,27 @@ final class WeeklyDigestTests: XCTestCase {
         XCTAssertTrue(WeeklyCoachInsightStore.needsInsight(forWeekStart: "2026-06-15", defaults: defaults))
     }
 
+    func testNeedsRefreshOncePerLocalDay() {
+        let defaults = freshDefaults()
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(secondsFromGMT: 0)!
+        let morning = Date(timeIntervalSince1970: 1_781_000_000)
+        let laterSameDay = morning.addingTimeInterval(3_600)
+        let nextDay = morning.addingTimeInterval(86_400)
+        XCTAssertTrue(WeeklyCoachInsightStore.needsRefresh(forWeekStart: "2026-06-08", now: morning,
+                                                           calendar: cal, defaults: defaults))
+        XCTAssertTrue(WeeklyCoachInsightStore.save(weekStart: "2026-06-08", rawText: "HRV is up.",
+                                                   now: morning, defaults: defaults))
+        XCTAssertFalse(WeeklyCoachInsightStore.needsRefresh(forWeekStart: "2026-06-08", now: laterSameDay,
+                                                            calendar: cal, defaults: defaults))
+        XCTAssertTrue(WeeklyCoachInsightStore.needsRefresh(forWeekStart: "2026-06-08", now: nextDay,
+                                                           calendar: cal, defaults: defaults))
+        // The old text keeps showing until a new one replaces it.
+        XCTAssertEqual(WeeklyCoachInsightStore.text(forWeekStart: "2026-06-08", defaults: defaults), "HRV is up.")
+        XCTAssertTrue(WeeklyCoachInsightStore.needsRefresh(forWeekStart: "2026-06-15", now: morning,
+                                                           calendar: cal, defaults: defaults))
+    }
+
     func testStoreRejectsEmptyAndRefusalAndCapsLength() {
         let defaults = freshDefaults()
         XCTAssertFalse(WeeklyCoachInsightStore.save(weekStart: "2026-06-08", rawText: "  \n ", defaults: defaults))

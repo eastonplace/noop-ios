@@ -797,11 +797,26 @@ public struct HeaderChromeRow: View {
             }
         } else {
             // Same title/status block and row height as the plain header, with the page tools beside the account controls.
-            HStack(alignment: .center, spacing: 8) {
-                deviceTitle
-                Spacer(minLength: 0)
-                actions.fixedSize(horizontal: true, vertical: true)
-                accountActions
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .center, spacing: 8) {
+                    deviceTitle
+                    Spacer(minLength: 0)
+                    actions.fixedSize(horizontal: true, vertical: true)
+                    accountActions
+                }
+                // A narrow phone or a longer translated status: the status keeps the account controls' row and the
+                // page tools take a second row of their own.
+                VStack(alignment: .leading, spacing: 0) {
+                    HStack(alignment: .center, spacing: 8) {
+                        deviceTitle
+                        Spacer(minLength: 0)
+                        accountActions
+                    }
+                    HStack {
+                        Spacer(minLength: 0)
+                        actions.fixedSize(horizontal: true, vertical: true)
+                    }
+                }
             }
         }
     }
@@ -827,10 +842,10 @@ public struct HeaderChromeRow: View {
                 .fixedSize()
             }
         }
-        .accessibilityValue(deviceAccessibilityValue)
         .accessibilityHint(statusExpanded == nil ? "Opens device Settings, battery and sync controls"
                                                  : "Shows strap status and quick actions")
-        .accessibilityValue(statusExpanded == nil ? "" : (statusOpen ? "Expanded" : "Collapsed"))
+        .accessibilityValue(statusExpanded == nil ? deviceAccessibilityValue
+                            : "\(deviceAccessibilityValue), \(statusOpen ? "Expanded" : "Collapsed")")
         .accessibilityIdentifier("app.deviceStatus")
     }
 

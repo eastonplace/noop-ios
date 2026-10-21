@@ -19,7 +19,7 @@ public struct WeeklyCoachInsight: Codable, Equatable, Sendable {
 
 public enum WeeklyCoachInsightStore {
     public static let maxLength = 220
-    static let defaultsKey = "noop.weeklyCoachInsight.v1"
+    public static let defaultsKey = "noop.weeklyCoachInsight.v1"
 
     /// Tidy raw model output into a short insight, or nil when there is nothing usable
     /// (empty, whitespace, or a refusal).
@@ -75,6 +75,22 @@ public enum WeeklyCoachInsightStore {
     /// True when the Coach still needs to write this week's insight.
     public static func needsInsight(forWeekStart weekStart: String, defaults: UserDefaults = .standard) -> Bool {
         text(forWeekStart: weekStart, defaults: defaults) == nil
+    }
+
+    /// True when the Coach should (re)write this week's insight: none is stored for the week, or the stored one
+    /// was written on an earlier local day, so it is refreshed at most once per day. Callers keep showing the old
+    /// text until the new one is saved.
+    public static func needsRefresh(forWeekStart weekStart: String, now: Date = Date(),
+                                    calendar: Calendar = .current,
+                                    defaults: UserDefaults = .standard) -> Bool {
+        guard let value = load(defaults: defaults), value.weekStart == weekStart, !value.text.isEmpty else { return true }
+        return !calendar.isDate(value.generatedAt, inSameDayAs: now)
+    }
+
+    /// Decodes raw stored bytes (as observed through `@AppStorage`) into an insight.
+    public static func decode(_ data: Data?) -> WeeklyCoachInsight? {
+        guard let data else { return nil }
+        return try? JSONDecoder().decode(WeeklyCoachInsight.self, from: data)
     }
 
     public static func clear(defaults: UserDefaults = .standard) {
