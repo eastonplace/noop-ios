@@ -21,7 +21,7 @@ extension TrendsView {
         let digest = snapshot.weeklyDigest
         let reviewLines = paperReviewLines(digest)
         let movers = paperMoverRows(digest)
-        let insight = paperInsightText(digest, reviewLines: reviewLines)
+        let insight = paperInsight(digest, reviewLines: reviewLines)
 
         return VStack(alignment: .leading, spacing: WidgetMetrics.headerSpacing) {
             SectionEyebrow(
@@ -90,8 +90,12 @@ extension TrendsView {
             }
             .padding(.top, NoopMetrics.space1)
 
-            WidgetCard(title: String(localized: "Insight"), systemImage: "sparkles", tint: .accent) {
-                Text(insight)
+            WidgetCard(
+                title: insight.fromCoach ? String(localized: "Coach insight") : String(localized: "Insight"),
+                systemImage: "sparkles",
+                tint: .accent
+            ) {
+                Text(insight.text)
                     .font(StrandFont.subhead)
                     .foregroundStyle(StrandPalette.textPrimary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -183,14 +187,19 @@ extension TrendsView {
     }
 
     private func paperReviewLines(_ digest: WeeklyDigest) -> [String] {
-        let lines = Array(digest.focalPoints.prefix(3))
-        return lines.isEmpty ? [digest.balance.sentence] : lines
+        WeeklyDigestEngine.highlightLines(
+            for: digest, effortDisplayFactor: UnitPrefs.currentEffortDisplayFactor())
     }
 
-    private func paperInsightText(_ digest: WeeklyDigest, reviewLines: [String]) -> String {
-        let candidates = [digest.balance.sentence] + digest.focalPoints
-        return candidates.first(where: { !reviewLines.contains($0) })
-            ?? String(localized: "Keep logging this week. The next distinct pattern will appear as soon as it clears the weekly signal threshold.")
+    /// The on-device Coach's takeaway for the displayed week when it has written one, else a deterministic
+    /// rule-based line. Never empty.
+    private func paperInsight(_ digest: WeeklyDigest, reviewLines: [String]) -> (text: String, fromCoach: Bool) {
+        if let coach = WeeklyCoachInsightStore.text(forWeekStart: digest.weekStart) {
+            return (coach, true)
+        }
+        return (WeeklyDigestEngine.insightLine(
+            for: digest, highlights: reviewLines,
+            effortDisplayFactor: UnitPrefs.currentEffortDisplayFactor()), false)
     }
 
     private func reviewDotColor(for line: String) -> Color {

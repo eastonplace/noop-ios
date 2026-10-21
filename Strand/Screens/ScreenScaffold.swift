@@ -122,7 +122,7 @@ struct ScreenScaffold<Content: View, Trailing: View>: View {
     /// Optional small control shown inline right after the pinned page title (Today's date picker).
     var titleAccessory: AnyView? = nil
     /// Opts the pinned header's strap status line into the tidy status popover (Today only).
-    var showsDeviceStatusPanel: Bool = false
+    var showsDeviceStatusPanel: Bool = true
     /// Optional element pinned to the header's trailing edge (e.g. the strap-battery badge on Today).
     /// Defaults to `EmptyView` via the convenience init below, so other screens are unaffected.
     @ViewBuilder var trailing: () -> Trailing
@@ -519,7 +519,7 @@ extension ScreenScaffold where Trailing == EmptyView {
          headerContext: String? = nil,
          usesCompactUtilityHeader: Bool = false,
          titleAccessory: AnyView? = nil,
-         showsDeviceStatusPanel: Bool = false,
+         showsDeviceStatusPanel: Bool = true,
          @ViewBuilder content: @escaping () -> Content) {
         self.init(title: title, subtitle: subtitle, onRefresh: onRefresh, lazy: lazy,
                   topBackground: topBackground,

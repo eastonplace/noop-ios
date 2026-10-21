@@ -86291,52 +86291,6 @@
         }
       }
     },
-    "Keep logging this week. The next distinct pattern will appear as soon as it clears the weekly signal threshold.": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Zeichne diese Woche weiter auf. Das nächste eindeutige Muster erscheint, sobald es die wöchentliche Signalschwelle überschreitet."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Keep logging this week. The next distinct pattern will appear as soon as it clears the weekly signal threshold."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sigue registrando esta semana. El próximo patrón distinto aparecerá en cuanto supere el umbral de señal semanal."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Continua a registrare questa settimana. Il prossimo schema distinto apparirà non appena supererà la soglia di segnale settimanale."
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Continue a registar esta semana. O próximo padrão distinto aparecerá assim que ultrapassar o limiar de sinal semanal."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "本周请继续记录。下一个明显的规律一旦超过每周信号阈值就会显示。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "本週請繼續記錄。下一個明顯的規律一旦超過每週訊號門檻就會顯示。"
-          }
-        }
-      }
-    },
     "Keep prioritizing recovery. Great sleep and low stress will build Recovery.": {
       "localizations": {
         "en": {

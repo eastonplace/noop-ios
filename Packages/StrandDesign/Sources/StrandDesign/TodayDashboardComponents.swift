@@ -796,38 +796,12 @@ public struct HeaderChromeRow: View {
                 }
             }
         } else {
-            ViewThatFits(in: .horizontal) {
-                VStack(alignment: .leading, spacing: 0) {
-                    HStack(spacing: 8) {
-                        deviceTitleAction.fixedSize(horizontal: true, vertical: true)
-                        Spacer(minLength: 0)
-                        actions.fixedSize(horizontal: true, vertical: true)
-                        accountActions.fixedSize(horizontal: true, vertical: true)
-                    }
-                    // A sync error can be longer than the title. Give status the whole header width
-                    // without making it push page tools out of the title row.
-                    deviceStatusAction
-                }
-                // A narrow phone or a longer translated status gets two useful header rows.
-                // Tools share the status row instead of reserving a separate band below the divider.
-                VStack(alignment: .leading, spacing: 0) {
-                    HStack(spacing: 8) {
-                        deviceTitleAction
-                        Spacer(minLength: 0)
-                        accountActions
-                    }
-                    ViewThatFits(in: .horizontal) {
-                        HStack(spacing: 8) {
-                            deviceStatusAction.fixedSize(horizontal: true, vertical: true)
-                            Spacer(minLength: 0)
-                            actions.fixedSize(horizontal: true, vertical: true)
-                        }
-                        VStack(alignment: .leading, spacing: 0) {
-                            deviceStatusAction
-                            actions
-                        }
-                    }
-                }
+            // Same title/status block and row height as the plain header, with the page tools beside the account controls.
+            HStack(alignment: .center, spacing: 8) {
+                deviceTitle
+                Spacer(minLength: 0)
+                actions.fixedSize(horizontal: true, vertical: true)
+                accountActions
             }
         }
     }
@@ -892,30 +866,6 @@ public struct HeaderChromeRow: View {
                 .animation(.spring(duration: 0.38, bounce: 0.12), value: statusOpen)
                 .accessibilityHidden(true)
         }
-    }
-
-    private var deviceTitleAction: some View {
-        Button(action: onStrap) {
-            pageTitle
-                .frame(minWidth: 44, minHeight: 44, alignment: .leading)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityHint("Opens device Settings, battery and sync controls")
-        .accessibilityIdentifier("app.header.titleAction")
-    }
-
-    private var deviceStatusAction: some View {
-        Button(action: statusTapped) {
-            deviceStatus
-                .frame(minWidth: 44, minHeight: 44, alignment: .leading)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(Text(title) + Text(", ") + Text(statusLabel))
-        .accessibilityValue(deviceAccessibilityValue)
-        .accessibilityHint("Opens device Settings, battery and sync controls")
-        .accessibilityIdentifier("app.deviceStatus")
     }
 
     private var accountActions: some View {

@@ -88,32 +88,12 @@ struct TrendsView: View {
             placesTrailingInAppHeader: true,
             trailing: {
                 HStack(spacing: 8) {
-                    NavigationLink {
-                        TrendsExploreHubView()
-                    } label: {
-                        #if os(iOS)
-                        WidgetChip(appTitle: "Explore", systemImage: "square.grid.2x2", showsChevron: false,
-                                   overhangs: false)
-                            .frame(minWidth: 44, minHeight: 44)
-                            .contentShape(Rectangle())
-                        #else
-                        WidgetChip(appTitle: "Explore", systemImage: "square.grid.2x2", showsChevron: false,
-                                   overhangs: false)
-                            .chipHitTarget()
-                        #endif
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Explore insights and metrics")
-                    .accessibilityHint("Opens insights, comparisons, metrics, and experiments")
-                    .accessibilityIdentifier("trends.explore")
                     Button { showingReport = true } label: {
-                        WidgetChip(systemImage: "square.and.arrow.up", showsChevron: false, overhangs: false)
-                            #if os(iOS)
+                        Image(systemName: "square.and.arrow.up")
+                            .font(.system(size: 17, weight: .regular))
+                            .foregroundStyle(StrandPalette.textPrimary)
                             .frame(minWidth: 44, minHeight: 44)
                             .contentShape(Rectangle())
-                            #else
-                            .chipHitTarget()
-                            #endif
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Share Trends")
@@ -136,6 +116,8 @@ struct TrendsView: View {
                     paperScoresOverTime
                     trainingLoadCard
                     paperWeekReview
+                    trendsSeparator
+                    TrendsExploreMoreList()
                 }
                 // Today's first section sits this far below the tab title row; match it.
                 .padding(.top, 9)

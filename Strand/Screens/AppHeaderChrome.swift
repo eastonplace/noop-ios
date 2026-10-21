@@ -34,7 +34,7 @@ struct AppHeaderChrome: View {
     /// Inline control after the title (Today's date).
     var titleAccessory: AnyView? = nil
     /// Today opts the status line into the quick-status popover.
-    var showsStatusPanel: Bool = false
+    var showsStatusPanel: Bool = true
 
     @EnvironmentObject private var live: LiveState
     @EnvironmentObject private var model: AppModel
