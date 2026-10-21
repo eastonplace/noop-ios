@@ -17,7 +17,29 @@ enum AppChangelog {
         let title: String
         let date: String
         let items: [String]
+        /// Short, glanceable changes with an icon, for this fork's releases. Upstream releases only have `items`.
+        var features: [Feature] = []
         var id: String { version }
+
+        /// A fork release: `items` (used by the Updates inbox) are derived from the features.
+        static func fork(_ version: String, _ title: String, _ date: String, _ features: [Feature]) -> Release {
+            Release(version: version, title: title, date: date,
+                    items: features.map { "**\($0.title).** \($0.detail)" }, features: features)
+        }
+    }
+
+    struct Feature: Identifiable {
+        let symbol: String
+        let tint: Tint
+        let title: String
+        let detail: String
+        var id: String { title }
+
+        enum Tint { case accent, heart, strain, sleep, stress, journal, hrv }
+
+        init(_ symbol: String, _ tint: Tint, _ title: String, _ detail: String) {
+            self.symbol = symbol; self.tint = tint; self.title = title; self.detail = detail
+        }
     }
 
     /// The first upstream NOOP release in `releases`. Everything before it (newer) is this fork's own history,
@@ -26,87 +48,52 @@ enum AppChangelog {
 
     /// Newest first. This fork's releases come first; add one for every version bump (see AGENTS.md).
     static let releases: [Release] = [
-        Release(
-            version: "1.7.0",
-            title: "A launch you can see, a cleaner Today, and an About that's ours",
-            date: "October 2026",
-            items: [
-                "**Cold-start splash.** Opening NOOP fresh plays a short black-and-white pulse that zooms you into the dashboard while it loads. Coming back from the background skips it.",
-                "**Today's header, tidied.** The date sits small beside Today and opens a new month calendar. Syncing is a small spinner with a chunk count by the battery, and the rings sit right under the header.",
-                "**Strap status panel.** Tap the strap status on any tab and a panel rolls down in place: connection, streaming, sync state, battery, plus Test vibration and Sync now.",
-                "**Health Monitor sparklines are back** for HRV, resting heart rate, respiratory rate, blood oxygen, sleep and stress.",
-                "**No more glass pills.** Values, badges and weekly deltas are plain text now, and deltas are coloured by whether the change is good for you.",
-                "**Coach-written weekly insight.** The Weekly readout on Trends uses a takeaway from the on-device Coach when one is ready, instead of \"keep logging\".",
-                "**Trends, simplified.** The Explore button is gone. Its six destinations live in a collapsed Explore more list at the bottom, and the share button is a plain icon.",
-                "**Live heart rate, redrawn.** The trace fills the card and fades behind the reading, with the zone word above bpm.",
-                "**About and What's New.** A real version history for this app, and an About page that credits who built it.",
-            ]),
-        Release(
-            version: "1.6.0",
-            title: "Strength Strain, notifications and polish",
-            date: "October 2026",
-            items: [
-                "**Strength Strain.** Strain counts the working sets you log in Strength, on top of heart rate, and the Strength screens were redone around one set-logging table.",
-                "**Notifications settings** in one place, with reminders that are delivered reliably.",
-                "**Better overnight physiology.** WHOOP RR intervals and nightly physiology are reconciled with a v4 history repair.",
-                "**Polish.** Routine Start is back, tab headers and the Health Monitor were refined, Coach's keyboard layout was fixed, and passive Live Activity strain reads correctly.",
-            ]),
-        Release(
-            version: "1.5.0",
-            title: "UI v2, Training load and data-loss fixes",
-            date: "October 2026",
-            items: [
-                "**UI v2** across the main tabs, with a redone Training load.",
-                "**Data-loss fixes** from a full bug hunt, and a faster Today load.",
-                "**Lighter and faster.** The foreground rescore is gone, and steps calibration and the body clock are cached.",
-            ]),
-        Release(
-            version: "1.4.0",
-            title: "Widgets, native Settings and the workout journey",
-            date: "October 2026",
-            items: [
-                "**Unified widget UI** and Live Activity fixes.",
-                "**Native Settings**, rebuilt with standard iOS lists.",
-                "**Workout journey** from start to summary, plus scoring, data and Bluetooth health fixes.",
-            ]),
-        Release(
-            version: "1.3.0",
-            title: "Sleep repair, workouts and Xcode 27",
-            date: "September 2026",
-            items: [
-                "**Sleep state and refresh repaired**, with simpler alarm and night details.",
-                "**More reliable workouts** and a better heart-rate zone experience.",
-                "**Device-safe analytics** from an outside audit.",
-                "**Builds on Xcode 27**, and the compact Dynamic Island no longer shows heart rate twice.",
-            ]),
-        Release(
-            version: "1.2.0",
-            title: "One dark design system and faster history",
-            date: "August 2026",
-            items: [
-                "**A fixed dark design system** shared by every screen.",
-                "**Faster WHOOP history import**, and history paints on first open.",
-                "**Settings search**, plus correctness fixes and Fitness Age navigation.",
-            ]),
-        Release(
-            version: "1.1.0",
-            title: "One release candidate",
-            date: "August 2026",
-            items: [
-                "**Missed-night recovery.** Retry detection or set an approximate sleep window, without invented stages or vitals.",
-                "**WHOOP 5/MG compatibility**, with device identification and unsupported protocols turned away cleanly.",
-                "**Hardening** for local data integrity, privacy deletion, accessibility and performance.",
-            ]),
-        Release(
-            version: "1.0.0",
-            title: "The fork",
-            date: "July 2026",
-            items: [
-                "**Forked from NOOP 9.0.1** as an iPhone-only app with its own direction.",
-                "**Paper UI.** A full reskin of every screen.",
-                "**Strain V2** used everywhere, and the groundwork for Sleep Performance V2.",
-                "**Performance.** The active-workout screen stopped hogging the main thread, and the repository was cleaned up for iPhone.",
-            ]),
+        .fork("1.7.0", "A launch you can see", "October 2026", [
+            Feature("sparkles", .accent, "Cold-start splash", "A quick pulse while your dashboard loads."),
+            Feature("heart.fill", .heart, "Live heart rate, redrawn", "The trace fills the card, right behind your reading."),
+            Feature("calendar", .sleep, "Tidier Today header", "The date sits by Today and opens a month calendar."),
+            Feature("antenna.radiowaves.left.and.right", .accent, "Strap panel", "Tap strap status on any tab for live state and quick actions."),
+            Feature("waveform.path.ecg", .hrv, "Sparklines are back", "Every Health Monitor tile shows its trend again."),
+            Feature("plusminus", .strain, "No more glass pills", "Plain values, with deltas coloured good or bad."),
+            Feature("bubble.left.and.text.bubble.right", .journal, "Coach weekly insight", "Trends' weekly readout, in the Coach's words."),
+            Feature("chart.xyaxis.line", .stress, "Simpler Trends", "Explore lives in a quiet list at the bottom."),
+            Feature("person.crop.circle", .accent, "About, made ours", "A real version history and who built it."),
+        ]),
+        .fork("1.6.0", "Strength Strain", "October 2026", [
+            Feature("dumbbell.fill", .strain, "Strength Strain", "Logged sets now count toward Strain."),
+            Feature("bell.badge.fill", .accent, "Notifications", "One settings page, reminders that arrive."),
+            Feature("moon.stars.fill", .sleep, "Better nights", "Overnight physiology reconciled and repaired."),
+        ]),
+        .fork("1.5.0", "UI v2", "October 2026", [
+            Feature("square.grid.2x2.fill", .accent, "UI v2", "A refreshed look across the main tabs."),
+            Feature("flame.fill", .strain, "Training load, redone", "Clearer load and what it means."),
+            Feature("externaldrive.fill.badge.checkmark", .hrv, "Data-loss fixes", "A full bug hunt, and a faster Today."),
+        ]),
+        .fork("1.4.0", "Widgets and Live Activity", "October 2026", [
+            Feature("rectangle.3.group.fill", .accent, "Unified widgets", "One look across widgets and Live Activity."),
+            Feature("gearshape.fill", .journal, "Native Settings", "Rebuilt with standard iOS lists."),
+            Feature("figure.run", .strain, "Workout journey", "Start to summary, in one flow."),
+        ]),
+        .fork("1.3.0", "Sleep repair", "September 2026", [
+            Feature("bed.double.fill", .sleep, "Sleep repaired", "Sleep state and refresh fixed."),
+            Feature("figure.run", .strain, "Steadier workouts", "More reliable, with better zones."),
+            Feature("hammer.fill", .accent, "Xcode 27", "Builds on the new toolchain."),
+        ]),
+        .fork("1.2.0", "One design system", "August 2026", [
+            Feature("paintpalette.fill", .accent, "Dark design system", "Every screen shares one look."),
+            Feature("arrow.down.circle.fill", .hrv, "Faster history", "Imports faster, paints on first open."),
+            Feature("magnifyingglass", .journal, "Settings search", "Find any setting fast."),
+        ]),
+        .fork("1.1.0", "Missed nights", "August 2026", [
+            Feature("moon.zzz.fill", .sleep, "Recover a missed night", "Retry detection or set a sleep window."),
+            Feature("sensor.tag.radiowaves.forward.fill", .accent, "WHOOP 5/MG", "Better device support."),
+            Feature("lock.shield.fill", .hrv, "Hardening", "Integrity, privacy and accessibility fixes."),
+        ]),
+        .fork("1.0.0", "The fork", "July 2026", [
+            Feature("arrow.triangle.branch", .accent, "Forked", "From NOOP 9.0.1, iPhone only."),
+            Feature("doc.richtext.fill", .journal, "Paper UI", "Every screen reskinned."),
+            Feature("flame.fill", .strain, "Strain V2", "One Strain everywhere."),
+        ]),
         Release(
             version: "7.9.0",
             title: "Coupled view, workouts rebuilt, journal numbers",
