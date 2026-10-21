@@ -618,11 +618,17 @@ public struct HealthDashboardTile: View {
                 Text(verbatim: detail).font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            // Only real history is drawn. Metrics without a series keep the same quiet cell geometry.
+            // Only real history is drawn. A metric with none keeps the same row height with a dim dashed baseline.
             if model.spark.count > 1 {
                 Sparkline(values: model.spark, gradient: Gradient(colors: [model.accent.opacity(0.7), model.accent]),
                           lineWidth: 1.5, showsArea: false, showsHead: false, showsHover: false)
                     .frame(height: 18).accessibilityHidden(true)
+            } else {
+                Path { path in
+                    path.move(to: CGPoint(x: 0, y: 9)); path.addLine(to: CGPoint(x: 400, y: 9))
+                }
+                .stroke(StrandPalette.hairlineStrong, style: StrokeStyle(lineWidth: 1, dash: [3, 4]))
+                .frame(height: 18).clipped().accessibilityHidden(true)
             }
             Spacer(minLength: 0)
         }
@@ -724,6 +730,12 @@ public struct HeaderChromeRow: View {
     public let onProfile: () -> Void
     /// Optional page tools. Erasing only this accessory preserves the existing non-generic header API.
     public let titleActions: AnyView?
+    /// Small tappable accessory set inline right after the page title (Today's date).
+    public let titleAccessory: AnyView?
+    /// When set, tapping the status line opens this as an anchored popover (and the chevron turns down)
+    /// instead of calling `onStrap`. The caller owns the panel's content and live-state observation.
+    public let statusPanel: AnyView?
+    @State private var statusOpen = false
     @Environment(\.dynamicTypeSize) private var typeSize
     @ScaledMetric(relativeTo: .title) private var titleSize: CGFloat = 26
     @ScaledMetric(relativeTo: .body) private var chromeGlyph: CGFloat = 21
@@ -734,7 +746,8 @@ public struct HeaderChromeRow: View {
                 syncCompletedUnits: Int? = nil,
                 initials: String, profileImage: Image? = nil, recovery: Double?,
                 onStrap: @escaping () -> Void, onSync: @escaping () -> Void,
-                onProfile: @escaping () -> Void, titleActions: AnyView? = nil) {
+                onProfile: @escaping () -> Void, titleActions: AnyView? = nil,
+                titleAccessory: AnyView? = nil, statusPanel: AnyView? = nil) {
         self.title = title
         self.strapState = strapState; self.battery = battery; self.syncState = syncState
         self.syncCompletedUnits = syncCompletedUnits
@@ -742,6 +755,8 @@ public struct HeaderChromeRow: View {
         self.recovery = recovery
         self.onStrap = onStrap; self.onSync = onSync; self.onProfile = onProfile
         self.titleActions = titleActions
+        self.titleAccessory = titleAccessory
+        self.statusPanel = statusPanel
     }
 
     public var body: some View {
@@ -752,6 +767,7 @@ public struct HeaderChromeRow: View {
                 // Let the page and full status grow vertically; no condensed symbols or clipped words.
                 VStack(alignment: .leading, spacing: 8) {
                     deviceTitle
+                    if let titleAccessory { titleAccessory }
                     HStack {
                         Spacer(minLength: 0)
                         accountActions
@@ -817,7 +833,7 @@ public struct HeaderChromeRow: View {
     }
 
     private var deviceTitle: some View {
-        Button(action: onStrap) {
+        Button(action: statusTapped) {
             VStack(alignment: .leading, spacing: 3) {
                 pageTitle
                 deviceStatus
@@ -826,9 +842,29 @@ public struct HeaderChromeRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        // The accessory sits inline after the title, above the button, so it keeps its own tap target.
+        // A hidden copy of the title reserves exactly the title's width.
+        .overlay(alignment: .topLeading) {
+            if let titleAccessory, !typeSize.isAccessibilitySize {
+                HStack(alignment: .lastTextBaseline, spacing: 8) {
+                    pageTitle.hidden()
+                    titleAccessory
+                }
+                .fixedSize()
+            }
+        }
         .accessibilityValue(deviceAccessibilityValue)
-        .accessibilityHint("Opens device Settings, battery and sync controls")
+        .accessibilityHint(statusPanel == nil ? "Opens device Settings, battery and sync controls"
+                                              : "Shows strap status and quick actions")
         .accessibilityIdentifier("app.deviceStatus")
+    }
+
+    private func statusTapped() {
+        if statusPanel != nil {
+            statusOpen.toggle()
+        } else {
+            onStrap()
+        }
     }
 
     private var pageTitle: some View {
@@ -841,17 +877,25 @@ public struct HeaderChromeRow: View {
     }
 
     private var deviceStatus: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 6) {
+        HStack(alignment: .center, spacing: 6) {
             strapDot
-                .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] }
+                .frame(width: 8, height: 8)
             Text(statusLabel)
                 .font(StrandFont.caption)
                 .foregroundStyle(syncState == .error ? StrandPalette.statusWarning : StrandPalette.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
-            Image(systemName: "chevron.down")
+            Image(systemName: "chevron.right")
                 .font(StrandFont.micro.weight(.semibold))
                 .foregroundStyle(StrandPalette.textTertiary)
+                .rotationEffect(.degrees(statusOpen ? 90 : 0))
+                .animation(.easeOut(duration: 0.18), value: statusOpen)
                 .accessibilityHidden(true)
+        }
+        .popover(isPresented: $statusOpen, attachmentAnchor: .rect(.bounds), arrowEdge: .top) {
+            if let statusPanel {
+                statusPanel
+                    .presentationCompactAdaptation(.popover)
+            }
         }
     }
 
@@ -867,7 +911,7 @@ public struct HeaderChromeRow: View {
     }
 
     private var deviceStatusAction: some View {
-        Button(action: onStrap) {
+        Button(action: statusTapped) {
             deviceStatus
                 .frame(minWidth: 44, minHeight: 44, alignment: .leading)
                 .contentShape(Rectangle())
@@ -881,6 +925,9 @@ public struct HeaderChromeRow: View {
 
     private var accountActions: some View {
         HStack(spacing: 8) {
+            if syncState == .syncing {
+                SyncProgressBadge(count: syncCompletedUnits)
+            }
             batteryAction
             Button(action: onProfile) {
                 ZStack {
@@ -988,5 +1035,37 @@ public struct HeaderChromeRow: View {
         case .error: details.append(String(localized: "Open device Settings to retry sync", bundle: .module))
         }
         return details.joined(separator: ". ")
+    }
+}
+
+/// A tiny spinner and chunk count shown beside the battery while history syncs.
+struct SyncProgressBadge: View {
+    let count: Int?
+    @State private var spinning = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @ScaledMetric(relativeTo: .caption) private var textSize: CGFloat = 12
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Circle()
+                .trim(from: 0.12, to: 0.82)
+                .stroke(StrandPalette.textSecondary, style: StrokeStyle(lineWidth: 1.6, lineCap: .round))
+                .frame(width: 11, height: 11)
+                .rotationEffect(.degrees(spinning ? 360 : 0))
+                .animation(reduceMotion ? nil : .linear(duration: 0.9).repeatForever(autoreverses: false),
+                           value: spinning)
+            if let count, count > 0 {
+                Text(verbatim: "\(count)")
+                    .font(StrandFont.mono(textSize, weight: .medium))
+                    .foregroundStyle(StrandPalette.textSecondary)
+                    .monospacedDigit()
+            }
+        }
+        .fixedSize()
+        .onAppear { spinning = true }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text("Syncing", bundle: .module))
+        .accessibilityValue(Text(verbatim: count.map { $0 > 0 ? "\($0)" : "" } ?? ""))
+        .accessibilityIdentifier("app.syncProgress")
     }
 }

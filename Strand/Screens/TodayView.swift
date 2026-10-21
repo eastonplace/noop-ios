@@ -1489,26 +1489,27 @@ struct TodayView: View {
         )
     }
 
-    @ViewBuilder private var todayTopBar: some View {
-        HStack(alignment: .firstTextBaseline) {
-            Spacer(minLength: 8)
+    /// The selected day, small and secondary, set inline after the pinned "Today" title. Tapping opens the
+    /// calendar sheet. Day-change by swipe still works; this stays discoverable through accessibility.
+    private var dateAccessory: AnyView? {
+        AnyView(
             Button { showDayPicker = true } label: {
-                animatedDayNavText
-                    .font(StrandFont.caption)
-                    .foregroundStyle(StrandPalette.textSecondary)
-                    .lineLimit(1)
-                    .frame(minHeight: 44)
+                HStack(spacing: 4) {
+                    animatedDayNavText
+                        .font(StrandFont.caption)
+                        .foregroundStyle(StrandPalette.textSecondary)
+                        .lineLimit(1)
+                    Image(systemName: "chevron.down")
+                        .font(StrandFont.micro.weight(.semibold))
+                        .foregroundStyle(StrandPalette.textTertiary)
+                }
+                .frame(minHeight: 30)
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityLabel("\(dayNavLabel). Swipe or tap to change day")
-            .popover(isPresented: $showDayPicker) {
-                DatePicker("", selection: dayPickerBinding, in: ...Repository.logicalDay(Date()),
-                           displayedComponents: [.date])
-                    .datePickerStyle(.graphical).labelsHidden().padding(12)
-                    .frame(minWidth: 320, minHeight: 360)
-            }
-        }
-        .frame(minHeight: 24)
+            .accessibilityIdentifier("today.dateButton")
+        )
     }
 
     /// Keep the date visible while preserving the lightweight numeric transition when the selected day
@@ -1885,7 +1886,9 @@ struct TodayView: View {
         let value = unit.map { fullValue.replacingOccurrences(of: " \($0)", with: "") } ?? fullValue
         return HealthDashboardTileModel(
             id: card.id, icon: card.icon, label: card.title, value: value, unit: unit,
-            detail: skinTemperature.flatMap { Self.skinTemperatureAgeLabel(ageDays: $0.current.ageDays) },
+            detail: skinTemperature.flatMap { Self.skinTemperatureAgeLabel(ageDays: $0.current.ageDays) }
+                ?? (card == .fitnessAge ? monthDelta("fitness_age", card: card)
+                    : card == .vitality ? monthDelta("vitality", card: card) : nil),
             spark: dashboardSpark(card, day: day, skinTemperature: skinTemperature, calories: calories),
             rail: dashboardRail(card, day: day, skinTemperature: skinTemperature), accent: dashboardTint(card)
         )
@@ -1911,19 +1914,55 @@ struct TodayView: View {
         calories: HealthDailyPick.CaloriesCard? = nil
     ) -> [Double] {
         switch card {
-        case .hrv: return sparks["hrv"] ?? []
-        case .restingHr: return sparks["rhr"] ?? []
-        case .respiratory: return sparks["resp_rate"] ?? []
-        case .bloodOxygen: return sparks["spo2"] ?? []
+        // The per-source metricSeries these keys read is only populated for imported/legacy data; a strap-only
+        // account keeps these values on the daily rows, so fall back to the last 14 daily rows (as Steps and
+        // Skin Temp already do) instead of drawing nothing.
+        case .hrv: return nonEmpty(sparks["hrv"]) ?? dailySpark { $0.avgHrv }
+        case .restingHr: return nonEmpty(sparks["rhr"]) ?? dailySpark { $0.restingHr.map(Double.init) }
+        case .respiratory: return nonEmpty(sparks["resp_rate"]) ?? dailySpark { $0.respRateBpm }
+        case .bloodOxygen: return nonEmpty(sparks["spo2"]) ?? dailySpark { $0.spo2Pct }
+        case .stress:
+            return nonEmpty(StressModel(days: repo.days, stored: stressStored)?.sparkValues) ?? []
         case .skinTemp:
             return skinTemperature?.history
                 ?? resolvedSkinTemperaturePresentation(for: day)?.history
                 ?? []
-        case .sleep: return sparks["sleep_total_min"] ?? []
-        case .steps: return sparks["steps"] ?? []
-        case .calories: return (calories ?? caloriesCard).sparkline
+        case .sleep: return nonEmpty(sparks["sleep_total_min"]) ?? dailySpark { $0.totalSleepMin }
+        // Cumulative day totals: today is still filling in, so its partial value would read as a cliff.
+        case .steps:
+            return droppingPartialToday(nonEmpty(sparks["steps"]) ?? dailySpark { $0.steps.map(Double.init) })
+        case .calories: return droppingPartialToday((calories ?? caloriesCard).sparkline)
         default: return []
         }
+    }
+
+    /// Ends a cumulative metric's sparkline on yesterday while today's row is the newest one.
+    private func droppingPartialToday(_ values: [Double]) -> [Double] {
+        guard values.count > 2, repo.days.last?.day == Repository.localDayKey(Date()) else { return values }
+        return Array(values.dropLast())
+    }
+
+    private func nonEmpty(_ values: [Double]?) -> [Double]? {
+        guard let values, values.count > 1 else { return nil }
+        return values
+    }
+
+    /// The last 14 daily rows' value for one metric, skipping days without it.
+    private func dailySpark(_ value: (DailyMetric) -> Double?) -> [Double] {
+        repo.days.suffix(14).compactMap(value)
+    }
+
+    /// Slow-moving scores (Fitness Age, Vitality) read as a change over the last month rather than a flat line.
+    private func monthDelta(_ key: String, card: DashboardCard) -> String? {
+        guard let values = sparks[key], values.count > 1, let first = values.first, let last = values.last else { return nil }
+        let delta = Int((last - first).rounded())
+        if delta == 0 { return String(localized: "Steady this month") }
+        let arrow = delta < 0 ? "↓" : "↑"
+        let magnitude = abs(delta)
+        if card == .fitnessAge {
+            return "\(arrow)\(magnitude) \(magnitude == 1 ? "yr" : "yrs") this month"
+        }
+        return "\(arrow)\(magnitude) this month"
     }
 
     private func dashboardRail(
@@ -2014,20 +2053,16 @@ struct TodayView: View {
                        lazy: true,
                        // R7: Paper is the one Today surface. The retired day-scene preference remains
                        // stored for compatibility but no longer changes the rendered root.
-                       topBackground: nil) {
+                       topBackground: nil,
+                       titleAccessory: dateAccessory,
+                       showsDeviceStatusPanel: true) {
             VStack(alignment: .leading, spacing: NoopMetrics.gap) {
-                #if os(iOS)
-                todayTopBar
-                #else
+                #if !os(iOS)
                 DayNavBar(selectedOffset: selectedDayOffset,
                           today: Repository.logicalDay(Date())) { notificationSelectedDayKey = nil; selectedDayOffset = $0 }
                 #endif
                 HealthAlertBanner()
                 AutoWorkoutCard()
-                // Keep the Recovery empty state honest while a historical offload is still writing. The
-                // score can legitimately trail Sleep until the corresponding R-R frames land, so surface
-                // the in-progress sync instead of leaving a bare "Not rated" that looks final.
-                SyncingHistoryNoteIfBackfilling()
                 paperSections
                 // D17 (Easton, 2026-07-10): Key Metrics section removed — it duplicated the
                 // pillar trio + Health Monitor. The editor/prefs code stays; only the Today
@@ -2204,6 +2239,13 @@ struct TodayView: View {
         .sheet(isPresented: $showStepsCalibration) {
             StepsCalibrationSheet(repo: repo, onClose: { showStepsCalibration = false })
         }
+        #if os(iOS)
+        .sheet(isPresented: $showDayPicker) {
+            DayCalendarSheet(selected: selectedLogicalDay,
+                             today: Repository.logicalDay(Date()),
+                             daysWithData: Set(repo.days.map(\.day))) { dayPickerBinding.wrappedValue = $0 }
+        }
+        #endif
         // A1 (#514/#706): the Charge breakdown, opened by tapping the Today hero Charge ring. The body
         // builds lazily here (#819 lag) from the drivers DERIVED off the displayed row (never a second read).
         .sheet(isPresented: $showChargeBreakdown) { chargeBreakdownSheet }
@@ -4569,8 +4611,13 @@ struct TodayView: View {
         // Craft pass (003): the Today ribbon draws the REAL hourly curve — the old
         // repeat-fill painted the whole day one color and lied about when stress ran high.
         await loadDaytimeStressForRibbon()
-        fitnessAgeToday = (await fitnessAgeSeriesA).last?.value
-        vitalityToday = (await vitalitySeriesA).last?.value
+        let fitnessAgeSeries = await fitnessAgeSeriesA
+        let vitalitySeries = await vitalitySeriesA
+        fitnessAgeToday = fitnessAgeSeries.last?.value
+        vitalityToday = vitalitySeries.last?.value
+        // Last ~month of each slow score, for the tiles' "change this month" line.
+        sparks["fitness_age"] = trailingWindow(fitnessAgeSeries.map { ($0.day, $0.value) }, days: 31).map(\.value)
+        sparks["vitality"] = trailingWindow(vitalitySeries.map { ($0.day, $0.value) }, days: 31).map(\.value)
         // Hydration card (opt-in): today's stored total + the sex/Strain goal. Only loaded when the
         // feature is on, so a disabled feature does zero work and the card stays hidden.
         await reloadHydration()
@@ -5258,15 +5305,6 @@ private struct RecordingStatusLight: View {
         .buttonStyle(.plain)
         .disabled(state == nil)
         .accessibilityLabel(state?.accessibilityText ?? String(localized: "Recording status, not shown for a past day"))
-    }
-}
-
-/// The "Syncing strap history…" note, shown only while a historical offload is running (#77). Owns the
-/// `LiveState` observation so the chunk count ticks without re-rendering the rest of Today.
-private struct SyncingHistoryNoteIfBackfilling: View {
-    @EnvironmentObject private var live: LiveState
-    var body: some View {
-        if live.backfilling { SyncingHistoryNote(chunks: live.syncChunksThisSession) }
     }
 }
 

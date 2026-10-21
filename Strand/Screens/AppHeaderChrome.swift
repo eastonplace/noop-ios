@@ -31,6 +31,10 @@ struct AppHeaderChrome: View {
     let title: LocalizedStringKey
     /// Only this small, optional accessory is erased; live state stays in the header's leaf observer.
     var titleActions: AnyView? = nil
+    /// Inline control after the title (Today's date).
+    var titleAccessory: AnyView? = nil
+    /// Today opts the status line into the quick-status popover.
+    var showsStatusPanel: Bool = false
 
     @EnvironmentObject private var live: LiveState
     @EnvironmentObject private var model: AppModel
@@ -58,7 +62,9 @@ struct AppHeaderChrome: View {
             onStrap: { router.openSettings(.whoop) },
             onSync: sync,
             onProfile: { router.openSettings() },
-            titleActions: titleActions
+            titleActions: titleActions,
+            titleAccessory: titleAccessory,
+            statusPanel: showsStatusPanel ? AnyView(DeviceStatusPanel()) : nil
         )
         .padding(.horizontal, 16)
         .padding(.vertical, 6)
@@ -86,6 +92,99 @@ struct AppHeaderChrome: View {
         Task {
             _ = await repo.refresh(.currentDay)
         }
+    }
+}
+
+/// The small card the Today status line opens. Every action reuses an existing call:
+/// "Test vibration" is the Smart Alarm / Live "Buzz strap" `AppModel.buzzStrapOnce()`, "Sync now" is the
+/// Health screen's `BLEManager.syncNow()` , and "Device settings" is the route
+/// the header used to open directly.
+private struct DeviceStatusPanel: View {
+    @EnvironmentObject private var live: LiveState
+    @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var router: NavRouter
+    @EnvironmentObject private var repo: Repository
+    @Environment(\.dismiss) private var dismiss
+
+    private var syncValue: String {
+        if live.backfilling {
+            let n = live.syncChunksThisSession
+            return n > 0 ? "Syncing, \(n) chunk\(n == 1 ? "" : "s") pulled" : "Syncing"
+        }
+        if live.lastSyncError != nil { return "Sync failed" }
+        return live.connected ? "Caught up" : "Not syncing"
+    }
+
+    private var lastSyncValue: String {
+        live.lastSyncedAt.map { relativeAgo($0) } ?? "Never"
+    }
+
+    private var batteryValue: String {
+        guard let pct = live.batteryPct else { return "--" }
+        return "\(Int(pct.rounded()))%" + (live.charging == true ? " charging" : "")
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            row("Strap", live.connected ? "Connected" : "Disconnected", dot: live.connected)
+            row("Battery", batteryValue)
+            row("Live heart rate", live.streamingLiveHR ? "Streaming" : "Not streaming")
+            row("Sync", syncValue)
+            row("Last sync", lastSyncValue)
+            Rectangle().fill(StrandPalette.hairline).frame(height: 1).padding(.vertical, 8)
+            HStack(spacing: 8) {
+                action("Test vibration", "waveform") { model.buzzStrapOnce() }
+                    .disabled(!live.connected)
+                action(live.backfilling ? "Syncing" : "Sync now", "arrow.triangle.2.circlepath") {
+                    model.ble.syncNow()
+                    Task { _ = await repo.refresh(.currentDay) }
+                }
+                    .disabled(!live.connected || live.backfilling)
+            }
+            Button {
+                dismiss()
+                router.openSettings(.whoop)
+            } label: {
+                HStack(spacing: 4) {
+                    Text("Device settings")
+                    Image(systemName: "chevron.right").font(.system(size: 9, weight: .semibold))
+                }
+                .font(StrandFont.caption)
+                .foregroundStyle(StrandPalette.textSecondary)
+                .frame(maxWidth: .infinity, minHeight: 36)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(14)
+        .frame(width: 280)
+        .background(StrandPalette.surfaceRaised)
+        .presentationBackground(StrandPalette.surfaceRaised)
+        .accessibilityIdentifier("app.statusPanel")
+    }
+
+    private func row(_ title: LocalizedStringKey, _ value: String, dot: Bool? = nil) -> some View {
+        HStack(spacing: 8) {
+            Text(title).font(StrandFont.caption).foregroundStyle(StrandPalette.textTertiary)
+            Spacer(minLength: 8)
+            if let dot {
+                Circle().fill(dot ? StrandPalette.statusPositive : StrandPalette.textTertiary)
+                    .frame(width: 6, height: 6)
+            }
+            Text(verbatim: value).font(StrandFont.caption.weight(.medium)).foregroundStyle(StrandPalette.textPrimary)
+        }
+        .frame(minHeight: 28)
+    }
+
+    private func action(_ title: LocalizedStringKey, _ symbol: String, _ run: @escaping () -> Void) -> some View {
+        Button(action: run) {
+            Label(title, systemImage: symbol)
+                .font(StrandFont.caption.weight(.semibold))
+                .foregroundStyle(StrandPalette.textPrimary)
+                .frame(maxWidth: .infinity, minHeight: 36)
+                .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(StrandPalette.surfaceInset))
+        }
+        .buttonStyle(.plain)
     }
 }
 #else

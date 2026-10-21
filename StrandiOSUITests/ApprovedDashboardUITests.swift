@@ -243,7 +243,8 @@ final class ApprovedDashboardUITests: XCTestCase {
         assertPinnedHeader(device, initialY: headerY, in: app)
         // Prove the physical touch and its navigation outcome. The pinned SwiftUI
         // header can report false isHittable above its clipped scrolling sibling.
-        device.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        // The status line now opens the quick-status popover; the battery slot is the device Settings entry.
+        app.buttons["app.battery"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         try requireExists(element("settings.whoop.connection", in: app), in: app)
         capture(app, "today-\(size)-scrolled-header-opens-native-whoop")
         try closeSettingsToToday(in: app)
