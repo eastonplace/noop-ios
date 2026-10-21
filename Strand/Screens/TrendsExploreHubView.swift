@@ -51,7 +51,7 @@ enum TrendsExploreDestination: CaseIterable, Identifiable {
         }
     }
 
-    @ViewBuilder var destination: some View {
+    @MainActor @ViewBuilder var destination: some View {
         switch self {
         case .whatMovesYou: InsightsHubView()
         case .intelligence: IntelligenceView()
