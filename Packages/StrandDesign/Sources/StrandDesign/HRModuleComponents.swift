@@ -139,7 +139,6 @@ public struct HRLiveModuleCard: View {
                         .strandOverlineFitted()
                         .lineLimit(3)
                 }
-                zonePill
             }
         } else {
             HStack(spacing: NoopMetrics.space2) {
@@ -148,7 +147,6 @@ public struct HRLiveModuleCard: View {
                     .strandOverline()
                     .lineLimit(1)
                 Spacer(minLength: NoopMetrics.space2)
-                zonePill
             }
         }
     }
@@ -160,17 +158,6 @@ public struct HRLiveModuleCard: View {
                          color: samples.isEmpty ? StrandPalette.textTertiary : HRModuleTint.live,
                          period: breathPeriod,
                          pulses: !samples.isEmpty)
-    }
-
-    @ViewBuilder private var zonePill: some View {
-        if displayed != nil {
-            HRZonePill(word: zoneWord)
-                .contentTransition(.opacity)
-        } else {
-            // Waiting for a first reading: keep the row as tall as it will be, so the pill arriving
-            // does not push the module down.
-            HRZonePill(word: String(localized: "Steady")).hidden()
-        }
     }
 
     /// The number is the hero — production-sized, zone word beside it, live context under it.
@@ -192,6 +179,14 @@ public struct HRLiveModuleCard: View {
                 }
             }
             .font(StrandFont.micro)
+            // The zone word is a small coloured label beside the reading, not a pill in the header.
+            if displayed != nil {
+                Text(verbatim: zoneWord)
+                    .font(StrandFont.micro.weight(.semibold))
+                    .foregroundStyle(HRModuleTint.live)
+                    .contentTransition(.opacity)
+                    .padding(.leading, 6)
+            }
             Spacer(minLength: 0)
         }
         .animation(StrandMotion.fade, value: scrubIndex)
@@ -488,18 +483,6 @@ public struct HRLiveModuleCard: View {
         let low = Int((values.min() ?? 0).rounded())
         let peak = Int((values.max() ?? 0).rounded())
         return "Live heart rate \(Int(latest.bpm.rounded())) beats per minute. Last two hours: low \(low), peak \(peak)."
-    }
-}
-
-/// A zone word ("Resting", "Steady", "Pushing") on the shared state-pill chrome (the Coach "Stale" pill's
-/// exact metrics), washed and outlined in the live red with the pill's white type.
-private struct HRZonePill: View {
-    let word: String
-
-    var body: some View {
-        Text(verbatim: word)
-            .statePillLabel()
-            .statePillChrome(tint: HRModuleTint.live)
     }
 }
 

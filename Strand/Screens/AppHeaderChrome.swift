@@ -43,6 +43,7 @@ struct AppHeaderChrome: View {
     @EnvironmentObject private var router: NavRouter
 
     @State private var transientSyncState: AppSyncState = .idle
+    @State private var statusExpanded = false
 
     private var chromeState: AppHeaderChromeState {
         AppHeaderChromeMapper.state(connected: live.connected, backfilling: live.backfilling,
@@ -50,22 +51,29 @@ struct AppHeaderChrome: View {
     }
 
     var body: some View {
-        HeaderChromeRow(
-            title: title,
-            strapState: chromeState.strap,
-            battery: live.batteryPct.map { Int($0.rounded()) },
-            syncState: chromeState.sync,
-            syncCompletedUnits: live.backfilling ? live.syncChunksThisSession : nil,
-            initials: "",
-            profileImage: profileImage,
-            recovery: repo.today?.recovery,
-            onStrap: { router.openSettings(.whoop) },
-            onSync: sync,
-            onProfile: { router.openSettings() },
-            titleActions: titleActions,
-            titleAccessory: titleAccessory,
-            statusPanel: showsStatusPanel ? AnyView(DeviceStatusPanel()) : nil
-        )
+        VStack(alignment: .leading, spacing: 0) {
+            HeaderChromeRow(
+                title: title,
+                strapState: chromeState.strap,
+                battery: live.batteryPct.map { Int($0.rounded()) },
+                syncState: chromeState.sync,
+                syncCompletedUnits: live.backfilling ? live.syncChunksThisSession : nil,
+                initials: "",
+                profileImage: profileImage,
+                recovery: repo.today?.recovery,
+                onStrap: { router.openSettings(.whoop) },
+                onSync: sync,
+                onProfile: { router.openSettings() },
+                titleActions: titleActions,
+                titleAccessory: titleAccessory,
+                statusExpanded: showsStatusPanel ? $statusExpanded : nil
+            )
+            if showsStatusPanel && statusExpanded {
+                DeviceStatusPanel()
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+        .clipped()
         .padding(.horizontal, 16)
         .padding(.vertical, 6)
         .background(StrandPalette.appCanvas)
@@ -95,7 +103,7 @@ struct AppHeaderChrome: View {
     }
 }
 
-/// The small card the Today status line opens. Every action reuses an existing call:
+/// The panel the Today status line expands inline under the header. Every action reuses an existing call:
 /// "Test vibration" is the Smart Alarm / Live "Buzz strap" `AppModel.buzzStrapOnce()`, "Sync now" is the
 /// Health screen's `BLEManager.syncNow()` , and "Device settings" is the route
 /// the header used to open directly.
@@ -104,7 +112,6 @@ private struct DeviceStatusPanel: View {
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var router: NavRouter
     @EnvironmentObject private var repo: Repository
-    @Environment(\.dismiss) private var dismiss
 
     private var syncValue: String {
         if live.backfilling {
@@ -142,7 +149,6 @@ private struct DeviceStatusPanel: View {
                     .disabled(!live.connected || live.backfilling)
             }
             Button {
-                dismiss()
                 router.openSettings(.whoop)
             } label: {
                 HStack(spacing: 4) {
@@ -156,10 +162,10 @@ private struct DeviceStatusPanel: View {
             }
             .buttonStyle(.plain)
         }
-        .padding(14)
-        .frame(width: 280)
-        .background(StrandPalette.surfaceRaised)
-        .presentationBackground(StrandPalette.surfaceRaised)
+        .padding(.top, 6)
+        .padding(.bottom, 4)
+        .frame(maxWidth: .infinity)
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("app.statusPanel")
     }
 

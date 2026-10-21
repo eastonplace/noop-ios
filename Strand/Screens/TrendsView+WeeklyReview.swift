@@ -139,7 +139,7 @@ extension TrendsView {
         let hasPrior = (summary?.weekOverWeek.previous.n ?? 0) > 0
         let unchanged = hasValue && hasPrior && trendsDeltaIsZero(deltaMagnitude)
         let tone: TrendDeltaTone
-        if hasValue, hasPrior, !unchanged, let summary, !summary.isRoughComparison {
+        if hasValue, hasPrior, !unchanged, let summary, !summary.isRoughComparison, metric != .effort {
             switch summary.wowGoodness {
             case 1: tone = .positive
             case -1: tone = .negative
@@ -263,7 +263,7 @@ extension TrendsView {
 
     /// A move that rounds to nothing carries no colour: "No change" is neither good nor bad.
     private func paperMoverTone(_ summary: WeeklyMetricSummary) -> StrandTone {
-        guard !summary.isRoughComparison, !trendsDeltaIsZero(paperMoverMagnitude(summary)) else { return .neutral }
+        guard !summary.isRoughComparison, summary.metric != .effort, !trendsDeltaIsZero(paperMoverMagnitude(summary)) else { return .neutral }
         switch summary.wowGoodness {
         case 1: return .positive
         case -1: return .critical

@@ -732,10 +732,10 @@ public struct HeaderChromeRow: View {
     public let titleActions: AnyView?
     /// Small tappable accessory set inline right after the page title (Today's date).
     public let titleAccessory: AnyView?
-    /// When set, tapping the status line opens this as an anchored popover (and the chevron turns down)
-    /// instead of calling `onStrap`. The caller owns the panel's content and live-state observation.
-    public let statusPanel: AnyView?
-    @State private var statusOpen = false
+    /// When set, tapping the status line toggles this flag (the chevron turns down while true) instead of
+    /// calling `onStrap`. The owner renders the expanded panel inline under the row.
+    public let statusExpanded: Binding<Bool>?
+    private var statusOpen: Bool { statusExpanded?.wrappedValue ?? false }
     @Environment(\.dynamicTypeSize) private var typeSize
     @ScaledMetric(relativeTo: .title) private var titleSize: CGFloat = 26
     @ScaledMetric(relativeTo: .body) private var chromeGlyph: CGFloat = 21
@@ -747,7 +747,7 @@ public struct HeaderChromeRow: View {
                 initials: String, profileImage: Image? = nil, recovery: Double?,
                 onStrap: @escaping () -> Void, onSync: @escaping () -> Void,
                 onProfile: @escaping () -> Void, titleActions: AnyView? = nil,
-                titleAccessory: AnyView? = nil, statusPanel: AnyView? = nil) {
+                titleAccessory: AnyView? = nil, statusExpanded: Binding<Bool>? = nil) {
         self.title = title
         self.strapState = strapState; self.battery = battery; self.syncState = syncState
         self.syncCompletedUnits = syncCompletedUnits
@@ -756,7 +756,7 @@ public struct HeaderChromeRow: View {
         self.onStrap = onStrap; self.onSync = onSync; self.onProfile = onProfile
         self.titleActions = titleActions
         self.titleAccessory = titleAccessory
-        self.statusPanel = statusPanel
+        self.statusExpanded = statusExpanded
     }
 
     public var body: some View {
@@ -854,14 +854,15 @@ public struct HeaderChromeRow: View {
             }
         }
         .accessibilityValue(deviceAccessibilityValue)
-        .accessibilityHint(statusPanel == nil ? "Opens device Settings, battery and sync controls"
-                                              : "Shows strap status and quick actions")
+        .accessibilityHint(statusExpanded == nil ? "Opens device Settings, battery and sync controls"
+                                                 : "Shows strap status and quick actions")
+        .accessibilityValue(statusExpanded == nil ? "" : (statusOpen ? "Expanded" : "Collapsed"))
         .accessibilityIdentifier("app.deviceStatus")
     }
 
     private func statusTapped() {
-        if statusPanel != nil {
-            statusOpen.toggle()
+        if let statusExpanded {
+            withAnimation(.spring(duration: 0.38, bounce: 0.12)) { statusExpanded.wrappedValue.toggle() }
         } else {
             onStrap()
         }
@@ -888,14 +889,8 @@ public struct HeaderChromeRow: View {
                 .font(StrandFont.micro.weight(.semibold))
                 .foregroundStyle(StrandPalette.textTertiary)
                 .rotationEffect(.degrees(statusOpen ? 90 : 0))
-                .animation(.easeOut(duration: 0.18), value: statusOpen)
+                .animation(.spring(duration: 0.38, bounce: 0.12), value: statusOpen)
                 .accessibilityHidden(true)
-        }
-        .popover(isPresented: $statusOpen, attachmentAnchor: .rect(.bounds), arrowEdge: .top) {
-            if let statusPanel {
-                statusPanel
-                    .presentationCompactAdaptation(.popover)
-            }
         }
     }
 
