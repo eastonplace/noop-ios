@@ -13,17 +13,23 @@ Every PR that changes what a user sees or how the app behaves ships a version bu
    - **Major**: a deliberate reset of the product, only on Easton's say-so.
    - One version per merged PR. If two PRs are open at once, the second to merge rebases and takes the next number.
 2. **Bump the build**: raise `CURRENT_PROJECT_VERSION` in `project.yml` by one on every bump.
-3. **Write the What's New entry**: add a `Release` at the top of `AppChangelog.releases`
-   (`Strand/System/AppChangelog.swift`) with the same version, a short title, the month, and 2–9 items.
-   Items are user-facing: `**Bold lead-in.**` then one or two plain sentences on what changed for the person.
-   No PR numbers, file names or internal jargon.
+3. **Write the What's New entry**: add a `.fork("<version>", "<short title>", "<Month Year>", [...])` at the top
+   of `AppChangelog.releases` (`Strand/System/AppChangelog.swift`) with 3–9 `Feature(symbol, tint, title, detail)`
+   rows. This is a showcase, not a changelog: titles are 2–4 words, details are one short line (under ~60
+   characters) on what changed for the person. An SF Symbol and a tint per row. No PR numbers, file names or
+   jargon. Look at the 1.7.0 entry and match it.
 4. **Update the fallback**: the literal in `AppChangelog.currentVersion` matches the new version.
 5. **Mirror it** in `CHANGELOG.md` under a `## <version>` heading.
 6. **Tag the release** after merge: `gh release create v<version> --repo eastonplace/noop-ios --generate-notes`.
    Settings → About → Check for updates reads the latest release from this repository.
 
-The What's New sheet opens by itself once after an update (the stored last-seen version differs from the
-running one) and is always reachable from Settings → About → What's new.
+The What's New screen opens by itself the first time the app runs a new version (the stored last-seen
+version differs from the running one), so a version bump is what shows it. It is always reachable from
+Settings → About → What's new.
+
+**Enforced in CI.** `Tools/qa/whats_new_release_audit.py` runs in the `source-audits` job and fails a PR when the
+newest What's New entry doesn't match `MARKETING_VERSION`, the fallback literal is stale, or app source changed
+without raising both `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` above `main`'s.
 
 ## Credits
 

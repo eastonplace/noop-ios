@@ -70,6 +70,7 @@ jobs:
             paper_strings_contract_audit.py
             project_hygiene_audit.py
             test_project_hygiene_audit.py
+            whats_new_release_audit.py
           )
           for audit in "${audits[@]}"; do
             echo "::group::$audit"
