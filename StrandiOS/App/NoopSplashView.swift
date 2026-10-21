@@ -9,8 +9,9 @@ struct NoopSplashView: View {
     static var shouldShowOnLaunch: Bool {
         let args = CommandLine.arguments
         if args.contains("--noop-splash") { return true }
-        // A background launch (BLE state restoration, a notification) has no one watching: skip the splash.
-        if MainActor.assumeIsolated({ UIApplication.shared.applicationState == .background }) { return false }
+        // No background-launch check here: before the first scene connects, applicationState reads .background even
+        // for a normal tap. A background launch (BLE restoration) renders no frames, so the frame-driven clock holds
+        // the splash until the app is actually opened.
         if args.contains("--no-splash") || args.contains("--demo-seed") || args.contains("--demo-tab")
             || args.contains("--storage-recovery-qa") || args.contains(where: { $0.hasPrefix("--noop-") }) {
             return false
