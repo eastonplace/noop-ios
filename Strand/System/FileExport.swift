@@ -192,6 +192,16 @@ enum FileExport {
         func copy(_ source: URL, to destination: URL) throws {
             try FileExport.copyAtomically(source, to: destination)
         }
+        func writeText(_ text: String, to destination: URL) throws {
+            try Task.checkCancellation()
+            try text.write(to: destination, atomically: true, encoding: .utf8)
+        }
+        func stageText(_ text: String, name: String) throws -> URL {
+            let directory = try FileExport.stagingDirectory()
+            let destination = directory.appendingPathComponent(URL(fileURLWithPath: name).lastPathComponent)
+            do { try writeText(text, to: destination); return destination }
+            catch { try? FileManager.default.removeItem(at: directory); throw error }
+        }
         func scheduled(_ directory: URL, stamp: String, header: [String], capture: URL?) throws -> URL {
             try Task.checkCancellation()
             let log = directory.appendingPathComponent("noop-strap-log-\(stamp).txt")
@@ -215,6 +225,10 @@ enum FileExport {
 
     static func saveScheduledExport(to directory: URL, stamp: String, extraHeaderLines: [String], captureURL: URL?) async throws -> URL {
         try await io.scheduled(directory, stamp: stamp, header: extraHeaderLines, capture: captureURL)
+    }
+
+    static func stagedText(_ text: String, suggestedName: String) async throws -> URL {
+        try await io.stageText(text, name: suggestedName)
     }
 
     /// Keep only the already-scrubbed tail required by the existing bundle budget. The stream is
@@ -277,19 +291,17 @@ enum FileExport {
         panel.nameFieldStringValue = suggestedName
         panel.canCreateDirectories = true
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        try? text.write(to: url, atomically: true, encoding: .utf8)
+        Task { try? await io.writeText(text, to: url) }
         #else
         // Write to a temp file FIRST and only present the share sheet if the file actually exists.
         // The previous `try?` swallowed write failures, then handed an empty/missing path to the
         // share sheet — the user saw a broken export with no error. Clean up the temp file after the
         // share sheet closes so the temporaryDirectory doesn't accumulate dead exports across runs.
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent(suggestedName)
-        do {
-            try text.write(to: url, atomically: true, encoding: .utf8)
-        } catch {
-            return
+        Task { @MainActor in
+            guard let url = try? await stagedText(text, suggestedName: suggestedName) else { return }
+            guard !Task.isCancelled else { removeStaged(url); return }
+            present(activityItems: [url], cleanup: [url])
         }
-        present(activityItems: [url], cleanup: [url])
         #endif
     }
 
