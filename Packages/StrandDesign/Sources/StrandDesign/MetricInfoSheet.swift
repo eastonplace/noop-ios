@@ -30,7 +30,31 @@ public struct MetricInfoSheet: View {
     }
 
     public var body: some View {
-        NavigationStack {
+        // A custom header instead of a NavigationStack toolbar: on iOS 26 a toolbar button is wrapped in Liquid Glass
+        // automatically, which put an oval behind "Done".
+        VStack(spacing: 0) {
+            ZStack {
+                Text(verbatim: title)
+                    .font(StrandFont.subhead.weight(.semibold))
+                    .foregroundStyle(StrandPalette.textPrimary)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 72)
+                    .accessibilityAddTraits(.isHeader)
+                HStack {
+                    Spacer(minLength: 0)
+                    Button { dismiss() } label: {
+                        Text("Done")
+                            .font(StrandFont.subhead.weight(.semibold))
+                            .foregroundStyle(StrandPalette.accent)
+                            .frame(minWidth: 44, minHeight: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, NoopMetrics.space3)
+            .padding(.top, NoopMetrics.space2)
             ScrollView {
                 VStack(alignment: .leading, spacing: NoopMetrics.space4) {
                     ForEach(sections) { section in
@@ -52,17 +76,8 @@ public struct MetricInfoSheet: View {
                 .padding(NoopMetrics.cardInnerPadding)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .background(StrandPalette.surfaceOverlay)
-            .navigationTitle(title)
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
-                }
-            }
         }
+        .background(StrandPalette.surfaceOverlay.ignoresSafeArea())
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
     }

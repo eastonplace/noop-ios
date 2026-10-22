@@ -122,7 +122,7 @@ public struct SectionEyebrow: View {
 
     @ViewBuilder private var infoButton: some View {
         if let infoAction {
-            WidgetChipButton(systemImage: "info.circle", accessibilityLabel: infoAccessibilityLabel, action: infoAction)
+            InfoGlyphButton(accessibilityLabel: infoAccessibilityLabel, action: infoAction)
         }
     }
 

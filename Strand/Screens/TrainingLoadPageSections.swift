@@ -1252,7 +1252,7 @@ struct LoadFocusCardRow: View {
                     .foregroundStyle(StrandPalette.textPrimary)
                     .accessibilityLabel(Text(verbatim: Self.spoken(summary)))
                     .accessibilityIdentifier("trends.trainingLoad.loadFocus")
-                WidgetChipButton(systemImage: "info.circle", accessibilityLabel: MetricInfo.loadFocus.accessibilityLabel) {
+                InfoGlyphButton(accessibilityLabel: MetricInfo.loadFocus.accessibilityLabel) {
                     info = .loadFocus
                 }
                 Spacer(minLength: 0)
