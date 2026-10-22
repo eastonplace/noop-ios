@@ -124,7 +124,7 @@ private struct CoachJournalAssociationCard: View {
             }
             .padding(.top, 12)
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel(Text(LocalCoachCardFormat.exportLine(.journalAssociation(card))))
+            .accessibilityLabel(Text(LocalCoachCardFormat.journalAccessibilityLabel(card)))
 
             if let onAskCoach {
                 CoachTextButton("Ask Coach", symbol: "chevron.right") {
@@ -164,7 +164,7 @@ private struct CoachJournalComparisonRow: View {
             HStack(alignment: .firstTextBaseline) {
                 Text(title).font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
                 Spacer(minLength: 4)
-                Text(verbatim: LocalCoachCardFormat.oneDecimal(value))
+                Text(verbatim: LocalCoachCardFormat.recoveryPercent(value))
                     .font(StrandFont.subhead.weight(.semibold).monospacedDigit())
                     .foregroundStyle(StrandPalette.textPrimary)
             }

@@ -198,14 +198,27 @@ enum LocalCoachCardFormat {
 
     // MARK: Journal card wording (the card on screen; `exportLine` keeps the full figures)
 
+    /// A group's mean recovery as a whole-number percent, "32%", the way Today and the Recovery card show it.
+    static func recoveryPercent(_ value: Double?) -> String { whole(value, unit: "%") }
+
+    /// Yes minus no on the figures the card shows: the two means are rounded first, so the headline can never
+    /// disagree with the "32%" and "43%" beside it. Falls back to the stored difference without both means.
+    static func journalDisplayedDifference(_ card: LocalCoachCard.JournalAssociation) -> Int? {
+        guard let difference = card.difference, difference.isFinite else { return nil }
+        if let yes = card.yesMean, let no = card.noMean, yes.isFinite, no.isFinite {
+            return Int(yes.rounded()) - Int(no.rounded())
+        }
+        return Int(difference.rounded())
+    }
+
     /// The finding in plain words: how much higher or lower recovery was, or why there is no comparison yet.
     static func journalHeadline(_ card: LocalCoachCard.JournalAssociation) -> String {
         switch card.state {
         case .available:
-            guard let difference = card.difference, difference.isFinite else {
+            guard let difference = journalDisplayedDifference(card) else {
                 return String(localized: "Not enough days to compare yet")
             }
-            let points = Int(abs(difference).rounded())
+            let points = abs(difference)
             if points == 0 { return String(localized: "Recovery was about the same") }
             if difference < 0 {
                 return points == 1 ? String(localized: "Recovery was 1 point lower")
@@ -217,6 +230,21 @@ enum LocalCoachCardFormat {
         case .truncated: return String(localized: "Too many records to compare")
         case .noBooleanAnswers: return String(localized: "No yes or no answers to compare yet")
         }
+    }
+
+    /// What VoiceOver reads for the journal card: the finding, the habit, the two group figures in words, then the
+    /// counts and the safety line. Unlike `exportLine` it speaks the figures the card shows ("32 percent").
+    static func journalAccessibilityLabel(_ card: LocalCoachCard.JournalAssociation) -> String {
+        var parts = [journalHeadline(card)]
+        if let detail = journalHeadlineDetail(card) { parts.append(detail) }
+        if card.state == .available, let yes = card.yesMean, let no = card.noMean {
+            parts.append("Yes days \(whole(yes)) percent, no days \(whole(no)) percent")
+        }
+        let counts = journalCountsLine(card)
+        if !counts.isEmpty { parts.append(counts) }
+        if let note = journalMissingLine(card) { parts.append(note) }
+        parts.append("An association, not a cause. Unlogged days are left out.")
+        return parts.joined(separator: ". ")
     }
 
     /// The habit the finding is about, or the one thing that would unlock a comparison.

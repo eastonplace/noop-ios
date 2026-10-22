@@ -276,6 +276,7 @@ private struct CoachTurnView: View {
                             withAnimation(reduceMotion ? nil : .easeOut(duration: 0.25)) { showAllCards.toggle() }
                         } label: {
                             CoachHairlineChip(title: showAllCards ? Text("Show fewer records")
+                                                  : cards.count - 2 == 1 ? Text("1 more record")
                                                   : Text("\(cards.count - 2) more records"),
                                               trailingSystemImage: showAllCards ? "chevron.up" : "chevron.down")
                                 .coachChipHitTarget()

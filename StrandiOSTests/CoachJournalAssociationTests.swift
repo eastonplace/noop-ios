@@ -68,13 +68,41 @@ final class CoachJournalAssociationTests: XCTestCase {
         XCTAssertEqual(CoachFollowUps.suggestions(for: message).first?.prompt, prompt)
     }
 
+    func testJournalCardShowsWholeNumberRecoveryPercentAndAMatchingHeadline() throws {
+        // Means 31.5 and 43.2: the card shows 32% and 43%, so the headline says 11 points (not the raw 11.7 -> 12).
+        let value = try insight(recoveryValues: [31.0, 32.0, 31.5, 43.2, 43.2, 43.2])
+
+        XCTAssertEqual(LocalCoachCardFormat.recoveryPercent(value.yesMean), "32%")
+        XCTAssertEqual(LocalCoachCardFormat.recoveryPercent(value.noMean), "43%")
+        XCTAssertEqual(LocalCoachCardFormat.journalDisplayedDifference(value), -11)
+        XCTAssertEqual(LocalCoachCardFormat.journalHeadline(value), "Recovery was 11 points lower")
+        XCTAssertEqual(LocalCoachCardFormat.recoveryPercent(nil), "—")
+    }
+
+    func testJournalHeadlineSaysAboutTheSameWhenRoundedFiguresMatch() throws {
+        let value = try insight(recoveryValues: [50.0, 50.0, 50.4, 49.6, 50.0, 50.0])
+
+        XCTAssertEqual(LocalCoachCardFormat.journalHeadline(value), "Recovery was about the same")
+    }
+
+    func testJournalAccessibilityLabelSpeaksPercentsNotRawDecimals() throws {
+        let value = try insight(recoveryValues: [31.0, 32.0, 31.5, 43.2, 43.2, 43.2])
+        let label = LocalCoachCardFormat.journalAccessibilityLabel(value)
+
+        XCTAssertTrue(label.contains("Recovery was 11 points lower"))
+        XCTAssertTrue(label.contains("Yes days 32 percent, no days 43 percent"))
+        XCTAssertFalse(label.contains("31.5"))
+        XCTAssertFalse(label.contains("43.2"))
+        XCTAssertTrue(label.contains("An association, not a cause"))
+    }
+
     private func insight(question: String = "Did you take magnesium?", truncated: Bool = false,
-                         insufficient: Bool = false) throws -> JournalAssociationAnalysis.Insight {
+                         insufficient: Bool = false,
+                         recoveryValues: [Double] = [80.0, 70.0, 90.0, 50.0, 60.0, 70.0]) throws -> JournalAssociationAnalysis.Insight {
         let answers = (1...7).map { day in
             JournalAssociationAnalysis.Answer(day: key(day), question: question, answeredYes: day <= 3 || day == 7)
         }
-        let values = [80.0, 70.0, 90.0, 50.0, 60.0, 70.0]
-        let recovery = values.prefix(insufficient ? 5 : 6).enumerated().map {
+        let recovery = recoveryValues.prefix(insufficient ? 5 : 6).enumerated().map {
             JournalAssociationAnalysis.Recovery(day: key($0.offset + 1), value: $0.element)
         }
         return try XCTUnwrap(JournalAssociationAnalysis.analyze(
