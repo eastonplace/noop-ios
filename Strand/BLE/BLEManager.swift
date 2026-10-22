@@ -6934,7 +6934,11 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
                 // the router + collector re-checks the invariant).
                 let parsed = parseFrame(frame, family: .whoop4)
                 router.handle(parsed: parsed, frame: frame, observedAt: observedAt, source: receiptSource)
-                if frame.count > 6, frame[6] == WhoopCommand.getDataRange.rawValue {
+                if frame.count > 6, frame[6] == WhoopCommand.getDataRange.rawValue,
+                   parsed.ok, parsed.envelopeOK,
+                   parsed.headerCRCOK == true, parsed.payloadCRCOK == true {
+                    // FrameRouter's rejection does not stop this delegate. Range markers can bound
+                    // history and supply an approximate clock, so verify their bytes at this seam too.
                     // #451: the decoded "newest" can latch a stale/wrong-epoch field (claypilat saw 2024 when
                     // the real newest was 2026). To tell a genuinely-stale strap apart from a frame-alignment
                     // bug in dataRangeNewestUnix WITHOUT guessing, dump the raw GET_DATA_RANGE response bytes
