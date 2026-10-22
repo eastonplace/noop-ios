@@ -19,7 +19,7 @@ public struct NOOPCoachBriefWidgetContent: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            SectionEyebrow(title: words("Coach"), systemImage: "sparkles", tint: .accent)
+            SectionEyebrow(title: words("Coach"), systemImage: "bubble.left.and.text.bubble.right", tint: .accent)
             if let text, let generatedAt {
                 HStack(alignment: .top, spacing: 14) {
                     VStack(alignment: .leading, spacing: 5) {
@@ -28,7 +28,7 @@ public struct NOOPCoachBriefWidgetContent: View {
                             .lineLimit(1).minimumScaleFactor(0.85)
                         Text(verbatim: text).font(StrandFont.caption)
                             .foregroundStyle(StrandPalette.textSecondary)
-                            .lineLimit(compact ? 3 : 4)
+                            .lineLimit(3)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
                     if !compact {
@@ -40,6 +40,7 @@ public struct NOOPCoachBriefWidgetContent: View {
                             })
                         }
                         .frame(minWidth: 64)
+                        .layoutPriority(1)
                     }
                 }
                 Spacer(minLength: 0)
@@ -52,7 +53,7 @@ public struct NOOPCoachBriefWidgetContent: View {
             } else {
                 Text("Your daily brief", bundle: .module)
                     .font(StrandFont.subhead).foregroundStyle(StrandPalette.textPrimary)
-                Text("Open Coach to create today’s brief.", bundle: .module)
+                Text("Open Coach for today’s brief.", bundle: .module)
                     .font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 0)
@@ -75,4 +76,35 @@ public struct NOOPCoachBriefWidgetContent: View {
         .accessibilityLabel(Text(verbatim: "\(label), \(value ?? words("Unavailable"))"))
     }
 }
+
+#if DEBUG
+// The widget draws on a graphite card; this stands in for it so the populated and empty looks can be checked here.
+private struct CoachBriefWidgetPreviewCard: View {
+    let width: CGFloat
+    let populated: Bool
+    var body: some View {
+        NOOPCoachBriefWidgetContent(
+            text: populated
+                ? "Recovery is high and you slept well. A solid day to train hard, then keep the evening easy so tomorrow starts fresh."
+                : nil,
+            generatedAt: populated ? Date() : nil, evening: false,
+            recovery: populated ? 82 : nil, strain: populated ? 11.4 : nil, sleepMinutes: populated ? 452 : nil,
+            compact: width < 200)
+            .padding(16)
+            .frame(width: width, height: 158)
+            .background(StrandPalette.card)
+            .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+    }
+}
+
+#Preview("Small") { CoachBriefWidgetPreviewCard(width: 158, populated: true).padding().background(StrandPalette.canvas) }
+#Preview("Medium") { CoachBriefWidgetPreviewCard(width: 338, populated: true).padding().background(StrandPalette.canvas) }
+#Preview("Empty, small and medium") {
+    VStack(spacing: 12) {
+        CoachBriefWidgetPreviewCard(width: 158, populated: false)
+        CoachBriefWidgetPreviewCard(width: 338, populated: false)
+    }
+    .padding().background(StrandPalette.canvas)
+}
+#endif
 #endif
