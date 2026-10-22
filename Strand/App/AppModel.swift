@@ -676,7 +676,7 @@ final class AppModel: ObservableObject {
             }
         }.store(in: &hrCancellables)
         // Smooth HR centrally so it's solid everywhere it's shown.
-        live.$heartRate.sink { [weak self] _ in self?.ingestDirectHR() }.store(in: &hrCancellables)
+        live.$heartRate.sink { [weak self] hr in self?.ingestDirectHR(hr) }.store(in: &hrCancellables)
         live.$rr.sink { [weak self] rr in self?.ingestRRPacket(rr) }.store(in: &hrCancellables)
 
         // Physical-input + wear hooks (fired live by FrameRouter).
@@ -2199,19 +2199,25 @@ final class AppModel: ObservableObject {
     /// Direct HR and R-R are independent live streams. Keeping their sinks separate prevents one R-R
     /// packet from re-running HR smoothing/workout capture and prevents a direct-HR tick from appending
     /// the same R-R packet to the stress window a second time.
-    private func ingestDirectHR() {
-        guard let hr = live.heartRate, hr >= 30, hr <= 220 else {
+    private func ingestDirectHR(_ incomingHR: Int?) {
+        // @Published emits in willSet. The argument is fresh; live.heartRate still holds the prior sample.
+        guard let hr = incomingHR, hr >= 30, hr <= 220 else {
             // #39: when the live source is gone (disconnect blanks heartRate AND rr), drop the stale
             // median so screens that now prefer `bpm` fall through to "," instead of freezing on the
             // last value. Mirrors Android (_bpm = null on disconnect). A transient out-of-range sample
             // with the link still up (heartRate or rr still present) keeps the last median.
-            if live.heartRate == nil && live.rr.isEmpty { resetSmoothing() }
+            if incomingHR == nil && live.rr.isEmpty { resetSmoothing() }
             return
         }
         ingestInstantaneousHR(Double(hr))
     }
 
     private func ingestRRPacket(_ packet: [Int]) {
+        // clearBiometrics clears HR before RR. Reset when the second stream clears, too.
+        if packet.isEmpty && live.heartRate == nil {
+            resetSmoothing()
+            return
+        }
         evaluateStress(packet)
         // R-R is only an HR fallback. When a valid direct-HR stream exists, its publisher owns
         // smoothing and workout capture, so the higher-frequency R-R publisher cannot duplicate work.

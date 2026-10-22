@@ -259,6 +259,10 @@ private struct CoachTurnView: View {
         VStack(alignment: .leading, spacing: NoopMetrics.space4) {
             if !message.text.isEmpty {
                 Markdown(message.text).markdownTheme(.coachAnswer(size: textSize)).textSelection(.enabled)
+                    // Model-generated Markdown must not load remote images on display. Cover both
+                    // block and inline image paths; bundled exercise cards use their own renderer.
+                    .markdownImageProvider(.asset)
+                    .markdownInlineImageProvider(.asset)
                     .accessibilityIdentifier("coach.answer.explanation")
             }
             // Swift record tools build cards before generation. Their values are never parsed from prose.

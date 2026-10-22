@@ -13,8 +13,8 @@ import OuraProtocol
 /// device is paired: WHOOP is active, `setPreferredPeripheral(nil)` keeps "connect to the first WHOOP
 /// found", the WHOOP's deviceId stays "my-whoop", and the existing WHOOP flow (`BLEManager` via
 /// `AppModel.scan(...)`) runs exactly as it does today. On a plain launch with one WHOOP it issues NO
-/// scan, NO disconnect, NO re-point — the only side effect is one `setPreferredPeripheral(nil)`, which
-/// is the BLEManager default and a no-op there.
+/// scan or disconnect. It reconciles the preferred peripheral and persistence owner through setters
+/// that are idempotent when the existing target already matches.
 ///
 /// It only ever *acts* beyond that when the registry has more than the seeded WHOOP:
 ///
@@ -47,7 +47,7 @@ final class SourceCoordinator: ObservableObject {
     /// Wraps `BLEManager.setPreferredPeripheral`. Called only on a WHOOP transition.
     private let setWhoopPreferredPeripheral: (String?) -> Void
     /// Re-point which device id live WHOOP samples store under. Wraps `BLEManager.setActiveDeviceId`.
-    /// Called only when the active WHOOP is NOT the seeded "my-whoop" — the legacy path never invokes it.
+    /// Reconciled for every WHOOP selection, including a return to the seeded "my-whoop".
     private let setWhoopActiveDeviceId: (String) -> Void
     /// The most-recently-connected WHOOP peripheral's uuid, from `BLEManager.$connectedPeripheralUUID`.
     private let connectedPeripheralUUID: AnyPublisher<String?, Never>
@@ -99,6 +99,9 @@ final class SourceCoordinator: ObservableObject {
     /// every WHOOP→WHOOP re-point. nil until the first WHOOP activation is handled. Lets us tell "same
     /// WHOOP, no change" (no churn) from "a DIFFERENT WHOOP became active" (re-point + reconnect).
     private var activeWhoopId: String?
+    /// A durable transition stopped an existing WHOOP connection. Unlike initial launch,
+    /// its next committed or rollback activation must explicitly resume the radio.
+    private var whoopRestartRequired = false
     /// The uuid of the strap the WHOOP link is CURRENTLY connected to (from `connectedPeripheralUUID`).
     /// Lets a WHOOP→WHOOP make-active adopt IN PLACE when the newly-activated row is the same physical
     /// strap (#74 keep): a stop/start churn there would drop the live link and reconnect via scan. Cleared
@@ -116,7 +119,7 @@ final class SourceCoordinator: ObservableObject {
     ///   - startWhoop: WHOOP's existing scan entry point (injected so we never touch `BLEManager`).
     ///   - stopWhoop: WHOOP's existing disconnect (injected for the same reason).
     ///   - setWhoopPreferredPeripheral: pin the WHOOP scan to one strap (nil = first found).
-    ///   - setWhoopActiveDeviceId: re-point which id WHOOP samples store under (multi-WHOOP only).
+    ///   - setWhoopActiveDeviceId: reconcile which id WHOOP samples store under, including the seeded id.
     ///   - connectedPeripheralUUID: the BLE engine's last-connected WHOOP uuid, for identity adoption.
     ///   - straplog: connect-lifecycle diagnostics for the isolated `StandardHRSource`, wired to the same
     ///     strap log `BLEManager` uses (issue #421). Defaults to no-op so existing call sites compile.
@@ -152,8 +155,8 @@ final class SourceCoordinator: ObservableObject {
 
     /// Begin observing `registry.activeDeviceId` AND the BLE engine's connected-peripheral uuid.
     /// `removeDuplicates()` collapses redundant emissions; the first activeDeviceId (WHOOP on a normal
-    /// launch) is handled by `activeDeviceChanged` and, for the single WHOOP, does nothing but set the
-    /// default preferred peripheral (nil) — no scan/disconnect churn. The connected-uuid sink drives
+    /// launch) is handled by `activeDeviceChanged` and, for the single WHOOP, reconciles the default
+    /// target without scan/disconnect churn. The connected-uuid sink drives
     /// first-connect identity adoption.
     func start() {
         registry.$activeDeviceId
@@ -224,8 +227,8 @@ final class SourceCoordinator: ObservableObject {
     }
 
     /// Active device is a WHOOP (`id`). Three sub-cases, all churn-guarded:
-    ///   • We were already on this exact WHOOP and not on a strap → pure no-op (the dormant default;
-    ///     the single-WHOOP launch lands here and touches nothing but the initial preferred-peripheral).
+    ///   • We were already on this exact WHOOP and not on a strap → pure no-op. Initial activation
+    ///     reconciles its target without scanning unless a transition explicitly stopped the radio.
     ///   • We were on a generic strap → stop that source and resume WHOOP, pointed at this WHOOP.
     ///   • We were on a DIFFERENT WHOOP → drop that WHOOP link and reconnect to this one.
     private func switchToWhoop(id: String) {
@@ -240,13 +243,16 @@ final class SourceCoordinator: ObservableObject {
             activeStrapId = nil
             onStrap = false
             pointWhoop(at: id, peripheralId: peripheralId)
+            whoopRestartRequired = false
             startWhoop()
         } else if activeWhoopId == nil {
-            // First WHOOP activation of the session (the normal launch path). Set the targeting so the
-            // existing WHOOP flow — already kicked off elsewhere on launch — uses it. For the single
-            // seeded "my-whoop" (peripheralId nil, id "my-whoop") this is setPreferredPeripheral(nil)
-            // and NO setActiveDeviceId / NO scan / NO disconnect: byte-for-byte today's behaviour.
+            // Initial launch may already have a restored connection and must not churn it. A
+            // durable transition clears activeWhoopId too, but records that it stopped the radio.
             pointWhoop(at: id, peripheralId: peripheralId)
+            if whoopRestartRequired {
+                whoopRestartRequired = false
+                startWhoop()
+            }
         } else if let peripheralId, peripheralId.caseInsensitiveCompare(connectedWhoopUuid ?? "") == .orderedSame {
             // WHOOP → the SAME physical strap (make-active on the row we're already connected to): adopt IN
             // PLACE. A stop/start churn here would drop the #74-kept live link and force a scan reconnect.
@@ -256,19 +262,17 @@ final class SourceCoordinator: ObservableObject {
             // WHOOP → a DIFFERENT WHOOP: drop the current link, re-point, and reconnect.
             stopWhoop()
             pointWhoop(at: id, peripheralId: peripheralId)
+            whoopRestartRequired = false
             startWhoop()
         }
     }
 
-    /// Apply the WHOOP targeting for the now-active WHOOP `id`. Always sets the preferred peripheral
-    /// (nil for the legacy "my-whoop" → connect to any WHOOP, unchanged). Re-points the sample deviceId
-    /// ONLY for a non-legacy WHOOP — the seeded "my-whoop" keeps the bootstrap-set id, so the single-
-    /// WHOOP path never calls `setActiveDeviceId`. Records `activeWhoopId` for future change detection.
+    /// Reconcile both the radio target and persistence owner. Returning to the seeded
+    /// "my-whoop" after another strap must restore its write identity too. BLEManager's
+    /// setter is idempotent when the identity already matches, including initial launch.
     private func pointWhoop(at id: String, peripheralId: String?) {
         setWhoopPreferredPeripheral(peripheralId)
-        if id != "my-whoop" {
-            setWhoopActiveDeviceId(id)
-        }
+        setWhoopActiveDeviceId(id)
         activeWhoopId = id
     }
 
@@ -427,6 +431,7 @@ final class SourceCoordinator: ObservableObject {
         onStrap = false
         if activeWhoopId != nil {
             stopWhoop()
+            whoopRestartRequired = true
         }
         activeWhoopId = nil
     }

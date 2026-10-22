@@ -1,4 +1,5 @@
 import Foundation
+import CoreFoundation
 
 /// Opt-in switch for the EXPERIMENTAL WHOOP 5.0/MG ("puffin") protocol probes.
 ///
@@ -29,6 +30,19 @@ enum PuffinExperiment {
     static let broadcastHrKey = "noopBroadcastHr"
 
     static var broadcastHrEnabled: Bool { UserDefaults.standard.bool(forKey: broadcastHrKey) }
+
+    /// Only a persisted app-domain choice may be replayed onto a strap. Registered defaults
+    /// and the AppStorage fallback are not evidence that the user chose a device write.
+    static var savedBroadcastHrChoice: Bool? {
+        guard let domainName = Bundle.main.bundleIdentifier else { return nil }
+        return savedBroadcastHrChoice(in: .standard, domainName: domainName)
+    }
+
+    static func savedBroadcastHrChoice(in defaults: UserDefaults, domainName: String) -> Bool? {
+        guard let value = defaults.persistentDomain(forName: domainName)?[broadcastHrKey] as? NSNumber,
+              CFGetTypeID(value) == CFBooleanGetTypeID() else { return nil }
+        return value.boolValue
+    }
 
     /// Opt-in "Continuous HRV capture": hold the dense realtime HR stream armed even with no Live screen
     /// open, so the strap banks beat-to-beat R-R intervals 24/7 for far better overnight HRV/recovery/

@@ -89,6 +89,16 @@ public enum Whoop5Config {
         return p
     }
 
+    /// The user's OFF action runs after AppStorage has persisted false. Permit the exact
+    /// broadcast-disable payload independently of that preference, while keeping enable
+    /// opt-in and refusing unrelated SET_DEVICE_CONFIG keys or malformed payloads.
+    /// The BLE layer still requires the current WHOOP 5/MG secure session.
+    public static func allowsBroadcastHrWrite(payload: [UInt8], enabledInPreferences: Bool) -> Bool {
+        return payload == [0x01] + deviceConfigBody(name: "whoop_live_hr_in_adv_ind_pkt", value: 0x30)
+            || (enabledInPreferences
+                && payload == [0x01] + deviceConfigBody(name: "whoop_live_hr_in_adv_ind_pkt", value: 0x31))
+    }
+
     /// The full puffin command-frame bytes for one feature-flag write, ready to send to the 5/MG
     /// command characteristic. The inner b3 byte (0x01, as SET_CONFIG-class commands require) is carried
     /// as the first payload byte ahead of the 40-byte body — matching the CLIENT_HELLO convention and

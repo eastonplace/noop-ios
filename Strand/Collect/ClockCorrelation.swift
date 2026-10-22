@@ -7,6 +7,16 @@ import WhoopStore
 /// unix time using the (device, wall) pair captured at connect via GET_CLOCK + now.
 /// No CoreBluetooth, no I/O — fully unit-testable.
 enum ClockCorrelation {
+    /// A logical row adoption may keep the current physical strap's correlation. A new or
+    /// unpinned target must establish its own clock before its live frames can be decoded.
+    static func canRetainReferenceForSourceChange(
+        referencePeripheralID: UUID?, connectedPeripheralID: UUID?, targetPeripheralID: UUID?, isConnected: Bool
+    ) -> Bool {
+        guard isConnected, let referencePeripheralID, let connectedPeripheralID,
+              let targetPeripheralID else { return false }
+        return referencePeripheralID == connectedPeripheralID && connectedPeripheralID == targetPeripheralID
+    }
+
     /// Build a `ClockRef` from a decoded GET_CLOCK COMMAND_RESPONSE frame and the wall
     /// time observed when the response arrived. Returns nil unless the frame parsed OK,
     /// passed CRC, and carries a `clock` value.

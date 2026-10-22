@@ -1385,4 +1385,148 @@ final class BackfillerHistoricalCommitReceiptTests: XCTestCase {
         XCTAssertEqual(ackCount, 0)
         XCTAssertEqual(failures.count, 1)
     }
+
+    @MainActor
+    func testHistoryStartCannotEraseLossWithinTheAdmittedPass() async {
+        for family in DeviceFamily.allCases {
+            let store = SourceCaptureStore()
+            let admission = fixtureWhoop5Admission
+            var ackCount = 0
+            let backfiller = Backfiller(
+                store: store, deviceId: "strap-a",
+                ackTrim: { _, _, _ in ackCount += 1; return true },
+                isWhoop5AdmissionCurrent: { $0 == admission },
+                ackTrimForWhoop5Admission: { _, _, _, _ in ackCount += 1; return true },
+                extract: { _, _, _, _, _, _ in Streams() })
+            XCTAssertTrue(backfiller.begin(
+                family: family,
+                historicalCursorScope: HistoricalCursorScope(
+                    deviceId: "strap-a", lineage: "registry-A", cursorEpoch: 5),
+                whoop5Admission: family == .whoop5 ? admission : nil))
+            backfiller.noteInvalidInboundFrame()
+            if family == .whoop4 {
+                await backfiller.ingest(frameFromPayload([], type: 49, seq: 0, cmd: 1))
+                await backfiller.ingest(historyEndFrame(trim: 123))
+            } else {
+                await backfiller.ingest(
+                    puffinCommandFrame(cmd: 1, seq: 0, payload: [], type: 49), admittedBy: admission)
+                await backfiller.ingest(whoop5HistoryEndFrame, admittedBy: admission)
+            }
+            let committed = await store.deviceIds()
+            XCTAssertEqual(committed, [], "\(family): START must not restore proof of missing bytes")
+            XCTAssertEqual(ackCount, 0, "\(family): an incomplete admitted pass must never trim strap data")
+        }
+    }
+
+    @MainActor
+    func testOrderedReassemblyLossHoldsAckAndCleanRetryRecovers() async {
+        for family in DeviceFamily.allCases {
+            let start = family == .whoop4
+                ? frameFromPayload([], type: 49, seq: 0, cmd: 1)
+                : puffinCommandFrame(cmd: 1, seq: 0, payload: [], type: 49)
+            let end = family == .whoop4 ? historyEndFrame(trim: 123) : whoop5HistoryEndFrame
+            XCTAssertEqual(classifyHistoricalMeta(frame: start, family: family), .start)
+            var badHeader: [UInt8]
+            var oversized: [UInt8]
+            if family == .whoop4 {
+                badHeader = [0xAA, 100, 0, crc8([100, 0]) ^ 1]
+                oversized = [0xAA, 255, 255, crc8([255, 255])]
+            } else {
+                badHeader = [0xAA, 1, 100, 0, 0, 1]
+                let badCRC = crc16Modbus(badHeader) ^ 1
+                badHeader += [UInt8(badCRC & 255), UInt8(badCRC >> 8)]
+                oversized = [0xAA, 1, 255, 255, 0, 1]
+                let sizeCRC = crc16Modbus(oversized)
+                oversized += [UInt8(sizeCRC & 255), UInt8(sizeCRC >> 8)]
+            }
+            let split = badHeader.count / 2
+            let notifications: [[[UInt8]]] = [
+                [start + badHeader + end],
+                [start + Array(badHeader[..<split]), Array(badHeader[split...]) + end],
+                [badHeader + start + end],
+                [start + oversized + end],
+                [start, [1, 2, 3], end]
+            ]
+            for fragments in notifications {
+                let store = SourceCaptureStore()
+                var ackCount = 0
+                let admission = family == .whoop5 ? fixtureWhoop5Admission : nil
+                let scope = HistoricalCursorScope(
+                    deviceId: "strap-a", lineage: "registry-A", cursorEpoch: 5)
+                let backfiller = Backfiller(
+                    store: store, deviceId: "strap-a",
+                    ackTrim: { _, _, _ in ackCount += 1; return true },
+                    isWhoop5AdmissionCurrent: { $0 == admission },
+                    ackTrimForWhoop5Admission: { _, _, _, _ in ackCount += 1; return true },
+                    extract: { _, _, _, _, _, _ in Streams() })
+                XCTAssertTrue(backfiller.begin(
+                    family: family, historicalCursorScope: scope, whoop5Admission: admission))
+                let windows = ReassemblerSet<String>(family: family)
+                for bytes in fragments {
+                    for event in windows.feedEvents(bytes, from: "history") {
+                        await backfiller.ingest(event, admittedBy: admission)
+                    }
+                }
+                let incompleteCommits = await store.deviceIds()
+                XCTAssertEqual(incompleteCommits, [], "\(family): discarded bytes must prevent commit")
+                XCTAssertEqual(ackCount, 0, "\(family): discarded bytes must prevent trim ACK")
+                XCTAssertTrue(backfiller.persistStalled)
+
+                // Retry admission resets the loss latch, and intact frames commit and ACK once.
+                XCTAssertTrue(backfiller.begin(
+                    family: family, historicalCursorScope: scope, whoop5Admission: admission))
+                windows.reset()
+                for event in windows.feedEvents(start + end, from: "history") {
+                    await backfiller.ingest(event, admittedBy: admission)
+                }
+                let retryCommits = await store.deviceIds()
+                XCTAssertEqual(retryCommits, ["strap-a"])
+                XCTAssertEqual(ackCount, 1)
+            }
+        }
+    }
+
+    @MainActor
+    func testStaleSecureLossCannotInvalidateCurrentHistoryAdmission() async {
+        let store = SourceCaptureStore()
+        let admission = fixtureWhoop5Admission
+        var ackCount = 0
+        let backfiller = Backfiller(
+            store: store, deviceId: "strap-a",
+            ackTrim: { _, _, _ in false },
+            isWhoop5AdmissionCurrent: { $0 == admission },
+            ackTrimForWhoop5Admission: { _, _, _, _ in ackCount += 1; return true },
+            extract: { _, _, _, _, _, _ in Streams() })
+        XCTAssertTrue(backfiller.begin(
+            family: .whoop5,
+            historicalCursorScope: HistoricalCursorScope(
+                deviceId: "strap-a", lineage: "registry-A", cursorEpoch: 5),
+            whoop5Admission: admission))
+        let stale = Whoop5HistoricalSessionAdmission(
+            peripheralID: admission.peripheralID, connectGeneration: 99, attemptEpoch: 99)
+        await backfiller.ingest(.discardedBytes(8), admittedBy: stale)
+        await backfiller.ingest(.discardedBytes(8))
+        await backfiller.ingest(.frame(whoop5HistoryEndFrame), admittedBy: admission)
+        let committed = await store.deviceIds()
+        XCTAssertEqual(committed, ["strap-a"])
+        XCTAssertEqual(ackCount, 1)
+    }
+
+    @MainActor
+    func testHistoryCompleteCannotReportSuccessAfterLossWithoutAnEnd() async {
+        let store = SourceCaptureStore()
+        let backfiller = Backfiller(
+            store: store, deviceId: "strap-a", ackTrim: { _, _, _ in XCTFail("must not ACK"); return false },
+            extract: { _, _, _, _, _, _ in Streams() })
+        XCTAssertTrue(backfiller.begin(
+            family: .whoop4,
+            historicalCursorScope: HistoricalCursorScope(
+                deviceId: "strap-a", lineage: "registry-A", cursorEpoch: 5)))
+        await backfiller.ingest(.discardedBytes(4))
+        await backfiller.ingest(frameFromPayload([], type: 49, seq: 0, cmd: 3))
+        XCTAssertTrue(backfiller.persistStalled, "COMPLETE cannot turn a pass with missing evidence into success")
+        XCTAssertFalse(backfiller.isBackfilling)
+        let committed = await store.deviceIds()
+        XCTAssertEqual(committed, [])
+    }
 }

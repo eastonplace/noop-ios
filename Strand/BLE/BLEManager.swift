@@ -621,14 +621,10 @@ public final class BLEManager: NSObject, ObservableObject {
     /// Ordered queue of frames awaiting drain through the serial Backfiller task. WHOOP 5 frames retain
     /// the secure owner captured at delegate receipt so an actor hop cannot route them into a later session.
     private struct AdmittedBackfillFrame {
-        let bytes: [UInt8]
+        let event: ReassemblyEvent
         let whoop5Admission: Whoop5HistoricalSessionAdmission?
         /// BLE-8: the historical session + physical connection that admitted this frame (both families).
         let token: BackfillDrainToken
-        /// True for an ordered "a CRC-invalid frame was dropped here" marker (no bytes). It is applied to the
-        /// Backfiller when it reaches the head of the queue, so it lands after every earlier frame (incl. a
-        /// still-queued START) and before every later one (incl. END).
-        var isInvalidMarker = false
     }
     private var backfillFrameQueue: [AdmittedBackfillFrame] = []
     /// Accumulates durable writes across an auto-continued history burst. The dashboard is notified once
@@ -845,6 +841,8 @@ public final class BLEManager: NSObject, ObservableObject {
     private(set) var deviceId: String
     /// Captured (device↔wall) correlation from GET_CLOCK; nil until the response lands.
     private(set) var clockRef: ClockRef?
+    /// Physical owner of the precise/fallback GET_CLOCK correlation; a logical id alone is insufficient.
+    private var clockRefPeripheralID: UUID?
     /// A Data Range fallback can keep historical decoding moving, but it is not a real GET_CLOCK
     /// correlation. A delayed real response must therefore replace it instead of being ignored.
     private var clockRefIsApproximate = false
@@ -1722,18 +1720,28 @@ public final class BLEManager: NSObject, ObservableObject {
         }
     }
 
-    /// Re-point which device id live WHOOP samples store under, when the active WHOOP changes (a
-    /// WHOOP↔WHOOP switch via the registry). Only the `SourceCoordinator` calls this, and only when a
-    /// DIFFERENT registered WHOOP becomes active — the single-WHOOP path leaves the seeded "my-whoop" id
-    /// in place (bootstrapStore set it; this is never called), so that path is byte-for-byte unchanged.
-    /// Sets the manager's `deviceId` and re-points the live Collector/Backfiller for the next admitted
-    /// session. An already-decoding historical chunk keeps its frozen source identity and cannot be
-    /// re-attributed by this mutation. Additive: nothing on the single-WHOOP path invokes it.
+    /// Reconcile the active persistence owner, including a return to the default source. Old buffered
+    /// batches retain their intake context. A different physical target must establish a fresh clock;
+    /// adopting another registry row for the currently connected physical strap may preserve it.
     public func setActiveDeviceId(_ id: String) {
         guard !id.isEmpty else { return }
         let changed = id != deviceId
+        let retainsPhysicalClock = ClockCorrelation.canRetainReferenceForSourceChange(
+            referencePeripheralID: selectedModel.deviceFamily == .whoop5 ? peripheral?.identifier : clockRefPeripheralID,
+            connectedPeripheralID: peripheral?.identifier,
+            targetPeripheralID: preferredPeripheralUUID,
+            isConnected: state.connected && peripheral?.state == .connected)
+        let previousCollectorClock = collector?.clockRef
+        if changed, !retainsPhysicalClock {
+            resetClockRecoveryForConnection()
+            clockRef = nil
+            clockRefPeripheralID = nil
+            clockRefIsApproximate = false
+            backfiller?.clockRef = nil
+        }
         deviceId = id
         collector?.deviceId = id
+        if changed, retainsPhysicalClock { collector?.clockRef = previousCollectorClock }
         backfiller?.deviceId = id
         if changed {
             historicalSourceEpoch &+= 1
@@ -1865,10 +1873,10 @@ public final class BLEManager: NSObject, ObservableObject {
                 // data the strap emits) and is what the official app sends. Driven only by
                 // enableWhoop5DeepData(). (#174)
                 || (command == .setConfig && PuffinExperiment.deepDataEnabled)
-                // SET_DEVICE_CONFIG (the Broadcast-HR flag) is allowed ONLY while that opt-in is on —
-                // it writes one persistent device-config value so the strap advertises standard HR.
-                // Reversible; driven only by setBroadcastHr(_:). (#181)
-                || (command == .setDeviceConfig && PuffinExperiment.broadcastHrEnabled) else {
+                // Keep enabling broadcast opt-in, but permit its exact disable payload after the
+                // preference turns off. Unrelated device-config keys remain outside this allowlist.
+                || (command == .setDeviceConfig && Whoop5Config.allowsBroadcastHrWrite(
+                    payload: payload, enabledInPreferences: PuffinExperiment.broadcastHrEnabled)) else {
                 log("send(\(command.label)) skipped — no WHOOP 5/MG framing for this command yet")
                 return
             }
@@ -1939,7 +1947,8 @@ public final class BLEManager: NSObject, ObservableObject {
             let now = Int(Date().timeIntervalSince1970)
             collector?.clockRef = ClockRef(device: now, wall: now)
         } else {
-            collector?.clockRef = clockRef   // the WHOOP4 correlation, nil until GET_CLOCK lands
+            let matchesPin = preferredPeripheralUUID == nil || preferredPeripheralUUID == clockRefPeripheralID
+            collector?.clockRef = matchesPin && clockRefPeripheralID == peripheral?.identifier ? clockRef : nil
         }
     }
 
@@ -2726,6 +2735,10 @@ public final class BLEManager: NSObject, ObservableObject {
     /// synchronously (delegate order) and drained sequentially in small slices, so START /
     /// data / END chunk assembly is never reordered while the UI still gets time to paint.
     private func routeBackfillFrame(_ frame: [UInt8], isInvalidMarker: Bool = false) {
+        routeBackfillEvent(isInvalidMarker ? .discardedBytes(1) : .frame(frame))
+    }
+
+    private func routeBackfillEvent(_ event: ReassemblyEvent) {
         let whoop5Admission: Whoop5HistoricalSessionAdmission?
         if selectedModel.deviceFamily == .whoop5 {
             guard let admission = admittedHistoricalBackfill,
@@ -2745,8 +2758,8 @@ public final class BLEManager: NSObject, ObservableObject {
             log("Backfill: ignored a history frame with no current session admission")
             return
         }
-        backfillFrameQueue.append(AdmittedBackfillFrame(bytes: frame, whoop5Admission: whoop5Admission,
-                                                        token: token, isInvalidMarker: isInvalidMarker))
+        backfillFrameQueue.append(AdmittedBackfillFrame(
+            event: event, whoop5Admission: whoop5Admission, token: token))
         guard let drainID = backfillDrainOwnership.claimIfIdle() else { return }
         Task { @MainActor in await drainBackfillFrames(drainID) }
     }
@@ -2775,15 +2788,7 @@ public final class BLEManager: NSObject, ObservableObject {
                     droppedStale += 1
                     continue
                 }
-                if admittedFrame.isInvalidMarker {
-                    backfiller?.noteInvalidInboundFrame()
-                    continue
-                }
-                if let admission = admittedFrame.whoop5Admission {
-                    await backfiller?.ingest(admittedFrame.bytes, admittedBy: admission)
-                } else {
-                    await backfiller?.ingest(admittedFrame.bytes)
-                }
+                await backfiller?.ingest(admittedFrame.event, admittedBy: admittedFrame.whoop5Admission)
                 afterBackfillIngest()
                 if !backfilling {
                     backfillFrameQueue.removeAll(keepingCapacity: true)
@@ -3894,6 +3899,9 @@ public final class BLEManager: NSObject, ObservableObject {
         guard selectedModel.deviceFamily == .whoop5 else {
             log("Broadcast HR: needs a WHOOP 5.0/MG strap selected — ignored."); return
         }
+        guard !on || PuffinExperiment.broadcastHrEnabled else {
+            log("Broadcast HR: enabling requires the broadcast preference — ignored."); return
+        }
         guard state.connected, whoop5SecureReady else {
             log("Broadcast HR: current WHOOP 5/MG secure session is not ready — ignored."); return
         }
@@ -3901,7 +3909,7 @@ public final class BLEManager: NSObject, ObservableObject {
         send(.setDeviceConfig,
              payload: [0x01] + Whoop5Config.deviceConfigBody(name: "whoop_live_hr_in_adv_ind_pkt", value: value),
              writeType: .withResponse)
-        log("Broadcast HR: wrote whoop_live_hr_in_adv_ind_pkt=\(on ? "1" : "0")")
+        log("Broadcast HR: requested whoop_live_hr_in_adv_ind_pkt=\(on ? "1" : "0")")
     }
 
     /// Read the strap's current BLE advertising name (WHOOP 4.0 / Harvard). The reply lands as a
@@ -6601,7 +6609,11 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
             send(.toggleRealtimeHR, payload: [0x01])
         }
         startKeepAlive()
-        if PuffinExperiment.broadcastHrEnabled { setBroadcastHr(true) }
+        // Replay an explicit saved choice after secure proof, including OFF chosen while
+        // disconnected. An untouched default must not change another client's strap setting.
+        if let broadcastChoice = PuffinExperiment.savedBroadcastHrChoice {
+            setBroadcastHr(broadcastChoice)
+        }
         send(.setClock, payload: WhoopCommand.setClockPayload())
         send(.getClock, payload: [])
         log("WHOOP 5/MG: secureReady — proprietary commands and history admitted")
@@ -6647,7 +6659,7 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
     }
 
     private var hasPreciseClockCorrelation: Bool {
-        clockRef != nil && !clockRefIsApproximate
+        clockRef != nil && !clockRefIsApproximate && clockRefPeripheralID == peripheral?.identifier
     }
 
     private func resetClockRecoveryForConnection() {
@@ -6658,9 +6670,10 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
         clockRequested = false
         // A fallback is only a same-connection best effort based on that link's Data Range marker.
         // Never decode the next generation with this approximate reference while waiting for its own
-        // GET_CLOCK response; a precise reference retains the existing cross-reconnect behavior.
-        if clockRefIsApproximate {
+        // GET_CLOCK response. A precise reference survives only for the same physical peripheral.
+        if clockRefIsApproximate || (clockRef != nil && clockRefPeripheralID != peripheral?.identifier) {
             clockRef = nil
+            clockRefPeripheralID = nil
             clockRefIsApproximate = false
             collector?.clockRef = nil
             backfiller?.clockRef = nil
@@ -6708,6 +6721,7 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
         case .installDataRangeFallback(let deviceUnix, let wallUnix):
             let approximate = ClockRef(device: deviceUnix, wall: wallUnix)
             clockRef = approximate
+            clockRefPeripheralID = peripheral?.identifier
             clockRefIsApproximate = true
             collector?.clockRef = approximate
             backfiller?.clockRef = approximate
@@ -6752,11 +6766,12 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
 
     /// Preserve the existing frame sequence while making pre-parser resynchronization visible in a
     /// Connection Test Centre capture. Counters belong to the current per-characteristic windows, so
-    /// reset/reconnect needs no separate absorbed-total bookkeeping. No history decision uses them.
-    private func reassembleFrames(_ bytes: [UInt8], from characteristic: CBUUID) -> [[UInt8]] {
+    /// reset/reconnect needs no separate absorbed-total bookkeeping. Loss events also reach the owned
+    /// history queue in order; aggregate diagnostics are never used as a completeness witness.
+    private func reassembleFrames(_ bytes: [UInt8], from characteristic: CBUUID) -> [ReassemblyEvent] {
         let previousHeaderDrops = reassemblers.headerChecksumDrops
         let previousOversizedDrops = reassemblers.oversizedLengthDrops
-        let frames = reassemblers.feed(bytes, from: characteristic)
+        let frames = reassemblers.feedEvents(bytes, from: characteristic)
         let headerDrops = reassemblers.headerChecksumDrops - previousHeaderDrops
         let oversizedDrops = reassemblers.oversizedLengthDrops - previousOversizedDrops
         if (headerDrops > 0 || oversizedDrops > 0), TestCentre.active(.connection) {
@@ -6816,7 +6831,11 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
              BLEManager.cmdNotifyChar,
              BLEManager.eventNotifyChar:
             // Reassemble (no-op for already-complete frames) then route each complete frame.
-            for frame in reassembleFrames(bytes, from: characteristic.uuid) {
+            for event in reassembleFrames(bytes, from: characteristic.uuid) {
+                guard case .frame(let frame) = event else {
+                    if backfilling { routeBackfillEvent(event) }
+                    continue
+                }
                 if backfilling, BLEManager.isOffloadFrame(frame, family: .whoop4) {
                     // Historical replay is bulk sync traffic, not live UI traffic. Feed it only to
                     // the Backfiller; parsing every record through FrameRouter updates SwiftUI for
@@ -6902,6 +6921,7 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
                     // #47: reuse the single decode above (byte-identical for WHOOP4) instead of re-parsing.
                     if let ref = ClockCorrelation.clockRef(from: parsed, wall: Int(Date().timeIntervalSince1970)) {
                         clockRef = ref
+                        clockRefPeripheralID = peripheral.identifier
                         clockRefIsApproximate = false
                         clockRecoveryTimeout?.cancel()
                         clockRecoveryTimeout = nil
@@ -6935,7 +6955,11 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
             // timestamps are already real-unix seconds.) Live HR/battery still also come from the
             // standard 0x2A37 / 0x2A19 profiles handled above.
             if BLEManager.whoop5NotifyChars.contains(characteristic.uuid) {
-                for frame in reassembleFrames(bytes, from: characteristic.uuid) {
+                for event in reassembleFrames(bytes, from: characteristic.uuid) {
+                    guard case .frame(let frame) = event else {
+                        if backfilling, whoop5SecureReady { routeBackfillEvent(event) }
+                        continue
+                    }
                     let parsed = parseFrame(frame, family: .whoop5)
                     handleWhoop5CommandResponse(parsed, frame: frame)
                     let integrityValid = parsed.envelopeOK
