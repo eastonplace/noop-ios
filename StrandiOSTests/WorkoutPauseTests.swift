@@ -72,6 +72,20 @@ final class WorkoutPauseTests: XCTestCase {
 
     // MARK: Heart-rate stats exclude paused windows
 
+    func testSameSecondCorrectionKeepsLiveEnergyEqualToCanonicalReplay() {
+        let live = workout()
+        XCTAssertTrue(live.ingest(HRSample(ts: 1_700_000_001, bpm: 100)))
+        XCTAssertTrue(live.ingest(HRSample(ts: 1_700_000_001, bpm: 220)))
+        XCTAssertTrue(live.ingest(HRSample(ts: 1_700_000_151, bpm: 100)))
+        let restored = workout()
+        restored.restore(samples: live.samples)
+
+        XCTAssertEqual(live.samples.count, 2)
+        XCTAssertEqual(live.liveCalories, restored.liveCalories,
+                       "a corrected tail must supply the next interval's calorie rate")
+        XCTAssertEqual(live.liveStrainState, restored.liveStrainState)
+    }
+
     func testPausedReadingsAreNotCountedButTheLiveNumberStillShows() {
         let w = workout()
         feed(w, from: 1, to: 100, bpm: 150)
