@@ -48,13 +48,16 @@ enum AppChangelog {
 
     /// Newest first. This fork's releases come first; add one for every version bump (see AGENTS.md).
     static let releases: [Release] = [
-        .fork("1.7.2", "More reliable sync", "October 2026", [
-            Feature("heart.fill", .heart, "Fresh heart rate", "Readings update promptly and clear with the stream."),
+        .fork("1.7.2", "More reliable daily data", "October 2026", [
+            Feature("heart.fill", .heart, "Fresh heart rate", "Live sessions use actual readings and detect silent straps."),
             Feature("arrow.triangle.2.circlepath", .accent, "Device switching", "Readings stay with the strap that recorded them."),
             Feature("checkmark.shield.fill", .hrv, "Protected history", "Interrupted transfers retry before history cleanup."),
             Feature("antenna.radiowaves.left.and.right", .accent, "Saved broadcast choice", "Reconnect requests your saved broadcast setting."),
-            Feature("lock.shield.fill", .journal, "Private Coach images", "Coach uses images bundled with NOOP."),
-            Feature("heart.text.square.fill", .heart, "Background Health sync", "Adds support for Apple Health background delivery."),
+            Feature("lock.shield.fill", .journal, "Local Coach images", "Coach uses images bundled with NOOP."),
+            Feature("heart.text.square.fill", .heart, "Apple Health continuity", "Read setup resumes and hidden reads keep saved data."),
+            Feature("bed.double.fill", .sleep, "Apple sleep totals", "Stages share a wake day without double counting."),
+            Feature("thermometer.medium", .sleep, "Complete Charge inputs", "Charge uses the night's final temperature deviation."),
+            Feature("location.fill", .strain, "Faster GPS routes", "Cycling and snow sports use their own speed limits."),
         ]),
         .fork("1.7.1", "Clearer alarm confirmation", "October 2026", [
             Feature("alarm.fill", .sleep, "Ordered alarm delivery", "WHOOP 4.0 alarm commands wait for each write."),

@@ -21,14 +21,17 @@ approximate; downloads are on the [Releases](https://github.com/NoopApp/noop/rel
 
 ## 1.7.2
 
-October 2026: More reliable sync.
+October 2026: More reliable daily data.
 
-- **Fresh heart rate.** Readings update promptly and clear with the stream.
+- **Fresh heart rate.** Live sessions use actual readings and detect silent straps.
 - **Device switching.** Readings stay with the strap that recorded them.
 - **Protected history.** Interrupted transfers retry before history cleanup.
 - **Saved broadcast choice.** Reconnect requests your saved broadcast setting.
-- **Private Coach images.** Coach uses images bundled with NOOP.
-- **Background Health sync.** Adds support for Apple Health background delivery.
+- **Local Coach images.** Coach uses images bundled with NOOP.
+- **Apple Health continuity.** Read setup resumes and hidden reads keep saved data.
+- **Apple sleep totals.** Stages share a wake day without double counting.
+- **Complete Charge inputs.** Charge uses the night's final temperature deviation.
+- **Faster GPS routes.** Cycling and snow sports use their own speed limits.
 
 ## 1.7.1
 
