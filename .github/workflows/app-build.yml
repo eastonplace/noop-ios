@@ -22,6 +22,7 @@ on:
       - '.gitignore'
       - 'project.yml'
       - '.github/workflows/app-build.yml'
+      - '.github/ISSUE_TEMPLATE/bug_report.yml'
   push:
     branches: [main]
     paths:
@@ -37,6 +38,7 @@ on:
       - '.gitignore'
       - 'project.yml'
       - '.github/workflows/app-build.yml'
+      - '.github/ISSUE_TEMPLATE/bug_report.yml'
   workflow_dispatch:
 
 concurrency:
@@ -53,11 +55,18 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Install source-audit dependencies
+        shell: bash
+        run: |
+          python3 -m pip install --disable-pip-version-check \
+            --target "$RUNNER_TEMP/noop-source-audit-python" 'PyYAML==6.0.3'
+
       - name: Run all focused source audits
         shell: bash
         env:
           GITHUB_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           GITHUB_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PYTHONPATH: ${{ runner.temp }}/noop-source-audit-python
         run: |
           set -uo pipefail
           mkdir -p qa-artifacts/audits
@@ -75,6 +84,7 @@ jobs:
             paper_strings_contract_audit.py
             project_hygiene_audit.py
             test_project_hygiene_audit.py
+            test_bug_report_template.py
             whats_new_release_audit.py
             test_whats_new_release_audit.py
           )
@@ -127,6 +137,12 @@ jobs:
         run: |
           set -o pipefail
           python3 Tools/qa/test_ble_clock_alarm_isolation.py 2>&1 | tee qa-artifacts/clock-alarm-isolation.txt
+
+      - name: Verify confirmed deep-data queue leases
+        shell: bash
+        run: |
+          set -o pipefail
+          python3 Tools/qa/deep_data_confirmed_queue_harness.py 2>&1 | tee qa-artifacts/deep-data-confirmed-queue.txt
 
       - name: Build iPhone app and extensions
         shell: bash

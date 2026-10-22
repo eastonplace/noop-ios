@@ -346,12 +346,24 @@
         "testAttachZipCheckboxPresent"
       ],
       "test_method_count": 5,
-      "disposition": "retired",
-      "reason_code": "obsolete_source_text_check",
-      "reason": "Reads .github/ISSUE_TEMPLATE/bug_report.yml text and requires old Oura/Fitbit/Garmin/Xiaomi importer labels; it executes no application behavior and does not validate issue-form parsing. The active app tests cover TestReportLink URL behavior.",
-      "destination": null,
+      "disposition": "ported_source_audit",
+      "reason_code": "repository_contract_owned_by_source_audit",
+      "reason": "All five current issue-form contracts remain relevant. Ported to a parsed YAML source audit because an iOS test sandbox cannot reliably read the source checkout. Assertions now bind profile/source options, log guidance, and required attachment acknowledgment to their actual form fields rather than finding tokens anywhere in the file.",
+      "destination": "Tools/qa/test_bug_report_template.py",
       "related_active_coverage": [
         "StrandiOSTests/TestReportLinkTests.swift"
+      ],
+      "target": "source-audits GitHub Actions job",
+      "changes": [
+        "Parse the real issue form with yaml.safe_load.",
+        "Preserve all five original option/guidance contracts and require the attachment acknowledgment."
+      ],
+      "replacement_test_methods": [
+        "test_has_test_profile_dropdown_with_id",
+        "test_test_profile_options_cover_all_profiles_plus_escapes",
+        "test_source_dropdown_gains_importers",
+        "test_log_textarea_tells_to_attach_zip_not_paste",
+        "test_attach_zip_checkbox_present"
       ]
     },
     {
@@ -883,7 +895,7 @@
       "test_method_count": 4,
       "disposition": "retired",
       "reason_code": "removed_type",
-      "reason": "All four cases call LiftSessionEditSheet.form/applying. No LiftSessionEditSheet declaration exists in current Strand or StrandiOS source; the receipt-based Lift feature replaced that editor. Current receipt behavior has hosted coverage in StrandiOSTests/ReceiptLift/LiftReceiptLogicTests.swift and LiftSetTableTests.swift; this obsolete sheet API has no remaining consumer.",
+      "reason": "All four cases call LiftSessionEditSheet.form/applying. No LiftSessionEditSheet declaration exists in current Strand or StrandiOS source; that editor API has no remaining consumer. StrandiOSTests/ReceiptLift/LiftReceiptLogicTests.swift and LiftSetTableTests.swift cover the current receipt surface and are not assertion-equivalent ports of the removed kilogram editor.",
       "destination": null,
       "related_active_coverage": [
         "StrandiOSTests/ReceiptLift/LiftReceiptLogicTests.swift",
@@ -2269,5 +2281,5 @@
       ]
     }
   ],
-  "validation_status": "Ports require root-owned native compile/run. Retirement and target membership are source verified."
+  "validation_status": "88 native suite ports require root-owned iOS compile/run; five parsed issue-form source-audit tests pass. Five retired files have item-specific reasons. No orphan folder exemption remains."
 }
