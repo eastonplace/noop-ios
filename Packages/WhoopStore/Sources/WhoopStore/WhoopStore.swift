@@ -23,17 +23,21 @@ public enum WhoopStoreInfo {
 /// a fresh generation without a stale handle closing the replacement.
 private final class WeakDatabasePool {
     weak var value: DatabasePool?
-    init(_ value: DatabasePool) { self.value = value }
+    let analysisInputObservation: AnalysisInputObservation
+    init(_ value: DatabasePool, analysisInputObservation: AnalysisInputObservation) {
+        self.value = value
+        self.analysisInputObservation = analysisInputObservation
+    }
 }
 
 private actor StoreOpenGate {
     static let shared = StoreOpenGate()
     private var pools: [String: WeakDatabasePool] = [:]
 
-    func openAndMigrate(path: String, configuration config: Configuration) throws -> (String, DatabasePool) {
+    func openAndMigrate(path: String, configuration config: Configuration) throws -> (String, DatabasePool, AnalysisInputObservation) {
         let canonicalPath = URL(fileURLWithPath: path).standardizedFileURL.path
-        if let pool = pools[canonicalPath]?.value {
-            return (canonicalPath, pool)
+        if let shared = pools[canonicalPath], let pool = shared.value {
+            return (canonicalPath, pool, shared.analysisInputObservation)
         }
         // Self-heal a foreign DB left in place by a bad cross-platform restore (#222): an Android
         // (Room) backup that slipped past the import guard replaces our file with one that has our
@@ -45,8 +49,9 @@ private actor StoreOpenGate {
         let pool = try DatabasePool(path: canonicalPath, configuration: config)
         try WhoopStore.makeMigrator().migrate(pool)
         try WhoopStore.migrateSleepRecoverySchema(pool)
-        pools[canonicalPath] = WeakDatabasePool(pool)
-        return (canonicalPath, pool)
+        let observation = AnalysisInputObservation.install(on: pool)
+        pools[canonicalPath] = WeakDatabasePool(pool, analysisInputObservation: observation)
+        return (canonicalPath, pool, observation)
     }
 
     func close(path: String, pool: DatabasePool) throws {
@@ -70,6 +75,7 @@ private actor StoreOpenGate {
 /// data or the query results.
 public actor WhoopStore {
     let dbWriter: any DatabaseWriter
+    let analysisInputObservation: AnalysisInputObservation
     private let sharedPoolPath: String?
     private let sharedPool: DatabasePool?
 
@@ -85,14 +91,16 @@ public actor WhoopStore {
         sharedPool = nil
         try WhoopStore.makeMigrator().migrate(dbWriter)
         try WhoopStore.migrateSleepRecoverySchema(dbWriter)
+        analysisInputObservation = AnalysisInputObservation.install(on: dbWriter)
     }
 
     /// Store an already-open, already-migrated writer WITHOUT re-running the migrator: the
     /// `StoreOpenGate` (below) opened the pool and migrated it under the process-wide open lock, so
     /// re-migrating here would be a redundant (and, if it raced a sibling opener, failing) second run.
     /// (#261)
-    private init(preMigrated pool: DatabasePool, path: String) {
+    private init(preMigrated pool: DatabasePool, path: String, observation: AnalysisInputObservation) {
         dbWriter = pool
+        analysisInputObservation = observation
         sharedPoolPath = path
         sharedPool = pool
     }
@@ -117,8 +125,8 @@ public actor WhoopStore {
             try db.execute(sql: "PRAGMA temp_store = MEMORY")
         }
         config.busyMode = .timeout(5)
-        let (canonicalPath, pool) = try await StoreOpenGate.shared.openAndMigrate(path: path, configuration: config)
-        self.init(preMigrated: pool, path: canonicalPath)
+        let (canonicalPath, pool, observation) = try await StoreOpenGate.shared.openAndMigrate(path: path, configuration: config)
+        self.init(preMigrated: pool, path: canonicalPath, observation: observation)
     }
 
     /// Move aside a database file that has our data tables but no GRDB migration bookkeeping — the

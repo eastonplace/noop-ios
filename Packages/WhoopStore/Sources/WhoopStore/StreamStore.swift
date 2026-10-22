@@ -67,7 +67,8 @@ extension WhoopStore {
         -> (hr: Int, rr: Int, events: Int, battery: Int,
             spo2: Int, skinTemp: Int, resp: Int, gravity: Int) {
         let counts = try syncWrite { db in
-            try WhoopStore.insertDecodedStreams(streams, deviceId: deviceId, in: db)
+            try WhoopStore.insertDecodedStreams(streams, deviceId: deviceId, in: db,
+                                               analysisObservation: analysisInputObservation)
         }
         return counts.legacyCoreTuple
     }
@@ -86,7 +87,8 @@ extension WhoopStore {
     static func insertDecodedStreams(
         _ streams: Streams,
         deviceId: String,
-        in db: Database
+        in db: Database,
+        analysisObservation: AnalysisInputObservation? = nil
     ) throws -> HistoricalStreamInsertCounts {
         var hr = 0, rr = 0, ev = 0, bat = 0
         var spo2 = 0, skin = 0, resp = 0, grav = 0
@@ -196,10 +198,14 @@ extension WhoopStore {
                     INSERT INTO gravitySample (deviceId, ts, x, y, z) VALUES (?, ?, ?, ?, ?)
                     ON CONFLICT(deviceId, ts) DO NOTHING
                     """)
-                for s in streams.gravity {
-                    try stmt.execute(arguments: [deviceId, s.ts, s.x, s.y, s.z])
-                    grav += db.changesCount
+                let append = {
+                    for s in streams.gravity {
+                        try stmt.execute(arguments: [deviceId, s.ts, s.x, s.y, s.z])
+                        grav += db.changesCount
+                    }
                 }
+                if let analysisObservation { try analysisObservation.withGravityAppend(in: db, append) }
+                else { try append() }
             }
             // WHOOP5 step counter (#78). Persist-only, the count is not surfaced in the return tuple
             // (no consumer reads it; keeping the 8-field tuple avoids touching any caller/test).
