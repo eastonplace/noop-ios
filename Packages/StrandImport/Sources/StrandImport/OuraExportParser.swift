@@ -322,7 +322,9 @@ enum OuraExportParser {
     /// Steps can be observed zero; HR and scores keep their positive-only missing-value rule.
     private static func nonnegativeInteger(_ value: Double?) -> Int? {
         guard let value, value.isFinite, value >= 0, value <= 9e18 else { return nil }
-        return Int(value)
+        let integer = Int(value)
+        guard integer > 0 || value == 0 else { return nil }
+        return integer
     }
 
     private static func positiveInteger(_ value: Double?) -> Int? {
