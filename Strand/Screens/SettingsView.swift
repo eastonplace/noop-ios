@@ -171,6 +171,9 @@ struct SettingsDetailHost: View {
         Group {
             settingsDestination(destination)
         }
+        #if os(iOS)
+        .modifier(SettingsSheetDoneToolbar())
+        #endif
         .alert(backupAlertTitle, isPresented: $showBackupAlert) {
             Button("OK", role: .cancel) { }
         } message: {

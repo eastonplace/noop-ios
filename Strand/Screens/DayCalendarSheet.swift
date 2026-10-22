@@ -99,6 +99,7 @@ struct DayCalendarSheet: View {
         .presentationDetents([.height(425)])
         .presentationDragIndicator(.visible)
         .presentationBackground(StrandPalette.surfaceRaised)
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("today.calendar")
     }
 

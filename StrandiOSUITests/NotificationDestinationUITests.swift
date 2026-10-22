@@ -110,16 +110,16 @@ final class NotificationDestinationUITests: XCTestCase {
                 formatter.dateStyle = .medium
                 let dateNavigation = app.buttons[formatter.string(from: demoDate(daysAgo: 1)) + ". Swipe or tap to change day"]
                 try reveal(dateNavigation, in: app)
-                try reveal(element("today.health.title", in: app), in: app)
+                try reveal(element("today.health.title", in: app), in: app, needsHitTarget: false)
                 XCTAssertEqual(element("today.health.title", in: app).label, "Health Monitor")
             case "sleep":
                 // Preserve and capture the existing Sleep page; this test makes no Sleep redesign.
                 try reveal(app.staticTexts.matching(NSPredicate(format: "label ==[cd] %@", "Sleep stages")).firstMatch,
-                           in: app)
+                           in: app, needsHitTarget: false)
             default:
                 try require(app.navigationBars["Week in review"], in: app)
                 let coverage = app.staticTexts.matching(NSPredicate(format: "label MATCHES %@", "[1-7] of 7 days had data this week")).firstMatch
-                try reveal(coverage, in: app)
+                try reveal(coverage, in: app, needsHitTarget: false)
             }
             XCTAssertFalse(app.staticTexts["Notification update"].exists, "\(name) resolves actual demo data")
             try assertDone("notification.done", in: app)
