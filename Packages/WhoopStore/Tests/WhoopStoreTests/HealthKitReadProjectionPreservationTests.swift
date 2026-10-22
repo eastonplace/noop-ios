@@ -91,6 +91,10 @@ final class HealthKitReadProjectionPreservationTests: XCTestCase {
         let before = try await store.workouts(deviceId: "apple-health", from: start,
                                               to: start + 2 * 86_400, limit: 10)
         XCTAssertEqual(before.count, 3)
+        try await store.upsertHealthKitObjectIdentities([
+            .init(sampleType: "HKWorkoutTypeIdentifier", objectUUID: "deleted-workout",
+                  startTs: start + 3600, endTs: start + 7200)
+        ], deviceId: "apple-health")
         try await replace(store, evidence: [HealthKitProjectionDeletion(
             sampleType: "HKWorkoutTypeIdentifier", fromDay: day, toDay: day,
             fromTimestamp: start + 3600, toTimestamp: start + 7200)])
@@ -99,5 +103,89 @@ final class HealthKitReadProjectionPreservationTests: XCTestCase {
         XCTAssertEqual(after.count, 2)
         XCTAssertTrue(after.contains { $0.source == "manual" })
         XCTAssertTrue(after.contains { $0.startTs == start + 86_400 })
+    }
+
+    func testOverlappingWorkoutSurvivesHiddenReadTombstoneRetryAndReopen() async throws {
+        let path = FileManager.default.temporaryDirectory
+            .appendingPathComponent("health-workout-overlap-\(UUID().uuidString).sqlite").path
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        let store = try await WhoopStore(path: path)
+        let first = start + 10 * 3600, second = first + 1800
+        func workout(_ timestamp: Int) -> WorkoutRow {
+            WorkoutRow(startTs: timestamp, endTs: timestamp + 3600, sport: "Running", source: "apple-health",
+                durationS: 3600, energyKcal: 400, avgHr: 140, maxHr: 160, strain: nil,
+                distanceM: 5000, zonesJSON: nil, notes: nil)
+        }
+        _ = try await store.upsertWorkouts([workout(first), workout(second)], deviceId: "apple-health")
+        try await store.upsertHealthKitObjectIdentities([
+            .init(sampleType: "HKWorkoutTypeIdentifier", objectUUID: "deleted-a", startTs: first, endTs: first + 3600),
+            .init(sampleType: "HKWorkoutTypeIdentifier", objectUUID: "surviving-b", startTs: second, endTs: second + 3600)
+        ], deviceId: "apple-health")
+        let tombstone = HealthKitProjectionDeletion(sampleType: "HKWorkoutTypeIdentifier",
+            fromDay: day, toDay: day, fromTimestamp: first, toTimestamp: first + 3600)
+        try await replace(store, evidence: [tombstone])
+        let after = try await store.workouts(deviceId: "apple-health", from: start,
+                                             to: start + 2 * 86_400, limit: 10)
+        XCTAssertEqual(after.map(\.startTs), [second])
+        try await store.close()
+        let reopened = try await WhoopStore(path: path)
+        try await replace(reopened, evidence: [tombstone])
+        let replayed = try await reopened.workouts(deviceId: "apple-health", from: start,
+                                                  to: start + 2 * 86_400, limit: 10)
+        XCTAssertEqual(replayed.map(\.startTs), [second])
+        try await reopened.close()
+    }
+
+    func testUnindexedOrAmbiguousWorkoutStartCannotAuthorizeClearing() async throws {
+        for indexedObjects in [0, 2] {
+            let store = try await WhoopStore.inMemory()
+            let timestamp = start + 10 * 3600
+            _ = try await store.upsertWorkouts([WorkoutRow(startTs: timestamp, endTs: timestamp + 3600,
+                sport: "Running", source: "apple-health", durationS: 3600, energyKcal: nil,
+                avgHr: nil, maxHr: nil, strain: nil, distanceM: nil, zonesJSON: nil, notes: nil)],
+                deviceId: "apple-health")
+            try await store.upsertHealthKitObjectIdentities((0..<indexedObjects).map {
+                .init(sampleType: "HKWorkoutTypeIdentifier", objectUUID: "ambiguous-\($0)",
+                      startTs: timestamp, endTs: timestamp + 3600)
+            }, deviceId: "apple-health")
+            let evidence = HealthKitProjectionDeletion(sampleType: "HKWorkoutTypeIdentifier",
+                fromDay: day, toDay: day, fromTimestamp: timestamp, toTimestamp: timestamp + 3600)
+            try await replace(store, evidence: [evidence])
+            let rows = try await store.workouts(deviceId: "apple-health", from: start,
+                                                to: start + 2 * 86_400, limit: 10)
+            XCTAssertEqual(rows.count, 1, "Indexed objects: \(indexedObjects)")
+        }
+    }
+
+    func testAmbiguousSleepTombstonePreservesAdjacentBankedNightsOnHiddenReadReplay() async throws {
+        let path = FileManager.default.temporaryDirectory
+            .appendingPathComponent("health-sleep-tombstone-\(UUID().uuidString).sqlite").path
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        let store = try await WhoopStore(path: path)
+        let days = [day, "2026-10-21", "2026-10-22"]
+        _ = try await store.upsertDailyMetrics(days.map { daily($0) }, deviceId: "apple-health")
+        _ = try await store.upsertMetricSeries(days.map { MetricPoint(day: $0, key: "asleep_min", value: 480) },
+                                               deviceId: "apple-health")
+        // Compatibility with a queued broad range: stage timestamps do not prove an episode's
+        // reduced wake-day contribution, nor anything about the adjacent banked nights.
+        let evidence = HealthKitProjectionDeletion(sampleType: "HKCategoryTypeIdentifierSleepAnalysis",
+            fromDay: "2026-10-19", toDay: "2026-10-22",
+            fromTimestamp: start + 22 * 3600, toTimestamp: start + 30 * 3600)
+        func hiddenRead(_ target: WhoopStore) async throws {
+            try await target.replaceAppleHealthRange(appleDaily: [], dailyMetrics: [], metricPoints: [],
+                workouts: [], deviceId: "apple-health", fromDay: day, toDay: "2026-10-22",
+                fromTimestamp: start, toTimestamp: start + 3 * 86_400,
+                preserveUnprovenEmptyReads: true, projectionDeletions: [evidence])
+        }
+        try await hiddenRead(store)
+        try await store.close()
+        let reopened = try await WhoopStore(path: path)
+        try await hiddenRead(reopened)
+        let rows = try await reopened.dailyMetrics(deviceId: "apple-health", from: day, to: "2026-10-22")
+        XCTAssertEqual(rows.map(\.totalSleepMin), [480, 480, 480])
+        let points = try await reopened.metricSeries(deviceId: "apple-health", key: "asleep_min",
+                                                     from: day, to: "2026-10-22")
+        XCTAssertEqual(points.map(\.value), [480, 480, 480])
+        try await reopened.close()
     }
 }

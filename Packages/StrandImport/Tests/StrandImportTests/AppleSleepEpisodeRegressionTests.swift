@@ -171,4 +171,17 @@ final class AppleSleepEpisodeRegressionTests: XCTestCase {
         XCTAssertEqual(result["2024-03-10"]?.asleep, 480)
         XCTAssertEqual(result["2024-03-11"]?.asleep, 480)
     }
+
+    func testExactThirtyMinuteGapAtChunkBoundaryMatchesBatchWakeDay() throws {
+        let first = interval(.asleepCore, "2024-03-09T23:00:00Z", "2024-03-09T23:30:00Z")
+        let second = interval(.asleepCore, "2024-03-10T00:00:00Z", "2024-03-10T01:00:00Z")
+        let parser = ISO8601DateFormatter()
+        var reducer = AppleSleepEpisodeReducer.Accumulator()
+        XCTAssertTrue(reducer.ingest([first], through: parser.date(from: "2024-03-10T00:00:00Z")!).isEmpty)
+        let episodes = reducer.ingest([second], through: parser.date(from: "2024-03-10T02:00:00Z")!)
+        XCTAssertEqual(episodes, AppleSleepEpisodeReducer.reduce([first, second]))
+        XCTAssertEqual(episodes.first?.wakeDay, "2024-03-10")
+        XCTAssertEqual(episodes.first?.asleep, 90)
+        XCTAssertTrue(reducer.finish().isEmpty)
+    }
 }
