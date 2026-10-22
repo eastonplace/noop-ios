@@ -55,6 +55,8 @@ struct JournalLogCard: View {
     @State private var renameDraft = ""
     /// The edit-mode item awaiting the shared consequence-first hold gate.
     @State private var removing: JournalCatalogItem?
+    /// Typed/dictated entries remain transient until their sheet's explicit reviewed save.
+    @State private var composingEntry: JournalEntryPresentation?
     /// Kit 44 adapters. Both are loaded from production persistence; no fixture
     /// answers or synthetic streak days enter the component layer.
     @State private var selectedMood: Int?
@@ -134,6 +136,17 @@ struct JournalLogCard: View {
                         .foregroundStyle(StrandPalette.textTertiary)
                         .fixedSize(horizontal: false, vertical: true)
 
+                    if !editing {
+                        Button {
+                            composingEntry = JournalEntryPresentation(day: dayKey, sourceIdentity: repo.journalEntrySourceIdentity)
+                        } label: {
+                            Label("Write or dictate an entry", systemImage: "square.and.pencil")
+                                .font(StrandFont.body)
+                        }
+                        .buttonStyle(NoopButtonStyle(.secondary, fullWidth: true))
+                        .accessibilityIdentifier("journal-compose-entry")
+                    }
+
                     ForEach(JournalGroup.displayOrder, id: \.self) { group in
                         groupBlock(group)
                     }
@@ -150,6 +163,12 @@ struct JournalLogCard: View {
                     addRow
                 }
             }
+        }
+        .sheet(item: $composingEntry) { entry in
+            JournalEntryComposer(catalog: catalog, presentation: entry,
+                                 importedQuestions: importedQuestions, currentDay: dayKey,
+                                 onSaved: onChanged)
+                .environmentObject(repo)
         }
         .sheet(item: $renaming) { item in renameSheet(item) }
         .sheet(item: $removing) { item in

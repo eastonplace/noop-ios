@@ -14,13 +14,13 @@ final class LiftRoutineSelectionTests: XCTestCase {
         pickRoutine.tap()
 
         openRoutine("Upper A", in: app)
-        _ = readyAction("Start workout", in: app)
+        _ = readyAction("lift.progression.startAsPlanned", in: app)
         XCTAssertNil(visibleAction("Save", in: app), "Selecting a saved routine opens its preview")
         XCTAssertNil(visibleAction("Finish workout", in: app), "Previewing must not start a session")
         readyAction("Back", in: app).tap()
 
         openRoutine("Lower A", in: app)
-        let start = readyAction("Start workout", in: app)
+        let start = readyAction("lift.progression.startAsPlanned", in: app)
         XCTAssertNil(visibleAction("Finish workout", in: app), "Switching routines must not start a session")
         start.tap()
 
@@ -29,12 +29,14 @@ final class LiftRoutineSelectionTests: XCTestCase {
             NSPredicate(format: "label CONTAINS[c] 'Recording' AND label CONTAINS[c] 'Lower A'")
         ).firstMatch
         XCTAssertTrue(lowerRecording.exists, "The workout uses the second selection")
-        XCTAssertNil(visibleAction("Start workout", in: app))
+        XCTAssertNil(visibleAction("lift.progression.startAsPlanned", in: app))
+        XCTAssertNil(visibleAction("lift.progression.applyAndStart", in: app))
         capture(app, "selected-lower-a-workout")
 
         readyAction("Close workout", in: app).tap()
         openRoutine("Upper A", in: app)
-        XCTAssertNil(visibleAction("Start workout", in: app), "An active workout cannot be replaced by another selection")
+        XCTAssertNil(visibleAction("lift.progression.startAsPlanned", in: app), "An active workout cannot be replaced by another selection")
+        XCTAssertNil(visibleAction("lift.progression.applyAndStart", in: app), "Reviewed targets cannot replace an active workout")
         readyAction("Back", in: app).tap()
         readyAction("Resume lift", in: app).tap()
         _ = readyAction("Finish workout", in: app)
@@ -54,12 +56,13 @@ final class LiftRoutineSelectionTests: XCTestCase {
         reveal(actions, in: app)
         actions.tap()
         let save = openRoutineEditor(in: app)
-        XCTAssertNil(visibleAction("Start workout", in: app))
+        XCTAssertNil(visibleAction("lift.progression.startAsPlanned", in: app))
+        XCTAssertNil(visibleAction("lift.progression.applyAndStart", in: app))
         XCTAssertNil(visibleAction("Finish workout", in: app))
         save.tap()
 
         openRoutine("Upper A", in: app)
-        _ = readyAction("Start workout", in: app)
+        _ = readyAction("lift.progression.startAsPlanned", in: app)
         XCTAssertNil(visibleAction("Save", in: app), "The saved routine opens its preview")
         XCTAssertNil(visibleAction("Finish workout", in: app), "Saving a routine must not start it")
         capture(app, "saved-routine-preview")

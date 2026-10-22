@@ -1716,7 +1716,7 @@ struct TodayView: View {
         refreshScreenSnapshot()
     }
 
-    /// Today's four top-level sections: dials and glance (one card, its own divider), Live Heart Rate,
+    /// Today's sections: dials and glance, the current-day training target, Live Heart Rate,
     /// Stress and Health Monitor. Exactly one hairline sits between each adjacent pair and none after the last;
     /// every separator shows the same visible gap above and below (see `TodaySectionSeparator`). The
     /// conditional cards above (alert banner, auto workout, active workout, syncing note) are outside this rule
@@ -1726,6 +1726,10 @@ struct TodayView: View {
         if screenSnapshot != nil {
             VStack(alignment: .leading, spacing: 0) {
                 paperPillarCard
+                if selectedDayOffset == 0 && selectedDayKey == Repository.logicalDayKey(Date()) {
+                    TodaySectionSeparator(above: 12, below: 13.3)
+                    DailyTrainingTargetSection()
+                }
                 TodaySectionSeparator(above: 12, below: 13.3)
                 paperLiveHeartRateCard
                 TodaySectionSeparator(above: 15, below: 13.3)

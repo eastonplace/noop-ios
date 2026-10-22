@@ -4554,7 +4554,7 @@ final class Repository: ObservableObject {
 
     /// ORG-10: a journal write doesn't move `refreshSeq`, so the Insights same-seq cache restored the old
     /// answers when the classic journal reopened. Drop it and bump the data version.
-    private func journalDidChange() {
+    func journalDidChange() {
         Task { @MainActor in await NotificationCoordinator.shared.reconcileSchedules() }
         insightsCache = nil
         dataVersion &+= 1
