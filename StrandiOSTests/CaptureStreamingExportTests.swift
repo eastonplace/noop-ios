@@ -72,4 +72,23 @@ final class CaptureStreamingExportTests: XCTestCase {
         }
     }
 
+    @MainActor
+    func testStreamedTailMatchesExistingRedactThenCapByteOrder() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("CaptureTail-\(UUID())")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let source = directory.appendingPathComponent("source.jsonl")
+        let body = String(repeating: "{\"hex\":\"424235415030353339383532\",\"log\":\"WHOOP 4A2B9C1D é😴\"}\n", count: 100)
+        try Data(body.utf8).write(to: source)
+        let complete = Data(LiveState.redactPii(body).utf8)
+        for budget in [0, 1, 7, 500, complete.count, complete.count + 1] {
+            let result = try await FileExport.sanitizedCaptureTail(at: source, maximumBytes: budget)
+            let tail = try XCTUnwrap(result)
+            XCTAssertEqual(tail.data, Data(complete.suffix(budget)), "budget \(budget)")
+            XCTAssertEqual(tail.truncated, complete.count > budget)
+        }
+        let missing = try await FileExport.sanitizedCaptureTail(at: directory.appendingPathComponent("missing"), maximumBytes: 50)
+        XCTAssertNil(missing)
+    }
+
 }
