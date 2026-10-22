@@ -116,7 +116,7 @@ final class PuffinFrameRecorder {
     private var barriers: [(revision: Int, continuation: CheckedContinuation<Void, Never>)] = []
     #if os(iOS)
     private var backgroundObserver: NSObjectProtocol?
-    private var backgroundTask: UIBackgroundTaskIdentifier = .invalid
+    private var backgroundFlush = BackgroundFlushOwnership<UIBackgroundTaskIdentifier>()
     #endif
 
     init(state: LiveState, enabled: @escaping @MainActor () -> Bool = {
@@ -188,21 +188,22 @@ final class PuffinFrameRecorder {
 
     #if os(iOS)
     private func flushBeforeBackground() {
-        guard count > 0, backgroundTask == .invalid else { return }
-        backgroundTask = UIApplication.shared.beginBackgroundTask(withName: "Capture save") { [weak self] in
-            Task { @MainActor in self?.endBackgroundTask() }
+        guard count > 0, let token = backgroundFlush.reserve() else { return }
+        let identifier = UIApplication.shared.beginBackgroundTask(withName: "Capture save") { [weak self] in
+            Task { @MainActor in self?.endBackgroundTask(token) }
         }
+        if identifier == .invalid { _ = backgroundFlush.finish(token) }
+        else { backgroundFlush.assign(identifier, to: token) }
         Task { [weak self] in
             guard let self else { return }
             await flushAndWait()
-            endBackgroundTask()
+            endBackgroundTask(token)
         }
     }
 
-    private func endBackgroundTask() {
-        guard backgroundTask != .invalid else { return }
-        UIApplication.shared.endBackgroundTask(backgroundTask)
-        backgroundTask = .invalid
+    private func endBackgroundTask(_ token: UUID) {
+        guard let identifier = backgroundFlush.finish(token), identifier != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(identifier)
     }
     #endif
 }

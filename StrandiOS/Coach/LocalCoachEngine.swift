@@ -155,7 +155,7 @@ final class LocalCoachEngine: ObservableObject {
     private var stateAwaitUnlock = false
     private var protectedDataObserver: (any NSObjectProtocol)?
     private var backgroundFlushObserver: (any NSObjectProtocol)?
-    private var persistenceBackgroundTask = UIBackgroundTaskIdentifier.invalid
+    private var persistenceBackgroundFlush = BackgroundFlushOwnership<UIBackgroundTaskIdentifier>()
     private var storageError: String?
     private var generation: Task<Void, Never>?
     private var operationID: UUID?
@@ -255,21 +255,22 @@ final class LocalCoachEngine: ObservableObject {
     /// A finite OS background task keeps accepted snapshots alive while the app leaves the foreground.
     /// Expiration ends the task; failed protected writes are reported through the ordinary storage error.
     private func flushBeforeBackground() {
-        guard persistenceBackgroundTask == .invalid else { return }
-        persistenceBackgroundTask = UIApplication.shared.beginBackgroundTask(withName: "Coach save") { [weak self] in
-            Task { @MainActor in self?.endPersistenceBackgroundTask() }
+        guard let token = persistenceBackgroundFlush.reserve() else { return }
+        let identifier = UIApplication.shared.beginBackgroundTask(withName: "Coach save") { [weak self] in
+            Task { @MainActor in self?.endPersistenceBackgroundTask(token) }
         }
+        if identifier == .invalid { _ = persistenceBackgroundFlush.finish(token) }
+        else { persistenceBackgroundFlush.assign(identifier, to: token) }
         Task { [weak self] in
             guard let self else { return }
             await self.flushPersistence()
-            self.endPersistenceBackgroundTask()
+            self.endPersistenceBackgroundTask(token)
         }
     }
 
-    private func endPersistenceBackgroundTask() {
-        guard persistenceBackgroundTask != .invalid else { return }
-        UIApplication.shared.endBackgroundTask(persistenceBackgroundTask)
-        persistenceBackgroundTask = .invalid
+    private func endPersistenceBackgroundTask(_ token: UUID) {
+        guard let identifier = persistenceBackgroundFlush.finish(token), identifier != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(identifier)
     }
 
     /// A read refused because the file is protected and the device is locked. Anything else (a decode error,
