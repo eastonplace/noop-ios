@@ -19,6 +19,11 @@ approximate; downloads are on the [Releases](https://github.com/NoopApp/noop/rel
 
 ## This app's releases
 
+## 1.8.0
+
+- **Sleep, trimmed.** The Sleep page covers the same night in about half the scrolling: a compact score header, a single-row wake alarm, a shorter stage chart with stages vs typical merged into it (hold a stage for its exact time), heart-rate sections folded into tappable rows, Night detail in the Trends Scores list style, and Tonight's need merged with Sleep balance.
+- **Load focus.** Training load splits the last four weeks of workout heart rate into low aerobic, high aerobic and anaerobic, marked against broad target ranges. It's on the Trends card and the Training load page, where it shares "Where the load came from" with the sport breakdown.
+
 ## 1.7.1
 
 WHOOP 4.0 alarm commands use ordered confirmed writes and a delayed readback. Alarm confirmation is scoped to the current strap and request. Missing or negative confirmation ends with an explicit status instead of leaving Arming indefinitely. Existing wake schedules and stored health data are preserved.
