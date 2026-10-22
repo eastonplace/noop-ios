@@ -157,7 +157,7 @@ enum DailyTrainingTargetCopy {
     }
 
     static func progress(_ target: DailyTrainingTargetEngine.Target, current: Double?) -> String {
-        guard let current else { return String(localized: "Current Strain needs a recent sync. Your target uses completed days.") }
+        guard let current else { return String(localized: "Sync your strap to see where today's Strain sits in this range.") }
         let value = StrainScale.formatted(current)
         switch target.progress {
         case .unknown: return String(localized: "Current Strain is unavailable.")

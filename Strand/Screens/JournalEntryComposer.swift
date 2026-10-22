@@ -67,6 +67,7 @@ struct JournalEntryComposer: View {
     @FocusState private var editorFocused: Bool
     /// Bumped whenever Review produces something to look at, so the results are brought into view.
     @State private var resultsTick = 0
+    @State private var contentHeight: CGFloat = 0
 
     private var fields: [JournalEntryParser.Field] {
         catalog.resolvedItems(imported: importedQuestions).map(\.entryParserField)
@@ -143,9 +144,14 @@ struct JournalEntryComposer: View {
             if !sourceChanged { message = nil }
         }
         .onChange(of: fields) { _, _ in
+            // The catalog loads just after the sheet opens. That is not a change to anything the person
+            // reviewed, so only say so once a Review has started or produced results.
+            let hadReview = parsed != nil || review != nil || preparing
             invalidateReview()
             cancelDictation()
-            message = String(localized: "Your journal items changed. Review your note again.")
+            if hadReview {
+                message = String(localized: "Your journal items changed. Review your note again.")
+            }
         }
         .onChange(of: currentDay) { _, day in
             if day != presentation.day { invalidateContext() }
@@ -211,7 +217,9 @@ struct JournalEntryComposer: View {
                 .font(StrandFont.body)
                 .foregroundStyle(StrandPalette.textPrimary)
                 .scrollContentBackground(.hidden)
-                .frame(minHeight: 180)
+                .frame(height: min(max(contentHeight, Self.editorMinHeight), Self.editorMaxHeight))
+                .background(alignment: .topLeading) { contentMeasure }
+                .onPreferenceChange(EditorContentHeightKey.self) { contentHeight = $0 }
                 .focused($editorFocused)
                 .overlay(alignment: .topLeading) {
                     if entryText.isEmpty {
@@ -245,6 +253,23 @@ struct JournalEntryComposer: View {
                     .font(StrandFont.caption).foregroundStyle(StrandPalette.error)
             }
         }
+    }
+
+    private static let editorMinHeight: CGFloat = 150
+    private static let editorMaxHeight: CGFloat = 280
+
+    /// An invisible copy of the note, laid out at the editor's width, so the field can grow with its content
+    /// (between the min and max above) instead of filling whatever room the sheet offers.
+    private var contentMeasure: some View {
+        Text(verbatim: entryText + "\n")
+            .font(StrandFont.body)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 8)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+            .background(GeometryReader { Color.clear.preference(key: EditorContentHeightKey.self, value: $0.size.height) })
+            .hidden()
+            .accessibilityHidden(true)
     }
 
     /// One mic glyph. It sits in a filled circle only while recording, so the live state is visible at a glance.
@@ -348,7 +373,7 @@ struct JournalEntryComposer: View {
     private func reviewSection(_ review: JournalEntryReview) -> some View {
         VStack(alignment: .leading, spacing: NoopMetrics.space2) {
             Text("Review answers").font(StrandFont.title2)
-            Text("Edit a value, or uncheck it to keep your saved answer.")
+            Text("Uncheck anything you don't want saved.")
                 .font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
             ForEach($edits) { $edit in
                 if edit.id != edits.first?.id { Divider().overlay(StrandPalette.hairline) }
@@ -490,48 +515,79 @@ struct JournalEntryComposer: View {
     }
 }
 
+private struct EditorContentHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
+}
+
 private struct JournalEntryReviewRow: View {
     @Binding var edit: JournalEntryEditableValue
     let existing: JournalEntry?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: NoopMetrics.space2) {
-            Toggle(isOn: $edit.included) {
-                Text(edit.field.display).font(StrandFont.headline).fixedSize(horizontal: false, vertical: true)
-            }
-            .accessibilityLabel("Include \(edit.field.display) in save")
-            switch edit.field.kind {
-            case .boolean:
-                Picker("Answer", selection: $edit.boolean) {
-                    Text("Yes").tag(true)
-                    Text("No").tag(false)
-                }.pickerStyle(.segmented).disabled(!edit.included)
-            case .quantity(let unit):
-                HStack {
-                    TextField("Quantity", text: $edit.quantity)
-                        .keyboardType(.decimalPad)
-                        .textFieldStyle(.plain)
-                        .font(StrandFont.body)
-                        .frame(minHeight: 24)
-                        .journalFieldSurface()
-                        .accessibilityLabel("\(edit.field.display) quantity")
-                    if let unit, !unit.isEmpty { Text(unit).font(StrandFont.subhead) }
-                }.disabled(!edit.included)
-                if edit.included && edit.suggestion == nil {
-                    Text("Enter a number, zero or more.")
-                        .font(StrandFont.caption).foregroundStyle(StrandPalette.error)
+        HStack(alignment: .top, spacing: NoopMetrics.space2) {
+            includeButton
+            VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+                Text(edit.field.display)
+                    .font(StrandFont.headline)
+                    .foregroundStyle(StrandPalette.textPrimary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(minHeight: 44, alignment: .leading)
+                answerControl
+                    .disabled(!edit.included)
+                    .opacity(edit.included ? 1 : 0.4)
+                if let replaced = replacedDescription {
+                    Text(replaced)
+                        .font(StrandFont.caption)
+                        .foregroundStyle(StrandPalette.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            Text(existingDescription)
-                .font(StrandFont.caption)
-                .foregroundStyle(StrandPalette.textTertiary)
-                .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(.vertical, NoopMetrics.space2)
+        .padding(.vertical, NoopMetrics.space1)
     }
 
-    private var existingDescription: String {
-        guard let existing else { return String(localized: "Not logged yet. This adds a new answer.") }
+    private var includeButton: some View {
+        Button { edit.included.toggle() } label: {
+            Image(systemName: edit.included ? "checkmark.circle.fill" : "circle")
+                .font(StrandFont.title2)
+                .foregroundStyle(edit.included ? StrandPalette.accent : StrandPalette.textTertiary)
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Include")
+        .accessibilityValue(edit.included ? "Included" : "Not included")
+    }
+
+    @ViewBuilder private var answerControl: some View {
+        switch edit.field.kind {
+        case .boolean:
+            Picker("Answer", selection: $edit.boolean) {
+                Text("Yes").tag(true)
+                Text("No").tag(false)
+            }.pickerStyle(.segmented)
+        case .quantity(let unit):
+            HStack {
+                TextField("Quantity", text: $edit.quantity)
+                    .keyboardType(.decimalPad)
+                    .textFieldStyle(.plain)
+                    .font(StrandFont.body)
+                    .frame(minHeight: 24)
+                    .journalFieldSurface()
+                    .accessibilityLabel("\(edit.field.display) quantity")
+                if let unit, !unit.isEmpty { Text(unit).font(StrandFont.subhead) }
+            }
+            if edit.included && edit.suggestion == nil {
+                Text("Enter a number, zero or more.")
+                    .font(StrandFont.caption).foregroundStyle(StrandPalette.error)
+            }
+        }
+    }
+
+    /// Only a row that would overwrite something already saved says so; a new answer needs no caption.
+    private var replacedDescription: String? {
+        guard let existing else { return nil }
         let value: String
         if let number = existing.numericValue {
             let unit: String
@@ -539,7 +595,7 @@ private struct JournalEntryReviewRow: View {
             else { unit = "" }
             value = number.formatted(.number.precision(.significantDigits(1...17))) + unit
         } else { value = existing.answeredYes ? String(localized: "Yes") : String(localized: "No") }
-        return String(localized: "Saved as \(value). Saving replaces it.")
+        return String(localized: "Replaces your saved answer: \(value)")
     }
 }
 

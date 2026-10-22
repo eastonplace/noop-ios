@@ -63,10 +63,6 @@ struct DailyTrainingTargetPreview: View {
                                                                     plannedSleepHours: plannedSleep) {
                     forecast(preview)
                 }
-            } else {
-                Text("Sync your latest Strain to try a plan.")
-                    .font(StrandFont.footnote)
-                    .foregroundStyle(StrandPalette.textSecondary)
             }
             evidence(result, target: target)
         }
