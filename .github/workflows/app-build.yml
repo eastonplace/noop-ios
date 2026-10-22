@@ -110,7 +110,9 @@ jobs:
   build-and-test:
     needs: source-audits
     runs-on: macos-26
-    timeout-minutes: 120
+    # Full restored native coverage, UI captures and retained packages share this job.
+    # Keep enough time for every required gate and its result-bundle upload.
+    timeout-minutes: 180
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -199,6 +201,7 @@ jobs:
             -scheme NOOPiOS \
             -configuration Debug \
             -destination 'platform=iOS Simulator,id=${{ steps.simulator.outputs.udid }}' \
+            -resultBundlePath qa-artifacts/native-tests.xcresult \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             test 2>&1 | tee qa-artifacts/xcodebuild-test.txt
