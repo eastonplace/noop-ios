@@ -1,6 +1,6 @@
 {
-  "updated_at": "2026-10-22T05:36:43.609382+00:00",
-  "branch_head": "0c7472791a588eb8c68427c95c7dc31f2c07f408",
+  "updated_at": "2026-10-22T05:48:40.618020+00:00",
+  "branch_head": "21566b03",
   "draft_pr": 68,
   "goal_status": "active",
   "active_subagent_cap": 4,
@@ -152,7 +152,7 @@
       "title": "Main UI qualification fails 11 of 33 tests",
       "disposition": "repairs_in_progress",
       "implementation": "Required source, app, unit and package checks are green on PR #66 head94c85aa7 and PR #67 head88a4de42; neither is merged.",
-      "verified": "PRs #66/#67 package/source/app/full-unit checks green. PR #68 at db06edfa hosted 23 source/runtime commands, app/extensions and all eight packages pass; native fixture compilation failed before semantic execution and UI skipped.",
+      "verified": "Saved UI artifacts identify outer-edge scroll stalls. Two-file fixture repair34a7df8a passes independent review, SDK typecheck and affected audits; exact-head native UI remains pending.",
       "pending": "Finish 0c747279 native run 39728837111 and required package matrix 39728837184. Repair/qualify #66/#67 exact missing today.health.tile.hrv UI target, merge with no waiver, then rebase/update draft #68 and verify final exact-head CI.",
       "reason_for_unfinished_or_declined_work": "Required hosted UI has not completed; no waiver or admin merge.",
       "evidence": {
@@ -501,7 +501,7 @@
       "passed": 217,
       "scope": "Selected suites before latest broad integration; not final union."
     },
-    "current_native": "Current0c747279 hosted native run39728837111 active or queued. Previous db06 run failed fixture compilation on Swift6.3.3 with zero semantic cases; UI skipped. All five fixture tests retained; local host5/5 and Swift6.4 SDK typecheck pass.",
+    "current_native": "Interim 0c747279 native attempt superseded by the integrated source and reviewed UI fixes; final hosted semantic acceptance pending. Earlier db06 Swift6.3.3 fixture compile failure executed zero semantic cases.",
     "worker_packages": {
       "store": 653,
       "analytics": 1512,
@@ -523,8 +523,8 @@
       "qualification": "Later Store source949eec88 qualified separately below."
     },
     "final_native": "Pending current-head hosted semantic acceptance, including D6 append precision and cost. Historical broad052/repair coverage remains qualified at its own sources.",
-    "hosted_ci": "db06 source/runtime23, app/extensions and all eight packages pass. Native fixture compilation failed before execution; current0c747279 native/package runs pending. PR66/67 required UI still blocks merges.",
-    "rendered_ui": "Final selectors/role-independent feature/detail assertions integrated; entire ApprovedDashboardUITests file passes Swift6 SDK typecheck at683287ff. No semantic UI case or screenshot acceptance yet; hosted UI pending.",
+    "hosted_ci": "db06 source/runtime23, app/extensions and eight retained packages pass. Interim0c also passes all eight required package contexts. Final integrated native/UI checks and66/67 exact-head checks remain required; see current PR checks.",
+    "rendered_ui": "Both complete changed UI test files pass post-integration Swift6 Simulator SDK typecheck. All release/enrollment/permission captures remain present; semantic UI and screenshot acceptance pending.",
     "physical_build240": "pending; no phone install",
     "measured_battery": "unverified",
     "older_integrated_protocol": {
@@ -1004,5 +1004,19 @@
   "path_conventions": {
     "repository_paths": "Source paths and docs/reports paths are relative to repository root.",
     "local_artifacts": "Other evidence paths are relative to master-workspace outputs/noop-review-20261021; they are not claimed to ship in the repository."
+  },
+  "branch_head_context": "Source snapshot before final report publication. Current head and later acceptance are available in the draft PR checks.",
+  "current_pr_checks": "https://github.com/eastonplace/noop-ios/pull/68/checks",
+  "final_source_integration": {
+    "upstream_pr67_head": "8974b92f6789ec8b859ed9e74fa2e55dedca5940",
+    "upstream_pr66_head": "34a7df8a9144bec3bb87c73fdca2e04f9ca12a61",
+    "before_root_checkpoint": "b96a94d9",
+    "tree_delta": "Only the two reviewed UI gesture helpers; production, packages, restored tests, release metadata and added captures unchanged.",
+    "final_native_acceptance": "pending; see current PR checks",
+    "ci_timeout_minutes": 180,
+    "retained_native_result_bundle": "qa-artifacts/native-tests.xcresult",
+    "other_ci_gates": "unchanged; YAML structural comparison and hygiene15/audit pass",
+    "source_audits": "All15 pass against exact8974b92f upstream base.",
+    "ui_sdk_typecheck": "Both complete changed UI files pass; native execution not claimed."
   }
 }
