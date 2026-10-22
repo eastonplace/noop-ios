@@ -138,4 +138,13 @@ final class AppleSleepEpisodeRegressionTests: XCTestCase {
         XCTAssertEqual(night.asleep, 480)
         XCTAssertEqual(night.inBed, 570)
     }
+
+    func testUnknownStageCannotMoveTheWakeDayOfKnownSleep() throws {
+        let result = AppleHealthAggregator.sleepDaily([
+            interval(.asleepCore, "2024-03-09T22:00:00Z", "2024-03-09T23:00:00Z"),
+            interval(.unknown, "2024-03-09T23:00:00Z", "2024-03-10T07:00:00Z")
+        ])
+        XCTAssertEqual(result["2024-03-09"]?.asleep, 60)
+        XCTAssertEqual(result["2024-03-10"]?.asleep, 0)
+    }
 }

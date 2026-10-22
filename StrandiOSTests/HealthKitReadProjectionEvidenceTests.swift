@@ -41,5 +41,20 @@ final class HealthKitReadProjectionEvidenceTests: XCTestCase {
         XCTAssertEqual(evidence.first?.fromTimestamp, identity.startTs)
         XCTAssertEqual(evidence.first?.toTimestamp, identity.endTs)
     }
+
+    func testUnknownTombstoneRequeriesButCannotAuthorizeAllHistoryClearing() async throws {
+        let type = HKQuantityType.quantityType(forIdentifier: .heartRateVariabilitySDNN)!
+        let now = Date(timeIntervalSince1970: 1_792_454_400)
+        let old = now.addingTimeInterval(-200 * 86_400)
+        let page = HealthKitAnchorPage(samples: [], deletedObjectUUIDs: ["unknown-window"],
+                                      newAnchor: HKQueryAnchor(fromValue: 1))
+        let offered = try await HealthKitObserverPageCommit.commit(
+            page: page, exportedObjectUUIDs: [], importedIdentities: [],
+            initialScan: false, now: now, sampleTypeIdentifier: type.identifier,
+            earliestLocalDate: { old }, offer: { _ in }, saveAnchor: { _ in }, retireExports: { _ in })
+        let window = try XCTUnwrap(offered)
+        XCTAssertLessThanOrEqual(window.start, old)
+        XCTAssertTrue(window.projectionDeletions.isEmpty)
+    }
 }
 #endif
