@@ -454,11 +454,17 @@ final class AppModel: ObservableObject {
                 guard sample.ts >= last.ts else { return false }
                 if sample.ts == last.ts {
                     samples[samples.count - 1] = sample
-                    countZone(sample)
-                    guard strainAccumulator.replaceCurrentSecond(with: sample),
-                          chartAccumulator.ingest(sample) else { return false }
-                    energy?.replaceCurrentSecond(with: sample)
-                    publishEnergy()
+                    if strainAccumulator.replaceCurrentSecond(with: sample) {
+                        countZone(sample)
+                        guard chartAccumulator.ingest(sample) else { return false }
+                        energy?.replaceCurrentSecond(with: sample)
+                        publishEnergy()
+                    } else {
+                        // Pause breaks the strain and zone cursors, but its boundary second can still
+                        // be corrected. Rebuild this rare case from the canonical samples and pauses
+                        // so the tail changes without reconnecting either stretch across the pause.
+                        restore(samples: samples, pauses: pauseLedger)
+                    }
                 } else {
                     samples.append(sample)
                     countZone(sample)

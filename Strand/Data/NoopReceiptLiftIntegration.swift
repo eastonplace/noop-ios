@@ -207,6 +207,7 @@ final class NoopReceiptLiftIntegration: ObservableObject {
         let repository = model.repo
         let source = repository.deviceId
         let sourceContext = repository.notificationSourceContext
+        let readIds = repository.importedReadIds
         // An active workout can outlive a source selection. Its saved summaries keep their original
         // owner, while live values must stop until that exact repository/source context is current.
         let isCurrentSource: @MainActor @Sendable () -> Bool = { [weak model, weak repository] in
@@ -228,12 +229,13 @@ final class NoopReceiptLiftIntegration: ObservableObject {
                 return model?.repo.days.last(where: { $0.day == today })?.restingHr.map(Double.init)
                     ?? StrainScorerV2.defaultRestingHR
             },
-            hrSamples: { [weak repository] from, to in
-                guard let repository, await isCurrentSource() else { return [] }
-                let samples = await repository.hrSamples(from: from, to: to)
+            hrSamples: { from, to in
+                guard await isCurrentSource() else { return [] }
+                let samples = await Repository.hrSamples(store: store, sourceIds: readIds, from: from, to: to)
                 guard await isCurrentSource() else { return [] }
                 return samples
-            })
+            },
+            liveSourceIsCurrent: isCurrentSource)
     }
 
     /// Simulator QA only: `--demo-seed --noop-lift-demo <variant>` loads generated Lift data instead of the database's.
