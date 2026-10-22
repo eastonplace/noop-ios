@@ -71,4 +71,33 @@ final class HealthKitReadProjectionPreservationTests: XCTestCase {
         let whoop = try await store.dailyMetrics(deviceId: "whoop", from: day, to: day)
         XCTAssertEqual(whoop.first?.avgHrv, 65)
     }
+
+    func testHiddenActivityAndWorkoutsRemainUntilExactWorkoutDeletionEvidence() async throws {
+        let store = try await WhoopStore.inMemory()
+        _ = try await store.upsertAppleDaily([AppleDaily(day: day, steps: 8000,
+            activeKcal: 400, basalKcal: nil, vo2max: nil, avgHr: nil, maxHr: nil,
+            walkingHr: nil, weightKg: 80)], deviceId: "apple-health")
+        func workout(_ timestamp: Int, source: String = "apple-health") -> WorkoutRow {
+            WorkoutRow(startTs: timestamp, endTs: timestamp + 3600, sport: "Running", source: source,
+                durationS: 3600, energyKcal: 400, avgHr: 140, maxHr: 160, strain: nil,
+                distanceM: 5000, zonesJSON: nil, notes: nil)
+        }
+        _ = try await store.upsertWorkouts([workout(start + 3600), workout(start + 86_400),
+            workout(start + 10_800, source: "manual")], deviceId: "apple-health")
+        try await replace(store)
+        let activity = try await store.appleDaily(deviceId: "apple-health", from: day, to: day)
+        XCTAssertEqual(activity.first?.steps, 8000)
+        XCTAssertEqual(activity.first?.weightKg, 80)
+        let before = try await store.workouts(deviceId: "apple-health", from: start,
+                                              to: start + 2 * 86_400, limit: 10)
+        XCTAssertEqual(before.count, 3)
+        try await replace(store, evidence: [HealthKitProjectionDeletion(
+            sampleType: "HKWorkoutTypeIdentifier", fromDay: day, toDay: day,
+            fromTimestamp: start + 3600, toTimestamp: start + 7200)])
+        let after = try await store.workouts(deviceId: "apple-health", from: start,
+                                             to: start + 2 * 86_400, limit: 10)
+        XCTAssertEqual(after.count, 2)
+        XCTAssertTrue(after.contains { $0.source == "manual" })
+        XCTAssertTrue(after.contains { $0.startTs == start + 86_400 })
+    }
 }
