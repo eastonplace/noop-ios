@@ -17,7 +17,7 @@ Review date: 2026-10-22. Code commit: `1e0f7d8fda83a31c302e53580e2739db6212cdca`
 | Actual preference helper with Foundation/CoreFoundation | **12 persistence checks passed** for absent, explicit, registered and malformed preferences. Not the native app test target. |
 | Widget exact-helper/production-SQL harness | **5 groups passed**; the original helper failed the two row-truncation cases. Includes dense midday RMSSD, 25-hour day, equal-timestamp RR, source priority and invalid bounds. |
 | HRV original/patched equivalence | **37,555 fixtures, zero exact-output mismatches**, including Double bit patterns, gap flags and final HRV fields. |
-| All twelve CI source-contract audits | **12 passed** on the final code. Project-hygiene's thirteen Python tests also passed. |
+| CI source/audit validation | **11 source-audit scripts and the 13-test project-hygiene suite passed (12 commands total)** on the final code. |
 | Apple-target Swift syntax | **46 changed/new Swift files parsed**, zero diagnostics, exit 0. This does not resolve Apple imports or type-check the app. |
 | Whitespace/conflict check | `git diff --check` passed. |
 
@@ -34,7 +34,7 @@ Existing source-audit warnings were retained: a Python regex escape warning and 
 
 ## GitHub CI
 
-The draft PR triggers the repository's existing `iOS build and tests` and Swift package workflows. Their current final-head status is shown by the PR checks and the delivery summary. This document records local evidence before those hosted runs; it deliberately does not predict or pre-mark a native build as passed.
+The [draft PR #71](https://github.com/eastonplace/noop-ios/pull/71) triggers the repository's existing `iOS build and tests` and Swift package workflows. The first hosted [source-audits job passed](https://github.com/eastonplace/noop-ios/actions/runs/39718404093/job/119625944027) at the initial documentation head `32a0314c701c561ef1520a844065daabe585e0f9`. Current final-head native and package status is shown by the PR checks and the delivery summary. This document records local evidence and that completed source-audit result; it deliberately does not predict or pre-mark a native build as passed.
 
 The draft remains unmerged. Merge readiness requires the native and physical-device checks in [CODEX_HANDOFF.md](CODEX_HANDOFF.md), reconciliation of the remaining open-PR work, and user review.
 
@@ -50,4 +50,4 @@ The draft remains unmerged. Merge readiness requires the native and physical-dev
 | `18d29c98` | Half-open calendar-week summaries. |
 | `1e0f7d8f` | Fork-specific diagnostic report destination. |
 
-An additional documentation commit contains this review, specialist reports, independent challenge, test evidence and device handoff.
+Documentation commits contain this review, specialist reports, independent challenge, test evidence and device handoff, followed by retention/count wording clarifications from the delivery review.

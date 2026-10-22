@@ -3,9 +3,9 @@
 ## Starting point
 
 Repository: `eastonplace/noop-ios`. Review base: `6f49d855d6f747103f4dc2a60949cb933445c3c0`.
-Branch: `fix/noop-end-to-end-audit-20261022`. Keep its pull request **draft and unmerged**. Do not deploy or publish a release.
+Branch: `fix/noop-end-to-end-audit-20261022`. [Draft PR #71](https://github.com/eastonplace/noop-ios/pull/71). Keep it **draft and unmerged**. Do not deploy or publish a release.
 
-Read [README.md](README.md), [final-review.md](final-review.md), and [validation-status.md](validation-status.md) before changing the patch. The detailed specialist reports identify affected source and evidence. There are no schema migrations or historical-data deletions in this patch.
+Read [README.md](README.md), [final-review.md](final-review.md), and [validation-status.md](validation-status.md) before changing the patch. The detailed specialist reports identify affected source and evidence. There are no schema migrations or decoded historical-data deletions in this patch. Raw-outbox pruning resumes deletion of eligible batches under its existing retention policy; required materialization evidence remains protected.
 
 ## First: run native validation
 
@@ -92,7 +92,7 @@ Apple documents different background relaunch conditions for system termination 
 4. Fill an entire day with 1 Hz HR and dense RR. Compare the widget/dashboard stress to the detail view after 06:00, at midday and late evening. Repeat a 23-hour and 25-hour DST day; late data must not disappear at a row cap.
 5. Stage the same sleep window first with still gravity, then movement vectors with equal axis sums. Warm-cache and fresh results must agree. Reorder padded inputs; in-window data must survive.
 6. Test workouts exactly at next-week midnight, plus the DST week. Completed, planned and muscle summaries must count them in one week only.
-7. After restart/reanalysis, compare manual edits, source provenance and historical rows with the pre-test snapshot. This patch must not delete raw history or change migrations.
+7. After restart/reanalysis, compare manual edits, source provenance and decoded historical rows with the pre-test snapshot. This patch must not remove decoded history or unmaterialized required raw evidence, or change migrations. Eligible raw-outbox batches may be pruned under the existing retention policy.
 
 ### 4. HealthKit and retention
 
