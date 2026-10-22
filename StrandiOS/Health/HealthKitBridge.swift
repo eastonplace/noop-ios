@@ -1301,7 +1301,8 @@ final class HealthKitBridge: ObservableObject {
                 interval: interval,
                 bounds: bounds,
                 calendar: calendar,
-                cursor: request.cursor
+                cursor: request.cursor,
+                durableStore: whoopStore
             )
             deletedCount = deletion.deletedCount
             if let cursor = deletion.continuationCursor {
@@ -1400,7 +1401,8 @@ final class HealthKitBridge: ObservableObject {
         interval: HealthKitSourceDeletionProcessedInterval,
         bounds: SourceDeletionBounds,
         calendar: Calendar,
-        cursor: HealthKitSourceDeletionCursor?
+        cursor: HealthKitSourceDeletionCursor?,
+        durableStore: WhoopStore
     ) async throws -> SourceDeletionPage {
         let types = Self.sourceDeletionTypes(for: category)
         let componentIndex = cursor?.componentIndex ?? 0
@@ -1451,7 +1453,24 @@ final class HealthKitBridge: ObservableObject {
             return wakeDay >= interval.firstDay && wakeDay <= interval.lastDay
         }
         if !targets.isEmpty {
-            try await store.delete(targets)
+            // The observer receives only deleted UUIDs. Journal this exact NOOP-owned page before
+            // deleting it, just like ordinary export rewrites, so privacy cleanup cannot look like
+            // an unknown external deletion and reopen the entire Apple Health history.
+            _ = try await HealthKitExportDeletionCommit.commit(
+                sampleType: type,
+                loadSamples: { targets },
+                recordIdentities: { identities in
+                    _ = try await durableStore.upsertHealthKitObjectIdentities(
+                        identities,
+                        deviceId: HealthKitObserverPageCommit.exportIdentityNamespace
+                    )
+                },
+                delete: {
+                    try Task.checkCancellation()
+                    try await self.store.delete(targets)
+                    return targets.count
+                }
+            )
             try Task.checkCancellation()
         }
         if queried.count == HealthKitSourceDeletionChunkPlanner.maximumObjectsPerQuery,
@@ -1769,7 +1788,7 @@ final class HealthKitBridge: ObservableObject {
     }
 
     private func performSync(window: HealthKitSyncWindow) async -> Bool {
-        guard auth == .authorized else { return false }
+        guard auth == .authorized, !Task.isCancelled else { return false }
         syncing = true
         defer { syncing = false }
         guard let store = await repo.storeHandle() else {
@@ -1876,6 +1895,7 @@ final class HealthKitBridge: ObservableObject {
         // Apple-workout range (an empty query is meaningful), then stream bounded workout batches back in.
         // The pending-window journal remains uncleared until every batch succeeds, so a kill between
         // batches reruns the same idempotent replacement instead of leaving a committed partial import.
+            try Task.checkCancellation()
             try await store.replaceAppleHealthRange(
                 appleDaily: appleRows,
                 dailyMetrics: dmRows,
@@ -1892,6 +1912,7 @@ final class HealthKitBridge: ObservableObject {
                 guard !rows.isEmpty else { return }
                 _ = try await store.upsertWorkouts(rows, deviceId: appleDeviceId)
             }
+            try Task.checkCancellation()
             // Inbound Health data is already durably committed. Outbound mirroring is a separate,
             // best-effort side effect and must never keep the import journal alive or prevent the scoring
             // coordinator from publishing Recovery. Per-component writeback fingerprints retain only
@@ -1899,11 +1920,16 @@ final class HealthKitBridge: ObservableObject {
             do {
                 try await writeBack(whoopStore: store)
                 lastError = nil
+            } catch is CancellationError {
+                throw CancellationError()
             } catch {
                 lastError = String(localized: "Apple Health data imported; write-back will retry: \(error.localizedDescription)")
             }
             lastSync = Date()
             return true
+        } catch is CancellationError {
+            // The import coordinator retains the exact window. Expiry can resume it on the next wake.
+            return false
         } catch {
             lastError = String(localized: "Apple Health sync failed: \(error.localizedDescription)")
             return false
@@ -1949,6 +1975,7 @@ final class HealthKitBridge: ObservableObject {
         importedIds: [String],
         computedIds: [String]
     ) async throws {
+        try Task.checkCancellation()
         let now = Date()
         guard let fromDate = Calendar.current.date(byAdding: .day, value: -days, to: now) else { return }
         let fromTs = Int(fromDate.timeIntervalSince1970)
@@ -1966,17 +1993,21 @@ final class HealthKitBridge: ObservableObject {
             try await writeVitals(whoopStore: whoopStore, days: days, sessions: sessions,
                                   importedIds: importedIds, computedIds: computedIds)
         }
+        try Task.checkCancellation()
         await attempt {
             try await writeSleep(sessions: sessions, durableStore: whoopStore)
         }
+        try Task.checkCancellation()
         await attempt {
             try await writeHeartRate(whoopStore: whoopStore, importedIds: importedIds,
                                      fromTs: fromTs, nowTs: nowTs)
         }
+        try Task.checkCancellation()
         await attempt {
             try await writeWorkouts(whoopStore: whoopStore, importedIds: importedIds,
                                     computedIds: computedIds, fromTs: fromTs, toTs: nowTs)
         }
+        try Task.checkCancellation()
         if let firstError { throw firstError }
     }
 
@@ -2579,6 +2610,7 @@ final class HealthKitBridge: ObservableObject {
 
     private func collect(_ id: HKQuantityTypeIdentifier, unit: HKUnit, start: Date, end: Date,
                          op: HKStatisticsOptions) async throws -> [String: Double] {
+        try Task.checkCancellation()
         guard let type = HKQuantityType.quantityType(forIdentifier: id) else { return [:] }
         let cal = Calendar.current
         let anchor = cal.startOfDay(for: start)
@@ -2634,13 +2666,16 @@ final class HealthKitBridge: ObservableObject {
     }
 
     private func collectSleep(start: Date, end: Date) async throws -> [String: SleepDayAgg] {
+        try Task.checkCancellation()
         var merged: [String: SleepDayAgg] = [:]
         for (index, window) in queryWindows(start: start, end: end).enumerated() {
+            try Task.checkCancellation()
             let chunk = try await collectSleepChunk(
                 start: window.start,
                 end: window.end,
                 includesLeadingOverlap: index == 0
             )
+            try Task.checkCancellation()
             for (day, value) in chunk {
                 var total = merged[day] ?? SleepDayAgg(asleepMin: nil, deepMin: nil, remMin: nil, coreMin: nil)
                 total.asleepMin = Self.boundedSleepSum(total.asleepMin, value.asleepMin)
@@ -2724,13 +2759,17 @@ final class HealthKitBridge: ObservableObject {
         end: Date,
         consume: ([WorkoutRow]) async throws -> Void
     ) async throws {
+        try Task.checkCancellation()
         for (index, window) in queryWindows(start: start, end: end).enumerated() {
+            try Task.checkCancellation()
             let rows = try await collectWorkoutChunk(
                 start: window.start,
                 end: window.end,
                 includesLeadingOverlap: index == 0
             )
+            try Task.checkCancellation()
             try await consume(rows)
+            try Task.checkCancellation()
         }
     }
 

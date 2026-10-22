@@ -555,7 +555,7 @@ final class HealthKitSyncCoordinator {
     private(set) var isRunning = false
     private var importInFlight = false
     private var followUp: HealthKitSyncWindow?
-    private var waiters: [CheckedContinuation<Void, Never>] = []
+    private let waiters = CancellableWaiterQueue<Void>()
     private var workerTask: Task<Void, Never>?
 
     init(
@@ -591,8 +591,11 @@ final class HealthKitSyncCoordinator {
 
     /// Used by foreground/manual sync, where the caller expects the queued work to finish first.
     func runAndWait() async {
+        guard !Task.isCancelled else { return }
         if isRunning {
-            await withCheckedContinuation { waiters.append($0) }
+            // A cancelled background/manual caller stops waiting without cancelling the importer
+            // that owns the lease or disturbing its durable work.
+            try? await waiters.wait(())
             return
         }
         isRunning = true
@@ -601,9 +604,7 @@ final class HealthKitSyncCoordinator {
             importInFlight = false
             followUp = nil
             workerTask = nil
-            let continuations = waiters
-            waiters.removeAll()
-            continuations.forEach { $0.resume() }
+            waiters.resumeAll()
         }
 
         while pending != nil {
@@ -624,9 +625,12 @@ final class HealthKitSyncCoordinator {
                         return false
                     }
 
-                    guard await operation(snapshot) else {
+                    guard !Task.isCancelled,
+                          await operation(snapshot),
+                          !Task.isCancelled else {
                         // Import work remains pending for retry, while the durable scoring journal may safely
-                        // reconcile either unchanged rows or a partially committed transaction.
+                        // reconcile either unchanged rows or a partially committed transaction. Cancellation
+                        // after an awaited query must not clear any part of the replayable union.
                         return false
                     }
 
