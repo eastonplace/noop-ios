@@ -2520,15 +2520,6 @@ final class IntelligenceEngine: ObservableObject {
             let v2 = scoredSleepV2[daily.day]
             let recoverySleepQuality = sleepV2Mode == .on ? v2?.performance?.recoveryInput : legacySleepQuality
             let dayBaselines = baselines(asOf: daily.day)
-            let recovery = recomputeRecovery(daily, dayBaselines, sleepQuality: recoverySleepQuality)
-            // Charge term-breakdown trace (Group G): only when the Recovery test mode is on. Emits which
-            // term moved Charge and which was nil and forced the renorm, tagged `.recovery`. The trace's
-            // score is RecoveryScorer.recovery verbatim, so the `recovery` written above is unchanged.
-            if recoveryTraceActive {
-                for line in recoveryTraceLines(daily, dayBaselines, sleepQuality: recoverySleepQuality) {
-                    diagnosticSink?(line, .recovery)
-                }
-            }
             var skinDev = recomputeSkinTempDev(night.nightlySkin, dayBaselines.skinTemp)
             // F2: a completed day whose as-of skin baseline isn't usable here (its earlier nights predate the
             // persisted nightly means) keeps its stored deviation instead of losing it. Review round 3 (F): so
@@ -2540,13 +2531,25 @@ final class IntelligenceEngine: ObservableObject {
                (skinDev == nil && dayBaselines.skinTemp == nil) || !skinHistoryReachesBeforeWindow {
                 skinDev = storedSkinDev
             }
+            // Pass 1 has no skin baseline. Score and explain this night with the final deviation
+            // selected above, including the completed-day preservation rule, then persist that value.
+            let recoveryDaily = daily.with(recovery: daily.recovery, skinTempDevC: skinDev)
+            let recovery = recomputeRecovery(recoveryDaily, dayBaselines, sleepQuality: recoverySleepQuality)
+            // Charge term-breakdown trace (Group G): only when the Recovery test mode is on. Emits which
+            // term moved Charge and which was nil and forced the renorm, tagged `.recovery`. The trace's
+            // score is RecoveryScorer.recovery verbatim, so the `recovery` written above is unchanged.
+            if recoveryTraceActive {
+                for line in recoveryTraceLines(recoveryDaily, dayBaselines, sleepQuality: recoverySleepQuality) {
+                    diagnosticSink?(line, .recovery)
+                }
+            }
             let source = DaySource.classify(day: daily.day, importedWhoopDays: importedWhoopDays,
                                             appleHealthDays: appleHealthDays)
             // SHARED CONTRACT enrichment: the ordered Charge driver list + the relative skin-temp marker,
             // built from the SAME inputs `recomputeRecovery` reads so the rows can never disagree with the
             // headline. Both are empty/nil pre-baseline (cold-start), matching the score's own null-honesty.
-            let drivers = recomputeChargeDrivers(daily, dayBaselines, sleepQuality: recoverySleepQuality)
-            let skinRel = RecoveryScorer.skinTempRelative(deviationC: skinDev)
+            let drivers = recomputeChargeDrivers(recoveryDaily, dayBaselines, sleepQuality: recoverySleepQuality)
+            let skinRel = RecoveryScorer.skinTempRelative(deviationC: recoveryDaily.skinTempDevC)
             // Honest per-day Charge confidence (A3): the strap night reads `.solid`/`.building`/`.calibrating`
             // off the HRV baseline state rather than a blanket `.solid`, so a thin/provisional baseline shows
             // EST. not REL. Pure presentation upstream of the UI; the score itself is unchanged.
@@ -2601,7 +2604,7 @@ final class IntelligenceEngine: ObservableObject {
                     hrRows: owned?.hrRows ?? 0, importedWhoop: importedWhoopDays.contains(daily.day),
                     importedApple: appleHealthDays.contains(daily.day)), .universal)
             }
-            dailies.append(daily.with(recovery: recovery, skinTempDevC: skinDev))
+            dailies.append(recoveryDaily.with(recovery: recovery, skinTempDevC: recoveryDaily.skinTempDevC))
             if let scored = v2 {
                 sleepV2Points.append(contentsOf: Self.sleepV2MetricPoints(scored))
                 let scoreLog = scored.performance.map { String(format: "%.1f", $0.score) } ?? "nil"
