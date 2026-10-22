@@ -19,6 +19,15 @@ approximate; downloads are on the [Releases](https://github.com/NoopApp/noop/rel
 
 ## This app's releases
 
+## 2.0.0
+
+October 2026: NOOP 2.0.
+
+- **Plan in a spreadsheet.** Import routines from a CSV or Excel file.
+- **Stress vs your normal.** Compare hourly stress with your normal.
+- **Route export.** Share a run's route as GPX or FIT.
+- **Coach brief widget.** Your Coach's brief on the Home Screen.
+
 ## 1.7.1
 
 WHOOP 4.0 alarm commands use ordered confirmed writes and a delayed readback. Alarm confirmation is scoped to the current strap and request. Missing or negative confirmation ends with an explicit status instead of leaving Arming indefinitely. Existing wake schedules and stored health data are preserved.
