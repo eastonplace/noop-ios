@@ -1,4 +1,5 @@
 import XCTest
+import Combine
 import WhoopStore
 @testable import NOOP
 
@@ -85,17 +86,24 @@ final class CoachJournalSnapshotTests: XCTestCase {
         XCTAssertFalse(session.isLoading)
     }
 
-    func testCatalogReloadSeesAnEditFromAnotherInstanceWithoutRepersisting() {
+    func testCatalogReloadSeesAnEditFromAnotherInstanceWithoutRepersisting() throws {
         let suite = "CoachJournalSnapshotTests." + UUID().uuidString
         let defaults = UserDefaults(suiteName: suite)!
         defer { defaults.removePersistentDomain(forName: suite) }
         let first = JournalCatalogStore(defaults: defaults)
         let second = JournalCatalogStore(defaults: defaults)
         first.rename("Did you drink any alcohol?", to: "Alcohol last night")
+        let persisted = try XCTUnwrap(defaults.data(forKey: "journal.catalog.v2"))
+        var changeNotifications = 0
+        let observation = NotificationCenter.default.publisher(for: .init("noop.notificationJournalDidChange"))
+            .sink { _ in changeNotifications += 1 }
+        defer { observation.cancel() }
         XCTAssertTrue(second.reloadFromDefaults())
+        XCTAssertEqual(defaults.data(forKey: "journal.catalog.v2"), persisted)
         XCTAssertEqual(second.item(for: "Did you drink any alcohol?")?.display, "Alcohol last night")
         XCTAssertFalse(second.reloadFromDefaults())
-        XCTAssertEqual(defaults.data(forKey: "journal.catalog.v2"), try? JSONEncoder().encode(first.items))
+        XCTAssertEqual(defaults.data(forKey: "journal.catalog.v2"), persisted)
+        XCTAssertEqual(changeNotifications, 0, "Reload must not persist or announce a catalog write")
     }
 
     func testCatalogResetClearsInMemoryDeltasWithoutRecreatingTheRemovedKey() {
