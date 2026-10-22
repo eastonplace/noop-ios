@@ -50,8 +50,8 @@ final class WorkoutHrReduceTests: XCTestCase {
     /// drives the UI). Assert both that it executes off the main thread AND returns the right numbers there.
     func testReduceRunsOffMainActor() async {
         let input = samples((0..<8000).map { 60 + ($0 % 40) })
-        let result: (offMain: Bool, avg: Int, peak: Int) = await Task.detached {
-            Self.reduceAndObserveThread(input)
+        let result: (offMain: Bool, avg: Int, peak: Int) = await Task.detached { [input] in
+            WorkoutHrReduceTests.reduceAndObserveThread(input)
         }.value
         XCTAssertTrue(result.offMain, "reduceWorkoutHr must run off the main thread (freeze fix)")
         XCTAssertEqual(result.peak, 99)            // 60 + 39
