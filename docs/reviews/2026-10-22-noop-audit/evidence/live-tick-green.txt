@@ -1,0 +1,1 @@
+PASS: time-only ticks do not manufacture sensor evidence or wrist prompts

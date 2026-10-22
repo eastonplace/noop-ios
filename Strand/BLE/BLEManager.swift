@@ -1200,6 +1200,9 @@ public final class BLEManager: NSObject, ObservableObject {
     /// silently un-pause the give-up and re-run the full refusal hammer, forever, one burst per event
     /// (#78 hole-2; Android's onBluetoothRadioOn always had the correct one-attempt-latched shape).
     public func connect(model: WhoopModel = .persisted) {
+        // Only an explicit connection request may undo Disconnect/Forget or a source transition's
+        // stop. A system power-on/reconnect uses connectCore too and must preserve that intent.
+        intentionalDisconnect = false
         // #747/#750: re-arm on the user's explicit retry: clear the give-up streak + pause so this fresh
         // attempt isn't immediately re-paused and the auto-reconnect works again if it bonds.
         if autoReconnectPausedForBondLoop {
@@ -1249,6 +1252,9 @@ public final class BLEManager: NSObject, ObservableObject {
     /// app is opened, the user taps Connect, or a link proves healthy. The bond-loop pause is deliberately
     /// not here: a system event gets one bounded attempt with that give-up latched (#78 hole-2).
     private var systemReconnectPauseReason: String? {
+        if !ConnectionIntentPolicy.allowsSystemReconnect(intentionalDisconnect: intentionalDisconnect) {
+            return "WHOOP connection was stopped; waiting for an explicit Connect request"
+        }
         if !Self.shouldAllowWhoop5SystemReconnect(secureRecoveryPaused: autoReconnectPausedForWhoop5SecureFailure) {
             return "WHOOP 5/MG secure recovery is paused; tap Connect to start a fresh bounded series"
         }
@@ -1259,7 +1265,6 @@ public final class BLEManager: NSObject, ObservableObject {
     }
 
     private func connectCore(model: WhoopModel) {
-        intentionalDisconnect = false
         // Connection test mode: stamp when this connect attempt began so didConnect can report the connect
         // latency. A plain Date() assignment, no behaviour change; only read behind the .connection gate.
         connectAttemptStartedAt = Date()
@@ -1368,6 +1373,7 @@ public final class BLEManager: NSObject, ObservableObject {
 
     public func disconnect() {
         intentionalDisconnect = true
+        cancelPendingReconnect()
         cancelScanFallback()
         // CoreBluetooth disconnect is asynchronous. Retire secure work now so a queued deadline cannot
         // revoke a replacement provider that connects before didDisconnect arrives.
@@ -1416,10 +1422,25 @@ public final class BLEManager: NSObject, ObservableObject {
     /// can't show its blue pairing LEDs). Stop auto-reconnect, drop the live link, and clear the targeting +
     /// restoration references that point at this strap so NOOP lets go for good — until the user deliberately
     /// reconnects (which clears `intentionalDisconnect` again via connect()).
-    public func forgetDevice(_ peripheralId: String?) {
+    public func forgetDevice(_ peripheralId: String?, isActiveDevice: Bool) {
         let target = peripheralId.flatMap { UUID(uuidString: $0) }
+        guard ConnectionIntentPolicy.removalAffectsConnection(
+            removedPeripheralID: target,
+            currentPeripheralID: peripheral?.identifier,
+            preferredPeripheralID: preferredPeripheralUUID,
+            isActiveDevice: isActiveDevice) else {
+            // Removing an unrelated row must not stop the active strap's reconnects or collection.
+            // A row without a peripheral (for example an import source) is not "forget all straps".
+            if let target, let restored = restoredPeripheral, restored.identifier == target {
+                restoredPeripheral = nil
+                central.cancelPeripheralConnection(restored)
+            }
+            log("Inactive device removed — current WHOOP connection and automatic recovery preserved")
+            return
+        }
         let isCurrent = target == nil || peripheral?.identifier == target
         intentionalDisconnect = true            // defuses the disconnect→3s-reconnect loop's guard
+        cancelPendingReconnect()
         cancelScanFallback()
         if isCurrent { state.clearBatterySamples() }   // BLE-12: forgetting the strap drops its history
         readoptingTo = nil                       // abandon any in-flight #52 pin handoff
@@ -4378,6 +4399,10 @@ public final class BLEManager: NSObject, ObservableObject {
         historicalMaterializationRun = run
     }
 
+    func waitForHistoricalMaterializationForTesting() async {
+        await historicalMaterializationTask?.value
+    }
+
     func wakeHistoricalMaterializationAfterAcknowledgmentForTesting(
         receipt: HistoricalDataCommitReceipt,
         outcome: HistoricalCommitOutcome,
@@ -5007,7 +5032,8 @@ public final class BLEManager: NSObject, ObservableObject {
     }
 
     /// Parse a standard BLE Heart Rate Measurement (0x2A37) via the pure StandardHeartRate parser.
-    private func parseStandardHR(_ data: [UInt8], observedAt now: Date, source: LiveHeartRateSource?) {
+    func parseStandardHR(_ data: [UInt8], observedAt now: Date, source: LiveHeartRateSource?,
+                         admissionTime: Date = Date()) {
         guard let m = StandardHeartRate.parse(data, family: selectedModel.deviceFamily) else {
             log("HR notify parse failed: \(hex(data))")
             return
@@ -5027,7 +5053,7 @@ public final class BLEManager: NSObject, ObservableObject {
         if m.hr >= 30 && m.hr <= 220 {
             if !state.streamingLiveHR { state.streamingLiveHR = true }
             if let source {
-                state.receiveHeartRate(bpm: m.hr, observedAt: now, source: source, transport: .standard)
+                state.receiveHeartRate(bpm: m.hr, observedAt: now, source: source, transport: .standard, now: admissionTime)
             }
         }
         // Preserve every RR packet for stress/HRV, after the direct receipt so that the same
@@ -5637,13 +5663,13 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
     public func centralManager(_ central: CBCentralManager,
                                didFailToConnect peripheral: CBPeripheral,
                                error: Error?) {
-        guard Self.shouldAcceptConnectionResult(
-            eventPeripheralID: peripheral.identifier,
-            activePeripheralID: self.peripheral?.identifier,
+        guard ConnectionIntentPolicy.acceptsFailedConnection(
+            callbackPeripheralID: peripheral.identifier,
+            requestedPeripheralID: self.peripheral?.identifier,
             preferredPeripheralID: preferredPeripheralUUID,
-            intentionalDisconnect: intentionalDisconnect
-        ), self.peripheral?.state != .connected else {
-            log("Ignored stale failed-connect callback for \(peripheral.identifier)")
+            intentionalDisconnect: intentionalDisconnect,
+            requestedLinkState: Self.reconnectLinkState(self.peripheral)) else {
+            log("Ignored stale or unwanted connection failure for \(peripheral.identifier)")
             return
         }
         log("Failed to connect\(error.map { " — \($0.localizedDescription)" } ?? "")")
@@ -5708,6 +5734,10 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
     /// background-cap pause was bypassed here because this path called CoreBluetooth directly).
     func handleBluetoothPoweredOn(restored: (identifier: UUID, isConnected: Bool)?,
                                   reconnect: () -> Void, resumeDiscovery: () -> Void) {
+        guard ConnectionIntentPolicy.allowsSystemReconnect(intentionalDisconnect: intentionalDisconnect) else {
+            log("Bluetooth powered on after WHOOP was stopped — waiting for an explicit Connect request")
+            return
+        }
         guard let restored else {
             // #78 hole-2: poweredOn is SYSTEM-initiated (every Bluetooth toggle / bluetoothd restart
             // lands here), so it must not reset a latched bond-loop give-up - it gets ONE bounded

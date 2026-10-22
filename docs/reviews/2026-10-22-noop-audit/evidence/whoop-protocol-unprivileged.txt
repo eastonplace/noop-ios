@@ -1,0 +1,1300 @@
+Test Suite 'All tests' started at 2026-10-21 23:27:56.956
+Test Suite 'debug.xctest' started at 2026-10-21 23:27:56.957
+Test Suite 'BackfillContinuationTests' started at 2026-10-21 23:27:56.957
+Test Case 'BackfillContinuationTests.testContinuesWhenConnectedBehindAndAdvancing' started at 2026-10-21 23:27:56.957
+Test Case 'BackfillContinuationTests.testContinuesWhenConnectedBehindAndAdvancing' passed (0.001 seconds)
+Test Case 'BackfillContinuationTests.testContinuesWhenNewestStaleButRowsFlowing' started at 2026-10-21 23:27:56.958
+Test Case 'BackfillContinuationTests.testContinuesWhenNewestStaleButRowsFlowing' passed (0.0 seconds)
+Test Case 'BackfillContinuationTests.testContinuesWhenRangeUnknownButRowsFlowing' started at 2026-10-21 23:27:56.959
+Test Case 'BackfillContinuationTests.testContinuesWhenRangeUnknownButRowsFlowing' passed (0.0 seconds)
+Test Case 'BackfillContinuationTests.testFinalHistoryCompleteCaughtUpStops' started at 2026-10-21 23:27:56.959
+Test Case 'BackfillContinuationTests.testFinalHistoryCompleteCaughtUpStops' passed (0.0 seconds)
+Test Case 'BackfillContinuationTests.testFutureClockChainStopsAfterOnePass' started at 2026-10-21 23:27:56.959
+Test Case 'BackfillContinuationTests.testFutureClockChainStopsAfterOnePass' passed (0.0 seconds)
+Test Case 'BackfillContinuationTests.testFutureClockNewestExcludedStopsEmptySpin' started at 2026-10-21 23:27:56.959
+Test Case 'BackfillContinuationTests.testFutureClockNewestExcludedStopsEmptySpin' passed (0.0 seconds)
+Test Case 'BackfillContinuationTests.testFutureClockNewestStopsEvenOnRealRows' started at 2026-10-21 23:27:56.959
+Test Case 'BackfillContinuationTests.testFutureClockNewestStopsEvenOnRealRows' passed (0.0 seconds)
+Test Case 'BackfillContinuationTests.testFutureSkewBoundary' started at 2026-10-21 23:27:56.959
+Test Case 'BackfillContinuationTests.testFutureSkewBoundary' passed (0.0 seconds)
+Test Case 'BackfillContinuationTests.testGapAloneNeverAuthorizesAContinuation' started at 2026-10-21 23:27:56.960
+Test Case 'BackfillContinuationTests.testGapAloneNeverAuthorizesAContinuation' passed (0.0 seconds)
+Test Case 'BackfillContinuationTests.testHistoryCompleteSlicesAreCappedNotRunaway' started at 2026-10-21 23:27:56.960
+Test Case 'BackfillContinuationTests.testHistoryCompleteSlicesAreCappedNotRunaway' passed (0.101 seconds)
+Test Case 'BackfillContinuationTests.testIsFutureDatedNewestBoundary' started at 2026-10-21 23:27:57.061
+Test Case 'BackfillContinuationTests.testIsFutureDatedNewestBoundary' passed (0.0 seconds)
+Test Case 'BackfillContinuationTests.testMildFutureSkewStillTrusted' started at 2026-10-21 23:27:57.061
+Test Case 'BackfillContinuationTests.testMildFutureSkewStillTrusted' passed (0.0 seconds)
+Test Case 'BackfillContinuationTests.testMultiPassDrainUntilCaughtUpOrCapped' started at 2026-10-21 23:27:57.061
+Test Case 'BackfillContinuationTests.testMultiPassDrainUntilCaughtUpOrCapped' passed (0.0 seconds)
+Test Case 'BackfillContinuationTests.testRowsFallbackStillRespectsHardGuards' started at 2026-10-21 23:27:57.061
+Test Case 'BackfillContinuationTests.testRowsFallbackStillRespectsHardGuards' passed (0.0 seconds)
+Test Case 'BackfillContinuationTests.testSmallHistoryCompleteStillBehindContinues' started at 2026-10-21 23:27:57.061
+Test Case 'BackfillContinuationTests.testSmallHistoryCompleteStillBehindContinues' passed (0.0 seconds)
+Test Case 'BackfillContinuationTests.testStopsAtCap' started at 2026-10-21 23:27:57.061
+Test Case 'BackfillContinuationTests.testStopsAtCap' passed (0.0 seconds)
+Test Case 'BackfillContinuationTests.testStopsWhenCaughtUp' started at 2026-10-21 23:27:57.062
+Test Case 'BackfillContinuationTests.testStopsWhenCaughtUp' passed (0.0 seconds)
+Test Case 'BackfillContinuationTests.testStopsWhenDisconnected' started at 2026-10-21 23:27:57.062
+Test Case 'BackfillContinuationTests.testStopsWhenDisconnected' passed (0.0 seconds)
+Test Case 'BackfillContinuationTests.testStopsWhenNewestStaleAndNoRows' started at 2026-10-21 23:27:57.062
+Test Case 'BackfillContinuationTests.testStopsWhenNewestStaleAndNoRows' passed (0.1 seconds)
+Test Case 'BackfillContinuationTests.testStopsWhenRangeUnknown' started at 2026-10-21 23:27:57.162
+Test Case 'BackfillContinuationTests.testStopsWhenRangeUnknown' passed (0.0 seconds)
+Test Case 'BackfillContinuationTests.testStopsWhenTrimFrozen' started at 2026-10-21 23:27:57.163
+Test Case 'BackfillContinuationTests.testStopsWhenTrimFrozen' passed (0.0 seconds)
+Test Suite 'BackfillContinuationTests' passed at 2026-10-21 23:27:57.163
+	 Executed 21 tests, with 0 failures (0 unexpected) in 0.205 (0.205) seconds
+Test Suite 'BackfillDrainOwnershipTests' started at 2026-10-21 23:27:57.163
+Test Case 'BackfillDrainOwnershipTests.testNothingIsIngestedAfterTeardownOrOutsideABackfill' started at 2026-10-21 23:27:57.163
+Test Case 'BackfillDrainOwnershipTests.testNothingIsIngestedAfterTeardownOrOutsideABackfill' passed (0.0 seconds)
+Test Case 'BackfillDrainOwnershipTests.testOnlyOneDrainerAtATime' started at 2026-10-21 23:27:57.163
+Test Case 'BackfillDrainOwnershipTests.testOnlyOneDrainerAtATime' passed (0.0 seconds)
+Test Case 'BackfillDrainOwnershipTests.testSameConnectionReplacementSessionAlsoDropsOldFrames' started at 2026-10-21 23:27:57.163
+Test Case 'BackfillDrainOwnershipTests.testSameConnectionReplacementSessionAlsoDropsOldFrames' passed (0.0 seconds)
+Test Case 'BackfillDrainOwnershipTests.testStaleEndAfterReconnectIsDropped' started at 2026-10-21 23:27:57.163
+Test Case 'BackfillDrainOwnershipTests.testStaleEndAfterReconnectIsDropped' passed (0.0 seconds)
+Test Case 'BackfillDrainOwnershipTests.testSupersededDrainerCannotReleaseANewerClaim' started at 2026-10-21 23:27:57.163
+Test Case 'BackfillDrainOwnershipTests.testSupersededDrainerCannotReleaseANewerClaim' passed (0.0 seconds)
+Test Suite 'BackfillDrainOwnershipTests' passed at 2026-10-21 23:27:57.163
+	 Executed 5 tests, with 0 failures (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'BackfillPolicyTests' started at 2026-10-21 23:27:57.163
+Test Case 'BackfillPolicyTests.testAutoContinueAlwaysRunsRegardlessOfFloorOrStreak' started at 2026-10-21 23:27:57.163
+Test Case 'BackfillPolicyTests.testAutoContinueAlwaysRunsRegardlessOfFloorOrStreak' passed (0.0 seconds)
+Test Case 'BackfillPolicyTests.testBackoffNeverDelaysConnectButDoesDelayForeground' started at 2026-10-21 23:27:57.164
+Test Case 'BackfillPolicyTests.testBackoffNeverDelaysConnectButDoesDelayForeground' passed (0.0 seconds)
+Test Case 'BackfillPolicyTests.testBaselineFloors' started at 2026-10-21 23:27:57.164
+Test Case 'BackfillPolicyTests.testBaselineFloors' passed (0.0 seconds)
+Test Case 'BackfillPolicyTests.testClockUntrustedNeverDelaysConnectForegroundManualOrAutoContinue' started at 2026-10-21 23:27:57.164
+Test Case 'BackfillPolicyTests.testClockUntrustedNeverDelaysConnectForegroundManualOrAutoContinue' passed (0.0 seconds)
+Test Case 'BackfillPolicyTests.testClockUntrustedSkipRegardlessOfEmptyStreak' started at 2026-10-21 23:27:57.164
+Test Case 'BackfillPolicyTests.testClockUntrustedSkipRegardlessOfEmptyStreak' passed (0.0 seconds)
+Test Case 'BackfillPolicyTests.testClockUntrustedSkipsPeriodicEntirely' started at 2026-10-21 23:27:57.164
+Test Case 'BackfillPolicyTests.testClockUntrustedSkipsPeriodicEntirely' passed (0.0 seconds)
+Test Case 'BackfillPolicyTests.testClockUntrustedSkipsStrapEntirely' started at 2026-10-21 23:27:57.164
+Test Case 'BackfillPolicyTests.testClockUntrustedSkipsStrapEntirely' passed (0.0 seconds)
+Test Case 'BackfillPolicyTests.testEmptyStreakMovesStrapPromptOntoThePeriodicBackoff' started at 2026-10-21 23:27:57.164
+Test Case 'BackfillPolicyTests.testEmptyStreakMovesStrapPromptOntoThePeriodicBackoff' passed (0.0 seconds)
+Test Case 'BackfillPolicyTests.testFirstSyncAlwaysRuns' started at 2026-10-21 23:27:57.164
+Test Case 'BackfillPolicyTests.testFirstSyncAlwaysRuns' passed (0.0 seconds)
+Test Case 'BackfillPolicyTests.testLowPowerPeriodicFloorIsTheSchedulerInterval' started at 2026-10-21 23:27:57.164
+Test Case 'BackfillPolicyTests.testLowPowerPeriodicFloorIsTheSchedulerInterval' passed (0.0 seconds)
+Test Case 'BackfillPolicyTests.testManualAlwaysRunsRegardlessOfFloorOrStreak' started at 2026-10-21 23:27:57.164
+Test Case 'BackfillPolicyTests.testManualAlwaysRunsRegardlessOfFloorOrStreak' passed (0.0 seconds)
+Test Suite 'BackfillPolicyTests' passed at 2026-10-21 23:27:57.164
+	 Executed 11 tests, with 0 failures (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'BadClockDiagnosticsTests' started at 2026-10-21 23:27:57.164
+Test Case 'BadClockDiagnosticsTests.testDroppedSpanClause' started at 2026-10-21 23:27:57.164
+Test Case 'BadClockDiagnosticsTests.testDroppedSpanClause' passed (0.003 seconds)
+Test Case 'BadClockDiagnosticsTests.testHoursOffsetWording' started at 2026-10-21 23:27:57.168
+Test Case 'BadClockDiagnosticsTests.testHoursOffsetWording' passed (0.101 seconds)
+Test Case 'BadClockDiagnosticsTests.testIsoDayIsUTC' started at 2026-10-21 23:27:57.268
+Test Case 'BadClockDiagnosticsTests.testIsoDayIsUTC' passed (0.001 seconds)
+Test Suite 'BadClockDiagnosticsTests' passed at 2026-10-21 23:27:57.269
+	 Executed 3 tests, with 0 failures (0 unexpected) in 0.105 (0.105) seconds
+Test Suite 'BatchedRetryingSinkTests' started at 2026-10-21 23:27:57.269
+Test Case 'BatchedRetryingSinkTests.testATransientFailureIsRetriedThenCommits' started at 2026-10-21 23:27:57.269
+Test Case 'BatchedRetryingSinkTests.testATransientFailureIsRetriedThenCommits' passed (0.001 seconds)
+Test Case 'BatchedRetryingSinkTests.testAnEarlierFailureBlocksLaterCommitsUntilANewSession' started at 2026-10-21 23:27:57.270
+Test Case 'BatchedRetryingSinkTests.testAnEarlierFailureBlocksLaterCommitsUntilANewSession' passed (0.0 seconds)
+Test Case 'BatchedRetryingSinkTests.testBatchesAreWrittenInSubmissionOrder' started at 2026-10-21 23:27:57.270
+Test Case 'BatchedRetryingSinkTests.testBatchesAreWrittenInSubmissionOrder' passed (0.003 seconds)
+Test Case 'BatchedRetryingSinkTests.testCursorDoesNotMoveWhenTheInsertFails' started at 2026-10-21 23:27:57.273
+Test Case 'BatchedRetryingSinkTests.testCursorDoesNotMoveWhenTheInsertFails' passed (0.0 seconds)
+Test Case 'BatchedRetryingSinkTests.testRetriesAreBounded' started at 2026-10-21 23:27:57.273
+Test Case 'BatchedRetryingSinkTests.testRetriesAreBounded' passed (0.0 seconds)
+Test Suite 'BatchedRetryingSinkTests' passed at 2026-10-21 23:27:57.273
+	 Executed 5 tests, with 0 failures (0 unexpected) in 0.004 (0.004) seconds
+Test Suite 'BiometricStreamsParityTests' started at 2026-10-21 23:27:57.273
+Test Case 'BiometricStreamsParityTests.testSwiftBiometricStreamsMatchPythonGolden' started at 2026-10-21 23:27:57.273
+Test Case 'BiometricStreamsParityTests.testSwiftBiometricStreamsMatchPythonGolden' passed (0.008 seconds)
+Test Suite 'BiometricStreamsParityTests' passed at 2026-10-21 23:27:57.281
+	 Executed 1 test, with 0 failures (0 unexpected) in 0.008 (0.008) seconds
+Test Suite 'BondLoopSalvagePolicyTests' started at 2026-10-21 23:27:57.281
+Test Case 'BondLoopSalvagePolicyTests.testProbe_firesPastFloorWhilePaused' started at 2026-10-21 23:27:57.281
+Test Case 'BondLoopSalvagePolicyTests.testProbe_firesPastFloorWhilePaused' passed (0.0 seconds)
+Test Case 'BondLoopSalvagePolicyTests.testProbe_needsATripTimestamp' started at 2026-10-21 23:27:57.281
+Test Case 'BondLoopSalvagePolicyTests.testProbe_needsATripTimestamp' passed (0.0 seconds)
+Test Case 'BondLoopSalvagePolicyTests.testProbe_onlyWhilePaused' started at 2026-10-21 23:27:57.281
+Test Case 'BondLoopSalvagePolicyTests.testProbe_onlyWhilePaused' passed (0.0 seconds)
+Test Case 'BondLoopSalvagePolicyTests.testProbe_respectsTheFloor' started at 2026-10-21 23:27:57.281
+Test Case 'BondLoopSalvagePolicyTests.testProbe_respectsTheFloor' passed (0.0 seconds)
+Test Case 'BondLoopSalvagePolicyTests.testProbe_suppressedWhenConnectedOrUserTornDown' started at 2026-10-21 23:27:57.281
+Test Case 'BondLoopSalvagePolicyTests.testProbe_suppressedWhenConnectedOrUserTornDown' passed (0.0 seconds)
+Test Suite 'BondLoopSalvagePolicyTests' passed at 2026-10-21 23:27:57.282
+	 Executed 5 tests, with 0 failures (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'BondRefusalGiveUpTests' started at 2026-10-21 23:27:57.282
+Test Case 'BondRefusalGiveUpTests.testCustomThreshold' started at 2026-10-21 23:27:57.282
+Test Case 'BondRefusalGiveUpTests.testCustomThreshold' passed (0.0 seconds)
+Test Case 'BondRefusalGiveUpTests.testEpitaphLineHasNoPii' started at 2026-10-21 23:27:57.282
+Test Case 'BondRefusalGiveUpTests.testEpitaphLineHasNoPii' passed (0.002 seconds)
+Test Case 'BondRefusalGiveUpTests.testGivesUpAfterThresholdRefusals' started at 2026-10-21 23:27:57.283
+Test Case 'BondRefusalGiveUpTests.testGivesUpAfterThresholdRefusals' passed (0.0 seconds)
+Test Case 'BondRefusalGiveUpTests.testOpaqueIdIsShortHexPrefix' started at 2026-10-21 23:27:57.284
+Test Case 'BondRefusalGiveUpTests.testOpaqueIdIsShortHexPrefix' passed (0.0 seconds)
+Test Case 'BondRefusalGiveUpTests.testPausedHintWording' started at 2026-10-21 23:27:57.284
+Test Case 'BondRefusalGiveUpTests.testPausedHintWording' passed (0.0 seconds)
+Test Case 'BondRefusalGiveUpTests.testResetReArms' started at 2026-10-21 23:27:57.284
+Test Case 'BondRefusalGiveUpTests.testResetReArms' passed (0.0 seconds)
+Test Suite 'BondRefusalGiveUpTests' passed at 2026-10-21 23:27:57.284
+	 Executed 6 tests, with 0 failures (0 unexpected) in 0.002 (0.002) seconds
+Test Suite 'ConnectionIntentPolicyTests' started at 2026-10-21 23:27:57.284
+Test Case 'ConnectionIntentPolicyTests.testCurrentFailedAttemptCanEnterTheReconnectPolicy' started at 2026-10-21 23:27:57.284
+Test Case 'ConnectionIntentPolicyTests.testCurrentFailedAttemptCanEnterTheReconnectPolicy' passed (0.0 seconds)
+Test Case 'ConnectionIntentPolicyTests.testFailureAfterAnExplicitStopCannotRestartRecovery' started at 2026-10-21 23:27:57.284
+Test Case 'ConnectionIntentPolicyTests.testFailureAfterAnExplicitStopCannotRestartRecovery' passed (0.0 seconds)
+Test Case 'ConnectionIntentPolicyTests.testInitialSystemConnectIsAllowedButAnExplicitStopIsPreserved' started at 2026-10-21 23:27:57.284
+Test Case 'ConnectionIntentPolicyTests.testInitialSystemConnectIsAllowedButAnExplicitStopIsPreserved' passed (0.0 seconds)
+Test Case 'ConnectionIntentPolicyTests.testLateConnectionAfterDisconnectOrForgetCannotBeAdmitted' started at 2026-10-21 23:27:57.284
+Test Case 'ConnectionIntentPolicyTests.testLateConnectionAfterDisconnectOrForgetCannotBeAdmitted' passed (0.0 seconds)
+Test Case 'ConnectionIntentPolicyTests.testLateConnectionFromPreviousStrapCannotReplaceTheRequestedStrap' started at 2026-10-21 23:27:57.284
+Test Case 'ConnectionIntentPolicyTests.testLateConnectionFromPreviousStrapCannotReplaceTheRequestedStrap' passed (0.0 seconds)
+Test Case 'ConnectionIntentPolicyTests.testLateFailureCannotRestartALiveOrNewPendingConnectionToTheSameStrap' started at 2026-10-21 23:27:57.285
+Test Case 'ConnectionIntentPolicyTests.testLateFailureCannotRestartALiveOrNewPendingConnectionToTheSameStrap' passed (0.0 seconds)
+Test Case 'ConnectionIntentPolicyTests.testOldStrapFailureCannotAdvanceAnotherStrapsBackoff' started at 2026-10-21 23:27:57.285
+Test Case 'ConnectionIntentPolicyTests.testOldStrapFailureCannotAdvanceAnotherStrapsBackoff' passed (0.0 seconds)
+Test Case 'ConnectionIntentPolicyTests.testPinChangeInvalidatesAnEarlierPendingConnectionBeforeRetargetingFinishes' started at 2026-10-21 23:27:57.285
+Test Case 'ConnectionIntentPolicyTests.testPinChangeInvalidatesAnEarlierPendingConnectionBeforeRetargetingFinishes' passed (0.0 seconds)
+Test Case 'ConnectionIntentPolicyTests.testRemovingAnInactiveRowWithoutAPeripheralDoesNotMeanForgetEverything' started at 2026-10-21 23:27:57.285
+Test Case 'ConnectionIntentPolicyTests.testRemovingAnInactiveRowWithoutAPeripheralDoesNotMeanForgetEverything' passed (0.0 seconds)
+Test Case 'ConnectionIntentPolicyTests.testRemovingAnInactiveStrapDoesNotStopTheCurrentTarget' started at 2026-10-21 23:27:57.285
+Test Case 'ConnectionIntentPolicyTests.testRemovingAnInactiveStrapDoesNotStopTheCurrentTarget' passed (0.0 seconds)
+Test Case 'ConnectionIntentPolicyTests.testRemovingTheActiveRowReleasesItsConnectionEvenBeforeItsPeripheralIsKnown' started at 2026-10-21 23:27:57.285
+Test Case 'ConnectionIntentPolicyTests.testRemovingTheActiveRowReleasesItsConnectionEvenBeforeItsPeripheralIsKnown' passed (0.0 seconds)
+Test Case 'ConnectionIntentPolicyTests.testRemovingThePhysicalCurrentOrPendingTargetAlwaysReleasesIt' started at 2026-10-21 23:27:57.285
+Test Case 'ConnectionIntentPolicyTests.testRemovingThePhysicalCurrentOrPendingTargetAlwaysReleasesIt' passed (0.0 seconds)
+Test Case 'ConnectionIntentPolicyTests.testRequestedConnectionIsAdmittedWithOrWithoutAPin' started at 2026-10-21 23:27:57.285
+Test Case 'ConnectionIntentPolicyTests.testRequestedConnectionIsAdmittedWithOrWithoutAPin' passed (0.0 seconds)
+Test Suite 'ConnectionIntentPolicyTests' passed at 2026-10-21 23:27:57.286
+	 Executed 13 tests, with 0 failures (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'ContinuousHrvScheduleTests' started at 2026-10-21 23:27:57.286
+Test Case 'ContinuousHrvScheduleTests.testAlwaysModeWantsAllDay' started at 2026-10-21 23:27:57.286
+Test Case 'ContinuousHrvScheduleTests.testAlwaysModeWantsAllDay' passed (0.0 seconds)
+Test Case 'ContinuousHrvScheduleTests.testDegenerateEqualWindowIsEmpty' started at 2026-10-21 23:27:57.286
+Test Case 'ContinuousHrvScheduleTests.testDegenerateEqualWindowIsEmpty' passed (0.0 seconds)
+Test Case 'ContinuousHrvScheduleTests.testEndBoundaryExclusive' started at 2026-10-21 23:27:57.286
+Test Case 'ContinuousHrvScheduleTests.testEndBoundaryExclusive' passed (0.0 seconds)
+Test Case 'ContinuousHrvScheduleTests.testMinuteDomainExtremes' started at 2026-10-21 23:27:57.286
+Test Case 'ContinuousHrvScheduleTests.testMinuteDomainExtremes' passed (0.0 seconds)
+Test Case 'ContinuousHrvScheduleTests.testNonWrappingWindow' started at 2026-10-21 23:27:57.286
+Test Case 'ContinuousHrvScheduleTests.testNonWrappingWindow' passed (0.0 seconds)
+Test Case 'ContinuousHrvScheduleTests.testOffModeNeverWants' started at 2026-10-21 23:27:57.286
+Test Case 'ContinuousHrvScheduleTests.testOffModeNeverWants' passed (0.0 seconds)
+Test Case 'ContinuousHrvScheduleTests.testOvernightModeGatesOnWindow' started at 2026-10-21 23:27:57.286
+Test Case 'ContinuousHrvScheduleTests.testOvernightModeGatesOnWindow' passed (0.0 seconds)
+Test Case 'ContinuousHrvScheduleTests.testStartBoundaryInclusive' started at 2026-10-21 23:27:57.287
+Test Case 'ContinuousHrvScheduleTests.testStartBoundaryInclusive' passed (0.0 seconds)
+Test Case 'ContinuousHrvScheduleTests.testWrapAcrossMidnight' started at 2026-10-21 23:27:57.287
+Test Case 'ContinuousHrvScheduleTests.testWrapAcrossMidnight' passed (0.0 seconds)
+Test Suite 'ContinuousHrvScheduleTests' passed at 2026-10-21 23:27:57.287
+	 Executed 9 tests, with 0 failures (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'DataRangeTests' started at 2026-10-21 23:27:57.287
+Test Case 'DataRangeTests.testAllFutureFrameStillReturnsFutureSoTheGuardFires' started at 2026-10-21 23:27:57.287
+Test Case 'DataRangeTests.testAllFutureFrameStillReturnsFutureSoTheGuardFires' passed (0.0 seconds)
+Test Case 'DataRangeTests.testLoneFutureStraddleNeverBecomesFrontier' started at 2026-10-21 23:27:57.287
+Test Case 'DataRangeTests.testLoneFutureStraddleNeverBecomesFrontier' passed (0.001 seconds)
+Test Case 'DataRangeTests.testOldestAlignedScanSkipsTheSpuriousOffset6Straddle' started at 2026-10-21 23:27:57.288
+Test Case 'DataRangeTests.testOldestAlignedScanSkipsTheSpuriousOffset6Straddle' passed (0.0 seconds)
+Test Case 'DataRangeTests.testOldestKeepsTheMinimumAcrossGridWords' started at 2026-10-21 23:27:57.288
+Test Case 'DataRangeTests.testOldestKeepsTheMinimumAcrossGridWords' passed (0.0 seconds)
+Test Case 'DataRangeTests.testOldestReadsAGridAlignedWord' started at 2026-10-21 23:27:57.288
+Test Case 'DataRangeTests.testOldestReadsAGridAlignedWord' passed (0.0 seconds)
+Test Case 'DataRangeTests.testReadsRealWhoop4NewestAtByteOffset8' started at 2026-10-21 23:27:57.288
+Test Case 'DataRangeTests.testReadsRealWhoop4NewestAtByteOffset8' passed (0.0 seconds)
+Test Case 'DataRangeTests.testValueJustInsideTheSkewIsPresentNotFuture' started at 2026-10-21 23:27:57.289
+Test Case 'DataRangeTests.testValueJustInsideTheSkewIsPresentNotFuture' passed (0.0 seconds)
+Test Suite 'DataRangeTests' passed at 2026-10-21 23:27:57.289
+	 Executed 7 tests, with 0 failures (0 unexpected) in 0.002 (0.002) seconds
+Test Suite 'DecoderOracleTests' started at 2026-10-21 23:27:57.289
+Test Case 'DecoderOracleTests.testOracleFramesDecodeToExpectedOutput' started at 2026-10-21 23:27:57.289
+Test Case 'DecoderOracleTests.testOracleFramesDecodeToExpectedOutput' passed (0.001 seconds)
+Test Suite 'DecoderOracleTests' passed at 2026-10-21 23:27:57.290
+	 Executed 1 test, with 0 failures (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'DeviceFamilyFramingTests' started at 2026-10-21 23:27:57.290
+Test Case 'DeviceFamilyFramingTests.testCrc16ModbusKnownVectors' started at 2026-10-21 23:27:57.290
+Test Case 'DeviceFamilyFramingTests.testCrc16ModbusKnownVectors' passed (0.0 seconds)
+Test Case 'DeviceFamilyFramingTests.testFamilyMetadata' started at 2026-10-21 23:27:57.290
+Test Case 'DeviceFamilyFramingTests.testFamilyMetadata' passed (0.0 seconds)
+Test Case 'DeviceFamilyFramingTests.testMaverickAlarmPayloadBytes' started at 2026-10-21 23:27:57.290
+Test Case 'DeviceFamilyFramingTests.testMaverickAlarmPayloadBytes' passed (0.0 seconds)
+Test Case 'DeviceFamilyFramingTests.testParseWhoop4FamilyOverloadMatchesLegacy' started at 2026-10-21 23:27:57.290
+Test Case 'DeviceFamilyFramingTests.testParseWhoop4FamilyOverloadMatchesLegacy' passed (0.0 seconds)
+Test Case 'DeviceFamilyFramingTests.testParseWhoop5CommandResponseFrame' started at 2026-10-21 23:27:57.291
+Test Case 'DeviceFamilyFramingTests.testParseWhoop5CommandResponseFrame' passed (0.0 seconds)
+Test Case 'DeviceFamilyFramingTests.testParseWhoop5FrameAliasesPuffinAndParsesEnvelope' started at 2026-10-21 23:27:57.291
+Test Case 'DeviceFamilyFramingTests.testParseWhoop5FrameAliasesPuffinAndParsesEnvelope' passed (0.0 seconds)
+Test Case 'DeviceFamilyFramingTests.testPuffinAlarmFramesMatchKotlinParityGoldens' started at 2026-10-21 23:27:57.291
+Test Case 'DeviceFamilyFramingTests.testPuffinAlarmFramesMatchKotlinParityGoldens' passed (0.0 seconds)
+Test Case 'DeviceFamilyFramingTests.testPuffinCommandFrameVerifies' started at 2026-10-21 23:27:57.291
+Test Case 'DeviceFamilyFramingTests.testPuffinCommandFrameVerifies' passed (0.0 seconds)
+Test Case 'DeviceFamilyFramingTests.testPuffinHapticsFrameMatchesMaverickGolden' started at 2026-10-21 23:27:57.291
+Test Case 'DeviceFamilyFramingTests.testPuffinHapticsFrameMatchesMaverickGolden' passed (0.0 seconds)
+Test Case 'DeviceFamilyFramingTests.testPuffinOneShotBuzzSequenceGoldens' started at 2026-10-21 23:27:57.291
+Test Case 'DeviceFamilyFramingTests.testPuffinOneShotBuzzSequenceGoldens' passed (0.0 seconds)
+Test Case 'DeviceFamilyFramingTests.testPuffinTypeNamesAliased' started at 2026-10-21 23:27:57.292
+Test Case 'DeviceFamilyFramingTests.testPuffinTypeNamesAliased' passed (0.0 seconds)
+Test Case 'DeviceFamilyFramingTests.testReassemblerWhoop4DefaultUnchanged' started at 2026-10-21 23:27:57.292
+Test Case 'DeviceFamilyFramingTests.testReassemblerWhoop4DefaultUnchanged' passed (0.0 seconds)
+Test Case 'DeviceFamilyFramingTests.testReassemblerWhoop5BackToBackFrames' started at 2026-10-21 23:27:57.292
+Test Case 'DeviceFamilyFramingTests.testReassemblerWhoop5BackToBackFrames' passed (0.0 seconds)
+Test Case 'DeviceFamilyFramingTests.testReassemblerWhoop5DiscardsLeadingGarbage' started at 2026-10-21 23:27:57.292
+Test Case 'DeviceFamilyFramingTests.testReassemblerWhoop5DiscardsLeadingGarbage' passed (0.0 seconds)
+Test Case 'DeviceFamilyFramingTests.testReassemblerWhoop5SingleFrame' started at 2026-10-21 23:27:57.292
+Test Case 'DeviceFamilyFramingTests.testReassemblerWhoop5SingleFrame' passed (0.0 seconds)
+Test Case 'DeviceFamilyFramingTests.testReassemblerWhoop5SplitAcrossFragments' started at 2026-10-21 23:27:57.292
+Test Case 'DeviceFamilyFramingTests.testReassemblerWhoop5SplitAcrossFragments' passed (0.0 seconds)
+Test Case 'DeviceFamilyFramingTests.testVerifyValidWhoop5Frame' started at 2026-10-21 23:27:57.292
+Test Case 'DeviceFamilyFramingTests.testVerifyValidWhoop5Frame' passed (0.0 seconds)
+Test Case 'DeviceFamilyFramingTests.testWhoop4FamilyOverloadMatchesLegacy' started at 2026-10-21 23:27:57.292
+Test Case 'DeviceFamilyFramingTests.testWhoop4FamilyOverloadMatchesLegacy' passed (0.0 seconds)
+Test Case 'DeviceFamilyFramingTests.testWhoop4OnWhoop5FrameFailsHeaderCRC' started at 2026-10-21 23:27:57.292
+Test Case 'DeviceFamilyFramingTests.testWhoop4OnWhoop5FrameFailsHeaderCRC' passed (0.0 seconds)
+Test Case 'DeviceFamilyFramingTests.testWhoop5ClientHelloBytesAndVerify' started at 2026-10-21 23:27:57.292
+Test Case 'DeviceFamilyFramingTests.testWhoop5ClientHelloBytesAndVerify' passed (0.0 seconds)
+Test Case 'DeviceFamilyFramingTests.testWhoop5HeaderCorruptionDetected' started at 2026-10-21 23:27:57.292
+Test Case 'DeviceFamilyFramingTests.testWhoop5HeaderCorruptionDetected' passed (0.0 seconds)
+Test Case 'DeviceFamilyFramingTests.testWhoop5NonSOFRejected' started at 2026-10-21 23:27:57.293
+Test Case 'DeviceFamilyFramingTests.testWhoop5NonSOFRejected' passed (0.0 seconds)
+Test Case 'DeviceFamilyFramingTests.testWhoop5PayloadCorruptionDetected' started at 2026-10-21 23:27:57.293
+Test Case 'DeviceFamilyFramingTests.testWhoop5PayloadCorruptionDetected' passed (0.0 seconds)
+Test Case 'DeviceFamilyFramingTests.testWhoop5ShortFrameRejected' started at 2026-10-21 23:27:57.293
+Test Case 'DeviceFamilyFramingTests.testWhoop5ShortFrameRejected' passed (0.0 seconds)
+Test Suite 'DeviceFamilyFramingTests' passed at 2026-10-21 23:27:57.293
+	 Executed 24 tests, with 0 failures (0 unexpected) in 0.003 (0.003) seconds
+Test Suite 'EmptySyncTrackerTests' started at 2026-10-21 23:27:57.293
+Test Case 'EmptySyncTrackerTests.testBankingCycleClearsStreak' started at 2026-10-21 23:27:57.293
+Test Case 'EmptySyncTrackerTests.testBankingCycleClearsStreak' passed (0.0 seconds)
+Test Case 'EmptySyncTrackerTests.testCaughtUpCycleClearsStreak' started at 2026-10-21 23:27:57.293
+Test Case 'EmptySyncTrackerTests.testCaughtUpCycleClearsStreak' passed (0.0 seconds)
+Test Case 'EmptySyncTrackerTests.testCustomThreshold' started at 2026-10-21 23:27:57.293
+Test Case 'EmptySyncTrackerTests.testCustomThreshold' passed (0.0 seconds)
+Test Case 'EmptySyncTrackerTests.testSingleEmptyCycleDoesNotWarn' started at 2026-10-21 23:27:57.293
+Test Case 'EmptySyncTrackerTests.testSingleEmptyCycleDoesNotWarn' passed (0.0 seconds)
+Test Case 'EmptySyncTrackerTests.testSustainedEmptinessKeepsWarning' started at 2026-10-21 23:27:57.293
+Test Case 'EmptySyncTrackerTests.testSustainedEmptinessKeepsWarning' passed (0.0 seconds)
+Test Case 'EmptySyncTrackerTests.testThreeConsecutiveEmptyCyclesWarn' started at 2026-10-21 23:27:57.293
+Test Case 'EmptySyncTrackerTests.testThreeConsecutiveEmptyCyclesWarn' passed (0.0 seconds)
+Test Case 'EmptySyncTrackerTests.testTwoEmptyCyclesStillSilent' started at 2026-10-21 23:27:57.293
+Test Case 'EmptySyncTrackerTests.testTwoEmptyCyclesStillSilent' passed (0.0 seconds)
+Test Suite 'EmptySyncTrackerTests' passed at 2026-10-21 23:27:57.293
+	 Executed 7 tests, with 0 failures (0 unexpected) in 0.0 (0.0) seconds
+Test Suite 'FTMSDecodeTests' started at 2026-10-21 23:27:57.293
+Test Case 'FTMSDecodeTests.testBatteryClampsAbove100AndRejectsEmpty' started at 2026-10-21 23:27:57.293
+Test Case 'FTMSDecodeTests.testBatteryClampsAbove100AndRejectsEmpty' passed (0.0 seconds)
+Test Case 'FTMSDecodeTests.testBatteryPercentParse' started at 2026-10-21 23:27:57.293
+Test Case 'FTMSDecodeTests.testBatteryPercentParse' passed (0.0 seconds)
+Test Case 'FTMSDecodeTests.testCrossTrainerStepRateDistancePowerHR' started at 2026-10-21 23:27:57.293
+Test Case 'FTMSDecodeTests.testCrossTrainerStepRateDistancePowerHR' passed (0.0 seconds)
+Test Case 'FTMSDecodeTests.testDecodeByUUIDDispatch' started at 2026-10-21 23:27:57.294
+Test Case 'FTMSDecodeTests.testDecodeByUUIDDispatch' passed (0.0 seconds)
+Test Case 'FTMSDecodeTests.testEmptyAndShortBuffersNeverCrash' started at 2026-10-21 23:27:57.294
+Test Case 'FTMSDecodeTests.testEmptyAndShortBuffersNeverCrash' passed (0.0 seconds)
+Test Case 'FTMSDecodeTests.testHugeBufferIsBounded' started at 2026-10-21 23:27:57.294
+Test Case 'FTMSDecodeTests.testHugeBufferIsBounded' passed (0.0 seconds)
+Test Case 'FTMSDecodeTests.testIndoorBikeNegativePowerIsSigned' started at 2026-10-21 23:27:57.294
+Test Case 'FTMSDecodeTests.testIndoorBikeNegativePowerIsSigned' passed (0.0 seconds)
+Test Case 'FTMSDecodeTests.testIndoorBikeSpeedCadencePowerEnergyHR' started at 2026-10-21 23:27:57.294
+Test Case 'FTMSDecodeTests.testIndoorBikeSpeedCadencePowerEnergyHR' passed (0.0 seconds)
+Test Case 'FTMSDecodeTests.testRowerMoreDataBitOmitsStroke' started at 2026-10-21 23:27:57.294
+Test Case 'FTMSDecodeTests.testRowerMoreDataBitOmitsStroke' passed (0.0 seconds)
+Test Case 'FTMSDecodeTests.testRowerStrokeRateDistancePowerEnergyHR' started at 2026-10-21 23:27:57.294
+Test Case 'FTMSDecodeTests.testRowerStrokeRateDistancePowerEnergyHR' passed (0.0 seconds)
+Test Case 'FTMSDecodeTests.testTreadmillInclinationAndElevationAreSkippedNotMisread' started at 2026-10-21 23:27:57.295
+Test Case 'FTMSDecodeTests.testTreadmillInclinationAndElevationAreSkippedNotMisread' passed (0.0 seconds)
+Test Case 'FTMSDecodeTests.testTreadmillMoreDataBitOmitsSpeed' started at 2026-10-21 23:27:57.295
+Test Case 'FTMSDecodeTests.testTreadmillMoreDataBitOmitsSpeed' passed (0.0 seconds)
+Test Case 'FTMSDecodeTests.testTreadmillSpeedDistanceEnergyHRElapsed' started at 2026-10-21 23:27:57.295
+Test Case 'FTMSDecodeTests.testTreadmillSpeedDistanceEnergyHRElapsed' passed (0.0 seconds)
+Test Suite 'FTMSDecodeTests' passed at 2026-10-21 23:27:57.295
+	 Executed 13 tests, with 0 failures (0 unexpected) in 0.002 (0.002) seconds
+Test Suite 'FastPathParityTests' started at 2026-10-21 23:27:57.295
+Test Case 'FastPathParityTests.testDefaultIsTheDecodeOnlyFastPath' started at 2026-10-21 23:27:57.295
+Test Case 'FastPathParityTests.testDefaultIsTheDecodeOnlyFastPath' passed (0.0 seconds)
+Test Case 'FastPathParityTests.testFastPathMatchesFullPathOnWhoop4HistoricalCorpus' started at 2026-10-21 23:27:57.295
+Test Case 'FastPathParityTests.testFastPathMatchesFullPathOnWhoop4HistoricalCorpus' passed (0.015 seconds)
+Test Case 'FastPathParityTests.testFastPathMatchesFullPathOnWhoop4ParityCorpus' started at 2026-10-21 23:27:57.310
+Test Case 'FastPathParityTests.testFastPathMatchesFullPathOnWhoop4ParityCorpus' passed (0.043 seconds)
+Test Case 'FastPathParityTests.testFastPathMatchesFullPathOnWhoop5HardwareVectors' started at 2026-10-21 23:27:57.353
+Test Case 'FastPathParityTests.testFastPathMatchesFullPathOnWhoop5HardwareVectors' passed (0.005 seconds)
+Test Case 'FastPathParityTests.testFrameTypeNamePreFilterMatchesFullParse' started at 2026-10-21 23:27:57.358
+Test Case 'FastPathParityTests.testFrameTypeNamePreFilterMatchesFullParse' passed (0.006 seconds)
+Test Case 'FastPathParityTests.testFullPathFieldGoldensOnKnownWhoop4Frame' started at 2026-10-21 23:27:57.364
+Test Case 'FastPathParityTests.testFullPathFieldGoldensOnKnownWhoop4Frame' passed (0.0 seconds)
+Test Case 'FastPathParityTests.testFullPathFieldRawHexMatchesFrameBytesAcrossCorpus' started at 2026-10-21 23:27:57.364
+Test Case 'FastPathParityTests.testFullPathFieldRawHexMatchesFrameBytesAcrossCorpus' passed (0.054 seconds)
+Test Suite 'FastPathParityTests' passed at 2026-10-21 23:27:57.418
+	 Executed 7 tests, with 0 failures (0 unexpected) in 0.123 (0.123) seconds
+Test Suite 'FitnessSensorDecodeTests' started at 2026-10-21 23:27:57.418
+Test Case 'FitnessSensorDecodeTests.testCPSCrankDataAfterSkippedOptionalsDecodesCleanly' started at 2026-10-21 23:27:57.418
+Test Case 'FitnessSensorDecodeTests.testCPSCrankDataAfterSkippedOptionalsDecodesCleanly' passed (0.0 seconds)
+Test Case 'FitnessSensorDecodeTests.testCPSInstantaneousPowerAlwaysPresent' started at 2026-10-21 23:27:57.419
+Test Case 'FitnessSensorDecodeTests.testCPSInstantaneousPowerAlwaysPresent' passed (0.0 seconds)
+Test Case 'FitnessSensorDecodeTests.testCPSNegativePowerIsSigned' started at 2026-10-21 23:27:57.419
+Test Case 'FitnessSensorDecodeTests.testCPSNegativePowerIsSigned' passed (0.0 seconds)
+Test Case 'FitnessSensorDecodeTests.testCPSWheelDataDerivesSpeed' started at 2026-10-21 23:27:57.419
+Test Case 'FitnessSensorDecodeTests.testCPSWheelDataDerivesSpeed' passed (0.0 seconds)
+Test Case 'FitnessSensorDecodeTests.testCSCCrankOnlyOmitsWheel' started at 2026-10-21 23:27:57.419
+Test Case 'FitnessSensorDecodeTests.testCSCCrankOnlyOmitsWheel' passed (0.0 seconds)
+Test Case 'FitnessSensorDecodeTests.testCSCWheelAndCrankRawFields' started at 2026-10-21 23:27:57.419
+Test Case 'FitnessSensorDecodeTests.testCSCWheelAndCrankRawFields' passed (0.002 seconds)
+Test Case 'FitnessSensorDecodeTests.testDecodeByUUIDDispatch' started at 2026-10-21 23:27:57.421
+Test Case 'FitnessSensorDecodeTests.testDecodeByUUIDDispatch' passed (0.0 seconds)
+Test Case 'FitnessSensorDecodeTests.testEmptyAndShortBuffersNeverCrash' started at 2026-10-21 23:27:57.421
+Test Case 'FitnessSensorDecodeTests.testEmptyAndShortBuffersNeverCrash' passed (0.0 seconds)
+Test Case 'FitnessSensorDecodeTests.testHugeBufferIsBounded' started at 2026-10-21 23:27:57.421
+Test Case 'FitnessSensorDecodeTests.testHugeBufferIsBounded' passed (0.0 seconds)
+Test Case 'FitnessSensorDecodeTests.testRSCRunningFlagAndTotalDistanceWithStrideSkipped' started at 2026-10-21 23:27:57.422
+Test Case 'FitnessSensorDecodeTests.testRSCRunningFlagAndTotalDistanceWithStrideSkipped' passed (0.0 seconds)
+Test Case 'FitnessSensorDecodeTests.testRSCSpeedAndCadenceAlwaysPresent' started at 2026-10-21 23:27:57.422
+Test Case 'FitnessSensorDecodeTests.testRSCSpeedAndCadenceAlwaysPresent' passed (0.0 seconds)
+Test Case 'FitnessSensorDecodeTests.testRateComputerCPSCrankStaysAt1024' started at 2026-10-21 23:27:57.422
+Test Case 'FitnessSensorDecodeTests.testRateComputerCPSCrankStaysAt1024' passed (0.0 seconds)
+Test Case 'FitnessSensorDecodeTests.testRateComputerCPSWheelDerivesDoubleTheCSCSpeedForIdenticalBytes' started at 2026-10-21 23:27:57.422
+Test Case 'FitnessSensorDecodeTests.testRateComputerCPSWheelDerivesDoubleTheCSCSpeedForIdenticalBytes' passed (0.0 seconds)
+Test Case 'FitnessSensorDecodeTests.testRateComputerCPSWheelEventTimeTicksAt2048' started at 2026-10-21 23:27:57.422
+Test Case 'FitnessSensorDecodeTests.testRateComputerCPSWheelEventTimeTicksAt2048' passed (0.0 seconds)
+Test Case 'FitnessSensorDecodeTests.testRateComputerDerivesSpeedAndCadenceFromTwoPackets' started at 2026-10-21 23:27:57.422
+Test Case 'FitnessSensorDecodeTests.testRateComputerDerivesSpeedAndCadenceFromTwoPackets' passed (0.0 seconds)
+Test Case 'FitnessSensorDecodeTests.testRateComputerFirstPacketYieldsNil' started at 2026-10-21 23:27:57.422
+Test Case 'FitnessSensorDecodeTests.testRateComputerFirstPacketYieldsNil' passed (0.0 seconds)
+Test Case 'FitnessSensorDecodeTests.testRateComputerHandlesCrankCounterWrap' started at 2026-10-21 23:27:57.422
+Test Case 'FitnessSensorDecodeTests.testRateComputerHandlesCrankCounterWrap' passed (0.0 seconds)
+Test Case 'FitnessSensorDecodeTests.testRateComputerHandlesEventTimeWrap' started at 2026-10-21 23:27:57.422
+Test Case 'FitnessSensorDecodeTests.testRateComputerHandlesEventTimeWrap' passed (0.0 seconds)
+Test Case 'FitnessSensorDecodeTests.testRateComputerNoNewRevolutionYieldsNil' started at 2026-10-21 23:27:57.422
+Test Case 'FitnessSensorDecodeTests.testRateComputerNoNewRevolutionYieldsNil' passed (0.0 seconds)
+Test Case 'FitnessSensorDecodeTests.testRateComputerResetClearsBaseline' started at 2026-10-21 23:27:57.423
+Test Case 'FitnessSensorDecodeTests.testRateComputerResetClearsBaseline' passed (0.0 seconds)
+Test Case 'FitnessSensorDecodeTests.testRateComputerWheelKindFlipYieldsNilThenReseeds' started at 2026-10-21 23:27:57.423
+Test Case 'FitnessSensorDecodeTests.testRateComputerWheelKindFlipYieldsNilThenReseeds' passed (0.0 seconds)
+Test Suite 'FitnessSensorDecodeTests' passed at 2026-10-21 23:27:57.423
+	 Executed 21 tests, with 0 failures (0 unexpected) in 0.004 (0.004) seconds
+Test Suite 'FlushSchedulerTests' started at 2026-10-21 23:27:57.423
+Test Case 'FlushSchedulerTests.testAFailedFlushDropsThePendingFollowUp' started at 2026-10-21 23:27:57.423
+Test Case 'FlushSchedulerTests.testAFailedFlushDropsThePendingFollowUp' passed (0.0 seconds)
+Test Case 'FlushSchedulerTests.testFailuresBackOffFiveTenThirtySixty' started at 2026-10-21 23:27:57.423
+Test Case 'FlushSchedulerTests.testFailuresBackOffFiveTenThirtySixty' passed (0.0 seconds)
+Test Case 'FlushSchedulerTests.testFramesDuringASlowInsertProduceOneFollowUp' started at 2026-10-21 23:27:57.423
+Test Case 'FlushSchedulerTests.testFramesDuringASlowInsertProduceOneFollowUp' passed (0.0 seconds)
+Test Case 'FlushSchedulerTests.testOverflowKeepsTheBufferWithinItsCap' started at 2026-10-21 23:27:57.423
+Test Case 'FlushSchedulerTests.testOverflowKeepsTheBufferWithinItsCap' passed (0.0 seconds)
+Test Suite 'FlushSchedulerTests' passed at 2026-10-21 23:27:57.423
+	 Executed 4 tests, with 0 failures (0 unexpected) in 0.0 (0.0) seconds
+Test Suite 'FramingTests' started at 2026-10-21 23:27:57.423
+Test Case 'FramingTests.testCrc32EmptyIsZero' started at 2026-10-21 23:27:57.423
+Test Case 'FramingTests.testCrc32EmptyIsZero' passed (0.0 seconds)
+Test Case 'FramingTests.testCrc8KnownVector' started at 2026-10-21 23:27:57.423
+Test Case 'FramingTests.testCrc8KnownVector' passed (0.0 seconds)
+Test Case 'FramingTests.testFlippingByteBreaksCRC' started at 2026-10-21 23:27:57.423
+Test Case 'FramingTests.testFlippingByteBreaksCRC' passed (0.0 seconds)
+Test Case 'FramingTests.testFlippingCrc8ByteBreaksCRC' started at 2026-10-21 23:27:57.423
+Test Case 'FramingTests.testFlippingCrc8ByteBreaksCRC' passed (0.0 seconds)
+Test Case 'FramingTests.testFrameFromPayloadDefaults' started at 2026-10-21 23:27:57.424
+Test Case 'FramingTests.testFrameFromPayloadDefaults' passed (0.0 seconds)
+Test Case 'FramingTests.testFrameFromPayloadRoundTrip' started at 2026-10-21 23:27:57.424
+Test Case 'FramingTests.testFrameFromPayloadRoundTrip' passed (0.0 seconds)
+Test Case 'FramingTests.testNonSOFRejected' started at 2026-10-21 23:27:57.424
+Test Case 'FramingTests.testNonSOFRejected' passed (0.0 seconds)
+Test Case 'FramingTests.testShortFrameRejected' started at 2026-10-21 23:27:57.424
+Test Case 'FramingTests.testShortFrameRejected' passed (0.0 seconds)
+Test Case 'FramingTests.testTrailingBytesInvalidateCompleteWhoop4Envelope' started at 2026-10-21 23:27:57.424
+Test Case 'FramingTests.testTrailingBytesInvalidateCompleteWhoop4Envelope' passed (0.0 seconds)
+Test Case 'FramingTests.testVerifyFrameCommandResponse' started at 2026-10-21 23:27:57.424
+Test Case 'FramingTests.testVerifyFrameCommandResponse' passed (0.0 seconds)
+Test Case 'FramingTests.testVerifyFrameRealtimeData' started at 2026-10-21 23:27:57.424
+Test Case 'FramingTests.testVerifyFrameRealtimeData' passed (0.0 seconds)
+Test Suite 'FramingTests' passed at 2026-10-21 23:27:57.424
+	 Executed 11 tests, with 0 failures (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'HapticClockTests' started at 2026-10-21 23:27:57.424
+Test Case 'HapticClockTests.test0325_24h_exactPulseList' started at 2026-10-21 23:27:57.424
+Test Case 'HapticClockTests.test0325_24h_exactPulseList' passed (0.0 seconds)
+Test Case 'HapticClockTests.test1005_24h_handlesZeroDigits' started at 2026-10-21 23:27:57.424
+Test Case 'HapticClockTests.test1005_24h_handlesZeroDigits' passed (0.0 seconds)
+Test Case 'HapticClockTests.test1525_12h_mapsTo0325' started at 2026-10-21 23:27:57.424
+Test Case 'HapticClockTests.test1525_12h_mapsTo0325' passed (0.0 seconds)
+Test Case 'HapticClockTests.testClampsOutOfRange' started at 2026-10-21 23:27:57.424
+Test Case 'HapticClockTests.testClampsOutOfRange' passed (0.0 seconds)
+Test Case 'HapticClockTests.testMidnight_12h_readsTwelve' started at 2026-10-21 23:27:57.425
+Test Case 'HapticClockTests.testMidnight_12h_readsTwelve' passed (0.0 seconds)
+Test Case 'HapticClockTests.testMidnight_24h_isEmpty' started at 2026-10-21 23:27:57.425
+Test Case 'HapticClockTests.testMidnight_24h_isEmpty' passed (0.0 seconds)
+Test Case 'HapticClockTests.testNoon_12h_isTwelve' started at 2026-10-21 23:27:57.425
+Test Case 'HapticClockTests.testNoon_12h_isTwelve' passed (0.0 seconds)
+Test Suite 'HapticClockTests' passed at 2026-10-21 23:27:57.425
+	 Executed 7 tests, with 0 failures (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'HistoricalIngestionPerformanceTests' started at 2026-10-21 23:27:57.425
+Test Case 'HistoricalIngestionPerformanceTests.testMixedWhoop5ChunkReportsP50P95AndMax' started at 2026-10-21 23:27:57.425
+HISTORY_INGEST_PERF frames=35 p50_ms=3.146 p95_ms=3.583 max_ms=3.741
+Test Case 'HistoricalIngestionPerformanceTests.testMixedWhoop5ChunkReportsP50P95AndMax' passed (0.099 seconds)
+Test Suite 'HistoricalIngestionPerformanceTests' passed at 2026-10-21 23:27:57.524
+	 Executed 1 test, with 0 failures (0 unexpected) in 0.099 (0.099) seconds
+Test Suite 'HistoricalIntegrityGateTests' started at 2026-10-21 23:27:57.524
+Test Case 'HistoricalIntegrityGateTests.testExtractorRequiresEnvelopeAndBothChecksums' started at 2026-10-21 23:27:57.524
+Test Case 'HistoricalIntegrityGateTests.testExtractorRequiresEnvelopeAndBothChecksums' passed (0.0 seconds)
+Test Case 'HistoricalIntegrityGateTests.testSyntheticInitializerFailsClosedWithoutExplicitIntegrity' started at 2026-10-21 23:27:57.524
+Test Case 'HistoricalIntegrityGateTests.testSyntheticInitializerFailsClosedWithoutExplicitIntegrity' passed (0.0 seconds)
+Test Suite 'HistoricalIntegrityGateTests' passed at 2026-10-21 23:27:57.524
+	 Executed 2 tests, with 0 failures (0 unexpected) in 0.0 (0.0) seconds
+Test Suite 'HistoricalMetaPrefilterTests' started at 2026-10-21 23:27:57.524
+Test Case 'HistoricalMetaPrefilterTests.testOnlyMetadataFramesAreParsed' started at 2026-10-21 23:27:57.524
+Test Case 'HistoricalMetaPrefilterTests.testOnlyMetadataFramesAreParsed' passed (0.004 seconds)
+Test Case 'HistoricalMetaPrefilterTests.testPreResolvedVersionsMatchOnDemandResolution' started at 2026-10-21 23:27:57.528
+Test Case 'HistoricalMetaPrefilterTests.testPreResolvedVersionsMatchOnDemandResolution' passed (0.101 seconds)
+Test Case 'HistoricalMetaPrefilterTests.testPrefilterMatchesFullParseClassification' started at 2026-10-21 23:27:57.629
+Test Case 'HistoricalMetaPrefilterTests.testPrefilterMatchesFullParseClassification' passed (0.001 seconds)
+Test Suite 'HistoricalMetaPrefilterTests' passed at 2026-10-21 23:27:57.630
+	 Executed 3 tests, with 0 failures (0 unexpected) in 0.105 (0.105) seconds
+Test Suite 'HistoricalMetaTests' started at 2026-10-21 23:27:57.630
+Test Case 'HistoricalMetaTests.testHistoryComplete' started at 2026-10-21 23:27:57.630
+Test Case 'HistoricalMetaTests.testHistoryComplete' passed (0.0 seconds)
+Test Case 'HistoricalMetaTests.testHistoryCompleteParsedDict' started at 2026-10-21 23:27:57.630
+Test Case 'HistoricalMetaTests.testHistoryCompleteParsedDict' passed (0.0 seconds)
+Test Case 'HistoricalMetaTests.testHistoryEnd' started at 2026-10-21 23:27:57.630
+Test Case 'HistoricalMetaTests.testHistoryEnd' passed (0.0 seconds)
+Test Case 'HistoricalMetaTests.testHistoryEndParsedDict' started at 2026-10-21 23:27:57.630
+Test Case 'HistoricalMetaTests.testHistoryEndParsedDict' passed (0.0 seconds)
+Test Case 'HistoricalMetaTests.testHistoryEndShortPayload' started at 2026-10-21 23:27:57.630
+Test Case 'HistoricalMetaTests.testHistoryEndShortPayload' passed (0.0 seconds)
+Test Case 'HistoricalMetaTests.testHistoryStart' started at 2026-10-21 23:27:57.630
+Test Case 'HistoricalMetaTests.testHistoryStart' passed (0.0 seconds)
+Test Case 'HistoricalMetaTests.testHistoryStartParsedDict' started at 2026-10-21 23:27:57.630
+Test Case 'HistoricalMetaTests.testHistoryStartParsedDict' passed (0.0 seconds)
+Test Case 'HistoricalMetaTests.testNonMetadataFrame' started at 2026-10-21 23:27:57.631
+Test Case 'HistoricalMetaTests.testNonMetadataFrame' passed (0.0 seconds)
+Test Case 'HistoricalMetaTests.testUnknownMetaType' started at 2026-10-21 23:27:57.631
+Test Case 'HistoricalMetaTests.testUnknownMetaType' passed (0.0 seconds)
+Test Suite 'HistoricalMetaTests' passed at 2026-10-21 23:27:57.631
+	 Executed 9 tests, with 0 failures (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'HistoricalStreamsParityTests' started at 2026-10-21 23:27:57.631
+Test Case 'HistoricalStreamsParityTests.testSwiftHistoricalMatchesPythonGolden' started at 2026-10-21 23:27:57.631
+Test Case 'HistoricalStreamsParityTests.testSwiftHistoricalMatchesPythonGolden' passed (0.002 seconds)
+Test Suite 'HistoricalStreamsParityTests' passed at 2026-10-21 23:27:57.633
+	 Executed 1 test, with 0 failures (0 unexpected) in 0.002 (0.002) seconds
+Test Suite 'HistoricalTimestampGateTests' started at 2026-10-21 23:27:57.633
+Test Case 'HistoricalTimestampGateTests.testBoundsMatchAndroid' started at 2026-10-21 23:27:57.633
+Test Case 'HistoricalTimestampGateTests.testBoundsMatchAndroid' passed (0.0 seconds)
+Test Case 'HistoricalTimestampGateTests.testCapturesDroppedEpochSpan' started at 2026-10-21 23:27:57.633
+Test Case 'HistoricalTimestampGateTests.testCapturesDroppedEpochSpan' passed (0.0 seconds)
+Test Case 'HistoricalTimestampGateTests.testCapturesDroppedRtcStateEvent' started at 2026-10-21 23:27:57.633
+Test Case 'HistoricalTimestampGateTests.testCapturesDroppedRtcStateEvent' passed (0.0 seconds)
+Test Case 'HistoricalTimestampGateTests.testIdentityRefTrustsRealRawTimestamp' started at 2026-10-21 23:27:57.634
+Test Case 'HistoricalTimestampGateTests.testIdentityRefTrustsRealRawTimestamp' passed (0.0 seconds)
+Test Case 'HistoricalTimestampGateTests.testIsPlausiblePredicate' started at 2026-10-21 23:27:57.634
+Test Case 'HistoricalTimestampGateTests.testIsPlausiblePredicate' passed (0.0 seconds)
+Test Case 'HistoricalTimestampGateTests.testKeepsNormalRecord' started at 2026-10-21 23:27:57.634
+Test Case 'HistoricalTimestampGateTests.testKeepsNormalRecord' passed (0.0 seconds)
+Test Case 'HistoricalTimestampGateTests.testMixedChunkKeepsOnlyPlausible' started at 2026-10-21 23:27:57.634
+Test Case 'HistoricalTimestampGateTests.testMixedChunkKeepsOnlyPlausible' passed (0.0 seconds)
+Test Case 'HistoricalTimestampGateTests.testNoDropLeavesSpanNil' started at 2026-10-21 23:27:57.634
+Test Case 'HistoricalTimestampGateTests.testNoDropLeavesSpanNil' passed (0.0 seconds)
+Test Case 'HistoricalTimestampGateTests.testNonRtcDroppedEventNotCaptured' started at 2026-10-21 23:27:57.634
+Test Case 'HistoricalTimestampGateTests.testNonRtcDroppedEventNotCaptured' passed (0.0 seconds)
+Test Case 'HistoricalTimestampGateTests.testPlausibleRtcEventKeptNotCaptured' started at 2026-10-21 23:27:57.634
+Test Case 'HistoricalTimestampGateTests.testPlausibleRtcEventKeptNotCaptured' passed (0.0 seconds)
+Test Case 'HistoricalTimestampGateTests.testRejectsFarPastRecord' started at 2026-10-21 23:27:57.634
+Test Case 'HistoricalTimestampGateTests.testRejectsFarPastRecord' passed (0.0 seconds)
+Test Case 'HistoricalTimestampGateTests.testRejectsFutureDatedRecord' started at 2026-10-21 23:27:57.635
+Test Case 'HistoricalTimestampGateTests.testRejectsFutureDatedRecord' passed (0.0 seconds)
+Test Case 'HistoricalTimestampGateTests.testRtcStateKindMatch' started at 2026-10-21 23:27:57.635
+Test Case 'HistoricalTimestampGateTests.testRtcStateKindMatch' passed (0.0 seconds)
+Test Case 'HistoricalTimestampGateTests.testSessionRelativeBoundsParity' started at 2026-10-21 23:27:57.635
+Test Case 'HistoricalTimestampGateTests.testSessionRelativeBoundsParity' passed (0.0 seconds)
+Test Case 'HistoricalTimestampGateTests.testSessionRelativeDropsInWindowFloorClearingGarbage' started at 2026-10-21 23:27:57.635
+Test Case 'HistoricalTimestampGateTests.testSessionRelativeDropsInWindowFloorClearingGarbage' passed (0.0 seconds)
+Test Case 'HistoricalTimestampGateTests.testSessionRelativeFallsBackToAbsoluteWithoutMarkers' started at 2026-10-21 23:27:57.635
+Test Case 'HistoricalTimestampGateTests.testSessionRelativeFallsBackToAbsoluteWithoutMarkers' passed (0.0 seconds)
+Test Case 'HistoricalTimestampGateTests.testSessionRelativeIgnoresMalformedMarkers' started at 2026-10-21 23:27:57.635
+Test Case 'HistoricalTimestampGateTests.testSessionRelativeIgnoresMalformedMarkers' passed (0.0 seconds)
+Test Case 'HistoricalTimestampGateTests.testSessionRelativeKeepsLegitimatelyOldInWindowBackfill' started at 2026-10-21 23:27:57.635
+Test Case 'HistoricalTimestampGateTests.testSessionRelativeKeepsLegitimatelyOldInWindowBackfill' passed (0.0 seconds)
+Test Case 'HistoricalTimestampGateTests.testStaleClockOvershootFallsBackToRawThenGetsGated' started at 2026-10-21 23:27:57.635
+Test Case 'HistoricalTimestampGateTests.testStaleClockOvershootFallsBackToRawThenGetsGated' passed (0.0 seconds)
+Test Suite 'HistoricalTimestampGateTests' passed at 2026-10-21 23:27:57.636
+	 Executed 19 tests, with 0 failures (0 unexpected) in 0.002 (0.002) seconds
+Test Suite 'HistoricalV24Tests' started at 2026-10-21 23:27:57.636
+Test Case 'HistoricalV24Tests.testUnmappedVersionFallsBackGracefully' started at 2026-10-21 23:27:57.636
+Test Case 'HistoricalV24Tests.testUnmappedVersionFallsBackGracefully' passed (0.0 seconds)
+Test Case 'HistoricalV24Tests.testV24BiometricFields' started at 2026-10-21 23:27:57.636
+Test Case 'HistoricalV24Tests.testV24BiometricFields' passed (0.0 seconds)
+Test Case 'HistoricalV24Tests.testV24DecodesAsHistoricalData' started at 2026-10-21 23:27:57.636
+Test Case 'HistoricalV24Tests.testV24DecodesAsHistoricalData' passed (0.1 seconds)
+Test Case 'HistoricalV24Tests.testV24ExtractHistoricalStreams' started at 2026-10-21 23:27:57.737
+Test Case 'HistoricalV24Tests.testV24ExtractHistoricalStreams' passed (0.001 seconds)
+Test Case 'HistoricalV24Tests.testV24GravityIsF32UnitVector' started at 2026-10-21 23:27:57.737
+Test Case 'HistoricalV24Tests.testV24GravityIsF32UnitVector' passed (0.0 seconds)
+Test Suite 'HistoricalV24Tests' passed at 2026-10-21 23:27:57.737
+	 Executed 5 tests, with 0 failures (0 unexpected) in 0.102 (0.102) seconds
+Test Suite 'InterpreterEnvelopeTests' started at 2026-10-21 23:27:57.737
+Test Case 'InterpreterEnvelopeTests.testCommandResponseCmdName' started at 2026-10-21 23:27:57.737
+Test Case 'InterpreterEnvelopeTests.testCommandResponseCmdName' passed (0.0 seconds)
+Test Case 'InterpreterEnvelopeTests.testInvalidFrame' started at 2026-10-21 23:27:57.737
+Test Case 'InterpreterEnvelopeTests.testInvalidFrame' passed (0.0 seconds)
+Test Case 'InterpreterEnvelopeTests.testRealtimeDataEnvelopeAndStaticFields' started at 2026-10-21 23:27:57.738
+Test Case 'InterpreterEnvelopeTests.testRealtimeDataEnvelopeAndStaticFields' passed (0.0 seconds)
+Test Case 'InterpreterEnvelopeTests.testUnknownPacketTypeFallsBack' started at 2026-10-21 23:27:57.738
+Test Case 'InterpreterEnvelopeTests.testUnknownPacketTypeFallsBack' passed (0.0 seconds)
+Test Suite 'InterpreterEnvelopeTests' passed at 2026-10-21 23:27:57.738
+	 Executed 4 tests, with 0 failures (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'LiveSessionHapticsTests' started at 2026-10-21 23:27:57.738
+Test Case 'LiveSessionHapticsTests.test_easeOff_is_three_heavy_taps' started at 2026-10-21 23:27:57.738
+Test Case 'LiveSessionHapticsTests.test_easeOff_is_three_heavy_taps' passed (0.0 seconds)
+Test Case 'LiveSessionHapticsTests.test_push_is_two_light_taps' started at 2026-10-21 23:27:57.738
+Test Case 'LiveSessionHapticsTests.test_push_is_two_light_taps' passed (0.0 seconds)
+Test Case 'LiveSessionHapticsTests.test_signals_are_distinguishable_by_count_and_weight' started at 2026-10-21 23:27:57.738
+Test Case 'LiveSessionHapticsTests.test_signals_are_distinguishable_by_count_and_weight' passed (0.0 seconds)
+Test Suite 'LiveSessionHapticsTests' passed at 2026-10-21 23:27:57.738
+	 Executed 3 tests, with 0 failures (0 unexpected) in 0.0 (0.0) seconds
+Test Suite 'MarginalRadioDetectorTests' started at 2026-10-21 23:27:57.738
+Test Case 'MarginalRadioDetectorTests.testCustomThreshold' started at 2026-10-21 23:27:57.738
+Test Case 'MarginalRadioDetectorTests.testCustomThreshold' passed (0.0 seconds)
+Test Case 'MarginalRadioDetectorTests.testIntentionalDisconnectDoesNotCount' started at 2026-10-21 23:27:57.738
+Test Case 'MarginalRadioDetectorTests.testIntentionalDisconnectDoesNotCount' passed (0.0 seconds)
+Test Case 'MarginalRadioDetectorTests.testNilSinceArmDoesNotCount' started at 2026-10-21 23:27:57.738
+Test Case 'MarginalRadioDetectorTests.testNilSinceArmDoesNotCount' passed (0.0 seconds)
+Test Case 'MarginalRadioDetectorTests.testResetClearsState' started at 2026-10-21 23:27:57.739
+Test Case 'MarginalRadioDetectorTests.testResetClearsState' passed (0.0 seconds)
+Test Case 'MarginalRadioDetectorTests.testSingleDropDoesNotTrip' started at 2026-10-21 23:27:57.739
+Test Case 'MarginalRadioDetectorTests.testSingleDropDoesNotTrip' passed (0.0 seconds)
+Test Case 'MarginalRadioDetectorTests.testTimeoutOutsideWindowBreaksStreak' started at 2026-10-21 23:27:57.739
+Test Case 'MarginalRadioDetectorTests.testTimeoutOutsideWindowBreaksStreak' passed (0.0 seconds)
+Test Case 'MarginalRadioDetectorTests.testTripsAfterTwoConsecutiveArmTimeouts' started at 2026-10-21 23:27:57.739
+Test Case 'MarginalRadioDetectorTests.testTripsAfterTwoConsecutiveArmTimeouts' passed (0.0 seconds)
+Test Case 'MarginalRadioDetectorTests.testUnarmedDropResetsStreak' started at 2026-10-21 23:27:57.739
+Test Case 'MarginalRadioDetectorTests.testUnarmedDropResetsStreak' passed (0.0 seconds)
+Test Suite 'MarginalRadioDetectorTests' passed at 2026-10-21 23:27:57.739
+	 Executed 8 tests, with 0 failures (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'ParityTests' started at 2026-10-21 23:27:57.739
+Test Case 'ParityTests.testEveryCorePacketTypeCovered' started at 2026-10-21 23:27:57.739
+Test Case 'ParityTests.testEveryCorePacketTypeCovered' passed (0.005 seconds)
+Test Case 'ParityTests.testSwiftMatchesPythonGolden' started at 2026-10-21 23:27:57.744
+Test Case 'ParityTests.testSwiftMatchesPythonGolden' passed (0.009 seconds)
+Test Suite 'ParityTests' passed at 2026-10-21 23:27:57.753
+	 Executed 2 tests, with 0 failures (0 unexpected) in 0.013 (0.013) seconds
+Test Suite 'PostBondTimeoutLoopDetectorTests' started at 2026-10-21 23:27:57.753
+Test Case 'PostBondTimeoutLoopDetectorTests.testCustomThreshold' started at 2026-10-21 23:27:57.753
+Test Case 'PostBondTimeoutLoopDetectorTests.testCustomThreshold' passed (0.0 seconds)
+Test Case 'PostBondTimeoutLoopDetectorTests.testNilSinceBondDoesNotCount' started at 2026-10-21 23:27:57.753
+Test Case 'PostBondTimeoutLoopDetectorTests.testNilSinceBondDoesNotCount' passed (0.0 seconds)
+Test Case 'PostBondTimeoutLoopDetectorTests.testNonTimeoutCloseDoesNotCount' started at 2026-10-21 23:27:57.753
+Test Case 'PostBondTimeoutLoopDetectorTests.testNonTimeoutCloseDoesNotCount' passed (0.0 seconds)
+Test Case 'PostBondTimeoutLoopDetectorTests.testResetClearsState' started at 2026-10-21 23:27:57.753
+Test Case 'PostBondTimeoutLoopDetectorTests.testResetClearsState' passed (0.0 seconds)
+Test Case 'PostBondTimeoutLoopDetectorTests.testSingleDropDoesNotTrip' started at 2026-10-21 23:27:57.753
+Test Case 'PostBondTimeoutLoopDetectorTests.testSingleDropDoesNotTrip' passed (0.0 seconds)
+Test Case 'PostBondTimeoutLoopDetectorTests.testTimeoutAtWindowBoundaryCounts' started at 2026-10-21 23:27:57.753
+Test Case 'PostBondTimeoutLoopDetectorTests.testTimeoutAtWindowBoundaryCounts' passed (0.0 seconds)
+Test Case 'PostBondTimeoutLoopDetectorTests.testTimeoutOutsideWindowBreaksStreak' started at 2026-10-21 23:27:57.753
+Test Case 'PostBondTimeoutLoopDetectorTests.testTimeoutOutsideWindowBreaksStreak' passed (0.0 seconds)
+Test Case 'PostBondTimeoutLoopDetectorTests.testTripsAfterTwoConsecutiveBondTimeouts' started at 2026-10-21 23:27:57.753
+Test Case 'PostBondTimeoutLoopDetectorTests.testTripsAfterTwoConsecutiveBondTimeouts' passed (0.0 seconds)
+Test Case 'PostBondTimeoutLoopDetectorTests.testUnbondedDropResetsStreak' started at 2026-10-21 23:27:57.754
+Test Case 'PostBondTimeoutLoopDetectorTests.testUnbondedDropResetsStreak' passed (0.0 seconds)
+Test Suite 'PostBondTimeoutLoopDetectorTests' passed at 2026-10-21 23:27:57.754
+	 Executed 9 tests, with 0 failures (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'PostHooksTests' started at 2026-10-21 23:27:57.754
+Test Case 'PostHooksTests.testCommandResponseBattery' started at 2026-10-21 23:27:57.754
+Test Case 'PostHooksTests.testCommandResponseBattery' passed (0.0 seconds)
+Test Case 'PostHooksTests.testCommandResponseGetClock' started at 2026-10-21 23:27:57.754
+Test Case 'PostHooksTests.testCommandResponseGetClock' passed (0.0 seconds)
+Test Case 'PostHooksTests.testCommandResponseGetDataRange' started at 2026-10-21 23:27:57.754
+Test Case 'PostHooksTests.testCommandResponseGetDataRange' passed (0.0 seconds)
+Test Case 'PostHooksTests.testCommandResponseReportVersionInfo' started at 2026-10-21 23:27:57.755
+Test Case 'PostHooksTests.testCommandResponseReportVersionInfo' passed (0.0 seconds)
+Test Case 'PostHooksTests.testConsoleLogs' started at 2026-10-21 23:27:57.755
+Test Case 'PostHooksTests.testConsoleLogs' passed (0.0 seconds)
+Test Case 'PostHooksTests.testEventDoesNotSetBatteryForNonBatteryEvent' started at 2026-10-21 23:27:57.755
+Test Case 'PostHooksTests.testEventDoesNotSetBatteryForNonBatteryEvent' passed (0.0 seconds)
+Test Case 'PostHooksTests.testMetadataHistoryStart' started at 2026-10-21 23:27:57.755
+Test Case 'PostHooksTests.testMetadataHistoryStart' passed (0.0 seconds)
+Test Case 'PostHooksTests.testRealtimeDataRRIntervalsEmpty' started at 2026-10-21 23:27:57.755
+Test Case 'PostHooksTests.testRealtimeDataRRIntervalsEmpty' passed (0.0 seconds)
+Test Suite 'PostHooksTests' passed at 2026-10-21 23:27:57.755
+	 Executed 8 tests, with 0 failures (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'PpgHrTests' started at 2026-10-21 23:27:57.755
+Test Case 'PpgHrTests.testDeriveSineSeriesIsAround70' started at 2026-10-21 23:27:57.755
+Test Case 'PpgHrTests.testDeriveSineSeriesIsAround70' passed (0.026 seconds)
+Test Case 'PpgHrTests.testEstimateRecoversKnownHr' started at 2026-10-21 23:27:57.781
+Test Case 'PpgHrTests.testEstimateRecoversKnownHr' passed (0.001 seconds)
+Test Case 'PpgHrTests.testEstimateRejectsTooShortWindow' started at 2026-10-21 23:27:57.782
+Test Case 'PpgHrTests.testEstimateRejectsTooShortWindow' passed (0.0 seconds)
+Test Case 'PpgHrTests.testGapBreaksRunsButBothSidesEstimate' started at 2026-10-21 23:27:57.782
+Test Case 'PpgHrTests.testGapBreaksRunsButBothSidesEstimate' passed (0.005 seconds)
+Test Case 'PpgHrTests.testLowHrWithRecordRateArtifactDoesNotSnapTo60' started at 2026-10-21 23:27:57.788
+Test Case 'PpgHrTests.testLowHrWithRecordRateArtifactDoesNotSnapTo60' passed (0.001 seconds)
+Test Case 'PpgHrTests.testStreamsDecodeToleratesMissingAndPresentPpgHr' started at 2026-10-21 23:27:57.789
+Test Case 'PpgHrTests.testStreamsDecodeToleratesMissingAndPresentPpgHr' passed (0.003 seconds)
+Test Case 'PpgHrTests.testSubLagInterpolationRecoversHrsThatIntegerLagQuantizes' started at 2026-10-21 23:27:57.792
+Test Case 'PpgHrTests.testSubLagInterpolationRecoversHrsThatIntegerLagQuantizes' passed (0.014 seconds)
+Test Case 'PpgHrTests.testTrue60BpmIsPreservedNotNotchedAway' started at 2026-10-21 23:27:57.806
+Test Case 'PpgHrTests.testTrue60BpmIsPreservedNotNotchedAway' passed (0.001 seconds)
+Test Case 'PpgHrTests.testWhiteNoiseProducesNoEstimates' started at 2026-10-21 23:27:57.807
+Test Case 'PpgHrTests.testWhiteNoiseProducesNoEstimates' passed (0.026 seconds)
+Test Suite 'PpgHrTests' passed at 2026-10-21 23:27:57.833
+	 Executed 9 tests, with 0 failures (0 unexpected) in 0.078 (0.078) seconds
+Test Suite 'PuffinCaptureTests' started at 2026-10-21 23:27:57.833
+Test Case 'PuffinCaptureTests.testEncodedJSONUsesSnakeCaseKeys' started at 2026-10-21 23:27:57.833
+Test Case 'PuffinCaptureTests.testEncodedJSONUsesSnakeCaseKeys' passed (0.001 seconds)
+Test Case 'PuffinCaptureTests.testFramesFixtureJSONIsParityCompatible' started at 2026-10-21 23:27:57.834
+Test Case 'PuffinCaptureTests.testFramesFixtureJSONIsParityCompatible' passed (0.0 seconds)
+Test Case 'PuffinCaptureTests.testMalformedFrameIsCapturedButFlaggedNotOK' started at 2026-10-21 23:27:57.834
+Test Case 'PuffinCaptureTests.testMalformedFrameIsCapturedButFlaggedNotOK' passed (0.0 seconds)
+Test Case 'PuffinCaptureTests.testNilHeartRateIsAllowed' started at 2026-10-21 23:27:57.834
+Test Case 'PuffinCaptureTests.testNilHeartRateIsAllowed' passed (0.0 seconds)
+Test Case 'PuffinCaptureTests.testRecordsCanonicalHexAndProvenance' started at 2026-10-21 23:27:57.835
+Test Case 'PuffinCaptureTests.testRecordsCanonicalHexAndProvenance' passed (0.0 seconds)
+Test Case 'PuffinCaptureTests.testReset' started at 2026-10-21 23:27:57.835
+Test Case 'PuffinCaptureTests.testReset' passed (0.101 seconds)
+Test Suite 'PuffinCaptureTests' passed at 2026-10-21 23:27:57.936
+	 Executed 6 tests, with 0 failures (0 unexpected) in 0.103 (0.103) seconds
+Test Suite 'RawHistoryArchiveEvictionTests' started at 2026-10-21 23:27:57.936
+Test Case 'RawHistoryArchiveEvictionTests.testEachDistinctVersionGetsItsOwnFloor' started at 2026-10-21 23:27:57.936
+Test Case 'RawHistoryArchiveEvictionTests.testEachDistinctVersionGetsItsOwnFloor' passed (0.164 seconds)
+Test Case 'RawHistoryArchiveEvictionTests.testEvictLinesKeepsRareVersionUnderCap' started at 2026-10-21 23:27:58.099
+Test Case 'RawHistoryArchiveEvictionTests.testEvictLinesKeepsRareVersionUnderCap' passed (0.005 seconds)
+Test Case 'RawHistoryArchiveEvictionTests.testEvictLinesNoOpUnderCap' started at 2026-10-21 23:27:58.105
+Test Case 'RawHistoryArchiveEvictionTests.testEvictLinesNoOpUnderCap' passed (0.0 seconds)
+Test Case 'RawHistoryArchiveEvictionTests.testRareVersionSurvivesAFloodOfCommonFrames' started at 2026-10-21 23:27:58.105
+Test Case 'RawHistoryArchiveEvictionTests.testRareVersionSurvivesAFloodOfCommonFrames' passed (0.147 seconds)
+Test Case 'RawHistoryArchiveEvictionTests.testRareVersionWrittenWhenArchiveAlreadyFull' started at 2026-10-21 23:27:58.252
+Test Case 'RawHistoryArchiveEvictionTests.testRareVersionWrittenWhenArchiveAlreadyFull' passed (0.145 seconds)
+Test Case 'RawHistoryArchiveEvictionTests.testUnderCapPlainAppendKeepsEverything' started at 2026-10-21 23:27:58.397
+Test Case 'RawHistoryArchiveEvictionTests.testUnderCapPlainAppendKeepsEverything' passed (0.005 seconds)
+Test Suite 'RawHistoryArchiveEvictionTests' passed at 2026-10-21 23:27:58.402
+	 Executed 6 tests, with 0 failures (0 unexpected) in 0.466 (0.466) seconds
+Test Suite 'RawHistoryArchiveReplayTests' started at 2026-10-21 23:27:58.402
+Test Case 'RawHistoryArchiveReplayTests.testReplayDecodesArchivedV25IntoGravityRows' started at 2026-10-21 23:27:58.402
+Test Case 'RawHistoryArchiveReplayTests.testReplayDecodesArchivedV25IntoGravityRows' passed (0.002 seconds)
+Test Case 'RawHistoryArchiveReplayTests.testReplayOnEmptyArchiveIsNoOp' started at 2026-10-21 23:27:58.404
+Test Case 'RawHistoryArchiveReplayTests.testReplayOnEmptyArchiveIsNoOp' passed (0.0 seconds)
+Test Case 'RawHistoryArchiveReplayTests.testReplayThrowsWhenStoreFailsSoGateCanHold' started at 2026-10-21 23:27:58.404
+Test Case 'RawHistoryArchiveReplayTests.testReplayThrowsWhenStoreFailsSoGateCanHold' passed (0.003 seconds)
+Test Suite 'RawHistoryArchiveReplayTests' passed at 2026-10-21 23:27:58.407
+	 Executed 3 tests, with 0 failures (0 unexpected) in 0.005 (0.005) seconds
+Test Suite 'RawHistoryArchiveRotationTests' started at 2026-10-21 23:27:58.407
+Test Case 'RawHistoryArchiveRotationTests.testACrashLeftoverDuplicateIsNotReportedAsEvicted' started at 2026-10-21 23:27:58.407
+Test Case 'RawHistoryArchiveRotationTests.testACrashLeftoverDuplicateIsNotReportedAsEvicted' passed (0.005 seconds)
+Test Case 'RawHistoryArchiveRotationTests.testAppendAfterRotationDoesNotRewriteThePreviousSegment' started at 2026-10-21 23:27:58.412
+Test Case 'RawHistoryArchiveRotationTests.testAppendAfterRotationDoesNotRewriteThePreviousSegment' passed (0.019 seconds)
+Test Case 'RawHistoryArchiveRotationTests.testEvictionsAreReportedWhenTheWriteFailsAfterRotating' started at 2026-10-21 23:27:58.430
+Test Case 'RawHistoryArchiveRotationTests.testEvictionsAreReportedWhenTheWriteFailsAfterRotating' passed (0.004 seconds)
+Test Case 'RawHistoryArchiveRotationTests.testLegacyLinesWithoutAVersionFieldKeepTheirFloor' started at 2026-10-21 23:27:58.434
+Test Case 'RawHistoryArchiveRotationTests.testLegacyLinesWithoutAVersionFieldKeepTheirFloor' passed (0.164 seconds)
+Test Case 'RawHistoryArchiveRotationTests.testLowercaseHexMatchesStringFormat' started at 2026-10-21 23:27:58.598
+Test Case 'RawHistoryArchiveRotationTests.testLowercaseHexMatchesStringFormat' passed (0.001 seconds)
+Test Case 'RawHistoryArchiveRotationTests.testNewLinesStoreTheVersionAsItsOwnField' started at 2026-10-21 23:27:58.599
+Test Case 'RawHistoryArchiveRotationTests.testNewLinesStoreTheVersionAsItsOwnField' passed (0.002 seconds)
+Test Case 'RawHistoryArchiveRotationTests.testNewestCapWorthOfRecordsAlwaysSurvivesRotation' started at 2026-10-21 23:27:58.600
+Test Case 'RawHistoryArchiveRotationTests.testNewestCapWorthOfRecordsAlwaysSurvivesRotation' passed (0.686 seconds)
+Test Case 'RawHistoryArchiveRotationTests.testRotationKeepsTheMinimumLinesForEachVersion' started at 2026-10-21 23:27:59.286
+Test Case 'RawHistoryArchiveRotationTests.testRotationKeepsTheMinimumLinesForEachVersion' passed (0.223 seconds)
+Test Suite 'RawHistoryArchiveRotationTests' passed at 2026-10-21 23:27:59.509
+	 Executed 8 tests, with 0 failures (0 unexpected) in 1.102 (1.102) seconds
+Test Suite 'RealtimeArmPolicyTests' started at 2026-10-21 23:27:59.509
+Test Case 'RealtimeArmPolicyTests.testContinuousCaptureAloneArmsToggleButNeverTheRawBurst' started at 2026-10-21 23:27:59.509
+Test Case 'RealtimeArmPolicyTests.testContinuousCaptureAloneArmsToggleButNeverTheRawBurst' passed (0.003 seconds)
+Test Case 'RealtimeArmPolicyTests.testDecodedLiveTypesAreAlwaysBuffered' started at 2026-10-21 23:27:59.512
+Test Case 'RealtimeArmPolicyTests.testDecodedLiveTypesAreAlwaysBuffered' passed (0.0 seconds)
+Test Case 'RealtimeArmPolicyTests.testDroppedTypesContributeNoDecodedRows' started at 2026-10-21 23:27:59.512
+Test Case 'RealtimeArmPolicyTests.testDroppedTypesContributeNoDecodedRows' passed (0.0 seconds)
+Test Case 'RealtimeArmPolicyTests.testLiveScreenArmsBothUnlessTheMarginalRadioFallbackTripped' started at 2026-10-21 23:27:59.512
+Test Case 'RealtimeArmPolicyTests.testLiveScreenArmsBothUnlessTheMarginalRadioFallbackTripped' passed (0.0 seconds)
+Test Case 'RealtimeArmPolicyTests.testNothingWantedArmsNothing' started at 2026-10-21 23:27:59.513
+Test Case 'RealtimeArmPolicyTests.testNothingWantedArmsNothing' passed (0.0 seconds)
+Test Case 'RealtimeArmPolicyTests.testRealtimeHrEchoEventsDoNotTriggerSync' started at 2026-10-21 23:27:59.513
+Test Case 'RealtimeArmPolicyTests.testRealtimeHrEchoEventsDoNotTriggerSync' passed (0.0 seconds)
+Test Case 'RealtimeArmPolicyTests.testType43IsDroppedUnlessRawCaptureIsActive' started at 2026-10-21 23:27:59.513
+Test Case 'RealtimeArmPolicyTests.testType43IsDroppedUnlessRawCaptureIsActive' passed (0.0 seconds)
+Test Suite 'RealtimeArmPolicyTests' passed at 2026-10-21 23:27:59.513
+	 Executed 7 tests, with 0 failures (0 unexpected) in 0.004 (0.004) seconds
+Test Suite 'RealtimeHeartRatePlausibilityTests' started at 2026-10-21 23:27:59.513
+Test Case 'RealtimeHeartRatePlausibilityTests.testRangeConstant' started at 2026-10-21 23:27:59.513
+Test Case 'RealtimeHeartRatePlausibilityTests.testRangeConstant' passed (0.0 seconds)
+Test Case 'RealtimeHeartRatePlausibilityTests.testRealtimeDataDropsOffWristZeroAndCorrupt255' started at 2026-10-21 23:27:59.513
+Test Case 'RealtimeHeartRatePlausibilityTests.testRealtimeDataDropsOffWristZeroAndCorrupt255' passed (0.0 seconds)
+Test Case 'RealtimeHeartRatePlausibilityTests.testRealtimeRawDataDropsOffWristZeroAndCorrupt255' started at 2026-10-21 23:27:59.514
+Test Case 'RealtimeHeartRatePlausibilityTests.testRealtimeRawDataDropsOffWristZeroAndCorrupt255' passed (0.001 seconds)
+Test Suite 'RealtimeHeartRatePlausibilityTests' passed at 2026-10-21 23:27:59.514
+	 Executed 3 tests, with 0 failures (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'ReassemblerDropDiagnosticsTests' started at 2026-10-21 23:27:59.514
+Test Case 'ReassemblerDropDiagnosticsTests.testAnIncompleteHeaderIsNotCountedUntilItsChecksumIsAvailable' started at 2026-10-21 23:27:59.514
+Test Case 'ReassemblerDropDiagnosticsTests.testAnIncompleteHeaderIsNotCountedUntilItsChecksumIsAvailable' passed (0.0 seconds)
+Test Case 'ReassemblerDropDiagnosticsTests.testFamilySwitchResetsBothTotalsBeforeNewFamilyReports' started at 2026-10-21 23:27:59.514
+Test Case 'ReassemblerDropDiagnosticsTests.testFamilySwitchResetsBothTotalsBeforeNewFamilyReports' passed (0.0 seconds)
+Test Case 'ReassemblerDropDiagnosticsTests.testHeaderDropsAreCountedWithoutSwallowingFollowingFramesOnEitherFamily' started at 2026-10-21 23:27:59.515
+Test Case 'ReassemblerDropDiagnosticsTests.testHeaderDropsAreCountedWithoutSwallowingFollowingFramesOnEitherFamily' passed (0.0 seconds)
+Test Case 'ReassemblerDropDiagnosticsTests.testHeaderValidOversizedCandidatesUseTheirOwnCounter' started at 2026-10-21 23:27:59.515
+Test Case 'ReassemblerDropDiagnosticsTests.testHeaderValidOversizedCandidatesUseTheirOwnCounter' passed (0.0 seconds)
+Test Case 'ReassemblerDropDiagnosticsTests.testHeaderValidUndersizedEnvelopesStillReachTheExistingDownstreamGate' started at 2026-10-21 23:27:59.515
+Test Case 'ReassemblerDropDiagnosticsTests.testHeaderValidUndersizedEnvelopesStillReachTheExistingDownstreamGate' passed (0.1 seconds)
+Test Case 'ReassemblerDropDiagnosticsTests.testInvalidHeaderStillWinsBeforeTheExistingSizeCap' started at 2026-10-21 23:27:59.616
+Test Case 'ReassemblerDropDiagnosticsTests.testInvalidHeaderStillWinsBeforeTheExistingSizeCap' passed (0.0 seconds)
+Test Case 'ReassemblerDropDiagnosticsTests.testPayloadChecksumFailuresRemainInTheirOriginalFrameOrder' started at 2026-10-21 23:27:59.616
+Test Case 'ReassemblerDropDiagnosticsTests.testPayloadChecksumFailuresRemainInTheirOriginalFrameOrder' passed (0.0 seconds)
+Test Case 'ReassemblerDropDiagnosticsTests.testResetClearsCountersAndTheNextWindowCanReportAgain' started at 2026-10-21 23:27:59.616
+Test Case 'ReassemblerDropDiagnosticsTests.testResetClearsCountersAndTheNextWindowCanReportAgain' passed (0.0 seconds)
+Test Case 'ReassemblerDropDiagnosticsTests.testSetAggregatesIndependentCharacteristicsWithoutRecountingReads' started at 2026-10-21 23:27:59.616
+Test Case 'ReassemblerDropDiagnosticsTests.testSetAggregatesIndependentCharacteristicsWithoutRecountingReads' passed (0.0 seconds)
+Test Suite 'ReassemblerDropDiagnosticsTests' passed at 2026-10-21 23:27:59.616
+	 Executed 9 tests, with 0 failures (0 unexpected) in 0.102 (0.102) seconds
+Test Suite 'ReassemblerHeaderCRCTests' started at 2026-10-21 23:27:59.617
+Test Case 'ReassemblerHeaderCRCTests.testCommandFrameInterleavedBetweenDataFragments' started at 2026-10-21 23:27:59.617
+Test Case 'ReassemblerHeaderCRCTests.testCommandFrameInterleavedBetweenDataFragments' passed (0.0 seconds)
+Test Case 'ReassemblerHeaderCRCTests.testHeaderSplitBeforeChecksumStillAssembles' started at 2026-10-21 23:27:59.617
+Test Case 'ReassemblerHeaderCRCTests.testHeaderSplitBeforeChecksumStillAssembles' passed (0.0 seconds)
+Test Case 'ReassemblerHeaderCRCTests.testResetDropsPartialFramesAndSwitchesFamily' started at 2026-10-21 23:27:59.617
+Test Case 'ReassemblerHeaderCRCTests.testResetDropsPartialFramesAndSwitchesFamily' passed (0.0 seconds)
+Test Case 'ReassemblerHeaderCRCTests.testWhoop4SpuriousSOFWithPlausibleLengthDoesNotSwallowNextFrame' started at 2026-10-21 23:27:59.617
+Test Case 'ReassemblerHeaderCRCTests.testWhoop4SpuriousSOFWithPlausibleLengthDoesNotSwallowNextFrame' passed (0.0 seconds)
+Test Case 'ReassemblerHeaderCRCTests.testWhoop5SpuriousSOFWithBadHeaderCRCIsSkipped' started at 2026-10-21 23:27:59.617
+Test Case 'ReassemblerHeaderCRCTests.testWhoop5SpuriousSOFWithBadHeaderCRCIsSkipped' passed (0.0 seconds)
+Test Suite 'ReassemblerHeaderCRCTests' passed at 2026-10-21 23:27:59.617
+	 Executed 5 tests, with 0 failures (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'ReassemblerTests' started at 2026-10-21 23:27:59.617
+Test Case 'ReassemblerTests.testLeadingGarbageIsSkipped' started at 2026-10-21 23:27:59.617
+Test Case 'ReassemblerTests.testLeadingGarbageIsSkipped' passed (0.0 seconds)
+Test Case 'ReassemblerTests.testOversizedDeclaredLengthResyncsInsteadOfWedging' started at 2026-10-21 23:27:59.618
+Test Case 'ReassemblerTests.testOversizedDeclaredLengthResyncsInsteadOfWedging' passed (0.0 seconds)
+Test Case 'ReassemblerTests.testPartialFrameWaitsForRest' started at 2026-10-21 23:27:59.618
+Test Case 'ReassemblerTests.testPartialFrameWaitsForRest' passed (0.0 seconds)
+Test Case 'ReassemblerTests.testReassembleFromFragments' started at 2026-10-21 23:27:59.618
+Test Case 'ReassemblerTests.testReassembleFromFragments' passed (0.0 seconds)
+Test Case 'ReassemblerTests.testReassembleFromOneBytePerFragment' started at 2026-10-21 23:27:59.618
+Test Case 'ReassemblerTests.testReassembleFromOneBytePerFragment' passed (0.0 seconds)
+Test Case 'ReassemblerTests.testTwoFramesInOneFeed' started at 2026-10-21 23:27:59.619
+Test Case 'ReassemblerTests.testTwoFramesInOneFeed' passed (0.0 seconds)
+Test Case 'ReassemblerTests.testWhoop5OversizedDeclaredLengthWithValidHeaderCRCResyncs' started at 2026-10-21 23:27:59.619
+Test Case 'ReassemblerTests.testWhoop5OversizedDeclaredLengthWithValidHeaderCRCResyncs' passed (0.0 seconds)
+Test Suite 'ReassemblerTests' passed at 2026-10-21 23:27:59.619
+	 Executed 7 tests, with 0 failures (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'ReconnectPolicyBackgroundTests' started at 2026-10-21 23:27:59.619
+Test Case 'ReconnectPolicyBackgroundTests.testAHealthyLinkResetsTheBackgroundCount' started at 2026-10-21 23:27:59.619
+Test Case 'ReconnectPolicyBackgroundTests.testAHealthyLinkResetsTheBackgroundCount' passed (0.0 seconds)
+Test Case 'ReconnectPolicyBackgroundTests.testARunningHandshakeHoldIsNeverShortened' started at 2026-10-21 23:27:59.619
+Test Case 'ReconnectPolicyBackgroundTests.testARunningHandshakeHoldIsNeverShortened' passed (0.0 seconds)
+Test Case 'ReconnectPolicyBackgroundTests.testAnArmedRetryIsHandedOffWhenTheAppLeavesTheForeground' started at 2026-10-21 23:27:59.619
+Test Case 'ReconnectPolicyBackgroundTests.testAnArmedRetryIsHandedOffWhenTheAppLeavesTheForeground' passed (0.0 seconds)
+Test Case 'ReconnectPolicyBackgroundTests.testBackgroundDropsReissueAPendingConnectWithoutClimbingTheLadder' started at 2026-10-21 23:27:59.619
+Test Case 'ReconnectPolicyBackgroundTests.testBackgroundDropsReissueAPendingConnectWithoutClimbingTheLadder' passed (0.0 seconds)
+Test Case 'ReconnectPolicyBackgroundTests.testBackgroundSecureRecoveryDelaysMoveToTheHandshake' started at 2026-10-21 23:27:59.620
+Test Case 'ReconnectPolicyBackgroundTests.testBackgroundSecureRecoveryDelaysMoveToTheHandshake' passed (0.0 seconds)
+Test Case 'ReconnectPolicyBackgroundTests.testConsecutiveBackgroundFailuresPausePastTheCap' started at 2026-10-21 23:27:59.620
+Test Case 'ReconnectPolicyBackgroundTests.testConsecutiveBackgroundFailuresPausePastTheCap' passed (0.0 seconds)
+Test Case 'ReconnectPolicyBackgroundTests.testEveryCellOfThePolicyMatrix' started at 2026-10-21 23:27:59.620
+Test Case 'ReconnectPolicyBackgroundTests.testEveryCellOfThePolicyMatrix' passed (0.0 seconds)
+Test Case 'ReconnectPolicyBackgroundTests.testFailedConnectsClimbTheLadderInTheForeground' started at 2026-10-21 23:27:59.620
+Test Case 'ReconnectPolicyBackgroundTests.testFailedConnectsClimbTheLadderInTheForeground' passed (0.0 seconds)
+Test Case 'ReconnectPolicyBackgroundTests.testForegroundAndUserConnectResetTheBackgroundCount' started at 2026-10-21 23:27:59.620
+Test Case 'ReconnectPolicyBackgroundTests.testForegroundAndUserConnectResetTheBackgroundCount' passed (0.0 seconds)
+Test Case 'ReconnectPolicyBackgroundTests.testForegroundSecureRecoveryDelayStaysATimer' started at 2026-10-21 23:27:59.621
+Test Case 'ReconnectPolicyBackgroundTests.testForegroundSecureRecoveryDelayStaysATimer' passed (0.0 seconds)
+Test Case 'ReconnectPolicyBackgroundTests.testLinkEndedReportsWhetherTheLinkProvedHealthy' started at 2026-10-21 23:27:59.621
+Test Case 'ReconnectPolicyBackgroundTests.testLinkEndedReportsWhetherTheLinkProvedHealthy' passed (0.0 seconds)
+Test Case 'ReconnectPolicyBackgroundTests.testNoKnownStrapFallsBackToTheLadderAndIsNotCounted' started at 2026-10-21 23:27:59.621
+Test Case 'ReconnectPolicyBackgroundTests.testNoKnownStrapFallsBackToTheLadderAndIsNotCounted' passed (0.0 seconds)
+Test Case 'ReconnectPolicyBackgroundTests.testOnlyAQuietLinkSendsTheHeldHandshakeWhenBackgroundTimeEnds' started at 2026-10-21 23:27:59.621
+Test Case 'ReconnectPolicyBackgroundTests.testOnlyAQuietLinkSendsTheHeldHandshakeWhenBackgroundTimeEnds' passed (0.0 seconds)
+Test Case 'ReconnectPolicyBackgroundTests.testQuickForegroundDropsOfAKnownStrapClimbTheLadder' started at 2026-10-21 23:27:59.621
+Test Case 'ReconnectPolicyBackgroundTests.testQuickForegroundDropsOfAKnownStrapClimbTheLadder' passed (0.0 seconds)
+Test Case 'ReconnectPolicyBackgroundTests.testTheHandoffIsSkippedWhenThereIsNothingToHandOff' started at 2026-10-21 23:27:59.621
+Test Case 'ReconnectPolicyBackgroundTests.testTheHandoffIsSkippedWhenThereIsNothingToHandOff' passed (0.0 seconds)
+Test Suite 'ReconnectPolicyBackgroundTests' passed at 2026-10-21 23:27:59.621
+	 Executed 15 tests, with 0 failures (0 unexpected) in 0.002 (0.002) seconds
+Test Suite 'ReconnectPolicyTests' started at 2026-10-21 23:27:59.621
+Test Case 'ReconnectPolicyTests.testDropAtTwentySecondsReconnectAtThirtyRunsConnect' started at 2026-10-21 23:27:59.621
+Test Case 'ReconnectPolicyTests.testDropAtTwentySecondsReconnectAtThirtyRunsConnect' passed (0.0 seconds)
+Test Case 'ReconnectPolicyTests.testExplicitResetStartsOver' started at 2026-10-21 23:27:59.621
+Test Case 'ReconnectPolicyTests.testExplicitResetStartsOver' passed (0.0 seconds)
+Test Case 'ReconnectPolicyTests.testFreshProgressAndCleanSessionEndsResetTheInterruptionLadder' started at 2026-10-21 23:27:59.621
+Test Case 'ReconnectPolicyTests.testFreshProgressAndCleanSessionEndsResetTheInterruptionLadder' passed (0.0 seconds)
+Test Case 'ReconnectPolicyTests.testLadderClimbsThreeToSixtyAndHolds' started at 2026-10-21 23:27:59.621
+Test Case 'ReconnectPolicyTests.testLadderClimbsThreeToSixtyAndHolds' passed (0.0 seconds)
+Test Case 'ReconnectPolicyTests.testOnlyAHealthyLinkResetsTheLadder' started at 2026-10-21 23:27:59.622
+Test Case 'ReconnectPolicyTests.testOnlyAHealthyLinkResetsTheLadder' passed (0.0 seconds)
+Test Case 'ReconnectPolicyTests.testQuickDropsKeepClimbing' started at 2026-10-21 23:27:59.622
+Test Case 'ReconnectPolicyTests.testQuickDropsKeepClimbing' passed (0.0 seconds)
+Test Case 'ReconnectPolicyTests.testResumeLadderIsBoundedThenFallsBackToThePeriodicFloor' started at 2026-10-21 23:27:59.622
+Test Case 'ReconnectPolicyTests.testResumeLadderIsBoundedThenFallsBackToThePeriodicFloor' passed (0.0 seconds)
+Test Case 'ReconnectPolicyTests.testTimerFiresOnlyForItsOwnGenerationWhileTheLinkIsDown' started at 2026-10-21 23:27:59.622
+Test Case 'ReconnectPolicyTests.testTimerFiresOnlyForItsOwnGenerationWhileTheLinkIsDown' passed (0.0 seconds)
+Test Suite 'ReconnectPolicyTests' passed at 2026-10-21 23:27:59.622
+	 Executed 8 tests, with 0 failures (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'RegistryModelFamilyTests' started at 2026-10-21 23:27:59.622
+Test Case 'RegistryModelFamilyTests.testFullPicker40LabelResolvesToWhoop4' started at 2026-10-21 23:27:59.622
+Test Case 'RegistryModelFamilyTests.testFullPicker40LabelResolvesToWhoop4' passed (0.0 seconds)
+Test Case 'RegistryModelFamilyTests.testLegacySeededWhoopLabelKeepsWhoop5Fallback' started at 2026-10-21 23:27:59.622
+Test Case 'RegistryModelFamilyTests.testLegacySeededWhoopLabelKeepsWhoop5Fallback' passed (0.0 seconds)
+Test Case 'RegistryModelFamilyTests.testNilEmptyAndGarbageFallBackToWhoop5' started at 2026-10-21 23:27:59.622
+Test Case 'RegistryModelFamilyTests.testNilEmptyAndGarbageFallBackToWhoop5' passed (0.0 seconds)
+Test Case 'RegistryModelFamilyTests.testWizard5MgLabelResolvesToWhoop5' started at 2026-10-21 23:27:59.622
+Test Case 'RegistryModelFamilyTests.testWizard5MgLabelResolvesToWhoop5' passed (0.0 seconds)
+Test Case 'RegistryModelFamilyTests.testWizardBare40LabelResolvesToWhoop4' started at 2026-10-21 23:27:59.622
+Test Case 'RegistryModelFamilyTests.testWizardBare40LabelResolvesToWhoop4' passed (0.0 seconds)
+Test Suite 'RegistryModelFamilyTests' passed at 2026-10-21 23:27:59.622
+	 Executed 5 tests, with 0 failures (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'RejectedHistoryTests' started at 2026-10-21 23:27:59.622
+Test Case 'RejectedHistoryTests.testCRCCorruptWhoop4RecordIsRejected' started at 2026-10-21 23:27:59.622
+Test Case 'RejectedHistoryTests.testCRCCorruptWhoop4RecordIsRejected' passed (0.1 seconds)
+Test Case 'RejectedHistoryTests.testCRCCorruptWhoop5RecordIsRejected' started at 2026-10-21 23:27:59.723
+Test Case 'RejectedHistoryTests.testCRCCorruptWhoop5RecordIsRejected' passed (0.101 seconds)
+Test Case 'RejectedHistoryTests.testConsoleFrameExcluded' started at 2026-10-21 23:27:59.824
+Test Case 'RejectedHistoryTests.testConsoleFrameExcluded' passed (0.0 seconds)
+Test Case 'RejectedHistoryTests.testDecodableWhoop4RecordNotRejected' started at 2026-10-21 23:27:59.824
+Test Case 'RejectedHistoryTests.testDecodableWhoop4RecordNotRejected' passed (0.001 seconds)
+Test Case 'RejectedHistoryTests.testDecodableWhoop5RecordNotRejected' started at 2026-10-21 23:27:59.825
+Test Case 'RejectedHistoryTests.testDecodableWhoop5RecordNotRejected' passed (0.0 seconds)
+Test Case 'RejectedHistoryTests.testMappedV20AndV21AreStoredRawNotRejected' started at 2026-10-21 23:27:59.825
+Test Case 'RejectedHistoryTests.testMappedV20AndV21AreStoredRawNotRejected' passed (0.001 seconds)
+Test Case 'RejectedHistoryTests.testMixedBatchReturnsOnlyRejects' started at 2026-10-21 23:27:59.826
+Test Case 'RejectedHistoryTests.testMixedBatchReturnsOnlyRejects' passed (0.0 seconds)
+Test Case 'RejectedHistoryTests.testNonHistoricalFrameExcluded' started at 2026-10-21 23:27:59.826
+Test Case 'RejectedHistoryTests.testNonHistoricalFrameExcluded' passed (0.0 seconds)
+Test Case 'RejectedHistoryTests.testTooShortFrameExcluded' started at 2026-10-21 23:27:59.826
+Test Case 'RejectedHistoryTests.testTooShortFrameExcluded' passed (0.0 seconds)
+Test Case 'RejectedHistoryTests.testWhoop5V26PpgExcluded' started at 2026-10-21 23:27:59.826
+Test Case 'RejectedHistoryTests.testWhoop5V26PpgExcluded' passed (0.0 seconds)
+Test Suite 'RejectedHistoryTests' passed at 2026-10-21 23:27:59.827
+	 Executed 10 tests, with 0 failures (0 unexpected) in 0.204 (0.204) seconds
+Test Suite 'SchemaTests' started at 2026-10-21 23:27:59.827
+Test Case 'SchemaTests.testEnumNameSuffixed' started at 2026-10-21 23:27:59.827
+Test Case 'SchemaTests.testEnumNameSuffixed' passed (0.001 seconds)
+Test Case 'SchemaTests.testLoadSchemaIsCached' started at 2026-10-21 23:27:59.828
+Test Case 'SchemaTests.testLoadSchemaIsCached' passed (0.0 seconds)
+Test Case 'SchemaTests.testPacketForTypeAndAlias' started at 2026-10-21 23:27:59.828
+Test Case 'SchemaTests.testPacketForTypeAndAlias' passed (0.0 seconds)
+Test Case 'SchemaTests.testTypeName' started at 2026-10-21 23:27:59.828
+Test Case 'SchemaTests.testTypeName' passed (0.0 seconds)
+Test Case 'SchemaTests.testVariantsLoaded' started at 2026-10-21 23:27:59.828
+Test Case 'SchemaTests.testVariantsLoaded' passed (0.0 seconds)
+Test Suite 'SchemaTests' passed at 2026-10-21 23:27:59.828
+	 Executed 5 tests, with 0 failures (0 unexpected) in 0.002 (0.002) seconds
+Test Suite 'SetAlarmPayloadTests' started at 2026-10-21 23:27:59.828
+Test Case 'SetAlarmPayloadTests.testEpochField_isU32LittleEndian' started at 2026-10-21 23:27:59.828
+Test Case 'SetAlarmPayloadTests.testEpochField_isU32LittleEndian' passed (0.0 seconds)
+Test Case 'SetAlarmPayloadTests.testHapticModeField_isAlwaysZero' started at 2026-10-21 23:27:59.828
+Test Case 'SetAlarmPayloadTests.testHapticModeField_isAlwaysZero' passed (0.0 seconds)
+Test Case 'SetAlarmPayloadTests.testLeadingByte_isFormByte0x01' started at 2026-10-21 23:27:59.828
+Test Case 'SetAlarmPayloadTests.testLeadingByte_isFormByte0x01' passed (0.0 seconds)
+Test Case 'SetAlarmPayloadTests.testLength_isNineBytes' started at 2026-10-21 23:27:59.829
+Test Case 'SetAlarmPayloadTests.testLength_isNineBytes' passed (0.0 seconds)
+Test Case 'SetAlarmPayloadTests.testMaxEpoch_staysNineBytes' started at 2026-10-21 23:27:59.829
+Test Case 'SetAlarmPayloadTests.testMaxEpoch_staysNineBytes' passed (0.0 seconds)
+Test Case 'SetAlarmPayloadTests.testSubsecondsField_isAlwaysZero' started at 2026-10-21 23:27:59.829
+Test Case 'SetAlarmPayloadTests.testSubsecondsField_isAlwaysZero' passed (0.0 seconds)
+Test Case 'SetAlarmPayloadTests.testWireCapture_epoch1781912880_matchesOfficialApp' started at 2026-10-21 23:27:59.829
+Test Case 'SetAlarmPayloadTests.testWireCapture_epoch1781912880_matchesOfficialApp' passed (0.0 seconds)
+Test Suite 'SetAlarmPayloadTests' passed at 2026-10-21 23:27:59.829
+	 Executed 7 tests, with 0 failures (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'SetClockPayloadTests' started at 2026-10-21 23:27:59.829
+Test Case 'SetClockPayloadTests.testBothFormsAgreeOnSeconds' started at 2026-10-21 23:27:59.829
+Test Case 'SetClockPayloadTests.testBothFormsAgreeOnSeconds' passed (0.0 seconds)
+Test Case 'SetClockPayloadTests.testEightByteFormLayout' started at 2026-10-21 23:27:59.829
+Test Case 'SetClockPayloadTests.testEightByteFormLayout' passed (0.0 seconds)
+Test Case 'SetClockPayloadTests.testNineByteLegacyFormLayout' started at 2026-10-21 23:27:59.829
+Test Case 'SetClockPayloadTests.testNineByteLegacyFormLayout' passed (0.0 seconds)
+Test Suite 'SetClockPayloadTests' passed at 2026-10-21 23:27:59.829
+	 Executed 3 tests, with 0 failures (0 unexpected) in 0.0 (0.0) seconds
+Test Suite 'SkinTempConversionTests' started at 2026-10-21 23:27:59.830
+Test Case 'SkinTempConversionTests.testDeviceAnchorRawEvenCountAveragesMiddleTwo' started at 2026-10-21 23:27:59.830
+Test Case 'SkinTempConversionTests.testDeviceAnchorRawEvenCountAveragesMiddleTwo' passed (0.0 seconds)
+Test Case 'SkinTempConversionTests.testDeviceAnchorRawExcludesFloorAndSaturation' started at 2026-10-21 23:27:59.830
+Test Case 'SkinTempConversionTests.testDeviceAnchorRawExcludesFloorAndSaturation' passed (0.0 seconds)
+Test Case 'SkinTempConversionTests.testDeviceAnchorRawIsMedianOfInBandRaws' started at 2026-10-21 23:27:59.830
+Test Case 'SkinTempConversionTests.testDeviceAnchorRawIsMedianOfInBandRaws' passed (0.0 seconds)
+Test Case 'SkinTempConversionTests.testDeviceAnchorRawNilBelowMinSamples' started at 2026-10-21 23:27:59.830
+Test Case 'SkinTempConversionTests.testDeviceAnchorRawNilBelowMinSamples' passed (0.0 seconds)
+Test Case 'SkinTempConversionTests.testWhoop4AndWhoop5DifferForTheSameRaw' started at 2026-10-21 23:27:59.830
+Test Case 'SkinTempConversionTests.testWhoop4AndWhoop5DifferForTheSameRaw' passed (0.0 seconds)
+Test Case 'SkinTempConversionTests.testWhoop4DefaultAnchorIsGlobal826' started at 2026-10-21 23:27:59.830
+Test Case 'SkinTempConversionTests.testWhoop4DefaultAnchorIsGlobal826' passed (0.0 seconds)
+Test Case 'SkinTempConversionTests.testWhoop4NoContactFloorIsBelowWornGate' started at 2026-10-21 23:27:59.830
+Test Case 'SkinTempConversionTests.testWhoop4NoContactFloorIsBelowWornGate' passed (0.0 seconds)
+Test Case 'SkinTempConversionTests.testWhoop4PerDeviceAnchorMapsToAnchorCelsius' started at 2026-10-21 23:27:59.830
+Test Case 'SkinTempConversionTests.testWhoop4PerDeviceAnchorMapsToAnchorCelsius' passed (0.0 seconds)
+Test Case 'SkinTempConversionTests.testWhoop4SyntheticFixtureRawIsPlausible' started at 2026-10-21 23:27:59.830
+Test Case 'SkinTempConversionTests.testWhoop4SyntheticFixtureRawIsPlausible' passed (0.0 seconds)
+Test Case 'SkinTempConversionTests.testWhoop4WornBaselineLandsInPlausibleBand' started at 2026-10-21 23:27:59.831
+Test Case 'SkinTempConversionTests.testWhoop4WornBaselineLandsInPlausibleBand' passed (0.0 seconds)
+Test Case 'SkinTempConversionTests.testWhoop5IsUnchangedCentidegrees' started at 2026-10-21 23:27:59.831
+Test Case 'SkinTempConversionTests.testWhoop5IsUnchangedCentidegrees' passed (0.0 seconds)
+Test Suite 'SkinTempConversionTests' passed at 2026-10-21 23:27:59.831
+	 Executed 11 tests, with 0 failures (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'SleepSessionWindowTests' started at 2026-10-21 23:27:59.831
+Test Case 'SleepSessionWindowTests.testInvalidArithmeticFailsClosed' started at 2026-10-21 23:27:59.831
+Test Case 'SleepSessionWindowTests.testInvalidArithmeticFailsClosed' passed (0.0 seconds)
+Test Case 'SleepSessionWindowTests.testPlausibleProviderBoundaryPreservesShortFragmentsButNotOverlongWindows' started at 2026-10-21 23:27:59.831
+Test Case 'SleepSessionWindowTests.testPlausibleProviderBoundaryPreservesShortFragmentsButNotOverlongWindows' passed (0.0 seconds)
+Test Case 'SleepSessionWindowTests.testStrictScoringWindowIncludesDeclaredDurationEdges' started at 2026-10-21 23:27:59.831
+Test Case 'SleepSessionWindowTests.testStrictScoringWindowIncludesDeclaredDurationEdges' passed (0.0 seconds)
+Test Suite 'SleepSessionWindowTests' passed at 2026-10-21 23:27:59.831
+	 Executed 3 tests, with 0 failures (0 unexpected) in 0.0 (0.0) seconds
+Test Suite 'SmokeTests' started at 2026-10-21 23:27:59.831
+Test Case 'SmokeTests.testSchemaResourceBundled' started at 2026-10-21 23:27:59.831
+Test Case 'SmokeTests.testSchemaResourceBundled' passed (0.0 seconds)
+Test Suite 'SmokeTests' passed at 2026-10-21 23:27:59.831
+	 Executed 1 test, with 0 failures (0 unexpected) in 0.0 (0.0) seconds
+Test Suite 'StopHapticsCommandTests' started at 2026-10-21 23:27:59.831
+Test Case 'StopHapticsCommandTests.testStopHapticsFrameShapeWhoop4' started at 2026-10-21 23:27:59.831
+Test Case 'StopHapticsCommandTests.testStopHapticsFrameShapeWhoop4' passed (0.0 seconds)
+Test Case 'StopHapticsCommandTests.testStopHapticsRawValueIs122' started at 2026-10-21 23:27:59.831
+Test Case 'StopHapticsCommandTests.testStopHapticsRawValueIs122' passed (0.0 seconds)
+Test Suite 'StopHapticsCommandTests' passed at 2026-10-21 23:27:59.831
+	 Executed 2 tests, with 0 failures (0 unexpected) in 0.0 (0.0) seconds
+Test Suite 'StrapClockRecoveryPlannerTests' started at 2026-10-21 23:27:59.831
+Test Case 'StrapClockRecoveryPlannerTests.testExtremeWallClockFailsClosedWithoutIntegerOverflow' started at 2026-10-21 23:27:59.831
+Test Case 'StrapClockRecoveryPlannerTests.testExtremeWallClockFailsClosedWithoutIntegerOverflow' passed (0.0 seconds)
+Test Case 'StrapClockRecoveryPlannerTests.testFallbackFailsClosedWithoutValidDataRange' started at 2026-10-21 23:27:59.831
+Test Case 'StrapClockRecoveryPlannerTests.testFallbackFailsClosedWithoutValidDataRange' passed (0.0 seconds)
+Test Case 'StrapClockRecoveryPlannerTests.testFutureDataRangeMarkerFailsClosed' started at 2026-10-21 23:27:59.831
+Test Case 'StrapClockRecoveryPlannerTests.testFutureDataRangeMarkerFailsClosed' passed (0.0 seconds)
+Test Case 'StrapClockRecoveryPlannerTests.testInitializerClampsInvalidCounts' started at 2026-10-21 23:27:59.831
+Test Case 'StrapClockRecoveryPlannerTests.testInitializerClampsInvalidCounts' passed (0.0 seconds)
+Test Case 'StrapClockRecoveryPlannerTests.testPreciseCorrelationSuppressesRetriesAndFallback' started at 2026-10-21 23:27:59.831
+Test Case 'StrapClockRecoveryPlannerTests.testPreciseCorrelationSuppressesRetriesAndFallback' passed (0.0 seconds)
+Test Case 'StrapClockRecoveryPlannerTests.testResetRearmsFirstRetryAndFallback' started at 2026-10-21 23:27:59.832
+Test Case 'StrapClockRecoveryPlannerTests.testResetRearmsFirstRetryAndFallback' passed (0.0 seconds)
+Test Case 'StrapClockRecoveryPlannerTests.testRetriesAreBoundedThenDataRangeFallbackInstallsOnce' started at 2026-10-21 23:27:59.832
+Test Case 'StrapClockRecoveryPlannerTests.testRetriesAreBoundedThenDataRangeFallbackInstallsOnce' passed (0.0 seconds)
+Test Suite 'StrapClockRecoveryPlannerTests' passed at 2026-10-21 23:27:59.832
+	 Executed 7 tests, with 0 failures (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'StreamsParityTests' started at 2026-10-21 23:27:59.832
+Test Case 'StreamsParityTests.testSwiftStreamsMatchPythonGolden' started at 2026-10-21 23:27:59.832
+Test Case 'StreamsParityTests.testSwiftStreamsMatchPythonGolden' passed (0.005 seconds)
+Test Suite 'StreamsParityTests' passed at 2026-10-21 23:27:59.837
+	 Executed 1 test, with 0 failures (0 unexpected) in 0.005 (0.005) seconds
+Test Suite 'StreamsTests' started at 2026-10-21 23:27:59.837
+Test Case 'StreamsTests.testBatteryStampedAtWallClockRef' started at 2026-10-21 23:27:59.837
+Test Case 'StreamsTests.testBatteryStampedAtWallClockRef' passed (0.0 seconds)
+Test Case 'StreamsTests.testCrcFailedAndNotOkFramesSkipped' started at 2026-10-21 23:27:59.837
+Test Case 'StreamsTests.testCrcFailedAndNotOkFramesSkipped' passed (0.0 seconds)
+Test Case 'StreamsTests.testEventTimestampIsNotOffset' started at 2026-10-21 23:27:59.838
+Test Case 'StreamsTests.testEventTimestampIsNotOffset' passed (0.0 seconds)
+Test Case 'StreamsTests.testHRNotTakenFromType43RawData' started at 2026-10-21 23:27:59.838
+Test Case 'StreamsTests.testHRNotTakenFromType43RawData' passed (0.0 seconds)
+Test Case 'StreamsTests.testRealtimeHRMapsDeviceToWallClock' started at 2026-10-21 23:27:59.838
+Test Case 'StreamsTests.testRealtimeHRMapsDeviceToWallClock' passed (0.0 seconds)
+Test Suite 'StreamsTests' passed at 2026-10-21 23:27:59.838
+	 Executed 5 tests, with 0 failures (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'ValuesTests' started at 2026-10-21 23:27:59.838
+Test Case 'ValuesTests.testAccessors' started at 2026-10-21 23:27:59.838
+Test Case 'ValuesTests.testAccessors' passed (0.0 seconds)
+Test Case 'ValuesTests.testDecodeBareScalarsFromJSON' started at 2026-10-21 23:27:59.838
+Test Case 'ValuesTests.testDecodeBareScalarsFromJSON' passed (0.0 seconds)
+Test Case 'ValuesTests.testEmptyArrayDecodesAsIntArray' started at 2026-10-21 23:27:59.838
+Test Case 'ValuesTests.testEmptyArrayDecodesAsIntArray' passed (0.0 seconds)
+Test Case 'ValuesTests.testEncodeProducesBareScalars' started at 2026-10-21 23:27:59.839
+Test Case 'ValuesTests.testEncodeProducesBareScalars' passed (0.0 seconds)
+Test Suite 'ValuesTests' passed at 2026-10-21 23:27:59.839
+	 Executed 4 tests, with 0 failures (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'VersionCheckTests' started at 2026-10-21 23:27:59.839
+Test Case 'VersionCheckTests.testNewer' started at 2026-10-21 23:27:59.839
+Test Case 'VersionCheckTests.testNewer' passed (0.0 seconds)
+Test Case 'VersionCheckTests.testNotNewer' started at 2026-10-21 23:27:59.839
+Test Case 'VersionCheckTests.testNotNewer' passed (0.0 seconds)
+Test Suite 'VersionCheckTests' passed at 2026-10-21 23:27:59.839
+	 Executed 2 tests, with 0 failures (0 unexpected) in 0.0 (0.0) seconds
+Test Suite 'Whoop4HistoricalV24HardwareTests' started at 2026-10-21 23:27:59.839
+Test Case 'Whoop4HistoricalV24HardwareTests.testNormalClockLeavesHistoricalTimestampUnchanged' started at 2026-10-21 23:27:59.839
+Test Case 'Whoop4HistoricalV24HardwareTests.testNormalClockLeavesHistoricalTimestampUnchanged' passed (0.002 seconds)
+Test Case 'Whoop4HistoricalV24HardwareTests.testRealWhoop4BiometricsCrossCheck' started at 2026-10-21 23:27:59.842
+Test Case 'Whoop4HistoricalV24HardwareTests.testRealWhoop4BiometricsCrossCheck' passed (0.0 seconds)
+Test Case 'Whoop4HistoricalV24HardwareTests.testRealWhoop4FeedsHistoricalStreams' started at 2026-10-21 23:27:59.842
+Test Case 'Whoop4HistoricalV24HardwareTests.testRealWhoop4FeedsHistoricalStreams' passed (0.0 seconds)
+Test Case 'Whoop4HistoricalV24HardwareTests.testRealWhoop4GravityIsUnitVector' started at 2026-10-21 23:27:59.842
+Test Case 'Whoop4HistoricalV24HardwareTests.testRealWhoop4GravityIsUnitVector' passed (0.0 seconds)
+Test Case 'Whoop4HistoricalV24HardwareTests.testRealWhoop4RecordIsV24' started at 2026-10-21 23:27:59.842
+Test Case 'Whoop4HistoricalV24HardwareTests.testRealWhoop4RecordIsV24' passed (0.0 seconds)
+Test Case 'Whoop4HistoricalV24HardwareTests.testStaleClockCorrectionIsDedupStableAcrossResync' started at 2026-10-21 23:27:59.843
+Test Case 'Whoop4HistoricalV24HardwareTests.testStaleClockCorrectionIsDedupStableAcrossResync' passed (0.0 seconds)
+Test Case 'Whoop4HistoricalV24HardwareTests.testStaleClockShiftsHistoricalTimestampForwardAndSnaps' started at 2026-10-21 23:27:59.843
+Test Case 'Whoop4HistoricalV24HardwareTests.testStaleClockShiftsHistoricalTimestampForwardAndSnaps' passed (0.0 seconds)
+Test Case 'Whoop4HistoricalV24HardwareTests.testUnmappedVersionFallsBackToV24WhenPhysicallyValid' started at 2026-10-21 23:27:59.843
+Test Case 'Whoop4HistoricalV24HardwareTests.testUnmappedVersionFallsBackToV24WhenPhysicallyValid' passed (0.0 seconds)
+Test Case 'Whoop4HistoricalV24HardwareTests.testUnmappedVersionRejectedWhenV24LayoutDoesNotFit' started at 2026-10-21 23:27:59.843
+Test Case 'Whoop4HistoricalV24HardwareTests.testUnmappedVersionRejectedWhenV24LayoutDoesNotFit' passed (0.0 seconds)
+Test Case 'Whoop4HistoricalV24HardwareTests.testZeroedStrapRtcKeepsRealUnixInsteadOfFutureDating' started at 2026-10-21 23:27:59.844
+Test Case 'Whoop4HistoricalV24HardwareTests.testZeroedStrapRtcKeepsRealUnixInsteadOfFutureDating' passed (0.002 seconds)
+Test Suite 'Whoop4HistoricalV24HardwareTests' passed at 2026-10-21 23:27:59.846
+	 Executed 10 tests, with 0 failures (0 unexpected) in 0.006 (0.006) seconds
+Test Suite 'Whoop4HistoricalV25PpgTests' started at 2026-10-21 23:27:59.846
+Test Case 'Whoop4HistoricalV25PpgTests.testConcatenationArtifactTracksRecordPeriodNotHr' started at 2026-10-21 23:27:59.846
+Test Case 'Whoop4HistoricalV25PpgTests.testConcatenationArtifactTracksRecordPeriodNotHr' passed (0.0 seconds)
+Test Case 'Whoop4HistoricalV25PpgTests.testFixtureIsV25Consecutive' started at 2026-10-21 23:27:59.846
+Test Case 'Whoop4HistoricalV25PpgTests.testFixtureIsV25Consecutive' passed (0.0 seconds)
+Test Case 'Whoop4HistoricalV25PpgTests.testNotchDoesNotFullyProtectV25SoStartByteIsLoadBearing' started at 2026-10-21 23:27:59.846
+Test Case 'Whoop4HistoricalV25PpgTests.testNotchDoesNotFullyProtectV25SoStartByteIsLoadBearing' passed (0.001 seconds)
+Test Case 'Whoop4HistoricalV25PpgTests.testProposedSpanEmitsNoHrThroughShippedLane' started at 2026-10-21 23:27:59.848
+Test Case 'Whoop4HistoricalV25PpgTests.testProposedSpanEmitsNoHrThroughShippedLane' passed (0.001 seconds)
+Test Suite 'Whoop4HistoricalV25PpgTests' passed at 2026-10-21 23:27:59.849
+	 Executed 4 tests, with 0 failures (0 unexpected) in 0.003 (0.003) seconds
+Test Suite 'Whoop4HistoricalV25Tests' started at 2026-10-21 23:27:59.849
+Test Case 'Whoop4HistoricalV25Tests.testV25DecodesUnixAndGravity' started at 2026-10-21 23:27:59.849
+Test Case 'Whoop4HistoricalV25Tests.testV25DecodesUnixAndGravity' passed (0.0 seconds)
+Test Case 'Whoop4HistoricalV25Tests.testV25NotRejected' started at 2026-10-21 23:27:59.849
+Test Case 'Whoop4HistoricalV25Tests.testV25NotRejected' passed (0.0 seconds)
+Test Case 'Whoop4HistoricalV25Tests.testV25ProducesGravityStream' started at 2026-10-21 23:27:59.850
+Test Case 'Whoop4HistoricalV25Tests.testV25ProducesGravityStream' passed (0.0 seconds)
+Test Suite 'Whoop4HistoricalV25Tests' passed at 2026-10-21 23:27:59.850
+	 Executed 3 tests, with 0 failures (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'Whoop5CommandResponseTests' started at 2026-10-21 23:27:59.850
+Test Case 'Whoop5CommandResponseTests.testBatteryIsDirectPercent' started at 2026-10-21 23:27:59.850
+Test Case 'Whoop5CommandResponseTests.testBatteryIsDirectPercent' passed (0.0 seconds)
+Test Case 'Whoop5CommandResponseTests.testDataRangeHistoryWindow' started at 2026-10-21 23:27:59.850
+Test Case 'Whoop5CommandResponseTests.testDataRangeHistoryWindow' passed (0.0 seconds)
+Test Case 'Whoop5CommandResponseTests.testHelloDeviceNameAndFirmware' started at 2026-10-21 23:27:59.850
+Test Case 'Whoop5CommandResponseTests.testHelloDeviceNameAndFirmware' passed (0.0 seconds)
+Test Case 'Whoop5CommandResponseTests.testHelloGuardsFailClosed' started at 2026-10-21 23:27:59.851
+Test Case 'Whoop5CommandResponseTests.testHelloGuardsFailClosed' passed (0.0 seconds)
+Test Case 'Whoop5CommandResponseTests.testHelloPreservesPhysicalOwnershipBytesWithoutAssigningGenericResultSemantics' started at 2026-10-21 23:27:59.851
+Test Case 'Whoop5CommandResponseTests.testHelloPreservesPhysicalOwnershipBytesWithoutAssigningGenericResultSemantics' passed (0.0 seconds)
+Test Case 'Whoop5CommandResponseTests.testPuffinCommandResponseUsesCanonicalDecoder' started at 2026-10-21 23:27:59.851
+Test Case 'Whoop5CommandResponseTests.testPuffinCommandResponseUsesCanonicalDecoder' passed (0.0 seconds)
+Test Suite 'Whoop5CommandResponseTests' passed at 2026-10-21 23:27:59.851
+	 Executed 6 tests, with 0 failures (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'Whoop5ConfigTests' started at 2026-10-21 23:27:59.851
+Test Case 'Whoop5ConfigTests.testBroadcastAllowanceDoesNotAuthorizeOtherConfigurationKeys' started at 2026-10-21 23:27:59.851
+Test Case 'Whoop5ConfigTests.testBroadcastAllowanceDoesNotAuthorizeOtherConfigurationKeys' passed (0.0 seconds)
+Test Case 'Whoop5ConfigTests.testBroadcastAllowanceRejectsMalformedOrUnsupportedPayloads' started at 2026-10-21 23:27:59.851
+Test Case 'Whoop5ConfigTests.testBroadcastAllowanceRejectsMalformedOrUnsupportedPayloads' passed (0.0 seconds)
+Test Case 'Whoop5ConfigTests.testBroadcastDisableRemainsAllowedAfterPreferenceTurnsOff' started at 2026-10-21 23:27:59.851
+Test Case 'Whoop5ConfigTests.testBroadcastDisableRemainsAllowedAfterPreferenceTurnsOff' passed (0.0 seconds)
+Test Case 'Whoop5ConfigTests.testBroadcastEnableRequiresPreference' started at 2026-10-21 23:27:59.852
+Test Case 'Whoop5ConfigTests.testBroadcastEnableRequiresPreference' passed (0.0 seconds)
+Test Case 'Whoop5ConfigTests.testDeviceConfigBodyIsNameNullPaddedThenAsciiValue' started at 2026-10-21 23:27:59.852
+Test Case 'Whoop5ConfigTests.testDeviceConfigBodyIsNameNullPaddedThenAsciiValue' passed (0.0 seconds)
+Test Case 'Whoop5ConfigTests.testEnableR22PacketsFrameVerifies' started at 2026-10-21 23:27:59.852
+Test Case 'Whoop5ConfigTests.testEnableR22PacketsFrameVerifies' passed (0.0 seconds)
+Test Case 'Whoop5ConfigTests.testEnableR22PacketsGoldenFrame' started at 2026-10-21 23:27:59.852
+Test Case 'Whoop5ConfigTests.testEnableR22PacketsGoldenFrame' passed (0.0 seconds)
+Test Case 'Whoop5ConfigTests.testEnableSequenceEndsWithSig12FromRealCapture' started at 2026-10-21 23:27:59.853
+Test Case 'Whoop5ConfigTests.testEnableSequenceEndsWithSig12FromRealCapture' passed (0.0 seconds)
+Test Case 'Whoop5ConfigTests.testEnableSequenceIsSixteenFlagsWithDistinctSeqs' started at 2026-10-21 23:27:59.853
+Test Case 'Whoop5ConfigTests.testEnableSequenceIsSixteenFlagsWithDistinctSeqs' passed (0.0 seconds)
+Test Case 'Whoop5ConfigTests.testPayloadBodyIsAsciiNameNulPaddedWithValueAt32' started at 2026-10-21 23:27:59.853
+Test Case 'Whoop5ConfigTests.testPayloadBodyIsAsciiNameNulPaddedWithValueAt32' passed (0.0 seconds)
+Test Suite 'Whoop5ConfigTests' passed at 2026-10-21 23:27:59.853
+	 Executed 10 tests, with 0 failures (0 unexpected) in 0.002 (0.002) seconds
+Test Suite 'Whoop5ConsoleLogsTests' started at 2026-10-21 23:27:59.853
+Test Case 'Whoop5ConsoleLogsTests.testAllNulTextRegionYieldsNoLog' started at 2026-10-21 23:27:59.853
+Test Case 'Whoop5ConsoleLogsTests.testAllNulTextRegionYieldsNoLog' passed (0.001 seconds)
+Test Case 'Whoop5ConsoleLogsTests.testConsecutiveChunksCarryContiguousIndices' started at 2026-10-21 23:27:59.854
+Test Case 'Whoop5ConsoleLogsTests.testConsecutiveChunksCarryContiguousIndices' passed (0.001 seconds)
+Test Case 'Whoop5ConsoleLogsTests.testConsoleChunkDecodesHeaderAndText' started at 2026-10-21 23:27:59.855
+Test Case 'Whoop5ConsoleLogsTests.testConsoleChunkDecodesHeaderAndText' passed (0.0 seconds)
+Test Case 'Whoop5ConsoleLogsTests.testHeaderOnlyFrameYieldsNoLog' started at 2026-10-21 23:27:59.855
+Test Case 'Whoop5ConsoleLogsTests.testHeaderOnlyFrameYieldsNoLog' passed (0.1 seconds)
+Test Case 'Whoop5ConsoleLogsTests.testOversizedTextIsCappedAt2048' started at 2026-10-21 23:27:59.955
+Test Case 'Whoop5ConsoleLogsTests.testOversizedTextIsCappedAt2048' passed (0.0 seconds)
+Test Case 'Whoop5ConsoleLogsTests.testTrailingNulsAreTrimmed' started at 2026-10-21 23:27:59.956
+Test Case 'Whoop5ConsoleLogsTests.testTrailingNulsAreTrimmed' passed (0.0 seconds)
+Test Suite 'Whoop5ConsoleLogsTests' passed at 2026-10-21 23:27:59.956
+	 Executed 6 tests, with 0 failures (0 unexpected) in 0.103 (0.103) seconds
+Test Suite 'Whoop5EmptyOffloadTrackerTests' started at 2026-10-21 23:27:59.956
+Test Case 'Whoop5EmptyOffloadTrackerTests.testBankingOffloadClearsExperimental' started at 2026-10-21 23:27:59.956
+Test Case 'Whoop5EmptyOffloadTrackerTests.testBankingOffloadClearsExperimental' passed (0.0 seconds)
+Test Case 'Whoop5EmptyOffloadTrackerTests.testCustomThreshold' started at 2026-10-21 23:27:59.956
+Test Case 'Whoop5EmptyOffloadTrackerTests.testCustomThreshold' passed (0.0 seconds)
+Test Case 'Whoop5EmptyOffloadTrackerTests.testRecoveryThenRequiresFullStreakAgain' started at 2026-10-21 23:27:59.956
+Test Case 'Whoop5EmptyOffloadTrackerTests.testRecoveryThenRequiresFullStreakAgain' passed (0.0 seconds)
+Test Case 'Whoop5EmptyOffloadTrackerTests.testResetClearsState' started at 2026-10-21 23:27:59.957
+Test Case 'Whoop5EmptyOffloadTrackerTests.testResetClearsState' passed (0.0 seconds)
+Test Case 'Whoop5EmptyOffloadTrackerTests.testSingleEmptyOffloadStaysQuiet' started at 2026-10-21 23:27:59.957
+Test Case 'Whoop5EmptyOffloadTrackerTests.testSingleEmptyOffloadStaysQuiet' passed (0.0 seconds)
+Test Case 'Whoop5EmptyOffloadTrackerTests.testStaysExperimentalWithoutRecrossing' started at 2026-10-21 23:27:59.957
+Test Case 'Whoop5EmptyOffloadTrackerTests.testStaysExperimentalWithoutRecrossing' passed (0.0 seconds)
+Test Case 'Whoop5EmptyOffloadTrackerTests.testTwoConsecutiveEmptyOffloadsGoExperimental' started at 2026-10-21 23:27:59.957
+Test Case 'Whoop5EmptyOffloadTrackerTests.testTwoConsecutiveEmptyOffloadsGoExperimental' passed (0.0 seconds)
+Test Suite 'Whoop5EmptyOffloadTrackerTests' passed at 2026-10-21 23:27:59.957
+	 Executed 7 tests, with 0 failures (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'Whoop5EnvelopeIntegrityRegressionTests' started at 2026-10-21 23:27:59.957
+Test Case 'Whoop5EnvelopeIntegrityRegressionTests.testBadHeaderCRCIsRejectedAtHistoryBoundary' started at 2026-10-21 23:27:59.957
+Test Case 'Whoop5EnvelopeIntegrityRegressionTests.testBadHeaderCRCIsRejectedAtHistoryBoundary' passed (0.0 seconds)
+Test Case 'Whoop5EnvelopeIntegrityRegressionTests.testBadPayloadCRCIsRejectedAtHistoryBoundary' started at 2026-10-21 23:27:59.958
+Test Case 'Whoop5EnvelopeIntegrityRegressionTests.testBadPayloadCRCIsRejectedAtHistoryBoundary' passed (0.0 seconds)
+Test Case 'Whoop5EnvelopeIntegrityRegressionTests.testDeclaredLengthMismatchIsRejectedAtHistoryBoundary' started at 2026-10-21 23:27:59.958
+Test Case 'Whoop5EnvelopeIntegrityRegressionTests.testDeclaredLengthMismatchIsRejectedAtHistoryBoundary' passed (0.0 seconds)
+Test Case 'Whoop5EnvelopeIntegrityRegressionTests.testUnavailablePayloadCRCVerdictIsRejectedAtHistoryBoundary' started at 2026-10-21 23:27:59.958
+Test Case 'Whoop5EnvelopeIntegrityRegressionTests.testUnavailablePayloadCRCVerdictIsRejectedAtHistoryBoundary' passed (0.0 seconds)
+Test Case 'Whoop5EnvelopeIntegrityRegressionTests.testValidDeclaredFrameWithTrailingBytesFailsCompleteEnvelopeValidation' started at 2026-10-21 23:27:59.959
+Test Case 'Whoop5EnvelopeIntegrityRegressionTests.testValidDeclaredFrameWithTrailingBytesFailsCompleteEnvelopeValidation' passed (0.0 seconds)
+Test Case 'Whoop5EnvelopeIntegrityRegressionTests.testValidFramePropagatesCompleteIntegrityVerdict' started at 2026-10-21 23:27:59.959
+Test Case 'Whoop5EnvelopeIntegrityRegressionTests.testValidFramePropagatesCompleteIntegrityVerdict' passed (0.0 seconds)
+Test Suite 'Whoop5EnvelopeIntegrityRegressionTests' passed at 2026-10-21 23:27:59.959
+	 Executed 6 tests, with 0 failures (0 unexpected) in 0.002 (0.002) seconds
+Test Suite 'Whoop5EventTests' started at 2026-10-21 23:27:59.959
+Test Case 'Whoop5EventTests.testBatteryLevelEventDecodesPayload' started at 2026-10-21 23:27:59.959
+Test Case 'Whoop5EventTests.testBatteryLevelEventDecodesPayload' passed (0.1 seconds)
+Test Case 'Whoop5EventTests.testSimpleEventDecodesNameAndTimestamp' started at 2026-10-21 23:28:00.059
+Test Case 'Whoop5EventTests.testSimpleEventDecodesNameAndTimestamp' passed (0.0 seconds)
+Test Case 'Whoop5EventTests.testUnknownEventNumberStaysRaw' started at 2026-10-21 23:28:00.060
+Test Case 'Whoop5EventTests.testUnknownEventNumberStaysRaw' passed (0.0 seconds)
+Test Suite 'Whoop5EventTests' passed at 2026-10-21 23:28:00.060
+	 Executed 3 tests, with 0 failures (0 unexpected) in 0.101 (0.101) seconds
+Test Suite 'Whoop5ExperimentalSpO2PipelineTests' started at 2026-10-21 23:28:00.060
+Test Case 'Whoop5ExperimentalSpO2PipelineTests.testAwakeOrSentinelValuesNeverReachExperimentalStream' started at 2026-10-21 23:28:00.060
+Test Case 'Whoop5ExperimentalSpO2PipelineTests.testAwakeOrSentinelValuesNeverReachExperimentalStream' passed (0.0 seconds)
+Test Case 'Whoop5ExperimentalSpO2PipelineTests.testSameMinuteCandidatesProduceOneOrderIndependentMean' started at 2026-10-21 23:28:00.060
+Test Case 'Whoop5ExperimentalSpO2PipelineTests.testSameMinuteCandidatesProduceOneOrderIndependentMean' passed (0.001 seconds)
+Test Case 'Whoop5ExperimentalSpO2PipelineTests.testSleepingInBandCandidateReachesCompactSpO2Stream' started at 2026-10-21 23:28:00.061
+Test Case 'Whoop5ExperimentalSpO2PipelineTests.testSleepingInBandCandidateReachesCompactSpO2Stream' passed (0.0 seconds)
+Test Suite 'Whoop5ExperimentalSpO2PipelineTests' passed at 2026-10-21 23:28:00.062
+	 Executed 3 tests, with 0 failures (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'Whoop5HistoricalTests' started at 2026-10-21 23:28:00.062
+Test Case 'Whoop5HistoricalTests.testHeartRateOffsetIsNotTheNaivePlusFour' started at 2026-10-21 23:28:00.062
+Test Case 'Whoop5HistoricalTests.testHeartRateOffsetIsNotTheNaivePlusFour' passed (0.001 seconds)
+Test Case 'Whoop5HistoricalTests.testHistoricalFeedsStreamExtraction' started at 2026-10-21 23:28:00.062
+Test Case 'Whoop5HistoricalTests.testHistoricalFeedsStreamExtraction' passed (0.0 seconds)
+Test Case 'Whoop5HistoricalTests.testHistoricalOffWristEmitsNoHeartRate' started at 2026-10-21 23:28:00.063
+Test Case 'Whoop5HistoricalTests.testHistoricalOffWristEmitsNoHeartRate' passed (0.0 seconds)
+Test Case 'Whoop5HistoricalTests.testHistoricalSingleRR' started at 2026-10-21 23:28:00.063
+Test Case 'Whoop5HistoricalTests.testHistoricalSingleRR' passed (0.0 seconds)
+Test Case 'Whoop5HistoricalTests.testHistoricalUnknownVersionFallsBackSafely' started at 2026-10-21 23:28:00.063
+Test Case 'Whoop5HistoricalTests.testHistoricalUnknownVersionFallsBackSafely' passed (0.0 seconds)
+Test Case 'Whoop5HistoricalTests.testHistoricalV18ActivityClassEnum' started at 2026-10-21 23:28:00.063
+Test Case 'Whoop5HistoricalTests.testHistoricalV18ActivityClassEnum' passed (0.0 seconds)
+Test Case 'Whoop5HistoricalTests.testHistoricalV18AuxByte82' started at 2026-10-21 23:28:00.064
+Test Case 'Whoop5HistoricalTests.testHistoricalV18AuxByte82' passed (0.0 seconds)
+Test Case 'Whoop5HistoricalTests.testHistoricalV18BiometricFields' started at 2026-10-21 23:28:00.064
+Test Case 'Whoop5HistoricalTests.testHistoricalV18BiometricFields' passed (0.0 seconds)
+Test Case 'Whoop5HistoricalTests.testHistoricalV18GeneralisesToSecondDevice' started at 2026-10-21 23:28:00.064
+Test Case 'Whoop5HistoricalTests.testHistoricalV18GeneralisesToSecondDevice' passed (0.0 seconds)
+Test Case 'Whoop5HistoricalTests.testHistoricalV18HeartRateRRAndGravity' started at 2026-10-21 23:28:00.064
+Test Case 'Whoop5HistoricalTests.testHistoricalV18HeartRateRRAndGravity' passed (0.0 seconds)
+Test Case 'Whoop5HistoricalTests.testHistoricalV18ObservedFields' started at 2026-10-21 23:28:00.065
+Test Case 'Whoop5HistoricalTests.testHistoricalV18ObservedFields' passed (0.0 seconds)
+Test Case 'Whoop5HistoricalTests.testHistoricalV18OnWristAndWakeQualityBits' started at 2026-10-21 23:28:00.065
+Test Case 'Whoop5HistoricalTests.testHistoricalV18OnWristAndWakeQualityBits' passed (0.0 seconds)
+Test Case 'Whoop5HistoricalTests.testHistoricalV18OpticalFieldsAreNotNamedPhysiologically' started at 2026-10-21 23:28:00.065
+Test Case 'Whoop5HistoricalTests.testHistoricalV18OpticalFieldsAreNotNamedPhysiologically' passed (0.0 seconds)
+Test Case 'Whoop5HistoricalTests.testHistoricalV18OpticalRegionFields' started at 2026-10-21 23:28:00.065
+Test Case 'Whoop5HistoricalTests.testHistoricalV18OpticalRegionFields' passed (0.0 seconds)
+Test Case 'Whoop5HistoricalTests.testHistoricalV18SkinTempTracksWristContact' started at 2026-10-21 23:28:00.065
+Test Case 'Whoop5HistoricalTests.testHistoricalV18SkinTempTracksWristContact' passed (0.0 seconds)
+Test Case 'Whoop5HistoricalTests.testHistoricalV18SleepStateMapping' started at 2026-10-21 23:28:00.066
+Test Case 'Whoop5HistoricalTests.testHistoricalV18SleepStateMapping' passed (0.0 seconds)
+Test Case 'Whoop5HistoricalTests.testHistoricalV18SleepStateReachesStream' started at 2026-10-21 23:28:00.066
+Test Case 'Whoop5HistoricalTests.testHistoricalV18SleepStateReachesStream' passed (0.0 seconds)
+Test Case 'Whoop5HistoricalTests.testHistoricalV18SleepStateStreamCarriesEachNibble' started at 2026-10-21 23:28:00.066
+Test Case 'Whoop5HistoricalTests.testHistoricalV18SleepStateStreamCarriesEachNibble' passed (0.001 seconds)
+Test Case 'Whoop5HistoricalTests.testHistoricalV18StatusWordSiblings' started at 2026-10-21 23:28:00.067
+Test Case 'Whoop5HistoricalTests.testHistoricalV18StatusWordSiblings' passed (0.1 seconds)
+Test Case 'Whoop5HistoricalTests.testHistoricalV18StepCounterIsFullU16NotLowByte' started at 2026-10-21 23:28:00.168
+Test Case 'Whoop5HistoricalTests.testHistoricalV18StepCounterIsFullU16NotLowByte' passed (0.0 seconds)
+Test Case 'Whoop5HistoricalTests.testWhoop5HistoricalAckFrameMatchesHardwareProvenBytes' started at 2026-10-21 23:28:00.168
+Test Case 'Whoop5HistoricalTests.testWhoop5HistoricalAckFrameMatchesHardwareProvenBytes' passed (0.001 seconds)
+Test Case 'Whoop5HistoricalTests.testWhoop5MetadataClassifiesHistoryEnd' started at 2026-10-21 23:28:00.170
+Test Case 'Whoop5HistoricalTests.testWhoop5MetadataClassifiesHistoryEnd' passed (0.0 seconds)
+Test Case 'Whoop5HistoricalTests.testWhoop5MetadataClassifiesHistoryStart' started at 2026-10-21 23:28:00.170
+Test Case 'Whoop5HistoricalTests.testWhoop5MetadataClassifiesHistoryStart' passed (0.0 seconds)
+Test Suite 'Whoop5HistoricalTests' passed at 2026-10-21 23:28:00.170
+	 Executed 23 tests, with 0 failures (0 unexpected) in 0.108 (0.108) seconds
+Test Suite 'Whoop5HistoricalV2021Tests' started at 2026-10-21 23:28:00.170
+Test Case 'Whoop5HistoricalV2021Tests.testV20HeaderActiveAndEmptyBlocks' started at 2026-10-21 23:28:00.170
+Test Case 'Whoop5HistoricalV2021Tests.testV20HeaderActiveAndEmptyBlocks' passed (0.0 seconds)
+Test Case 'Whoop5HistoricalV2021Tests.testV21HeaderAndSixImuChannels' started at 2026-10-21 23:28:00.171
+Test Case 'Whoop5HistoricalV2021Tests.testV21HeaderAndSixImuChannels' passed (0.0 seconds)
+Test Case 'Whoop5HistoricalV2021Tests.testV21MappedRawClassificationRequiresExactSharedShapeGate' started at 2026-10-21 23:28:00.171
+Test Case 'Whoop5HistoricalV2021Tests.testV21MappedRawClassificationRequiresExactSharedShapeGate' passed (0.001 seconds)
+Test Case 'Whoop5HistoricalV2021Tests.testV21RealFrameAccelIsGravityShell' started at 2026-10-21 23:28:00.171
+Test Case 'Whoop5HistoricalV2021Tests.testV21RealFrameAccelIsGravityShell' passed (0.0 seconds)
+Test Suite 'Whoop5HistoricalV2021Tests' passed at 2026-10-21 23:28:00.172
+	 Executed 4 tests, with 0 failures (0 unexpected) in 0.002 (0.002) seconds
+Test Suite 'Whoop5PpgWaveformTests' started at 2026-10-21 23:28:00.172
+Test Case 'Whoop5PpgWaveformTests.testExtractHistoricalStreamsPersistsRawPpgWaveform' started at 2026-10-21 23:28:00.172
+Test Case 'Whoop5PpgWaveformTests.testExtractHistoricalStreamsPersistsRawPpgWaveform' passed (0.0 seconds)
+Test Case 'Whoop5PpgWaveformTests.testStreamsDecodeToleratesMissingAndPresentPpgWaveform' started at 2026-10-21 23:28:00.172
+Test Case 'Whoop5PpgWaveformTests.testStreamsDecodeToleratesMissingAndPresentPpgWaveform' passed (0.0 seconds)
+Test Case 'Whoop5PpgWaveformTests.testStreamsIsEmptyConsidersPpgWaveform' started at 2026-10-21 23:28:00.172
+Test Case 'Whoop5PpgWaveformTests.testStreamsIsEmptyConsidersPpgWaveform' passed (0.0 seconds)
+Test Case 'Whoop5PpgWaveformTests.testV26DecodesAsHistoricalData' started at 2026-10-21 23:28:00.173
+Test Case 'Whoop5PpgWaveformTests.testV26DecodesAsHistoricalData' passed (0.0 seconds)
+Test Case 'Whoop5PpgWaveformTests.testV26PpgWaveformAndUnix' started at 2026-10-21 23:28:00.173
+Test Case 'Whoop5PpgWaveformTests.testV26PpgWaveformAndUnix' passed (0.0 seconds)
+Test Case 'Whoop5PpgWaveformTests.testV26SecondBurstDecodes' started at 2026-10-21 23:28:00.173
+Test Case 'Whoop5PpgWaveformTests.testV26SecondBurstDecodes' passed (0.0 seconds)
+Test Case 'Whoop5PpgWaveformTests.testV26WaveformIsSmoothNotNoise' started at 2026-10-21 23:28:00.173
+Test Case 'Whoop5PpgWaveformTests.testV26WaveformIsSmoothNotNoise' passed (0.0 seconds)
+Test Suite 'Whoop5PpgWaveformTests' passed at 2026-10-21 23:28:00.174
+	 Executed 7 tests, with 0 failures (0 unexpected) in 0.002 (0.002) seconds
+Test Suite 'Whoop5RawImuStorageTests' started at 2026-10-21 23:28:00.174
+Test Case 'Whoop5RawImuStorageTests.testBaseTimestampRequiresTheCompleteImuShape' started at 2026-10-21 23:28:00.174
+Test Case 'Whoop5RawImuStorageTests.testBaseTimestampRequiresTheCompleteImuShape' passed (0.0 seconds)
+Test Case 'Whoop5RawImuStorageTests.testDecodeAndRawColumnsRejectTrailingOrTruncatedBytes' started at 2026-10-21 23:28:00.174
+Test Case 'Whoop5RawImuStorageTests.testDecodeAndRawColumnsRejectTrailingOrTruncatedBytes' passed (0.0 seconds)
+Test Case 'Whoop5RawImuStorageTests.testRawColumnsPreserveWireOrderAndSignedValues' started at 2026-10-21 23:28:00.174
+Test Case 'Whoop5RawImuStorageTests.testRawColumnsPreserveWireOrderAndSignedValues' passed (0.0 seconds)
+Test Suite 'Whoop5RawImuStorageTests' passed at 2026-10-21 23:28:00.174
+	 Executed 3 tests, with 0 failures (0 unexpected) in 0.0 (0.0) seconds
+Test Suite 'Whoop5RawImuTests' started at 2026-10-21 23:28:00.174
+Test Case 'Whoop5RawImuTests.testDecodesKnownSampleWithCorrectScales' started at 2026-10-21 23:28:00.174
+Test Case 'Whoop5RawImuTests.testDecodesKnownSampleWithCorrectScales' passed (0.0 seconds)
+Test Case 'Whoop5RawImuTests.testDecodesRealBufferAsGravityShell' started at 2026-10-21 23:28:00.174
+Test Case 'Whoop5RawImuTests.testDecodesRealBufferAsGravityShell' passed (0.0 seconds)
+Test Case 'Whoop5RawImuTests.testRejectsWrongLengthOrCounts' started at 2026-10-21 23:28:00.175
+Test Case 'Whoop5RawImuTests.testRejectsWrongLengthOrCounts' passed (0.0 seconds)
+Test Suite 'Whoop5RawImuTests' passed at 2026-10-21 23:28:00.175
+	 Executed 3 tests, with 0 failures (0 unexpected) in 0.0 (0.0) seconds
+Test Suite 'Whoop5RawOpticalTests' started at 2026-10-21 23:28:00.175
+Test Case 'Whoop5RawOpticalTests.testCompatibilityInitializerFailsClosedOnMalformedHeader' started at 2026-10-21 23:28:00.175
+Test Case 'Whoop5RawOpticalTests.testCompatibilityInitializerFailsClosedOnMalformedHeader' passed (0.0 seconds)
+Test Case 'Whoop5RawOpticalTests.testHeaderCorruptionIsRejected' started at 2026-10-21 23:28:00.175
+Test Case 'Whoop5RawOpticalTests.testHeaderCorruptionIsRejected' passed (0.0 seconds)
+Test Case 'Whoop5RawOpticalTests.testIntegrityGatedConfigAndSignedSamples' started at 2026-10-21 23:28:00.175
+Test Case 'Whoop5RawOpticalTests.testIntegrityGatedConfigAndSignedSamples' passed (0.0 seconds)
+Test Case 'Whoop5RawOpticalTests.testOutOfSignedTwentyBitDomainIsRejected' started at 2026-10-21 23:28:00.175
+Test Case 'Whoop5RawOpticalTests.testOutOfSignedTwentyBitDomainIsRejected' passed (0.0 seconds)
+Test Case 'Whoop5RawOpticalTests.testSingleBitPayloadCorruptionIsRejected' started at 2026-10-21 23:28:00.176
+Test Case 'Whoop5RawOpticalTests.testSingleBitPayloadCorruptionIsRejected' passed (0.0 seconds)
+Test Case 'Whoop5RawOpticalTests.testStrictShapeClassVersionAndCountGates' started at 2026-10-21 23:28:00.176
+Test Case 'Whoop5RawOpticalTests.testStrictShapeClassVersionAndCountGates' passed (0.001 seconds)
+Test Suite 'Whoop5RawOpticalTests' passed at 2026-10-21 23:28:00.177
+	 Executed 6 tests, with 0 failures (0 unexpected) in 0.002 (0.002) seconds
+Test Suite 'Whoop5RealtimeTests' started at 2026-10-21 23:28:00.177
+Test Case 'Whoop5RealtimeTests.testHeartRateFieldIsAtOffset16' started at 2026-10-21 23:28:00.177
+Test Case 'Whoop5RealtimeTests.testHeartRateFieldIsAtOffset16' passed (0.0 seconds)
+Test Case 'Whoop5RealtimeTests.testRealtimeHeartRateAndRR' started at 2026-10-21 23:28:00.177
+Test Case 'Whoop5RealtimeTests.testRealtimeHeartRateAndRR' passed (0.0 seconds)
+Test Case 'Whoop5RealtimeTests.testWhoop4RealtimeIsUnaffected' started at 2026-10-21 23:28:00.177
+Test Case 'Whoop5RealtimeTests.testWhoop4RealtimeIsUnaffected' passed (0.0 seconds)
+Test Suite 'Whoop5RealtimeTests' passed at 2026-10-21 23:28:00.178
+	 Executed 3 tests, with 0 failures (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'Whoop5V18SpO2CandidateTests' started at 2026-10-21 23:28:00.178
+Test Case 'Whoop5V18SpO2CandidateTests.testClassifiesInBandPercentagesWithoutPromotingOtherValues' started at 2026-10-21 23:28:00.178
+Test Case 'Whoop5V18SpO2CandidateTests.testClassifiesInBandPercentagesWithoutPromotingOtherValues' passed (0.0 seconds)
+Test Case 'Whoop5V18SpO2CandidateTests.testExperimentalSampleRequiresAsleepStateAndInBandValue' started at 2026-10-21 23:28:00.178
+Test Case 'Whoop5V18SpO2CandidateTests.testExperimentalSampleRequiresAsleepStateAndInBandValue' passed (0.0 seconds)
+Test Case 'Whoop5V18SpO2CandidateTests.testNonPercentageCasesNeverExposeCandidatePercentage' started at 2026-10-21 23:28:00.178
+Test Case 'Whoop5V18SpO2CandidateTests.testNonPercentageCasesNeverExposeCandidatePercentage' passed (0.0 seconds)
+Test Case 'Whoop5V18SpO2CandidateTests.testPersistedMarkerNeverLooksLikeOrdinaryRawChannels' started at 2026-10-21 23:28:00.178
+Test Case 'Whoop5V18SpO2CandidateTests.testPersistedMarkerNeverLooksLikeOrdinaryRawChannels' passed (0.0 seconds)
+Test Case 'Whoop5V18SpO2CandidateTests.testReadsOnlyTheDocumentedV18FrameOffset' started at 2026-10-21 23:28:00.178
+Test Case 'Whoop5V18SpO2CandidateTests.testReadsOnlyTheDocumentedV18FrameOffset' passed (0.0 seconds)
+Test Case 'Whoop5V18SpO2CandidateTests.testShortFrameFailsClosed' started at 2026-10-21 23:28:00.178
+Test Case 'Whoop5V18SpO2CandidateTests.testShortFrameFailsClosed' passed (0.0 seconds)
+Test Suite 'Whoop5V18SpO2CandidateTests' passed at 2026-10-21 23:28:00.179
+	 Executed 6 tests, with 0 failures (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'WhoopDecoderSchemaTests' started at 2026-10-21 23:28:00.179
+Test Case 'WhoopDecoderSchemaTests.testLayoutTableMatchesTheDecoderSchemaVersion' started at 2026-10-21 23:28:00.179
+Test Case 'WhoopDecoderSchemaTests.testLayoutTableMatchesTheDecoderSchemaVersion' passed (0.0 seconds)
+Test Suite 'WhoopDecoderSchemaTests' passed at 2026-10-21 23:28:00.179
+	 Executed 1 test, with 0 failures (0 unexpected) in 0.0 (0.0) seconds
+Test Suite 'WhoopGattServiceFamilyTests' started at 2026-10-21 23:28:00.179
+Test Case 'WhoopGattServiceFamilyTests.testOnlyEstablishedFamiliesMapToProtocolFraming' started at 2026-10-21 23:28:00.179
+Test Case 'WhoopGattServiceFamilyTests.testOnlyEstablishedFamiliesMapToProtocolFraming' passed (0.0 seconds)
+Test Case 'WhoopGattServiceFamilyTests.testSelectedAndOmittedServiceListsPreserveExistingConnectPath' started at 2026-10-21 23:28:00.179
+Test Case 'WhoopGattServiceFamilyTests.testSelectedAndOmittedServiceListsPreserveExistingConnectPath' passed (0.0 seconds)
+Test Case 'WhoopGattServiceFamilyTests.testUnknownDifferentServiceIsIgnoredWithoutInventingAFamily' started at 2026-10-21 23:28:00.179
+Test Case 'WhoopGattServiceFamilyTests.testUnknownDifferentServiceIsIgnoredWithoutInventingAFamily' passed (0.0 seconds)
+Test Case 'WhoopGattServiceFamilyTests.testUnknownSelectedFamilyFailsClosedEvenWhenServicesAreOmitted' started at 2026-10-21 23:28:00.179
+Test Case 'WhoopGattServiceFamilyTests.testUnknownSelectedFamilyFailsClosedEvenWhenServicesAreOmitted' passed (0.0 seconds)
+Test Case 'WhoopGattServiceFamilyTests.testUnsupportedAdvertisementIsRejectedBeforeGatt' started at 2026-10-21 23:28:00.179
+Test Case 'WhoopGattServiceFamilyTests.testUnsupportedAdvertisementIsRejectedBeforeGatt' passed (0.0 seconds)
+Test Case 'WhoopGattServiceFamilyTests.testUnsupportedFamiliesHaveNoConnectableDeviceFamily' started at 2026-10-21 23:28:00.179
+Test Case 'WhoopGattServiceFamilyTests.testUnsupportedFamiliesHaveNoConnectableDeviceFamily' passed (0.0 seconds)
+Test Case 'WhoopGattServiceFamilyTests.testUnsupportedSelectedFamilyNeverConnectsEvenWhenAdvertisedOrServicesAreOmitted' started at 2026-10-21 23:28:00.180
+Test Case 'WhoopGattServiceFamilyTests.testUnsupportedSelectedFamilyNeverConnectsEvenWhenAdvertisedOrServicesAreOmitted' passed (0.0 seconds)
+Test Suite 'WhoopGattServiceFamilyTests' passed at 2026-10-21 23:28:00.180
+	 Executed 7 tests, with 0 failures (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'debug.xctest' passed at 2026-10-21 23:28:00.180
+	 Executed 528 tests, with 0 failures (0 unexpected) in 3.217 (3.217) seconds
+Test Suite 'All tests' passed at 2026-10-21 23:28:00.180
+	 Executed 528 tests, with 0 failures (0 unexpected) in 3.217 (3.217) seconds

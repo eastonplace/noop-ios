@@ -466,11 +466,15 @@ extension WhoopStore {
                     evict.append(rowid)
                 }
             }
-            if !evict.isEmpty {
-                let placeholders = evict.map { _ in "?" }.joined(separator: ",")
+            // A long capture can leave more rows over budget than SQLite permits bind variables.
+            // Keep every bounded DELETE in this transaction so pruning remains all-or-nothing.
+            for start in stride(from: 0, to: evict.count, by: Self.inClauseChunk) {
+                let end = min(start + Self.inClauseChunk, evict.count)
+                let chunk = Array(evict[start..<end])
+                let placeholders = chunk.map { _ in "?" }.joined(separator: ",")
                 try db.execute(
                     sql: "DELETE FROM rawBatch WHERE rowid IN (\(placeholders))",
-                    arguments: StatementArguments(evict))
+                    arguments: StatementArguments(chunk))
                 pruned += db.changesCount
             }
             return pruned

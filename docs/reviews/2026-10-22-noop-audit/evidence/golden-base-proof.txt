@@ -1,0 +1,95 @@
+Building for debugging...
+[0/16] Copying whoop_protocol.json
+[1/16] Write sources
+[4/16] Write swift-version-4BDBE066E3DC7C8B.txt
+[6/47] Emitting module WhoopProtocol
+[7/57] Compiling WhoopProtocol BadClockDiagnostics.swift
+[8/57] Compiling WhoopProtocol DataRange.swift
+[9/57] Compiling WhoopProtocol DeviceFamily.swift
+[10/57] Compiling WhoopProtocol FTMSDecode.swift
+[11/57] Compiling WhoopProtocol FitnessSensorDecode.swift
+[12/57] Compiling WhoopProtocol Framing.swift
+[13/57] Compiling WhoopProtocol HapticClock.swift
+[14/57] Compiling WhoopProtocol HapticPayloads.swift
+[15/57] Compiling WhoopProtocol HistoricalMeta.swift
+[16/57] Compiling WhoopProtocol HistoricalStreams.swift
+[17/57] Compiling WhoopProtocol ReconnectPolicy.swift
+[18/57] Compiling WhoopProtocol WhoopCommand.swift
+[19/57] Compiling WhoopProtocol LiveSessionHaptics.swift
+[20/57] Compiling WhoopProtocol PostHooks.swift
+[21/57] Compiling WhoopProtocol PpgHr.swift
+[22/57] Compiling WhoopProtocol PuffinCapture.swift
+[23/57] Compiling WhoopProtocol Schema.swift
+[24/57] Compiling WhoopProtocol SleepSessionWindow.swift
+[25/57] Compiling WhoopProtocol StrapClockRecoveryPlanner.swift
+[26/57] Compiling WhoopProtocol Streams.swift
+[27/57] Compiling WhoopProtocol Values.swift
+[28/57] Compiling WhoopProtocol VersionCheck.swift
+[29/57] Compiling WhoopProtocol Whoop5Config.swift
+[30/57] Compiling WhoopProtocol Whoop5RawImu.swift
+[31/57] Compiling WhoopProtocol Whoop5RawOptical.swift
+[32/57] Compiling WhoopProtocol Whoop5V18SpO2Candidate.swift
+[33/57] Compiling WhoopProtocol WhoopDecoderSchema.swift
+[34/57] Compiling WhoopProtocol WhoopGattServiceFamily.swift
+[35/57] Compiling WhoopProtocol WhoopProtocol.swift
+[36/57] Compiling WhoopProtocol resource_bundle_accessor.swift
+[37/57] Compiling WhoopProtocol Interpreter.swift
+[38/57] Compiling WhoopProtocol BackfillDrainOwnership.swift
+[39/57] Compiling WhoopProtocol BackfillPolicy.swift
+[40/57] Compiling WhoopProtocol BatchedRetryingSink.swift
+[41/57] Compiling WhoopProtocol ContinuousHrvSchedule.swift
+[42/57] Compiling WhoopProtocol FlushScheduler.swift
+[43/57] Compiling WhoopProtocol HistoricalBurstPolicies.swift
+[44/57] Compiling WhoopProtocol LinkDetectors.swift
+[45/57] Compiling WhoopProtocol RawHistoryArchive.swift
+[46/57] Compiling WhoopProtocol RealtimeArmPolicy.swift
+[47/58] Wrapping AST for WhoopProtocol for debugging
+[49/74] Compiling StrandAnalytics HRZones.swift
+[50/74] Compiling StrandAnalytics ManualWorkoutRescore.swift
+[51/74] Compiling StrandAnalytics RecoveryScorer.swift
+[52/74] Compiling StrandAnalytics ScoreConfidence.swift
+[53/74] Compiling StrandAnalytics SleepStager+Trace.swift
+[54/78] Emitting module StrandAnalytics
+[55/78] Compiling StrandAnalytics AnalyticsMemo.swift
+[56/78] Compiling StrandAnalytics Baselines.swift
+[57/78] Compiling StrandAnalytics DaytimeStress.swift
+[58/78] Compiling StrandAnalytics HRVAnalyzer.swift
+[59/78] Compiling StrandAnalytics HRValidity.swift
+[60/78] Compiling StrandAnalytics StrainScorerV2.swift
+[61/78] Compiling StrandAnalytics WorkoutDetector.swift
+[62/78] Compiling StrandAnalytics WorkoutLiveProjectionAccumulator.swift
+[63/78] Compiling StrandAnalytics WorkoutPauseLedger.swift
+[64/78] Compiling StrandAnalytics SleepStager.swift
+[65/78] Compiling StrandAnalytics SleepStagerV2.swift
+[66/78] Compiling StrandAnalytics SleepWindowRecovery.swift
+[67/78] Compiling StrandAnalytics StableStatistics.swift
+[68/78] Compiling StrandAnalytics StrainScorer.swift
+[69/79] Wrapping AST for StrandAnalytics for debugging
+[71/83] Emitting module StrandAnalyticsTests
+[72/83] Compiling StrandAnalyticsTests StrainGoldenBits.swift
+[73/83] Compiling StrandAnalyticsTests StrainGoldenBitsTests.swift
+[74/83] Compiling StrandAnalyticsTests StrainDayFixtures.swift
+[75/84] /tmp/noop-golden-base-build/x86_64-unknown-linux-gnu/debug/NoopGoldenProofPackageDiscoveredTests.derived/all-discovered-tests.swift
+[76/84] Write sources
+[77/84] Wrapping AST for StrandAnalyticsTests for debugging
+[79/87] Compiling NoopGoldenProofPackageDiscoveredTests all-discovered-tests.swift
+[80/87] Compiling NoopGoldenProofPackageDiscoveredTests StrandAnalyticsTests.swift
+[81/87] Emitting module NoopGoldenProofPackageDiscoveredTests
+[82/88] /tmp/noop-golden-base-build/x86_64-unknown-linux-gnu/debug/NoopGoldenProofPackageTests.derived/runner.swift
+[83/88] Write sources
+[84/88] Wrapping AST for NoopGoldenProofPackageDiscoveredTests for debugging
+[86/90] Emitting module NoopGoldenProofPackageTests
+[87/90] Compiling NoopGoldenProofPackageTests runner.swift
+[88/91] Wrapping AST for NoopGoldenProofPackageTests for debugging
+[89/91] Write Objects.LinkFileList
+[90/91] Linking NoopGoldenProofPackageTests.xctest
+Build complete! (15.90s)
+warning: '--build-system native' has been deprecated and will be removed in a future release; please report an issue at https://github.com/swiftlang/swift-package-manager/issues if you are unable to adopt the default build system.
+Test Suite 'Selected tests' started at 2026-10-21 23:53:54.264
+Test Suite 'StrainGoldenBitsTests' started at 2026-10-21 23:53:54.267
+Test Case 'StrainGoldenBitsTests.testScorerBitsMatchTheGoldenFileGeneratedAtTheBase' started at 2026-10-21 23:53:54.267
+Test Case 'StrainGoldenBitsTests.testScorerBitsMatchTheGoldenFileGeneratedAtTheBase' passed (0.771 seconds)
+Test Suite 'StrainGoldenBitsTests' passed at 2026-10-21 23:53:55.037
+	 Executed 1 test, with 0 failures (0 unexpected) in 0.771 (0.771) seconds
+Test Suite 'Selected tests' passed at 2026-10-21 23:53:55.037
+	 Executed 1 test, with 0 failures (0 unexpected) in 0.771 (0.771) seconds

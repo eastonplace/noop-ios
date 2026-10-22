@@ -91,7 +91,8 @@ public enum RecoveryScorer {
     ///
     /// "Sustained" = the minimum of 5-minute non-overlapping bin means of the HR
     /// samples whose ts ∈ [start, end]. Rejects single-beat dips while capturing
-    /// the night's true floor. Returns nil when there are no HR samples in window.
+    /// the night's true floor. Only `HRValidity`-plausible readings count; returns nil when the window
+    /// has no usable HR, including an off-wrist stream of zero readings.
     ///
     /// Artifact hardening (#686): a bin may only WIN the floor when it is BOTH well-populated
     /// (≥ `restingHRMinBinSamples`, so one lone artifact beat can't be a bin "mean") AND
@@ -106,7 +107,7 @@ public enum RecoveryScorer {
         guard let span = SleepTimestampMath.nonnegativeDuration(start: start, end: end) else { return nil }
         // One forward pass over the time-ordered in-window slice. Production passes ts-sorted streams, so
         // the sort is skipped after an O(n) check.
-        var seg = hr.filter { $0.ts >= start && $0.ts <= end }
+        var seg = hr.filter { $0.ts >= start && $0.ts <= end && HRValidity.isPlausible($0.bpm) }
         guard !seg.isEmpty else { return nil }
         if !zip(seg, seg.dropFirst()).allSatisfy({ $0.ts <= $1.ts }) { seg.sort { $0.ts < $1.ts } }
 

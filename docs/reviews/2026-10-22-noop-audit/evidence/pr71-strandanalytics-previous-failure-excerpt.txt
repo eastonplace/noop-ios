@@ -1,0 +1,21 @@
+# Prior production-equivalent run (not final-head result)
+# https://github.com/eastonplace/noop-ios/actions/runs/39718404101/job/119625944488
+# head 32a0314c701c561ef1520a844065daabe585e0f9; job status cancelled; XCTest finished and reported failures.
+
+2026-10-22T03:44:16.1575960Z ##[group]Operating System
+2026-10-22T03:44:16.1576740Z 26.6.2
+2026-10-22T03:44:16.1578590Z Image: macos-26-arm64
+2026-10-22T03:44:16.1579040Z Version: 20261013.0424.1
+2026-10-22T03:44:34.1292510Z HEAD is now at 073fa32 Merge 32a0314c701c561ef1520a844065daabe585e0f9 into 6f49d855d6f747103f4dc2a60949cb933445c3c0
+2026-10-22T03:46:08.8773010Z Build complete! (80.12s)
+2026-10-22T03:46:37.9757110Z Build complete! (25.34s)
+2026-10-22T03:47:54.6058590Z /Users/runner/work/noop-ios/noop-ios/Packages/StrandAnalytics/Tests/StrandAnalyticsTests/StrainGoldenBitsTests.swift:109: error: -[StrandAnalyticsTests.StrainGoldenBitsTests testScorerBitsMatchTheGoldenFileGeneratedAtTheBase] : failed - line 35 moved:
+2026-10-22T03:47:54.6059580Z   now    rescore.kcal|messy day=408516fb3e64a830
+2026-10-22T03:47:54.6059830Z   golden rescore.kcal|messy day=40851d0623f03a71
+2026-10-22T03:48:05.3516820Z 	 Executed 1519 tests, with 2 failures (0 unexpected) in 85.309 (85.514) seconds
+2026-10-22T03:48:05.3517280Z Test Suite 'All tests' failed at 2026-10-22 03:48:05.177.
+2026-10-22T03:48:05.3517750Z 	 Executed 1519 tests, with 2 failures (0 unexpected) in 85.309 (85.516) seconds
+2026-10-22T03:48:05.3521480Z ↳ Testing Library Version: 1902
+2026-10-22T03:48:05.3521880Z ↳ Target Platform: arm64e-apple-macos14.0
+2026-10-22T03:48:05.3812550Z ##[error]The operation was canceled.
+

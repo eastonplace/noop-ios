@@ -1,0 +1,270 @@
+[
+  {
+    "file": "Packages/StrandAnalytics/Tests/StrandAnalyticsTests/DaytimeStressTests.swift",
+    "test": "testInvalidReadingsDoNotChangeCoveredHourMean"
+  },
+  {
+    "file": "Packages/StrandAnalytics/Tests/StrandAnalyticsTests/DaytimeStressTests.swift",
+    "test": "testInvalidReadingsDoNotCompleteHourlyCoverage"
+  },
+  {
+    "file": "Packages/StrandAnalytics/Tests/StrandAnalyticsTests/DaytimeStressTests.swift",
+    "test": "testOffWristHoursDoNotBecomeScoredStress"
+  },
+  {
+    "file": "Packages/StrandAnalytics/Tests/StrandAnalyticsTests/DaytimeStressTests.swift",
+    "test": "testTimestampedRRUsesChronologicalSuccessiveDifferences"
+  },
+  {
+    "file": "Packages/StrandAnalytics/Tests/StrandAnalyticsTests/ManualWorkoutRescoreTests.swift",
+    "test": "testEveryRescoredWorkoutMetricUsesTheSameValidHeartRate"
+  },
+  {
+    "file": "Packages/StrandAnalytics/Tests/StrandAnalyticsTests/ManualWorkoutRescoreTests.swift",
+    "test": "testInvalidReadingsDoNotCreateARescorableWorkout"
+  },
+  {
+    "file": "Packages/StrandAnalytics/Tests/StrandAnalyticsTests/RecoveryScorerTests.swift",
+    "test": "testRestingHRDoesNotTurnInvalidReadingsIntoFallbackPhysiology"
+  },
+  {
+    "file": "Packages/StrandAnalytics/Tests/StrandAnalyticsTests/RecoveryScorerTests.swift",
+    "test": "testRestingHRDropsInvalidReadingsBeforeAveragingUnsortedBins"
+  },
+  {
+    "file": "Packages/StrandAnalytics/Tests/StrandAnalyticsTests/RecoveryScorerTests.swift",
+    "test": "testRestingHRPreservesTheSharedPlausibilityBoundaries"
+  },
+  {
+    "file": "Packages/StrandAnalytics/Tests/StrandAnalyticsTests/SleepMemoInputTests.swift",
+    "test": "testDetectionCacheDoesNotAliasDifferentGravityAxesWithTheSameSum"
+  },
+  {
+    "file": "Packages/StrandAnalytics/Tests/StrandAnalyticsTests/SleepMemoInputTests.swift",
+    "test": "testV1StagingCacheDoesNotReplayStillStagesForEqualSumMotion"
+  },
+  {
+    "file": "Packages/StrandAnalytics/Tests/StrandAnalyticsTests/SleepMemoInputTests.swift",
+    "test": "testV2ClipsUnorderedPaddedStreamsWithoutDiscardingTheNight"
+  },
+  {
+    "file": "Packages/StrandAnalytics/Tests/StrandAnalyticsTests/SleepMemoInputTests.swift",
+    "test": "testV2StagingCacheDoesNotReplayStillStagesForEqualSumMotion"
+  },
+  {
+    "file": "Packages/StrandAnalytics/Tests/StrandAnalyticsTests/SleepRecoveryValidityTests.swift",
+    "test": "testInvalidRRAloneCannotAuthorizeRecoveredSleep"
+  },
+  {
+    "file": "Packages/StrandAnalytics/Tests/StrandAnalyticsTests/SleepRecoveryValidityTests.swift",
+    "test": "testMixedInvalidHeartRateDoesNotChangeRecoveredVitalsOrCoverage"
+  },
+  {
+    "file": "Packages/StrandAnalytics/Tests/StrandAnalyticsTests/SleepRecoveryValidityTests.swift",
+    "test": "testOffWristHeartRateCannotAuthorizeRecoveredSleep"
+  },
+  {
+    "file": "Packages/StrandAnalytics/Tests/StrandAnalyticsTests/SleepRecoveryValidityTests.swift",
+    "test": "testValidRROnlyRecoverySurvivesInvalidHeartRate"
+  },
+  {
+    "file": "Packages/WhoopProtocol/Tests/WhoopProtocolTests/ConnectionIntentPolicyTests.swift",
+    "test": "testCurrentFailedAttemptCanEnterTheReconnectPolicy"
+  },
+  {
+    "file": "Packages/WhoopProtocol/Tests/WhoopProtocolTests/ConnectionIntentPolicyTests.swift",
+    "test": "testFailureAfterAnExplicitStopCannotRestartRecovery"
+  },
+  {
+    "file": "Packages/WhoopProtocol/Tests/WhoopProtocolTests/ConnectionIntentPolicyTests.swift",
+    "test": "testInitialSystemConnectIsAllowedButAnExplicitStopIsPreserved"
+  },
+  {
+    "file": "Packages/WhoopProtocol/Tests/WhoopProtocolTests/ConnectionIntentPolicyTests.swift",
+    "test": "testLateConnectionAfterDisconnectOrForgetCannotBeAdmitted"
+  },
+  {
+    "file": "Packages/WhoopProtocol/Tests/WhoopProtocolTests/ConnectionIntentPolicyTests.swift",
+    "test": "testLateConnectionFromPreviousStrapCannotReplaceTheRequestedStrap"
+  },
+  {
+    "file": "Packages/WhoopProtocol/Tests/WhoopProtocolTests/ConnectionIntentPolicyTests.swift",
+    "test": "testLateFailureCannotRestartALiveOrNewPendingConnectionToTheSameStrap"
+  },
+  {
+    "file": "Packages/WhoopProtocol/Tests/WhoopProtocolTests/ConnectionIntentPolicyTests.swift",
+    "test": "testOldStrapFailureCannotAdvanceAnotherStrapsBackoff"
+  },
+  {
+    "file": "Packages/WhoopProtocol/Tests/WhoopProtocolTests/ConnectionIntentPolicyTests.swift",
+    "test": "testPinChangeInvalidatesAnEarlierPendingConnectionBeforeRetargetingFinishes"
+  },
+  {
+    "file": "Packages/WhoopProtocol/Tests/WhoopProtocolTests/ConnectionIntentPolicyTests.swift",
+    "test": "testRemovingAnInactiveRowWithoutAPeripheralDoesNotMeanForgetEverything"
+  },
+  {
+    "file": "Packages/WhoopProtocol/Tests/WhoopProtocolTests/ConnectionIntentPolicyTests.swift",
+    "test": "testRemovingAnInactiveStrapDoesNotStopTheCurrentTarget"
+  },
+  {
+    "file": "Packages/WhoopProtocol/Tests/WhoopProtocolTests/ConnectionIntentPolicyTests.swift",
+    "test": "testRemovingTheActiveRowReleasesItsConnectionEvenBeforeItsPeripheralIsKnown"
+  },
+  {
+    "file": "Packages/WhoopProtocol/Tests/WhoopProtocolTests/ConnectionIntentPolicyTests.swift",
+    "test": "testRemovingThePhysicalCurrentOrPendingTargetAlwaysReleasesIt"
+  },
+  {
+    "file": "Packages/WhoopProtocol/Tests/WhoopProtocolTests/ConnectionIntentPolicyTests.swift",
+    "test": "testRequestedConnectionIsAdmittedWithOrWithoutAPin"
+  },
+  {
+    "file": "Packages/WhoopProtocol/Tests/WhoopProtocolTests/Whoop5ConfigTests.swift",
+    "test": "testBroadcastAllowanceDoesNotAuthorizeOtherConfigurationKeys"
+  },
+  {
+    "file": "Packages/WhoopProtocol/Tests/WhoopProtocolTests/Whoop5ConfigTests.swift",
+    "test": "testBroadcastAllowanceRejectsMalformedOrUnsupportedPayloads"
+  },
+  {
+    "file": "Packages/WhoopProtocol/Tests/WhoopProtocolTests/Whoop5ConfigTests.swift",
+    "test": "testBroadcastDisableRemainsAllowedAfterPreferenceTurnsOff"
+  },
+  {
+    "file": "Packages/WhoopProtocol/Tests/WhoopProtocolTests/Whoop5ConfigTests.swift",
+    "test": "testBroadcastEnableRequiresPreference"
+  },
+  {
+    "file": "Packages/WhoopStore/Tests/WhoopStoreTests/PruneTests.swift",
+    "test": "testLargeEvictionStaysWithinSQLiteVariableLimit"
+  },
+  {
+    "file": "StrandiOSTests/BLEConnectionIntentTests.swift",
+    "test": "testColdLaunchCanStillConnectFromSystem"
+  },
+  {
+    "file": "StrandiOSTests/BLEConnectionIntentTests.swift",
+    "test": "testColdRestoreStillReconnectsOrResumesDiscovery"
+  },
+  {
+    "file": "StrandiOSTests/BLEConnectionIntentTests.swift",
+    "test": "testExplicitConnectRearmsAutomaticRecoveryAfterDisconnect"
+  },
+  {
+    "file": "StrandiOSTests/BLEConnectionIntentTests.swift",
+    "test": "testPoweredOnDoesNotReconnectOrRediscoverARestoredStrapAfterDisconnect"
+  },
+  {
+    "file": "StrandiOSTests/BLEConnectionIntentTests.swift",
+    "test": "testRemovingAnInactiveRowWithoutAPeripheralDoesNotReleaseTheActiveStrap"
+  },
+  {
+    "file": "StrandiOSTests/BLEConnectionIntentTests.swift",
+    "test": "testRemovingAnInactiveStrapPreservesTheActiveReconnectTimerAndIntent"
+  },
+  {
+    "file": "StrandiOSTests/BLEConnectionIntentTests.swift",
+    "test": "testRemovingTheSelectedStrapStillStopsItsAutomaticRecovery"
+  },
+  {
+    "file": "StrandiOSTests/BLEConnectionIntentTests.swift",
+    "test": "testSystemReconnectDoesNotUndoAnExplicitDisconnect"
+  },
+  {
+    "file": "StrandiOSTests/BLEConnectionIntentTests.swift",
+    "test": "testSystemReconnectDoesNotUndoForgetDevice"
+  },
+  {
+    "file": "StrandiOSTests/HealthKitSyncCoordinatorTests.swift",
+    "test": "testCancelledExportDeletionRemainsOwnedUntilObserverAnchorCommits"
+  },
+  {
+    "file": "StrandiOSTests/HealthKitSyncCoordinatorTests.swift",
+    "test": "testCancelledImportRetainsDurableUnionBeforeClearingJournal"
+  },
+  {
+    "file": "StrandiOSTests/HealthKitSyncCoordinatorTests.swift",
+    "test": "testCancellingCoalescedImportWaiterLeavesActiveImportRunning"
+  },
+  {
+    "file": "StrandiOSTests/HealthKitSyncCoordinatorTests.swift",
+    "test": "testExportDeletionFailureRetainsKnownTargetIdentitiesForRetry"
+  },
+  {
+    "file": "StrandiOSTests/LiveSessionFreshnessTests.swift",
+    "test": "testNewEqualValuedReadingsRemainFreshAndUseTheEmittedValue"
+  },
+  {
+    "file": "StrandiOSTests/LiveSessionFreshnessTests.swift",
+    "test": "testProprietaryRealtimeNotificationsKeepEqualHeartRateArrivals"
+  },
+  {
+    "file": "StrandiOSTests/LiveSessionFreshnessTests.swift",
+    "test": "testSteadyStandardHeartRateRemainsFreshWithoutRepeatedDisplayPublication"
+  },
+  {
+    "file": "StrandiOSTests/LiveSessionFreshnessTests.swift",
+    "test": "testSubscriptionDoesNotTreatCachedHeartRateAsAnArrival"
+  },
+  {
+    "file": "StrandiOSTests/LiveSessionFreshnessTests.swift",
+    "test": "testTimerDoesNotRefreshTheLastHeartRate"
+  },
+  {
+    "file": "StrandiOSTests/PR29IOSSinkAndHealthKitTests.swift",
+    "test": "testWidgetStressKeepsWakingHRAndRRBeyondDenseMidnightPrefix"
+  },
+  {
+    "file": "StrandiOSTests/PR29IOSSinkAndHealthKitTests.swift",
+    "test": "testWidgetStressReadsAllSecondsOfTwentyFiveHourDay"
+  },
+  {
+    "file": "StrandiOSTests/PR29IOSSinkAndHealthKitTests.swift",
+    "test": "testWidgetStressRejectsInvalidOrOverflowingReadBounds"
+  },
+  {
+    "file": "StrandiOSTests/PuffinBroadcastPreferenceTests.swift",
+    "test": "testAbsentChoiceDoesNotRequestADeviceWrite"
+  },
+  {
+    "file": "StrandiOSTests/PuffinBroadcastPreferenceTests.swift",
+    "test": "testBothExplicitChoicesArePreservedForReconnect"
+  },
+  {
+    "file": "StrandiOSTests/PuffinBroadcastPreferenceTests.swift",
+    "test": "testMalformedSavedChoiceIsIgnored"
+  },
+  {
+    "file": "StrandiOSTests/PuffinBroadcastPreferenceTests.swift",
+    "test": "testRegistrationDefaultsDoNotBecomeADeviceWriteChoice"
+  },
+  {
+    "file": "StrandiOSTests/RebootResponseLogTests.swift",
+    "test": "testWhoop4RebootResponseKeepsItsLegacyResultLayout"
+  },
+  {
+    "file": "StrandiOSTests/RebootResponseLogTests.swift",
+    "test": "testWhoop5RebootResponseLogsTheResultInsteadOfThePacketType"
+  },
+  {
+    "file": "StrandiOSTests/RebootResponseLogTests.swift",
+    "test": "testWhoop5RebootResponsePreservesAnUnknownResultWithoutInventingAVerdict"
+  },
+  {
+    "file": "StrandiOSTests/ReceiptLift/LiftMuscleVolumeTests.swift",
+    "test": "adjacentWeeksDoNotCountTheSameBoundaryWorkout"
+  },
+  {
+    "file": "StrandiOSTests/ReceiptLift/LiftWeekSummaryTests.swift",
+    "test": "daylightSavingWeekUsesItsCalendarEnd"
+  },
+  {
+    "file": "StrandiOSTests/ReceiptLift/LiftWeekSummaryTests.swift",
+    "test": "nextWeekMidnightBelongsOnlyToTheNextWeek"
+  },
+  {
+    "file": "StrandiOSTests/TestReportDestinationTests.swift",
+    "test": "testReportOpensThisForkAndPreservesDiagnosticFields"
+  }
+]

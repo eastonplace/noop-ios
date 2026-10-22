@@ -148,6 +148,12 @@ public enum DaytimeStress {
     /// Returns `.empty` when there isn't a single hour with enough HR to score.
     public static func analyze(hr: [HRSample], rr: [RRInterval],
                                tzOffsetSeconds: Int = 0) -> Result {
+        // Off-wrist and malformed HR rows remain in raw storage but must not satisfy hourly coverage
+        // or shift the calm reference. RR is a successive-beat metric, so late/out-of-order batches
+        // must be chronological before bucketing; keep invalid beats for the gap-aware cleaner.
+        let hr = hr.filter { HRValidity.isPlausible($0.bpm) }
+        let rr = zip(rr, rr.dropFirst()).allSatisfy { $0.ts <= $1.ts }
+            ? rr : rr.sorted { $0.ts < $1.ts }
         // v7.0.2 perf (#707): buckets the day's full HR + R-R streams into per-hour aggregates and runs an
         // RMSSD per hour — invoked from the Stress view, so a `body` re-evaluation re-buckets the whole day.
         // Memoize on the streams' fingerprint + tz offset; result is a small `Result`, raw arrays not held.
