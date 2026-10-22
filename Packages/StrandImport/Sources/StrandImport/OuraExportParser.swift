@@ -97,7 +97,9 @@ enum OuraExportParser {
             for a in categoryArray(root, "daily_activity") ?? categoryArray(root, "activity") ?? [] {
                 guard let key = WearableJSON.str(a, "day") else { continue }
                 var row = day(key)
-                row.steps = WearableJSON.posInt(a, "steps") ?? row.steps
+                row.steps = WearableJSON.dbl(a, "steps").flatMap {
+                    $0 >= 0 && $0 <= 9e18 ? Int($0) : nil
+                } ?? row.steps
                 row.activeKcal = WearableJSON.posDbl(a, "active_calories") ?? row.activeKcal
                 row.totalKcal = WearableJSON.posDbl(a, "total_calories") ?? row.totalKcal
                 // Oura reports walking-equivalent distance in METRES (no GPS path-distance in the export).
