@@ -26,16 +26,16 @@ struct SmartAlarmEvidence: Codable, Equatable, Sendable {
     let sleepModelVersion: String?
     let forecastSource: String?
     let forecastModelVersion: String?
-    let requestedWakeAt: Date?
+    var requestedWakeAt: Date?
     /// The window's firmware fail-safe endpoint. Dedupe key: one early actuation per endpoint,
     /// even after an earlier re-arm rewrites `requestedWakeAt` to the earlier instant.
     let windowEndpoint: Date?
     /// Strap-armed readback (GET_ALARM_TIME) CORRELATED to this request: set only when the strap's
     /// reported epoch lands within the rejectStreak tolerance (±120 s) of `requestedWakeAt` AND the
     /// readback arrived after this arm was sent. An uncorrelated or stale readback stays nil.
-    let strapReportedArmedAt: Date?
-    let observedStrapWakeAt: Date?
-    let actuation: Actuation
+    var strapReportedArmedAt: Date?
+    var observedStrapWakeAt: Date?
+    var actuation: Actuation
     let evaluatorModelVersion: String
     enum ReadbackStatus: String, Codable, Sendable {
         case pending, confirmed, noAlarm, mismatch, unconfirmed
@@ -46,6 +46,14 @@ struct SmartAlarmEvidence: Codable, Equatable, Sendable {
     var armSourceID: String? = nil
     var armSentAt: Date? = nil
     var readbackStatus: ReadbackStatus? = nil
+    // An early wake can buzz successfully even if its separate firmware-alarm readback fails.
+    // Keep that attempted action independent from delivery confirmation to prevent another buzz.
+    var earlyWakeAttempted: Bool? = nil
+
+    var hasAttemptedEarlyWake: Bool {
+        earlyWakeAttempted ?? (mode != .exactTime && decision == .wakeNow
+            && actuation == .sentToConnectedStrap)
+    }
 }
 
 @MainActor
@@ -94,9 +102,33 @@ enum SmartAlarmEvidenceStore {
         return try? JSONDecoder().decode(SmartAlarmEvidence.self, from: data)
     }
 
+    static func isCurrentArm(_ evidence: SmartAlarmEvidence) -> Bool {
+        let d = UserDefaults.standard
+        return evidence.armRequestID != nil && evidence.armSourceID != nil
+            && evidence.armRequestID == d.string(forKey: "alarm.lastArmRequestID")
+            && evidence.armSourceID == d.string(forKey: "alarm.lastArmDeviceID")
+    }
+
     static func save(_ evidence: SmartAlarmEvidence) {
         var evidence = evidence
         let d = UserDefaults.standard
+        let previous = latest
+        if evidence.hasAttemptedEarlyWake { evidence.earlyWakeAttempted = true }
+        if evidence.actuation == .notRequested,
+           let previous, previous.windowEndpoint != nil,
+           previous.windowEndpoint == evidence.windowEndpoint, previous.mode == evidence.mode,
+           isCurrentArm(previous) {
+            // A new evaluation updates its provenance, not the current physical delivery operation.
+            evidence.requestedWakeAt = previous.requestedWakeAt
+            evidence.strapReportedArmedAt = previous.strapReportedArmedAt
+            evidence.observedStrapWakeAt = previous.observedStrapWakeAt
+            evidence.actuation = previous.actuation
+            evidence.armRequestID = previous.armRequestID
+            evidence.armSourceID = previous.armSourceID
+            evidence.armSentAt = previous.armSentAt
+            evidence.readbackStatus = previous.readbackStatus
+            evidence.earlyWakeAttempted = previous.hasAttemptedEarlyWake ? true : nil
+        }
         if evidence.armRequestID == nil,
            evidence.actuation == .endpointArmed || evidence.actuation == .sentToConnectedStrap,
            let requested = evidence.requestedWakeAt,
@@ -108,6 +140,14 @@ enum SmartAlarmEvidenceStore {
             evidence.armSourceID = d.string(forKey: "alarm.lastArmDeviceID")
             evidence.armSentAt = Date(timeIntervalSince1970: sentAt)
         }
+        if let previous, previous.hasAttemptedEarlyWake,
+           previous.windowEndpoint != nil, previous.windowEndpoint == evidence.windowEndpoint,
+           previous.mode == evidence.mode, previous.armSourceID == evidence.armSourceID,
+           isCurrentArm(evidence) {
+            // A same-strap reconnect starts a new delivery request. Only the once-per-window attempt
+            // survives that replacement; its old confirmation and readback stay with the old request.
+            evidence.earlyWakeAttempted = true
+        }
         guard let data = try? JSONEncoder().encode(evidence) else { return }
         UserDefaults.standard.set(data, forKey: key)
     }
@@ -118,9 +158,7 @@ enum SmartAlarmEvidenceStore {
     static func refreshCorrelation(now: Date = Date()) {
         guard let e = latest, let requested = e.requestedWakeAt else { return }
         let d = UserDefaults.standard
-        let scopeMatches = e.armRequestID != nil && e.armSourceID != nil
-            && e.armRequestID == d.string(forKey: "alarm.lastArmRequestID")
-            && e.armSourceID == d.string(forKey: "alarm.lastArmDeviceID")
+        let scopeMatches = isCurrentArm(e)
         let sentAt = e.armSentAt ?? e.evaluatedAt
         var armed = scopeMatches ? e.strapReportedArmedAt : nil
         var status = scopeMatches ? (e.readbackStatus ?? .pending) : .pending
@@ -155,7 +193,8 @@ enum SmartAlarmEvidenceStore {
         guard armRelated || fired != e.observedStrapWakeAt else { return }
         let failed = status == .noAlarm || status == .mismatch || status == .unconfirmed
         let confirmedActuation: SmartAlarmEvidence.Actuation =
-            e.decision == .wakeNow && e.mode != .exactTime ? .sentToConnectedStrap : .endpointArmed
+            e.hasAttemptedEarlyWake && e.requestedWakeAt != e.windowEndpoint
+                ? .sentToConnectedStrap : .endpointArmed
         let actuation: SmartAlarmEvidence.Actuation = armRelated && failed ? .failed
             : (status == .confirmed && e.actuation == .failed ? confirmedActuation : e.actuation)
         var updated = SmartAlarmEvidence(mode: e.mode, trigger: e.trigger, decision: e.decision, reason: e.reason,
@@ -170,6 +209,7 @@ enum SmartAlarmEvidenceStore {
         updated.armSourceID = e.armSourceID
         updated.armSentAt = e.armSentAt
         updated.readbackStatus = armRelated ? status : e.readbackStatus
+        updated.earlyWakeAttempted = e.hasAttemptedEarlyWake ? true : e.earlyWakeAttempted
         guard updated != e else { return }
         save(updated)
     }

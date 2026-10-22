@@ -16,11 +16,23 @@ public enum Whoop4AlarmPhysicalTest {
         observeFire: @MainActor () async -> Bool,
         restoreConfirmed: @MainActor () async -> Bool
     ) async -> Result {
-        arm(testWake)
+        await run(armTest: { arm(testWake) }, observeFire: observeFire,
+                  restore: { arm(restoreWake) }, restoreConfirmed: restoreConfirmed)
+    }
+
+    /// Separate phases let restoration recompute the next saved occurrence even when the temporary
+    /// alarm and original schedule had the same date. Dates do not identify operation ownership.
+    public static func run(
+        armTest: @MainActor () -> Void,
+        observeFire: @MainActor () async -> Bool,
+        restore: @MainActor () -> Void,
+        restoreConfirmed: @MainActor () async -> Bool
+    ) async -> Result {
+        armTest()
         let fireObserved = await observeFire()
         // Restoration is unconditional, including when fire observation times out or returns after
         // cancellation. A successful test must never leave its temporary wake time on the strap.
-        arm(restoreWake)
+        restore()
         let restorationObserved = await restoreConfirmed()
         return Result(fireObserved: fireObserved, restoreConfirmed: restorationObserved)
     }

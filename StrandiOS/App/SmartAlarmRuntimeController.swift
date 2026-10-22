@@ -563,9 +563,20 @@ final class SmartAlarmRuntimeController: ObservableObject {
         if computation.evaluation.decision == .wakeNow {
             SmartAlarmEvidenceStore.refreshCorrelation()
             let previous = SmartAlarmEvidenceStore.latest
+            let reuseEarlyWake: Bool
+            if model.whoop5Detected {
+                // Experimental WHOOP 5/MG has no owned WHOOP 4 readback transaction.
+                reuseEarlyWake = previous?.actuation == .sentToConnectedStrap
+            } else if let previous, let source = model.ble.connectedPeripheralUUID {
+                reuseEarlyWake = previous.hasAttemptedEarlyWake
+                    && previous.armSourceID == source && SmartAlarmEvidenceStore.isCurrentArm(previous)
+            } else {
+                reuseEarlyWake = false
+            }
             if previous?.windowEndpoint == endpoint,
-               previous?.actuation == .sentToConnectedStrap {
-                actuation = .sentToConnectedStrap
+               previous?.mode == snapshot.mode,
+               reuseEarlyWake {
+                actuation = previous?.actuation ?? .notRequested
                 requestedWake = previous?.requestedWakeAt ?? endpoint
                 retainedArmEvidence = previous
             } else {
@@ -623,6 +634,7 @@ final class SmartAlarmRuntimeController: ObservableObject {
             evaluationEvidence.armSourceID = retainedArmEvidence.armSourceID
             evaluationEvidence.armSentAt = retainedArmEvidence.armSentAt
             evaluationEvidence.readbackStatus = retainedArmEvidence.readbackStatus
+            evaluationEvidence.earlyWakeAttempted = retainedArmEvidence.hasAttemptedEarlyWake ? true : nil
         }
         SmartAlarmEvidenceStore.save(evaluationEvidence)
         refreshEvidence(for: endpoint)
@@ -959,7 +971,7 @@ final class SmartAlarmRuntimeController: ObservableObject {
         arm: BLEManager.AlarmCommandResult
     ) {
         SmartAlarmEvidenceStore.refreshCorrelation()
-        if let previous = SmartAlarmEvidenceStore.latest,
+        if model.whoop5Detected, let previous = SmartAlarmEvidenceStore.latest,
            previous.windowEndpoint == endpoint,
            previous.actuation == .sentToConnectedStrap {
             return

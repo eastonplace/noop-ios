@@ -52,46 +52,45 @@ enum DebugWhoop4AlarmProbe {
         var restoreRequestID: String?
         var restoreSentAt: TimeInterval?
         var testSentAt: TimeInterval?
+        func arm(isTest: Bool) {
+            guard model.ble.connectedPeripheralUUID == source else {
+                report["sourceChanged"] = true
+                save("armRefusedSourceChanged")
+                return
+            }
+            guard defaults.data(forKey: "smartAlarm.runtime.configuration") == savedConfiguration else {
+                // A person's new choice owns the register; never overwrite it with our old snapshot.
+                report["configurationChanged"] = true
+                save("armRefusedConfigurationChanged")
+                return
+            }
+            if !isTest {
+                // A test crossing 07:00 must restore the next occurrence, never a past alarm.
+                guard let nextWake = SmartAlarmSchedule.nextDate(
+                    minutes: model.behavior.smartAlarmMinutes,
+                    weekdays: model.behavior.smartAlarmWeekdays, after: Date(), calendar: .current)
+                else { save("restoreRefusedInvalidSchedule"); return }
+                actualRestoreWake = nextWake
+                report["restoreWakeEpoch"] = Int(nextWake.timeIntervalSince1970)
+            }
+            let sentAt = Date().timeIntervalSince1970
+            let armResult = model.ble.armStrapAlarm(at: isTest ? testWake : actualRestoreWake)
+            guard case .sentAwaitingReadback = armResult else {
+                save(isTest ? "testArmNotSent" : "restoreNotSent")
+                return
+            }
+            if isTest {
+                report["testRequestID"] = defaults.string(forKey: "alarm.lastArmRequestID")
+                testSentAt = sentAt
+            } else {
+                restoreRequestID = defaults.string(forKey: "alarm.lastArmRequestID")
+                restoreSentAt = sentAt
+                report["restoreRequestID"] = restoreRequestID
+            }
+            save(isTest ? "testArmRequested" : "restoreRequested")
+        }
         let result = await Whoop4AlarmPhysicalTest.run(
-            testWake: testWake, restoreWake: restoreWake,
-            arm: { date in
-                guard model.ble.connectedPeripheralUUID == source else {
-                    report["sourceChanged"] = true
-                    save("armRefusedSourceChanged")
-                    return
-                }
-                guard defaults.data(forKey: "smartAlarm.runtime.configuration") == savedConfiguration else {
-                    // A person's new choice owns the register; never overwrite it with our old snapshot.
-                    report["configurationChanged"] = true
-                    save("armRefusedConfigurationChanged")
-                    return
-                }
-                let isTest = date == testWake
-                if !isTest {
-                    // A test crossing 07:00 must restore the next occurrence, never a past alarm.
-                    guard let nextWake = SmartAlarmSchedule.nextDate(
-                        minutes: model.behavior.smartAlarmMinutes,
-                        weekdays: model.behavior.smartAlarmWeekdays, after: Date(), calendar: .current)
-                    else { save("restoreRefusedInvalidSchedule"); return }
-                    actualRestoreWake = nextWake
-                    report["restoreWakeEpoch"] = Int(nextWake.timeIntervalSince1970)
-                }
-                let sentAt = Date().timeIntervalSince1970
-                let armResult = model.ble.armStrapAlarm(at: isTest ? testWake : actualRestoreWake)
-                guard case .sentAwaitingReadback = armResult else {
-                    save(isTest ? "testArmNotSent" : "restoreNotSent")
-                    return
-                }
-                if date == testWake {
-                    report["testRequestID"] = defaults.string(forKey: "alarm.lastArmRequestID")
-                    testSentAt = sentAt
-                } else {
-                    restoreRequestID = defaults.string(forKey: "alarm.lastArmRequestID")
-                    restoreSentAt = sentAt
-                    report["restoreRequestID"] = restoreRequestID
-                }
-                save(date == testWake ? "testArmRequested" : "restoreRequested")
-            },
+            armTest: { arm(isTest: true) },
             observeFire: {
                 while Date() < testWake.addingTimeInterval(35), !Task.isCancelled {
                     guard model.ble.connectedPeripheralUUID == source,
@@ -120,6 +119,7 @@ enum DebugWhoop4AlarmProbe {
                 save("fireNotObserved")
                 return false
             },
+            restore: { arm(isTest: false) },
             restoreConfirmed: {
                 // Restoration still runs after task cancellation; do not leave the temporary time set.
                 for _ in 0..<15 {
