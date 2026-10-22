@@ -160,4 +160,15 @@ final class AppleSleepEpisodeRegressionTests: XCTestCase {
         XCTAssertEqual(observed.asleep, 0)
         XCTAssertEqual(observed.awake, 480)
     }
+
+    func testBroadInBedEnvelopesCannotJoinSeparateSleepNights() throws {
+        let result = AppleHealthAggregator.sleepDaily([
+            interval(.asleepCore, "2024-03-09T22:00:00Z", "2024-03-10T06:00:00Z"),
+            interval(.asleepCore, "2024-03-10T22:00:00Z", "2024-03-11T06:00:00Z"),
+            interval(.inBed, "2024-03-09T00:00:00Z", "2024-03-10T00:00:00Z", source: "Bed app"),
+            interval(.inBed, "2024-03-10T00:00:00Z", "2024-03-11T00:00:00Z", source: "Bed app")
+        ])
+        XCTAssertEqual(result["2024-03-10"]?.asleep, 480)
+        XCTAssertEqual(result["2024-03-11"]?.asleep, 480)
+    }
 }
