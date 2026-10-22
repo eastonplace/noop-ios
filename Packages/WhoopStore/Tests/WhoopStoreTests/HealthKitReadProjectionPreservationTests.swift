@@ -76,7 +76,7 @@ final class HealthKitReadProjectionPreservationTests: XCTestCase {
         XCTAssertEqual(visibleZero.first?.avgHrv, 0)
     }
 
-    func testHiddenActivityAndWorkoutsRemainUntilExactWorkoutDeletionEvidence() async throws {
+    func testHiddenActivityAndWorkoutsRemainWithoutProjectionIdentityProof() async throws {
         let store = try await WhoopStore.inMemory()
         _ = try await store.upsertAppleDaily([AppleDaily(day: day, steps: 8000,
             activeKcal: 400, basalKcal: nil, vo2max: nil, avgHr: nil, maxHr: nil,
@@ -104,7 +104,7 @@ final class HealthKitReadProjectionPreservationTests: XCTestCase {
             fromTimestamp: start + 3600, toTimestamp: start + 7200)])
         let after = try await store.workouts(deviceId: "apple-health", from: start,
                                              to: start + 2 * 86_400, limit: 10)
-        XCTAssertEqual(after.count, 2)
+        XCTAssertEqual(after.count, 3)
         XCTAssertTrue(after.contains { $0.source == "manual" })
         XCTAssertTrue(after.contains { $0.startTs == start + 86_400 })
     }
@@ -130,13 +130,13 @@ final class HealthKitReadProjectionPreservationTests: XCTestCase {
         try await replace(store, evidence: [tombstone])
         let after = try await store.workouts(deviceId: "apple-health", from: start,
                                              to: start + 2 * 86_400, limit: 10)
-        XCTAssertEqual(after.map(\.startTs), [second])
+        XCTAssertEqual(Set(after.map(\.startTs)), [first, second])
         try await store.close()
         let reopened = try await WhoopStore(path: path)
         try await replace(reopened, evidence: [tombstone])
         let replayed = try await reopened.workouts(deviceId: "apple-health", from: start,
                                                   to: start + 2 * 86_400, limit: 10)
-        XCTAssertEqual(replayed.map(\.startTs), [second])
+        XCTAssertEqual(Set(replayed.map(\.startTs)), [first, second])
         try await reopened.close()
     }
 
@@ -190,6 +190,37 @@ final class HealthKitReadProjectionPreservationTests: XCTestCase {
         let replayed = try await reopened.workouts(deviceId: "apple-health", from: start,
                                                   to: start + 2 * 86_400, limit: 10)
         XCTAssertEqual(Set(replayed.map(\.sport)), ["Running", "Cycling"])
+        try await reopened.close()
+    }
+
+    func testIndexedUnprojectedObjectCannotDeleteSoleSameWindowXMLWorkout() async throws {
+        let path = FileManager.default.temporaryDirectory
+            .appendingPathComponent("health-workout-unprojected-\(UUID().uuidString).sqlite").path
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        let store = try await WhoopStore(path: path)
+        let timestamp = start + 10 * 3600
+        // Cycling B came from XML. HealthKit Running A was indexed before its
+        // projection committed. Its matching timestamps do not identify B.
+        _ = try await store.upsertWorkouts([WorkoutRow(startTs: timestamp,
+            endTs: timestamp + 3600, sport: "Cycling", source: "apple-health", durationS: 3600,
+            energyKcal: nil, avgHr: nil, maxHr: nil, strain: nil, distanceM: nil,
+            zonesJSON: nil, notes: nil)], deviceId: "apple-health")
+        try await store.upsertHealthKitObjectIdentities([
+            .init(sampleType: "HKWorkoutTypeIdentifier", objectUUID: "unprojected-running-a",
+                  startTs: timestamp, endTs: timestamp + 3600)
+        ], deviceId: "apple-health")
+        let evidence = HealthKitProjectionDeletion(sampleType: "HKWorkoutTypeIdentifier",
+            fromDay: day, toDay: day, fromTimestamp: timestamp, toTimestamp: timestamp + 3600)
+        try await replace(store, evidence: [evidence])
+        let after = try await store.workouts(deviceId: "apple-health", from: start,
+                                             to: start + 2 * 86_400, limit: 10)
+        XCTAssertEqual(after.map(\.sport), ["Cycling"])
+        try await store.close()
+        let reopened = try await WhoopStore(path: path)
+        try await replace(reopened, evidence: [evidence])
+        let replayed = try await reopened.workouts(deviceId: "apple-health", from: start,
+                                                  to: start + 2 * 86_400, limit: 10)
+        XCTAssertEqual(replayed.map(\.sport), ["Cycling"])
         try await reopened.close()
     }
 
