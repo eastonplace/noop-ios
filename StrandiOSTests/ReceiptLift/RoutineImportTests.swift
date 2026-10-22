@@ -207,13 +207,34 @@ struct RoutineImportTests {
         #expect(match("Dumbbell Curls") == "Dumbbell Curl")
     }
 
+    @Test func aSheetNameWhoseWordsAreInOneLibraryNameMatchesIt() {
+        let library = Self.library("Barbell Bent Over Row", "Barbell Seated Overhead Press", "Dumbbell Standing Overhead Press",
+                                   "Barbell Bench Press", "Dumbbell Curl", "Cable Curl")
+        let matcher = LiftExerciseMatcher(library)
+        func match(_ name: String) -> String? { matcher.match(name)?.name }
+        #expect(match("Barbell Row") == "Barbell Bent Over Row")
+        #expect(match("barbell rows") == "Barbell Bent Over Row")
+        #expect(match("Seated Overhead Press") == "Barbell Seated Overhead Press", "Every word is in exactly one name")
+        #expect(match("Standing Press") == "Dumbbell Standing Overhead Press")
+        #expect(match("Dumbbell Row") == nil, "The named equipment is not in the only row")
+    }
+
+    @Test func aSheetNameWhoseWordsAreInSeveralLibraryNamesStaysCustom() {
+        let library = Self.library("Barbell Seated Overhead Press", "Dumbbell Standing Overhead Press",
+                                   "Barbell Bent Over Row", "Barbell Upright Row", "Barbell Pendlay Row")
+        let matcher = LiftExerciseMatcher(library)
+        #expect(matcher.match("Overhead Press") == nil, "Seated barbell and standing dumbbell both fit")
+        #expect(matcher.match("Pendlay Row")?.name == "Barbell Pendlay Row")
+        #expect(matcher.match("Upright Row")?.name == "Barbell Upright Row")
+        #expect(matcher.match("Press") == nil, "One word is never enough on its own")
+    }
+
     @Test func ambiguousOrContradictoryNamesStayCustom() {
         let library = Self.library("Barbell Bench Press", "Dumbbell Bench Press", "Dumbbell Curl", "Cable Curl",
                                    "Barbell Seated Overhead Press", "Dumbbell Standing Overhead Press", "Barbell Bent Over Row")
         let matcher = LiftExerciseMatcher(library)
         #expect(matcher.match("Curl") == nil, "Two non-barbell candidates")
         #expect(matcher.match("Overhead Press") == nil, "The words differ from every library name")
-        #expect(matcher.match("Barbell Row") == nil, "Not a library name")
         #expect(matcher.match("Machine Bench Press") == nil, "Machine contradicts both library versions")
         #expect(matcher.match("Cable Bench Press") == nil)
         #expect(matcher.match("Benchh Press") == nil)
@@ -240,6 +261,20 @@ struct RoutineImportTests {
         ])
         let custom = try LiftRoutineImportBuilder.prepare(dumbbell, routines: original.routines, exercises: library)
         #expect(custom.newExercises.map(\.name) == ["Bench Press"])
+    }
+
+    @Test func barbellRowImportsAsTheLibraryRowAndAnAmbiguousNameStaysCustom() throws {
+        let original = fixture()
+        let library = Self.library("Barbell Bent Over Row", "Barbell Seated Overhead Press", "Dumbbell Standing Overhead Press")
+        let draft = ReceiptLiftRoutineImportDraft(routines: [
+            .init(name: "Pull", exercises: [.init(name: "Barbell Row", sets: "4"), .init(name: "Overhead Press")])
+        ])
+        let preview = try LiftRoutineImportBuilder.prepare(draft, routines: original.routines, exercises: library)
+        let plans = try #require(preview.routines[0].exercisePlans)
+        #expect(preview.exercise(plans[0].exerciseID)?.name == "Barbell Bent Over Row")
+        #expect(preview.importedNames[plans[0].id] == "Barbell Row")
+        #expect(preview.newExercises.map(\.name) == ["Overhead Press"], "Two library candidates: stays custom")
+        #expect(preview.importedNames[plans[1].id] == nil)
     }
 
     private func setup() async throws -> (ReceiptLiftCoordinator, RoutineImportHarness, LiftDataEnvelope) {

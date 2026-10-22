@@ -8,6 +8,9 @@ import Foundation
 ///    ("pull up", "Pull-Ups", "pullup").
 /// 2. The same words once equipment qualifiers (barbell, dumbbell, machine, cable) are set aside. A qualifier the sheet
 ///    names must not contradict the exercise's; an unqualified name means the barbell lift when that is the only one.
+/// 3. Every meaningful word of the sheet's name (two or more) appears in exactly one library exercise
+///    ("Seated Overhead Press" is only "Barbell Seated Overhead Press"). Two or more candidates stay custom.
+///    A bare "row" is first read as the common "bent over row", so "Barbell Row" finds "Barbell Bent Over Row".
 ///
 /// The exercise model has no aliases, so there is nothing else to consult.
 struct LiftExerciseMatcher {
@@ -19,8 +22,13 @@ struct LiftExerciseMatcher {
   private static let qualifiers: Set<String> = ["barbell", "dumbbell", "machine", "cable"]
   private static let abbreviations: [String: String] = ["bb": "barbell", "db": "dumbbell", "dumbbells": "dumbbell"]
 
+  private static let fillerWords: Set<String> = ["a", "an", "the", "of", "with", "and", "or"]
+  /// A generic core name people shorten, and the library words it usually means.
+  private static let shorthand: [[String]: [String]] = [["row"]: ["bent", "over", "row"]]
+
   private let bySpelling: [String: [Entry]]
   private let byCore: [String: [Entry]]
+  private let tokenSets: [(entry: Entry, tokens: Set<String>)]
 
   init(_ exercises: [LiftExercise]) {
     var spelling: [String: [Entry]] = [:]
@@ -35,14 +43,37 @@ struct LiftExerciseMatcher {
     }
     bySpelling = spelling
     byCore = core
+    tokenSets = exercises.map { exercise in
+      let words = Self.words(exercise.name)
+      return (Entry(exercise: exercise, qualifiers: Set(words.filter(Self.qualifiers.contains))), Self.tokens(words))
+    }
   }
 
   /// The one library exercise `name` means, or nil when nothing fits or several do. `excluding` holds exercises the caller
   /// already used in the same routine; a match that is one of them is dropped rather than collapsing two rows into one.
   func match(_ name: String, excluding used: Set<UUID> = []) -> LiftExercise? {
     let words = Self.words(name)
-    guard let found = resolve(words), !used.contains(found.id) else { return nil }
+    guard let found = resolveWithShorthand(words) ?? resolveBySubset(words), !used.contains(found.id) else { return nil }
     return found
+  }
+
+  private func resolveWithShorthand(_ words: [String]) -> LiftExercise? {
+    if let found = resolve(words) { return found }
+    let core = words.filter { !Self.qualifiers.contains($0) }.map(Self.singular)
+    guard let expanded = Self.shorthand[core] else { return nil }
+    return resolve(words.filter(Self.qualifiers.contains) + expanded)
+  }
+
+  /// The only library exercise that contains every meaningful word of the name, or nil for none or several.
+  private func resolveBySubset(_ words: [String]) -> LiftExercise? {
+    let wanted = Self.tokens(words)
+    guard wanted.count >= 2 else { return nil }
+    let candidates = tokenSets.filter { wanted.isSubset(of: $0.tokens) }
+    return candidates.count == 1 ? candidates[0].entry.exercise : nil
+  }
+
+  private static func tokens(_ words: [String]) -> Set<String> {
+    Set(words.filter { !fillerWords.contains($0) }.map(singular))
   }
 
   private func resolve(_ words: [String]) -> LiftExercise? {
