@@ -1,6 +1,6 @@
 {
-  "updated_at": "2026-10-22T12:21:30.346734+00:00",
-  "branch_head": "10ce669765f1cda102a76e4701376fe1278c0940",
+  "updated_at": "2026-10-22T12:37:14.116476+00:00",
+  "branch_head": "be1d25388f4d076c659354cd937cb4ee4994af58",
   "draft_pr": 68,
   "goal_status": "blocked",
   "active_subagent_cap": 4,
@@ -152,8 +152,8 @@
       "title": "Main UI qualification fails 11 of 33 tests",
       "disposition": "repairs_in_progress",
       "implementation": "Final upstream shared UI helper repair is integrated from #67 base 8974b92f, incorporating #66 head 34a7df8a and alarm changes; final #68 draft is 7a61e3da.",
-      "verified": "All three completed PR runs pass source/app/full native/eight packages. Root7a61native3274pass/4skip/0fail; four new feature UI cases pass.",
-      "pending": "Published required UI remains red. Heading-only Today Normal passes70.710s, but persistence actions failed355.295s/71.680s/79.037s with unchanged values; none qualifies a persistence fix. A temporary Simulator/QA setter-entry diagnostic is pending and must be removed before final commits. New local alarm/artwork/24-command source requires fresh CI before merges without waiver.",
+      "verified": "Prepared be1d2538 preserves original whole setSwitch,68assertion lines,17test declarations and three added root evidence methods. Six exact-base affected audits and complete three-file actualiOS17 Swift6 SDK typecheck pass. Final66/67pins verified remote; source audits green, native/package checks pending.",
+      "pending": "Root #68 publication and fresh required native/UI CI. Temporary diagnostics/thumb variants are removed; setup-interrupted trace yields no setter conclusion. Final66/67required checks gate merges, then actual-main/prospective-root tree equality. No waiver.",
       "reason_for_unfinished_or_declined_work": "Required hosted UI has not completed; no waiver or admin merge.",
       "evidence": {
         "primary_report": "docs/reports/noop-reliability-battery-2026-10-21.md",
@@ -210,7 +210,7 @@
       "title": "WHOOP4 analysis cache does not witness all relevant inputs",
       "disposition": "source_fixed_native_qualified",
       "implementation": "Complete RAM witness and terminal-output ownership, followed by bounded all-source UTC-hour trusted append precision through 949eec88; unknown/repair/schema/overflow fallbacks remain conservative.",
-      "verified": "Published7a61e3da full native passes; strict60-day production-engine fixture has one active bundle miss,60/59motion hits, cold parity and recorded wall/CPU costs.",
+      "verified": "Earlier qualified7a61full native/strict production-engine fixture passed with one active bundle miss and recorded costs. This is source-scoped historical acceptance, not newer-root acceptance.",
       "pending": "Qualify any newer local source after UI/alarm repairs. Physical phone and energy effects remain unverified.",
       "reason_for_unfinished_or_declined_work": "Final published native acceptance is now established for this fixture. Bounded mutation bookkeeping and controlled timing do not establish whole-app speed or strap battery gains.",
       "evidence": {
@@ -430,7 +430,7 @@
       "disposition": "source_fixed",
       "implementation": "First-render wall elapsed splash clock; preserve 2.25s/0.75s animation policy.",
       "verified": "Native clock and About/What\u2019s New UI case pass. Parent reviewed six feature PNGs at7a61e3da, including release top/bottom, nine features and final Continue, in normal text Simulator26.4.1.",
-      "pending": "Other required UI failures and authorized merge; no blanket runtime/phone timing gain claim.",
+      "pending": "Prepared final66source60e7842d requires fresh required checks and authorized merge; current PRchecks/body govern publication status.",
       "reason_for_unfinished_or_declined_work": "",
       "evidence": {
         "primary_report": "docs/reports/noop-reliability-battery-2026-10-21.md",
@@ -444,7 +444,7 @@
       "disposition": "source_fixed",
       "implementation": "Exact-base release comparison fails closed on missing fetch/history/diff.",
       "verified": "Release-audit fixtures and hosted db06 source/runtime gate pass; PR #67 source/app/unit/package checks green.",
-      "pending": "Final repaired #67 head 8974b92f required checks and merge; then actual main tree equality proof against this pinned base.",
+      "pending": "Prepared final67source7d639c4b requires fresh required checks/merge; afterward prove actual-main/prospective-root tree equality.",
       "reason_for_unfinished_or_declined_work": "",
       "evidence": {
         "primary_report": "docs/reports/noop-reliability-battery-2026-10-21.md",
@@ -455,19 +455,16 @@
       }
     }
   ],
-  "snapshot_note": "Manual recovery active while goal tool remains blocked. Published draft7a61e3da source/app/full native/eight packages pass; required UI fails. Root native3274passed/4skipped/0failed with three expected parameterized media variants disclosed. New local alarm-ownership repair and24-command loop have no fresh hosted CI. No merges, release or build240 install.",
+  "snapshot_note": "Prepublication evidence snapshot at prepared root be1d2538/tree bc7f8158. Final #66/#67 pins are verified remote with source audits green, native queued and packages running; main6f49/unmerged at readback. Root six affected audits and three complete UI-file SDK typechecks pass. Root #68 push and fresh native/UI acceptance remain gates. Earlier7a61qualifies prior source only. Goal tool blocked/manual recovery in progress; no phone, zero-bug or energy claim.",
   "planned_release": {
     "version": "1.8.0",
     "build": 240,
     "metadata_alignment": "aligned in project.yml, currentVersion, nine-row showcase and CHANGELOG; rendered acceptance pending",
     "phone_install": "not performed"
   },
-  "draft_pr_published_head": "7a61e3da21cdb3f2ceb1725926f2dbc2e57fefa0",
   "pull_requests": {
     "66": {
-      "head": "34a7df8a9144bec3bb87c73fdca2e04f9ca12a61",
-      "required_ci": "Completed source/app/full-native/all-eight-package checks pass; required UI fails on HRV materialization/Today heading. No waiver or merge.",
-      "merged": false,
+      "required_ci": "Source audits green; required native jobs queued and package checks running at final published pin. No merge verification.",
       "unit_tests": {
         "tests": 2108,
         "failures": 0,
@@ -475,27 +472,39 @@
         "tested_head": "94c85aa7",
         "qualification": "Historical full-unit pass, not a result from the final repaired-head run."
       },
-      "required_ui": "Saved dashboard HRV materialization and Today heading remain failing; focused heading-frame gesture experiment active."
+      "required_ui": "Final heading-only helper is ready; original whole setSwitch retained, diagnostics/thumb variants removed. Fresh CI must qualify persistence.",
+      "earlier_qualified_source_head": "34a7df8a9144bec3bb87c73fdca2e04f9ca12a61",
+      "prepared_source_head": "60e7842dd0e924b7db762ed00438b5cec718e469",
+      "head_scope": "Final pin verified published at this snapshot; current PR checks/body govern subsequent transitions.",
+      "last_verified_merged": false,
+      "merge_status": "No new merge verification in this snapshot; consult current checks/body.",
+      "last_verified_remote_source_head": "60e7842dd0e924b7db762ed00438b5cec718e469"
     },
     "67": {
-      "head": "8974b92f6789ec8b859ed9e74fa2e55dedca5940",
-      "required_ci": "Completed source/app/full-native/all-eight-package checks pass; required UI fails on HRV materialization/Today heading. No waiver or merge.",
-      "merged": false,
+      "required_ci": "Source audits green; required native jobs queued and package checks running at final published pin. No merge verification.",
       "unit_tests": {
         "tests": 2158,
         "failures": 0,
         "skips": 3,
         "tested_head": "88a4de42",
         "qualification": "Historical full-unit pass, not a result from the final repaired-head run."
-      }
+      },
+      "earlier_qualified_source_head": "8974b92f6789ec8b859ed9e74fa2e55dedca5940",
+      "prepared_source_head": "7d639c4bf83b13801e97ab613024f04bed434d23",
+      "head_scope": "Final pin verified published at this snapshot; current PR checks/body govern subsequent transitions.",
+      "last_verified_merged": false,
+      "merge_status": "No new merge verification in this snapshot; consult current checks/body.",
+      "last_verified_remote_source_head": "7d639c4bf83b13801e97ab613024f04bed434d23"
     },
     "68": {
       "state": "draft",
-      "published_head": "7a61e3da21cdb3f2ceb1725926f2dbc2e57fefa0",
       "update_pending": true,
-      "publication_status": "Published7a61e3da native/source/app/packages pass, UI fails. New local alarm-ownership and UI repairs are not yet hosted-qualified.",
-      "base_head": "8974b92f6789ec8b859ed9e74fa2e55dedca5940",
-      "includes_pr66_head": "34a7df8a9144bec3bb87c73fdca2e04f9ca12a61"
+      "publication_status": "Prepublication #68 evidence snapshot. Root affected audits and three-file SDK typecheck pass; root push next, not verified here. Final66/67pins are verified remote, required checks pending, main unchanged.",
+      "base_head": "7d639c4bf83b13801e97ab613024f04bed434d23",
+      "includes_pr66_head": "60e7842dd0e924b7db762ed00438b5cec718e469",
+      "earlier_qualified_head": "7a61e3da21cdb3f2ceb1725926f2dbc2e57fefa0",
+      "prepared_source_head": "be1d25388f4d076c659354cd937cb4ee4994af58",
+      "prepared_tree": "bc7f8158cde741882ab67050dea94c9b0f735424"
     }
   },
   "verification_gates": {
@@ -508,7 +517,7 @@
       "passed": 217,
       "scope": "Selected suites before latest broad integration; not final union."
     },
-    "current_native": "Published7a61e3da full native suite passed:3274passed,4skipped,0failed,total3278unique. Three expected parameterized media variants remain disclosed. This does not qualify newer local alarm/UI repairs.",
+    "current_native": "No current-head acceptance claim: earlier qualified7a61 full native/D6 evidence is retained. Prepared rootbe1d2538 with newer alarm/artwork/UI work requires fresh native CI.",
     "worker_packages": {
       "store": 653,
       "analytics": 1512,
@@ -529,9 +538,9 @@
       "evidence": "final-packages/results.json",
       "qualification": "Later Store source949eec88 qualified separately below."
     },
-    "final_native": "Passed at published7a61e3da with expected-failure/skip caveats; newer local source needs fresh hosted qualification.",
-    "hosted_ci": "All three completed PR runs pass source/app/full native/eight retained packages and fail required UI. #66/#67 remain open and unmerged. New local alarm fix has no fresh CI.",
-    "rendered_ui": "Published7a61feature visual proof and local heading-only Today pass remain scoped. Three persistence actions failed unchanged:355.295s,71.680s,79.037s; none qualifies a repair. Temporary Simulator/QA setter-entry diagnostic is pending and must be removed before final commits. Artwork-label source/typecheck proof is separate from remaining P3 art gaps.",
+    "final_native": "Earlier7a61 passed with disclosed skips/expected media variants; fresh prepared-source acceptance remains open.",
+    "hosted_ci": "Final66/67pins verified published with source audits green/native jobs queued/packages running; main6f49 unchanged, no merges. Root #68 is a prepublication snapshot with affected audits/SDKtypecheckgreen and fresh native CI required. Current PRchecks/body remain authoritative.",
+    "rendered_ui": "Earlier7a61four-method/six-PNG normal-text visual proof and heading-only Today Normal70.710s pass remain source-specific. Final whole-file trace ended during setup before action, yielding no setter conclusion. All failed probes retained; temporary diagnostics/thumb variants removed; fresh native CI required.",
     "physical_build240": "pending; no phone install",
     "measured_battery": "unverified",
     "older_integrated_protocol": {
@@ -872,7 +881,6 @@
       "app_and_extensions": "passed",
       "native": "compiler failure only; zero semantic cases",
       "ui": "skipped after native compile failure",
-      "current_published_head": "7a61e3da21cdb3f2ceb1725926f2dbc2e57fefa0",
       "active_or_queued_runs": {},
       "evidence": [
         "pr68-db06-ci/",
@@ -881,8 +889,13 @@
       ],
       "base_head": "8974b92f6789ec8b859ed9e74fa2e55dedca5940",
       "includes_pr66_head": "34a7df8a9144bec3bb87c73fdca2e04f9ca12a61",
-      "current_completed_run": 39731059227,
-      "current_run_result": {
+      "earlier_qualified_head": "7a61e3da21cdb3f2ceb1725926f2dbc2e57fefa0",
+      "prepared_root_source": "be1d25388f4d076c659354cd937cb4ee4994af58",
+      "prepared_upstream67": "7d639c4bf83b13801e97ab613024f04bed434d23",
+      "prepared_upstream66": "60e7842dd0e924b7db762ed00438b5cec718e469",
+      "remote_status_authority": "PR checks/body, not this static snapshot.",
+      "earlier_completed_run": 39731059227,
+      "earlier_run_result": {
         "source": "passed",
         "app_extensions": "passed",
         "full_native": "passed with disclosed caveats",
@@ -1155,8 +1168,8 @@
           "failure": "First Recovery action; exact native/row/saved values unchanged.",
           "qualification": "Empirically rejected; no repaired persistence claim."
         },
-        "active_bounded_check": "Temporary Simulator/QA-gated setter-entry diagnostic with the same action; result pending.",
-        "parallel_diagnostic": "Read-only binding trace completed; temporary gated setter-entry check now pending.",
+        "active_bounded_check": "No active local test. Owned303normally shut down; fresh native CI remains gate.",
+        "parallel_diagnostic": "Finished without a setter/product-binding conclusion.",
         "source_review": "Independent heading/thumb invariants clear; runtime failures still control qualification.",
         "absolute_app_coordinate_drag": {
           "result": "failed",
@@ -1167,7 +1180,18 @@
           "mode": "read_only",
           "finding": "No product reason found for Recovery off-to-on being ignored; no product defect established."
         },
-        "temporary_diagnostic_must_be_removed_before_final_commits": true
+        "temporary_diagnostic_must_be_removed_before_final_commits": false,
+        "final_file_trace": {
+          "result": "setup_interrupted_before_action",
+          "on_appear": "positive",
+          "native_hit_target": "enabled",
+          "interruption": "Process changed during AX wait before action.",
+          "setter_conclusion": "none"
+        },
+        "temporary_production_diagnostics_removed": true,
+        "thumb_variants_removed": true,
+        "original_whole_setSwitch_retained": true,
+        "final_diagnostic_cleanup": "Complete: temporary diagnostics and thumb variants removed."
       }
     },
     "restored_native_coverage_7a61": {
@@ -1230,6 +1254,74 @@
       "all_exit_zero": true,
       "evidence": "recovery-local-audits/results.json",
       "qualification": "Before artwork view edit and final common dashboard fixture; not their acceptance."
+    },
+    "prepared_heading_integration": {
+      "root_before": "ddc3853958ac2327f0bc86bc66931d997d23a4cf",
+      "root_source_snapshot": "be1d25388f4d076c659354cd937cb4ee4994af58",
+      "root_tree": "bc7f8158cde741882ab67050dea94c9b0f735424",
+      "prepared67": "7d639c4bf83b13801e97ab613024f04bed434d23",
+      "prepared66": "60e7842dd0e924b7db762ed00438b5cec718e469",
+      "changed_paths": [
+        "StrandiOSUITests/ApprovedDashboardUITests.swift"
+      ],
+      "every_other_file_byte_identical": true,
+      "original_whole_setSwitch_byte_identical": true,
+      "root_assertion_lines_preserved": 68,
+      "root_test_declarations_preserved": 17,
+      "added_root_evidence_methods_preserved": 3,
+      "prospective_merge_with_final67_tree_equals_root": true,
+      "worker_source_audits": {
+        "66": 12,
+        "67": 14,
+        "result": "all passed"
+      },
+      "worker_full_ui_sdk_typechecks": "passed",
+      "root_affected_checks": "All six affected audits passed at be1d2538 against exact7d639base; complete three UI files pass actualiOS17 Swift6 SDK typecheck4.648s.",
+      "fresh_native_ci": "required",
+      "remote_push_or_merge_verified": false,
+      "evidence": [
+        "heading-integration/pre-integration-verification.json",
+        "heading-integration/root-tree-parity.json"
+      ],
+      "root_affected_check_evidence": [
+        "heading-integration/affected-audits.json",
+        "heading-integration/final-ui-sdk-typecheck.json"
+      ],
+      "remote_final66_67_pins_verified": true,
+      "root68_publication_verified": false
+    },
+    "prepublication_remote_readback": {
+      "66_pin": "60e7842dd0e924b7db762ed00438b5cec718e469",
+      "67_pin": "7d639c4bf83b13801e97ab613024f04bed434d23",
+      "both_published": true,
+      "source_audits": "green",
+      "required_native_jobs": "queued",
+      "required_packages": "running",
+      "main": "6f49d855",
+      "merged": false,
+      "scope": "Snapshot only; parent merge worker owns subsequent verified transitions."
+    },
+    "root_heading_affected_checks": {
+      "source_head": "be1d25388f4d076c659354cd937cb4ee4994af58",
+      "exact_base": "7d639c4bf83b13801e97ab613024f04bed434d23",
+      "affected_audits": 6,
+      "audit_exits": "all0",
+      "complete_ui_files": [
+        "StrandiOSUITests/ApprovedDashboardUITests.swift",
+        "StrandiOSUITests/NotificationSettingsUITests.swift",
+        "StrandiOSUITests/SelectedScreenDirectionTests.swift"
+      ],
+      "sdk_typecheck_exit": 0,
+      "sdk_typecheck_seconds": 4.648,
+      "swift_version": 6,
+      "deployment_target": "iOS17Simulator",
+      "warnings_as_errors": true,
+      "native_execution": false,
+      "earlier_setup_failure": "Wrong framework search paths; failed before semantic typechecking. Corrected setup passes; both records retained, no source issue inferred.",
+      "evidence": [
+        "heading-integration/affected-audits.json",
+        "heading-integration/final-ui-sdk-typecheck.json"
+      ]
     }
   },
   "beyond_zip": [
@@ -1347,7 +1439,13 @@
       ],
       "source": "StrandiOS/App/SmartAlarmRuntimeController.swift",
       "harness": "Tools/qa/smart_alarm_backup_ownership_harness.py",
-      "evidence": "beyond-zip/lifecycle/alarm-ownership/verification.json"
+      "evidence": "beyond-zip/lifecycle/alarm-ownership/verification.json",
+      "rebased_root_commits": [
+        "32d1fdb1",
+        "18915dcf",
+        "12570373"
+      ],
+      "rebased_ci_commit": "6c7d3f16"
     },
     {
       "id": "BZ-EXERCISE-ARTWORK-ACCESSIBILITY",
@@ -1362,7 +1460,8 @@
       "evidence": [
         "beyond-zip/exercise-artwork/verification.json",
         "beyond-zip/exercise-artwork/REVIEW.md"
-      ]
+      ],
+      "rebased_source_commit": "6cfbce43"
     }
   ],
   "repository_note": "Local artifacts are under the master-workspace outputs/noop-review-20261021 directory; source paths identify repository files. No device acceptance or zero-bug guarantee.",
@@ -1386,6 +1485,57 @@
     "published": false,
     "disposition_evidence_ledger": "451aed4b",
     "exercise_artwork_accessibility": "10ce669765f1cda102a76e4701376fe1278c0940"
+  },
+  "snapshot_type": "prepublication_evidence_snapshot",
+  "branch_head_scope": "Prepared source snapshot only, not a current remote-head claim.",
+  "earlier_qualified_head": "7a61e3da21cdb3f2ceb1725926f2dbc2e57fefa0",
+  "current_remote_authority": "PR checks/body; later published-head results supersede this static snapshot.",
+  "local_known_commits_original_provenance": {
+    "alarm_tests": [
+      "8dcccc65",
+      "3a973fb3"
+    ],
+    "alarm_source": "7d2fd989",
+    "ci_changelog": "020268db",
+    "notification_ui": "bd9b4243",
+    "breathe_ui_fixture_candidate": "3543b64b",
+    "published": false,
+    "disposition_evidence_ledger": "451aed4b",
+    "exercise_artwork_accessibility": "10ce669765f1cda102a76e4701376fe1278c0940"
+  },
+  "rebased_commit_map": {
+    "alarm_test1": {
+      "original": "8dcccc65",
+      "rebased": "32d1fdb1"
+    },
+    "alarm_test2": {
+      "original": "3a973fb3",
+      "rebased": "18915dcf"
+    },
+    "alarm_source": {
+      "original": "7d2fd989",
+      "rebased": "12570373"
+    },
+    "ci_changelog": {
+      "original": "020268db",
+      "rebased": "6c7d3f16"
+    },
+    "notification_ui": {
+      "original": "bd9b4243",
+      "rebased": "1862f6c9"
+    },
+    "breathe_query_candidate": {
+      "original": "3543b64b",
+      "rebased": "b8cdc9e2"
+    },
+    "restored_method_ledger": {
+      "original": "451aed4b",
+      "rebased": "ffdaaac4"
+    },
+    "artwork_accessibility": {
+      "original": "10ce6697",
+      "rebased": "6cfbce43"
+    }
   },
   "path_conventions": {
     "repository_paths": "Source paths and docs/reports paths are relative to repository root.",
