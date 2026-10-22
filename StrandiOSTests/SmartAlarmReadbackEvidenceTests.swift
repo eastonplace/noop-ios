@@ -617,6 +617,29 @@ final class SmartAlarmReadbackEvidenceTests: XCTestCase {
         }
     }
 
+    func testSourceScopedAttemptSuppressesDuplicateBeforeReplacementDeliveryIsBound() throws {
+        try withEvidence {
+            try saveDisconnectedQueuedEvaluation(decision: .wakeNow)
+            let endpoint = wakeAt.addingTimeInterval(60)
+            let request = SmartAlarmReadbackRequest(id: UUID(), sourceID: "strap-A",
+                targetEpoch: Int(endpoint.timeIntervalSince1970), sentAt: sentAt.addingTimeInterval(4))
+            SmartAlarmEvidenceStore.beginReadback(request)
+            let queued = try XCTUnwrap(SmartAlarmEvidenceStore.latest)
+            XCTAssertFalse(SmartAlarmEvidenceStore.isCurrentArm(queued))
+            XCTAssertTrue(queued.matchesEarlyWakeAttempt(endpoint: endpoint, mode: .sleepGoal,
+                                                         sourceID: "strap-A"))
+            XCTAssertFalse(queued.matchesEarlyWakeAttempt(endpoint: endpoint, mode: .sleepGoal,
+                                                          sourceID: "strap-B"))
+            XCTAssertFalse(queued.matchesEarlyWakeAttempt(endpoint: endpoint, mode: .inTheGreen,
+                                                          sourceID: "strap-A"))
+            XCTAssertFalse(queued.matchesEarlyWakeAttempt(endpoint: endpoint.addingTimeInterval(86_400),
+                                                          mode: .sleepGoal, sourceID: "strap-A"))
+            XCTAssertNil(queued.armRequestID)
+            XCTAssertNil(queued.readbackStatus)
+            XCTAssertNil(queued.strapReportedArmedAt)
+        }
+    }
+
     func testDifferentSourceReconnectAfterQueuedEvaluationDoesNotInheritAttempt() throws {
         try withEvidence {
             try saveDisconnectedQueuedEvaluation(decision: .wakeNow)
