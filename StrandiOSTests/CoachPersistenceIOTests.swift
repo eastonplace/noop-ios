@@ -5,6 +5,10 @@ import UIKit
 
 @MainActor
 final class CoachPersistenceIOTests: XCTestCase {
+    private final class SourceBox {
+        var value: LocalCoachSourceScope
+        init(_ value: LocalCoachSourceScope) { self.value = value }
+    }
     private func directory() throws -> URL {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("CoachIO-\(UUID())")
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
@@ -84,12 +88,12 @@ final class CoachPersistenceIOTests: XCTestCase {
         let store = LocalCoachPersistence(directory: try directory())
         let conversation = LocalCoachConversation(title: "A only")
         try store.save(.init(sourceID: "a", conversations: [conversation], selectedConversationID: conversation.id))
-        var scope = LocalCoachSourceScope(storageID: "a", dataSourceID: "a", revision: "1")
-        let engine = LocalCoachEngine(data: nil, persistence: store, model: nil, source: { scope })
+        let scope = SourceBox(.init(storageID: "a", dataSourceID: "a", revision: "1"))
+        let engine = LocalCoachEngine(data: nil, persistence: store, model: nil, source: { scope.value })
         engine.deleteConversation(conversation.id)
-        scope = .init(storageID: "b", dataSourceID: "b", revision: "2")
+        scope.value = .init(storageID: "b", dataSourceID: "b", revision: "2")
         engine.newConversation()
-        scope = .init(storageID: "a", dataSourceID: "a", revision: "3")
+        scope.value = .init(storageID: "a", dataSourceID: "a", revision: "3")
         await engine.flushPersistence()
         XCTAssertTrue(engine.conversations.isEmpty)
         XCTAssertTrue(engine.messages.isEmpty)

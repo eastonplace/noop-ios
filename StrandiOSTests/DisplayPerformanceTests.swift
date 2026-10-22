@@ -9,21 +9,21 @@ import StrandAnalytics
 @MainActor
 final class DisplayPerformanceTests: XCTestCase {
 
-    override func setUp() {
-        super.setUp()
+    override func setUp() async throws {
+        try await super.setUp()
         UserDefaults.standard.removeObject(forKey: "testcentre.active.display")
         UserDefaults.standard.removeObject(forKey: "testcentre.active.master")
         DisplayPerformanceMonitor.shared.stop()
         DisplayPerformanceMonitor.shared.emit = nil
     }
 
-    override func tearDown() {
+    override func tearDown() async throws {
         DisplayPerformanceMonitor.shared.stop()
         DisplayPerformanceMonitor.shared.emit = nil
         DisplayPerformanceMonitor.shared.dataVolumeProvider = nil
         UserDefaults.standard.removeObject(forKey: "testcentre.active.display")
         UserDefaults.standard.removeObject(forKey: "testcentre.active.master")
-        super.tearDown()
+        try await super.tearDown()
     }
 
     // MARK: - The critical property: nothing runs and nothing is emitted when the mode is off.
