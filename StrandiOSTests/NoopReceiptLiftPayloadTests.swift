@@ -45,3 +45,40 @@ struct NoopReceiptLiftPayloadTests {
         #expect(rows.sessions.first?.sport == StrengthStrainIntegration.sport)
     }
 }
+
+#if targetEnvironment(simulator)
+@Suite("Receipt Lift source ownership")
+@MainActor
+struct NoopReceiptLiftSourceOwnershipTests {
+    @Test("An active provider retains its owner and rejects another source's live values")
+    func providerRetainsItsSourceAcrossSelectionChanges() async throws {
+        ActiveWorkoutPersistence.clear()
+        defer {
+            ActiveWorkoutPersistence.flushPendingWrites()
+            ActiveWorkoutPersistence.clear()
+        }
+        let model = AppModel(startRuntimeTasks: false)
+        let store = try await WhoopStore.inMemory()
+        let originalSource = model.repo.deviceId
+        let provider = try #require(NoopReceiptLiftIntegration.strainProvider(model: model, store: store)
+            as? AppLiftStrainProvider)
+        defer { provider.stopHR() }
+        model.bpm = 111
+        #expect(provider.deviceId() == originalSource)
+        #expect(provider.bpm() == 111)
+        provider.startHR()
+        #expect(model.live.liveFeedActive)
+
+        #expect(model.repo.adoptActiveDeviceId("second-lift-source"))
+        model.bpm = 177
+
+        #expect(provider.deviceId() == originalSource)
+        #expect(provider.bpm() == nil)
+        #expect(await provider.hrSamples(0, 10).isEmpty)
+        provider.stopHR()
+        #expect(!model.live.liveFeedActive, "the original provider can still release its owned token")
+        provider.startHR()
+        #expect(!model.live.liveFeedActive, "the old session cannot start the new source's feed")
+    }
+}
+#endif
