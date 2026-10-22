@@ -30,23 +30,24 @@ struct CoachJournalSheet: View {
     var body: some View {
         NavigationStack {
             ScreenScaffold(title: "Journal") {
-                VStack(alignment: .leading, spacing: NoopMetrics.sectionGap) {
+                VStack(alignment: .leading, spacing: NoopMetrics.space3) {
                     CoachJournalDayPicker(day: session.day, onSelect: session.select)
                     if let snapshot = session.snapshot,
                        snapshot.sourceContext == repository.journalEntrySourceContext,
                        session.access.canUseManualJournal {
-                        dayDetails(snapshot.details)
                         JournalLogCard(importedQuestions: snapshot.importedQuestions,
                                        answers: snapshot.answers, numericAnswers: snapshot.numericAnswers,
                                        dayOffset: dayOffset,
                                        selectedDayKey: Binding<String?>(get: { session.day }, set: { value in
                                            if let value { session.select(day: value) }
                                        }),
+                                       chrome: .embedded,
                                        onChanged: changed)
                             .disabled(session.isLoading)
+                        dayDetails(snapshot.details)
                         VStack(alignment: .leading, spacing: 0) {
                             CoachTextButton("Ask Coach about patterns", symbol: "chevron.right") {
-                                onAskCoach("What associations do my journal entries have with recovery over the last 90 days?")
+                                onAskCoach(CoachEvidencePolicy.journalPatternsPrompt)
                                 dismiss()
                             }
                             .accessibilityIdentifier("coach.journal.sheet.insights")

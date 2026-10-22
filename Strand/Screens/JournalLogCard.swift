@@ -30,11 +30,17 @@ struct JournalLogCard: View {
     @Binding var dayOffset: Int            // -1 = tomorrow, 0 = today, 1 = yesterday
     /// Notification-hosted entries retain the civil record key across midnight and timezone changes.
     @Binding private var selectedDayKey: String?
+    /// `.full` is the Insights card with its own header, day pills and notes. `.embedded` is for a host
+    /// that already owns the day (one picker) and its own heading: only the note row and the questions remain.
+    enum Chrome { case full, embedded }
+    let chrome: Chrome
     let onChanged: () -> Void              // parent re-runs load() after a write
 
     init(importedQuestions: [String], answers: [String: Bool],
          numericAnswers: [String: Double] = [:], dayOffset: Binding<Int>,
-         selectedDayKey: Binding<String?> = .constant(nil), onChanged: @escaping () -> Void) {
+         selectedDayKey: Binding<String?> = .constant(nil), chrome: Chrome = .full,
+         onChanged: @escaping () -> Void) {
+        self.chrome = chrome
         self.importedQuestions = importedQuestions
         self.answers = answers
         self.numericAnswers = numericAnswers
@@ -108,33 +114,40 @@ struct JournalLogCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: NoopMetrics.gap) {
-            HStack(alignment: .center) {
-                SectionHeader("Journal", overline: "Log")
-                Spacer()
-                if editing {
-                    pillButton("Done", selected: true) { editing = false }
-                } else {
-                    pillButton("Edit", selected: false) { editing = true }
-                    dayPill("Tomorrow", offset: -1)
-                    dayPill("Today", offset: 0)
-                    dayPill("Yesterday", offset: 1)
+            if chrome == .full {
+                HStack(alignment: .center) {
+                    SectionHeader("Journal", overline: "Log")
+                    Spacer()
+                    if editing {
+                        pillButton("Done", selected: true) { editing = false }
+                    } else {
+                        pillButton("Edit", selected: false) { editing = true }
+                        dayPill("Tomorrow", offset: -1)
+                        dayPill("Today", offset: 0)
+                        dayPill("Yesterday", offset: 1)
+                    }
                 }
-            }
-            if let selectedDate {
-                Text(selectedDate.formatted(date: .complete, time: .omitted))
-                    .font(.headline)
-                    .accessibilityLabel("Journal date: \(selectedDate.formatted(date: .complete, time: .omitted))")
+                if let selectedDate {
+                    Text(selectedDate.formatted(date: .complete, time: .omitted))
+                        .font(.headline)
+                        .accessibilityLabel("Journal date: \(selectedDate.formatted(date: .complete, time: .omitted))")
+                }
             }
             PaperCard {
                 VStack(alignment: .leading, spacing: 10) {
-                    Text(editing
-                         ? "Rename, regroup, or remove an item to tidy your list. Renaming keeps the original question behind the scenes, so a WHOOP import still lines up. Custom items are deleted; built-in ones are hidden and can be restored below."
-                         : dayOffset == -1
-                         ? "Logging ahead for tomorrow: today's activities inform tomorrow's recovery, just as yesterday's are reflected in today's. Tomorrow's answers line up with tomorrow's morning."
-                         : "Answers are about the night and day leading into this morning, the same attribution a WHOOP export uses, so logged and imported days line up.")
-                        .font(StrandFont.footnote)
-                        .foregroundStyle(StrandPalette.textTertiary)
-                        .fixedSize(horizontal: false, vertical: true)
+                    if chrome == .embedded && editing {
+                        plainTextButton("Done") { editing = false }
+                    }
+                    if chrome == .full || editing {
+                        Text(editing
+                             ? "Rename, regroup, or remove an item to tidy your list. Renaming keeps the original question behind the scenes, so a WHOOP import still lines up. Custom items are deleted; built-in ones are hidden and can be restored below."
+                             : dayOffset == -1
+                             ? "Logging ahead for tomorrow: today's activities inform tomorrow's recovery, just as yesterday's are reflected in today's. Tomorrow's answers line up with tomorrow's morning."
+                             : "Answers are about the night and day leading into this morning, the same attribution a WHOOP export uses, so logged and imported days line up.")
+                            .font(StrandFont.footnote)
+                            .foregroundStyle(StrandPalette.textTertiary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
 
                     if !editing {
                         JournalComposeRow {
@@ -146,16 +159,23 @@ struct JournalLogCard: View {
                         groupBlock(group)
                     }
 
-                    if !editing {
-                        Divider().overlay(StrandPalette.hairline).padding(.leading, 54)
-                        JournalMoodRow(mood: moodBinding)
-                        if !loggedWindow.isEmpty {
-                            JournalStreakStrip(logged: loggedWindow)
+                    if chrome == .full {
+                        if !editing {
+                            Divider().overlay(StrandPalette.hairline).padding(.leading, 54)
+                            JournalMoodRow(mood: moodBinding)
+                            if !loggedWindow.isEmpty {
+                                JournalStreakStrip(logged: loggedWindow)
+                            }
                         }
-                    }
 
-                    Divider().overlay(StrandPalette.hairline)
-                    addRow
+                        Divider().overlay(StrandPalette.hairline)
+                        addRow
+                    } else if editing {
+                        Divider().overlay(StrandPalette.hairline)
+                        addRow
+                    } else {
+                        plainTextButton("Edit questions") { editing = true }
+                    }
                 }
             }
         }
@@ -493,6 +513,18 @@ struct JournalLogCard: View {
             dayOffset = offset
             onChanged()   // reload the selected day's answers
         }
+    }
+
+    /// A plain accent-text action: no capsule, border or glass, with a 44pt tap area.
+    private func plainTextButton(_ label: LocalizedStringKey, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(label)
+                .font(StrandFont.subhead.weight(.semibold))
+                .foregroundStyle(StrandPalette.accent)
+                .frame(minHeight: 44, alignment: .leading)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     private func answerPill(_ label: LocalizedStringKey, q: String, value: Bool) -> some View {

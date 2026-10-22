@@ -206,17 +206,12 @@ struct CoachJournalWidget: View {
     }
 
     private func quickLabel(_ item: CoachJournalQuickItem) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(verbatim: item.title)
-                .font(StrandFont.subhead)
-                .foregroundStyle(StrandPalette.textPrimary)
-                .fixedSize(horizontal: false, vertical: true)
-            Text(answerStatus(for: item.id))
-                .font(StrandFont.caption)
-                .foregroundStyle(StrandPalette.textTertiary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        // The chosen Yes or No is already highlighted, and the unsaved count sits below the list. No subtitle.
+        Text(verbatim: item.title)
+            .font(StrandFont.subhead)
+            .foregroundStyle(StrandPalette.textPrimary)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func answerControls(_ item: CoachJournalQuickItem) -> some View {
@@ -245,16 +240,6 @@ struct CoachJournalWidget: View {
         .accessibilityHint("Changes this draft. Review the check-in before saving.")
         .accessibilityAddTraits(selected ? .isSelected : [])
         .accessibilityIdentifier("coach.journal.\(item.id).\(value ? "yes" : "no")")
-    }
-
-    private func answerStatus(for id: String) -> String {
-        guard let value = CoachJournalDraftPolicy.answer(for: id, saved: savedAnswers, draft: draftAnswers) else {
-            return String(localized: "Not logged")
-        }
-        if savedAnswers[id] == value {
-            return value ? String(localized: "Logged yes") : String(localized: "Logged no")
-        }
-        return value ? String(localized: "Yes · not saved") : String(localized: "No · not saved")
     }
 
     @ViewBuilder private var savedSummary: some View {
@@ -296,7 +281,7 @@ struct CoachJournalWidget: View {
     @ViewBuilder private var secondaryActions: some View {
         actionButton("Write or dictate", symbol: "square.and.pencil", identifier: "coach.journal.compose",
                      action: onCompose)
-        actionButton("Ask about patterns", symbol: "sparkle", identifier: "coach.journal.insights",
+        actionButton("Ask about patterns", symbol: "chart.xyaxis.line", identifier: "coach.journal.insights",
                      action: onInsights)
     }
 
