@@ -194,6 +194,104 @@ final class IntelligenceAnalyzeRecentCacheTests: XCTestCase {
             exerciseCount: 1)
     }
 
+    /// These are open D6 regressions. They exercise the real early watermark gate, not a model.
+    func testIdleTickRunsForLateNonHeartRateInputs() async throws {
+        let defaults = UserDefaults.standard
+        let key = "noop.analyzeWatermark"
+        let saved = defaults.object(forKey: key)
+        defer {
+            if let saved { defaults.set(saved, forKey: key) }
+            else { defaults.removeObject(forKey: key) }
+        }
+        let ts = Int(reference.timeIntervalSince1970) - 3_600
+        let lateInputs: [(String, Streams)] = [
+            ("wear", Streams(events: [WhoopEvent(ts: ts, kind: "WRIST_OFF(10)", payload: [:])])),
+            ("respiration", Streams(resp: [RespSample(ts: ts, raw: 1_500)])),
+            ("motion", Streams(gravity: [GravitySample(ts: ts, x: 1, y: 0, z: 1)])),
+            ("temperature", Streams(skinTemp: [SkinTempSample(ts: ts, raw: 1_300)])),
+            ("SpO2", Streams(spo2: [SpO2Sample(ts: ts, red: 800, ir: 900)])),
+            ("steps", Streams(steps: [StepSample(ts: ts, counter: 100)])),
+            ("band sleep state", Streams(sleepState: [SleepStateSample(ts: ts, state: 2)])),
+        ]
+        for (name, streams) in lateInputs {
+            defaults.removeObject(forKey: key)
+            let harness = try await makeHarness()
+            func tick() async -> Bool {
+                await harness.engine.analyzeRecent(
+                    maxDays: 3, force: false, refreshRepository: false,
+                    analysisReference: reference, analysisCalendar: utcCalendar)
+            }
+            let first = await tick()
+            let unchanged = await tick()
+            XCTAssertTrue(first, name)
+            XCTAssertFalse(unchanged, "\(name): unchanged control should skip")
+            _ = try await harness.store.insert(streams, deviceId: Repository.whoopSource)
+            let changed = await tick()
+            XCTAssertTrue(changed, "\(name): late-only input must wake the idle gate")
+        }
+    }
+
+    func testIdleTickRunsAfterProfileOrPhysicalIdentityChanges() async throws {
+        let defaults = UserDefaults.standard
+        let key = "noop.analyzeWatermark"
+        let saved = defaults.object(forKey: key)
+        defer {
+            if let saved { defaults.set(saved, forKey: key) }
+            else { defaults.removeObject(forKey: key) }
+        }
+        for physicalChange in [false, true] {
+            defaults.removeObject(forKey: key)
+            let harness = try await makeHarness()
+            func tick() async -> Bool {
+                await harness.engine.analyzeRecent(
+                    maxDays: 3, force: false, refreshRepository: false,
+                    analysisReference: reference, analysisCalendar: utcCalendar)
+            }
+            let first = await tick()
+            let unchanged = await tick()
+            XCTAssertTrue(first)
+            XCTAssertFalse(unchanged)
+            if physicalChange {
+                let registry = DeviceRegistryStore(dbQueue: harness.store.registryWriter)
+                try registry.setPeripheralId(Repository.whoopSource, peripheralId: "replacement-strap")
+            } else {
+                harness.profile.weightKg += 1
+            }
+            let changed = await tick()
+            XCTAssertTrue(changed, "Profile or physical identity changes must wake the idle gate")
+        }
+    }
+
+    func testIdleTickRunsAfterSameKeyHeartRateRepair() async throws {
+        let defaults = UserDefaults.standard
+        let key = "noop.analyzeWatermark"
+        let saved = defaults.object(forKey: key)
+        defer {
+            if let saved { defaults.set(saved, forKey: key) }
+            else { defaults.removeObject(forKey: key) }
+        }
+        defaults.removeObject(forKey: key)
+        let harness = try await makeHarness()
+        let ts = Int(reference.timeIntervalSince1970) - 3_600
+        _ = try await harness.store.insert(Streams(hr: [HRSample(ts: ts, bpm: 55)]),
+                                           deviceId: Repository.whoopSource)
+        func tick() async -> Bool {
+            await harness.engine.analyzeRecent(
+                maxDays: 3, force: false, refreshRepository: false,
+                analysisReference: reference, analysisCalendar: utcCalendar)
+        }
+        let first = await tick()
+        let unchanged = await tick()
+        XCTAssertTrue(first)
+        XCTAssertFalse(unchanged)
+        try await harness.store.registryWriter.write { db in
+            try db.execute(sql: "UPDATE hrSample SET bpm = 75 WHERE deviceId = ? AND ts = ?",
+                           arguments: [Repository.whoopSource, ts])
+        }
+        let changed = await tick()
+        XCTAssertTrue(changed, "Same-key value repairs must wake the idle gate")
+    }
+
     func testColdRunReadsEveryBundleAndWarmRunReadsNone() async throws {
         let harness = try await makeHarness()
 

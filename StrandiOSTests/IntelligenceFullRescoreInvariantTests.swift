@@ -1,4 +1,5 @@
 import XCTest
+import GRDB
 import NoopPhase34Core
 import StrandAnalytics
 import WhoopProtocol
@@ -232,6 +233,128 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
             XCTAssertEqual(driverRows.map(\.value), [warmerDeviation])
             XCTAssertTrue(elevatedTrace.contains { $0.hasPrefix("charge day=\(key) term skinTempDev ") },
                           "The Charge trace must include the same final temperature term")
+        }
+    }
+
+    /// Exercise the automatic pass with a real warm cache, mutate only the named non-HR input,
+    /// then require its output to equal a new engine reading the same committed store.
+    private func assertLateInputMatchesColdEngine(
+        _ name: String,
+        mutation: (WhoopStore, Int) async throws -> Void
+    ) async throws {
+        let harness = try await makeHarness(days: 8, whoop4: true)
+        let probe = DerivedInputBundleProbe()
+        harness.engine.setAnalyzeRecentCacheTestingSeamsForTesting(.init(
+            fingerprintLoader: { store, owner, from, to in
+                try await store.hrFingerprint(deviceId: owner, from: from, to: to)
+            },
+            bundleLoader: { store, owner, from, to, limit in
+                await probe.record()
+                return try await store.analysisDayBundle(deviceId: owner, from: from, to: to, limit: limit)
+            }))
+        for _ in 0..<3 {
+            let completed = await pass(harness, maxDays: 8)
+            XCTAssertTrue(completed)
+        }
+        let controlRows = try await stored(harness)
+        let day = try XCTUnwrap(harness.dayKeys.last)
+        XCTAssertNotNil(controlRows[day]?.totalSleepMin, "\(name): fixture needs actual detected sleep")
+        XCTAssertNotNil(controlRows[day]?.avgHrv, "\(name): fixture needs actual scored physiology")
+        await probe.reset()
+        let controlCompleted = await pass(harness, maxDays: 8)
+        let controlReads = await probe.count
+        XCTAssertTrue(controlCompleted)
+        XCTAssertEqual(controlReads, 0, "\(name): control must reach the existing warm-cache path")
+
+        let nightStart = firstDayStart + 7 * 86_400
+        let beforeHR = try await harness.store.hrFingerprint(
+            deviceId: Repository.whoopSource, from: nightStart - 30 * 3_600, to: nightStart + 86_400)
+        try await mutation(harness.store, nightStart)
+        let afterHR = try await harness.store.hrFingerprint(
+            deviceId: Repository.whoopSource, from: nightStart - 30 * 3_600, to: nightStart + 86_400)
+        XCTAssertEqual(beforeHR.count, afterHR.count, "\(name): HR count must not explain invalidation")
+        XCTAssertEqual(beforeHR.maxTs, afterHR.maxTs, "\(name): HR watermark must not explain invalidation")
+        await probe.reset()
+        let changedCompleted = await pass(harness, maxDays: 8)
+        let changedReads = await probe.count
+        XCTAssertTrue(changedCompleted)
+        XCTAssertGreaterThan(changedReads, 0, "\(name): changed input must reach the actual scan")
+        let warm = try await stored(harness)
+
+        let repository = Repository(deviceId: Repository.whoopSource)
+        repository.setStoreForTesting(harness.store)
+        let cold = Harness(store: harness.store,
+                           engine: IntelligenceEngine(repo: repository, profile: ProfileStore(),
+                                                      deviceId: Repository.whoopSource),
+                           computedId: harness.computedId, reference: harness.reference, dayKeys: harness.dayKeys)
+        let coldCompleted = await pass(cold, maxDays: 8)
+        let coldRows = try await stored(cold)
+        XCTAssertTrue(coldCompleted)
+        XCTAssertEqual(coldRows, warm, "\(name): warm and cold persisted output must agree")
+    }
+
+    func testLateWearEventsReachTheAutomaticPass() async throws {
+        try await assertLateInputMatchesColdEngine("wear events") { store, midnight in
+            _ = try await store.insert(Streams(events: [
+                WhoopEvent(ts: midnight - 3_600, kind: "WRIST_OFF(10)", payload: [:]),
+                WhoopEvent(ts: midnight + 6 * 3_600, kind: "WRIST_ON(11)", payload: [:]),
+            ]), deviceId: Repository.whoopSource)
+        }
+    }
+
+    func testLateRespirationReachesTheAutomaticPass() async throws {
+        try await assertLateInputMatchesColdEngine("respiration") { store, midnight in
+            _ = try await store.insert(Streams(resp: [RespSample(ts: midnight + 7_201, raw: 1_500)]),
+                                       deviceId: Repository.whoopSource)
+        }
+    }
+
+    func testLateMotionReachesTheAutomaticPass() async throws {
+        try await assertLateInputMatchesColdEngine("motion") { store, midnight in
+            _ = try await store.insert(Streams(gravity: [GravitySample(ts: midnight + 7_201, x: 2, y: 1, z: 0)]),
+                                       deviceId: Repository.whoopSource)
+        }
+    }
+
+    func testLateTemperatureWithoutAnAnchorChangeReachesTheAutomaticPass() async throws {
+        try await assertLateInputMatchesColdEngine("temperature") { store, midnight in
+            _ = try await store.insert(Streams(skinTemp: [SkinTempSample(ts: midnight + 7_201, raw: 1_318)]),
+                                       deviceId: Repository.whoopSource)
+        }
+    }
+
+    func testLateSpO2ReachesTheAutomaticPass() async throws {
+        try await assertLateInputMatchesColdEngine("SpO2") { store, midnight in
+            _ = try await store.insert(Streams(spo2: [SpO2Sample(ts: midnight + 7_201, red: 800, ir: 900)]),
+                                       deviceId: Repository.whoopSource)
+        }
+    }
+
+    func testLateStepsAndSleepStateReachTheAutomaticPass() async throws {
+        try await assertLateInputMatchesColdEngine("steps and band sleep state") { store, midnight in
+            _ = try await store.insert(Streams(steps: [StepSample(ts: midnight + 7_201, counter: 250)],
+                                              sleepState: [SleepStateSample(ts: midnight + 7_201, state: 2)]),
+                                       deviceId: Repository.whoopSource)
+        }
+    }
+
+    func testSameKeyMotionAndHeartRateRepairsReachTheAutomaticPass() async throws {
+        try await assertLateInputMatchesColdEngine("same-key values") { store, midnight in
+            try await store.registryWriter.write { db in
+                try db.execute(sql: "UPDATE gravitySample SET x = 2, y = 1, z = 0 WHERE deviceId = ? AND ts = ?",
+                               arguments: [Repository.whoopSource, midnight + 7_200])
+                try db.execute(sql: "UPDATE hrSample SET bpm = 70 WHERE deviceId = ? AND ts = ?",
+                               arguments: [Repository.whoopSource, midnight + 7_200])
+            }
+        }
+    }
+
+    func testSameKeyRRQualityRepairsReachTheAutomaticPass() async throws {
+        try await assertLateInputMatchesColdEngine("R-R quality") { store, midnight in
+            try await store.registryWriter.write { db in
+                try db.execute(sql: "UPDATE rrInterval SET tsSuspect = 1 WHERE deviceId = ? AND ts >= ? AND ts < ?",
+                               arguments: [Repository.whoopSource, midnight + 3_600, midnight + 7_200])
+            }
         }
     }
 
@@ -1822,4 +1945,10 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
             XCTAssertGreaterThanOrEqual(appleRecoveries.count, RecoveryForecaster.minBaselineNights)
         }
     }
+}
+
+private actor DerivedInputBundleProbe {
+    private(set) var count = 0
+    func record() { count += 1 }
+    func reset() { count = 0 }
 }
