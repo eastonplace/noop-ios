@@ -511,22 +511,28 @@ struct WorkoutDetailView: View {
 
     @ViewBuilder private var routeExportControls: some View {
         if let routeGPXFile {
-            VStack(alignment: .leading, spacing: NoopMetrics.space3) {
-                ShareLink(item: routeGPXFile, preview: SharePreview(routeGPXFile.filename)) {
-                    Label("Share GPX", systemImage: "square.and.arrow.up")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(SecondaryPillButtonStyle())
-                .accessibilityIdentifier("workout.route.export.gpx")
+            VStack(alignment: .leading, spacing: NoopMetrics.space2) {
                 if let routeFITFile {
-                    ShareLink(item: routeFITFile, preview: SharePreview(routeFITFile.filename)) {
-                        Label("Share FIT", systemImage: "square.and.arrow.up")
-                            .frame(maxWidth: .infinity)
+                    Menu {
+                        ShareLink(item: routeGPXFile, preview: SharePreview(routeGPXFile.filename)) {
+                            Text("GPX (most apps)")
+                        }
+                        .accessibilityIdentifier("workout.route.export.gpx")
+                        ShareLink(item: routeFITFile, preview: SharePreview(routeFITFile.filename)) {
+                            Text("FIT (Garmin, Strava)")
+                        }
+                        .accessibilityIdentifier("workout.route.export.fit")
+                    } label: {
+                        routeShareLabel
                     }
-                    .buttonStyle(SecondaryPillButtonStyle())
-                    .accessibilityIdentifier("workout.route.export.fit")
+                    .accessibilityIdentifier("workout.route.export")
+                } else {
+                    ShareLink(item: routeGPXFile, preview: SharePreview(routeGPXFile.filename)) {
+                        routeShareLabel
+                    }
+                    .accessibilityIdentifier("workout.route.export.gpx")
                 }
-                Text("Exports include your GPS positions and recorded times. FIT includes GPS distance and recorded intervals, without heart-rate or calorie summaries. GPX preserves millisecond times; FIT uses whole seconds.")
+                Text("Includes time and distance. Heart rate isn’t added.")
                     .font(StrandFont.footnote)
                     .foregroundStyle(StrandPalette.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -541,7 +547,7 @@ struct WorkoutDetailView: View {
             ProgressView("Preparing route files…")
                 .font(StrandFont.footnote)
         } else if let savedRoute, !savedRoute.hasExportableMeasurements {
-            Text("This route has no valid timestamped GPS data to export. Older routes remain visible on the map; new recordings support GPX and FIT sharing.")
+            Text("This route can’t be exported because it was saved without timing data.")
                 .font(StrandFont.footnote)
                 .foregroundStyle(StrandPalette.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -552,6 +558,15 @@ struct WorkoutDetailView: View {
                 .foregroundStyle(StrandPalette.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
+    }
+
+    /// Plain text with a glyph, no capsule: the one control for sharing the route.
+    private var routeShareLabel: some View {
+        Label("Share route", systemImage: "square.and.arrow.up")
+            .font(StrandFont.subhead.weight(.semibold))
+            .foregroundStyle(StrandPalette.textPrimary)
+            .frame(minHeight: 44, alignment: .leading)
+            .contentShape(Rectangle())
     }
 
     @MainActor
