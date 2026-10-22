@@ -4399,6 +4399,10 @@ public final class BLEManager: NSObject, ObservableObject {
         historicalMaterializationRun = run
     }
 
+    func waitForHistoricalMaterializationForTesting() async {
+        await historicalMaterializationTask?.value
+    }
+
     func wakeHistoricalMaterializationAfterAcknowledgmentForTesting(
         receipt: HistoricalDataCommitReceipt,
         outcome: HistoricalCommitOutcome,
