@@ -29,7 +29,7 @@ enum PuffinExperiment {
         return value.boolValue
     }
 
-    static let deepDataPermissionDetail = "Off prevents further deep-data changes. Previously applied strap settings stay in place; NOOP cannot restore their earlier values."
+    static let deepDataPermissionDetail = "Off cancels changes that have not been sent. Changes already sent can still apply. NOOP cannot restore earlier strap settings."
 
     /// Opt-in "Broadcast heart rate": writes the device-config flag `whoop_live_hr_in_adv_ind_pkt="1"`
     /// so the strap advertises the standard Heart Rate Service (0x180D) + its live HR, pairable by a

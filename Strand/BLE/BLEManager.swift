@@ -381,6 +381,8 @@ public final class BLEManager: NSObject, ObservableObject {
         let data: Data
         let peripheral: CBPeripheral
         let characteristic: CBCharacteristic
+        /// Only persistent deep-data SET_CONFIG writes carry this permission/attempt owner.
+        let deepDataEnableGeneration: UInt64?
     }
     private var admittedHistoricalBackfill: HistoricalBackfillAdmission?
     private var historicalSessionGeneration = 0
@@ -2389,7 +2391,9 @@ public final class BLEManager: NSObject, ObservableObject {
                     owner: owner,
                     data: data,
                     peripheral: peripheral,
-                    characteristic: characteristic))
+                    characteristic: characteristic,
+                    deepDataEnableGeneration: command == WhoopCommand.setConfig.rawValue
+                        ? whoop5DeepDataEnableGeneration : nil))
                 issueNextWhoop5ConfirmedWriteIfPossible()
                 return
             }
@@ -2448,6 +2452,16 @@ public final class BLEManager: NSObject, ObservableObject {
               next.owner.connectGeneration == sessionID.connectGeneration,
               next.owner.secureAttemptEpoch == sessionID.attemptEpoch,
               next.characteristic === cmdCharacteristic else {
+            queuedWhoop5ConfirmedWrites.removeFirst()
+            issueNextWhoop5ConfirmedWriteIfPossible()
+            return
+        }
+        // A SET_CONFIG may have waited behind another ATT write after send() checked permission.
+        // Recheck its attempt and explicit choice at the actual issue boundary. Other command families
+        // retain their existing queue ownership and admission behavior.
+        if let enableGeneration = next.deepDataEnableGeneration,
+           (enableGeneration != whoop5DeepDataEnableGeneration
+                || !PuffinExperiment.deepDataEnabled || !whoop5SecureReady) {
             queuedWhoop5ConfirmedWrites.removeFirst()
             issueNextWhoop5ConfirmedWriteIfPossible()
             return
@@ -3880,7 +3894,10 @@ public final class BLEManager: NSObject, ObservableObject {
     public func reconcileWhoop5DeepDataPermission(_ enabled: Bool) {
         guard !enabled else { return }
         whoop5DeepDataEnableGeneration &+= 1
-        log("Deep-data: permission off; unsent enable writes cancelled. Previously applied strap settings stay in place.")
+        queuedWhoop5ConfirmedWrites.removeAll { $0.deepDataEnableGeneration != nil }
+        // An active ATT write has already been handed to CoreBluetooth and cannot be recalled safely.
+        // Keep that callback owner, and preserve every queued history, broadcast, alarm, or other command.
+        log("Deep-data: permission off; unsent enable writes cancelled. Already-issued writes cannot be undone; previously applied strap settings stay in place.")
     }
 
     /// EXPERIMENTAL (#174): write the official app's `enable_r22_*` SET_CONFIG sequence to a bonded

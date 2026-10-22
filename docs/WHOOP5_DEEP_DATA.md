@@ -69,7 +69,11 @@ tune channel selection, wear detection and sleep behaviour.
   5/MG is **bonded and worn** (the R22 stream is on-wrist gated).
 - The 16 flags are requested with-response, ~80 ms apart. The first 15 match the published capture;
   `enable_sig12` is documented separately in the source.
-- Turning the permission **off blocks further writes**. It does not restore settings already written.
+- Turning the permission **off cancels unsent writes**, including those waiting in the confirmed-write
+  queue. Each remaining write rechecks current permission, attempt generation, and secure ownership
+  before issue. An ATT write already handed to CoreBluetooth cannot be recalled, so its callback owner
+  stays intact. History, broadcast, and alarm commands keep their existing queue entries.
+- OFF does not restore settings already written.
   NOOP has no validated restore sequence or saved per-device values. Do not use zero or the opposite
   digit as an inverse; these values have different meanings across the flags.
 - **Physical iPhone only:** the command requires an authenticated SMP bond and cannot be validated in

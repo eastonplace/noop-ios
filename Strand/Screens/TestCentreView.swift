@@ -81,6 +81,16 @@ struct TestCentreView: View {
         captures: [], questionnaire: [], liveReadout: [],
         capture: .toggle, includesScreenshot: false, requires5MG: false)
 
+    private var deepDataPermissionBinding: Binding<Bool> {
+        Binding(
+            get: { self.deepDataEnabled },
+            set: {
+                self.deepDataEnabled = $0
+                self.model.ble.reconcileWhoop5DeepDataPermission($0)
+            }
+        )
+    }
+
     var body: some View {
         Group {
             if appModel != nil, liveState != nil {
@@ -397,12 +407,11 @@ struct TestCentreView: View {
                         }
                         .toggleStyle(.switch).tint(StrandPalette.ink)
 
-                        Toggle(isOn: $deepDataEnabled) {
+                        Toggle(isOn: deepDataPermissionBinding) {
                             Text("Allow WHOOP 5/MG deep-data changes")
                                 .font(StrandFont.subhead).foregroundStyle(StrandPalette.textPrimary)
                         }
                         .toggleStyle(.switch).tint(StrandPalette.ink)
-                        .onChangeCompat(of: deepDataEnabled) { model.ble.reconcileWhoop5DeepDataPermission($0) }
                         Text(PuffinExperiment.deepDataPermissionDetail)
                             .font(StrandFont.caption).foregroundStyle(StrandPalette.textTertiary)
 

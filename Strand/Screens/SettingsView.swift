@@ -10,6 +10,7 @@ import PhotosUI
 import StrandDesign
 import StrandAnalytics
 import WhoopStore
+import WhoopProtocol
 
 /// Settings — profile (powers zones / calories / recovery), strap connection, and about.
 /// Grouped cards on surface.raised with a two-column form feel.
@@ -609,14 +610,13 @@ struct SettingsDetailHost: View {
         if showFiveMGControls {
             Section {
                 Toggle("WHOOP 5/MG protocol probes", isOn: $puffinExperiments)
-                Toggle("Allow WHOOP 5/MG deep-data changes", isOn: $deepDataEnabled)
-                    .onChangeCompat(of: deepDataEnabled) { model.ble.reconcileWhoop5DeepDataPermission($0) }
+                Toggle("Allow WHOOP 5/MG deep-data changes", isOn: deepDataPermissionBinding)
                 Text(PuffinExperiment.deepDataPermissionDetail).font(.subheadline).foregroundStyle(.secondary)
                 if deepDataEnabled {
                     Button("Send Enable Sequence to Strap") { model.ble.enableWhoop5DeepData() }
                         .disabled(deepDataButtonDisabled)
                     Text(deepDataButtonReason).font(.subheadline).foregroundStyle(.secondary)
-                    LabeledContent("Accepted flags", value: "\(live.r22FlagsAccepted) of 15")
+                    LabeledContent("Accepted flags", value: "\(live.r22FlagsAccepted) of \(deepDataFlagCount)")
                 }
                 Toggle("Broadcast heart rate", isOn: $broadcastHrEnabled)
                     .onChangeCompat(of: broadcastHrEnabled) { enabled in model.ble.setBroadcastHr(enabled) }
@@ -1615,6 +1615,18 @@ struct SettingsDetailHost: View {
         }
     }
 
+    private var deepDataPermissionBinding: Binding<Bool> {
+        Binding(
+            get: { self.deepDataEnabled },
+            set: {
+                self.deepDataEnabled = $0
+                self.model.ble.reconcileWhoop5DeepDataPermission($0)
+            }
+        )
+    }
+
+    private var deepDataFlagCount: Int { Whoop5Config.enableR22Sequence.count }
+
     /// The R22 "send enable sequence" button is structurally impossible on macOS — a Mac can't form the
     /// encrypted bond a 5/MG needs to accept the write (BLEManager forms a live-HR-only link there), so it
     /// stays disabled regardless of bond/wear state (#587). On iOS/Android it gates on the real bond + wear.
@@ -1663,14 +1675,13 @@ struct SettingsDetailHost: View {
                 Divider().overlay(StrandPalette.hairline)
 
                 // MARK: R22 deep-data unlock — the one probe that writes to the strap.
-                Toggle(isOn: $deepDataEnabled) {
+                Toggle(isOn: deepDataPermissionBinding) {
                     Text("Allow WHOOP 5/MG deep-data changes")
                         .font(StrandFont.subhead)
                         .foregroundStyle(StrandPalette.textPrimary)
                 }
                 .toggleStyle(.switch)
                 .tint(StrandPalette.ink)
-                .onChangeCompat(of: deepDataEnabled) { model.ble.reconcileWhoop5DeepDataPermission($0) }
                 Text("The button below requests persistent deep-data settings documented in official-app captures. These changes may have no effect on your firmware. Requires a secure WHOOP 5/MG connection on iPhone/Android.")
                     .font(StrandFont.caption)
                     .foregroundStyle(StrandPalette.textTertiary)
@@ -1692,12 +1703,12 @@ struct SettingsDetailHost: View {
 
                     // Live R22 telemetry (#174): proof of what the strap is doing right now.
                     if live.r22FlagsAccepted > 0 {
-                        Label(live.r22FlagsAccepted >= 15
-                              ? "Strap accepted all 15 R22 flags"
-                              : "Strap accepted \(live.r22FlagsAccepted)/15 R22 flags…",
-                              systemImage: live.r22FlagsAccepted >= 15 ? "checkmark.seal.fill" : "ellipsis")
+                        Label(live.r22FlagsAccepted >= deepDataFlagCount
+                              ? "Strap accepted all \(deepDataFlagCount) R22 flags"
+                              : "Strap accepted \(live.r22FlagsAccepted)/\(deepDataFlagCount) R22 flags…",
+                              systemImage: live.r22FlagsAccepted >= deepDataFlagCount ? "checkmark.seal.fill" : "ellipsis")
                             .font(StrandFont.caption)
-                            .foregroundStyle(live.r22FlagsAccepted >= 15 ? StrandPalette.statusPositive : StrandPalette.textSecondary)
+                            .foregroundStyle(live.r22FlagsAccepted >= deepDataFlagCount ? StrandPalette.statusPositive : StrandPalette.textSecondary)
                     }
                     if live.deepPacketsThisSession > 0 {
                         Label(live.deepPacketsThisSession == 1
@@ -1706,7 +1717,7 @@ struct SettingsDetailHost: View {
                               systemImage: "clock.arrow.circlepath")
                             .font(StrandFont.caption)
                             .foregroundStyle(StrandPalette.textSecondary)
-                    } else if live.r22FlagsAccepted >= 15 {
+                    } else if live.r22FlagsAccepted >= deepDataFlagCount {
                         Text("Flags accepted, but the enable sequence doesn't start a separate live stream. The deep records arrive as part of the normal history sync (#494).")
                             .font(StrandFont.caption)
                             .foregroundStyle(StrandPalette.textTertiary)
