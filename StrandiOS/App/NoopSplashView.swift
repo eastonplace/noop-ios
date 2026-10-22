@@ -10,8 +10,8 @@ struct NoopSplashView: View {
         let args = CommandLine.arguments
         if args.contains("--noop-splash") { return true }
         // No background-launch check here: before the first scene connects, applicationState reads .background even
-        // for a normal tap. A background launch (BLE restoration) renders no frames, so the frame-driven clock holds
-        // the splash until the app is actually opened.
+        // for a normal tap. A background launch (BLE restoration) renders no frames, so the clock starts
+        // with the first rendered frame when the app is actually opened.
         if args.contains("--no-splash") || args.contains("--demo-seed") || args.contains("--demo-tab")
             || args.contains("--storage-recovery-qa") || args.contains(where: { $0.hasPrefix("--noop-") }) {
             return false
@@ -24,13 +24,13 @@ struct NoopSplashView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var clock = SplashClock()
 
-    /// Total length of the animation in seconds of RENDERED time.
+    /// Total length of the animation in seconds since its first rendered frame.
     private var duration: Double { reduceMotion ? 0.75 : 2.25 }
 
     var body: some View {
-        // The timeline is driven by rendered frames, not the wall clock. On a cold start the main thread can be
-        // blocked for seconds before the first frame; a wall-clock timeline would finish while nothing was on
-        // screen. `SplashClock` advances by at most 50 ms per frame, so every frame of the animation is shown.
+        // Begin elapsed time with the first rendered frame, so background launch or startup work before
+        // that frame cannot consume the splash. Later frame stalls skip ahead on the same timeline;
+        // a low frame rate must not lengthen the animation or hold the dashboard behind the overlay.
         TimelineView(.animation) { context in
             let t = clock.advance(to: context.date)
             frame(at: t)
@@ -111,17 +111,18 @@ struct NoopSplashView: View {
     }
 }
 
-/// Accumulates rendered animation time, capping each frame's step so a long main-thread stall at launch
-/// cannot skip the animation.
-private final class SplashClock {
-    private var last: Date?
+/// Elapsed animation time from the first rendered frame. Repeated evaluations and backwards timeline
+/// dates cannot rewind it; a slow frame or later main-thread stall must not extend the splash.
+final class SplashClock {
+    private var firstRender: Date?
     private var elapsed = 0.0
 
     func advance(to date: Date) -> Double {
-        // Body can be evaluated more than once per frame; only a later date moves the clock.
-        if let last, date <= last { return elapsed }
-        if let last { elapsed += min(date.timeIntervalSince(last), 0.05) }
-        last = date
+        guard let firstRender else {
+            firstRender = date
+            return elapsed
+        }
+        elapsed = max(elapsed, date.timeIntervalSince(firstRender))
         return elapsed
     }
 }

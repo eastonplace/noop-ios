@@ -89,8 +89,11 @@ final class LiftRoutineSelectionTests: XCTestCase {
     }
 
     private func visibleAction(_ label: String, in app: XCUIApplication) -> XCUIElement? {
-        app.buttons.matching(NSPredicate(format: "label == %@ OR identifier == %@", label, label))
-            .allElementsBoundByIndex.first { element in
+        let query = app.buttons.matching(NSPredicate(format: "label == %@ OR identifier == %@", label, label))
+        // Optional actions are absent on some valid pages. Avoid asking XCTest to resolve
+        // an empty matching snapshot before the per-element visibility checks can run.
+        guard query.firstMatch.exists else { return nil }
+        return query.allElementsBoundByIndex.first { element in
                 guard element.exists else { return false }
                 let frame = element.frame
                 guard !frame.isEmpty, !frame.isNull, !frame.isInfinite,

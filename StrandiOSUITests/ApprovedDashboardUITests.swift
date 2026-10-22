@@ -39,6 +39,7 @@ final class ApprovedDashboardUITests: XCTestCase {
         let app = XCUIApplication()
         launch(app, size: size)
         defer { app.terminate() }
+        try requireDemoSeedReady(in: app)
         let tabs: [(String, String)] = [("0", "Today"), ("1", "Trends"), ("4", "Coach"), ("2", "Sleep")]
         for (tag, title) in tabs {
             let tab = app.buttons["app.tab.\(tag)"]
@@ -237,6 +238,15 @@ final class ApprovedDashboardUITests: XCTestCase {
         app.launch()
     }
 
+    /// The fixture writes finish after the shell is interactive. The existing demo battery
+    /// assignment happens only after that async seed returns; do not navigate during its root redraw.
+    private func requireDemoSeedReady(in app: XCUIApplication) throws {
+        let battery = app.buttons["app.battery"]
+        try requireExists(battery, in: app, timeout: 60)
+        try waitFor(battery, predicate: "label == 'Strap battery 68 percent'", in: app, timeout: 60)
+        print("[demo-ready] seeded battery label=\(battery.label)")
+    }
+
     private func assertToday(size: TextSize) throws {
         continueAfterFailure = false
         let app = XCUIApplication()
@@ -298,8 +308,9 @@ final class ApprovedDashboardUITests: XCTestCase {
     private func assertSettingsRoundTrip() throws {
         continueAfterFailure = false
         let app = XCUIApplication()
-        launch(app, route: "settings")
+        launch(app)
         defer { app.terminate() }
+        try requireDemoSeedReady(in: app)
         try openTodayDashboardSettings(in: app)
         let original = try selection(in: app)
         var restoredOriginal = false
@@ -339,7 +350,8 @@ final class ApprovedDashboardUITests: XCTestCase {
         try reveal(lastScore, in: app, direction: .down, needsHitTarget: false)
         XCTAssertFalse(lastScore.isEnabled, "The final enabled summary metric cannot be hidden")
         try setSelection(changed, in: app)
-        launch(app, route: "settings", preserveDemoPreferences: true)
+        launch(app, preserveDemoPreferences: true)
+        try requireDemoSeedReady(in: app)
         try openTodayDashboardSettings(in: app)
         XCTAssertEqual(try selection(in: app), changed, "Both ordered selections persist across process relaunch")
         capture(app, "dashboard-settings-persisted-summary-order")
@@ -405,7 +417,9 @@ final class ApprovedDashboardUITests: XCTestCase {
         }
         try returnToSettingsRoot(in: app)
         let dashboard = app.buttons["settings.row.todayDashboard"]
-        try reveal(dashboard, in: app)
+        let settingsList = app.collectionViews.firstMatch
+        try requireExists(settingsList, in: app)
+        try reveal(dashboard, in: app, viewport: settingsList)
         dashboard.tap()
         try requireExists(element("todayDashboard.settings", in: app), in: app)
     }
@@ -413,8 +427,9 @@ final class ApprovedDashboardUITests: XCTestCase {
     private func assertSettingsAccessibility() throws {
         continueAfterFailure = false
         let app = XCUIApplication()
-        launch(app, route: "settings", size: .accessibilityXXXL)
+        launch(app, size: .accessibilityXXXL)
         defer { app.terminate() }
+        try requireDemoSeedReady(in: app)
         try openTodayDashboardSettings(in: app)
         let saved = try selection(in: app)
         for name in ["recovery", "strain", "sleep"] {
@@ -658,8 +673,30 @@ final class ApprovedDashboardUITests: XCTestCase {
     private func reveal(_ element: XCUIElement, in app: XCUIApplication,
                         direction: ScrollDirection = .up, needsHitTarget: Bool = true,
                         viewport: XCUIElement? = nil) throws {
+        if let viewport { try requireExists(viewport, in: app) }
         for attempt in 0..<20 {
-            let visibleFrame = viewport.map { $0.frame.intersection(app.frame) } ?? app.frame
+            let appFrame = app.frame
+            let viewportFrame = viewport?.frame ?? appFrame
+            guard usableScrollFrame(appFrame), usableScrollFrame(viewportFrame) else {
+                captureFailure(in: app)
+                throw HarnessError.unreachable("The requested scroll viewport has an invalid raw frame")
+            }
+            var visibleFrame = viewportFrame.intersection(appFrame)
+            if viewport != nil, app.navigationBars.firstMatch.exists {
+                // A native List's AX frame extends beneath its navigation/search chrome.
+                // Requiring app-frame containment alone can accept a row covered by Search.
+                for bar in app.navigationBars.allElementsBoundByIndex where bar.exists && usableScrollFrame(bar.frame) {
+                    let chrome = bar.frame.intersection(visibleFrame)
+                    if usableScrollFrame(chrome), bar.frame.minY <= visibleFrame.minY + 32 {
+                        visibleFrame = CGRect(x: visibleFrame.minX, y: chrome.maxY,
+                                              width: visibleFrame.width, height: visibleFrame.maxY - chrome.maxY)
+                    }
+                }
+            }
+            guard usableScrollFrame(visibleFrame) else {
+                captureFailure(in: app)
+                throw HarnessError.unreachable("The requested scroll viewport has no finite visible area")
+            }
             if element.exists, element.identifier == "today.health.title", attempt < 4 {
                 print("[health-scroll] attempt=\(attempt) targetFrame=\(element.frame) viewportFrame=\(String(describing: viewport?.frame)) isHittable=\(element.isHittable)")
                 capture(app, "health-scroll-attempt-\(attempt)")
@@ -667,20 +704,43 @@ final class ApprovedDashboardUITests: XCTestCase {
             if element.exists, element.frame.width > 0, element.frame.height > 0,
                visibleFrame.contains(element.frame), !needsHitTarget || element.isHittable { return }
             if attempt == 0 { _ = element.waitForExistence(timeout: 3) }
-            let surface = app.scrollViews.allElementsBoundByIndex.first(where: \.isHittable)
+            // A root ScrollView may report a false AX hit test when its center is a chart.
+            // Honor the caller's actual viewport instead of switching to a nested scroll surface.
+            let surface = viewport ?? app.scrollViews.allElementsBoundByIndex.first(where: \.isHittable)
                 ?? app.tables.allElementsBoundByIndex.first(where: \.isHittable) ?? app
             // Search both ways: native Settings reorders enabled rows after a switch changes.
             let forward = attempt < 10
             let scrollUp: Bool
-            switch (direction, forward) {
-            case (.up, true), (.down, false): scrollUp = true
-            case (.down, true), (.up, false): scrollUp = false
+            if element.exists, usableScrollFrame(element.frame), element.frame.minY < visibleFrame.minY {
+                scrollUp = false
+            } else if element.exists, usableScrollFrame(element.frame), element.frame.maxY > visibleFrame.maxY {
+                scrollUp = true
+            } else {
+                switch (direction, forward) {
+                case (.up, true), (.down, false): scrollUp = true
+                case (.down, true), (.up, false): scrollUp = false
+                }
             }
-            if surface.elementType == .scrollView {
-                // Start inside the 2% gutter, outside Today chart interaction areas.
-                // Each bounded drag stays within the actual ScrollView viewport.
-                let start = surface.coordinate(withNormalizedOffset: CGVector(dx: 0.02, dy: scrollUp ? 0.8 : 0.2))
-                let end = surface.coordinate(withNormalizedOffset: CGVector(dx: 0.02, dy: scrollUp ? 0.2 : 0.8))
+            if surface.elementType == .scrollView || viewport != nil {
+                // Start inside the 2% gutter, outside charts and native row controls.
+                // Bound both endpoints to the visible intersection, including partially clipped views.
+                let surfaceFrame = surface.frame
+                guard usableScrollFrame(surfaceFrame) else {
+                    captureFailure(in: app)
+                    throw HarnessError.unreachable("The selected scroll surface has an invalid raw frame")
+                }
+                let gestureFrame = surfaceFrame.intersection(visibleFrame)
+                guard usableScrollFrame(gestureFrame) else {
+                    captureFailure(in: app)
+                    throw HarnessError.unreachable("The selected scroll surface has no finite visible area")
+                }
+                if element.exists, element.identifier == "today.health.title", attempt < 4 {
+                    print("[health-gesture] attempt=\(attempt) explicitViewport=\(viewport != nil) surfaceType=\(surface.elementType.rawValue) surfaceID=\(surface.identifier) gestureFrame=\(gestureFrame)")
+                }
+                let origin = app.coordinate(withNormalizedOffset: .zero)
+                let x = gestureFrame.minX - appFrame.minX + gestureFrame.width * 0.02
+                let start = origin.withOffset(CGVector(dx: x, dy: gestureFrame.minY - appFrame.minY + gestureFrame.height * (scrollUp ? 0.8 : 0.2)))
+                let end = origin.withOffset(CGVector(dx: x, dy: gestureFrame.minY - appFrame.minY + gestureFrame.height * (scrollUp ? 0.2 : 0.8)))
                 start.press(forDuration: 0.05, thenDragTo: end)
             } else if scrollUp {
                 surface.swipeUp()
@@ -692,6 +752,12 @@ final class ApprovedDashboardUITests: XCTestCase {
         throw HarnessError.unreachable("Could not reveal \(element.exists ? element.identifier : "the requested element")")
     }
 
+    private func usableScrollFrame(_ frame: CGRect) -> Bool {
+        !frame.isEmpty && !frame.isNull && !frame.isInfinite
+            && frame.origin.x.isFinite && frame.origin.y.isFinite
+            && frame.width.isFinite && frame.height.isFinite
+    }
+
     private func requireExists(_ element: XCUIElement, in app: XCUIApplication, timeout: TimeInterval = 10) throws {
         guard element.waitForExistence(timeout: timeout) else {
             captureFailure(in: app)
@@ -699,9 +765,10 @@ final class ApprovedDashboardUITests: XCTestCase {
         }
     }
 
-    private func waitFor(_ element: XCUIElement, predicate: String, in app: XCUIApplication) throws {
+    private func waitFor(_ element: XCUIElement, predicate: String, in app: XCUIApplication,
+                         timeout: TimeInterval = 8) throws {
         let expectation = XCTNSPredicateExpectation(predicate: NSPredicate(format: predicate), object: element)
-        guard XCTWaiter.wait(for: [expectation], timeout: 8) == .completed else {
+        guard XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed else {
             captureFailure(in: app)
             throw HarnessError.invalidValue("Expected \(predicate) for \(element.exists ? element.identifier : "the requested element")")
         }
