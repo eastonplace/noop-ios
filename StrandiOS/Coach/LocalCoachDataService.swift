@@ -95,6 +95,9 @@ final class LocalCoachDataService {
     init(repo: Repository) {
         self.repo = repo
         self.access = {
+            #if DEBUG
+            if CoachJournalDemo.requested { return true }
+            #endif
             let preferences = try LocalCoachPersistence.appLocal().loadPreferences()
             return preferences.enabled && preferences.usePersonalData
         }

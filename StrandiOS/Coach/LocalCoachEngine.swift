@@ -227,6 +227,13 @@ final class LocalCoachEngine: ObservableObject {
                 errorText = storageError
             }
             loadSource()
+            #if DEBUG
+            // In memory only, before `initialized`, so nothing is written to the saved Coach settings.
+            if CoachJournalDemo.requested {
+                preferences.enabled = true
+                preferences.usePersonalData = true
+            }
+            #endif
         }
         initialized = true
         updateAvailability()
@@ -278,6 +285,9 @@ final class LocalCoachEngine: ObservableObject {
     }
 
     static func makeModel() -> (any LocalCoachModelDriver)? {
+        #if DEBUG
+        if CoachJournalDemo.requested { return CoachJournalDemoModelDriver() }
+        #endif
         #if canImport(FoundationModels)
         if #available(iOS 26.0, macOS 26.0, *) { return AppleLocalCoachModelDriver() }
         #endif
