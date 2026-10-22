@@ -217,7 +217,14 @@ final class ApprovedDashboardUITests: XCTestCase {
         try requireExists(source, in: app)
         capture(app, "fork-about")
         app.buttons["What's new"].tap()
-        try requireExists(app.staticTexts[displayedVersion], in: app)
+        let hero = element("whatsNew.hero", in: app)
+        try requireExists(hero, in: app)
+        // The hero intentionally combines its heading, version, title and date into
+        // one accessibility element. Verify the exact dotted version in that label.
+        let heroVersions = hero.label.split { !$0.isNumber && $0 != "." }
+            .filter { $0.range(of: #"^[0-9]+\.[0-9]+\.[0-9]+$"#, options: .regularExpression) != nil }
+            .map(String.init)
+        XCTAssertEqual(heroVersions, [displayedVersion], "What's New shows the running version from About")
         try requireExists(app.buttons["Continue"], in: app)
         capture(app, "fork-whats-new")
         app.buttons["Continue"].tap()

@@ -123,6 +123,7 @@ struct WhatsNewView: View {
                 .foregroundStyle(StrandPalette.textTertiary)
         }
         .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("whatsNew.hero")
     }
 
     private func featureRow(_ feature: AppChangelog.Feature, size: CGFloat) -> some View {
