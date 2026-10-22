@@ -345,10 +345,10 @@ public final class FrameRouter {
     }
 
     /// Extract the armed-alarm epoch from a GET_ALARM_TIME (cmd 67) COMMAND_RESPONSE, defensively.
-    /// The WHOOP 4.0 response layout is UNDOCUMENTED, so this tries the two shapes the firmware could
-    /// plausibly answer with - the SET_ALARM_TIME mirror (`[form 0x01][u32 LE epoch]…`, matching the
-    /// 9-byte payload we arm with) first, then a bare leading u32 LE - and accepts a candidate only when
-    /// it passes `isPlausibleAlarmEpoch`. Anything else returns nil and the caller logs raw hex instead.
+    /// Firmware 41.17.4.0 hardware captures have an 11-byte body with revision 1, state 0/1, and
+    /// epoch at offset 2. Only the observed state-1/plausible-epoch combination confirms an arm;
+    /// unknown or contradictory states cannot fall through to a misaligned plausible epoch.
+    /// Other layouts retain the legacy SET mirror and bare-u32 reads, plausibility-gated.
     /// Pure and CoreBluetooth-free so golden tests pin it (AlarmReadbackDecodeTests).
     nonisolated static func armedAlarmEpoch(in frame: [UInt8]) -> UInt32? {
         guard let payload = commandResponsePayload(in: frame) else { return nil }
@@ -359,14 +359,20 @@ public final class FrameRouter {
                 | (UInt32(payload[i + 2]) << 16)
                 | (UInt32(payload[i + 3]) << 24)
         }
+        if payload.count == 11 {
+            guard payload.first == 0x01, payload[1] == 0x01,
+                  let e = u32le(at: 2), isPlausibleAlarmEpoch(e) else { return nil }
+            return e
+        }
         if payload.first == 0x01, let e = u32le(at: 1), isPlausibleAlarmEpoch(e) { return e }
         if let e = u32le(at: 0), isPlausibleAlarmEpoch(e) { return e }
         return nil
     }
 
     /// True when a GET_ALARM_TIME readback explicitly reports NO alarm stored — the epoch field decodes
-    /// to 0 in the same shapes `armedAlarmEpoch` reads (SET-mirror `[0x01][u32=0]` first, then a bare
-    /// leading `u32=0`). This is the strap's "nothing armed" sentinel, distinct from a genuinely
+    /// to 0 in the same shapes `armedAlarmEpoch` reads. The captured 11-byte revision-1 response
+    /// requires state 0 and epoch 0 at offset 2; other layouts retain the legacy mirror/bare reads.
+    /// This is the strap's "nothing armed" sentinel, distinct from a genuinely
     /// unparseable payload: an arm the strap silently dropped reads back as epoch 0, so labelling it
     /// "unrecognised" hid the real signal (#34). Only consulted AFTER `armedAlarmEpoch` returns nil, so a
     /// plausible armed epoch never reaches here. Pure/CoreBluetooth-free so AlarmReadbackDecodeTests pin it.
@@ -378,6 +384,9 @@ public final class FrameRouter {
                 | (UInt32(payload[i + 1]) << 8)
                 | (UInt32(payload[i + 2]) << 16)
                 | (UInt32(payload[i + 3]) << 24)
+        }
+        if payload.count == 11 {
+            return payload.first == 0x01 && payload[1] == 0 && u32le(at: 2) == 0
         }
         if payload.first == 0x01, let e = u32le(at: 1) { return e == 0 }
         if let e = u32le(at: 0) { return e == 0 }

@@ -251,9 +251,9 @@ final class SmartAlarmReadbackEvidenceTests: XCTestCase {
 
     #if os(iOS)
     private func nativeReadbackFrame(origin: UInt8, epoch: UInt32) -> [UInt8] {
-        let payload: [UInt8] = [0x01, UInt8(truncatingIfNeeded: epoch),
+        let payload: [UInt8] = [0x01, epoch == 0 ? 0 : 1, UInt8(truncatingIfNeeded: epoch),
             UInt8(truncatingIfNeeded: epoch >> 8), UInt8(truncatingIfNeeded: epoch >> 16),
-            UInt8(truncatingIfNeeded: epoch >> 24), 0, 0, 0, 0x04, 0, 0x20]
+            UInt8(truncatingIfNeeded: epoch >> 24), 0, 0, 0x04, 0, 0x20]
         return frameFromPayload([origin, 0x01] + payload, type: 36, seq: 0x29, cmd: 67)
     }
 
