@@ -166,7 +166,7 @@ extension WhoopStore {
             let protected = preserveUnprovenEmptyReads
                 ? try Self.preserveUnprovenHealthKitProjections(
                     appleDaily: appleDaily, dailyMetrics: dailyMetrics, metricPoints: metricPoints,
-                    deviceId: deviceId, fromDay: fromDay, toDay: toDay, deletions: projectionDeletions, db: db)
+                    deviceId: deviceId, fromDay: fromDay, toDay: toDay, db: db)
                 : (apple: appleDaily, daily: dailyMetrics, points: metricPoints)
             // `DatabaseWriter.write` already opens the outer transaction. Starting a nested GRDB
             // transaction here would fail on DatabaseQueue, so keep the complete replacement in this
@@ -183,12 +183,22 @@ extension WhoopStore {
                     WHERE deviceId = ? AND source = ? AND startTs >= ? AND startTs <= ?
                     """, arguments: [deviceId, workoutSource, fromTimestamp, toTimestamp])
             } else {
-                for deletion in projectionDeletions where deletion.sampleType == "HKWorkoutTypeIdentifier" {
+                for deletion in projectionDeletions where deletion.sampleType == "HKWorkoutTypeIdentifier"
+                    && deletion.fromTimestamp >= fromTimestamp && deletion.fromTimestamp <= toTimestamp {
+                    // A tombstone owns an object, not every workout that overlaps its duration.
+                    // Retraction requires an exact banked start/end and one matching indexed owner.
+                    // Corrected unions, unindexed imports, and same-start collisions remain ambiguous.
+                    let candidates = try Row.fetchAll(db, sql: """
+                        SELECT endTs FROM healthKitObjectIndex
+                        WHERE deviceId = ? AND sampleType = ? AND startTs = ? LIMIT 2
+                        """, arguments: [deviceId, deletion.sampleType, deletion.fromTimestamp])
+                    guard candidates.count == 1 else { continue }
+                    let indexedEnd: Int = candidates[0]["endTs"]
+                    guard indexedEnd == deletion.toTimestamp else { continue }
                     try db.execute(sql: """
                         DELETE FROM workout
-                        WHERE deviceId = ? AND source = ? AND startTs >= ? AND startTs <= ?
-                        """, arguments: [deviceId, workoutSource,
-                            max(fromTimestamp, deletion.fromTimestamp), min(toTimestamp, deletion.toTimestamp)])
+                        WHERE deviceId = ? AND source = ? AND startTs = ? AND endTs = ?
+                        """, arguments: [deviceId, workoutSource, deletion.fromTimestamp, deletion.toTimestamp])
                 }
             }
 

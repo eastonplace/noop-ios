@@ -12,6 +12,7 @@ public enum AppleSleepEpisodeReducer {
         public let wakeDay: String
         /// Distinguishes a measured zero (sleep evidence overridden by awake) from in-bed-only input.
         public let hasAsleepEvidence: Bool
+        public let hasAwakeEvidence: Bool
         public let asleep: Double
         public let deep: Double
         public let rem: Double
@@ -32,7 +33,7 @@ public enum AppleSleepEpisodeReducer {
             var complete: [Episode] = []
             pending = []
             for group in groups {
-                if group.map(\.end).max()!.addingTimeInterval(maximumStageGap) <= boundary {
+                if group.map(\.end).max()!.addingTimeInterval(maximumStageGap) < boundary {
                     complete.append(AppleSleepEpisodeReducer.reduceGroup(group))
                 } else {
                     pending.append(contentsOf: group)
@@ -162,6 +163,7 @@ public enum AppleSleepEpisodeReducer {
                            default: return false
                            }
                        },
+                       hasAwakeEvidence: intervals.contains { $0.stage == .awake },
                        asleep: core + deep + rem + (totals[.asleepUnspecified] ?? 0),
                        deep: deep, rem: rem, core: core, awake: totals[.awake] ?? 0, inBed: inBed)
     }

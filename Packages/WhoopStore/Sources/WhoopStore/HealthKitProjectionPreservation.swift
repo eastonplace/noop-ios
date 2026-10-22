@@ -2,7 +2,8 @@ import Foundation
 import GRDB
 
 /// Actual anchored external-deletion evidence, retained with the sync journal. A hidden/empty read
-/// is not deletion evidence. Scope is a sample type and the affected civil days/object timestamps.
+/// is not deletion evidence. A window is not complete aggregate contribution provenance; guarded
+/// sync uses only uniquely indexed exact workout rows for removal.
 public struct HealthKitProjectionDeletion: Codable, Equatable, Hashable, Sendable {
     public let sampleType: String
     public let fromDay: String
@@ -18,41 +19,17 @@ public struct HealthKitProjectionDeletion: Codable, Equatable, Hashable, Sendabl
         self.fromTimestamp = fromTimestamp
         self.toTimestamp = toTimestamp
     }
-
-    public func permitsMissingValue(key: String, day: String) -> Bool {
-        day >= fromDay && day <= toDay && Self.metricKeys(for: sampleType).contains(key)
-    }
-
-    public static func metricKeys(for sampleType: String) -> Set<String> {
-        switch sampleType {
-        case "HKQuantityTypeIdentifierRestingHeartRate": return ["resting_hr"]
-        case "HKQuantityTypeIdentifierHeartRate": return ["avg_hr", "max_hr"]
-        case "HKQuantityTypeIdentifierHeartRateVariabilitySDNN": return ["hrv"]
-        case "HKQuantityTypeIdentifierOxygenSaturation": return ["spo2"]
-        case "HKQuantityTypeIdentifierRespiratoryRate": return ["resp_rate"]
-        case "HKQuantityTypeIdentifierStepCount": return ["steps"]
-        case "HKQuantityTypeIdentifierActiveEnergyBurned": return ["active_kcal"]
-        case "HKQuantityTypeIdentifierBasalEnergyBurned": return ["basal_kcal"]
-        case "HKQuantityTypeIdentifierVO2Max": return ["vo2max"]
-        case "HKQuantityTypeIdentifierBodyMass": return ["weight"]
-        case "HKQuantityTypeIdentifierBodyFatPercentage": return ["body_fat"]
-        case "HKQuantityTypeIdentifierLeanBodyMass": return ["lean_mass"]
-        case "HKQuantityTypeIdentifierBodyMassIndex": return ["bmi"]
-        case "HKCategoryTypeIdentifierSleepAnalysis":
-            return ["asleep_min", "deep_min", "rem_min", "core_min", "awake_min", "in_bed_min"]
-        default: return []
-        }
-    }
 }
 
 extension WhoopStore {
     /// Runs inside the same replacement transaction. Nil fields and absent metric points retain
-    /// their old value unless a matching anchored deletion authorizes retraction. Present reads
-    /// always replace the prior value, including a genuine numeric zero.
+    /// their old value. A tombstone proves one object was removed, not that its entire daily
+    /// aggregate is empty; indexed timestamps do not retain complete contributor/value provenance.
+    /// Present reads always replace the prior value, including a genuine numeric zero.
     static func preserveUnprovenHealthKitProjections(
         appleDaily: [AppleDaily], dailyMetrics: [DailyMetric], metricPoints: [MetricPoint],
         deviceId: String, fromDay: String, toDay: String,
-        deletions: [HealthKitProjectionDeletion], db: Database
+        db: Database
     ) throws -> (apple: [AppleDaily], daily: [DailyMetric], points: [MetricPoint]) {
         func oldRows(_ table: String) throws -> [String: Row] {
             let rows = try Row.fetchAll(db, sql: "SELECT * FROM \(table) WHERE deviceId = ? AND day >= ? AND day <= ?",
@@ -62,7 +39,6 @@ extension WhoopStore {
         func keep<T: DatabaseValueConvertible>(_ value: T?, old: Row?, column: String,
                                                 key: String, day: String) -> T? {
             if let value { return value }
-            if deletions.contains(where: { $0.permitsMissingValue(key: key, day: day) }) { return nil }
             return old.flatMap { $0[column] as T? }
         }
         let oldApple = try oldRows("appleDaily")
@@ -110,8 +86,7 @@ extension WhoopStore {
         var points = metricPoints
         for row in previous {
             let day: String = row["day"], key: String = row["key"]
-            guard !pointIdentity.contains(day + "\u{0}" + key),
-                  !deletions.contains(where: { $0.permitsMissingValue(key: key, day: day) }) else { continue }
+            guard !pointIdentity.contains(day + "\u{0}" + key) else { continue }
             points.append(MetricPoint(day: day, key: key, value: row["value"]))
         }
         return (apple, daily, points)

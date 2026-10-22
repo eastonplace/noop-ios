@@ -11,7 +11,9 @@
 
 Live import preserves missing daily fields, metric points, and workouts. An empty result cannot establish that a user deleted data or that reads remain granted.
 
-Known external anchored tombstones carry their indexed sample type and time/day window in the durable sync journal. Only those scopes permit missing projections to clear. NOOP-owned export tombstones do not authorize inbound clearing. An unknown UUID still causes the existing conservative historical requery, but cannot authorize clearing the whole history. Existing journals decode with no deletion evidence. No schema migration is required.
+A tombstone proves one object was removed. It does not prove a multi-object daily aggregate is empty, and the object index does not retain complete contributor/value provenance. Guarded live sync therefore retains missing daily fields and metric points even after known tombstones. Visible values, including numeric zero, still replace the prior value.
+
+Known external workout tombstones carry their indexed timestamps in the durable sync journal. Removal requires an exact banked start/end and one matching indexed owner. An overlapping survivor, an unindexed import, a corrected-window ambiguity, or multiple owners at the same start cannot be range-deleted. NOOP-owned export tombstones do not authorize inbound removal. An unknown UUID still causes the existing conservative historical requery, but cannot authorize clearing the history. Existing journals decode with no deletion evidence. No schema migration is required.
 
 This policy does not delete raw evidence, `sleepSession` rows, or another source's data.
 
@@ -26,10 +28,12 @@ XML and live HealthKit use `AppleSleepEpisodeReducer`:
 5. Assign every selected stage to the final episode wake day. Use absolute duration arithmetic across DST. Use the final interval's recorded end offset for XML. Live HealthKit uses sample timezone metadata when present; otherwise it captures the query timezone and applies that timezone's historical DST offset. Without metadata, the recording timezone cannot be reconstructed.
 6. Ignore unknown stages when forming episodes. XML retains its legacy zero-valued unknown-stage day without letting it move known sleep.
 
-Live queries use one civil day of lookaround and retain raw unfinished episodes across one-day chunks. Repeated overlap objects do not add duration. Only requested wake days enter the live daily projection.
+Live queries use one civil day of lookaround and retain raw unfinished episodes across one-day chunks, including equality at the 30-minute continuation boundary. Repeated overlap objects do not add duration. Only requested wake days enter the live daily projection.
+
+XML aggregate rows use nil asleep/stage fields when a day has no asleep evidence. Missing awake or in-bed evidence likewise leaves its companion metric absent. An asleep summary fully overridden by detailed awake evidence remains an observed zero. The XML import writer coalesces missing fields only on the rows supplied by that explicit import, in one transaction for Apple/daily projections. It does not scan history or replace unrelated fields/sources. Metric-series upserts retain absent keys. The import mapping revision is 2.
 
 ## Qualification limits
 
-The reducer fixes new projections. It does not rewrite banked historical rows. A partial XML fragment or one observed cross-day episode cannot prove a complete prior-day total: an existing row can also contain a previous night or a nap absent from that input. Such rows remain until complete authoritative inputs or contribution provenance support a separate correction. Unknown-window tombstones can likewise leave historical cleanup unresolved.
+The reducer fixes new projections. It does not rewrite banked historical rows. A partial XML fragment or one observed cross-day episode cannot prove a complete prior-day total: an existing row can also contain a previous night or a nap absent from that input. Such rows remain until complete authoritative inputs or contribution provenance support a separate correction. Known daily-aggregate tombstones, unknown-window tombstones, and ambiguous workout identities can likewise leave stale projections. Removing those values requires complete contribution/visibility proof; this change preserves banked data instead of guessing that the aggregate is empty.
 
 Package tests cover the deterministic policies. Native integration tests and real HealthKit permission, locked-device, observer-delivery, and timezone behavior require separate verification.

@@ -8,8 +8,8 @@ import WhoopStore
 struct HealthKitSyncWindow: Codable, Equatable, Sendable {
     let start: Date
     let end: Date
-    /// Durable proof authorizing only affected external types/days to disappear from projections.
-    /// Missing/hidden query values without this evidence retain prior local Apple data.
+    /// Durable exact-object evidence considered for workout retraction. Daily aggregates retain
+    /// missing/hidden query values because a tombstone does not prove complete contributor visibility.
     let projectionDeletions: [HealthKitProjectionDeletion]
 
     init(start: Date, end: Date, projectionDeletions: [HealthKitProjectionDeletion] = []) {
@@ -115,7 +115,9 @@ enum HealthKitObserverPageCommit {
             let changeStart = Calendar.current.startOfDay(for: start)
             let changeEnd = max(now, dates.max() ?? now)
             var deletions: [HealthKitProjectionDeletion] = []
-            if let sampleTypeIdentifier, !externalDeleted.isEmpty {
+            if let sampleTypeIdentifier,
+               sampleTypeIdentifier == HKObjectType.workoutType().identifier,
+               !externalDeleted.isEmpty {
                 let calendar = Calendar.current
                 let formatter = DateFormatter()
                 formatter.calendar = calendar
@@ -133,13 +135,10 @@ enum HealthKitObserverPageCommit {
                 // An unknown UUID still triggers the conservative historical requery above. It
                 // cannot authorize clearing banked projections without an indexed contribution window.
                 deletions = bounds.map { lower, upper in
-                    // A deleted sleep stage can change an overnight episode's final wake day.
-                    // Keep the original object timestamps while allowing adjacent civil-day repair.
-                    let sleep = sampleTypeIdentifier == "HKCategoryTypeIdentifierSleepAnalysis"
-                    let first = sleep ? calendar.date(byAdding: .day, value: -1, to: lower) ?? lower : lower
-                    let last = sleep ? calendar.date(byAdding: .day, value: 1, to: upper) ?? upper : upper
+                    // Daily aggregates have no complete contributor/value provenance. Keep their
+                    // missing values; only a workout's exact indexed row can be considered for removal.
                     return HealthKitProjectionDeletion(sampleType: sampleTypeIdentifier,
-                        fromDay: formatter.string(from: first), toDay: formatter.string(from: last),
+                        fromDay: formatter.string(from: lower), toDay: formatter.string(from: upper),
                         fromTimestamp: Int(lower.timeIntervalSince1970),
                         toTimestamp: Int(upper.timeIntervalSince1970))
                 }
