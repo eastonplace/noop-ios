@@ -144,12 +144,12 @@ jobs:
           set -o pipefail
           python3 Tools/qa/deep_data_confirmed_queue_harness.py 2>&1 | tee qa-artifacts/deep-data-confirmed-queue.txt
 
-      - name: Verify BLE and foreground ownership regressions
+      - name: Verify BLE, diagnostics and foreground ownership regressions
         shell: bash
         run: |
           set -uo pipefail
           status=0
-          for regression in test_ble_data_range_integrity test_ble_response_diagnostics test_ble_connection_result_ownership pending_intents_lifecycle_harness widget_published_assignment_harness; do
+          for regression in test_ble_data_range_integrity test_ble_response_diagnostics test_ble_connection_result_ownership pending_intents_lifecycle_harness widget_published_assignment_harness test_debug_diagnostic_family; do
             echo "::group::$regression"
             if ! python3 "Tools/qa/$regression.py" 2>&1 | tee "qa-artifacts/$regression.txt"; then
               status=1
