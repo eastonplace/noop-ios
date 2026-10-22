@@ -19,6 +19,10 @@ approximate; downloads are on the [Releases](https://github.com/NoopApp/noop/rel
 
 ## This app's releases
 
+## 1.7.1
+
+WHOOP 4.0 alarm commands use ordered confirmed writes and a delayed readback. Alarm confirmation is scoped to the current strap and request. Missing or negative confirmation ends with an explicit status instead of leaving Arming indefinitely. Existing wake schedules and stored health data are preserved.
+
 Easton Place's iPhone fork of NOOP, forked at upstream 9.0.1 in July 2026. Versions restart at 1.0.0;
 see AGENTS.md for how releases are numbered.
 
