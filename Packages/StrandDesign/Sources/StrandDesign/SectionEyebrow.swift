@@ -35,6 +35,10 @@ public struct SectionEyebrow: View {
     public var trailing: EyebrowTrailing
     /// A trailing chevron, for a header that is itself a tap target.
     public var showsChevron: Bool
+    /// When set, a small ⓘ sits at the trailing edge beside any trailing date or pill. The caller presents the explainer
+    /// (usually a `MetricInfoSheet`); the button is its own tap target, so a tappable header around it is not triggered.
+    public var infoAction: (() -> Void)?
+    public var infoAccessibilityLabel: LocalizedStringKey
     @Environment(\.dynamicTypeSize) private var typeSize
 
     public init(
@@ -42,13 +46,17 @@ public struct SectionEyebrow: View {
         systemImage: String? = nil,
         tint: DomainTint = .neutral,
         trailing: EyebrowTrailing = .none,
-        showsChevron: Bool = false
+        showsChevron: Bool = false,
+        infoAction: (() -> Void)? = nil,
+        infoAccessibilityLabel: LocalizedStringKey = "More info"
     ) {
         self.titleText = Text(verbatim: title)
         self.systemImage = systemImage
         self.tint = tint
         self.trailing = trailing
         self.showsChevron = showsChevron
+        self.infoAction = infoAction
+        self.infoAccessibilityLabel = infoAccessibilityLabel
     }
 
     /// Localized-title form, for call sites that already pass a `LocalizedStringKey` (such as `SectionHeader`).
@@ -57,13 +65,17 @@ public struct SectionEyebrow: View {
         systemImage: String? = nil,
         tint: DomainTint = .neutral,
         trailing: EyebrowTrailing = .none,
-        showsChevron: Bool = false
+        showsChevron: Bool = false,
+        infoAction: (() -> Void)? = nil,
+        infoAccessibilityLabel: LocalizedStringKey = "More info"
     ) {
         self.titleText = Text(title)
         self.systemImage = systemImage
         self.tint = tint
         self.trailing = trailing
         self.showsChevron = showsChevron
+        self.infoAction = infoAction
+        self.infoAccessibilityLabel = infoAccessibilityLabel
     }
 
     /// One row at ordinary sizes. The title wraps to a second line before it truncates (a long German title with a
@@ -80,8 +92,8 @@ public struct SectionEyebrow: View {
                     Spacer(minLength: NoopMetrics.space2)
                     chevron
                 }
-                if hasTrailing {
-                    HStack(spacing: NoopMetrics.space2) { trailingView }
+                if hasTrailing || infoAction != nil {
+                    HStack(spacing: NoopMetrics.space2) { trailingView; infoButton }
                 }
             }
         } else {
@@ -90,6 +102,7 @@ public struct SectionEyebrow: View {
                 titleText.strandOverlineFitted().lineLimit(2).layoutPriority(1).accessibilityAddTraits(.isHeader)
                 Spacer(minLength: NoopMetrics.space2)
                 trailingView
+                infoButton
                 chevron
             }
         }
@@ -104,6 +117,12 @@ public struct SectionEyebrow: View {
         if let systemImage {
             Image(systemName: systemImage).font(StrandFont.caption).foregroundStyle(tint.accent)
                 .accessibilityHidden(true)
+        }
+    }
+
+    @ViewBuilder private var infoButton: some View {
+        if let infoAction {
+            WidgetChipButton(systemImage: "info.circle", accessibilityLabel: infoAccessibilityLabel, action: infoAction)
         }
     }
 

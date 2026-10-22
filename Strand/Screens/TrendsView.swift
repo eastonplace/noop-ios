@@ -32,6 +32,8 @@ struct TrendsView: View {
     @State var weekOffset: Int
     /// Load focus for the Training load card: nil until read, and while there is too little heart rate for it.
     @State var loadFocus: LoadFocus.Summary?
+    /// The ⓘ explainer open from a Trends card header, if any.
+    @State var metricInfo: MetricInfo?
 
     init(initialWeekOffset: Int = 0) {
         _weekOffset = State(initialValue: TrendsBounds.clampWeekOffset(initialWeekOffset))

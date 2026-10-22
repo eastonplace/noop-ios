@@ -28,6 +28,7 @@ extension TrendsView {
                                    voiceOverSummary: trainingLoadVoiceOverSummary(snapshot.trainingLoad)) {
                 trainingLoadSection(snapshot.trainingLoad)
             }
+            .metricInfoSheet($metricInfo)
         }
     }
 
@@ -37,14 +38,13 @@ extension TrendsView {
                 title: String(localized: "Training load"),
                 systemImage: "flame.fill",
                 tint: .strain,
-                trailing: .custom(AnyView(
-                    HStack(spacing: NoopMetrics.space2) {
-                        StatePill(LocalizedStringKey(load.map(trainingLoadStatus) ?? "Loading"),
-                                  tone: load.map { TrainingLoadCopy.tone($0.state) } ?? .neutral, showsDot: false)
-                        LoadInfoButton(topic: .trainingLoad)
-                    }
-                )),
-                showsChevron: true
+                trailing: .pill(
+                    LocalizedStringKey(load.map(trainingLoadStatus) ?? "Loading"),
+                    tone: load.map { TrainingLoadCopy.tone($0.state) } ?? .neutral
+                ),
+                showsChevron: true,
+                infoAction: { metricInfo = .trainingLoad },
+                infoAccessibilityLabel: MetricInfo.trainingLoad.accessibilityLabel
             )
             trainingLoadBody(load)
             Text("Based on daily Strain. Descriptive only; it does not change Readiness.")

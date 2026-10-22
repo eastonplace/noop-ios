@@ -118,6 +118,7 @@ struct TrainingLoadDetailView: View {
     @State private var period = 42
     @State private var selection: Date?
     @State private var showMethod = false
+    @State private var metricInfo: MetricInfo?
     /// Load focus for the four weeks, read with the load; nil until then (and when there is no estimate to show it under).
     @State private var loadFocus: LoadFocus.Result?
     /// Each shown driver's intensity split, by workout start.
@@ -201,6 +202,7 @@ struct TrainingLoadDetailView: View {
             }
         }
         .segmentedPillSelectionStyle(.quiet)
+        .metricInfoSheet($metricInfo)
         .task(id: trigger) { await load() }
         .onChange(of: period) { _, _ in selection = nil }
         .accessibilityIdentifier("trends.trainingLoad.detail")
@@ -258,9 +260,12 @@ struct TrainingLoadDetailView: View {
     /// One titled section: the #55 eyebrow, then its content.
     private func section<Content: View>(_ title: LocalizedStringKey, symbol: String, trailing: EyebrowTrailing = .none,
                                         spacing: CGFloat = WidgetMetrics.headerSpacing,
+                                        info: MetricInfo? = nil,
                                         @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: spacing) {
-            SectionEyebrow(title, systemImage: symbol, tint: .strain, trailing: trailing)
+            SectionEyebrow(title, systemImage: symbol, tint: .strain, trailing: trailing,
+                           infoAction: info.map { kind in { metricInfo = kind } },
+                           infoAccessibilityLabel: info?.accessibilityLabel ?? "More info")
             content()
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -270,14 +275,9 @@ struct TrainingLoadDetailView: View {
 
     private func heroSection(_ model: TrainingLoadPageModel, result: TrainingLoadEngine.Result) -> some View {
         VStack(alignment: .leading, spacing: WidgetMetrics.headerSpacing) {
-            SectionEyebrow(title: heroEyebrow, systemImage: "flame.fill", tint: .strain,
-                           trailing: .custom(AnyView(
-                               HStack(spacing: NoopMetrics.space2) {
-                                   StatePill(LocalizedStringKey(TrainingLoadCopy.status(state: result.state, gap: gap, observedDays: result.contiguousDays)),
-                                             tone: TrainingLoadCopy.tone(result.state), showsDot: false)
-                                   LoadInfoButton(topic: .trainingLoad)
-                               }
-                           )))
+            SectionEyebrow(title: heroEyebrow, systemImage: "flame.fill", tint: .strain, trailing: eyebrowPill(result),
+                           infoAction: { metricInfo = .trainingLoad },
+                           infoAccessibilityLabel: MetricInfo.trainingLoad.accessibilityLabel)
             TrainingLoadHero(model: model)
         }
     }
@@ -604,14 +604,9 @@ struct TrainingLoadDetailView: View {
             }
         }()
         return section("Where the load came from", symbol: "square.grid.2x2",
-                       trailing: .custom(AnyView(
-                           HStack(spacing: NoopMetrics.space2) {
-                               Text(mode == .intensity ? String(localized: "last 4 weeks") : String(localized: "last 6 weeks"))
-                                   .font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
-                               if mode == .intensity { LoadInfoButton(topic: .loadFocus) }
-                           }
-                       )),
-                       spacing: 16) {
+                       trailing: .text(mode == .intensity ? String(localized: "last 4 weeks") : String(localized: "last 6 weeks")),
+                       spacing: 16,
+                       info: mode == .intensity ? .loadFocus : nil) {
             if slices != nil, loadFocus != nil {
                 SegmentedPillControl(LoadMixView.allCases, selection: Binding(get: { mode }, set: { mixView = $0 })) { $0.title }
             }

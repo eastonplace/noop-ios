@@ -1241,6 +1241,7 @@ struct LoadFocusBar: View {
 struct LoadFocusCardRow: View {
     let summary: LoadFocus.Summary
     @Environment(\.dynamicTypeSize) private var typeSize
+    @State private var info: MetricInfo?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -1249,27 +1250,34 @@ struct LoadFocusCardRow: View {
                 Text("Load focus · last 4 weeks")
                     .font(StrandFont.caption.weight(.semibold))
                     .foregroundStyle(StrandPalette.textPrimary)
-                LoadInfoButton(topic: .loadFocus)
+                    .accessibilityLabel(Text(verbatim: Self.spoken(summary)))
+                    .accessibilityIdentifier("trends.trainingLoad.loadFocus")
+                WidgetChipButton(systemImage: "info.circle", accessibilityLabel: MetricInfo.loadFocus.accessibilityLabel) {
+                    info = .loadFocus
+                }
                 Spacer(minLength: 0)
                 Text("from heart-rate zones")
                     .font(StrandFont.micro)
                     .foregroundStyle(StrandPalette.textTertiary)
+                    .accessibilityHidden(true)
             }
             .fixedSize(horizontal: false, vertical: true)
             LoadFocusBar(fractions: summary.shares.map(\.fraction), height: 8)
-            if typeSize.isAccessibilitySize {
-                VStack(alignment: .leading, spacing: 8) {
-                    ForEach(summary.shares, id: \.bucket) { share in legend(share) }
-                }
-            } else {
-                HStack(alignment: .top, spacing: NoopMetrics.space2) {
-                    ForEach(summary.shares, id: \.bucket) { share in legend(share) }
+                .accessibilityHidden(true)
+            Group {
+                if typeSize.isAccessibilitySize {
+                    VStack(alignment: .leading, spacing: 8) {
+                        ForEach(summary.shares, id: \.bucket) { share in legend(share) }
+                    }
+                } else {
+                    HStack(alignment: .top, spacing: NoopMetrics.space2) {
+                        ForEach(summary.shares, id: \.bucket) { share in legend(share) }
+                    }
                 }
             }
+            .accessibilityHidden(true)
         }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text(verbatim: Self.spoken(summary)))
-        .accessibilityIdentifier("trends.trainingLoad.loadFocus")
+        .metricInfoSheet($info)
     }
 
     static func spoken(_ summary: LoadFocus.Summary) -> String {
