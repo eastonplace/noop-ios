@@ -133,9 +133,16 @@ excluding unrelated Apple-only modules; they are not substitutes for the complet
 macOS package or iOS suites. Native build/test results belong to the PR checks. The
 new GPS package is included in both package CI and the app workflow's retained tests.
 
-The initial PR head compiled the full iPhone app and extensions in Xcode. Native tests
-remain a separate gate; successful app compilation does not imply that the test suites
-or device interaction checks have passed.
+The native rerun at `8c8b11d7` compiled the full iPhone app and extensions, passed all
+12 source audits, and passed all nine retained Swift package suites. This includes the
+complete 641-test WhoopStore and 1,536-test StrandAnalytics suites after the SQL and
+DST-fixture corrections.
+
+That run found one iOS test compilation error: the GPS persistence test's teardown
+captured a non-Sendable `UserDefaults` instance in XCTest's main-actor closure. The
+cleanup now constructs its own suite instance from the suite name, avoiding that
+cross-actor capture. The iOS test suite must pass the follow-up native rerun; native
+UI and device interaction checks remain separate review gates.
 
 ## Integration with pending work
 

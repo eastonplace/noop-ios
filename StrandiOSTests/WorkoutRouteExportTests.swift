@@ -23,7 +23,7 @@ final class WorkoutRouteExportPersistenceTests: XCTestCase {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(suite, isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         addTeardownBlock {
-            defaults.removePersistentDomain(forName: suite)
+            UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite)
             try? FileManager.default.removeItem(at: directory)
         }
         return (defaults, directory)

@@ -92,3 +92,10 @@ during detected sleep. It now includes a realistic retained walking bout in the 
 hour, keeps the existing correct/incorrect-offset assertions, and pins the retained ticks.
 The original failure was reproduced; all 17 exact-source day-boundary tests then passed.
 The initial PR head compiled the complete iPhone app and extensions successfully in Xcode.
+
+The `8c8b11d7` native rerun compiled the app/extensions again and passed all nine retained
+package suites, including 641 WhoopStore and 1,536 StrandAnalytics tests. Its complete
+artifact exposed an Apple XCTest isolation error in the GPS persistence test's teardown.
+The teardown now constructs its own UserDefaults suite from the captured name instead
+of capturing the non-Sendable instance returned to the test. This is a test-only fix;
+full iOS unit and selected-screen UI verification remains assigned to the next rerun.
