@@ -49,6 +49,50 @@ final class WearableImportPersistenceTests: XCTestCase {
         }
     }
 
+    func testOuraCSVInvalidFloatingFragmentsPreserveBankedDailyAndMetricSeriesMeasurements() async throws {
+        let headers = "day,steps,average_hrv,respiratory_rate,temperature_deviation,sleep_efficiency,total_sleep_duration,spo2_percentage,vo2_max,active_calories,total_calories,equivalent_walking_distance"
+        for invalid in ["nan", "inf", "-inf"] {
+            let store = try await WhoopStore.inMemory()
+            try await importNamedFiles(["oura.csv": headers + "\n2026-06-01,8421,65,14.2,-0.2,95,24000,97,50,520,2200,4000"], into: store)
+            let malformed = headers + "\n2026-06-01,8421," + Array(repeating: invalid, count: 10).joined(separator: ",")
+            do { try await importNamedFiles(["oura.csv": malformed], into: store) }
+            catch { XCTFail("Malformed floating fields must be skipped without a partial late failure: \(invalid), \(error)") }
+            let days = try await store.dailyMetrics(deviceId: "oura-import", from: "2026-06-01", to: "2026-06-01")
+            let day = try XCTUnwrap(days.first)
+            XCTAssertEqual(day.steps, 8421, invalid)
+            XCTAssertEqual(day.avgHrv, 65, invalid)
+            XCTAssertEqual(day.respRateBpm, 14.2, invalid)
+            XCTAssertEqual(day.skinTempDevC, -0.2, invalid)
+            XCTAssertEqual(day.totalSleepMin, 400, invalid)
+            XCTAssertEqual(day.efficiency, 95, invalid)
+            XCTAssertEqual(day.spo2Pct, 97, invalid)
+            for (key, expected) in [("hrv", 65.0), ("skin_temp_dev_c", -0.2), ("sleep_total_min", 400.0), ("spo2", 97.0), ("vo2max", 50.0), ("energy_kcal", 520.0), ("total_kcal", 2200.0), ("distance_m", 4000.0)] {
+                let series = try await store.metricSeries(deviceId: "oura-import", key: key, from: day.day, to: day.day)
+                XCTAssertEqual(series.first?.value, expected, "\(invalid), \(key)")
+            }
+        }
+    }
+
+    func testOuraJSONBooleansCannotReplaceBankedMeasurementsWithZeroOrOne() async throws {
+        for invalid in ["false", "true"] {
+            let store = try await WhoopStore.inMemory()
+            try await importFile("""
+            {"daily_activity":[{"day":"2026-06-01","steps":8421,"active_calories":520}],
+             "daily_readiness":[{"day":"2026-06-01","temperature_deviation":-0.2,"resting_heart_rate":48}]}
+            """, into: store)
+            try await importFile("""
+            {"daily_activity":[{"day":"2026-06-01","steps":\(invalid),"active_calories":520}],
+             "daily_readiness":[{"day":"2026-06-01","temperature_deviation":\(invalid),"resting_heart_rate":\(invalid)}]}
+            """, into: store)
+            try await assertStepProjections(store, source: "oura-import", expected: 8421)
+            let days = try await store.dailyMetrics(deviceId: "oura-import", from: "2026-06-01", to: "2026-06-01")
+            XCTAssertEqual(days.first?.skinTempDevC, -0.2, invalid)
+            XCTAssertEqual(days.first?.restingHr, 48, invalid)
+            let temperature = try await store.metricSeries(deviceId: "oura-import", key: "skin_temp_dev_c", from: "2026-06-01", to: "2026-06-01")
+            XCTAssertEqual(temperature.first?.value, -0.2, invalid)
+        }
+    }
+
     func testSingleCategoryImportsPreservePreviouslyImportedDailyMeasurements() async throws {
         let store = try await WhoopStore.inMemory()
         try await importFile("""
