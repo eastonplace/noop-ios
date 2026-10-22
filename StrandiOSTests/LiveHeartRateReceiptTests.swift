@@ -81,10 +81,12 @@ final class LiveHeartRateReceiptTests: XCTestCase {
         let live = LiveState()
         live.activateHeartRateSource(source)
         receive(live, second: 10)
-        live.setRRIntervals([750], observedAt: start.addingTimeInterval(11), source: source)
+        live.setRRIntervals([750], observedAt: start.addingTimeInterval(11), source: source,
+                            now: start.addingTimeInterval(11))
         XCTAssertEqual(live.latestHeartRateReceipt?.bpm, 100, "fresh direct HR wins over the same packet's RR")
 
-        live.setRRIntervals([750], observedAt: start.addingTimeInterval(16), source: source)
+        live.setRRIntervals([750], observedAt: start.addingTimeInterval(16), source: source,
+                            now: start.addingTimeInterval(16))
 
         XCTAssertEqual(live.latestHeartRateReceipt?.bpm, 80)
         XCTAssertEqual(live.latestHeartRateReceipt?.transport, .rrFallback)
@@ -101,6 +103,19 @@ final class LiveHeartRateReceiptTests: XCTestCase {
 
         XCTAssertNil(live.heartRate)
         XCTAssertNil(live.latestHeartRateReceipt)
+    }
+
+    func testStaleRRPacketCannotBecomeAFreshFallbackReceipt() {
+        let live = LiveState()
+        live.activateHeartRateSource(source)
+        receive(live, second: 10)
+        let last = live.latestHeartRateReceipt
+
+        live.setRRIntervals([750], observedAt: start.addingTimeInterval(16), source: source,
+                            now: start.addingTimeInterval(30))
+
+        XCTAssertEqual(live.latestHeartRateReceipt, last)
+        XCTAssertEqual(live.heartRate, 100)
     }
 }
 
