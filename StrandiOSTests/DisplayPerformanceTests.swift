@@ -133,6 +133,18 @@ final class DisplayPerformanceTests: XCTestCase {
         // shape: when a PNG is produced it is added under screenshot.png; when not, the bundle still
         // assembles cleanly with the text entries. Either way no .display report is corrupted.
         let live = LiveState()
+        // Other LiveState instances can finish their debounced writes while assembly captures the
+        // screenshot. Keep the real persistence queue, but give this report its own durable prefs domain.
+        let suiteName = "DisplayPerformanceTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let tailKey = "strapLog.tail"
+        live.logTailPersistence = DebouncedLogTailPersistence(
+            debounceInterval: 60,
+            tailLimit: LiveState.tailLimit,
+            loadPersisted: { [] },
+            persist: { UserDefaults(suiteName: suiteName)?.set($0, forKey: tailKey) }
+        )
         let pendingTail = "display assembly preserves the pending tail \(UUID().uuidString.prefix(8))"
         live.append(log: pendingTail, domain: .display)
         // assemble awaits exportableLogTextFlushing before it returns the report bytes.
@@ -140,7 +152,7 @@ final class DisplayPerformanceTests: XCTestCase {
         let report = try XCTUnwrap(entries.first { $0.name == "report.txt" })
         XCTAssertTrue(try XCTUnwrap(String(data: report.data, encoding: .utf8)).contains(pendingTail),
                       "the assembled report must include the log queued immediately before the I/O barrier")
-        XCTAssertTrue(LiveState.persistedLogTail().contains { $0.contains(pendingTail) },
+        XCTAssertTrue((defaults.stringArray(forKey: tailKey) ?? []).contains { $0.contains(pendingTail) },
                       "assembly must finish the durable-tail write before returning report bytes")
         XCTAssertTrue(entries.contains { $0.name == "report.txt" })
         XCTAssertTrue(entries.contains { $0.name == "meta.json" })
