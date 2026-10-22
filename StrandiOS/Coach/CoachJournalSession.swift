@@ -198,7 +198,7 @@ final class CoachJournalSession: ObservableObject {
 
     func didSave() {
         draftAnswers = [:]
-        status = "Journal saved for \(day)."
+        status = String(localized: "Saved to \(FriendlyDayLabel.label(forDayKey: day))")
         reconcile(forceReload: true)
     }
 
@@ -257,7 +257,7 @@ final class CoachJournalSession: ObservableObject {
                 self.snapshot = loaded
                 self.isLoading = false
                 self.status = loaded.catalogWasTruncated
-                    ? "Some imported journal labels were omitted from this bounded check-in. Your saved answers are unchanged."
+                    ? String(localized: "Some imported journal labels were omitted from this bounded check-in. Your saved answers are unchanged.")
                     : nil
             } catch {
                 guard let self, !Task.isCancelled else { return }
@@ -268,7 +268,7 @@ final class CoachJournalSession: ObservableObject {
                 guard self.canRead, self.gate.accepts(request, day: request.day, sourceContext: request.sourceContext) else { return }
                 self.snapshot = nil
                 self.isLoading = false
-                self.status = (error as? LocalizedError)?.errorDescription ?? "Your journal could not be loaded. Try again."
+                self.status = (error as? LocalizedError)?.errorDescription ?? String(localized: "Your journal could not be loaded. Try again.")
             }
         }
     }

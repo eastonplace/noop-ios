@@ -196,6 +196,79 @@ enum LocalCoachCardFormat {
         return "Explain the recorded journal association for \(subject) from \(card.windowFrom) through \(card.windowThrough). Distinguish association from causation, explain the comparison's limits, and tell me what data is still missing."
     }
 
+    // MARK: Journal card wording (the card on screen; `exportLine` keeps the full figures)
+
+    /// The finding in plain words: how much higher or lower recovery was, or why there is no comparison yet.
+    static func journalHeadline(_ card: LocalCoachCard.JournalAssociation) -> String {
+        switch card.state {
+        case .available:
+            guard let difference = card.difference, difference.isFinite else {
+                return String(localized: "Not enough days to compare yet")
+            }
+            let points = Int(abs(difference).rounded())
+            if points == 0 { return String(localized: "Recovery was about the same") }
+            if difference < 0 {
+                return points == 1 ? String(localized: "Recovery was 1 point lower")
+                    : String(localized: "Recovery was \(points) points lower")
+            }
+            return points == 1 ? String(localized: "Recovery was 1 point higher")
+                : String(localized: "Recovery was \(points) points higher")
+        case .insufficientData: return String(localized: "Not enough days to compare yet")
+        case .truncated: return String(localized: "Too many records to compare")
+        case .noBooleanAnswers: return String(localized: "No yes or no answers to compare yet")
+        }
+    }
+
+    /// The habit the finding is about, or the one thing that would unlock a comparison.
+    static func journalHeadlineDetail(_ card: LocalCoachCard.JournalAssociation) -> String? {
+        let habit = card.question.map { "“" + String($0.prefix(80)) + "”" }
+        switch card.state {
+        case .available:
+            return habit.map { String(localized: "on days you said yes to \($0), compared with days you said no") }
+        case .insufficientData:
+            let need = String(localized: "Needs 3 days with and 3 without.")
+            return habit.map { $0 + " " + need } ?? need
+        case .truncated:
+            return String(localized: "Try a shorter date range.")
+        case .noBooleanAnswers:
+            return habit ?? String(localized: "Log a few yes or no answers in Journal.")
+        }
+    }
+
+    /// "12 days with · 30 without · Aug–Oct": the sample sizes and the months they span, as one quiet line.
+    static func journalCountsLine(_ card: LocalCoachCard.JournalAssociation) -> String {
+        var parts: [String] = []
+        if card.state != .truncated, card.state != .noBooleanAnswers,
+           let yes = card.matchedYesCount, let no = card.matchedNoCount {
+            parts.append(yes == 1 ? String(localized: "1 day with") : String(localized: "\(yes) days with"))
+            parts.append(String(localized: "\(no) without"))
+        }
+        if let span = monthSpan(from: card.windowFrom, through: card.windowThrough) { parts.append(span) }
+        return parts.joined(separator: " · ")
+    }
+
+    /// Only when something was left out: days with no recovery score, or answers that disagree.
+    static func journalMissingLine(_ card: LocalCoachCard.JournalAssociation) -> String? {
+        var parts: [String] = []
+        if let missing = card.missingRecoveryCount, missing > 0 {
+            parts.append(missing == 1 ? String(localized: "1 day without a recovery score")
+                         : String(localized: "\(missing) days without a recovery score"))
+        }
+        if let conflicts = card.conflictingDayCount, conflicts > 0 {
+            parts.append(conflicts == 1 ? String(localized: "1 day with conflicting answers")
+                         : String(localized: "\(conflicts) days with conflicting answers"))
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    /// "Oct" or "Aug–Oct" for a window.
+    static func monthSpan(from: String, through: String) -> String? {
+        guard let start = LocalCoachWindow.date(from), let end = LocalCoachWindow.date(through), start <= end else { return nil }
+        let first = start.formatted(.dateTime.month(.abbreviated))
+        let last = end.formatted(.dateTime.month(.abbreviated))
+        return first == last ? first : first + "–" + last
+    }
+
     static func journalStatus(_ card: LocalCoachCard.JournalAssociation) -> String {
         switch card.state {
         case .available:

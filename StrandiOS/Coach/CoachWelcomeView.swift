@@ -28,7 +28,7 @@ struct CoachWelcomeView: View {
             greetingBlock
                 .padding(.horizontal, 24)
             if let journalWidget {
-                journalWidget.padding(.horizontal, 16).padding(.top, NoopMetrics.space5)
+                journalWidget.padding(.horizontal, 24).padding(.top, NoopMetrics.space4)
             }
             Spacer(minLength: 28)
             VStack(spacing: 10) {

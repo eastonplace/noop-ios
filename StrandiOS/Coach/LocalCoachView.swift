@@ -333,15 +333,10 @@ struct LocalCoachView: View {
     private var headerActions: some View {
         HStack(spacing: 0) {
             if !coach.messages.isEmpty {
-                Button(action: openJournal) {
-                    Label("Journal", systemImage: "book.closed")
-                        .font(StrandFont.caption)
-                        .foregroundStyle(StrandPalette.journalAccent)
-                        .frame(minHeight: 44)
-                        .padding(.trailing, NoopMetrics.space2)
-                }
-                .disabled(!journal.access.canUseManualJournal)
-                .accessibilityIdentifier("coach.journal.accessButton")
+                Button(action: openJournal) { headerIcon("book.closed") }
+                    .disabled(!journal.access.canUseManualJournal)
+                    .accessibilityLabel("Journal")
+                    .accessibilityIdentifier("coach.journal.accessButton")
             }
             Button { showLibrary = true } label: { headerIcon("clock.arrow.circlepath") }
                 .accessibilityLabel("Conversation history").accessibilityIdentifier("coach.history")
@@ -409,15 +404,16 @@ struct LocalCoachView: View {
             if composerMode == .journal {
                 HStack {
                     Label("Journal entry", systemImage: "book.closed")
-                        .font(StrandFont.caption.weight(.semibold)).foregroundStyle(StrandPalette.journalAccent)
+                        .font(StrandFont.caption.weight(.semibold)).foregroundStyle(StrandPalette.textSecondary)
                     Spacer(minLength: NoopMetrics.space2)
-                    Button("Ask Coach instead") { stopInputs(); composerMode = .coach }
-                        .font(StrandFont.caption).frame(minHeight: 44)
-                        .accessibilityIdentifier("coach.journal.exitMode")
+                    CoachTextButton("Ask Coach instead", tint: StrandPalette.textSecondary) {
+                        stopInputs(); composerMode = .coach
+                    }
+                    .accessibilityIdentifier("coach.journal.exitMode")
                 }
                 CoachJournalDayPicker(day: journal.day, onSelect: journal.select)
-                Text("Review before saving. Journal entry does not use the Coach model.")
-                    .font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
+                Text("You review it before anything is saved.")
+                    .font(StrandFont.caption).foregroundStyle(StrandPalette.textTertiary)
                 if journalPreparing {
                     ProgressView("Preparing journal review…").font(StrandFont.caption)
                 }
@@ -558,8 +554,8 @@ struct LocalCoachView: View {
     private func enterJournalMode() {
         configureJournal()
         guard journal.access.canUseManualJournal else {
-            inputError = coach.isPreview ? "This preview cannot open or save personal journal records."
-                : "Journal is unavailable while your records are updating. Try again when the update finishes."
+            inputError = coach.isPreview ? String(localized: "This preview cannot open or save personal journal records.")
+                : String(localized: "Journal is unavailable while your records are updating. Try again when the update finishes.")
             return
         }
         stopInputs()
@@ -587,8 +583,8 @@ struct LocalCoachView: View {
         case .blocked:
             if composerMode == .coach { submit(composer) }
             else {
-                inputError = coach.isPreview ? "This preview cannot save journal entries."
-                    : "Your journal is unavailable. Your entry is still here; try again when your records are ready."
+                inputError = coach.isPreview ? String(localized: "This preview cannot save journal entries.")
+                    : String(localized: "Your journal is unavailable. Your entry is still here; try again when your records are ready.")
             }
         }
     }
@@ -597,7 +593,7 @@ struct LocalCoachView: View {
         configureJournal()
         guard let repository = journal.repository, let catalog = journal.manualCatalog(), !journalPreparing else { return }
         guard text.utf8.count <= JournalEntryParser.maximumInputBytes else {
-            inputError = "This journal entry is too long. Shorten it before reviewing."
+            inputError = String(localized: "This journal entry is too long. Shorten it before reviewing.")
             return
         }
         stopInputs()
@@ -621,7 +617,7 @@ struct LocalCoachView: View {
                     if journalPreparationID == request {
                         journalPreparing = false
                         journalPreparationID = nil
-                        inputError = "The journal date or source changed. Your entry is still here; open review again."
+                        inputError = String(localized: "The journal date or source changed. Your entry is still here; open review again.")
                     }
                     return
                 }
@@ -638,7 +634,7 @@ struct LocalCoachView: View {
                 journalPreparationID = nil
                 journalPreparation = nil
                 inputError = (error as? LocalizedError)?.errorDescription
-                    ?? "Your journal could not be loaded. Your entry is still here; try again."
+                    ?? String(localized: "Your journal could not be loaded. Your entry is still here; try again.")
             }
         }
     }

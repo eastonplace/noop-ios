@@ -33,6 +33,8 @@ import StrandDesign
 
 /// A value-fed check-in on the Coach canvas. Selection edits only the supplied draft; this view
 /// never reads records, creates a proposal, or saves. Its owner supplies the day and confirmation flow.
+///
+/// Flat, like the other Coach sections: an eyebrow, a plain "Open" on the right, and the rows on the canvas.
 struct CoachJournalWidget: View {
     let day: String
     let items: [CoachJournalQuickItem]
@@ -61,13 +63,8 @@ struct CoachJournalWidget: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: NoopMetrics.space3) {
+        VStack(alignment: .leading, spacing: NoopMetrics.space2) {
             header
-            Text("The night and day leading into this morning.")
-                .coachFont(12.5, .regular, relativeTo: .footnote)
-                .foregroundStyle(StrandPalette.textTertiary)
-                .fixedSize(horizontal: false, vertical: true)
-
             if !canRead {
                 accessNotice
             } else if isLoading {
@@ -89,12 +86,7 @@ struct CoachJournalWidget: View {
                     .accessibilityIdentifier("coach.journal.preview")
             }
         }
-        .padding(NoopMetrics.space4)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: NoopMetrics.radius5, style: .continuous)
-            .fill(StrandPalette.card))
-        .overlay(RoundedRectangle(cornerRadius: NoopMetrics.radius5, style: .continuous)
-            .strokeBorder(StrandPalette.hairline, lineWidth: 1))
         .tint(StrandPalette.journalAccent)
         .disabled(isPreview)
         .accessibilityElement(children: .contain)
@@ -102,66 +94,76 @@ struct CoachJournalWidget: View {
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: NoopMetrics.space1) {
+        HStack(alignment: .center, spacing: NoopMetrics.space2) {
+            SectionEyebrow("Journal", systemImage: "book.closed", tint: .journal)
+            Spacer(minLength: NoopMetrics.space2)
+            Button(action: onOpen) {
+                HStack(spacing: 3) {
+                    Text("Open")
+                    Image(systemName: "chevron.right").font(StrandFont.caption).accessibilityHidden(true)
+                }
+                .font(StrandFont.subhead)
+                .foregroundStyle(StrandPalette.textSecondary)
+                .frame(minWidth: 44, minHeight: 44, alignment: .trailing)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Open full Journal")
+            .accessibilityIdentifier("coach.journal.open")
+        }
+    }
+
+    /// Locked: one line and one plain action.
+    private var accessNotice: some View {
+        Group {
             if typeSize.isAccessibilitySize {
-                SectionEyebrow("Journal", systemImage: "book.closed", tint: .journal)
-                openButton
+                VStack(alignment: .leading, spacing: 0) { lockedLine; allowButton }
             } else {
-                HStack(alignment: .center, spacing: NoopMetrics.space2) {
-                    SectionEyebrow("Journal", systemImage: "book.closed", tint: .journal)
-                    openButton
+                HStack(alignment: .center, spacing: NoopMetrics.space3) {
+                    lockedLine
+                    Spacer(minLength: NoopMetrics.space2)
+                    allowButton
                 }
             }
-            Text("Wake day: \(day)")
-                .coachFont(13, .medium, relativeTo: .footnote, digits: true)
-                .foregroundStyle(StrandPalette.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-                .accessibilityIdentifier("coach.journal.day")
         }
-    }
-
-    private var openButton: some View {
-        Button(action: onOpen) {
-            HStack(spacing: 5) {
-                Text("Full Journal").fixedSize(horizontal: false, vertical: true)
-                Image(systemName: "arrow.up.right").accessibilityHidden(true)
-            }
-            .coachFont(12.5, .medium, relativeTo: .footnote)
-            .foregroundStyle(StrandPalette.journalAccent)
-            .frame(minWidth: 44, minHeight: 44, alignment: .leading)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Open full Journal")
-        .accessibilityIdentifier("coach.journal.open")
-    }
-
-    private var accessNotice: some View {
-        VStack(alignment: .leading, spacing: NoopMetrics.space2) {
-            Text("Your check-in stays hidden here until you allow Coach to read your records. You can still use the full Journal.")
-                .font(StrandFont.caption)
-                .foregroundStyle(StrandPalette.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-            actionButton("Use records for insights", symbol: "lock.shield", identifier: "coach.journal.access",
-                         action: onInsights)
-        }
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("coach.journal.consent")
     }
 
+    private var lockedLine: some View {
+        Text("Let Coach read your records to see journal patterns.")
+            .font(StrandFont.subhead)
+            .foregroundStyle(StrandPalette.textSecondary)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private var allowButton: some View {
+        CoachTextButton("Allow", action: onInsights)
+            .accessibilityLabel("Allow Coach to read your records")
+            .accessibilityIdentifier("coach.journal.access")
+    }
+
     @ViewBuilder private var checkInContent: some View {
+        // The widget shows today unless a day was chosen in the full Journal; say so only then.
+        if day != Repository.localDayKey(Date()) {
+            Text(verbatim: FriendlyDayLabel.label(forDayKey: day))
+                .font(StrandFont.caption)
+                .foregroundStyle(StrandPalette.textTertiary)
+                .accessibilityIdentifier("coach.journal.day")
+        }
+
         if items.isEmpty {
             Text("Choose what to track in the full Journal.")
-                .font(StrandFont.caption)
+                .font(StrandFont.subhead)
                 .foregroundStyle(StrandPalette.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
         } else {
-            VStack(spacing: NoopMetrics.space2) {
+            VStack(spacing: 0) {
                 ForEach(items) { item in quickRow(item) }
             }
         }
 
         if mood.map({ (1...5).contains($0) }) == true || note != nil {
-            Divider().overlay(StrandPalette.hairline)
             savedSummary
         }
 
@@ -178,9 +180,9 @@ struct CoachJournalWidget: View {
         }
 
         if typeSize.isAccessibilitySize {
-            VStack(spacing: NoopMetrics.space2) { secondaryActions }
+            VStack(alignment: .leading, spacing: 0) { secondaryActions }
         } else {
-            HStack(spacing: NoopMetrics.space2) { secondaryActions }
+            HStack(spacing: NoopMetrics.space5) { secondaryActions; Spacer(minLength: 0) }
         }
     }
 
@@ -206,11 +208,11 @@ struct CoachJournalWidget: View {
     private func quickLabel(_ item: CoachJournalQuickItem) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(verbatim: item.title)
-                .coachFont(13.5, .medium, relativeTo: .subheadline)
+                .font(StrandFont.subhead)
                 .foregroundStyle(StrandPalette.textPrimary)
                 .fixedSize(horizontal: false, vertical: true)
             Text(answerStatus(for: item.id))
-                .coachFont(11.5, .regular, relativeTo: .caption)
+                .font(StrandFont.caption)
                 .foregroundStyle(StrandPalette.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -224,6 +226,7 @@ struct CoachJournalWidget: View {
         }
     }
 
+    /// Yes and No are plain words: the chosen one is accent and bold, the other quiet. No fill, border or capsule.
     private func answerButton(_ value: Bool, item: CoachJournalQuickItem) -> some View {
         let selected = CoachJournalDraftPolicy.answer(for: item.id, saved: savedAnswers, draft: draftAnswers) == value
         return Button {
@@ -231,14 +234,10 @@ struct CoachJournalWidget: View {
             CoachJournalDraftPolicy.select(value, for: item.id, in: &draftAnswers)
         } label: {
             Text(value ? "Yes" : "No")
-                .coachFont(13, .semibold, relativeTo: .footnote)
-                .foregroundStyle(selected ? StrandPalette.onInk : StrandPalette.textSecondary)
-                .padding(.horizontal, NoopMetrics.space3)
+                .font(StrandFont.subhead.weight(selected ? .semibold : .regular))
+                .foregroundStyle(selected ? StrandPalette.accent : StrandPalette.textSecondary)
                 .frame(minWidth: 44, minHeight: 44)
-                .background(Capsule().fill(selected ? StrandPalette.textPrimary : StrandPalette.inset))
-                .overlay(Capsule().strokeBorder(selected ? StrandPalette.journalAccent : StrandPalette.hairlineStrong,
-                                                lineWidth: 1))
-                .contentShape(Capsule())
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel("\(item.title): \(value ? String(localized: "Yes") : String(localized: "No"))")
@@ -259,52 +258,38 @@ struct CoachJournalWidget: View {
     }
 
     @ViewBuilder private var savedSummary: some View {
-        if let mood, (1...5).contains(mood) {
-            Label("Mood: \(MoodStore.label(for: mood))", systemImage: "face.smiling")
-                .font(StrandFont.caption)
-                .foregroundStyle(StrandPalette.textSecondary)
-                .accessibilityIdentifier("coach.journal.mood")
-        }
-        if let note {
-            VStack(alignment: .leading, spacing: NoopMetrics.space1) {
-                Text("Saved note").font(StrandFont.caption.weight(.medium))
+        VStack(alignment: .leading, spacing: 2) {
+            if let mood, (1...5).contains(mood) {
+                Text("Mood · \(MoodStore.label(for: mood))")
+                    .font(StrandFont.caption)
                     .foregroundStyle(StrandPalette.textSecondary)
+                    .accessibilityIdentifier("coach.journal.mood")
+            }
+            if let note {
                 Text(verbatim: note)
                     .font(StrandFont.caption)
                     .foregroundStyle(StrandPalette.textTertiary)
                     .lineLimit(typeSize.isAccessibilitySize ? nil : 2)
                     .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("coach.journal.note")
             }
-            .accessibilityElement(children: .combine)
-            .accessibilityIdentifier("coach.journal.note")
         }
     }
 
+    /// Unsaved choices: a count, then Discard and Review as plain words.
     private var reviewActions: some View {
-        VStack(alignment: .leading, spacing: NoopMetrics.space1) {
-            Text("Your changes are ready to review. Nothing has been saved yet.")
+        HStack(spacing: NoopMetrics.space4) {
+            Text("\(changes.count) not saved")
                 .font(StrandFont.caption)
-                .foregroundStyle(StrandPalette.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-            Button(action: onReview) {
-                Label("Review check-in", systemImage: "checkmark.circle")
-                    .coachFont(14, .semibold, relativeTo: .subheadline)
-                    .frame(maxWidth: .infinity, minHeight: 44)
-            }
-            .buttonStyle(PrimaryPillButtonStyle())
-            .accessibilityIdentifier("coach.journal.review")
-            Button {
+                .foregroundStyle(StrandPalette.textTertiary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            CoachTextButton("Discard", tint: StrandPalette.textSecondary) {
                 guard !isPreview else { return }
                 CoachJournalDraftPolicy.discard(&draftAnswers)
-            } label: {
-                Text("Discard changes")
-                    .coachFont(12.5, .medium, relativeTo: .footnote)
-                    .foregroundStyle(StrandPalette.textSecondary)
-                    .frame(maxWidth: .infinity, minHeight: 44)
-                    .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
             .accessibilityIdentifier("coach.journal.discard")
+            CoachTextButton("Review", action: onReview)
+                .accessibilityIdentifier("coach.journal.review")
         }
     }
 
@@ -319,16 +304,13 @@ struct CoachJournalWidget: View {
                               action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 6) {
-                Image(systemName: symbol).foregroundStyle(StrandPalette.journalAccent).accessibilityHidden(true)
+                Image(systemName: symbol).accessibilityHidden(true)
                 Text(title).fixedSize(horizontal: false, vertical: true)
             }
-            .coachFont(12.5, .medium, relativeTo: .footnote)
+            .font(StrandFont.subhead)
             .foregroundStyle(StrandPalette.textSecondary)
-            .padding(.horizontal, NoopMetrics.space2)
-            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-            .overlay(RoundedRectangle(cornerRadius: NoopMetrics.radius2, style: .continuous)
-                .strokeBorder(StrandPalette.hairlineStrong, lineWidth: 1))
-            .contentShape(RoundedRectangle(cornerRadius: NoopMetrics.radius2, style: .continuous))
+            .frame(minHeight: 44, alignment: .leading)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier(identifier)

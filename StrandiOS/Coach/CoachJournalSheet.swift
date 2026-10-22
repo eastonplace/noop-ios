@@ -29,8 +29,8 @@ struct CoachJournalSheet: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: NoopMetrics.space5) {
+            ScreenScaffold(title: "Journal") {
+                VStack(alignment: .leading, spacing: NoopMetrics.sectionGap) {
                     CoachJournalDayPicker(day: session.day, onSelect: session.select)
                     if let snapshot = session.snapshot,
                        snapshot.sourceContext == repository.journalEntrySourceContext,
@@ -44,40 +44,36 @@ struct CoachJournalSheet: View {
                                        }),
                                        onChanged: changed)
                             .disabled(session.isLoading)
-                        Button {
-                            onAskCoach("What associations do my journal entries have with recovery over the last 90 days?")
-                            dismiss()
-                        } label: { Label("Ask Coach about my journal", systemImage: "sparkles") }
-                        .buttonStyle(NoopButtonStyle(.secondary, fullWidth: true))
-                        .accessibilityIdentifier("coach.journal.sheet.insights")
-                        Text("Coach needs permission to read your records for insights. Journal patterns describe associations, not causes.")
-                            .font(StrandFont.caption).foregroundStyle(StrandPalette.textTertiary)
+                        VStack(alignment: .leading, spacing: 0) {
+                            CoachTextButton("Ask Coach about patterns", symbol: "chevron.right") {
+                                onAskCoach("What associations do my journal entries have with recovery over the last 90 days?")
+                                dismiss()
+                            }
+                            .accessibilityIdentifier("coach.journal.sheet.insights")
+                            Text("Coach needs your permission to read your records.")
+                                .font(StrandFont.caption).foregroundStyle(StrandPalette.textTertiary)
+                        }
                     } else if session.isLoading {
                         ProgressView("Loading Journal…").frame(maxWidth: .infinity, minHeight: 100)
                     } else {
                         Text(repository.verifiedExternalSurfaceFenced
                              ? "Your records are updating. Open Journal again after the update finishes."
-                             : "Your journal is not available right now. You can try loading it again.")
+                             : "Your journal is not available right now.")
                             .font(StrandFont.subhead).foregroundStyle(StrandPalette.textSecondary)
-                        Button("Try again", action: session.refresh)
-                            .buttonStyle(NoopButtonStyle(.secondary, fullWidth: true))
+                        CoachTextButton("Try again", action: session.refresh)
                     }
                     if let status = session.status {
                         Text(verbatim: status).font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
                     }
                 }
-                .padding(NoopMetrics.screenPadding)
             }
             .background(StrandPalette.appCanvas.ignoresSafeArea())
-            .navigationTitle("Journal")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
-            }
+            .toolbar(.hidden, for: .navigationBar)
+            .sheetScreenScaffoldEnvironment(onClose: { dismiss() })
         }
+        .drillInDestinationEnvironment()
         .tint(StrandPalette.journalAccent)
         .environmentObject(repository)
-        .coachSettingsSheetEnvironment()
         .sheet(item: $entry, onDismiss: session.reloadCatalog) { presentation in
             JournalEntryComposer(catalog: catalog, presentation: presentation,
                                  importedQuestions: session.snapshot?.importedQuestions ?? [],
@@ -96,25 +92,25 @@ struct CoachJournalSheet: View {
         .accessibilityIdentifier("coach.journal.sheet")
     }
 
+    /// The saved mood and note for the day, as plain lines, and one text action to change them.
     private func dayDetails(_ details: JournalEntryDayDetails) -> some View {
-        VStack(alignment: .leading, spacing: NoopMetrics.space2) {
-            Text("Day note and mood").font(StrandFont.headline)
+        VStack(alignment: .leading, spacing: NoopMetrics.space1) {
             if let mood = details.mood {
-                Text("\(MoodStore.face(for: mood)) \(MoodStore.label(for: mood))")
+                Text("Mood · \(MoodStore.label(for: mood))")
                     .font(StrandFont.subhead)
+                    .foregroundStyle(StrandPalette.textPrimary)
+                    .accessibilityIdentifier("coach.journal.sheet.mood")
             }
             if !details.note.isEmpty {
-                Text(verbatim: details.note).font(StrandFont.subhead).lineLimit(5)
+                Text(verbatim: details.note)
+                    .font(StrandFont.subhead).lineLimit(4)
                     .foregroundStyle(StrandPalette.textSecondary)
             }
-            Button {
+            CoachTextButton(details.mood == nil && details.note.isEmpty ? "Add note and mood" : "Edit note and mood") {
                 guard session.access.canUseManualJournal else { return }
                 entry = JournalEntryPresentation(day: session.day, sourceIdentity: repository.journalEntrySourceIdentity)
-            } label: { Label("Review note and mood", systemImage: "square.and.pencil") }
-            .buttonStyle(NoopButtonStyle(.secondary, fullWidth: true))
+            }
             .accessibilityIdentifier("coach.journal.sheet.dayDetails")
-            Text("Open review, choose Update note and mood, then Save when you are ready.")
-                .font(StrandFont.caption).foregroundStyle(StrandPalette.textTertiary)
         }
     }
 
@@ -137,22 +133,69 @@ struct CoachJournalSheet: View {
 }
 
 /// A civil wake-day selection is explicit. Neither typed prose nor a later midnight changes this key.
+/// "Day · Today ⌄": a plain row that opens the month calendar, with the day named the way people say it.
 struct CoachJournalDayPicker: View {
     let day: String
     let onSelect: (String) -> Void
+    @State private var choosing = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: NoopMetrics.space1) {
-            DatePicker("Wake day", selection: Binding(
-                get: { CoachJournalDaySelection.date(for: day) ?? Date() },
-                set: { onSelect(Repository.localDayKey($0)) }), displayedComponents: .date)
-                .datePickerStyle(.compact)
-                .font(StrandFont.subhead)
-                .accessibilityIdentifier("coach.journal.wakeDayPicker")
-            Text("The night and day leading into this morning. The selected date, not dates mentioned in your entry, controls where it is saved.")
-                .font(StrandFont.caption).foregroundStyle(StrandPalette.textTertiary)
-                .fixedSize(horizontal: false, vertical: true)
+        Button { choosing = true } label: {
+            HStack(spacing: NoopMetrics.space2) {
+                Text("Day").foregroundStyle(StrandPalette.textSecondary)
+                Text(verbatim: "·").foregroundStyle(StrandPalette.textTertiary)
+                Text(verbatim: FriendlyDayLabel.label(forDayKey: day)).foregroundStyle(StrandPalette.textPrimary)
+                Image(systemName: "chevron.down")
+                    .font(StrandFont.caption)
+                    .foregroundStyle(StrandPalette.textTertiary)
+                    .accessibilityHidden(true)
+                Spacer(minLength: 0)
+            }
+            .font(StrandFont.body)
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Day")
+        .accessibilityValue(FriendlyDayLabel.label(forDayKey: day))
+        .accessibilityHint("Choose a different day to log")
+        .accessibilityIdentifier("coach.journal.wakeDayPicker")
+        .sheet(isPresented: $choosing) {
+            DayCalendarSheet(selected: CoachJournalDaySelection.date(for: day) ?? Date(), today: Date(),
+                             daysWithData: []) { onSelect(Repository.localDayKey($0)) }
+        }
+    }
+}
+
+/// A secondary action in the house style: accent text, no capsule, border or glass, with a 44pt tap area.
+struct CoachTextButton: View {
+    let title: LocalizedStringKey
+    var symbol: String?
+    var tint: Color = StrandPalette.accent
+    let action: () -> Void
+
+    init(_ title: LocalizedStringKey, symbol: String? = nil, tint: Color = StrandPalette.accent,
+         action: @escaping () -> Void) {
+        self.title = title
+        self.symbol = symbol
+        self.tint = tint
+        self.action = action
+    }
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: NoopMetrics.space1) {
+                Text(title).fixedSize(horizontal: false, vertical: true)
+                if let symbol {
+                    Image(systemName: symbol).font(StrandFont.caption).accessibilityHidden(true)
+                }
+            }
+            .font(StrandFont.subhead.weight(.semibold))
+            .foregroundStyle(tint)
+            .frame(minHeight: 44, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 }
 #endif
