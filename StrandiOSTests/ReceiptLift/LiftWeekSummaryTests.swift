@@ -58,4 +58,32 @@ struct LiftWeekSummaryTests {
     let summary = LiftTodayMath.weekSummary(in: [], scheduled: scheduled, asOf: wednesday, calendar: cal)
     #expect(summary.plannedThisWeek == 1)
   }
+
+  @Test func nextWeekMidnightBelongsOnlyToTheNextWeek() throws {
+    let cal = calendar(firstWeekday: 2)
+    let interval = try #require(cal.dateInterval(of: .weekOfYear, for: wednesday))
+    let boundary = interval.end
+    let workout = session(boundary, sets: 4)
+    let planned = ScheduledWorkout(id: UUID(), routineID: UUID(), plannedAt: boundary, note: "", completedSessionID: nil)
+    let before = LiftTodayMath.weekSummary(in: [workout], scheduled: [planned], asOf: wednesday, calendar: cal)
+    #expect(before.workouts == 0)
+    #expect(before.workingSets == 0)
+    #expect(before.plannedThisWeek == 0)
+    let after = LiftTodayMath.weekSummary(in: [workout], scheduled: [planned], asOf: boundary, calendar: cal)
+    #expect(after.workouts == 1)
+    #expect(after.workingSetsDeltaVsLastWeek == 4)
+    #expect(after.plannedThisWeek == 1)
+  }
+
+  @Test func daylightSavingWeekUsesItsCalendarEnd() throws {
+    var cal = calendar(firstWeekday: 2)
+    cal.timeZone = try #require(TimeZone(identifier: "America/New_York"))
+    let date = try #require(cal.date(from: DateComponents(year: 2026, month: 3, day: 5, hour: 12)))
+    let interval = try #require(cal.dateInterval(of: .weekOfYear, for: date))
+    #expect(interval.duration == 7 * 86_400 - 3_600)
+    let summary = LiftTodayMath.weekSummary(in: [session(interval.start, sets: 2), session(interval.end, sets: 7)],
+        scheduled: [], asOf: date, calendar: cal)
+    #expect(summary.workouts == 1)
+    #expect(summary.workingSets == 2)
+  }
 }
