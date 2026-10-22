@@ -186,7 +186,7 @@ extension WhoopStore {
                 for deletion in projectionDeletions where deletion.sampleType == "HKWorkoutTypeIdentifier"
                     && deletion.fromTimestamp >= fromTimestamp && deletion.fromTimestamp <= toTimestamp {
                     // A tombstone owns an object, not every workout that overlaps its duration.
-                    // Retraction requires an exact banked start/end and one matching indexed owner.
+                    // Retraction requires one banked projection and one matching indexed owner.
                     // Corrected unions, unindexed imports, and same-start collisions remain ambiguous.
                     let candidates = try Row.fetchAll(db, sql: """
                         SELECT endTs FROM healthKitObjectIndex
@@ -195,10 +195,19 @@ extension WhoopStore {
                     guard candidates.count == 1 else { continue }
                     let indexedEnd: Int = candidates[0]["endTs"]
                     guard indexedEnd == deletion.toTimestamp else { continue }
+                    let projections = try Row.fetchAll(db, sql: """
+                        SELECT endTs, sport FROM workout
+                        WHERE deviceId = ? AND source = ? AND startTs = ? LIMIT 2
+                        """, arguments: [deviceId, workoutSource, deletion.fromTimestamp])
+                    guard projections.count == 1 else { continue }
+                    let projectedEnd: Int = projections[0]["endTs"]
+                    let projectedSport: String = projections[0]["sport"]
+                    guard projectedEnd == deletion.toTimestamp else { continue }
                     try db.execute(sql: """
                         DELETE FROM workout
-                        WHERE deviceId = ? AND source = ? AND startTs = ? AND endTs = ?
-                        """, arguments: [deviceId, workoutSource, deletion.fromTimestamp, deletion.toTimestamp])
+                        WHERE deviceId = ? AND source = ? AND startTs = ? AND endTs = ? AND sport = ?
+                        """, arguments: [deviceId, workoutSource, deletion.fromTimestamp, deletion.toTimestamp,
+                                           projectedSport])
                 }
             }
 
