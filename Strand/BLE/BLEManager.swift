@@ -4073,8 +4073,8 @@ public final class BLEManager: NSObject, ObservableObject {
     /// Emits a full debug trail to the strap log so a reboot is diagnosable end to end:
     ///   `reboot: request …`  — family / firmware / link state at send time
     ///   `reboot: sent …`     — opcode, framing (harvard-crc8 vs puffin-crc16), payload, seq
-    ///   `reboot: strap acked result=0x…` — the COMMAND_RESPONSE (FrameRouter), the accept/reject signal
-    ///                                        that caught 5/MG haptics rejection (result=0x03)
+    ///   `reboot: strap response result=0x…` — the raw family-specific COMMAND_RESPONSE byte;
+    ///                                           physical reboot confirmation remains separate
     ///   `reboot: link dropped …` — didDisconnectPeripheral, proves the strap acted
     ///   `reboot: no disconnect within …` — strap ignored it (esp. an unverified 5/MG frame)
     ///   `reboot: reconnected …` — the connect handshake, round-trip complete
