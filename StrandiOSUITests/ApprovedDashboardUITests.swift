@@ -227,8 +227,9 @@ final class ApprovedDashboardUITests: XCTestCase {
         XCTAssertEqual(heroVersions, [displayedVersion], "What's New shows the running version from About")
         try requireExists(app.buttons["Continue"], in: app)
         capture(app, "fork-whats-new")
-        let enrollment = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "WHOOP pairing")).firstMatch
+        let enrollment = element("whatsNew.feature.WHOOP pairing", in: app)
         try reveal(enrollment, in: app, needsHitTarget: false)
+        XCTAssertTrue(enrollment.label.contains("New live connections focus on WHOOP straps."))
         capture(app, "fork-whats-new-last-feature")
         app.buttons["Continue"].tap()
         try requireExists(app.buttons["What's new"], in: app)
