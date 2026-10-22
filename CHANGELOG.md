@@ -37,6 +37,8 @@ CI work in PR76 removes duplicate package testing and selects checks by change t
 
 - **Journal in Coach:** capture reviewed notes and mood for a selected day, with explicit save/discard and source/date/consent checks. Notes and structured answers save atomically. Recovery association cards use bounded local history, distinguish missing data, and describe associations without claiming causes.
 
+- **Strap alarm confirmation (#69):** ordered WHOOP 4 writes and current-request readback confirm the wake time; missing confirmation ends with an explicit status.
+
 ## 1.8.1
 
 October 2026: Steadier readings and scores.
