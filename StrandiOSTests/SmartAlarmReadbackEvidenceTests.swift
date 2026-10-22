@@ -455,6 +455,76 @@ final class SmartAlarmReadbackEvidenceTests: XCTestCase {
         }
     }
 
+    private func persistAlreadyFailedLegacyEvidence(_ evidence: SmartAlarmEvidence) throws -> SmartAlarmEvidence {
+        SmartAlarmEvidenceStore.save(evidence)
+        let defaults = UserDefaults.standard
+        let data = try XCTUnwrap(defaults.data(forKey: "smartAlarm.lastEvidence.v1"))
+        var legacy = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        legacy.removeValue(forKey: "earlyWakeAttempted")
+        legacy["actuation"] = "failed"
+        legacy["readbackStatus"] = "unconfirmed"
+        defaults.set(try JSONSerialization.data(withJSONObject: legacy),
+                     forKey: "smartAlarm.lastEvidence.v1")
+        return try XCTUnwrap(SmartAlarmEvidenceStore.latest)
+    }
+
+    func testAlreadyFailedLegacyAdaptiveReadbackRetainsEarlyWakeAttempt() throws {
+        try withEvidence {
+            let decoded = try persistAlreadyFailedLegacyEvidence(adaptiveEvidence(evaluatedAt: sentAt))
+            XCTAssertEqual(decoded.actuation, .failed)
+            XCTAssertTrue(decoded.hasAttemptedEarlyWake,
+                          "An upgrade must not permit another buzz after an earlier readback failed")
+            SmartAlarmEvidenceStore.refreshCorrelation(now: sentAt.addingTimeInterval(10))
+            XCTAssertEqual(try persistedEarlyWakeAttempted(), true)
+            XCTAssertEqual(SmartAlarmEvidenceStore.latest?.actuation, .failed)
+            XCTAssertNil(SmartAlarmEvidenceStore.latest?.strapReportedArmedAt)
+        }
+    }
+
+    func testAlreadyFailedLegacyAttemptSurvivesSameSourceReplacementRequest() throws {
+        try withEvidence {
+            _ = try persistAlreadyFailedLegacyEvidence(adaptiveEvidence(evaluatedAt: sentAt))
+            let endpoint = wakeAt.addingTimeInterval(60)
+            let request = SmartAlarmReadbackRequest(id: UUID(), sourceID: "strap-A",
+                targetEpoch: Int(endpoint.timeIntervalSince1970), sentAt: sentAt.addingTimeInterval(11))
+            SmartAlarmEvidenceStore.beginReadback(request)
+            SmartAlarmEvidenceStore.save(endpointEvaluation(
+                mode: .sleepGoal, decision: .wait, actuation: .endpointArmed,
+                evaluatedAt: request.sentAt, endpoint: endpoint))
+            SmartAlarmEvidenceStore.refreshCorrelation(now: sentAt.addingTimeInterval(12))
+            let evidence = SmartAlarmEvidenceStore.latest
+            XCTAssertEqual(try persistedEarlyWakeAttempted(), true)
+            XCTAssertEqual(evidence?.armRequestID, request.id.uuidString)
+            XCTAssertEqual(evidence?.readbackStatus, .pending)
+            XCTAssertEqual(evidence?.actuation, .endpointArmed)
+            XCTAssertNil(evidence?.strapReportedArmedAt)
+        }
+    }
+
+    func testFailedLegacyEndpointArmDoesNotInventEarlyWakeAttempt() throws {
+        try withEvidence {
+            let decoded = try persistAlreadyFailedLegacyEvidence(endpointEvaluation(
+                mode: .sleepGoal, decision: .wakeNow, actuation: .endpointArmed, evaluatedAt: sentAt))
+            XCTAssertFalse(decoded.hasAttemptedEarlyWake)
+            SmartAlarmEvidenceStore.refreshCorrelation(now: sentAt.addingTimeInterval(10))
+            XCTAssertNotEqual(try persistedEarlyWakeAttempted(), true)
+            XCTAssertEqual(SmartAlarmEvidenceStore.latest?.actuation, .failed)
+        }
+    }
+
+    func testFailedLegacyTargetOutsideAdaptiveWindowDoesNotInventEarlyWakeAttempt() throws {
+        for target in [wakeAt.addingTimeInterval(61), wakeAt.addingTimeInterval(-1_800)] {
+            try withEvidence {
+                var evidence = adaptiveEvidence(evaluatedAt: sentAt)
+                evidence.requestedWakeAt = target
+                let decoded = try persistAlreadyFailedLegacyEvidence(evidence)
+                XCTAssertFalse(decoded.hasAttemptedEarlyWake)
+                SmartAlarmEvidenceStore.refreshCorrelation(now: sentAt.addingTimeInterval(10))
+                XCTAssertNotEqual(try persistedEarlyWakeAttempted(), true)
+            }
+        }
+    }
+
     #if os(iOS)
     private func nativeReadbackFrame(origin: UInt8, epoch: UInt32) -> [UInt8] {
         let payload: [UInt8] = [0x01, epoch == 0 ? 0 : 1, UInt8(truncatingIfNeeded: epoch),
