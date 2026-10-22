@@ -1,0 +1,87 @@
+Building for debugging...
+[0/13] Write sources
+[2/13] Write swift-version-4BDBE066E3DC7C8B.txt
+[4/18] Compiling ReceiptLiftFeature LinuxLocalizationShim.swift
+[5/18] Compiling ReceiptLiftFeature LiftTodayMath.swift
+[6/18] Emitting module ReceiptLiftFeature
+[7/18] Compiling ReceiptLiftFeature LiftModels.swift
+[8/18] Compiling ReceiptLiftFeature LiftMuscleVolume.swift
+[9/19] Wrapping AST for ReceiptLiftFeature for debugging
+[11/22] Emitting module ReceiptLiftFeatureTests
+[12/22] Compiling ReceiptLiftFeatureTests LiftWeekSummaryTests.swift
+[13/22] Compiling ReceiptLiftFeatureTests LiftMuscleVolumeTests.swift
+[14/23] /tmp/noop-lift-review-tests/.build/x86_64-unknown-linux-gnu/debug/LiftReviewHarnessPackageDiscoveredTests.derived/all-discovered-tests.swift
+[15/23] Write sources
+[16/23] Wrapping AST for ReceiptLiftFeatureTests for debugging
+[18/26] Compiling LiftReviewHarnessPackageDiscoveredTests ReceiptLiftFeatureTests.swift
+[19/26] Emitting module LiftReviewHarnessPackageDiscoveredTests
+[20/26] Compiling LiftReviewHarnessPackageDiscoveredTests all-discovered-tests.swift
+[21/27] /tmp/noop-lift-review-tests/.build/x86_64-unknown-linux-gnu/debug/LiftReviewHarnessPackageTests.derived/runner.swift
+[22/27] Write sources
+[23/29] Wrapping AST for LiftReviewHarnessPackageDiscoveredTests for debugging
+[25/29] Emitting module LiftReviewHarnessPackageTests
+[26/29] Compiling LiftReviewHarnessPackageTests runner.swift
+[27/30] Wrapping AST for LiftReviewHarnessPackageTests for debugging
+[28/30] Write Objects.LinkFileList
+[29/30] Linking LiftReviewHarnessPackageTests.xctest
+Build complete! (9.70s)
+warning: '--build-system native' has been deprecated and will be removed in a future release; please report an issue at https://github.com/swiftlang/swift-package-manager/issues if you are unable to adopt the default build system.
+Test Suite 'All tests' started at 2026-10-21 23:07:44.009
+Test Suite 'debug.xctest' started at 2026-10-21 23:07:44.010
+Test Suite 'debug.xctest' passed at 2026-10-21 23:07:44.010
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.0 (0.0) seconds
+Test Suite 'All tests' passed at 2026-10-21 23:07:44.010
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.0 (0.0) seconds
+◇ Test run started.
+↳ Testing Library Version: 6.4.1 (804dc4530ef3666)
+↳ Target Platform: x86_64-unknown-linux-gnu
+◇ Suite "Sets per muscle" started.
+◇ Suite "THIS WEEK summary" started.
+◇ Test daylightSavingWeekUsesItsCalendarEnd() started.
+◇ Test plannedCountsScheduledWorkoutsInTheWeek() started.
+◇ Test deltsAreShoulders() started.
+◇ Test directCountsOneAndAssistingHalf() started.
+◇ Test countsOnlyThisWeekAndComparesWithLast() started.
+◇ Test warmupsEarnNothing() started.
+◇ Test nextWeekMidnightBelongsOnlyToTheNextWeek() started.
+◇ Test sessionsOutsideTheWeekAndUnfinishedOnesAreIgnored() started.
+◇ Test adjacentWeeksDoNotCountTheSameBoundaryWorkout() started.
+◇ Test weekStartsWhereTheCalendarSays() started.
+◇ Test theBandEdgesAreInside() started.
+◇ Test topMusclesFollowPlannedSets() started.
+✔ Test deltsAreShoulders() passed after 0.001 seconds.
+✔ Test warmupsEarnNothing() passed after 0.001 seconds.
+✔ Test sessionsOutsideTheWeekAndUnfinishedOnesAreIgnored() passed after 0.001 seconds.
+✔ Test directCountsOneAndAssistingHalf() passed after 0.001 seconds.
+✔ Test theBandEdgesAreInside() passed after 0.001 seconds.
+✔ Test topMusclesFollowPlannedSets() passed after 0.001 seconds.
+✘ Test adjacentWeeksDoNotCountTheSameBoundaryWorkout() recorded an issue at LiftMuscleVolumeTests.swift:74:5: Expectation failed: sets(previous, .chest) == 0
+↳ sets(previous, .chest) == 0 → false
+↳   sets(previous, .chest) → 1.0
+↳   0 → 0.0
+✘ Test adjacentWeeksDoNotCountTheSameBoundaryWorkout() failed after 0.001 seconds with 1 issue.
+✘ Suite "Sets per muscle" failed after 0.001 seconds with 1 issue.
+✔ Test countsOnlyThisWeekAndComparesWithLast() passed after 0.001 seconds.
+✔ Test plannedCountsScheduledWorkoutsInTheWeek() passed after 0.001 seconds.
+✔ Test weekStartsWhereTheCalendarSays() passed after 0.001 seconds.
+✘ Test daylightSavingWeekUsesItsCalendarEnd() recorded an issue at LiftWeekSummaryTests.swift:86:5: Expectation failed: summary.workouts == 1
+↳ summary.workouts == 1 → false
+↳   summary.workouts → 2
+✘ Test nextWeekMidnightBelongsOnlyToTheNextWeek() recorded an issue at LiftWeekSummaryTests.swift:69:5: Expectation failed: before.workouts == 0
+↳ before.workouts == 0 → false
+↳   before.workouts → 1
+✘ Test daylightSavingWeekUsesItsCalendarEnd() recorded an issue at LiftWeekSummaryTests.swift:87:5: Expectation failed: summary.workingSets == 2
+↳ summary.workingSets == 2 → false
+↳   summary.workingSets → 9
+✘ Test nextWeekMidnightBelongsOnlyToTheNextWeek() recorded an issue at LiftWeekSummaryTests.swift:70:5: Expectation failed: before.workingSets == 0
+↳ before.workingSets == 0 → false
+↳   before.workingSets → 4
+✘ Test nextWeekMidnightBelongsOnlyToTheNextWeek() recorded an issue at LiftWeekSummaryTests.swift:71:5: Expectation failed: before.plannedThisWeek == 0
+↳ before.plannedThisWeek == 0 → false
+↳   before.plannedThisWeek → 1
+✘ Test daylightSavingWeekUsesItsCalendarEnd() failed after 0.001 seconds with 2 issues.
+✘ Test nextWeekMidnightBelongsOnlyToTheNextWeek() failed after 0.001 seconds with 3 issues.
+✘ Suite "THIS WEEK summary" failed after 0.002 seconds with 5 issues.
+✘ Test run with 12 tests in 2 suites failed after 0.002 seconds with 6 issues.
+Note: Some test targets reported failures:
+  - LiftReviewHarnessPackageTests (Swift Testing)

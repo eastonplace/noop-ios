@@ -19,6 +19,20 @@ approximate; downloads are on the [Releases](https://github.com/NoopApp/noop/rel
 
 ## This app's releases
 
+## 1.8.1
+
+October 2026: Steadier readings and scores.
+
+- **Connection control.** Disconnect and Forget keep your strap released.
+- **Steady live sessions.** Equal heart-rate readings stay fresh until silence.
+- **Reliable daily scores.** Invalid readings no longer lower your daily metrics.
+- **Accurate sleep inputs.** Sleep stages follow the right movement and beat order.
+- **Complete widget days.** Stress includes readings from the whole day.
+- **Safer Health cleanup.** Cancelled syncs and cleanup retain recovery evidence.
+- **Correct weekly totals.** Week boundaries keep workouts in the right week.
+
+Integrates the 20 confirmed audit fix groups after 1.8.0 while preserving its source ownership, historical-data protection, alarm backup ownership and Apple Health sleep reduction. Also restores bounded raw-outbox pruning, preserves exact HRV outputs with a reusable buffer, and sends user-initiated test reports to this fork. No sensor cadence or physiological scoring threshold changes. Physical strap battery savings remain unmeasured.
+
 ## 1.8.0
 
 October 2026: More reliable daily data.

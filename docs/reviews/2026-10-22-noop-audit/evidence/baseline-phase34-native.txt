@@ -1,0 +1,361 @@
+Building for debugging...
+[0/13] Write sources
+[2/13] Write swift-version-4BDBE066E3DC7C8B.txt
+[4/41] Emitting module NoopPhase34Core
+[5/44] Compiling NoopPhase34Core CancellableWaiterQueue.swift
+[6/44] Compiling NoopPhase34Core CanonicalSleepScore.swift
+[7/44] Compiling NoopPhase34Core CivilDay.swift
+[8/44] Compiling NoopPhase34Core ConfirmedWriteTokenQueue.swift
+[9/44] Compiling NoopPhase34Core CooperativeAnalysisCancellation.swift
+[10/44] Compiling NoopPhase34Core ExactAnalysisNamespace.swift
+[11/44] Compiling NoopPhase34Core ExactDayCacheMerge.swift
+[12/44] Compiling NoopPhase34Core ExactWorkSourceContext.swift
+[13/44] Compiling NoopPhase34Core SourceTransitionPolicy.swift
+[14/44] Compiling NoopPhase34Core SourceTransitionRecoveryCoordinator.swift
+[15/44] Compiling NoopPhase34Core TargetScopedPipelineFence.swift
+[16/44] Compiling NoopPhase34Core HistoricalPipelineCoordinator.swift
+[17/44] Compiling NoopPhase34Core HistoricalReceiptEvidence.swift
+[18/44] Compiling NoopPhase34Core LatestStateGenerationGate.swift
+[19/44] Compiling NoopPhase34Core VerifiedHealthProjection.swift
+[20/44] Compiling NoopPhase34Core VerifiedWidgetCorePayload.swift
+[21/44] Compiling NoopPhase34Core Whoop5SecureSession.swift
+[22/44] Compiling NoopPhase34Core LosslessDrainSignalGate.swift
+[23/44] Compiling NoopPhase34Core PipelineQuiescence.swift
+[24/44] Compiling NoopPhase34Core RepositoryActiveSourceState.swift
+[25/44] Compiling NoopPhase34Core HistoricalFingerprintV2.swift
+[26/44] Compiling NoopPhase34Core HistoricalFingerprintV3.swift
+[27/44] Compiling NoopPhase34Core HistoricalHealthKitMutationPayload.swift
+[28/44] Compiling NoopPhase34Core ExternalPublicationOutbox.swift
+[29/44] Compiling NoopPhase34Core ExternalSinkPublicationResult.swift
+[30/44] Compiling NoopPhase34Core HistoricalAnalysisWork.swift
+[31/44] Compiling NoopPhase34Core HistoricalAnalysisWorkReducer.swift
+[32/44] Compiling NoopPhase34Core RepositoryRefreshOutcome.swift
+[33/44] Compiling NoopPhase34Core SelectiveExternalPublicationPlan.swift
+[34/44] Compiling NoopPhase34Core SnapshotPresentationIdentity.swift
+[35/45] Wrapping AST for NoopPhase34Core for debugging
+[37/66] Compiling NoopPhase34CoreTests SourceTransitionRecoveryCoordinatorTests.swift
+[38/66] Compiling NoopPhase34CoreTests VerifiedWidgetCorePayloadRegressionTests.swift
+[39/68] Compiling NoopPhase34CoreTests RepositoryRefreshOutcomeTests.swift
+[40/68] Compiling NoopPhase34CoreTests SourceNamespaceIdentityTests.swift
+[41/68] Compiling NoopPhase34CoreTests CivilDayTests.swift
+[42/68] Compiling NoopPhase34CoreTests ConfirmedWriteQueueTests.swift
+[43/68] Compiling NoopPhase34CoreTests ExactDayCacheMergeTests.swift
+[44/68] Compiling NoopPhase34CoreTests HistoricalWorkTests.swift
+[45/68] Compiling NoopPhase34CoreTests LatestStateGenerationGateTests.swift
+[46/68] Compiling NoopPhase34CoreTests LosslessDrainSignalGateTests.swift
+[47/68] Compiling NoopPhase34CoreTests PR29Round5RootFixTests.swift
+[48/68] Compiling NoopPhase34CoreTests PresentationIdentityTests.swift
+[49/68] Compiling NoopPhase34CoreTests PR28RootFixRegressionTests.swift
+[50/68] Compiling NoopPhase34CoreTests PR28Round4HardeningTests.swift
+[51/68] Compiling NoopPhase34CoreTests ExternalOutboxTests.swift
+[52/68] Compiling NoopPhase34CoreTests HistoricalEvidenceTests.swift
+[53/68] Compiling NoopPhase34CoreTests HistoricalPipelineCoordinatorTests.swift
+[54/68] Compiling NoopPhase34CoreTests BlockedPipelineTests.swift
+[55/68] Compiling NoopPhase34CoreTests CancellableWaiterQueueTests.swift
+[56/68] Compiling NoopPhase34CoreTests CanonicalSleepScoreTests.swift
+[57/68] Emitting module NoopPhase34CoreTests
+[58/68] Compiling NoopPhase34CoreTests Whoop5SecureRecoveryTrackerStateTests.swift
+[59/68] Compiling NoopPhase34CoreTests Whoop5SecureSessionTests.swift
+[60/69] /tmp/noop-phase34-build-native/x86_64-unknown-linux-gnu/debug/NoopPhase34CorePackageDiscoveredTests.derived/all-discovered-tests.swift
+[61/69] Write sources
+[62/69] Wrapping AST for NoopPhase34CoreTests for debugging
+[64/72] Emitting module NoopPhase34CorePackageDiscoveredTests
+[65/72] Compiling NoopPhase34CorePackageDiscoveredTests NoopPhase34CoreTests.swift
+[66/72] Compiling NoopPhase34CorePackageDiscoveredTests all-discovered-tests.swift
+[67/73] /tmp/noop-phase34-build-native/x86_64-unknown-linux-gnu/debug/NoopPhase34CorePackageTests.derived/runner.swift
+[68/73] Write sources
+[69/73] Wrapping AST for NoopPhase34CorePackageDiscoveredTests for debugging
+[71/75] Emitting module NoopPhase34CorePackageTests
+[72/75] Compiling NoopPhase34CorePackageTests runner.swift
+[73/76] Wrapping AST for NoopPhase34CorePackageTests for debugging
+[74/76] Write Objects.LinkFileList
+[75/76] Linking NoopPhase34CorePackageTests.xctest
+Build complete! (13.46s)
+Test Suite 'All tests' started at 2026-10-21 23:05:26.044
+Test Suite 'debug.xctest' started at 2026-10-21 23:05:26.045
+Test Suite 'PR29Round5RootFixTests' started at 2026-10-21 23:05:26.045
+Test Case 'PR29Round5RootFixTests.testExactNamespaceKeepsDerivedWritesWithCommittedSource' started at 2026-10-21 23:05:26.045
+Test Case 'PR29Round5RootFixTests.testExactNamespaceKeepsDerivedWritesWithCommittedSource' passed (0.001 seconds)
+Test Case 'PR29Round5RootFixTests.testLosslessGateAccumulatesProductivePassBeforeFinalEdgeRerun' started at 2026-10-21 23:05:26.046
+Test Case 'PR29Round5RootFixTests.testLosslessGateAccumulatesProductivePassBeforeFinalEdgeRerun' passed (0.001 seconds)
+Test Case 'PR29Round5RootFixTests.testNestedTargetQuiesceRequiresMatchingOuterResume' started at 2026-10-21 23:05:26.047
+Test Case 'PR29Round5RootFixTests.testNestedTargetQuiesceRequiresMatchingOuterResume' passed (0.0 seconds)
+Test Case 'PR29Round5RootFixTests.testTargetScopedFenceBlocksOnlyRequestedSource' started at 2026-10-21 23:05:26.047
+Test Case 'PR29Round5RootFixTests.testTargetScopedFenceBlocksOnlyRequestedSource' passed (0.001 seconds)
+Test Case 'PR29Round5RootFixTests.testTargetScopedFenceWaitsForAsyncLeaseWithoutBlockingAnotherSource' started at 2026-10-21 23:05:26.048
+Test Case 'PR29Round5RootFixTests.testTargetScopedFenceWaitsForAsyncLeaseWithoutBlockingAnotherSource' passed (0.0 seconds)
+Test Suite 'PR29Round5RootFixTests' passed at 2026-10-21 23:05:26.048
+	 Executed 5 tests, with 0 failures (0 unexpected) in 0.003 (0.003) seconds
+Test Suite 'SourceTransitionRecoveryCoordinatorTests' started at 2026-10-21 23:05:26.048
+Test Case 'SourceTransitionRecoveryCoordinatorTests.testActiveProjectionContributorSetNormalizesDurableIdentity' started at 2026-10-21 23:05:26.048
+Test Case 'SourceTransitionRecoveryCoordinatorTests.testActiveProjectionContributorSetNormalizesDurableIdentity' passed (0.0 seconds)
+Test Case 'SourceTransitionRecoveryCoordinatorTests.testActiveSelectionPlanMayTargetSourceOutsidePreviousContributors' started at 2026-10-21 23:05:26.049
+Test Case 'SourceTransitionRecoveryCoordinatorTests.testActiveSelectionPlanMayTargetSourceOutsidePreviousContributors' passed (0.0 seconds)
+Test Case 'SourceTransitionRecoveryCoordinatorTests.testCleanupFailureKeepsPostcommitPendingUntilRecoverySucceeds' started at 2026-10-21 23:05:26.049
+Test Case 'SourceTransitionRecoveryCoordinatorTests.testCleanupFailureKeepsPostcommitPendingUntilRecoverySucceeds' passed (0.0 seconds)
+Test Case 'SourceTransitionRecoveryCoordinatorTests.testPlannedRecordPersistsBeforeFailureBeforeSinkMutation' started at 2026-10-21 23:05:26.049
+Test Case 'SourceTransitionRecoveryCoordinatorTests.testPlannedRecordPersistsBeforeFailureBeforeSinkMutation' passed (0.0 seconds)
+Test Case 'SourceTransitionRecoveryCoordinatorTests.testPostCommitJournalFailureNeverRunsPrecommitRollback' started at 2026-10-21 23:05:26.050
+Test Case 'SourceTransitionRecoveryCoordinatorTests.testPostCommitJournalFailureNeverRunsPrecommitRollback' passed (0.0 seconds)
+Test Case 'SourceTransitionRecoveryCoordinatorTests.testPostCommitRecoveryWithoutDurableCommitFailsClosed' started at 2026-10-21 23:05:26.050
+Test Case 'SourceTransitionRecoveryCoordinatorTests.testPostCommitRecoveryWithoutDurableCommitFailsClosed' passed (0.0 seconds)
+Test Case 'SourceTransitionRecoveryCoordinatorTests.testPreparedPersistenceFailureRollsBackUsingFullDurableIdentity' started at 2026-10-21 23:05:26.050
+Test Case 'SourceTransitionRecoveryCoordinatorTests.testPreparedPersistenceFailureRollsBackUsingFullDurableIdentity' passed (0.0 seconds)
+Test Case 'SourceTransitionRecoveryCoordinatorTests.testRelaunchFromPlannedRestoresPersistedRollbackIdentity' started at 2026-10-21 23:05:26.050
+Test Case 'SourceTransitionRecoveryCoordinatorTests.testRelaunchFromPlannedRestoresPersistedRollbackIdentity' passed (0.0 seconds)
+Test Case 'SourceTransitionRecoveryCoordinatorTests.testRelaunchFromPreparedAbortsAndRestoresPrecommitState' started at 2026-10-21 23:05:26.051
+Test Case 'SourceTransitionRecoveryCoordinatorTests.testRelaunchFromPreparedAbortsAndRestoresPrecommitState' passed (0.0 seconds)
+Test Case 'SourceTransitionRecoveryCoordinatorTests.testRelaunchFromSinkActivatedResumesWorkersWithoutReactivatingSink' started at 2026-10-21 23:05:26.051
+Test Case 'SourceTransitionRecoveryCoordinatorTests.testRelaunchFromSinkActivatedResumesWorkersWithoutReactivatingSink' passed (0.0 seconds)
+Test Case 'SourceTransitionRecoveryCoordinatorTests.testRelaunchFromWorkersResumedOnlyStartsSourceAndSchedulesPostcommit' started at 2026-10-21 23:05:26.051
+Test Case 'SourceTransitionRecoveryCoordinatorTests.testRelaunchFromWorkersResumedOnlyStartsSourceAndSchedulesPostcommit' passed (0.0 seconds)
+Test Case 'SourceTransitionRecoveryCoordinatorTests.testRelaunchRecoveryLoadsExactDurableCommitByTransitionId' started at 2026-10-21 23:05:26.051
+Test Case 'SourceTransitionRecoveryCoordinatorTests.testRelaunchRecoveryLoadsExactDurableCommitByTransitionId' passed (0.0 seconds)
+Test Case 'SourceTransitionRecoveryCoordinatorTests.testVersionOneRecoveryRecordDecodesWithLegacyDefaults' started at 2026-10-21 23:05:26.052
+Test Case 'SourceTransitionRecoveryCoordinatorTests.testVersionOneRecoveryRecordDecodesWithLegacyDefaults' passed (0.0 seconds)
+Test Case 'SourceTransitionRecoveryCoordinatorTests.testVersionTwoRecoveryRecordRoundTripsFullIdentity' started at 2026-10-21 23:05:26.052
+Test Case 'SourceTransitionRecoveryCoordinatorTests.testVersionTwoRecoveryRecordRoundTripsFullIdentity' passed (0.0 seconds)
+Test Suite 'SourceTransitionRecoveryCoordinatorTests' passed at 2026-10-21 23:05:26.052
+	 Executed 14 tests, with 0 failures (0 unexpected) in 0.004 (0.004) seconds
+Test Suite 'VerifiedWidgetCorePayloadRegressionTests' started at 2026-10-21 23:05:26.052
+Test Case 'VerifiedWidgetCorePayloadRegressionTests.testEnrichmentSourceSetIsNormalizedAndStable' started at 2026-10-21 23:05:26.052
+Test Case 'VerifiedWidgetCorePayloadRegressionTests.testEnrichmentSourceSetIsNormalizedAndStable' passed (0.001 seconds)
+Test Case 'VerifiedWidgetCorePayloadRegressionTests.testLegacyPayloadFallsBackToVerifiedProjectionOwner' started at 2026-10-21 23:05:26.053
+Test Case 'VerifiedWidgetCorePayloadRegressionTests.testLegacyPayloadFallsBackToVerifiedProjectionOwner' passed (0.0 seconds)
+Test Suite 'VerifiedWidgetCorePayloadRegressionTests' passed at 2026-10-21 23:05:26.053
+	 Executed 2 tests, with 0 failures (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'debug.xctest' passed at 2026-10-21 23:05:26.053
+	 Executed 21 tests, with 0 failures (0 unexpected) in 0.008 (0.008) seconds
+Test Suite 'All tests' passed at 2026-10-21 23:05:26.053
+	 Executed 21 tests, with 0 failures (0 unexpected) in 0.008 (0.008) seconds
+◇ Test run started.
+↳ Testing Library Version: 6.4.1 (804dc4530ef3666)
+↳ Target Platform: x86_64-unknown-linux-gnu
+◇ Test protectedFramesRemainProofOnlyUntilSecureReady() started.
+◇ Test proofMismatchCannotAuthorize(command:sequence:result:integrity:) started.
+◇ Test retryClearsLeaseAndBacksOff() started.
+◇ Test preBondHistoryBuzzAlarmAndR22RemainUnauthorizedWhileStandardHRCanRemainAvailable() started.
+◇ Test everyStaleProtectedFrameClassIsQuarantinedBeforeProof() started.
+◇ Test protocolResponseBeforeATTStillCompletes() started.
+◇ Test fallBackUsesCalendarDays() started.
+◇ Test civilDayDecoderRejectsNormalizedInvalidDates() started.
+◇ Test analysisCannotClaimReceiptsBeyondItsImmutableWorkEdge() started.
+◇ Test pendingWorkDoesNotMergeAcrossRecordedTimeZones() started.
+◇ Test shadowUsesV2RatherThanBlankWhenLegacyMissing() started.
+◇ Test generationsAreValidatedOnlyInsideTheirOwnDomains() started.
+◇ Test cancelAfterHandOffReturnsOwnershipToTheCaller() started.
+◇ Test exactWorkRejectsMoreThanMaximumDayCount() started.
+◇ Test pendingWorkCoalescesExactDaysWithoutFillingGap() started.
+◇ Test restoredAndPoweredOnDiscoveryStartsOnceAndKeepsOneDeadline() started.
+◇ Test aReleaseOnTheCallersActorCannotRunBetweenTheCheckAndTheAppend() started.
+◇ Test largeExactBacklogIsSplitIntoBoundedWorkBatches() started.
+◇ Test secureReadyAndExplicitRetryResetRecovery() started.
+◇ Test exactDayWorkRejectsBroadAnalysisReceipt() started.
+◇ Test sparseBucketsDoNotFillInterveningMonths() started.
+◇ Test cancelBeforeHandOffRemovesTheWaiterAndThrows() started.
+◇ Test latestStateGateRejectsOlderGeneration() started.
+◇ Test metadataChangesDoNotChangePresentationIdentity() started.
+◇ Test explicitDrainCombinerAccumulatesEveryCoalescedPass() started.
+◇ Test healthKitIdentityUsesAnalysisGenerationAndRetainsChangedDays() started.
+◇ Test staleAttemptCannotAuthorizeReplacementConnection() started.
+◇ Test duplicateDiscoveryCallbacksAdvanceEachOwnedPhaseOnce() started.
+◇ Test fallBackRepeatedHourStillRollsAtLocalFourAM() started.
+◇ Test differentPeripheralStartsFreshSecureRecoverySeries() started.
+◇ Test acceptedConnectionClearsRetainedHandshakeState() started.
+◇ Test inFlightExternalPublicationLeaseCanBeRenewed() started.
+◇ Test discoveryContractFreezesAfterHelloStarts() started.
+◇ Test fingerprintV3UsesOrderedDataFramesWithoutRetryEnvelopes() started.
+◇ Test onUsesV2AheadOfLegacy() started.
+◇ Test payloadRestrictionKeepsSleepMutationPairingAfterAnIneligibleMiddleDay() started.
+◇ Test sixDirectPreSecureDisconnectsUseTheBoundedRecoverySeries() started.
+◇ Test rangeEvidenceWithoutDecodedRowsDoesNotCreateAnalysisWork() started.
+◇ Test quiescenceCancelsOldEpochAndWaitsForOwners() started.
+◇ Test streamCountsRejectIntegerOverflow() started.
+◇ Test exactNamespaceNormalizesEveryOwnedIdentifier() started.
+◇ Test outboxIdentityIsPerProjectionGenerationAndDestination() started.
+◇ Test priorDayStrainIsNotVisibleAsCurrent() started.
+◇ Test repositoryDescriptorNormalizesAtTheConstructionBoundary() started.
+◇ Test staleCallbackConsumesOnlyItsCharacteristicGeneration() started.
+◇ Test snapshotFailureDoesNotTurnAuthoritativeRefreshIntoFailure() started.
+◇ Test alreadyCancelledTaskNeverEnqueues() started.
+◇ Test authenticationRefusalFailsClosedWithStandardFallback() started.
+◇ Test coordinatorPersistsFullVerifiedOrder() started.
+◇ Test differentPeripheralLeavesPausedStateAsAFreshFirstAttempt() started.
+◇ Test secureRecoveryBacksOffThenPauses() started.
+◇ Test payloadDecoderRejectsCorruptVersionAndChildValues() started.
+◇ Test immutableHealthKitPayloadRoundTripsAndRejectsMismatchedGeneration() started.
+◇ Test secureReadyMakesTheNextPreProofDisconnectAFirstFailure() started.
+◇ Test fingerprintPayloadIgnoresDerivedRangesAndCapturePolicyByConstruction() started.
+◇ Test restoredPeripheralIsUnverified(wasConnected:) started.
+◇ Test latestStateIdentityUsesSnapshotGeneration() started.
+◇ Test blockedExternalPublicationWaitsForExplicitRearm() started.
+◇ Test r22UnmatchedResponseAfterRejectionRemainsIgnored() started.
+◇ Test springForwardUsesCalendarDays() started.
+◇ Test blockedHistoricalWorkDoesNotConsumeRetryBudget() started.
+◇ Test shadowKeepsLegacyAuthorityAndV2Diagnostic() started.
+◇ Test shadowUsesPersistedV2BeforeProvisionalWhenLegacyMissing() started.
+◇ Test newCallbackCannotConsumeUnreturnedOldToken() started.
+◇ Test retainedDidBondAndConnectHandshakeCannotAuthorizeANewGeneration() started.
+◇ Test pendingWorkRefusesMergeThatWouldExceedMaximumDayCount() started.
+◇ Test ATTBeforeProtocolResponseStillCompletes() started.
+◇ Test incompleteFD4BDiscoveryCannotStartClientHello() started.
+◇ Test callbackAfterTimeoutCannotAuthorizeCharacteristicInstanceReplacement() started.
+◇ Test cancelledWaiterDoesNotBlockTheNextInLine() started.
+◇ Test waiterQueueHandsOffInFifoOrder() started.
+◇ Test activeWorkLeaseCanBeRenewedWithoutChangingPipelineState() started.
+◇ Test outboxRetriesDurably() started.
+◇ Test sleepOnlyProjectionChangeDoesNotEnqueueLiveActivity() started.
+◇ Test verifiedProjectionDecoderRejectsZeroGeneration() started.
+◇ Test workFollowsVerifiedPublicationOrder() started.
+◇ Test quiesceReturnsPromptlyWhileADrainIsParkedOnAHeldLock() started.
+◇ Test recoveryOrStrainProjectionChangeEnqueuesLiveActivity() started.
+◇ Test pendingLatestStateItemCanBeSuperseded() started.
+◇ Test resumeAllReleasesEveryCoalescedWaiter() started.
+◇ Test delegateFailureAndDisconnectCountTheSameAttemptOnce() started.
+◇ Test physicalReconnectDoesNotResetSecureRecovery() started.
+◇ Test r22CountsOnlyMatchedCurrentSessionSuccesses() started.
+◇ Test terminalFallbackKeepsOnlyAConfirmedCurrentStandardHRLink(linkIsConnected:standardHRConfirmed:expected:) started.
+◇ Test widgetOnlyIdentityChangeLeavesLiveActivityUnchanged() started.
+◇ Test decodedEvidenceRequiresAnalysisEvenWhenInsertCountIsZero() started.
+◇ Test discoveryContractFailsClosedForMissingServiceOrCharacteristic() started.
+◇ Test mixedReceiptTimeZonesMustBeSplitBeforePlanning() started.
+◇ Test explicitSourceAuthorityBeatsLexicographicSourceOrder() started.
+◇ Test duplicateRefreshAndDiscoveryCoalesceClientHello() started.
+◇ Test importedWinsEveryMode() started.
+◇ Test exactDayMergeClearsAuthoritativeMissingAndPreservesOtherDays() started.
+◇ Test liveActivitySuccessDoesNotAcknowledgeFailedWidget() started.
+◇ Test widgetSuccessDoesNotAcknowledgeFailedLiveActivity() started.
+◇ Test losslessDrainGateObservesFinalEdgeSignal() started.
+◇ Test physiologicalDayRollsAtFourAM() started.
+◇ Test case passing 4 arguments command → 145, sequence → 42, result → 255, integrity → false to proofMismatchCannotAuthorize(command:sequence:result:integrity:) started.
+◇ Test case passing 4 arguments command → 144, sequence → 42, result → 2, integrity → true to proofMismatchCannotAuthorize(command:sequence:result:integrity:) started.
+◇ Test repositoryComputedReadsUseTheExactNamespaceConvention() started.
+◇ Test cancelledAnalysisLeaseReturnsWithoutAttemptIncrement() started.
+◇ Test springForwardFourAMStartsNewPhysiologicalDay() started.
+◇ Test case passing 4 arguments command → 145, sequence → 43, result → 0, integrity → true to proofMismatchCannotAuthorize(command:sequence:result:integrity:) started.
+◇ Test verifiedMetricDecoderRejectsInvalidValue() started.
+◇ Test fullSecurePathRequiresOwnedStrictProofRegardlessOfGETHELLOResult(result:) started.
+◇ Test explicitRetryArmsPeripheralWithoutInventingFailure() started.
+◇ Test coordinatorBatchLimitDoesNotLeaveReadyWorkIdle() started.
+◇ Test selectivePublicationKeepsHealthKitForHistoricalOnlyChange() started.
+◇ Test healthKitCannotBeSuperseded() started.
+◇ Test editedV2DoesNotBlankImportedProductionWhenModeOff() started.
+◇ Test unrelatedSecureReadyDoesNotClearTheActiveFailureSeries() started.
+◇ Test case passing 1 argument wasConnected → true to restoredPeripheralIsUnverified(wasConnected:) started.
+◇ Test case passing 1 argument wasConnected → false to restoredPeripheralIsUnverified(wasConnected:) started.
+◇ Test case passing 3 arguments linkIsConnected → true, standardHRConfirmed → true, expected → .standardOnlyConfirmed to terminalFallbackKeepsOnlyAConfirmedCurrentStandardHRLink(linkIsConnected:standardHRConfirmed:expected:) started.
+◇ Test case passing 3 arguments linkIsConnected → true, standardHRConfirmed → false, expected → .securePausedNoHR to terminalFallbackKeepsOnlyAConfirmedCurrentStandardHRLink(linkIsConnected:standardHRConfirmed:expected:) started.
+◇ Test case passing 3 arguments linkIsConnected → false, standardHRConfirmed → true, expected → .securePausedNoHR to terminalFallbackKeepsOnlyAConfirmedCurrentStandardHRLink(linkIsConnected:standardHRConfirmed:expected:) started.
+◇ Test case passing 3 arguments linkIsConnected → false, standardHRConfirmed → false, expected → .securePausedNoHR to terminalFallbackKeepsOnlyAConfirmedCurrentStandardHRLink(linkIsConnected:standardHRConfirmed:expected:) started.
+✔ Test protectedFramesRemainProofOnlyUntilSecureReady() passed after 0.005 seconds.
+✔ Test everyStaleProtectedFrameClassIsQuarantinedBeforeProof() passed after 0.005 seconds.
+✔ Test preBondHistoryBuzzAlarmAndR22RemainUnauthorizedWhileStandardHRCanRemainAvailable() passed after 0.005 seconds.
+✔ Test protocolResponseBeforeATTStillCompletes() passed after 0.005 seconds.
+✔ Test proofMismatchCannotAuthorize(command:sequence:result:integrity:) with 3 test cases passed after 0.005 seconds.
+◇ Test case passing 1 argument result → 0 to fullSecurePathRequiresOwnedStrictProofRegardlessOfGETHELLOResult(result:) started.
+◇ Test case passing 1 argument result → 2 to fullSecurePathRequiresOwnedStrictProofRegardlessOfGETHELLOResult(result:) started.
+◇ Test case passing 1 argument result → 255 to fullSecurePathRequiresOwnedStrictProofRegardlessOfGETHELLOResult(result:) started.
+✔ Test retryClearsLeaseAndBacksOff() passed after 0.010 seconds.
+✔ Test restoredAndPoweredOnDiscoveryStartsOnceAndKeepsOneDeadline() passed after 0.010 seconds.
+✔ Test pendingWorkDoesNotMergeAcrossRecordedTimeZones() passed after 0.010 seconds.
+✔ Test fallBackUsesCalendarDays() passed after 0.010 seconds.
+✔ Test analysisCannotClaimReceiptsBeyondItsImmutableWorkEdge() passed after 0.010 seconds.
+✔ Test secureReadyAndExplicitRetryResetRecovery() passed after 0.010 seconds.
+✔ Test exactDayWorkRejectsBroadAnalysisReceipt() passed after 0.010 seconds.
+✔ Test latestStateGateRejectsOlderGeneration() passed after 0.010 seconds.
+✔ Test exactWorkRejectsMoreThanMaximumDayCount() passed after 0.010 seconds.
+✔ Test staleAttemptCannotAuthorizeReplacementConnection() passed after 0.010 seconds.
+✔ Test healthKitIdentityUsesAnalysisGenerationAndRetainsChangedDays() passed after 0.010 seconds.
+✔ Test duplicateDiscoveryCallbacksAdvanceEachOwnedPhaseOnce() passed after 0.010 seconds.
+✔ Test metadataChangesDoNotChangePresentationIdentity() passed after 0.010 seconds.
+✔ Test differentPeripheralStartsFreshSecureRecoverySeries() passed after 0.010 seconds.
+✔ Test acceptedConnectionClearsRetainedHandshakeState() passed after 0.010 seconds.
+✔ Test sparseBucketsDoNotFillInterveningMonths() passed after 0.010 seconds.
+✔ Test inFlightExternalPublicationLeaseCanBeRenewed() passed after 0.010 seconds.
+✔ Test rangeEvidenceWithoutDecodedRowsDoesNotCreateAnalysisWork() passed after 0.010 seconds.
+✔ Test discoveryContractFreezesAfterHelloStarts() passed after 0.010 seconds.
+✔ Test fingerprintV3UsesOrderedDataFramesWithoutRetryEnvelopes() passed after 0.010 seconds.
+✔ Test sixDirectPreSecureDisconnectsUseTheBoundedRecoverySeries() passed after 0.010 seconds.
+✔ Test civilDayDecoderRejectsNormalizedInvalidDates() passed after 0.011 seconds.
+✔ Test payloadRestrictionKeepsSleepMutationPairingAfterAnIneligibleMiddleDay() passed after 0.010 seconds.
+✔ Test onUsesV2AheadOfLegacy() passed after 0.010 seconds.
+✔ Test exactNamespaceNormalizesEveryOwnedIdentifier() passed after 0.010 seconds.
+✔ Test outboxIdentityIsPerProjectionGenerationAndDestination() passed after 0.010 seconds.
+✔ Test repositoryDescriptorNormalizesAtTheConstructionBoundary() passed after 0.010 seconds.
+✔ Test authenticationRefusalFailsClosedWithStandardFallback() passed after 0.010 seconds.
+✔ Test priorDayStrainIsNotVisibleAsCurrent() passed after 0.010 seconds.
+✔ Test snapshotFailureDoesNotTurnAuthoritativeRefreshIntoFailure() passed after 0.010 seconds.
+✔ Test secureRecoveryBacksOffThenPauses() passed after 0.010 seconds.
+✔ Test differentPeripheralLeavesPausedStateAsAFreshFirstAttempt() passed after 0.011 seconds.
+✔ Test streamCountsRejectIntegerOverflow() passed after 0.010 seconds.
+✔ Test staleCallbackConsumesOnlyItsCharacteristicGeneration() passed after 0.010 seconds.
+✔ Test latestStateIdentityUsesSnapshotGeneration() passed after 0.010 seconds.
+✔ Test secureReadyMakesTheNextPreProofDisconnectAFirstFailure() passed after 0.010 seconds.
+✔ Test pendingWorkCoalescesExactDaysWithoutFillingGap() passed after 0.011 seconds.
+✔ Test generationsAreValidatedOnlyInsideTheirOwnDomains() passed after 0.011 seconds.
+✔ Test shadowUsesV2RatherThanBlankWhenLegacyMissing() passed after 0.011 seconds.
+✔ Test fingerprintPayloadIgnoresDerivedRangesAndCapturePolicyByConstruction() passed after 0.010 seconds.
+✔ Test restoredPeripheralIsUnverified(wasConnected:) with 2 test cases passed after 0.010 seconds.
+✔ Test springForwardUsesCalendarDays() passed after 0.010 seconds.
+✔ Test shadowKeepsLegacyAuthorityAndV2Diagnostic() passed after 0.010 seconds.
+✔ Test r22UnmatchedResponseAfterRejectionRemainsIgnored() passed after 0.010 seconds.
+✔ Test shadowUsesPersistedV2BeforeProvisionalWhenLegacyMissing() passed after 0.010 seconds.
+✔ Test blockedHistoricalWorkDoesNotConsumeRetryBudget() passed after 0.010 seconds.
+✔ Test newCallbackCannotConsumeUnreturnedOldToken() passed after 0.010 seconds.
+✔ Test blockedExternalPublicationWaitsForExplicitRearm() passed after 0.010 seconds.
+✔ Test retainedDidBondAndConnectHandshakeCannotAuthorizeANewGeneration() passed after 0.010 seconds.
+✔ Test incompleteFD4BDiscoveryCannotStartClientHello() passed after 0.010 seconds.
+✔ Test ATTBeforeProtocolResponseStillCompletes() passed after 0.010 seconds.
+✔ Test callbackAfterTimeoutCannotAuthorizeCharacteristicInstanceReplacement() passed after 0.010 seconds.
+✔ Test outboxRetriesDurably() passed after 0.010 seconds.
+✔ Test activeWorkLeaseCanBeRenewedWithoutChangingPipelineState() passed after 0.010 seconds.
+✔ Test workFollowsVerifiedPublicationOrder() passed after 0.010 seconds.
+✔ Test pendingLatestStateItemCanBeSuperseded() passed after 0.010 seconds.
+✔ Test sleepOnlyProjectionChangeDoesNotEnqueueLiveActivity() passed after 0.010 seconds.
+✔ Test recoveryOrStrainProjectionChangeEnqueuesLiveActivity() passed after 0.010 seconds.
+✔ Test delegateFailureAndDisconnectCountTheSameAttemptOnce() passed after 0.010 seconds.
+✔ Test r22CountsOnlyMatchedCurrentSessionSuccesses() passed after 0.010 seconds.
+✔ Test physicalReconnectDoesNotResetSecureRecovery() passed after 0.010 seconds.
+✔ Test decodedEvidenceRequiresAnalysisEvenWhenInsertCountIsZero() passed after 0.010 seconds.
+✔ Test widgetOnlyIdentityChangeLeavesLiveActivityUnchanged() passed after 0.010 seconds.
+✔ Test terminalFallbackKeepsOnlyAConfirmedCurrentStandardHRLink(linkIsConnected:standardHRConfirmed:expected:) with 4 test cases passed after 0.010 seconds.
+✔ Test discoveryContractFailsClosedForMissingServiceOrCharacteristic() passed after 0.010 seconds.
+✔ Test verifiedProjectionDecoderRejectsZeroGeneration() passed after 0.010 seconds.
+✔ Test pendingWorkRefusesMergeThatWouldExceedMaximumDayCount() passed after 0.010 seconds.
+✔ Test mixedReceiptTimeZonesMustBeSplitBeforePlanning() passed after 0.010 seconds.
+✔ Test explicitSourceAuthorityBeatsLexicographicSourceOrder() passed after 0.010 seconds.
+✔ Test exactDayMergeClearsAuthoritativeMissingAndPreservesOtherDays() passed after 0.010 seconds.
+✔ Test duplicateRefreshAndDiscoveryCoalesceClientHello() passed after 0.010 seconds.
+✔ Test liveActivitySuccessDoesNotAcknowledgeFailedWidget() passed after 0.009 seconds.
+✔ Test repositoryComputedReadsUseTheExactNamespaceConvention() passed after 0.009 seconds.
+✔ Test widgetSuccessDoesNotAcknowledgeFailedLiveActivity() passed after 0.009 seconds.
+✔ Test cancelledAnalysisLeaseReturnsWithoutAttemptIncrement() passed after 0.009 seconds.
+✔ Test fullSecurePathRequiresOwnedStrictProofRegardlessOfGETHELLOResult(result:) with 3 test cases passed after 0.009 seconds.
+✔ Test explicitRetryArmsPeripheralWithoutInventingFailure() passed after 0.009 seconds.
+✔ Test largeExactBacklogIsSplitIntoBoundedWorkBatches() passed after 0.011 seconds.
+✔ Test immutableHealthKitPayloadRoundTripsAndRejectsMismatchedGeneration() passed after 0.011 seconds.
+✔ Test importedWinsEveryMode() passed after 0.010 seconds.
+✔ Test healthKitCannotBeSuperseded() passed after 0.008 seconds.
+✔ Test editedV2DoesNotBlankImportedProductionWhenModeOff() passed after 0.008 seconds.
+✔ Test selectivePublicationKeepsHealthKitForHistoricalOnlyChange() passed after 0.009 seconds.
+✔ Test unrelatedSecureReadyDoesNotClearTheActiveFailureSeries() passed after 0.008 seconds.
+✔ Test verifiedMetricDecoderRejectsInvalidValue() passed after 0.009 seconds.
+✔ Test payloadDecoderRejectsCorruptVersionAndChildValues() passed after 0.011 seconds.
+✔ Test coordinatorPersistsFullVerifiedOrder() passed after 0.011 seconds.
+✔ Test alreadyCancelledTaskNeverEnqueues() passed after 0.012 seconwarning: '--build-system native' has been deprecated and will be removed in a future release; please report an issue at https://github.com/swiftlang/swift-package-manager/issues if you are unable to adopt the default build system.
+ds.
+✔ Test cancelBeforeHandOffRemovesTheWaiterAndThrows() passed after 0.012 seconds.
+✔ Test quiescenceCancelsOldEpochAndWaitsForOwners() passed after 0.012 seconds.
+✔ Test explicitDrainCombinerAccumulatesEveryCoalescedPass() passed after 0.012 seconds.
+✔ Test losslessDrainGateObservesFinalEdgeSignal() passed after 0.010 seconds.
+✔ Test resumeAllReleasesEveryCoalescedWaiter() passed after 0.011 seconds.
+✔ Test coordinatorBatchLimitDoesNotLeaveReadyWorkIdle() passed after 0.010 seconds.
+✔ Test springForwardFourAMStartsNewPhysiologicalDay() passed after 0.010 seconds.
+✔ Test fallBackRepeatedHourStillRollsAtLocalFourAM() passed after 0.012 seconds.
+✔ Test physiologicalDayRollsAtFourAM() passed after 0.011 seconds.
+✔ Test cancelAfterHandOffReturnsOwnershipToTheCaller() passed after 0.013 seconds.
+✔ Test cancelledWaiterDoesNotBlockTheNextInLine() passed after 0.012 seconds.
+✔ Test waiterQueueHandsOffInFifoOrder() passed after 0.013 seconds.
+✔ Test quiesceReturnsPromptlyWhileADrainIsParkedOnAHeldLock() passed after 0.014 seconds.
+✔ Test aReleaseOnTheCallersActorCannotRunBetweenTheCheckAndTheAppend() passed after 0.025 seconds.
+✔ Test run with 107 tests in 0 suites passed after 0.025 seconds.

@@ -1,0 +1,443 @@
+[0/1] Planning build
+Building for debugging...
+[0/3] Write sources
+[1/3] Write swift-version-4BDBE066E3DC7C8B.txt
+[3/5] Compiling StrandAnalytics HRVAnalyzer.swift
+[4/5] Emitting module StrandAnalytics
+[5/7] Write Objects.LinkFileList
+[6/7] Linking NoopMetricsHarnessPackageTests.xctest
+Build complete! (1.03s)
+Test Suite 'All tests' started at 2026-10-21 23:20:17.456
+Test Suite 'debug.xctest' started at 2026-10-21 23:20:17.457
+Test Suite 'DaytimeStressTests' started at 2026-10-21 23:20:17.457
+Test Case 'DaytimeStressTests.testEmptyWhenNoHR' started at 2026-10-21 23:20:17.457
+Test Case 'DaytimeStressTests.testEmptyWhenNoHR' passed (0.001 seconds)
+Test Case 'DaytimeStressTests.testFlatDayDoesNotFlagSustained' started at 2026-10-21 23:20:17.458
+Test Case 'DaytimeStressTests.testFlatDayDoesNotFlagSustained' passed (0.002 seconds)
+Test Case 'DaytimeStressTests.testHourBelowGateIsUnscored' started at 2026-10-21 23:20:17.460
+Test Case 'DaytimeStressTests.testHourBelowGateIsUnscored' passed (0.0 seconds)
+Test Case 'DaytimeStressTests.testInvalidReadingsDoNotChangeCoveredHourMean' started at 2026-10-21 23:20:17.460
+Test Case 'DaytimeStressTests.testInvalidReadingsDoNotChangeCoveredHourMean' passed (0.001 seconds)
+Test Case 'DaytimeStressTests.testInvalidReadingsDoNotCompleteHourlyCoverage' started at 2026-10-21 23:20:17.461
+Test Case 'DaytimeStressTests.testInvalidReadingsDoNotCompleteHourlyCoverage' passed (0.0 seconds)
+Test Case 'DaytimeStressTests.testNonWakingHoursAreExcluded' started at 2026-10-21 23:20:17.461
+Test Case 'DaytimeStressTests.testNonWakingHoursAreExcluded' passed (0.0 seconds)
+Test Case 'DaytimeStressTests.testOffWristHoursDoNotBecomeScoredStress' started at 2026-10-21 23:20:17.462
+Test Case 'DaytimeStressTests.testOffWristHoursDoNotBecomeScoredStress' passed (0.0 seconds)
+Test Case 'DaytimeStressTests.testRMSSDLowersStressDirectionMatchesDailyScore' started at 2026-10-21 23:20:17.462
+Test Case 'DaytimeStressTests.testRMSSDLowersStressDirectionMatchesDailyScore' passed (0.001 seconds)
+Test Case 'DaytimeStressTests.testScoresMapOntoZeroToThree' started at 2026-10-21 23:20:17.463
+Test Case 'DaytimeStressTests.testScoresMapOntoZeroToThree' passed (0.001 seconds)
+Test Case 'DaytimeStressTests.testSleepHoursInTheWindowDoNotShiftTheWakingTimeline' started at 2026-10-21 23:20:17.464
+Test Case 'DaytimeStressTests.testSleepHoursInTheWindowDoNotShiftTheWakingTimeline' passed (0.004 seconds)
+Test Case 'DaytimeStressTests.testSustainedHighFlagsAfterThreeConsecutiveHighHours' started at 2026-10-21 23:20:17.468
+Test Case 'DaytimeStressTests.testSustainedHighFlagsAfterThreeConsecutiveHighHours' passed (0.001 seconds)
+Test Case 'DaytimeStressTests.testTimestampedRRUsesChronologicalSuccessiveDifferences' started at 2026-10-21 23:20:17.469
+Test Case 'DaytimeStressTests.testTimestampedRRUsesChronologicalSuccessiveDifferences' passed (0.001 seconds)
+Test Case 'DaytimeStressTests.testTimezoneOffsetShiftsWakingWindow' started at 2026-10-21 23:20:17.470
+Test Case 'DaytimeStressTests.testTimezoneOffsetShiftsWakingWindow' passed (0.0 seconds)
+Test Suite 'DaytimeStressTests' passed at 2026-10-21 23:20:17.470
+	 Executed 13 tests, with 0 failures (0 unexpected) in 0.013 (0.013) seconds
+Test Suite 'HRVAnalyzerTests' started at 2026-10-21 23:20:17.470
+Test Case 'HRVAnalyzerTests.testAnalyzeGoldenSeries' started at 2026-10-21 23:20:17.470
+Test Case 'HRVAnalyzerTests.testAnalyzeGoldenSeries' passed (0.0 seconds)
+Test Case 'HRVAnalyzerTests.testAnalyzeRequiresMinBeats' started at 2026-10-21 23:20:17.470
+Test Case 'HRVAnalyzerTests.testAnalyzeRequiresMinBeats' passed (0.0 seconds)
+Test Case 'HRVAnalyzerTests.testAnalyzeWindowFiltersByTimestamp' started at 2026-10-21 23:20:17.470
+Test Case 'HRVAnalyzerTests.testAnalyzeWindowFiltersByTimestamp' passed (0.0 seconds)
+Test Case 'HRVAnalyzerTests.testCoverageCleanStreamIsNearOne' started at 2026-10-21 23:20:17.471
+Test Case 'HRVAnalyzerTests.testCoverageCleanStreamIsNearOne' passed (0.0 seconds)
+Test Case 'HRVAnalyzerTests.testCoverageDoubleCountedBeatsExceedsOne' started at 2026-10-21 23:20:17.471
+Test Case 'HRVAnalyzerTests.testCoverageDoubleCountedBeatsExceedsOne' passed (0.0 seconds)
+Test Case 'HRVAnalyzerTests.testCoverageZeroForTooFewBeatsOrZeroSpan' started at 2026-10-21 23:20:17.471
+Test Case 'HRVAnalyzerTests.testCoverageZeroForTooFewBeatsOrZeroSpan' passed (0.0 seconds)
+Test Case 'HRVAnalyzerTests.testDuplicateBeatsCountsExactRepeats' started at 2026-10-21 23:20:17.471
+Test Case 'HRVAnalyzerTests.testDuplicateBeatsCountsExactRepeats' passed (0.1 seconds)
+Test Case 'HRVAnalyzerTests.testEctopicKeepsModerateVariation' started at 2026-10-21 23:20:17.571
+Test Case 'HRVAnalyzerTests.testEctopicKeepsModerateVariation' passed (0.0 seconds)
+Test Case 'HRVAnalyzerTests.testEctopicRejectionDropsSpike' started at 2026-10-21 23:20:17.571
+Test Case 'HRVAnalyzerTests.testEctopicRejectionDropsSpike' passed (0.0 seconds)
+Test Case 'HRVAnalyzerTests.testNightlyWindowedRMSSDUnchangedWithDefaultedGate' started at 2026-10-21 23:20:17.572
+Test Case 'HRVAnalyzerTests.testNightlyWindowedRMSSDUnchangedWithDefaultedGate' passed (0.0 seconds)
+Test Case 'HRVAnalyzerTests.testRMSSDRawHandComputed' started at 2026-10-21 23:20:17.572
+Test Case 'HRVAnalyzerTests.testRMSSDRawHandComputed' passed (0.0 seconds)
+Test Case 'HRVAnalyzerTests.testRMSSDRawTooFewReturnsNil' started at 2026-10-21 23:20:17.572
+Test Case 'HRVAnalyzerTests.testRMSSDRawTooFewReturnsNil' passed (0.0 seconds)
+Test Case 'HRVAnalyzerTests.testRangeFilterDropsOutOfRange' started at 2026-10-21 23:20:17.572
+Test Case 'HRVAnalyzerTests.testRangeFilterDropsOutOfRange' passed (0.0 seconds)
+Test Case 'HRVAnalyzerTests.testRollingRmssdCleansArtifactWindows' started at 2026-10-21 23:20:17.572
+Test Case 'HRVAnalyzerTests.testRollingRmssdCleansArtifactWindows' passed (0.001 seconds)
+Test Case 'HRVAnalyzerTests.testRollingRmssdEmitsWindowedTimelineWithKnownValue' started at 2026-10-21 23:20:17.573
+Test Case 'HRVAnalyzerTests.testRollingRmssdEmitsWindowedTimelineWithKnownValue' passed (0.001 seconds)
+Test Case 'HRVAnalyzerTests.testRollingRmssdSortsUnorderedInput' started at 2026-10-21 23:20:17.574
+Test Case 'HRVAnalyzerTests.testRollingRmssdSortsUnorderedInput' passed (0.001 seconds)
+Test Case 'HRVAnalyzerTests.testRollingRmssdSparseSeriesEmitsNothing' started at 2026-10-21 23:20:17.575
+Test Case 'HRVAnalyzerTests.testRollingRmssdSparseSeriesEmitsNothing' passed (0.0 seconds)
+Test Case 'HRVAnalyzerTests.testRollingRmssdStepThinsEmission' started at 2026-10-21 23:20:17.575
+Test Case 'HRVAnalyzerTests.testRollingRmssdStepThinsEmission' passed (0.001 seconds)
+Test Case 'HRVAnalyzerTests.testSDNNRawSampleStdDev' started at 2026-10-21 23:20:17.577
+Test Case 'HRVAnalyzerTests.testSDNNRawSampleStdDev' passed (0.0 seconds)
+Test Case 'HRVAnalyzerTests.testSpotGateAllowsWhenRejectionUnderCeiling' started at 2026-10-21 23:20:17.577
+Test Case 'HRVAnalyzerTests.testSpotGateAllowsWhenRejectionUnderCeiling' passed (0.0 seconds)
+Test Case 'HRVAnalyzerTests.testSpotGateRefusesWhenTooManyBeatsRejected' started at 2026-10-21 23:20:17.577
+Test Case 'HRVAnalyzerTests.testSpotGateRefusesWhenTooManyBeatsRejected' passed (0.0 seconds)
+Test Suite 'HRVAnalyzerTests' passed at 2026-10-21 23:20:17.577
+	 Executed 21 tests, with 0 failures (0 unexpected) in 0.107 (0.107) seconds
+Test Suite 'HrvGapAwareTests' started at 2026-10-21 23:20:17.577
+Test Case 'HrvGapAwareTests.testBoundaryCases' started at 2026-10-21 23:20:17.577
+Test Case 'HrvGapAwareTests.testBoundaryCases' passed (0.0 seconds)
+Test Case 'HrvGapAwareTests.testCleanSeriesIsUnchanged' started at 2026-10-21 23:20:17.578
+Test Case 'HrvGapAwareTests.testCleanSeriesIsUnchanged' passed (0.0 seconds)
+Test Case 'HrvGapAwareTests.testContiguityFlagMarksTheSplice' started at 2026-10-21 23:20:17.578
+Test Case 'HrvGapAwareTests.testContiguityFlagMarksTheSplice' passed (0.0 seconds)
+Test Case 'HrvGapAwareTests.testEndDropsKeepAllContiguous' started at 2026-10-21 23:20:17.578
+Test Case 'HrvGapAwareTests.testEndDropsKeepAllContiguous' passed (0.0 seconds)
+Test Case 'HrvGapAwareTests.testMidSeriesDropDoesNotSplice' started at 2026-10-21 23:20:17.578
+Test Case 'HrvGapAwareTests.testMidSeriesDropDoesNotSplice' passed (0.0 seconds)
+Test Case 'HrvGapAwareTests.testPhysiologicalOrderFixtureMatchesDirectSourceAnalysis' started at 2026-10-21 23:20:17.578
+Test Case 'HrvGapAwareTests.testPhysiologicalOrderFixtureMatchesDirectSourceAnalysis' passed (0.0 seconds)
+Test Case 'HrvGapAwareTests.testRmssdGapAwarePrimitiveSkipsSplice' started at 2026-10-21 23:20:17.578
+Test Case 'HrvGapAwareTests.testRmssdGapAwarePrimitiveSkipsSplice' passed (0.0 seconds)
+Test Suite 'HrvGapAwareTests' passed at 2026-10-21 23:20:17.578
+	 Executed 7 tests, with 0 failures (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'ManualWorkoutRescoreTests' started at 2026-10-21 23:20:17.578
+Test Case 'ManualWorkoutRescoreTests.testAvgHrIsTrueMeanOfVariedTrace' started at 2026-10-21 23:20:17.578
+Test Case 'ManualWorkoutRescoreTests.testAvgHrIsTrueMeanOfVariedTrace' passed (0.0 seconds)
+Test Case 'ManualWorkoutRescoreTests.testEveryRescoredWorkoutMetricUsesTheSameValidHeartRate' started at 2026-10-21 23:20:17.579
+Test Case 'ManualWorkoutRescoreTests.testEveryRescoredWorkoutMetricUsesTheSameValidHeartRate' passed (0.004 seconds)
+Test Case 'ManualWorkoutRescoreTests.testImprovesIsStrictAndMonotonic' started at 2026-10-21 23:20:17.583
+Test Case 'ManualWorkoutRescoreTests.testImprovesIsStrictAndMonotonic' passed (0.0 seconds)
+Test Case 'ManualWorkoutRescoreTests.testInvalidReadingsDoNotCreateARescorableWorkout' started at 2026-10-21 23:20:17.583
+Test Case 'ManualWorkoutRescoreTests.testInvalidReadingsDoNotCreateARescorableWorkout' passed (0.0 seconds)
+Test Case 'ManualWorkoutRescoreTests.testLooksUnderScoredGate' started at 2026-10-21 23:20:17.584
+Test Case 'ManualWorkoutRescoreTests.testLooksUnderScoredGate' passed (0.0 seconds)
+Test Case 'ManualWorkoutRescoreTests.testScoresDenseWindow' started at 2026-10-21 23:20:17.584
+Test Case 'ManualWorkoutRescoreTests.testScoresDenseWindow' passed (0.002 seconds)
+Test Case 'ManualWorkoutRescoreTests.testStrainOnlyImprovementFillsMergedRow' started at 2026-10-21 23:20:17.586
+Test Case 'ManualWorkoutRescoreTests.testStrainOnlyImprovementFillsMergedRow' passed (0.0 seconds)
+Test Case 'ManualWorkoutRescoreTests.testTooFewSamplesReturnsNil' started at 2026-10-21 23:20:17.586
+Test Case 'ManualWorkoutRescoreTests.testTooFewSamplesReturnsNil' passed (0.0 seconds)
+Test Case 'ManualWorkoutRescoreTests.testUnderScoredWorkoutGetsRescoredFromDenseWindow' started at 2026-10-21 23:20:17.586
+Test Case 'ManualWorkoutRescoreTests.testUnderScoredWorkoutGetsRescoredFromDenseWindow' passed (0.002 seconds)
+Test Suite 'ManualWorkoutRescoreTests' passed at 2026-10-21 23:20:17.588
+	 Executed 9 tests, with 0 failures (0 unexpected) in 0.009 (0.009) seconds
+Test Suite 'RecoveryScorerTests' started at 2026-10-21 23:20:17.588
+Test Case 'RecoveryScorerTests.testBandThresholds' started at 2026-10-21 23:20:17.588
+Test Case 'RecoveryScorerTests.testBandThresholds' passed (0.0 seconds)
+Test Case 'RecoveryScorerTests.testColdStartReturnsNil' started at 2026-10-21 23:20:17.588
+Test Case 'RecoveryScorerTests.testColdStartReturnsNil' passed (0.0 seconds)
+Test Case 'RecoveryScorerTests.testRecoveryAtBaselineNearPopulationMean' started at 2026-10-21 23:20:17.588
+Test Case 'RecoveryScorerTests.testRecoveryAtBaselineNearPopulationMean' passed (0.0 seconds)
+Test Case 'RecoveryScorerTests.testRecoveryClampedToRange' started at 2026-10-21 23:20:17.588
+Test Case 'RecoveryScorerTests.testRecoveryClampedToRange' passed (0.0 seconds)
+Test Case 'RecoveryScorerTests.testRecoveryHigherWhenHRVAboveAndRHRBelow' started at 2026-10-21 23:20:17.588
+Test Case 'RecoveryScorerTests.testRecoveryHigherWhenHRVAboveAndRHRBelow' passed (0.0 seconds)
+Test Case 'RecoveryScorerTests.testRespAboveBaselineLowersAndBelowRaisesRecovery' started at 2026-10-21 23:20:17.588
+Test Case 'RecoveryScorerTests.testRespAboveBaselineLowersAndBelowRaisesRecovery' passed (0.0 seconds)
+Test Case 'RecoveryScorerTests.testRespTermDropAndRenormalize' started at 2026-10-21 23:20:17.588
+Test Case 'RecoveryScorerTests.testRespTermDropAndRenormalize' passed (0.0 seconds)
+Test Case 'RecoveryScorerTests.testRestingHRDoesNotTurnInvalidReadingsIntoFallbackPhysiology' started at 2026-10-21 23:20:17.588
+Test Case 'RecoveryScorerTests.testRestingHRDoesNotTurnInvalidReadingsIntoFallbackPhysiology' passed (0.0 seconds)
+Test Case 'RecoveryScorerTests.testRestingHRDropsInvalidReadingsBeforeAveragingUnsortedBins' started at 2026-10-21 23:20:17.589
+Test Case 'RecoveryScorerTests.testRestingHRDropsInvalidReadingsBeforeAveragingUnsortedBins' passed (0.0 seconds)
+Test Case 'RecoveryScorerTests.testRestingHRFallsBackWhenNoBinQualifies' started at 2026-10-21 23:20:17.589
+Test Case 'RecoveryScorerTests.testRestingHRFallsBackWhenNoBinQualifies' passed (0.0 seconds)
+Test Case 'RecoveryScorerTests.testRestingHRKeepsGenuineLowFloor' started at 2026-10-21 23:20:17.589
+Test Case 'RecoveryScorerTests.testRestingHRKeepsGenuineLowFloor' passed (0.0 seconds)
+Test Case 'RecoveryScorerTests.testRestingHRLowestRollingMean' started at 2026-10-21 23:20:17.589
+Test Case 'RecoveryScorerTests.testRestingHRLowestRollingMean' passed (0.0 seconds)
+Test Case 'RecoveryScorerTests.testRestingHRNilWhenNoSamples' started at 2026-10-21 23:20:17.590
+Test Case 'RecoveryScorerTests.testRestingHRNilWhenNoSamples' passed (0.0 seconds)
+Test Case 'RecoveryScorerTests.testRestingHRPreservesTheSharedPlausibilityBoundaries' started at 2026-10-21 23:20:17.590
+Test Case 'RecoveryScorerTests.testRestingHRPreservesTheSharedPlausibilityBoundaries' passed (0.0 seconds)
+Test Case 'RecoveryScorerTests.testRestingHRRejectsSingleSampleArtifactBin' started at 2026-10-21 23:20:17.590
+Test Case 'RecoveryScorerTests.testRestingHRRejectsSingleSampleArtifactBin' passed (0.0 seconds)
+Test Case 'RecoveryScorerTests.testRestingHRRejectsSubPhysiologicalDropoutBin' started at 2026-10-21 23:20:17.590
+Test Case 'RecoveryScorerTests.testRestingHRRejectsSubPhysiologicalDropoutBin' passed (0.0 seconds)
+Test Case 'RecoveryScorerTests.testSkinTempDeviationLowersChargeSymmetrically' started at 2026-10-21 23:20:17.591
+Test Case 'RecoveryScorerTests.testSkinTempDeviationLowersChargeSymmetrically' passed (0.0 seconds)
+Test Case 'RecoveryScorerTests.testSkinTempNilLeavesScoreIdenticalToBefore' started at 2026-10-21 23:20:17.591
+Test Case 'RecoveryScorerTests.testSkinTempNilLeavesScoreIdenticalToBefore' passed (0.0 seconds)
+Test Suite 'RecoveryScorerTests' passed at 2026-10-21 23:20:17.591
+	 Executed 18 tests, with 0 failures (0 unexpected) in 0.003 (0.003) seconds
+Test Suite 'SleepMemoInputTests' started at 2026-10-21 23:20:17.591
+Test Case 'SleepMemoInputTests.testDetectionCacheDoesNotAliasDifferentGravityAxesWithTheSameSum' started at 2026-10-21 23:20:17.591
+Test Case 'SleepMemoInputTests.testDetectionCacheDoesNotAliasDifferentGravityAxesWithTheSameSum' passed (0.041 seconds)
+Test Case 'SleepMemoInputTests.testV1StagingCacheDoesNotReplayStillStagesForEqualSumMotion' started at 2026-10-21 23:20:17.632
+Test Case 'SleepMemoInputTests.testV1StagingCacheDoesNotReplayStillStagesForEqualSumMotion' passed (0.03 seconds)
+Test Case 'SleepMemoInputTests.testV2ClipsUnorderedPaddedStreamsWithoutDiscardingTheNight' started at 2026-10-21 23:20:17.662
+Test Case 'SleepMemoInputTests.testV2ClipsUnorderedPaddedStreamsWithoutDiscardingTheNight' passed (0.029 seconds)
+Test Case 'SleepMemoInputTests.testV2StagingCacheDoesNotReplayStillStagesForEqualSumMotion' started at 2026-10-21 23:20:17.691
+Test Case 'SleepMemoInputTests.testV2StagingCacheDoesNotReplayStillStagesForEqualSumMotion' passed (0.054 seconds)
+Test Suite 'SleepMemoInputTests' passed at 2026-10-21 23:20:17.745
+	 Executed 4 tests, with 0 failures (0 unexpected) in 0.154 (0.154) seconds
+Test Suite 'SleepRecoveryValidityTests' started at 2026-10-21 23:20:17.745
+Test Case 'SleepRecoveryValidityTests.testInvalidRRAloneCannotAuthorizeRecoveredSleep' started at 2026-10-21 23:20:17.745
+Test Case 'SleepRecoveryValidityTests.testInvalidRRAloneCannotAuthorizeRecoveredSleep' passed (0.002 seconds)
+Test Case 'SleepRecoveryValidityTests.testMixedInvalidHeartRateDoesNotChangeRecoveredVitalsOrCoverage' started at 2026-10-21 23:20:17.747
+Test Case 'SleepRecoveryValidityTests.testMixedInvalidHeartRateDoesNotChangeRecoveredVitalsOrCoverage' passed (0.004 seconds)
+Test Case 'SleepRecoveryValidityTests.testOffWristHeartRateCannotAuthorizeRecoveredSleep' started at 2026-10-21 23:20:17.752
+Test Case 'SleepRecoveryValidityTests.testOffWristHeartRateCannotAuthorizeRecoveredSleep' passed (0.004 seconds)
+Test Case 'SleepRecoveryValidityTests.testValidRROnlyRecoverySurvivesInvalidHeartRate' started at 2026-10-21 23:20:17.756
+Test Case 'SleepRecoveryValidityTests.testValidRROnlyRecoverySurvivesInvalidHeartRate' passed (0.004 seconds)
+Test Suite 'SleepRecoveryValidityTests' passed at 2026-10-21 23:20:17.760
+	 Executed 4 tests, with 0 failures (0 unexpected) in 0.015 (0.015) seconds
+Test Suite 'SleepStagerTests' started at 2026-10-21 23:20:17.760
+Test Case 'SleepStagerTests.testBandStateConfirmsAsleepFractionGate' started at 2026-10-21 23:20:17.760
+Test Case 'SleepStagerTests.testBandStateConfirmsAsleepFractionGate' passed (0.0 seconds)
+Test Case 'SleepStagerTests.testBriefWristOffBlipKeepsWornNight' started at 2026-10-21 23:20:17.760
+Test Case 'SleepStagerTests.testBriefWristOffBlipKeepsWornNight' passed (0.021 seconds)
+Test Case 'SleepStagerTests.testBuildRunsDenseGravityByteIdenticalToLegacy' started at 2026-10-21 23:20:17.781
+Test Case 'SleepStagerTests.testBuildRunsDenseGravityByteIdenticalToLegacy' passed (0.003 seconds)
+Test Case 'SleepStagerTests.testCardiacSparseFlagFiresOnMostlyMissingRmssd_705' started at 2026-10-21 23:20:17.784
+Test Case 'SleepStagerTests.testCardiacSparseFlagFiresOnMostlyMissingRmssd_705' passed (0.0 seconds)
+Test Case 'SleepStagerTests.testClumpedGravityWithLongDropoutBridged_28' started at 2026-10-21 23:20:17.784
+Test Case 'SleepStagerTests.testClumpedGravityWithLongDropoutBridged_28' passed (0.024 seconds)
+Test Case 'SleepStagerTests.testColeKripkeAllStillIsSleep' started at 2026-10-21 23:20:17.808
+Test Case 'SleepStagerTests.testColeKripkeAllStillIsSleep' passed (0.0 seconds)
+Test Case 'SleepStagerTests.testColeKripkeHighActivityIsWake' started at 2026-10-21 23:20:17.809
+Test Case 'SleepStagerTests.testColeKripkeHighActivityIsWake' passed (0.0 seconds)
+Test Case 'SleepStagerTests.testConvolveReflectShortInputDoesNotCrash' started at 2026-10-21 23:20:17.809
+Test Case 'SleepStagerTests.testConvolveReflectShortInputDoesNotCrash' passed (0.0 seconds)
+Test Case 'SleepStagerTests.testDaytimeGuardEmptyInputsNoCrash' started at 2026-10-21 23:20:17.809
+Test Case 'SleepStagerTests.testDaytimeGuardEmptyInputsNoCrash' passed (0.006 seconds)
+Test Case 'SleepStagerTests.testDaytimeQualityNapRegisters' started at 2026-10-21 23:20:17.815
+Test Case 'SleepStagerTests.testDaytimeQualityNapRegisters' passed (0.056 seconds)
+Test Case 'SleepStagerTests.testDaytimeShortLowHRWindowRejected' started at 2026-10-21 23:20:17.871
+Test Case 'SleepStagerTests.testDaytimeShortLowHRWindowRejected' passed (0.028 seconds)
+Test Case 'SleepStagerTests.testDeepReimpositionKeepsLateDeepWhenNoEarlyDeep' started at 2026-10-21 23:20:17.900
+Test Case 'SleepStagerTests.testDeepReimpositionKeepsLateDeepWhenNoEarlyDeep' passed (0.0 seconds)
+Test Case 'SleepStagerTests.testDenseGravityNightUnchangedBySparsePath' started at 2026-10-21 23:20:17.900
+Test Case 'SleepStagerTests.testDenseGravityNightUnchangedBySparsePath' passed (0.088 seconds)
+Test Case 'SleepStagerTests.testDenseNightKeepsRestSolidEndToEnd' started at 2026-10-21 23:20:17.987
+Test Case 'SleepStagerTests.testDenseNightKeepsRestSolidEndToEnd' passed (0.012 seconds)
+Test Case 'SleepStagerTests.testDetectSleepClampsOverlongBadClockBlock' started at 2026-10-21 23:20:18.000
+Test Case 'SleepStagerTests.testDetectSleepClampsOverlongBadClockBlock' passed (0.093 seconds)
+Test Case 'SleepStagerTests.testDetectSleepEmptyGravity' started at 2026-10-21 23:20:18.093
+Test Case 'SleepStagerTests.testDetectSleepEmptyGravity' passed (0.0 seconds)
+Test Case 'SleepStagerTests.testDetectSleepFindsStillNight' started at 2026-10-21 23:20:18.093
+Test Case 'SleepStagerTests.testDetectSleepFindsStillNight' passed (0.014 seconds)
+Test Case 'SleepStagerTests.testDetectSleepHRConfirmationRejectsHighHR' started at 2026-10-21 23:20:18.107
+Test Case 'SleepStagerTests.testDetectSleepHRConfirmationRejectsHighHR' passed (0.032 seconds)
+Test Case 'SleepStagerTests.testDetectSleepIgnoresExtremeRowsBeforeFingerprintAndFailsClosedWhenOnlyMalformed' started at 2026-10-21 23:20:18.139
+Test Case 'SleepStagerTests.testDetectSleepIgnoresExtremeRowsBeforeFingerprintAndFailsClosedWhenOnlyMalformed' passed (0.005 seconds)
+Test Case 'SleepStagerTests.testDetectSleepKeepsLongButPlausibleNight' started at 2026-10-21 23:20:18.144
+Test Case 'SleepStagerTests.testDetectSleepKeepsLongButPlausibleNight' passed (0.21 seconds)
+Test Case 'SleepStagerTests.testDetectSleepRejectsShortBout' started at 2026-10-21 23:20:18.355
+Test Case 'SleepStagerTests.testDetectSleepRejectsShortBout' passed (0.003 seconds)
+Test Case 'SleepStagerTests.testDirectSleepMetricsFailClosedForExtremeTimestampWindows' started at 2026-10-21 23:20:18.358
+Test Case 'SleepStagerTests.testDirectSleepMetricsFailClosedForExtremeTimestampWindows' passed (0.0 seconds)
+Test Case 'SleepStagerTests.testEfficiencyComputation' started at 2026-10-21 23:20:18.358
+Test Case 'SleepStagerTests.testEfficiencyComputation' passed (0.0 seconds)
+Test Case 'SleepStagerTests.testEpochGridConsumersRejectExtremeTimestampWindows' started at 2026-10-21 23:20:18.358
+Test Case 'SleepStagerTests.testEpochGridConsumersRejectExtremeTimestampWindows' passed (0.0 seconds)
+Test Case 'SleepStagerTests.testFindPeaksTieBreakKeepsLowestIndex' started at 2026-10-21 23:20:18.358
+Test Case 'SleepStagerTests.testFindPeaksTieBreakKeepsLowestIndex' passed (0.0 seconds)
+Test Case 'SleepStagerTests.testGravitySparseGateConditions' started at 2026-10-21 23:20:18.358
+Test Case 'SleepStagerTests.testGravitySparseGateConditions' passed (0.023 seconds)
+Test Case 'SleepStagerTests.testHypnogramMetricsAASM' started at 2026-10-21 23:20:18.381
+Test Case 'SleepStagerTests.testHypnogramMetricsAASM' passed (0.0 seconds)
+Test Case 'SleepStagerTests.testHypnogramREMLatency' started at 2026-10-21 23:20:18.381
+Test Case 'SleepStagerTests.testHypnogramREMLatency' passed (0.0 seconds)
+Test Case 'SleepStagerTests.testMergeFragmentsAbsorbsSameStageBridge' started at 2026-10-21 23:20:18.382
+Test Case 'SleepStagerTests.testMergeFragmentsAbsorbsSameStageBridge' passed (0.0 seconds)
+Test Case 'SleepStagerTests.testMergeFragmentsBiasesLighterOnTie' started at 2026-10-21 23:20:18.382
+Test Case 'SleepStagerTests.testMergeFragmentsBiasesLighterOnTie' passed (0.0 seconds)
+Test Case 'SleepStagerTests.testMergeFragmentsDegenerateInputs' started at 2026-10-21 23:20:18.382
+Test Case 'SleepStagerTests.testMergeFragmentsDegenerateInputs' passed (0.0 seconds)
+Test Case 'SleepStagerTests.testMergeFragmentsFoldsIntoLongerNeighbour' started at 2026-10-21 23:20:18.382
+Test Case 'SleepStagerTests.testMergeFragmentsFoldsIntoLongerNeighbour' passed (0.0 seconds)
+Test Case 'SleepStagerTests.testMergeFragmentsLeadingAndTrailingFlecks' started at 2026-10-21 23:20:18.382
+Test Case 'SleepStagerTests.testMergeFragmentsLeadingAndTrailingFlecks' passed (0.0 seconds)
+Test Case 'SleepStagerTests.testMergeFragmentsPreservesGenuineTransition' started at 2026-10-21 23:20:18.383
+Test Case 'SleepStagerTests.testMergeFragmentsPreservesGenuineTransition' passed (0.0 seconds)
+Test Case 'SleepStagerTests.testMergeFragmentsThresholdConstant' started at 2026-10-21 23:20:18.383
+Test Case 'SleepStagerTests.testMergeFragmentsThresholdConstant' passed (0.0 seconds)
+Test Case 'SleepStagerTests.testMissingRmssdNoLongerBlocksDeep' started at 2026-10-21 23:20:18.383
+Test Case 'SleepStagerTests.testMissingRmssdNoLongerBlocksDeep' passed (0.0 seconds)
+Test Case 'SleepStagerTests.testMorningStillnessGuardNoOpOutsideWindow' started at 2026-10-21 23:20:18.383
+Test Case 'SleepStagerTests.testMorningStillnessGuardNoOpOutsideWindow' passed (0.0 seconds)
+Test Case 'SleepStagerTests.testMorningStillnessKeptOnStrongReonsetDip' started at 2026-10-21 23:20:18.383
+Test Case 'SleepStagerTests.testMorningStillnessKeptOnStrongReonsetDip' passed (0.0 seconds)
+Test Case 'SleepStagerTests.testMorningStillnessRejectedNearOvernightWake' started at 2026-10-21 23:20:18.383
+Test Case 'SleepStagerTests.testMorningStillnessRejectedNearOvernightWake' passed (0.0 seconds)
+Test Case 'SleepStagerTests.testMorningStillnessRescuedByBandSleepState' started at 2026-10-21 23:20:18.383
+Test Case 'SleepStagerTests.testMorningStillnessRescuedByBandSleepState' passed (0.0 seconds)
+Test Case 'SleepStagerTests.testOffWristDaytimeGapNotSleep' started at 2026-10-21 23:20:18.383
+Test Case 'SleepStagerTests.testOffWristDaytimeGapNotSleep' passed (0.021 seconds)
+Test Case 'SleepStagerTests.testOffWristFractionAndGapSpans' started at 2026-10-21 23:20:18.404
+Test Case 'SleepStagerTests.testOffWristFractionAndGapSpans' passed (0.104 seconds)
+Test Case 'SleepStagerTests.testOvernightShortWindowUnchanged' started at 2026-10-21 23:20:18.508
+Test Case 'SleepStagerTests.testOvernightShortWindowUnchanged' passed (0.037 seconds)
+Test Case 'SleepStagerTests.testOvernightSleepTailPastNoonKeepsLateWake' started at 2026-10-21 23:20:18.545
+Test Case 'SleepStagerTests.testOvernightSleepTailPastNoonKeepsLateWake' passed (0.164 seconds)
+Test Case 'SleepStagerTests.testRealNightWithShortOffWristTailIsKept_HRGapPath' started at 2026-10-21 23:20:18.710
+Test Case 'SleepStagerTests.testRealNightWithShortOffWristTailIsKept_HRGapPath' passed (0.053 seconds)
+Test Case 'SleepStagerTests.testRealNightWithShortOffWristTailIsKept_IntervalPath' started at 2026-10-21 23:20:18.763
+Test Case 'SleepStagerTests.testRealNightWithShortOffWristTailIsKept_IntervalPath' passed (0.156 seconds)
+Test Case 'SleepStagerTests.testRemFunnelDiagnosticIsReadOnly' started at 2026-10-21 23:20:18.920
+Test Case 'SleepStagerTests.testRemFunnelDiagnosticIsReadOnly' passed (0.019 seconds)
+Test Case 'SleepStagerTests.testRemFunnelDiagnosticNilWhenNoGravity' started at 2026-10-21 23:20:18.938
+Test Case 'SleepStagerTests.testRemFunnelDiagnosticNilWhenNoGravity' passed (0.0 seconds)
+Test Case 'SleepStagerTests.testRemFunnelDiagnosticZeroREMNightSurfacesRespAbsent' started at 2026-10-21 23:20:18.939
+Test Case 'SleepStagerTests.testRemFunnelDiagnosticZeroREMNightSurfacesRespAbsent' passed (0.009 seconds)
+Test Case 'SleepStagerTests.testRemRejectReasonAttributesEachGate' started at 2026-10-21 23:20:18.947
+Test Case 'SleepStagerTests.testRemRejectReasonAttributesEachGate' passed (0.0 seconds)
+Test Case 'SleepStagerTests.testRemRejectReasonNoRespFallbackIsRemEligible' started at 2026-10-21 23:20:18.948
+Test Case 'SleepStagerTests.testRemRejectReasonNoRespFallbackIsRemEligible' passed (0.0 seconds)
+Test Case 'SleepStagerTests.testRescaleCountsDivideAndClip' started at 2026-10-21 23:20:18.948
+Test Case 'SleepStagerTests.testRescaleCountsDivideAndClip' passed (0.0 seconds)
+Test Case 'SleepStagerTests.testRespRateFromSyntheticBreathing' started at 2026-10-21 23:20:18.948
+Test Case 'SleepStagerTests.testRespRateFromSyntheticBreathing' passed (0.0 seconds)
+Test Case 'SleepStagerTests.testRespRateTooFewSamples' started at 2026-10-21 23:20:18.948
+Test Case 'SleepStagerTests.testRespRateTooFewSamples' passed (0.0 seconds)
+Test Case 'SleepStagerTests.testSessionAvgHRVRejectsEctopicSpikes' started at 2026-10-21 23:20:18.948
+Test Case 'SleepStagerTests.testSessionAvgHRVRejectsEctopicSpikes' passed (0.0 seconds)
+Test Case 'SleepStagerTests.testSessionEpochMotionEmptyWhenNoGravity' started at 2026-10-21 23:20:18.949
+Test Case 'SleepStagerTests.testSessionEpochMotionEmptyWhenNoGravity' passed (0.0 seconds)
+Test Case 'SleepStagerTests.testSessionEpochMotionGridsToStageEpochs' started at 2026-10-21 23:20:18.949
+Test Case 'SleepStagerTests.testSessionEpochMotionGridsToStageEpochs' passed (0.004 seconds)
+Test Case 'SleepStagerTests.testSessionEpochSleepStateCarriesForwardAndVerbatim' started at 2026-10-21 23:20:18.953
+Test Case 'SleepStagerTests.testSessionEpochSleepStateCarriesForwardAndVerbatim' passed (0.1 seconds)
+Test Case 'SleepStagerTests.testSessionEpochSleepStateEmptyWhenNoBandSamples' started at 2026-10-21 23:20:19.053
+Test Case 'SleepStagerTests.testSessionEpochSleepStateEmptyWhenNoBandSamples' passed (0.0 seconds)
+Test Case 'SleepStagerTests.testSessionEpochSleepStateGridsOnePerEpoch' started at 2026-10-21 23:20:19.054
+Test Case 'SleepStagerTests.testSessionEpochSleepStateGridsOnePerEpoch' passed (0.0 seconds)
+Test Case 'SleepStagerTests.testSessionGridFeedsTheReonsetGuardEndToEnd' started at 2026-10-21 23:20:19.054
+Test Case 'SleepStagerTests.testSessionGridFeedsTheReonsetGuardEndToEnd' passed (0.0 seconds)
+Test Case 'SleepStagerTests.testSparseCardiacDoesNotPromoteStillSleepToWakeOnHrVarAlone_705' started at 2026-10-21 23:20:19.054
+Test Case 'SleepStagerTests.testSparseCardiacDoesNotPromoteStillSleepToWakeOnHrVarAlone_705' passed (0.1 seconds)
+Test Case 'SleepStagerTests.testSparseGravityNightNotShredded' started at 2026-10-21 23:20:19.155
+Test Case 'SleepStagerTests.testSparseGravityNightNotShredded' passed (0.062 seconds)
+Test Case 'SleepStagerTests.testSparseHRNightDisablesOffWristProxy_507' started at 2026-10-21 23:20:19.217
+Test Case 'SleepStagerTests.testSparseHRNightDisablesOffWristProxy_507' passed (0.0 seconds)
+Test Case 'SleepStagerTests.testSparseOffloadNightForcesRestBuildingEndToEnd' started at 2026-10-21 23:20:19.217
+Test Case 'SleepStagerTests.testSparseOffloadNightForcesRestBuildingEndToEnd' passed (0.005 seconds)
+Test Case 'SleepStagerTests.testStagesTileSessionExactly' started at 2026-10-21 23:20:19.222
+Test Case 'SleepStagerTests.testStagesTileSessionExactly' passed (0.022 seconds)
+Test Case 'SleepStagerTests.testStagingAndEfficiencyFailClosedForExtremeTimestamps' started at 2026-10-21 23:20:19.244
+Test Case 'SleepStagerTests.testStagingAndEfficiencyFailClosedForExtremeTimestamps' passed (0.1 seconds)
+Test Case 'SleepStagerTests.testStillPpgNightNoLongerScoresMostlyWake_705' started at 2026-10-21 23:20:19.345
+Test Case 'SleepStagerTests.testStillPpgNightNoLongerScoresMostlyWake_705' passed (0.0 seconds)
+Test Case 'SleepStagerTests.testTzOffsetShiftsWindowIntoDaytimeBand' started at 2026-10-21 23:20:19.345
+Test Case 'SleepStagerTests.testTzOffsetShiftsWindowIntoDaytimeBand' passed (0.025 seconds)
+Test Case 'SleepStagerTests.testWornNightWithDenseHRStillRegisters' started at 2026-10-21 23:20:19.370
+Test Case 'SleepStagerTests.testWornNightWithDenseHRStillRegisters' passed (0.104 seconds)
+Test Case 'SleepStagerTests.testWristOffIntervalCoveringMostOfRunDropsIt' started at 2026-10-21 23:20:19.474
+Test Case 'SleepStagerTests.testWristOffIntervalCoveringMostOfRunDropsIt' passed (0.013 seconds)
+Test Suite 'SleepStagerTests' passed at 2026-10-21 23:20:19.487
+	 Executed 71 tests, with 0 failures (0 unexpected) in 1.726 (1.726) seconds
+Test Suite 'SleepStagerV2Tests' started at 2026-10-21 23:20:19.487
+Test Case 'SleepStagerV2Tests.testCyclePriorShapesDeepAndRem' started at 2026-10-21 23:20:19.487
+Test Case 'SleepStagerV2Tests.testCyclePriorShapesDeepAndRem' passed (0.0 seconds)
+Test Case 'SleepStagerV2Tests.testDegenerateInputFallsBackToSingleLightBlock' started at 2026-10-21 23:20:19.487
+Test Case 'SleepStagerV2Tests.testDegenerateInputFallsBackToSingleLightBlock' passed (0.0 seconds)
+Test Case 'SleepStagerV2Tests.testDetectSleepThreadsV2FlagIntoNormalNight' started at 2026-10-21 23:20:19.487
+Test Case 'SleepStagerV2Tests.testDetectSleepThreadsV2FlagIntoNormalNight' passed (0.399 seconds)
+Test Case 'SleepStagerV2Tests.testEmptyWindowReturnsLightFallback' started at 2026-10-21 23:20:19.887
+Test Case 'SleepStagerV2Tests.testEmptyWindowReturnsLightFallback' passed (0.0 seconds)
+Test Case 'SleepStagerV2Tests.testExtremeTimestampWindowFailsClosed' started at 2026-10-21 23:20:19.887
+Test Case 'SleepStagerV2Tests.testExtremeTimestampWindowFailsClosed' passed (0.0 seconds)
+Test Case 'SleepStagerV2Tests.testFrozenGoldenHypnogram' started at 2026-10-21 23:20:19.887
+Test Case 'SleepStagerV2Tests.testFrozenGoldenHypnogram' passed (0.409 seconds)
+Test Case 'SleepStagerV2Tests.testOnlyCanonicalStageLabels' started at 2026-10-21 23:20:20.296
+Test Case 'SleepStagerV2Tests.testOnlyCanonicalStageLabels' passed (0.087 seconds)
+Test Case 'SleepStagerV2Tests.testRespRegularityMatchesDirectDFTWithoutItsPerSampleTrigCost' started at 2026-10-21 23:20:20.383
+Test Case 'SleepStagerV2Tests.testRespRegularityMatchesDirectDFTWithoutItsPerSampleTrigCost' passed (0.39 seconds)
+Test Case 'SleepStagerV2Tests.testStagesTileTheWholeSpanContiguously' started at 2026-10-21 23:20:20.773
+Test Case 'SleepStagerV2Tests.testStagesTileTheWholeSpanContiguously' passed (0.1 seconds)
+Test Case 'SleepStagerV2Tests.testTunedDeepBoundaryConstantsArePinned' started at 2026-10-21 23:20:20.873
+Test Case 'SleepStagerV2Tests.testTunedDeepBoundaryConstantsArePinned' passed (0.0 seconds)
+Test Case 'SleepStagerV2Tests.testViterbiSingleEpochPicksMaxEmission' started at 2026-10-21 23:20:20.873
+Test Case 'SleepStagerV2Tests.testViterbiSingleEpochPicksMaxEmission' passed (0.0 seconds)
+Test Suite 'SleepStagerV2Tests' passed at 2026-10-21 23:20:20.874
+	 Executed 11 tests, with 0 failures (0 unexpected) in 1.386 (1.386) seconds
+Test Suite 'StrainScorerV2ActivityAccumulatorTests' started at 2026-10-21 23:20:20.874
+Test Case 'StrainScorerV2ActivityAccumulatorTests.testAccumulatorCanRebuildFromPersistedChronologicalSamples' started at 2026-10-21 23:20:20.874
+Test Case 'StrainScorerV2ActivityAccumulatorTests.testAccumulatorCanRebuildFromPersistedChronologicalSamples' passed (0.001 seconds)
+Test Case 'StrainScorerV2ActivityAccumulatorTests.testAccumulatorMaintainsRunningAveragePeakAndRejectsInvalidSamples' started at 2026-10-21 23:20:20.875
+Test Case 'StrainScorerV2ActivityAccumulatorTests.testAccumulatorMaintainsRunningAveragePeakAndRejectsInvalidSamples' passed (0.0 seconds)
+Test Case 'StrainScorerV2ActivityAccumulatorTests.testAccumulatorMatchesAuthoritativeActivityScorerWithDuplicateSecondsAndGap' started at 2026-10-21 23:20:20.875
+Test Case 'StrainScorerV2ActivityAccumulatorTests.testAccumulatorMatchesAuthoritativeActivityScorerWithDuplicateSecondsAndGap' passed (0.004 seconds)
+Test Suite 'StrainScorerV2ActivityAccumulatorTests' passed at 2026-10-21 23:20:20.879
+	 Executed 3 tests, with 0 failures (0 unexpected) in 0.006 (0.006) seconds
+Test Suite 'StrainScorerV2PhysiologicalAccumulatorTests' started at 2026-10-21 23:20:20.879
+Test Case 'StrainScorerV2PhysiologicalAccumulatorTests.testAccumulatorMatchesBatchWithDuplicateSecondsAndFloors' started at 2026-10-21 23:20:20.879
+Test Case 'StrainScorerV2PhysiologicalAccumulatorTests.testAccumulatorMatchesBatchWithDuplicateSecondsAndFloors' passed (0.002 seconds)
+Test Case 'StrainScorerV2PhysiologicalAccumulatorTests.testContextUpdatesDoNotReplayCardio' started at 2026-10-21 23:20:20.881
+Test Case 'StrainScorerV2PhysiologicalAccumulatorTests.testContextUpdatesDoNotReplayCardio' passed (0.002 seconds)
+Test Suite 'StrainScorerV2PhysiologicalAccumulatorTests' passed at 2026-10-21 23:20:20.884
+	 Executed 2 tests, with 0 failures (0 unexpected) in 0.005 (0.005) seconds
+Test Suite 'StrainScorerV2Tests' started at 2026-10-21 23:20:20.884
+Test Case 'StrainScorerV2Tests.testBackgroundEvidenceRequiresWearCoverage' started at 2026-10-21 23:20:20.884
+Test Case 'StrainScorerV2Tests.testBackgroundEvidenceRequiresWearCoverage' passed (0.0 seconds)
+Test Case 'StrainScorerV2Tests.testGapsOverNinetySecondsDoNotCreateActivityLoad' started at 2026-10-21 23:20:20.884
+Test Case 'StrainScorerV2Tests.testGapsOverNinetySecondsDoNotCreateActivityLoad' passed (0.0 seconds)
+Test Case 'StrainScorerV2Tests.testLiveAndPersistedEntryPointsMatchForIdenticalPhysiologicalDayContext' started at 2026-10-21 23:20:20.884
+Test Case 'StrainScorerV2Tests.testLiveAndPersistedEntryPointsMatchForIdenticalPhysiologicalDayContext' passed (0.103 seconds)
+Test Case 'StrainScorerV2Tests.testPhysiologicalDayAnchorsAndActivityStayOnOneV2Scale' started at 2026-10-21 23:20:20.987
+Test Case 'StrainScorerV2Tests.testPhysiologicalDayAnchorsAndActivityStayOnOneV2Scale' passed (0.005 seconds)
+Test Suite 'StrainScorerV2Tests' passed at 2026-10-21 23:20:20.992
+	 Executed 4 tests, with 0 failures (0 unexpected) in 0.108 (0.108) seconds
+Test Suite 'WorkoutPauseLedgerTests' started at 2026-10-21 23:20:20.992
+Test Case 'WorkoutPauseLedgerTests.testAPauseUnderASecondDoesNotSplit' started at 2026-10-21 23:20:20.992
+Test Case 'WorkoutPauseLedgerTests.testAPauseUnderASecondDoesNotSplit' passed (0.0 seconds)
+Test Case 'WorkoutPauseLedgerTests.testAShortPauseIsNotCreditedAsLoad' started at 2026-10-21 23:20:20.993
+Test Case 'WorkoutPauseLedgerTests.testAShortPauseIsNotCreditedAsLoad' passed (0.016 seconds)
+Test Case 'WorkoutPauseLedgerTests.testAShortPauseStillSplitsTheStretch' started at 2026-10-21 23:20:21.008
+Test Case 'WorkoutPauseLedgerTests.testAShortPauseStillSplitsTheStretch' passed (0.0 seconds)
+Test Case 'WorkoutPauseLedgerTests.testAccumulatorBreakMatchesTheSegmentedBatchScore' started at 2026-10-21 23:20:21.008
+Test Case 'WorkoutPauseLedgerTests.testAccumulatorBreakMatchesTheSegmentedBatchScore' passed (0.009 seconds)
+Test Case 'WorkoutPauseLedgerTests.testActiveSecondsExcludeClosedAndOpenPauses' started at 2026-10-21 23:20:21.017
+Test Case 'WorkoutPauseLedgerTests.testActiveSecondsExcludeClosedAndOpenPauses' passed (0.0 seconds)
+Test Case 'WorkoutPauseLedgerTests.testAnOpenPauseDropsEverythingAfterIt' started at 2026-10-21 23:20:21.018
+Test Case 'WorkoutPauseLedgerTests.testAnOpenPauseDropsEverythingAfterIt' passed (0.0 seconds)
+Test Case 'WorkoutPauseLedgerTests.testBoundarySecondsStayActive' started at 2026-10-21 23:20:21.018
+Test Case 'WorkoutPauseLedgerTests.testBoundarySecondsStayActive' passed (0.0 seconds)
+Test Case 'WorkoutPauseLedgerTests.testBreakingTheStreamKeepsTheAverageAndPeak' started at 2026-10-21 23:20:21.018
+Test Case 'WorkoutPauseLedgerTests.testBreakingTheStreamKeepsTheAverageAndPeak' passed (0.101 seconds)
+Test Case 'WorkoutPauseLedgerTests.testCaloriesDoNotCreditThePauseAsTimeAtTheLastRate' started at 2026-10-21 23:20:21.119
+Test Case 'WorkoutPauseLedgerTests.testCaloriesDoNotCreditThePauseAsTimeAtTheLastRate' passed (0.001 seconds)
+Test Case 'WorkoutPauseLedgerTests.testClockStepBackCannotOverlapAnEarlierPause' started at 2026-10-21 23:20:21.119
+Test Case 'WorkoutPauseLedgerTests.testClockStepBackCannotOverlapAnEarlierPause' passed (0.0 seconds)
+Test Case 'WorkoutPauseLedgerTests.testDecodingSanitisesOverlapsDisorderAndNonFiniteEntries' started at 2026-10-21 23:20:21.119
+Test Case 'WorkoutPauseLedgerTests.testDecodingSanitisesOverlapsDisorderAndNonFiniteEntries' passed (0.001 seconds)
+Test Case 'WorkoutPauseLedgerTests.testLedgerRoundTripsThroughJSON' started at 2026-10-21 23:20:21.120
+Test Case 'WorkoutPauseLedgerTests.testLedgerRoundTripsThroughJSON' passed (0.0 seconds)
+Test Case 'WorkoutPauseLedgerTests.testLiveProjectionAfterAPauseMatchesTheSegmentedEstimate' started at 2026-10-21 23:20:21.120
+Test Case 'WorkoutPauseLedgerTests.testLiveProjectionAfterAPauseMatchesTheSegmentedEstimate' passed (0.002 seconds)
+Test Case 'WorkoutPauseLedgerTests.testNonFiniteTimesAreRefused' started at 2026-10-21 23:20:21.122
+Test Case 'WorkoutPauseLedgerTests.testNonFiniteTimesAreRefused' passed (0.0 seconds)
+Test Case 'WorkoutPauseLedgerTests.testPauseOutsideTheWindowIsNotCounted' started at 2026-10-21 23:20:21.123
+Test Case 'WorkoutPauseLedgerTests.testPauseOutsideTheWindowIsNotCounted' passed (0.0 seconds)
+Test Case 'WorkoutPauseLedgerTests.testPauseWhileAlreadyPausedChangesNothing' started at 2026-10-21 23:20:21.123
+Test Case 'WorkoutPauseLedgerTests.testPauseWhileAlreadyPausedChangesNothing' passed (0.0 seconds)
+Test Case 'WorkoutPauseLedgerTests.testRescoreLeavesPausedReadingsOutOfEveryNumber' started at 2026-10-21 23:20:21.123
+Test Case 'WorkoutPauseLedgerTests.testRescoreLeavesPausedReadingsOutOfEveryNumber' passed (0.005 seconds)
+Test Case 'WorkoutPauseLedgerTests.testRescoreWithoutPausesIsUnchanged' started at 2026-10-21 23:20:21.128
+Test Case 'WorkoutPauseLedgerTests.testRescoreWithoutPausesIsUnchanged' passed (0.003 seconds)
+Test Case 'WorkoutPauseLedgerTests.testRestoreFromReadingsAndLedgerMatchesTheLiveAccumulator' started at 2026-10-21 23:20:21.131
+Test Case 'WorkoutPauseLedgerTests.testRestoreFromReadingsAndLedgerMatchesTheLiveAccumulator' passed (0.012 seconds)
+Test Case 'WorkoutPauseLedgerTests.testResumeWhileRunningChangesNothing' started at 2026-10-21 23:20:21.143
+Test Case 'WorkoutPauseLedgerTests.testResumeWhileRunningChangesNothing' passed (0.0 seconds)
+Test Case 'WorkoutPauseLedgerTests.testSegmentsDropPausedReadingsAndSplitAtThePause' started at 2026-10-21 23:20:21.143
+Test Case 'WorkoutPauseLedgerTests.testSegmentsDropPausedReadingsAndSplitAtThePause' passed (0.0 seconds)
+Test warning: '--build-system native' has been deprecated and will be removed in a future release; please report an issue at https://github.com/swiftlang/swift-package-manager/issues if you are unable to adopt the default build system.
+Case 'WorkoutPauseLedgerTests.testSegmentsWithoutPausesAreTheReadingsUntouched' started at 2026-10-21 23:20:21.143
+Test Case 'WorkoutPauseLedgerTests.testSegmentsWithoutPausesAreTheReadingsUntouched' passed (0.0 seconds)
+Test Case 'WorkoutPauseLedgerTests.testStrainOverSegmentsEqualsPlainStrainWithOneStretch' started at 2026-10-21 23:20:21.143
+Test Case 'WorkoutPauseLedgerTests.testStrainOverSegmentsEqualsPlainStrainWithOneStretch' passed (0.004 seconds)
+Test Case 'WorkoutPauseLedgerTests.testTimerFreezesWhilePaused' started at 2026-10-21 23:20:21.148
+Test Case 'WorkoutPauseLedgerTests.testTimerFreezesWhilePaused' passed (0.0 seconds)
+Test Case 'WorkoutPauseLedgerTests.testTooFewReadingsAcrossStretchesGiveNoStrain' started at 2026-10-21 23:20:21.148
+Test Case 'WorkoutPauseLedgerTests.testTooFewReadingsAcrossStretchesGiveNoStrain' passed (0.0 seconds)
+Test Suite 'WorkoutPauseLedgerTests' passed at 2026-10-21 23:20:21.148
+	 Executed 25 tests, with 0 failures (0 unexpected) in 0.155 (0.155) seconds
+Test Suite 'debug.xctest' passed at 2026-10-21 23:20:21.148
+	 Executed 192 tests, with 0 failures (0 unexpected) in 3.688 (3.688) seconds
+Test Suite 'All tests' passed at 2026-10-21 23:20:21.148
+	 Executed 192 tests, with 0 failures (0 unexpected) in 3.688 (3.688) seconds
+◇ Test run started.
+↳ Testing Library Version: 6.4.1 (804dc4530ef3666)
+↳ Target Platform: x86_64-unknown-linux-gnu
+✔ Test run with 0 tests in 0 suites passed after 0.001 seconds.

@@ -1,0 +1,3 @@
+FAIL: timer fabricated a sample arrival
+FAIL: silent stream never became stale
+FAIL: silent stream emitted 1 wrist prompts

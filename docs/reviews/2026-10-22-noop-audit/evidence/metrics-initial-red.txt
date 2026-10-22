@@ -1,0 +1,124 @@
+[0/1] Planning build
+Building for debugging...
+[0/13] Write sources
+[1/13] Write swift-version-4BDBE066E3DC7C8B.txt
+[3/15] Emitting module StrandAnalytics
+[4/15] Compiling StrandAnalytics SleepStager.swift
+[5/15] Compiling StrandAnalytics StrainScorer.swift
+[6/18] Compiling StrandAnalytics SleepWindowRecovery.swift
+[7/18] Compiling StrandAnalytics SleepStager+Trace.swift
+[8/18] Compiling StrandAnalytics SleepStagerV2.swift
+[9/19] Wrapping AST for StrandAnalytics for debugging
+[11/27] Emitting module StrandAnalyticsTests
+[12/27] Compiling StrandAnalyticsTests HrvGapAwareTests.swift
+[13/27] Compiling StrandAnalyticsTests SleepStagerV2Tests.swift
+[14/27] Compiling StrandAnalyticsTests SleepRecoveryValidityTests.swift
+[15/27] Compiling StrandAnalyticsTests SleepMemoInputTests.swift
+[16/27] Compiling StrandAnalyticsTests SleepStagerTests.swift
+[17/27] Compiling StrandAnalyticsTests HRVAnalyzerTests.swift
+[18/27] Compiling StrandAnalyticsTests RecoveryScorerTests.swift
+[19/28] /tmp/noop-metrics-build/x86_64-unknown-linux-gnu/debug/NoopMetricsHarnessPackageDiscoveredTests.derived/all-discovered-tests.swift
+[20/28] Write sources
+[21/28] Wrapping AST for StrandAnalyticsTests for debugging
+[23/31] Compiling NoopMetricsHarnessPackageDiscoveredTests all-discovered-tests.swift
+[24/31] Compiling NoopMetricsHarnessPackageDiscoveredTests StrandAnalyticsTests.swift
+[25/31] Emitting module NoopMetricsHarnessPackageDiscoveredTests
+[26/32] /tmp/noop-metrics-build/x86_64-unknown-linux-gnu/debug/NoopMetricsHarnessPackageTests.derived/runner.swift
+[27/32] Write sources
+[28/34] Wrapping AST for NoopMetricsHarnessPackageDiscoveredTests for debugging
+[30/34] Emitting module NoopMetricsHarnessPackageTests
+[31/34] Compiling NoopMetricsHarnessPackageTests runner.swift
+[32/35] Wrapping AST for NoopMetricsHarnessPackageTests for debugging
+[33/35] Write Objects.LinkFileList
+[34/35] Linking NoopMetricsHarnessPackageTests.xctest
+Build complete! (6.99s)
+Test Suite 'Selected tests' started at 2026-10-21 23:08:34.702
+Test Suite 'RecoveryScorerTests' started at 2026-10-21 23:08:34.703
+Test Case 'RecoveryScorerTests.testBandThresholds' started at 2026-10-21 23:08:34.703
+Test Case 'RecoveryScorerTests.testBandThresholds' passed (0.001 seconds)
+Test Case 'RecoveryScorerTests.testColdStartReturnsNil' started at 2026-10-21 23:08:34.704
+Test Case 'RecoveryScorerTests.testColdStartReturnsNil' passed (0.0 seconds)
+Test Case 'RecoveryScorerTests.testRecoveryAtBaselineNearPopulationMean' started at 2026-10-21 23:08:34.704
+Test Case 'RecoveryScorerTests.testRecoveryAtBaselineNearPopulationMean' passed (0.0 seconds)
+Test Case 'RecoveryScorerTests.testRecoveryClampedToRange' started at 2026-10-21 23:08:34.705
+Test Case 'RecoveryScorerTests.testRecoveryClampedToRange' passed (0.0 seconds)
+Test Case 'RecoveryScorerTests.testRecoveryHigherWhenHRVAboveAndRHRBelow' started at 2026-10-21 23:08:34.705
+Test Case 'RecoveryScorerTests.testRecoveryHigherWhenHRVAboveAndRHRBelow' passed (0.0 seconds)
+Test Case 'RecoveryScorerTests.testRespAboveBaselineLowersAndBelowRaisesRecovery' started at 2026-10-21 23:08:34.705
+Test Case 'RecoveryScorerTests.testRespAboveBaselineLowersAndBelowRaisesRecovery' passed (0.0 seconds)
+Test Case 'RecoveryScorerTests.testRespTermDropAndRenormalize' started at 2026-10-21 23:08:34.705
+Test Case 'RecoveryScorerTests.testRespTermDropAndRenormalize' passed (0.0 seconds)
+Test Case 'RecoveryScorerTests.testRestingHRDoesNotTurnInvalidReadingsIntoFallbackPhysiology' started at 2026-10-21 23:08:34.705
+/tmp/noop-metrics-harness/Tests/StrandAnalyticsTests/RecoveryScorerTests.swift:183: error: RecoveryScorerTests.testRestingHRDoesNotTurnInvalidReadingsIntoFallbackPhysiology : XCTAssertNil failed: "90" - an off-wrist or malformed stream has no resting HR, including the sparse-bin fallback
+Test Case 'RecoveryScorerTests.testRestingHRDoesNotTurnInvalidReadingsIntoFallbackPhysiology' failed (0.001 seconds)
+Test Case 'RecoveryScorerTests.testRestingHRDropsInvalidReadingsBeforeAveragingUnsortedBins' started at 2026-10-21 23:08:34.706
+/tmp/noop-metrics-harness/Tests/StrandAnalyticsTests/RecoveryScorerTests.swift:191: error: RecoveryScorerTests.testRestingHRDropsInvalidReadingsBeforeAveragingUnsortedBins : XCTAssertEqual failed: ("Optional(30)") is not equal to ("Optional(60)") - zero readings must not lower a valid 60 bpm bin to a plausible-looking 30 bpm
+Test Case 'RecoveryScorerTests.testRestingHRDropsInvalidReadingsBeforeAveragingUnsortedBins' failed (0.0 seconds)
+Test Case 'RecoveryScorerTests.testRestingHRFallsBackWhenNoBinQualifies' started at 2026-10-21 23:08:34.706
+Test Case 'RecoveryScorerTests.testRestingHRFallsBackWhenNoBinQualifies' passed (0.0 seconds)
+Test Case 'RecoveryScorerTests.testRestingHRKeepsGenuineLowFloor' started at 2026-10-21 23:08:34.706
+Test Case 'RecoveryScorerTests.testRestingHRKeepsGenuineLowFloor' passed (0.0 seconds)
+Test Case 'RecoveryScorerTests.testRestingHRLowestRollingMean' started at 2026-10-21 23:08:34.707
+Test Case 'RecoveryScorerTests.testRestingHRLowestRollingMean' passed (0.0 seconds)
+Test Case 'RecoveryScorerTests.testRestingHRNilWhenNoSamples' started at 2026-10-21 23:08:34.707
+Test Case 'RecoveryScorerTests.testRestingHRNilWhenNoSamples' passed (0.0 seconds)
+Test Case 'RecoveryScorerTests.testRestingHRPreservesTheSharedPlausibilityBoundaries' started at 2026-10-21 23:08:34.707
+Test Case 'RecoveryScorerTests.testRestingHRPreservesTheSharedPlausibilityBoundaries' passed (0.0 seconds)
+Test Case 'RecoveryScorerTests.testRestingHRRejectsSingleSampleArtifactBin' started at 2026-10-21 23:08:34.707
+Test Case 'RecoveryScorerTests.testRestingHRRejectsSingleSampleArtifactBin' passed (0.0 seconds)
+Test Case 'RecoveryScorerTests.testRestingHRRejectsSubPhysiologicalDropoutBin' started at 2026-10-21 23:08:34.708
+Test Case 'RecoveryScorerTests.testRestingHRRejectsSubPhysiologicalDropoutBin' passed (0.0 seconds)
+Test Case 'RecoveryScorerTests.testSkinTempDeviationLowersChargeSymmetrically' started at 2026-10-21 23:08:34.708
+Test Case 'RecoveryScorerTests.testSkinTempDeviationLowersChargeSymmetrically' passed (0.0 seconds)
+Test Case 'RecoveryScorerTests.testSkinTempNilLeavesScoreIdenticalToBefore' started at 2026-10-21 23:08:34.708
+Test Case 'RecoveryScorerTests.testSkinTempNilLeavesScoreIdenticalToBefore' passed (0.0 seconds)
+Test Suite 'RecoveryScorerTests' failed at 2026-10-21 23:08:34.708
+	 Executed 18 tests, with 2 failures (0 unexpected) in 0.005 (0.005) seconds
+Test Suite 'SleepMemoInputTests' started at 2026-10-21 23:08:34.708
+Test Case 'SleepMemoInputTests.testDetectionCacheDoesNotAliasDifferentGravityAxesWithTheSameSum' started at 2026-10-21 23:08:34.708
+/tmp/noop-metrics-harness/Tests/StrandAnalyticsTests/SleepMemoInputTests.swift:32: error: SleepMemoInputTests.testDetectionCacheDoesNotAliasDifferentGravityAxesWithTheSameSum : XCTAssertEqual failed: ("[StrandAnalytics.SleepSession(start: 1749517200, end: 1749522599, efficiency: 1.0, stages: [StrandAnalytics.StageSegment(start: 1749517200, end: 1749518100, stage: "deep"), StrandAnalytics.StageSegment(start: 1749518100, end: 1749522420, stage: "light"), StrandAnalytics.StageSegment(start: 1749522420, end: 1749522599, stage: "rem")], restingHR: Optional(53), avgHRV: nil)]") is not equal to ("[]") - a warm cache must not replay a still night for a moving stream
+Test Case 'SleepMemoInputTests.testDetectionCacheDoesNotAliasDifferentGravityAxesWithTheSameSum' failed (0.039 seconds)
+Test Case 'SleepMemoInputTests.testV1StagingCacheDoesNotReplayStillStagesForEqualSumMotion' started at 2026-10-21 23:08:34.747
+/tmp/noop-metrics-harness/Tests/StrandAnalyticsTests/SleepMemoInputTests.swift:46: error: SleepMemoInputTests.testV1StagingCacheDoesNotReplayStillStagesForEqualSumMotion : XCTAssertEqual failed: ("[StrandAnalytics.StageSegment(start: 1749517200, end: 1749518100, stage: "deep"), StrandAnalytics.StageSegment(start: 1749518100, end: 1749522420, stage: "light"), StrandAnalytics.StageSegment(start: 1749522420, end: 1749522600, stage: "rem")]") is not equal to ("[StrandAnalytics.StageSegment(start: 1749517200, end: 1749518160, stage: "deep"), StrandAnalytics.StageSegment(start: 1749518160, end: 1749522420, stage: "light"), StrandAnalytics.StageSegment(start: 1749522420, end: 1749522600, stage: "rem")]") - 
+Test Case 'SleepMemoInputTests.testV1StagingCacheDoesNotReplayStillStagesForEqualSumMotion' failed (0.028 seconds)
+Test Case 'SleepMemoInputTests.testV2ClipsUnorderedPaddedStreamsWithoutDiscardingTheNight' started at 2026-10-21 23:08:34.775
+/tmp/noop-metrics-harness/Tests/StrandAnalyticsTests/SleepMemoInputTests.swift:86: error: SleepMemoInputTests.testV2ClipsUnorderedPaddedStreamsWithoutDiscardingTheNight : XCTAssertEqual failed: ("[StrandAnalytics.StageSegment(start: 1749776400, end: 1749781800, stage: "light")]") is not equal to ("[StrandAnalytics.StageSegment(start: 1749776400, end: 1749778200, stage: "light"), StrandAnalytics.StageSegment(start: 1749778200, end: 1749779100, stage: "wake"), StrandAnalytics.StageSegment(start: 1749779100, end: 1749779160, stage: "light"), StrandAnalytics.StageSegment(start: 1749779160, end: 1749781800, stage: "rem")]") - 
+Test Case 'SleepMemoInputTests.testV2ClipsUnorderedPaddedStreamsWithoutDiscardingTheNight' failed (0.02 seconds)
+Test Case 'SleepMemoInputTests.testV2StagingCacheDoesNotReplayStillStagesForEqualSumMotion' started at 2026-10-21 23:08:34.795
+/tmp/noop-metrics-harness/Tests/StrandAnalyticsTests/SleepMemoInputTests.swift:60: error: SleepMemoInputTests.testV2StagingCacheDoesNotReplayStillStagesForEqualSumMotion : XCTAssertEqual failed: ("[StrandAnalytics.StageSegment(start: 1749517200, end: 1749521400, stage: "light"), StrandAnalytics.StageSegment(start: 1749521400, end: 1749522600, stage: "rem")]") is not equal to ("[StrandAnalytics.StageSegment(start: 1749517200, end: 1749519000, stage: "light"), StrandAnalytics.StageSegment(start: 1749519000, end: 1749519900, stage: "wake"), StrandAnalytics.StageSegment(start: 1749519900, end: 1749519960, stage: "light"), StrandAnalytics.StageSegment(start: 1749519960, end: 1749522600, stage: "rem")]") - 
+Test Case 'SleepMemoInputTests.testV2StagingCacheDoesNotReplayStillStagesForEqualSumMotion' failed (0.039 seconds)
+Test Suite 'SleepMemoInputTests' failed at 2026-10-21 23:08:34.834
+	 Executed 4 tests, with 4 failures (0 unexpected) in 0.125 (0.125) seconds
+Test Suite 'SleepRecoveryValidityTests' started at 2026-10-21 23:08:34.834
+Test Case 'SleepRecoveryValidityTests.testInvalidRRAloneCannotAuthorizeRecoveredSleep' started at 2026-10-21 23:08:34.834
+/tmp/noop-metrics-harness/Tests/StrandAnalyticsTests/SleepRecoveryValidityTests.swift:67: error: SleepRecoveryValidityTests.testInvalidRRAloneCannotAuthorizeRecoveredSleep : XCTAssertEqual failed: ("complete") is not equal to ("insufficientData") - 
+/tmp/noop-metrics-harness/Tests/StrandAnalyticsTests/SleepRecoveryValidityTests.swift:68: error: SleepRecoveryValidityTests.testInvalidRRAloneCannotAuthorizeRecoveredSleep : XCTAssertEqual failed: ("boundedReanalysis") is not equal to ("noPhysiology") - 
+/tmp/noop-metrics-harness/Tests/StrandAnalyticsTests/SleepRecoveryValidityTests.swift:69: error: SleepRecoveryValidityTests.testInvalidRRAloneCannotAuthorizeRecoveredSleep : XCTAssertFalse failed - 
+/tmp/noop-metrics-harness/Tests/StrandAnalyticsTests/SleepRecoveryValidityTests.swift:71: error: SleepRecoveryValidityTests.testInvalidRRAloneCannotAuthorizeRecoveredSleep : XCTAssertEqual failed: ("1800") is not equal to ("0") - 
+/tmp/noop-metrics-harness/Tests/StrandAnalyticsTests/SleepRecoveryValidityTests.swift:72: error: SleepRecoveryValidityTests.testInvalidRRAloneCannotAuthorizeRecoveredSleep : XCTAssertEqual failed: ("1.0") is not equal to ("0.0") - 
+Test Case 'SleepRecoveryValidityTests.testInvalidRRAloneCannotAuthorizeRecoveredSleep' failed (0.009 seconds)
+Test Case 'SleepRecoveryValidityTests.testMixedInvalidHeartRateDoesNotChangeRecoveredVitalsOrCoverage' started at 2026-10-21 23:08:34.843
+/tmp/noop-metrics-harness/Tests/StrandAnalyticsTests/SleepRecoveryValidityTests.swift:50: error: SleepRecoveryValidityTests.testMixedInvalidHeartRateDoesNotChangeRecoveredVitalsOrCoverage : XCTAssertEqual failed: ("Optional(30)") is not equal to ("Optional(60)") - 
+/tmp/noop-metrics-harness/Tests/StrandAnalyticsTests/SleepRecoveryValidityTests.swift:51: error: SleepRecoveryValidityTests.testMixedInvalidHeartRateDoesNotChangeRecoveredVitalsOrCoverage : XCTAssertEqual failed: ("1800") is not equal to ("900") - 
+Test Case 'SleepRecoveryValidityTests.testMixedInvalidHeartRateDoesNotChangeRecoveredVitalsOrCoverage' failed (0.006 seconds)
+Test Case 'SleepRecoveryValidityTests.testOffWristHeartRateCannotAuthorizeRecoveredSleep' started at 2026-10-21 23:08:34.850
+/tmp/noop-metrics-harness/Tests/StrandAnalyticsTests/SleepRecoveryValidityTests.swift:23: error: SleepRecoveryValidityTests.testOffWristHeartRateCannotAuthorizeRecoveredSleep : XCTAssertEqual failed: ("complete") is not equal to ("insufficientData") - 
+/tmp/noop-metrics-harness/Tests/StrandAnalyticsTests/SleepRecoveryValidityTests.swift:24: error: SleepRecoveryValidityTests.testOffWristHeartRateCannotAuthorizeRecoveredSleep : XCTAssertEqual failed: ("boundedReanalysis") is not equal to ("noPhysiology") - 
+/tmp/noop-metrics-harness/Tests/StrandAnalyticsTests/SleepRecoveryValidityTests.swift:25: error: SleepRecoveryValidityTests.testOffWristHeartRateCannotAuthorizeRecoveredSleep : XCTAssertFalse failed - a motionless off-wrist strap is not evidence of a recovered night
+/tmp/noop-metrics-harness/Tests/StrandAnalyticsTests/SleepRecoveryValidityTests.swift:27: error: SleepRecoveryValidityTests.testOffWristHeartRateCannotAuthorizeRecoveredSleep : XCTAssertTrue failed - 
+/tmp/noop-metrics-harness/Tests/StrandAnalyticsTests/SleepRecoveryValidityTests.swift:28: error: SleepRecoveryValidityTests.testOffWristHeartRateCannotAuthorizeRecoveredSleep : XCTAssertNil failed: "0" - 
+/tmp/noop-metrics-harness/Tests/StrandAnalyticsTests/SleepRecoveryValidityTests.swift:29: error: SleepRecoveryValidityTests.testOffWristHeartRateCannotAuthorizeRecoveredSleep : XCTAssertEqual failed: ("5400") is not equal to ("0") - 
+/tmp/noop-metrics-harness/Tests/StrandAnalyticsTests/SleepRecoveryValidityTwarning: '--build-system native' has been deprecated and will be removed in a future release; please report an issue at https://github.com/swiftlang/swift-package-manager/issues if you are unable to adopt the default build system.
+ests.swift:30: error: SleepRecoveryValidityTests.testOffWristHeartRateCannotAuthorizeRecoveredSleep : XCTAssertEqual failed: ("1.0") is not equal to ("0.0") - 
+/tmp/noop-metrics-harness/Tests/StrandAnalyticsTests/SleepRecoveryValidityTests.swift:31: error: SleepRecoveryValidityTests.testOffWristHeartRateCannotAuthorizeRecoveredSleep : XCTAssertEqual failed: ("0.89") is not equal to ("0.0") - 
+Test Case 'SleepRecoveryValidityTests.testOffWristHeartRateCannotAuthorizeRecoveredSleep' failed (0.016 seconds)
+Test Case 'SleepRecoveryValidityTests.testValidRROnlyRecoverySurvivesInvalidHeartRate' started at 2026-10-21 23:08:34.865
+/tmp/noop-metrics-harness/Tests/StrandAnalyticsTests/SleepRecoveryValidityTests.swift:89: error: SleepRecoveryValidityTests.testValidRROnlyRecoverySurvivesInvalidHeartRate : XCTAssertNil failed: "0" - 
+/tmp/noop-metrics-harness/Tests/StrandAnalyticsTests/SleepRecoveryValidityTests.swift:91: error: SleepRecoveryValidityTests.testValidRROnlyRecoverySurvivesInvalidHeartRate : XCTAssertEqual failed: ("1800") is not equal to ("0") - 
+Test Case 'SleepRecoveryValidityTests.testValidRROnlyRecoverySurvivesInvalidHeartRate' failed (0.007 seconds)
+Test Suite 'SleepRecoveryValidityTests' failed at 2026-10-21 23:08:34.872
+	 Executed 4 tests, with 17 failures (0 unexpected) in 0.038 (0.038) seconds
+Test Suite 'Selected tests' failed at 2026-10-21 23:08:34.872
+	 Executed 26 tests, with 23 failures (0 unexpected) in 0.168 (0.168) seconds
+Note: Some test targets reported failures:
+  - NoopMetricsHarnessPackageTests (XCTest)

@@ -10,7 +10,7 @@ enum AppChangelog {
     /// MARKETING_VERSION) instead of a third hand-maintained copy that drifted; the literal is only the
     /// fallback outside an app bundle. Add the matching entry to `releases` when the version changes.
     static let currentVersion: String =
-        (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "1.8.0"
+        (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "1.8.1"
 
     struct Release: Identifiable {
         let version: String
@@ -48,6 +48,15 @@ enum AppChangelog {
 
     /// Newest first. This fork's releases come first; add one for every version bump (see AGENTS.md).
     static let releases: [Release] = [
+        .fork("1.8.1", "Steadier readings and scores", "October 2026", [
+            Feature("antenna.radiowaves.left.and.right", .accent, "Connection control", "Disconnect and Forget keep your strap released."),
+            Feature("heart.fill", .heart, "Steady live sessions", "Equal heart-rate readings stay fresh until silence."),
+            Feature("waveform.path.ecg", .hrv, "Reliable daily scores", "Invalid readings no longer lower your daily metrics."),
+            Feature("bed.double.fill", .sleep, "Accurate sleep inputs", "Sleep stages follow the right movement and beat order."),
+            Feature("square.grid.2x2.fill", .stress, "Complete widget days", "Stress includes readings from the whole day."),
+            Feature("heart.text.square.fill", .heart, "Safer Health cleanup", "Cancelled syncs and cleanup retain recovery evidence."),
+            Feature("calendar", .strain, "Correct weekly totals", "Week boundaries keep workouts in the right week."),
+        ]),
         .fork("1.8.0", "More reliable daily data", "October 2026", [
             Feature("heart.fill", .heart, "Fresh heart rate", "Live sessions use actual readings and detect silent straps."),
             Feature("arrow.triangle.2.circlepath", .accent, "Device switching", "Readings stay with the strap that recorded them."),
