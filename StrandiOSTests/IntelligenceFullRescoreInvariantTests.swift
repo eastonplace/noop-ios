@@ -1334,7 +1334,18 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
     func testNormalActiveInputCostKeepsSixtyDayMotionReuseAndColdParity() async throws {
         try await withManualStepsCoefficient(0.05) {
             let harness = try await makeHarness(days: 60, whoop4: true)
+            let bundleProbe = DerivedInputCostProbe()
+            harness.engine.setAnalyzeRecentCacheTestingSeamsForTesting(.init(
+                fingerprintLoader: { store, owner, from, to in
+                    try await store.hrFingerprint(deviceId: owner, from: from, to: to)
+                },
+                bundleLoader: { store, owner, from, to, limit in
+                    let bundle = try await store.analysisDayBundle(deviceId: owner, from: from, to: to, limit: limit)
+                    await bundleProbe.record(bundle, from: from)
+                    return bundle
+                }))
             for _ in 0..<3 { _ = await pass(harness, maxDays: 3) }
+            await bundleProbe.reset()
             let warmCPU = clock(), warmStart = Date()
             let beforeWarmHits = harness.engine.stepMotionCacheHits
             let warmCompleted = await pass(harness, maxDays: 3)
@@ -1342,6 +1353,9 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
             let warmCPUSeconds = Double(clock() - warmCPU) / Double(CLOCKS_PER_SEC)
             XCTAssertTrue(warmCompleted)
             XCTAssertEqual(harness.engine.stepMotionCacheHits - beforeWarmHits, 60)
+            let warmBundles = await bundleProbe.snapshot()
+            XCTAssertEqual(warmBundles.misses, 0, "the cost control must first reach full day-bundle reuse")
+            await bundleProbe.reset()
 
             var incoming = Streams()
             let busyHour = firstDayStart + 59 * 86_400 + 17 * 3_600
@@ -1359,6 +1373,7 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
             let activeCPUSeconds = Double(clock() - activeCPU) / Double(CLOCKS_PER_SEC)
             XCTAssertTrue(activeCompleted)
             XCTAssertEqual(harness.engine.stepMotionCacheHits - beforeActiveHits, 59)
+            let activeBundles = await bundleProbe.snapshot()
             let reusedOutput = try await stored(harness)
 
             let repository = Repository(deviceId: Repository.whoopSource)
@@ -1372,7 +1387,11 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
             XCTAssertEqual(reusedOutput, coldOutput, "active-input reuse must match a cold engine")
             print("D6_ENGINE_COST warmSeconds=\(warmSeconds) warmCPUSeconds=\(warmCPUSeconds) "
                 + "activeIngestAndAnalysisSeconds=\(activeSeconds) activeIngestAndAnalysisCPUSeconds=\(activeCPUSeconds) "
-                + "days=60 scanDays=3 incomingRows=360 warmMotionHits=60 activeMotionHits=59")
+                + "days=60 scanDays=3 incomingRows=360 warmMotionHits=60 activeMotionHits=59 "
+                + "warmBundleMisses=\(warmBundles.misses) activeBundleMisses=\(activeBundles.misses) "
+                + "activeBundleHRRows=\(activeBundles.hrRows) activeBundleRRRows=\(activeBundles.rrRows) "
+                + "activeBundleGravityRows=\(activeBundles.gravityRows) "
+                + "activeBundleWindowStarts=\(activeBundles.windows.sorted().map(String.init).joined(separator: ","))")
         }
     }
 
@@ -2176,4 +2195,25 @@ private actor DerivedInputBundleProbe {
     private(set) var count = 0
     func record() { count += 1 }
     func reset() { count = 0 }
+}
+
+/// Counts actual store loads and decoded fixture rows, without replacing any engine/cache decision.
+private actor DerivedInputCostProbe {
+    struct Snapshot: Sendable {
+        var misses = 0
+        var hrRows = 0
+        var rrRows = 0
+        var gravityRows = 0
+        var windows: [Int] = []
+    }
+    private var value = Snapshot()
+    func record(_ bundle: AnalysisDayBundle, from: Int) {
+        value.misses += 1
+        value.hrRows += bundle.hr.count
+        value.rrRows += bundle.rr.count
+        value.gravityRows += bundle.gravity.count
+        value.windows.append(from)
+    }
+    func snapshot() -> Snapshot { value }
+    func reset() { value = Snapshot() }
 }
