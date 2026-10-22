@@ -900,6 +900,19 @@
       "local_sdk_typecheck": "passed on Swift6.4",
       "hosted6_3_3_acceptance": "pending",
       "evidence": "ci-db06-native-compile-failure.json"
+    },
+    "second_hosted_compiler_fixture_gate": {
+      "source_commit": "f83d7781e80d7fa48412dafb21856ca297554762",
+      "hosted_failing_source": "0c747279",
+      "hosted_run": 39728837111,
+      "job_id": 119659080859,
+      "diagnostic": "StrandiOSTests/IntelligenceFullRescoreInvariantTests.swift:1013:30: compiler is unable to type-check this expression in reasonable time",
+      "change": "Typed exerciseStart and exerciseEnd intermediates, typed Bool; exact whole-file substitution matches.",
+      "all_61_test_declarations_and_assertions_preserved": true,
+      "local_sdk_typecheck": "PASS Swift6.4",
+      "local_native_object_compile": "PASS Swift6.4",
+      "hosted_swift_6_3_3_acceptance": "pending",
+      "native_test_execution": "pending"
     }
   },
   "beyond_zip": [
