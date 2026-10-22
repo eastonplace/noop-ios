@@ -42,6 +42,20 @@ final class DiagnosticCaptureIOTests: XCTestCase {
     }
 
     @MainActor
+    func testExplicitFlushRetriesWithoutWaitingForAnotherFrame() async throws {
+        let live = LiveState()
+        let probe = CaptureBatchProbe()
+        await probe.releaseFirstBatch()
+        let recorder = PuffinFrameRecorder(state: live, enabled: { true }, persist: { await probe.persist($0) })
+        recorder.capture(frame: [0xAA], char: CBUUID(string: "FD4B0003"))
+        await recorder.flushAndWait()
+        await recorder.flushAndWait()
+        let batches = await probe.recordedBatches()
+        XCTAssertEqual(batches.count, 2, "an explicit retry waits for a new write attempt even without new content")
+        XCTAssertEqual(batches.map(\.count), [1, 0])
+    }
+
+    @MainActor
     func testRecorderFlushBarrierIncludesFramesAcceptedDuringAnEarlierWrite() async throws {
         let live = LiveState()
         let probe = CaptureBatchProbe()
