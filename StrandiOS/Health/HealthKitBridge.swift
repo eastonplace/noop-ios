@@ -455,7 +455,7 @@ final class HealthKitBridge: ObservableObject {
     }
     private var observerScanActive = false
     private var observerScanWaiters: [CheckedContinuation<Void, Never>] = []
-    private var requestedExpandedWriteAuthorization = false
+    private let readResumePolicy = HealthKitReadResumePolicy()
 
     init(repo: Repository, appleDeviceId: String, noopDeviceId: String) {
         self.repo = repo
@@ -498,10 +498,8 @@ final class HealthKitBridge: ObservableObject {
         return s
     }
 
-    /// The write set as it existed before the high-res write-back (4 nightly vitals + sleep). A
-    /// returning user granted THIS set; `refreshAuthIfPreviouslyGranted` must resume off it — checking
-    /// the full `writeTypes` would leave every pre-existing grant stuck at `.unknown` after the update
-    /// because the new types are still `.notDetermined`.
+    /// Legacy request set used only by the OS's nonprompting request-completion probe. Sharing
+    /// authorization for this set does not establish read permission or gate read attempts.
     private var legacyCoreWriteTypes: Set<HKSampleType> {
         var s = Set<HKSampleType>()
         for id in HealthKitBridge.quantityWriteIds { if let t = HKObjectType.quantityType(forIdentifier: id) { s.insert(t) } }
@@ -524,8 +522,7 @@ final class HealthKitBridge: ObservableObject {
         .restingHeartRate, .heartRateVariabilitySDNN, .oxygenSaturation, .respiratoryRate
     ]
     // High-res write-back shares: the continuous 1-minute HR stream, and the energy/distance samples
-    // attached to written workouts. Kept out of `quantityWriteIds` so `legacyCoreWriteTypes` (the
-    // auth-resume set) stays exactly what pre-update users granted.
+    // attached to written workouts. The legacy request-status probe keeps its original type set.
     private static let highResQuantityWriteIds: [HKQuantityTypeIdentifier] = [
         .heartRate, .activeEnergyBurned, .distanceWalkingRunning, .distanceCycling
     ]
@@ -545,6 +542,7 @@ final class HealthKitBridge: ObservableObject {
         guard HealthKitBridge.hasHealthKitEntitlement else { auth = .entitlementMissing; return }
         do {
             try await store.requestAuthorization(toShare: writeTypes, read: readTypes)
+            readResumePolicy.recordCompletedRequestFlow()
             HealthKitWritebackFingerprint.reset()
             // The entitlement is present (the guard above proved it via the embedded profile, or there's
             // no profile = App Store build), so a successful request means the bridge is usable. We do
@@ -559,7 +557,7 @@ final class HealthKitBridge: ObservableObject {
             // A thrown error here is on a build that carries the entitlement (guarded above), so it's a
             // genuine denial / request failure — keep the normal `.denied` "enable in Settings" path,
             // never the entitlement-missing reroute.
-            auth = .denied
+            auth = readResumePolicy.canAttemptReads ? .authorized : .denied
         }
         // First successful grant in this process: arm the live HealthKit stream so a watch-only user
         // gets continuous ingestion (new SDNN/RHR/sleep/etc. land within the hour) instead of only on
@@ -568,59 +566,39 @@ final class HealthKitBridge: ObservableObject {
         enableLiveDelivery()
     }
 
-    /// Resume a prior grant on launch without re-prompting. `auth` is a fresh `.unknown` every
-    /// process (the bridge isn't persisted), so a user who already enabled Apple Health would
-    /// otherwise have to re-tap "Enable" each session before the scenePhase sync runs. HealthKit
-    /// never reveals *read* status, but *write*/share status is observable — if the user already
-    /// authorized all of our write types, treat the bridge as `.authorized`. This only reads
-    /// status, so no system permission sheet is shown.
-    func refreshAuthIfPreviouslyGranted(requestNewTypes: Bool = true) async {
-        guard HKHealthStore.isHealthDataAvailable() else { return }
-        // HealthKit synchronously contacts healthd for these status reads. Keep that
-        // IPC off the main actor so a slow or restarting service cannot freeze launch.
-        let healthStore = store
-        let legacyTypes = legacyCoreWriteTypes
-        let expandedTypes = writeTypes
-        let status = await Task.detached(priority: .userInitiated) {
-            let legacyGranted = legacyTypes.allSatisfy {
-                healthStore.authorizationStatus(for: $0) == .sharingAuthorized
+    /// Resume read attempts after a completed permission flow. HealthKit hides read grants;
+    /// neither a persisted completion nor this OS probe means that reads were granted. Lifecycle
+    /// refresh never requests permission, including for newly added types. Only the explicit
+    /// `requestAuthorization()` action can display a permission sheet.
+    func refreshAuthIfPreviouslyGranted(requestNewTypes _: Bool = true) async {
+        guard HKHealthStore.isHealthDataAvailable(), Self.hasHealthKitEntitlement else { return }
+        guard auth == .unknown else { return }
+        var eligible = readResumePolicy.canAttemptReads
+        if !eligible {
+            do {
+                // Recover pre-flag installs using the original core request set. A read-only or
+                // partial response still completes a request; a new install remains `.shouldRequest`.
+                let legacy = legacyCoreWriteTypes
+                let status = try await store.statusForAuthorizationRequest(
+                    toShare: legacy,
+                    read: Set(legacy.map { $0 as HKObjectType })
+                )
+                guard !Task.isCancelled else { return }
+                let prior: HealthKitReadResumePolicy.PriorRequestStatus
+                switch status {
+                case .unnecessary: prior = .unnecessary
+                case .shouldRequest: prior = .shouldRequest
+                default: prior = .unknown
+                }
+                eligible = readResumePolicy.resumeIfPreviouslyRequested(prior)
+            } catch {
+                // Protected/temporarily unavailable Health data can retry on a later lifecycle edge.
+                return
             }
-            let hasUndeterminedTypes = expandedTypes.contains {
-                healthStore.authorizationStatus(for: $0) == .notDetermined
-            }
-            return (legacyGranted, hasUndeterminedTypes)
-        }.value
-        guard !Task.isCancelled else { return }
-        if auth == .unknown {
-            guard status.0 else { return }
-            auth = .authorized
-            // A returning user who already granted access should get the live stream re-armed for this
-            // process. enableLiveDelivery is idempotent (HealthKit dedups observers + background
-            // delivery per type), so calling it here as well as after a fresh requestAuthorization is safe.
-            enableLiveDelivery()
-            // The high-res write-back added share types (HR stream, workouts, energy/distance) that a
-            // pre-update grant has as `.notDetermined`. Re-request once: HealthKit shows a single sheet
-            // listing ONLY the new types, and each write feature independently guards on its own type's
-            // share status, so declining any checkbox just skips that feature.
-            // Raw request, NOT requestAuthorization(): that method reclassifies a thrown error as
-            // `.denied`, which must never demote a bridge that just resumed a valid legacy grant.
         }
-
-        // A privacy recovery must run after this request settles. Otherwise it can observe one missing
-        // high-resolution grant, defer, and receive no second foreground edge after the user answers.
-        guard auth == .authorized,
-              requestNewTypes,
-              !requestedExpandedWriteAuthorization,
-              status.1 else { return }
-        requestedExpandedWriteAuthorization = true
-        do {
-            try await store.requestAuthorization(toShare: writeTypes, read: readTypes)
-            HealthKitWritebackFingerprint.reset()
-        } catch {
-            // A transient request failure can retry on the next lifecycle grant. A completed system
-            // sheet remains one-shot for this process, even if the user leaves some types disabled.
-            requestedExpandedWriteAuthorization = false
-        }
+        guard eligible, !Task.isCancelled else { return }
+        auth = .authorized
+        enableLiveDelivery()
     }
 
     // MARK: - Live delivery (continuous ingestion)
@@ -1154,6 +1132,7 @@ final class HealthKitBridge: ObservableObject {
                         importedIdentities: importedIdentities,
                         initialScan: priorAnchor == nil,
                         now: Date(),
+                        sampleTypeIdentifier: type.identifier,
                         earliestLocalDate: {
                             try await cache.earliestAppleHealthTimestamp(deviceId: appleDeviceId)
                                 .map { Date(timeIntervalSince1970: TimeInterval($0)) }
@@ -1886,7 +1865,9 @@ final class HealthKitBridge: ObservableObject {
                 toDay: Self.dayString(end),
                 fromTimestamp: Int(start.timeIntervalSince1970),
                 toTimestamp: Int(end.timeIntervalSince1970),
-                workoutSource: Self.appleWorkoutSource
+                workoutSource: Self.appleWorkoutSource,
+                preserveUnprovenEmptyReads: true,
+                projectionDeletions: window.projectionDeletions
             )
             try await streamWorkouts(start: start, end: end) { rows in
                 guard !rows.isEmpty else { return }
