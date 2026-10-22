@@ -10,6 +10,8 @@ public struct AnalysisInputWitness: Sendable, Equatable {
     let tempSchemaVersion: Int
     let unknownRevision: UInt64
     let tableRevisions: [String: UInt64]
+    let appendGlobalRevision: UInt64
+    let appendRevisions: [AnalysisAppendBucket: UInt64]
     let gravityGlobalRevision: UInt64
     let gravityRevisions: [AnalysisGravityBucket: UInt64]
 
@@ -19,6 +21,27 @@ public struct AnalysisInputWitness: Sendable, Equatable {
         return tables.map { $0.lowercased() }.sorted().reduce(base) {
             $0 + ":\($1.utf8.count):\($1)=\(tableRevisions[$1, default: 0])"
         }
+    }
+
+    /// Complete identity for the inclusive union of night, full-day fallback and cycle-tail reads.
+    /// Only proved inserts in the three refined families use intersecting UTC hours, across ALL sources.
+    /// Repairs/unknown writes remain global; other input tables retain their complete table revisions.
+    public func dayScanSignature(tables: [String], from: Int, to: Int) -> String {
+        let requested = Set(tables.map { $0.lowercased() })
+        let refined = AnalysisAppendTable.allCases.filter { requested.contains($0.rawValue) }
+        let first = Self.utcHour(from), last = Self.utcHour(to)
+        guard !refined.isEmpty, to >= from, last - first <= 7 * 24 else {
+            return signature(tables: tables) + ":range\(from):\(to)"
+        }
+        let unchangedTables = tables.filter { AnalysisAppendTable(rawValue: $0.lowercased()) == nil }
+        var value = signature(tables: unchangedTables) + ":range\(from):\(to):append\(appendGlobalRevision)"
+        for table in refined {
+            value += ":\(table.rawValue)"
+            for hour in first...last {
+                value += ":\(hour)=\(appendRevisions[.init(table: table, hour: hour), default: 0])"
+            }
+        }
+        return value
     }
 
     /// Advance only exact contiguous output commits owned by this pass. Any unowned same-table commit
@@ -37,7 +60,8 @@ public struct AnalysisInputWitness: Sendable, Equatable {
         return AnalysisInputWitness(
             generation: generation, externalVersion: externalVersion, schemaVersion: schemaVersion,
             tempSchemaVersion: tempSchemaVersion, unknownRevision: unknownRevision,
-            tableRevisions: acknowledged, gravityGlobalRevision: gravityGlobalRevision,
+            tableRevisions: acknowledged, appendGlobalRevision: appendGlobalRevision,
+            appendRevisions: appendRevisions, gravityGlobalRevision: gravityGlobalRevision,
             gravityRevisions: gravityRevisions)
     }
 
@@ -56,9 +80,31 @@ public struct AnalysisInputWitness: Sendable, Equatable {
         }
     }
 
+    static func utcHour(_ timestamp: Int) -> Int {
+        timestamp / 3_600 - (timestamp < 0 && timestamp % 3_600 != 0 ? 1 : 0)
+    }
+
     static func utcDay(_ timestamp: Int) -> Int {
         timestamp / 86_400 - (timestamp < 0 && timestamp % 86_400 != 0 ? 1 : 0)
     }
+}
+
+enum AnalysisAppendTable: String, CaseIterable, Sendable {
+    case hr = "hrsample", rr = "rrinterval", gravity = "gravitysample"
+
+    var primaryKey: [String] {
+        self == .rr ? ["deviceid", "ts", "rrms", "seq"] : ["deviceid", "ts"]
+    }
+}
+
+struct AnalysisAppendBucket: Sendable, Hashable {
+    let table: AnalysisAppendTable
+    let hour: Int
+}
+
+private struct AnalysisAppendRow: Hashable {
+    let table: AnalysisAppendTable
+    let rowID: Int64
 }
 
 struct AnalysisGravityBucket: Sendable, Hashable {
@@ -82,11 +128,16 @@ final class AnalysisInputObservation: TransactionObserver, @unchecked Sendable {
     private var unknownRevision: UInt64 = 0
     private var gravityGlobalRevision: UInt64 = 0
     private var gravityRevisions: [AnalysisGravityBucket: UInt64] = [:]
-    private var pendingGravityRows = Set<Int64>()
+    private var appendGlobalRevision: UInt64 = 0
+    private var appendRevisions: [AnalysisAppendBucket: UInt64] = [:]
+    // ONE shared pending-row budget for all three tables; motion reuses the same gravity row IDs.
+    private var pendingAppendRows = Set<AnalysisAppendRow>()
+    private var pendingAppendGlobal = false
+    private var pendingAppendOverflow = false
     private var pendingGravityGlobal = false
-    private var knownGravityAppend = false
-    private var gravitySchemaKey: String?
-    private var gravitySchemaAllowsAppendRegions = false
+    private var knownAppendTable: AnalysisAppendTable?
+    private var appendSchemaKey: String?
+    private var appendSchemaSafety: [AnalysisAppendTable: Bool] = [:]
     private var activeOutputLedger: AnalysisOutputWriteLedger?
     private var outputSchemaKey: String?
     private var outputSchemaAllowsReceipts = false
@@ -119,13 +170,24 @@ final class AnalysisInputObservation: TransactionObserver, @unchecked Sendable {
                 pendingOutputOrigins[table] = activeOutputLedger.map(OutputOrigin.owned) ?? .unowned
             }
         }
-        guard table == "gravitysample", !pendingGravityGlobal else { return }
-        guard knownGravityAppend, event.kind == .insert, pendingGravityRows.count < Self.regionLimit else {
-            pendingGravityGlobal = true
-            pendingGravityRows.removeAll(keepingCapacity: true)
+        guard let family = AnalysisAppendTable(rawValue: table) else { return }
+        guard knownAppendTable == family, event.kind == .insert else {
+            pendingAppendGlobal = true
+            if family == .gravity { pendingGravityGlobal = true }
             return
         }
-        pendingGravityRows.insert(event.rowID)
+        guard !pendingAppendOverflow else {
+            if family == .gravity { pendingGravityGlobal = true }
+            return
+        }
+        guard pendingAppendRows.count < Self.regionLimit else {
+            pendingAppendOverflow = true
+            pendingAppendGlobal = true
+            pendingGravityGlobal = pendingTables.contains(AnalysisAppendTable.gravity.rawValue)
+            pendingAppendRows.removeAll(keepingCapacity: true)
+            return
+        }
+        pendingAppendRows.insert(.init(table: family, rowID: event.rowID))
     }
 
     func databaseWillCommit() throws {}
@@ -157,6 +219,8 @@ final class AnalysisInputObservation: TransactionObserver, @unchecked Sendable {
         let total = sqlite3_total_changes64(db.sqliteConnection)
         if pendingUnknown || total - accountedTotal != observedRows {
             unknownRevision &+= 1
+            appendGlobalRevision &+= 1
+            appendRevisions.removeAll(keepingCapacity: true)
             gravityGlobalRevision &+= 1
             gravityRevisions.removeAll(keepingCapacity: true)
         }
@@ -175,44 +239,54 @@ final class AnalysisInputObservation: TransactionObserver, @unchecked Sendable {
         return AnalysisInputWitness(
             generation: generation, externalVersion: external, schemaVersion: schema, tempSchemaVersion: tempSchema,
             unknownRevision: unknownRevision, tableRevisions: tableRevisions,
+            appendGlobalRevision: appendGlobalRevision, appendRevisions: appendRevisions,
             gravityGlobalRevision: gravityGlobalRevision, gravityRevisions: gravityRevisions)
     }
 
-    /// Only the fixed INSERT ... ON CONFLICT(deviceId,ts) DO NOTHING writer can opt into day regions.
-    /// Other INSERT SQL may REPLACE an explicit rowid and silently delete a different owner/day.
-    func withGravityAppend<T>(in db: Database, _ body: () throws -> T) rethrows -> T {
-        let previous = knownGravityAppend
-        knownGravityAppend = appendRegionsAreSafe(in: db)
-        defer { knownGravityAppend = previous }
+    /// Only fixed decoded-stream INSERT ... DO NOTHING bodies opt in. A same-transaction UPDATE,
+    /// including RR provenance/quality upgrades, still takes the global path in databaseDidChange.
+    func withKnownAppend<T>(table: AnalysisAppendTable, in db: Database, _ body: () throws -> T) rethrows -> T {
+        let previous = knownAppendTable
+        knownAppendTable = appendRegionsAreSafe(table: table, in: db) ? table : nil
+        defer { knownAppendTable = previous }
         return try body()
     }
 
-    private func appendRegionsAreSafe(in db: Database) -> Bool {
+    private func appendRegionsAreSafe(table: AnalysisAppendTable, in db: Database) -> Bool {
         do {
-            let main = try Int.fetchOne(db, sql: "PRAGMA schema_version")
-            let temp = try Int.fetchOne(db, sql: "PRAGMA temp.schema_version")
-            guard let main, let temp else { return false }
+            guard let main = try Int.fetchOne(db, sql: "PRAGMA schema_version"),
+                  let temp = try Int.fetchOne(db, sql: "PRAGMA temp.schema_version") else { return false }
             let key = "\(main):\(temp)"
-            if gravitySchemaKey == key { return gravitySchemaAllowsAppendRegions }
-            let columns = try Row.fetchAll(db, sql: "PRAGMA main.table_xinfo(gravitySample)")
+            if appendSchemaKey != key {
+                appendSchemaKey = key
+                appendSchemaSafety.removeAll(keepingCapacity: true)
+            }
+            if let safe = appendSchemaSafety[table] { return safe }
+            let name = table.rawValue
+            let columns = try Row.fetchAll(db, sql: "PRAGMA main.table_xinfo(\(name))")
             let shadowsRowID = columns.contains { ["rowid", "_rowid_", "oid"].contains(($0["name"] as String).lowercased()) }
             let primary = columns.filter { ($0["pk"] as Int) > 0 }
-                .sorted { ($0["pk"] as Int) < ($1["pk"] as Int) }.map { $0["name"] as String }
+                .sorted { ($0["pk"] as Int) < ($1["pk"] as Int) }.map { ($0["name"] as String).lowercased() }
+            let timestampIsInteger = columns.contains {
+                ($0["name"] as String).lowercased() == "ts" && ($0["type"] as String).uppercased() == "INTEGER"
+            }
+            let ownerIsText = columns.contains {
+                ($0["name"] as String).lowercased() == "deviceid" && ($0["type"] as String).uppercased() == "TEXT"
+            }
             let rowid = try Int.fetchOne(db, sql:
-                "SELECT wr FROM pragma_table_list WHERE schema='main' AND name='gravitySample' COLLATE NOCASE") == 0
-            let extraUnique = try Row.fetchAll(db, sql: "PRAGMA main.index_list(gravitySample)")
+                "SELECT wr FROM pragma_table_list WHERE schema='main' AND name=? COLLATE NOCASE", arguments: [name]) == 0
+            let extraUnique = try Row.fetchAll(db, sql: "PRAGMA main.index_list(\(name))")
                 .contains { ($0["unique"] as Int) != 0 && ($0["origin"] as String) != "pk" }
-            let foreignKeys = try Row.fetchAll(db, sql: "PRAGMA main.foreign_key_list(gravitySample)")
+            let foreignKeys = try Row.fetchAll(db, sql: "PRAGMA main.foreign_key_list(\(name))")
             let triggers = try Int.fetchOne(db, sql: """
-                SELECT (SELECT COUNT(*) FROM sqlite_master WHERE type='trigger' AND tbl_name='gravitySample' COLLATE NOCASE)
-                     + (SELECT COUNT(*) FROM sqlite_temp_master WHERE type='trigger' AND tbl_name='gravitySample' COLLATE NOCASE)
-                     + (SELECT COUNT(*) FROM sqlite_temp_master WHERE name='gravitySample' COLLATE NOCASE)
-                """) ?? 1
-            gravitySchemaAllowsAppendRegions = primary.map { $0.lowercased() } == ["deviceid", "ts"]
-                && rowid && !shadowsRowID && !extraUnique
-                && foreignKeys.isEmpty && triggers == 0
-            gravitySchemaKey = key
-            return gravitySchemaAllowsAppendRegions
+                SELECT (SELECT COUNT(*) FROM sqlite_master WHERE type='trigger' AND tbl_name=? COLLATE NOCASE)
+                     + (SELECT COUNT(*) FROM sqlite_temp_master WHERE type='trigger' AND tbl_name=? COLLATE NOCASE)
+                     + (SELECT COUNT(*) FROM sqlite_temp_master WHERE name=? COLLATE NOCASE)
+                """, arguments: [name, name, name]) ?? 1
+            let safe = primary == table.primaryKey && rowid && !shadowsRowID && !extraUnique
+                && timestampIsInteger && ownerIsText && foreignKeys.isEmpty && triggers == 0
+            appendSchemaSafety[table] = safe
+            return safe
         } catch {
             return false
         }
@@ -265,36 +339,65 @@ final class AnalysisInputObservation: TransactionObserver, @unchecked Sendable {
             }
         }
 
+        var appendGlobal = unknown || pendingAppendGlobal
         var gravityGlobal = unknown || pendingGravityGlobal
-        if !gravityGlobal, !pendingGravityRows.isEmpty {
-            do {
-                let ids = Array(pendingGravityRows)
-                var buckets = Set<AnalysisGravityBucket>()
-                var found = 0
-                for start in stride(from: 0, to: ids.count, by: 500) {
-                    let chunk = Array(ids[start..<min(start + 500, ids.count)])
-                    let placeholders = Array(repeating: "?", count: chunk.count).joined(separator: ",")
-                    let rows = try Row.fetchAll(db, sql:
-                        "SELECT deviceId,ts FROM gravitySample WHERE rowid IN (\(placeholders))",
-                        arguments: StatementArguments(chunk))
-                    found += rows.count
-                    for row in rows {
-                        let owner: String = row["deviceId"], ts: Int = row["ts"]
-                        buckets.insert(.init(owner: owner, day: AnalysisInputWitness.utcDay(ts)))
+        var hours = Set<AnalysisAppendBucket>()
+        var motionDays = Set<AnalysisGravityBucket>()
+        if !unknown {
+            let byTable = Dictionary(grouping: pendingAppendRows, by: \.table)
+            for (table, pending) in byTable {
+                // A global scan fence needs no row lookup, except gravity still supplies motion precision.
+                guard !appendGlobal || table == .gravity && !gravityGlobal else { continue }
+                do {
+                    let ids = pending.map(\.rowID)
+                    var found = 0
+                    for start in stride(from: 0, to: ids.count, by: 500) {
+                        let chunk = Array(ids[start..<min(start + 500, ids.count)])
+                        let placeholders = Array(repeating: "?", count: chunk.count).joined(separator: ",")
+                        let rows = try Row.fetchAll(db, sql:
+                            "SELECT deviceId,ts FROM main.\(table.rawValue) WHERE rowid IN (\(placeholders))",
+                            arguments: StatementArguments(chunk))
+                        found += rows.count
+                        for row in rows {
+                            let ts: Int = row["ts"]
+                            if !appendGlobal { hours.insert(.init(table: table, hour: AnalysisInputWitness.utcHour(ts))) }
+                            if table == .gravity, !gravityGlobal {
+                                let owner: String = row["deviceId"]
+                                motionDays.insert(.init(owner: owner, day: AnalysisInputWitness.utcDay(ts)))
+                            }
+                        }
                     }
+                    if found != ids.count {
+                        appendGlobal = true
+                        if table == .gravity { gravityGlobal = true }
+                    }
+                } catch {
+                    appendGlobal = true
+                    if table == .gravity { gravityGlobal = true }
                 }
-                if found != ids.count || gravityRevisions.count + buckets.count > Self.regionLimit {
-                    gravityGlobal = true
-                } else {
-                    for bucket in buckets { gravityRevisions[bucket, default: 0] &+= 1 }
-                }
-            } catch {
-                gravityGlobal = true
             }
+        }
+        if appendGlobal {
+            appendGlobalRevision &+= 1
+            appendRevisions.removeAll(keepingCapacity: true)
+            hours.removeAll()
         }
         if gravityGlobal {
             gravityGlobalRevision &+= 1
             gravityRevisions.removeAll(keepingCapacity: true)
+            motionDays.removeAll()
+        }
+        let newHours = hours.reduce(0) { $0 + (appendRevisions[$1] == nil ? 1 : 0) }
+        let newMotionDays = motionDays.reduce(0) { $0 + (gravityRevisions[$1] == nil ? 1 : 0) }
+        // ONE combined retained-state budget. Clearing either precision map always advances its fence.
+        if appendRevisions.count + gravityRevisions.count + newHours + newMotionDays > Self.regionLimit {
+            appendGlobalRevision &+= 1
+            gravityGlobalRevision &+= 1
+            appendRevisions.removeAll(keepingCapacity: true)
+            gravityRevisions.removeAll(keepingCapacity: true)
+        } else {
+            for hour in hours { appendRevisions[hour, default: 0] &+= 1 }
+            for day in motionDays { gravityRevisions[day, default: 0] &+= 1 }
         }
         accountedTotal = total
         resetPending()
@@ -304,7 +407,9 @@ final class AnalysisInputObservation: TransactionObserver, @unchecked Sendable {
         observedRows = 0
         pendingTables.removeAll(keepingCapacity: true)
         pendingUnknown = false
-        pendingGravityRows.removeAll(keepingCapacity: true)
+        pendingAppendRows.removeAll(keepingCapacity: true)
+        pendingAppendGlobal = false
+        pendingAppendOverflow = false
         pendingGravityGlobal = false
         pendingOutputOrigins.removeAll(keepingCapacity: true)
     }

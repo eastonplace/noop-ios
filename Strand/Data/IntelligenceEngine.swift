@@ -1562,7 +1562,7 @@ final class IntelligenceEngine: ObservableObject {
         let cacheSnapshot: [String: CachedDayScan] = sourceContext == nil
             && dayScanCacheConfigSignature == cacheConfigSignature ? dayScanCache : [:]
         let cacheTestingSeams = analyzeRecentCacheTestingSeams
-        let scanInputWitness = inputWitness?.signature(tables: Self.dayScanInputTables)
+        let scanInputTables = Self.dayScanInputTables
         let scanPass: DayScanPass
         do {
             scanPass = try await CooperativeAnalysisCancellation.runDetached {
@@ -1672,6 +1672,12 @@ final class IntelligenceEngine: ObservableObject {
                     && ownerDevice?.brand.caseInsensitiveCompare("WHOOP") == .orderedSame
                 var dayCacheKey: String?
                 if sourceContext == nil, isWhoop4 {
+                    // The cache may decline a capped night slice and read the complete calendar day;
+                    // Effort can additionally read beyond the night end through the successor onset.
+                    // Include the entire inclusive union even when one shortcut happens to answer it.
+                    let rawReadEnd = max(max(to, civilDay.nextStart - 1), cycleTail?.upperBound ?? to)
+                    let scanInputWitness = inputWitness?.dayScanSignature(
+                        tables: scanInputTables, from: from, to: rawReadEnd)
                     cacheEligible += 1
                     try CooperativeAnalysisCancellation.checkpoint()
                     let fingerprint: (count: Int, maxTs: Int)

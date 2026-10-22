@@ -103,10 +103,14 @@ extension WhoopStore {
                     INSERT INTO hrSample (deviceId, ts, bpm) VALUES (?, ?, ?)
                     ON CONFLICT(deviceId, ts) DO NOTHING
                     """)
-                for s in streams.hr {
-                    try stmt.execute(arguments: [deviceId, s.ts, s.bpm])
-                    hr += db.changesCount
+                let append = {
+                    for s in streams.hr {
+                        try stmt.execute(arguments: [deviceId, s.ts, s.bpm])
+                        hr += db.changesCount
+                    }
                 }
+                if let analysisObservation { try analysisObservation.withKnownAppend(table: .hr, in: db, append) }
+                else { try append() }
             }
             if !streams.rr.isEmpty {
                 let stmt = try db.cachedStatement(sql: """
@@ -125,19 +129,23 @@ extension WhoopStore {
                 // per-row SELECT, so a replayed batch no longer prepares two statements per beat. The insert's
                 // change count stays the inserted-row count.
                 let upgrade = try db.cachedStatement(sql: Self.rrProvenanceUpgradeSQL)
-                var seqBySource: [RRSource: [Int: [Int: Int]]] = [:]
-                for r in streams.rr {
-                    let seq = seqBySource[r.source]?[r.ts]?[r.rrMs] ?? 0
-                    seqBySource[r.source, default: [:]][r.ts, default: [:]][r.rrMs] = seq + 1
-                    try stmt.execute(arguments: [deviceId, r.ts, r.rrMs, seq,
-                                                 r.source.rawValue, r.sourceOrdinal ?? seq])
-                    rr += db.changesCount
-                    if db.changesCount == 0 {
-                        try upgrade.execute(arguments: [r.source.rawValue, r.sourceOrdinal ?? seq,
-                                                        deviceId, r.ts, r.rrMs, seq,
-                                                        RRReadPolicy.priority(for: r.source)])
+                let append = {
+                    var seqBySource: [RRSource: [Int: [Int: Int]]] = [:]
+                    for r in streams.rr {
+                        let seq = seqBySource[r.source]?[r.ts]?[r.rrMs] ?? 0
+                        seqBySource[r.source, default: [:]][r.ts, default: [:]][r.rrMs] = seq + 1
+                        try stmt.execute(arguments: [deviceId, r.ts, r.rrMs, seq,
+                                                     r.source.rawValue, r.sourceOrdinal ?? seq])
+                        rr += db.changesCount
+                        if db.changesCount == 0 {
+                            try upgrade.execute(arguments: [r.source.rawValue, r.sourceOrdinal ?? seq,
+                                                            deviceId, r.ts, r.rrMs, seq,
+                                                            RRReadPolicy.priority(for: r.source)])
+                        }
                     }
                 }
+                if let analysisObservation { try analysisObservation.withKnownAppend(table: .rr, in: db, append) }
+                else { try append() }
             }
             // Quality annotation shares the decoded-row transaction, including atomic
             // historical commits. Receipt and ACK ordering remains unchanged.
@@ -204,7 +212,7 @@ extension WhoopStore {
                         grav += db.changesCount
                     }
                 }
-                if let analysisObservation { try analysisObservation.withGravityAppend(in: db, append) }
+                if let analysisObservation { try analysisObservation.withKnownAppend(table: .gravity, in: db, append) }
                 else { try append() }
             }
             // WHOOP5 step counter (#78). Persist-only, the count is not surfaced in the return tuple
