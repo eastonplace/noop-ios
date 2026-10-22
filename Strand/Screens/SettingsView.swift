@@ -609,7 +609,9 @@ struct SettingsDetailHost: View {
         if showFiveMGControls {
             Section {
                 Toggle("WHOOP 5/MG protocol probes", isOn: $puffinExperiments)
-                Toggle("WHOOP 5/MG deep data", isOn: $deepDataEnabled)
+                Toggle("Allow WHOOP 5/MG deep-data changes", isOn: $deepDataEnabled)
+                    .onChangeCompat(of: deepDataEnabled) { model.ble.reconcileWhoop5DeepDataPermission($0) }
+                Text(PuffinExperiment.deepDataPermissionDetail).font(.subheadline).foregroundStyle(.secondary)
                 if deepDataEnabled {
                     Button("Send Enable Sequence to Strap") { model.ble.enableWhoop5DeepData() }
                         .disabled(deepDataButtonDisabled)
@@ -627,7 +629,7 @@ struct SettingsDetailHost: View {
             } header: {
                 Text("WHOOP 5 / MG")
             } footer: {
-                Text("These protocol tools are experimental. Deep-data and broadcast actions write reversible feature flags to the strap; capture only records frames the strap already sent.")
+                Text("These protocol tools are experimental. Deep-data changes persist after permission is off. Broadcast can be turned off separately. Capture records frames the strap already sent.")
             }
         }
 
@@ -1662,13 +1664,19 @@ struct SettingsDetailHost: View {
 
                 // MARK: R22 deep-data unlock — the one probe that writes to the strap.
                 Toggle(isOn: $deepDataEnabled) {
-                    Text("Unlock WHOOP 5/MG deep data (R22)")
+                    Text("Allow WHOOP 5/MG deep-data changes")
                         .font(StrandFont.subhead)
                         .foregroundStyle(StrandPalette.textPrimary)
                 }
                 .toggleStyle(.switch)
                 .tint(StrandPalette.ink)
-                Text("WHOOP 5/MG straps hand a fresh app only live heart rate. The official app switches on the deeper streams (high-rate HR + motion + history) by writing a set of feature flags, a sequence two independent projects have documented. With this on, the button below sends that exact sequence to your strap. Unlike everything else here it does write to the strap, but it's reversible (it only changes which data the strap chooses to emit) and is the same thing the official app does. Experimental: it may do nothing on your firmware. iPhone/Android only. A Mac can't write to a 5/MG.")
+                .onChangeCompat(of: deepDataEnabled) { model.ble.reconcileWhoop5DeepDataPermission($0) }
+                Text("The button below requests persistent deep-data settings documented in official-app captures. These changes may have no effect on your firmware. Requires a secure WHOOP 5/MG connection on iPhone/Android.")
+                    .font(StrandFont.caption)
+                    .foregroundStyle(StrandPalette.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Text(PuffinExperiment.deepDataPermissionDetail)
                     .font(StrandFont.caption)
                     .foregroundStyle(StrandPalette.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)

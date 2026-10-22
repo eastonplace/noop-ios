@@ -398,10 +398,13 @@ struct TestCentreView: View {
                         .toggleStyle(.switch).tint(StrandPalette.ink)
 
                         Toggle(isOn: $deepDataEnabled) {
-                            Text("Unlock WHOOP 5/MG deep data (R22)")
+                            Text("Allow WHOOP 5/MG deep-data changes")
                                 .font(StrandFont.subhead).foregroundStyle(StrandPalette.textPrimary)
                         }
                         .toggleStyle(.switch).tint(StrandPalette.ink)
+                        .onChangeCompat(of: deepDataEnabled) { model.ble.reconcileWhoop5DeepDataPermission($0) }
+                        Text(PuffinExperiment.deepDataPermissionDetail)
+                            .font(StrandFont.caption).foregroundStyle(StrandPalette.textTertiary)
 
                         Toggle(isOn: $broadcastHrEnabled) {
                             Text("Broadcast heart rate (Garmin/ANT)")

@@ -145,12 +145,12 @@ enum DeviceCommandCenterStatusResolver {
 
     static func r22Label(_ input: DeviceCommandCenterInput) -> String? {
         guard input.isWhoop, input.supportsR22 else { return nil }
-        guard input.deepDataEnabled else { return "Off" }
+        guard input.deepDataEnabled else { return "Permission off" }
         guard input.connected, input.encryptedBond else { return "Requires full bond" }
         let total = max(1, input.r22FlagCount)
         if input.r22FlagsAccepted >= total { return "Accepted \(total)/\(total)" }
         if input.r22FlagsAccepted > 0 { return "Applying \(input.r22FlagsAccepted)/\(total)" }
-        return "Configured · Monitoring"
+        return "Permission on"
     }
 
     static func commands(_ input: DeviceCommandCenterInput) -> DeviceCommandAvailability {

@@ -17,11 +17,19 @@ enum PuffinExperiment {
     /// Separate, more-deliberate opt-in for the WHOOP 5/MG "R22" deep-data unlock — the one probe
     /// that WRITES a persistent feature flag to the strap (the `enable_r22_*` SET_CONFIG sequence the
     /// official app sends; documented by judes.club + Asherlc/dofek). Kept distinct from the read-only
-    /// probes above because it changes strap state, so it must be turned on explicitly and is still
-    /// fully reversible. Driven only from `BLEManager.enableWhoop5DeepData()`. (#174)
+    /// probes above because it changes strap state. It must be turned on explicitly to grant
+    /// permission to send future writes. OFF does not restore values already applied to the strap.
+    /// Driven only from `BLEManager.enableWhoop5DeepData()`. (#174)
     static let deepDataKey = "noopWhoop5DeepData"
 
-    static var deepDataEnabled: Bool { UserDefaults.standard.bool(forKey: deepDataKey) }
+    static var deepDataEnabled: Bool {
+        guard let domainName = Bundle.main.bundleIdentifier,
+              let value = UserDefaults.standard.persistentDomain(forName: domainName)?[deepDataKey] as? NSNumber,
+              CFGetTypeID(value) == CFBooleanGetTypeID() else { return false }
+        return value.boolValue
+    }
+
+    static let deepDataPermissionDetail = "Off prevents further deep-data changes. Previously applied strap settings stay in place; NOOP cannot restore their earlier values."
 
     /// Opt-in "Broadcast heart rate": writes the device-config flag `whoop_live_hr_in_adv_ind_pkt="1"`
     /// so the strap advertises the standard Heart Rate Service (0x180D) + its live HR, pairable by a

@@ -16,8 +16,9 @@ import Foundation
 // then 7 bytes of zero. The command is built with the normal puffin envelope via `puffinCommandFrame`
 // (cmd 0x78, the inner b3 byte 0x01 carried as the first payload byte, exactly like CLIENT_HELLO).
 //
-// This is reversible — it only changes which data the strap chooses to emit — but it is gated behind an
-// explicit opt-in in the app, and on real hardware it can only be written from iOS/Android: macOS
+// These settings persist. The app has no qualified inverse or prior-value snapshot; disabling permission
+// blocks future writes and does not restore earlier values. Writes require explicit opt-in and a secure
+// session, and on real hardware can only be written from iOS/Android: macOS
 // CoreBluetooth cannot complete the authenticated SMP bond the command characteristic requires.
 public enum Whoop5Config {
 
