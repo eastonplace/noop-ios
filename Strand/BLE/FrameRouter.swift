@@ -140,17 +140,13 @@ public final class FrameRouter {
             // cmdName carries a "(rawValue)" suffix (Schema.enumName appends it, e.g.
             // "GET_ALARM_TIME(67)"), so match by prefix like every other cmdName consumer in the
             // codebase - never by equality, which is silently dead.
-            // Reboot ack (#166): log the COMMAND_RESPONSE result for a user reboot on BOTH families. This is
-            // the accept/reject signal — the same one that exposed 5/MG haptics rejection (result=0x03) — so
-            // a 5/MG owner's strap log confirms whether the (unverified) puffin reboot frame is accepted
-            // (0x00) or rejected. Log-only. A reboot that's accepted may drop the link before/after this ack.
-            // POWER_CYCLE_STRAP is matched too: it's the 4.0 reboot probe's candidate B (#235), and its
-            // result byte is exactly what tells "opcode rejected (recognized, wrong args)" from "ignored".
+            // Preserve each family's raw reboot response byte. Puffin's result is at inner+4 (frame[12]),
+            // while the legacy reader below uses frame[8]. WHOOP 4 result semantics remain unverified;
+            // neither family's response alone proves that the strap physically rebooted.
             if let cmd = parsed.cmdName, cmd.hasPrefix("REBOOT_STRAP") || cmd.hasPrefix("POWER_CYCLE_STRAP") {
-                let r = Self.commandResultByte(in: frame)
+                let r = family == .whoop5 ? parsed.responseResult : Self.commandResultByte(in: frame)
                 let rhex = r.map { String(format: "0x%02x", UInt8(truncatingIfNeeded: $0)) } ?? "none"
-                let verdict = r == nil ? "no result byte" : (r == 0 ? "accepted" : "REJECTED")
-                state.append(log: "reboot: strap acked result=\(rhex) (\(verdict))")
+                state.append(log: "reboot: strap response result=\(rhex) — raw response; physical reboot confirmation is separate")
             }
             if family == .whoop4, let cmd = parsed.cmdName {
                 if cmd.hasPrefix("GET_ADVERTISING_NAME_HARVARD") {
