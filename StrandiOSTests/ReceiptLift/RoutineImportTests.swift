@@ -186,6 +186,62 @@ struct RoutineImportTests {
         #expect(preview.routines[0].exerciseIDs[0] != original.userExercises[0].id)
     }
 
+    @Test func spreadsheetNamesFindTheOneLibraryExerciseTheyMean() {
+        let library = Self.library("Barbell Bench Press", "Dumbbell Bench Press", "Cable Bench Press", "Band Bench Press",
+                                   "Barbell Incline Bench Press", "Pull-Up", "Dumbbell Curl", "Cable Curl",
+                                   "Barbell Seated Overhead Press", "Dumbbell Standing Overhead Press", "Barbell Bent Over Row")
+        let matcher = LiftExerciseMatcher(library)
+        func match(_ name: String) -> String? { matcher.match(name)?.name }
+        // Case, punctuation, spacing and equipment shorthand.
+        #expect(match("barbell bench press") == "Barbell Bench Press")
+        #expect(match("BB Bench-Press") == "Barbell Bench Press")
+        #expect(match("DB bench press") == "Dumbbell Bench Press")
+        #expect(match("Bench Press (barbell)") == "Barbell Bench Press")
+        // An unqualified lift means the barbell one when only one barbell version exists.
+        #expect(match("Bench Press") == "Barbell Bench Press")
+        #expect(match("Incline Bench Press") == "Barbell Incline Bench Press")
+        // Singular, plural and run-together spellings.
+        #expect(match("Pull Up") == "Pull-Up")
+        #expect(match("pull-ups") == "Pull-Up")
+        #expect(match("Pullup") == "Pull-Up")
+        #expect(match("Dumbbell Curls") == "Dumbbell Curl")
+    }
+
+    @Test func ambiguousOrContradictoryNamesStayCustom() {
+        let library = Self.library("Barbell Bench Press", "Dumbbell Bench Press", "Dumbbell Curl", "Cable Curl",
+                                   "Barbell Seated Overhead Press", "Dumbbell Standing Overhead Press", "Barbell Bent Over Row")
+        let matcher = LiftExerciseMatcher(library)
+        #expect(matcher.match("Curl") == nil, "Two non-barbell candidates")
+        #expect(matcher.match("Overhead Press") == nil, "The words differ from every library name")
+        #expect(matcher.match("Barbell Row") == nil, "Not a library name")
+        #expect(matcher.match("Machine Bench Press") == nil, "Machine contradicts both library versions")
+        #expect(matcher.match("Cable Bench Press") == nil)
+        #expect(matcher.match("Benchh Press") == nil)
+        let barbell = library[0]
+        #expect(matcher.match("Bench Press", excluding: [barbell.id]) == nil, "Never reuse an exercise already in the routine")
+    }
+
+    @Test func reviewShowsTheLibraryNameForANearMatchAndSavesNoCustomExercise() throws {
+        let original = fixture()
+        let library = Self.library("Barbell Bench Press", "Dumbbell Bench Press") + original.userExercises
+        let draft = ReceiptLiftRoutineImportDraft(routines: [
+            .init(name: "Other", exercises: [.init(name: "Bench Press", sets: "3"), .init(name: "Fixture Bench"), .init(name: "Cable Arc")])
+        ])
+        let preview = try LiftRoutineImportBuilder.prepare(draft, routines: original.routines, exercises: library)
+        let plans = try #require(preview.routines[0].exercisePlans)
+        #expect(preview.exercise(plans[0].exerciseID)?.name == "Barbell Bench Press")
+        #expect(preview.importedNames[plans[0].id] == "Bench Press")
+        #expect(preview.importedNames[plans[1].id] == nil, "An exact match needs no mapping")
+        #expect(preview.newExercises.map(\.name) == ["Cable Arc"])
+        #expect(preview.matchedExercises.count == 2)
+        // A sheet that names different equipment is not matched to the barbell lift.
+        let dumbbell = ReceiptLiftRoutineImportDraft(routines: [
+            .init(name: "Other", exercises: [.init(name: "Bench Press", equipment: "machine")])
+        ])
+        let custom = try LiftRoutineImportBuilder.prepare(dumbbell, routines: original.routines, exercises: library)
+        #expect(custom.newExercises.map(\.name) == ["Bench Press"])
+    }
+
     private func setup() async throws -> (ReceiptLiftCoordinator, RoutineImportHarness, LiftDataEnvelope) {
         let original = fixture()
         let harness = RoutineImportHarness(data: try encode(original))
@@ -203,6 +259,13 @@ struct RoutineImportTests {
             .init(name: "Fixture Bench", sets: "3", reps: "5-8", rest: "120 s", targetEffort: "8 RPE", notes: "Planned load: 60 kg"),
             .init(name: "Custom cable arc", muscleGroup: "chest", equipment: "cable", sets: "2", reps: "12")
         ])])
+    }
+
+    private static func library(_ names: String...) -> [LiftExercise] {
+        names.map { name in
+            let equipment = ["barbell", "dumbbell", "cable", "band", "machine"].first { name.lowercased().contains($0) } ?? "body weight"
+            return LiftExercise(id: UUID(), name: name, muscleGroup: "pectorals", equipment: equipment, instructions: "")
+        }
     }
 
     private func fixture() -> LiftDataEnvelope {

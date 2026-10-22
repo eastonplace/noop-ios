@@ -42,11 +42,15 @@ struct LiftRoutineImportPreview: Identifiable, Sendable {
     let newExercises: [LiftExercise]
     let matchedExercises: [LiftExercise]
     let warnings: [String]
+    /// The spreadsheet's own name for a row that was matched to a differently written library exercise, by plan ID.
+    let importedNames: [UUID: String]
     private let exercisesByID: [UUID: LiftExercise]
 
-    init(routines: [LiftRoutine], newExercises: [LiftExercise], matchedExercises: [LiftExercise], warnings: [String]) {
+    init(routines: [LiftRoutine], newExercises: [LiftExercise], matchedExercises: [LiftExercise], warnings: [String],
+         importedNames: [UUID: String] = [:]) {
         self.routines = routines; self.newExercises = newExercises
         self.matchedExercises = matchedExercises; self.warnings = warnings
+        self.importedNames = importedNames
         exercisesByID = Dictionary((matchedExercises + newExercises).map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
     }
 
@@ -74,7 +78,8 @@ enum LiftRoutineImportError: LocalizedError {
 }
 
 /// Makes the exact objects shown in the preview. IDs and collision names are fixed before confirmation.
-/// Existing exercises win only on exact normalized names; near matches are never guessed.
+/// Existing exercises win on an exact normalized name, or on one unambiguous near match (`LiftExerciseMatcher`). Anything
+/// less certain stays a custom exercise.
 enum LiftRoutineImportBuilder {
     static func prepare(_ draft: ReceiptLiftRoutineImportDraft, routines: [LiftRoutine], exercises: [LiftExercise]) throws -> LiftRoutineImportPreview {
         guard (1...50).contains(draft.routines.count),
@@ -84,6 +89,8 @@ enum LiftRoutineImportBuilder {
             if result[key] == nil { result[key] = exercise }
         }
         let originalIDs = Set(exercises.map(\.id))
+        let matcher = LiftExerciseMatcher(exercises)
+        var importedNames: [UUID: String] = [:]
         var usedNames = Set(routines.map { LiftExerciseCatalog.normalizedName($0.name) })
         var created: [LiftExercise] = []
         var matched: [UUID: LiftExercise] = [:]
@@ -116,7 +123,16 @@ enum LiftRoutineImportBuilder {
                       [line.sets, line.reps, line.rest, line.targetEffort].allSatisfy({ $0.count <= 80 }),
                       line.notes.count <= 2_200 else { throw LiftRoutineImportError.invalidDraft }
                 let exercise: LiftExercise
-                if let existing = exerciseByName[key] {
+                var existing = exerciseByName[key]
+                var isNearMatch = false
+                // A near match must not contradict the equipment the sheet names for that row.
+                if existing == nil, let near = matcher.match(name, excluding: usedExerciseIDs),
+                   line.equipment.isEmpty
+                    || LiftExerciseCatalog.normalizedName(line.equipment) == LiftExerciseCatalog.normalizedName(near.equipment) {
+                    existing = near
+                    isNearMatch = true
+                }
+                if let existing {
                     exercise = existing
                     if originalIDs.contains(existing.id) {
                         matched[existing.id] = existing
@@ -133,14 +149,17 @@ enum LiftRoutineImportBuilder {
                     exerciseByName[key] = exercise
                 }
                 guard usedExerciseIDs.insert(exercise.id).inserted else { throw LiftRoutineImportError.repeatedExercise(name) }
-                plans.append(LiftRoutineExercisePlan(id: UUID(), exerciseID: exercise.id, sets: line.sets, reps: line.reps,
+                let planID = UUID()
+                if isNearMatch { importedNames[planID] = name }
+                plans.append(LiftRoutineExercisePlan(id: planID, exerciseID: exercise.id, sets: line.sets, reps: line.reps,
                     rest: line.rest, targetEffort: line.targetEffort, notes: line.notes))
             }
             imported.append(LiftRoutine(id: UUID(), name: name, notes: source.notes, trainingMode: mode,
                 exerciseIDs: plans.map(\.exerciseID), exercisePlans: plans))
         }
         return LiftRoutineImportPreview(routines: imported, newExercises: created,
-            matchedExercises: matched.values.sorted { $0.id.uuidString < $1.id.uuidString }, warnings: warnings)
+            matchedExercises: matched.values.sorted { $0.id.uuidString < $1.id.uuidString }, warnings: warnings,
+            importedNames: importedNames)
     }
 
     static func validate(_ preview: LiftRoutineImportPreview, routines: [LiftRoutine], exercises: [LiftExercise]) throws {

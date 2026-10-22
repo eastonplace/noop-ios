@@ -186,15 +186,13 @@ struct ScheduleView: View {
         .buttonStyle(PrimaryPillButtonStyle())
         .padding(.top, NoopMetrics.space3)
       if store.routineImportParser != nil {
-        ChipRow {
-          WidgetChipButton(title: "Import routines", systemImage: "square.and.arrow.down", accessibilityLabel: "Import routines",
-                           accessibilityHint: "Choose a CSV or Excel file and review it before saving") {
-            showsRoutineImport = true
-          }
-          .disabled(store.activeSession != nil)
-          .accessibilityIdentifier("routine.import.open")
+        LiftTextButton("Import routines", systemImage: "square.and.arrow.down", centered: true) {
+          showsRoutineImport = true
         }
-        .padding(.top, NoopMetrics.space3)
+        .accessibilityHint("Choose a CSV or Excel file and review it before saving")
+        .disabled(store.activeSession != nil)
+        .accessibilityIdentifier("routine.import.open")
+        .padding(.top, NoopMetrics.space2)
         if store.activeSession != nil {
           LiftNote(text: "Finish your active workout before importing routines.")
             .padding(.top, NoopMetrics.space2)

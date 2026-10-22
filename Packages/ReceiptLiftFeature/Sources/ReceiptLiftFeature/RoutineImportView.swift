@@ -37,15 +37,25 @@ struct RoutineImportView: View {
             }
         }, footer: {
             if let preview {
-                Button { confirm(preview) } label: {
-                    if saving { ProgressView().tint(StrandPalette.textPrimary).liftPillLabel() }
-                    else if preview.routines.count == 1 { Text("Import routine").liftPillLabel() }
-                    else { Text("Import \(preview.routines.count) routines").liftPillLabel() }
+                VStack(spacing: NoopMetrics.space2) {
+                    if needsCustomExerciseConsent(preview) {
+                        Text("Turn on “\(LiftFormat.addCustomExercises(preview.newExercises.count))” to continue")
+                            .font(StrandFont.caption)
+                            .foregroundStyle(StrandPalette.textSecondary)
+                            .multilineTextAlignment(.center)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .accessibilityIdentifier("routine.import.consentHint")
+                    }
+                    Button { confirm(preview) } label: {
+                        if saving { ProgressView().tint(StrandPalette.textPrimary).liftPillLabel() }
+                        else if preview.routines.count == 1 { Text("Import routine").liftPillLabel() }
+                        else { Text("Import \(preview.routines.count) routines").liftPillLabel() }
+                    }
+                    .buttonStyle(PrimaryPillButtonStyle())
+                    .disabled(saving || needsCustomExerciseConsent(preview))
+                    .accessibilityLabel("Confirm routine import")
+                    .accessibilityIdentifier("routine.import.confirm")
                 }
-                .buttonStyle(PrimaryPillButtonStyle())
-                .disabled(saving || (!preview.newExercises.isEmpty && !allowsCustomExercises))
-                .accessibilityLabel("Confirm routine import")
-                .accessibilityIdentifier("routine.import.confirm")
             } else {
                 Button { picking = true } label: { Text("Choose spreadsheet").liftPillLabel() }
                     .buttonStyle(PrimaryPillButtonStyle())
@@ -69,23 +79,33 @@ struct RoutineImportView: View {
 
     private var introduction: some View {
         LiftFlatSection("Plan in a spreadsheet", systemImage: "tablecells") {
-            Text("Import a CSV or Excel (.xlsx) file with one exercise per row. Review the routines and their prescriptions before saving.")
+            Text("Import a CSV or Excel file with one exercise per row. You’ll review everything before it’s saved.")
                 .font(StrandFont.subhead)
                 .foregroundStyle(StrandPalette.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
-            Text("An exercise column is required. Optional columns include routine, sets, reps, rest_sec, rpe, weight_kg or weight_lb, and notes. Rep ranges such as 8-12 are supported. Blank prescriptions stay empty.")
+            LiftTextButton("Save CSV template", systemImage: "square.and.arrow.down") {
+                exportingTemplate = true
+            }
+            DisclosureGroup("File format") {
+                VStack(alignment: .leading, spacing: NoopMetrics.space1) {
+                    Text("exercise: required")
+                    Text("routine: groups rows into routines")
+                    Text("sets, reps: a range like 8-12 works")
+                    Text("rest_sec, rpe: rest and effort")
+                    Text("weight_kg or weight_lb: planned load")
+                    Text("notes: anything else")
+                    Text("Up to 8 MB. In Excel, save calculated cells as values first.")
+                }
                 .font(StrandFont.caption)
                 .foregroundStyle(StrandPalette.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
-            Text("Files can be up to 8 MB. In Excel, paste calculated cells as values before exporting. Use an explicit unit for planned loads; a plain weight column uses kilograms.")
-                .font(StrandFont.caption)
-                .foregroundStyle(StrandPalette.textTertiary)
-                .fixedSize(horizontal: false, vertical: true)
-            ChipRow {
-                WidgetChipButton(title: "Save CSV template", systemImage: "square.and.arrow.down", accessibilityLabel: "Save CSV template") {
-                    exportingTemplate = true
-                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.top, NoopMetrics.space2)
             }
+            .font(StrandFont.subhead)
+            .foregroundStyle(StrandPalette.textSecondary)
+            .tint(StrandPalette.textTertiary)
+            .accessibilityIdentifier("routine.import.fileFormat")
         }
     }
 
@@ -93,30 +113,22 @@ struct RoutineImportView: View {
         LiftFlatSection("Review import", systemImage: "doc.text.magnifyingglass") {
             Text(fileName).font(StrandFont.headline).foregroundStyle(StrandPalette.textPrimary)
                 .lineLimit(2)
-            Text("\(preview.routines.count) routines · \(preview.exerciseCount) exercises")
+            Text(LiftFormat.facts([LiftFormat.routineCount(preview.routines.count), LiftFormat.exerciseCount(preview.exerciseCount)]))
                 .font(StrandFont.subhead).foregroundStyle(StrandPalette.textSecondary)
-            Text("The routines below will be added to your library. Your existing routines and scheduled workouts are kept.")
+            Text("Added alongside your existing routines.")
                 .font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
-            ChipRow {
-                WidgetChipButton(title: "Choose another file", systemImage: "folder", accessibilityLabel: "Choose another file") {
-                    picking = true
-                }.disabled(saving)
+            ForEach(Array(preview.warnings.enumerated()), id: \.offset) { _, warning in
+                Text(warning).font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-        }
-        if !preview.warnings.isEmpty {
-            FlatSectionSeparator()
-            LiftFlatSection("Import notes", systemImage: "info.circle") {
-                ForEach(Array(preview.warnings.enumerated()), id: \.offset) { _, warning in
-                    Text(warning).font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
+            LiftTextButton("Choose another file", systemImage: "folder") { picking = true }
+                .disabled(saving)
         }
         if !preview.newExercises.isEmpty {
             FlatSectionSeparator()
             LiftFlatSection("New custom exercises", systemImage: "plus.circle") {
-                Text("These names have no exact match in your exercise library. Check their spelling and labels before adding them.")
+                Text("Not in your exercise library yet. Check the spelling before adding them.")
                     .font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
                 LazyVStack(alignment: .leading, spacing: NoopMetrics.space2) {
@@ -130,9 +142,9 @@ struct RoutineImportView: View {
                         }
                     }
                 }
-                Toggle("Add these \(preview.newExercises.count) custom exercises", isOn: $allowsCustomExercises)
+                Toggle(LiftFormat.addCustomExercises(preview.newExercises.count), isOn: $allowsCustomExercises)
                     .font(StrandFont.subhead)
-                    .tint(StrandPalette.accent)
+                    .tint(StrandPalette.ink)
                     .disabled(saving)
                     .accessibilityIdentifier("routine.import.allowCustomExercises")
             }
@@ -147,9 +159,9 @@ struct RoutineImportView: View {
                 LazyVStack(alignment: .leading, spacing: NoopMetrics.space3) {
                     ForEach(routine.exercisePlans ?? []) { plan in
                         VStack(alignment: .leading, spacing: 4) {
-                            Text(preview.exercise(plan.exerciseID)?.name ?? "Exercise")
+                            Text(Self.title(for: plan, in: preview))
                                 .font(StrandFont.headline).foregroundStyle(StrandPalette.textPrimary)
-                            let facts = [plan.sets.isEmpty ? "" : "\(plan.sets) sets", plan.reps.isEmpty ? "" : "\(plan.reps) reps", plan.rest, plan.targetEffort].filter { !$0.isEmpty }
+                            let facts = [Self.setsFact(plan.sets), Self.repsFact(plan.reps), plan.rest, plan.targetEffort].filter { !$0.isEmpty }
                             if !facts.isEmpty {
                                 Text(facts.joined(separator: " · ")).font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
                             }
@@ -162,6 +174,29 @@ struct RoutineImportView: View {
                 }
             }
         }
+    }
+
+    /// "Bench Press → Barbell Bench Press" when the sheet's name was matched to a differently written library exercise.
+    private static func title(for plan: LiftRoutineExercisePlan, in preview: LiftRoutineImportPreview) -> String {
+        let name = preview.exercise(plan.exerciseID)?.name ?? String(localized: "Exercise")
+        guard let imported = preview.importedNames[plan.id] else { return name }
+        return "\(imported) → \(name)"
+    }
+
+    /// "1 set" and "3 sets"; a range or other text such as "3-4" reads as plural.
+    private static func setsFact(_ sets: String) -> String {
+        guard !sets.isEmpty else { return "" }
+        return Int(sets).map(LiftFormat.setCount) ?? String(localized: "\(sets) sets")
+    }
+
+    /// "1 rep" and "8 reps"; a range such as "8-12" reads as plural.
+    private static func repsFact(_ reps: String) -> String {
+        guard !reps.isEmpty else { return "" }
+        return Int(reps).map(LiftFormat.repCount) ?? String(localized: "\(reps) reps")
+    }
+
+    private func needsCustomExerciseConsent(_ preview: LiftRoutineImportPreview) -> Bool {
+        !preview.newExercises.isEmpty && !allowsCustomExercises
     }
 
     private func selectedFile(_ result: Result<[URL], Error>) {

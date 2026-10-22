@@ -212790,6 +212790,50 @@
           }
         }
       }
+    },
+    "%lld routines": {
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld routine"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld routines"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "Add %lld custom exercises": {
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Add %lld custom exercise"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Add %lld custom exercises"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "version": "1.0"
