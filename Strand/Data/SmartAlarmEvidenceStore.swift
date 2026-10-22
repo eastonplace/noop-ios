@@ -49,10 +49,28 @@ struct SmartAlarmEvidence: Codable, Equatable, Sendable {
     // An early wake can buzz successfully even if its separate firmware-alarm readback fails.
     // Keep that attempted action independent from delivery confirmation to prevent another buzz.
     var earlyWakeAttempted: Bool? = nil
+    var earlyWakeSourceID: String? = nil
 
     var hasAttemptedEarlyWake: Bool {
-        earlyWakeAttempted ?? (mode != .exactTime && decision == .wakeNow
-            && actuation == .sentToConnectedStrap)
+        if let earlyWakeAttempted { return earlyWakeAttempted }
+        guard mode != .exactTime, decision == .wakeNow else { return false }
+        if actuation == .sentToConnectedStrap { return true }
+        // Older records could already have been changed to failed before the independent marker
+        // existed. Infer only an actual early target inside this adaptive window, never an endpoint arm.
+        guard actuation == .failed, let requestedWakeAt, let windowEndpoint else { return false }
+        let lead = windowEndpoint.timeIntervalSince(requestedWakeAt)
+        return lead.isFinite && lead > 0
+            && lead <= Double(SmartAlarmEvaluator.adaptiveWindowMinutes * 60)
+    }
+
+    var attemptedEarlyWakeSourceID: String? {
+        hasAttemptedEarlyWake ? (earlyWakeSourceID ?? armSourceID) : nil
+    }
+
+    // Action history can suppress another buzz after delivery expires; it cannot confirm an alarm.
+    func matchesEarlyWakeAttempt(endpoint: Date, mode: SmartAlarmEvaluator.Mode, sourceID: String) -> Bool {
+        self.mode == mode && windowEndpoint == endpoint && hasAttemptedEarlyWake
+            && attemptedEarlyWakeSourceID == sourceID
     }
 }
 
@@ -113,7 +131,6 @@ enum SmartAlarmEvidenceStore {
         var evidence = evidence
         let d = UserDefaults.standard
         let previous = latest
-        if evidence.hasAttemptedEarlyWake { evidence.earlyWakeAttempted = true }
         if evidence.actuation == .notRequested,
            let previous, previous.windowEndpoint != nil,
            previous.windowEndpoint == evidence.windowEndpoint, previous.mode == evidence.mode,
@@ -128,6 +145,7 @@ enum SmartAlarmEvidenceStore {
             evidence.armSentAt = previous.armSentAt
             evidence.readbackStatus = previous.readbackStatus
             evidence.earlyWakeAttempted = previous.hasAttemptedEarlyWake ? true : nil
+            evidence.earlyWakeSourceID = previous.attemptedEarlyWakeSourceID
         }
         if evidence.armRequestID == nil,
            evidence.actuation == .endpointArmed || evidence.actuation == .sentToConnectedStrap,
@@ -140,13 +158,23 @@ enum SmartAlarmEvidenceStore {
             evidence.armSourceID = d.string(forKey: "alarm.lastArmDeviceID")
             evidence.armSentAt = Date(timeIntervalSince1970: sentAt)
         }
+        if evidence.hasAttemptedEarlyWake {
+            evidence.earlyWakeAttempted = true
+            evidence.earlyWakeSourceID = evidence.attemptedEarlyWakeSourceID
+        }
         if let previous, previous.hasAttemptedEarlyWake,
            previous.windowEndpoint != nil, previous.windowEndpoint == evidence.windowEndpoint,
-           previous.mode == evidence.mode, previous.armSourceID == evidence.armSourceID,
-           isCurrentArm(evidence) {
-            // A same-strap reconnect starts a new delivery request. Only the once-per-window attempt
-            // survives that replacement; its old confirmation and readback stay with the old request.
-            evidence.earlyWakeAttempted = true
+           previous.mode == evidence.mode, let source = previous.attemptedEarlyWakeSourceID {
+            let sameSourceArm = isCurrentArm(evidence) && evidence.armSourceID == source
+            let waitingForDelivery = evidence.armRequestID == nil && evidence.armSourceID == nil
+                && (evidence.actuation == .queuedForReconnect || evidence.actuation == .notRequested)
+            if (sameSourceArm || waitingForDelivery),
+               !evidence.hasAttemptedEarlyWake || evidence.attemptedEarlyWakeSourceID == nil {
+                // An offline evaluation keeps only the source-scoped action history. A new owned
+                // delivery may reuse that history for the same strap, never its old confirmation.
+                evidence.earlyWakeAttempted = true
+                evidence.earlyWakeSourceID = source
+            }
         }
         guard let data = try? JSONEncoder().encode(evidence) else { return }
         UserDefaults.standard.set(data, forKey: key)
@@ -210,6 +238,7 @@ enum SmartAlarmEvidenceStore {
         updated.armSentAt = e.armSentAt
         updated.readbackStatus = armRelated ? status : e.readbackStatus
         updated.earlyWakeAttempted = e.hasAttemptedEarlyWake ? true : e.earlyWakeAttempted
+        updated.earlyWakeSourceID = e.attemptedEarlyWakeSourceID
         guard updated != e else { return }
         save(updated)
     }

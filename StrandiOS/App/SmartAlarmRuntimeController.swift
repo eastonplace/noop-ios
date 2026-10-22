@@ -568,8 +568,8 @@ final class SmartAlarmRuntimeController: ObservableObject {
                 // Experimental WHOOP 5/MG has no owned WHOOP 4 readback transaction.
                 reuseEarlyWake = previous?.actuation == .sentToConnectedStrap
             } else if let previous, let source = model.ble.connectedPeripheralUUID {
-                reuseEarlyWake = previous.hasAttemptedEarlyWake
-                    && previous.armSourceID == source && SmartAlarmEvidenceStore.isCurrentArm(previous)
+                reuseEarlyWake = previous.matchesEarlyWakeAttempt(
+                    endpoint: endpoint, mode: snapshot.mode, sourceID: source)
             } else {
                 reuseEarlyWake = false
             }
@@ -635,6 +635,7 @@ final class SmartAlarmRuntimeController: ObservableObject {
             evaluationEvidence.armSentAt = retainedArmEvidence.armSentAt
             evaluationEvidence.readbackStatus = retainedArmEvidence.readbackStatus
             evaluationEvidence.earlyWakeAttempted = retainedArmEvidence.hasAttemptedEarlyWake ? true : nil
+            evaluationEvidence.earlyWakeSourceID = retainedArmEvidence.attemptedEarlyWakeSourceID
         }
         SmartAlarmEvidenceStore.save(evaluationEvidence)
         refreshEvidence(for: endpoint)
