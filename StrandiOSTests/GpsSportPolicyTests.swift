@@ -133,6 +133,7 @@ final class GpsSportPolicyTests: XCTestCase {
         deliver(recorder, manager, [location(meters: 0, second: 0), location(meters: 20, second: 1)])
         let defaults = try XCTUnwrap(UserDefaults(suiteName: "GpsSportPolicyTests.\(UUID())"))
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let writer = ActiveGpsWorkoutPersistence.JournalWriter(defaults: defaults, directory: directory)
         XCTAssertTrue(writer.store(try XCTUnwrap(checkpoints.last), synchronously: true))
