@@ -68,24 +68,28 @@ enum FileExport {
             try output.write(contentsOf: Data(LiveState.redactPii(text).utf8))
         }
         while remaining > 0 {
-            try Task.checkCancellation()
-            let bytes = try input.read(upToCount: Int(min(65_536, remaining))) ?? Data()
-            guard !bytes.isEmpty else { throw CaptureError.changedWhileReading }
-            remaining -= UInt64(bytes.count)
-            pending.append(bytes)
-            var start = pending.startIndex
-            while let newline = pending[start...].firstIndex(of: 0x0A) {
-                let end = pending.index(after: newline)
-                guard end - start <= maximumRecordBytes else { throw CaptureError.recordTooLarge }
-                start = end
+            // Foundation regex/string bridges are autoreleased. Drain them per bounded read, rather
+            // than retaining temporary objects for the entire serial-actor job.
+            try autoreleasepool {
+                try Task.checkCancellation()
+                let bytes = try input.read(upToCount: Int(min(65_536, remaining))) ?? Data()
+                guard !bytes.isEmpty else { throw CaptureError.changedWhileReading }
+                remaining -= UInt64(bytes.count)
+                pending.append(bytes)
+                var start = pending.startIndex
+                while let newline = pending[start...].firstIndex(of: 0x0A) {
+                    let end = pending.index(after: newline)
+                    guard end - start <= maximumRecordBytes else { throw CaptureError.recordTooLarge }
+                    start = end
+                }
+                if start != pending.startIndex {
+                    // Scrub all complete records in this read together. The delimiter is retained, so
+                    // batching changes neither regex boundaries nor the exact bytes written.
+                    try writeRecords(pending.subdata(in: pending.startIndex..<start))
+                    pending = Data(pending[start...])
+                }
+                guard pending.count <= maximumRecordBytes else { throw CaptureError.recordTooLarge }
             }
-            if start != pending.startIndex {
-                // Scrub all complete records in this read together. The delimiter is retained, so
-                // batching changes neither regex boundaries nor the exact bytes written.
-                try writeRecords(pending.subdata(in: pending.startIndex..<start))
-                pending = Data(pending[start...])
-            }
-            guard pending.count <= maximumRecordBytes else { throw CaptureError.recordTooLarge }
         }
         if !pending.isEmpty { try writeRecords(pending) }
         try Task.checkCancellation()
