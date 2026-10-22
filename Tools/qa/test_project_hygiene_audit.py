@@ -106,6 +106,13 @@ class ProjectHygieneAuditTests(unittest.TestCase):
         self.assertEqual(len(warnings), 1)
         self.assertIn("2.1.0", warnings[0])
 
+    def test_fork_release_is_newer_than_upstream_history(self):
+        text = ('static let releases: [Release] = [\n'
+                '  .fork("1.7.0", "Fork", "October", []),\n'
+                '  Release(version: "7.9.0", title: "Upstream", date: "July", items: []),\n'
+                ']')
+        self.assertEqual(module.newest_changelog_version(text), "1.7.0")
+
     def test_source_path_case_mismatch_is_an_error(self):
         errors, _ = module.audit(self.make_repo({}, app_tool_path="tools/Preview"))
         self.assertTrue(any("tools/Preview" in line and "Tools/Preview" in line for line in errors), errors)

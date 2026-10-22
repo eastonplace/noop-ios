@@ -408,11 +408,10 @@ public struct TrendChip: View {
             if let symbol { Image(systemName: symbol).font(.system(size: 8, weight: .bold)).foregroundStyle(color) }
             // One line, always: a long chip (e.g. a workout's kcal) truncates rather than wraps, so
             // the pill never grows a tile past its floor. Matches Android's unconditional ellipsize (#934).
-            Text(text).font(StrandFont.captionNumber).lineLimit(1)
+            Text(text).font(StrandFont.captionNumber.weight(.semibold)).lineLimit(1)
         }
-        .foregroundStyle(StrandPalette.textPrimary)
-        .padding(.horizontal, 6).padding(.vertical, 2)
-        .background(StrandPalette.tagFill, in: RoundedRectangle(cornerRadius: TagMetrics.cornerRadius, style: .continuous))
+        // Plain coloured text: green good, red bad, secondary gray when neutral.
+        .foregroundStyle(color == StrandPalette.textTertiary ? StrandPalette.textSecondary : color)
         .accessibilityHidden(true)
     }
 }
