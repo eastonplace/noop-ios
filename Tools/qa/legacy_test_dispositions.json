@@ -349,7 +349,10 @@
       "disposition": "retired",
       "reason_code": "obsolete_source_text_check",
       "reason": "Reads .github/ISSUE_TEMPLATE/bug_report.yml text and requires old Oura/Fitbit/Garmin/Xiaomi importer labels; it executes no application behavior and does not validate issue-form parsing. The active app tests cover TestReportLink URL behavior.",
-      "destination": null
+      "destination": null,
+      "related_active_coverage": [
+        "StrandiOSTests/TestReportLinkTests.swift"
+      ]
     },
     {
       "original_path": "StrandTests/CaffeineDecayTests.swift",
@@ -880,8 +883,12 @@
       "test_method_count": 4,
       "disposition": "retired",
       "reason_code": "removed_type",
-      "reason": "All four cases call LiftSessionEditSheet.form/applying. No LiftSessionEditSheet declaration exists in current Strand or StrandiOS source; the receipt-based Lift feature replaced that editor. Active ReceiptLiftFeature tests own receipt edits and workout-detail Lift tests own app integration.",
-      "destination": null
+      "reason": "All four cases call LiftSessionEditSheet.form/applying. No LiftSessionEditSheet declaration exists in current Strand or StrandiOS source; the receipt-based Lift feature replaced that editor. Current receipt behavior has hosted coverage in StrandiOSTests/ReceiptLift/LiftReceiptLogicTests.swift and LiftSetTableTests.swift; this obsolete sheet API has no remaining consumer.",
+      "destination": null,
+      "related_active_coverage": [
+        "StrandiOSTests/ReceiptLift/LiftReceiptLogicTests.swift",
+        "StrandiOSTests/ReceiptLift/LiftSetTableTests.swift"
+      ]
     },
     {
       "original_path": "StrandTests/LiftSessionEngineTests.swift",
@@ -1065,7 +1072,12 @@
       "disposition": "retired",
       "reason_code": "removed_macos_contract",
       "reason": "All seven cases require NavItem, NavGroup, or RootView, which are absent from current app source. They describe the retired macOS sidebar; current iPhone shell destinations are exercised by active navigation/route tests.",
-      "destination": null
+      "destination": null,
+      "related_active_coverage": [
+        "StrandiOSTests/NavRouterJourneyTests.swift",
+        "StrandiOSTests/SettingsRouteCatalogTests.swift",
+        "StrandiOSTests/WorkoutDeepLinkTests.swift"
+      ]
     },
     {
       "original_path": "StrandTests/MoreSectionPrefsTests.swift",
