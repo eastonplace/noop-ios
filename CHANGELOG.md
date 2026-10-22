@@ -19,7 +19,7 @@ approximate; downloads are on the [Releases](https://github.com/NoopApp/noop/rel
 
 ## This app's releases
 
-## 1.7.2
+## 1.8.0
 
 October 2026: More reliable daily data.
 
@@ -30,8 +30,10 @@ October 2026: More reliable daily data.
 - **Local Coach images.** Coach uses images bundled with NOOP.
 - **Apple Health continuity.** Read setup resumes and hidden reads keep saved data.
 - **Apple sleep totals.** Stages share a wake day without double counting.
-- **Complete Charge inputs.** Charge uses the night's final temperature deviation.
-- **Faster GPS routes.** Cycling and snow sports use their own speed limits.
+- **Complete Charge inputs.** Late readings and final night temperatures reach Charge.
+- **WHOOP pairing.** New live connections focus on WHOOP straps.
+
+Also repairs sport-specific GPS filtering, import and Lab Book ownership, live workout energy corrections, Coach/export persistence, foreground actions, widgets and stale Bluetooth callbacks. Existing paired devices and offline history imports remain available. No historical data migration or measured battery improvement is claimed.
 
 ## 1.7.1
 
