@@ -207,6 +207,8 @@ jobs:
             test 2>&1 | tee qa-artifacts/xcodebuild-test.txt
 
       - name: Run routine and selected-screen UI regressions
+        # Collect UI failures after a native-test failure; either still fails the job.
+        if: ${{ !cancelled() && steps.simulator.outcome == 'success' }}
         shell: bash
         run: |
           set -o pipefail
