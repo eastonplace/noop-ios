@@ -31,18 +31,7 @@ struct SettingsSheetHost: View {
         NavigationStack(path: $path) {
             SettingsView()
                 .background(Color(.systemGroupedBackground).ignoresSafeArea())
-                .toolbar {
-                    if #available(iOS 26, *) {
-                        ToolbarItem(placement: .topBarTrailing) {
-                            doneButton
-                        }
-                        .sharedBackgroundVisibility(.hidden)
-                    } else {
-                        ToolbarItem(placement: .topBarTrailing) {
-                            doneButton
-                        }
-                    }
-                }
+                .modifier(SettingsSheetDoneToolbar())
         }
         .environment(\.screenScaffoldPresentation, .settingsDetail)
         .environment(\.appHeaderChromeVisibility, .hidden)
@@ -50,8 +39,32 @@ struct SettingsSheetHost: View {
         .environment(\.settingsCloseAction, ScreenScaffoldCloseAction(perform: onClose))
     }
 
-    private var doneButton: some View {
-        Button(action: onClose) {
+}
+
+/// SwiftUI does not inherit the root destination's toolbar on pushed Settings pages.
+/// Install the same close action on each destination, while keeping native Back navigation.
+struct SettingsSheetDoneToolbar: ViewModifier {
+    @Environment(\.settingsCloseAction) private var closeAction
+
+    func body(content: Content) -> some View {
+        content.toolbar {
+            if let closeAction {
+                if #available(iOS 26, *) {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        doneButton(closeAction.perform)
+                    }
+                    .sharedBackgroundVisibility(.hidden)
+                } else {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        doneButton(closeAction.perform)
+                    }
+                }
+            }
+        }
+    }
+
+    private func doneButton(_ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
             Text("Done")
                 .foregroundStyle(.white)
                 .frame(minWidth: 44, minHeight: 44)
