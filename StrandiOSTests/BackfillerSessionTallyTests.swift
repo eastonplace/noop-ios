@@ -12,9 +12,11 @@ final class BackfillerSessionTallyTests: XCTestCase {
     // rows = biometric streams only (HR, R-R, SpO2, skin-temp, resp, gravity) — battery/events are
     // housekeeping, NOT biometric history, so they must not inflate the count. motion = gravity.
     func testChunkTallySumsBiometricRowsAndGravityOnly() {
-        let counts = (hr: 10, rr: 4, events: 99, battery: 7, spo2: 3, skinTemp: 2, resp: 1, gravity: 5)
+        let counts = HistoricalStreamInsertCounts(
+            hr: 10, rr: 4, events: 99, battery: 7, spo2: 3, skinTemp: 2, resp: 1, gravity: 5
+        )
         let tally = Backfiller.chunkTally(counts: counts, timestamps: [])
-        XCTAssertEqual(tally.rows, 10 + 4 + 3 + 2 + 1 + 5)   // 25 — events(99)/battery(7) excluded
+        XCTAssertEqual(tally.rows, 25)   // events(99)/battery(7) excluded
         XCTAssertEqual(tally.motion, 5)
         XCTAssertTrue(tally.nights.isEmpty)
     }
@@ -25,9 +27,19 @@ final class BackfillerSessionTallyTests: XCTestCase {
         let day0 = 1_700_000_000
         let sameDay = day0 + 3_600
         let nextDay = day0 + 86_400
-        let tally = Backfiller.chunkTally(counts: (0, 0, 0, 0, 0, 0, 0, 0), timestamps: [day0, sameDay, nextDay])
+        let tally = Backfiller.chunkTally(
+            counts: HistoricalStreamInsertCounts(), timestamps: [day0, sameDay, nextDay]
+        )
         XCTAssertEqual(tally.nights, Set([day0 / 86_400, nextDay / 86_400]))
         XCTAssertEqual(tally.nights.count, 2)
+    }
+
+    func testChunkTallyIncludesPersistedExtendedBiometricStreams() {
+        let counts = HistoricalStreamInsertCounts(steps: 2, sleepState: 3, ppgHr: 4, ppgWaveform: 5)
+        let tally = Backfiller.chunkTally(counts: counts, timestamps: [])
+        XCTAssertEqual(tally.rows, 14)
+        XCTAssertEqual(tally.motion, 0)
+        XCTAssertTrue(tally.nights.isEmpty)
     }
 
     // The summary stays SILENT when nothing persisted, so a console-only / caught-up session doesn't
@@ -190,7 +202,7 @@ final class BackfillerSessionTallyTests: XCTestCase {
             if failCommit {
                 throw NSError(domain: "BackfillerSessionTallyTests", code: 1)
             }
-            HistoricalDataCommitReceipt(
+            return HistoricalDataCommitReceipt(
                 receiptId: "tally-\(trim)",
                 generation: Int64(trim),
                 databaseInstanceId: "test-db",

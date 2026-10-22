@@ -61,7 +61,8 @@ final class BackupSyncRoundTripTests: XCTestCase {
 
     // MARK: - Settings round trip (#1000: restore brings back weight/height/settings)
 
-    func testBackupWithSettingsRestoresSettingsAfterDbSwap() throws {
+    @MainActor
+    func testBackupWithSettingsRestoresSettingsAfterDbSwap() async throws {
         let sourceDB = tmp.appendingPathComponent("source.sqlite")
         try makeNoopDatabase(at: sourceDB, deviceRows: ["my-whoop"])
 
@@ -79,7 +80,16 @@ final class BackupSyncRoundTripTests: XCTestCase {
         // Restore into a throwaway DB path AND a suite-scoped defaults (never the runner's real domain).
         let defaults = try freshDefaults()
         let liveDB = tmp.appendingPathComponent("live.sqlite")
-        let result = DataBackup.restore(from: backup, toDatabaseAt: liveDB.path, settingsDefaults: defaults)
+        try makeNoopDatabase(at: liveDB, deviceRows: ["before-restore"])
+        let liveDatabase = try LiveDatabaseLifecycleFixture(database: liveDB) {
+            XCTAssertNil(defaults.object(forKey: "profile.age"), "settings must remain staged until migration succeeds")
+            XCTAssertNil(defaults.object(forKey: "units.system"))
+        }
+        defer { try? liveDatabase.close() }
+        let result = await DataBackup.restore(
+            from: backup, toDatabaseAt: liveDB.path, lifecycle: liveDatabase.lifecycle, settingsDefaults: defaults
+        )
+        XCTAssertEqual(liveDatabase.events, ["quiesce", "reopen", "migrate"])
 
         guard case .imported = result else {
             return XCTFail("Restore should succeed, got \(result)")
@@ -94,7 +104,8 @@ final class BackupSyncRoundTripTests: XCTestCase {
         XCTAssertEqual(defaults.string(forKey: "units.system"), "imperial")
     }
 
-    func testLegacySingleEntryZipStillRestoresAndAppliesNoSettings() throws {
+    @MainActor
+    func testLegacySingleEntryZipStillRestoresAndAppliesNoSettings() async throws {
         // A pre-#1000 backup: DB entry only (writeBackupForTesting with settings nil).
         let sourceDB = tmp.appendingPathComponent("source.sqlite")
         try makeNoopDatabase(at: sourceDB, deviceRows: ["legacy-strap"])
@@ -103,7 +114,16 @@ final class BackupSyncRoundTripTests: XCTestCase {
 
         let defaults = try freshDefaults()
         let liveDB = tmp.appendingPathComponent("live.sqlite")
-        let result = DataBackup.restore(from: backup, toDatabaseAt: liveDB.path, settingsDefaults: defaults)
+        try makeNoopDatabase(at: liveDB, deviceRows: ["before-restore"])
+        let liveDatabase = try LiveDatabaseLifecycleFixture(database: liveDB) {
+            XCTAssertNil(defaults.object(forKey: "profile.age"), "settings must remain staged until migration succeeds")
+            XCTAssertNil(defaults.object(forKey: "units.system"))
+        }
+        defer { try? liveDatabase.close() }
+        let result = await DataBackup.restore(
+            from: backup, toDatabaseAt: liveDB.path, lifecycle: liveDatabase.lifecycle, settingsDefaults: defaults
+        )
+        XCTAssertEqual(liveDatabase.events, ["quiesce", "reopen", "migrate"])
 
         guard case .imported = result else {
             return XCTFail("A legacy single-entry ZIP must restore exactly as today, got \(result)")
@@ -113,7 +133,8 @@ final class BackupSyncRoundTripTests: XCTestCase {
         XCTAssertNil(defaults.object(forKey: "units.system"))
     }
 
-    func testSettingsAreNotAppliedWhenTheRestoreIsRejected() throws {
+    @MainActor
+    func testSettingsAreNotAppliedWhenTheRestoreIsRejected() async throws {
         // A foreign (Room) DB zipped together WITH a settings payload: the origin gate refuses the
         // restore, so the settings must not leak through either ("apply AFTER the DB swap succeeds").
         let foreign = tmp.appendingPathComponent("foreign.sqlite")
@@ -126,7 +147,14 @@ final class BackupSyncRoundTripTests: XCTestCase {
         let liveDB = tmp.appendingPathComponent("live.sqlite")
         try makeNoopDatabase(at: liveDB, deviceRows: ["original"])
 
-        let result = DataBackup.restore(from: backup, toDatabaseAt: liveDB.path, settingsDefaults: defaults)
+        let liveDatabase = try LiveDatabaseLifecycleFixture(database: liveDB) {
+            XCTAssertNil(defaults.object(forKey: "profile.age"), "a rejected backup must not apply settings during reopen")
+        }
+        defer { try? liveDatabase.close() }
+        let result = await DataBackup.restore(
+            from: backup, toDatabaseAt: liveDB.path, lifecycle: liveDatabase.lifecycle, settingsDefaults: defaults
+        )
+        XCTAssertEqual(liveDatabase.events, ["quiesce", "reopen", "migrate"])
         guard case .failure = result else {
             return XCTFail("Foreign backup must still be rejected, got \(result)")
         }
@@ -334,6 +362,58 @@ final class BackupSyncRoundTripTests: XCTestCase {
         XCTAssertFalse(after.contains(names[1]))
         XCTAssertFalse(after.contains(names[2]))
         XCTAssertTrue(after.contains("notes.txt"), "Non-snapshot files are never pruned")
+    }
+
+    /// A real open SQLite writer, closed before restore and reopened against the installed file.
+    /// The tiny fixture migration proves the lifecycle does actual database work before settings apply.
+    @MainActor
+    private final class LiveDatabaseLifecycleFixture {
+        private let database: URL
+        private let beforeMigration: () -> Void
+        private var connection: OpaquePointer?
+        private(set) var events: [String] = []
+
+        init(database: URL, beforeMigration: @escaping () -> Void) throws {
+            self.database = database
+            self.beforeMigration = beforeMigration
+            try open()
+        }
+
+        var lifecycle: DataBackup.RestoreLifecycle {
+            .init(
+                quiesce: {
+                    try self.close()
+                    self.events.append("quiesce")
+                },
+                reopenAndMigrate: {
+                    try self.open()
+                    self.events.append("reopen")
+                    self.beforeMigration()
+                    var error: UnsafeMutablePointer<CChar>?
+                    let result = sqlite3_exec(self.connection,
+                        "CREATE TABLE IF NOT EXISTS restore_lifecycle_probe (id INTEGER PRIMARY KEY)",
+                        nil, nil, &error)
+                    let message = error.map { String(cString: $0) } ?? "unknown"
+                    sqlite3_free(error)
+                    guard result == SQLITE_OK else { throw TestError("fixture migration failed: \(message)") }
+                    self.events.append("migrate")
+                }
+            )
+        }
+
+        private func open() throws {
+            guard connection == nil else { throw TestError("writer was not quiesced before reopen") }
+            guard sqlite3_open_v2(database.path, &connection, SQLITE_OPEN_READWRITE, nil) == SQLITE_OK else {
+                try? close()
+                throw TestError("lifecycle writer open failed")
+            }
+        }
+
+        func close() throws {
+            guard let connection else { return }
+            guard sqlite3_close(connection) == SQLITE_OK else { throw TestError("lifecycle writer close failed") }
+            self.connection = nil
+        }
     }
 
     // MARK: - SQLite fixtures (system SQLite3)

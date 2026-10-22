@@ -128,12 +128,20 @@ final class DisplayPerformanceTests: XCTestCase {
 
     // MARK: - The screenshot enters the bundle for the .display profile.
 
-    func testAssembleAddsScreenshotForDisplayProfile() {
+    func testAssembleAddsScreenshotForDisplayProfile() async throws {
         // capturePNG() may return nil in a headless test host (no key window), so this asserts the wiring
         // shape: when a PNG is produced it is added under screenshot.png; when not, the bundle still
         // assembles cleanly with the text entries. Either way no .display report is corrupted.
         let live = LiveState()
-        let entries = TestBundleAssembler.assemble(profile: .display, live: live)
+        let pendingTail = "display assembly preserves the pending tail \(UUID().uuidString.prefix(8))"
+        live.append(log: pendingTail, domain: .display)
+        // assemble awaits exportableLogTextFlushing before it returns the report bytes.
+        let entries = try await TestBundleAssembler.assemble(profile: .display, live: live)
+        let report = try XCTUnwrap(entries.first { $0.name == "report.txt" })
+        XCTAssertTrue(try XCTUnwrap(String(data: report.data, encoding: .utf8)).contains(pendingTail),
+                      "the assembled report must include the log queued immediately before the I/O barrier")
+        XCTAssertTrue(LiveState.persistedLogTail().contains { $0.contains(pendingTail) },
+                      "assembly must finish the durable-tail write before returning report bytes")
         XCTAssertTrue(entries.contains { $0.name == "report.txt" })
         XCTAssertTrue(entries.contains { $0.name == "meta.json" })
         if let shot = entries.first(where: { $0.name == "screenshot.png" }) {

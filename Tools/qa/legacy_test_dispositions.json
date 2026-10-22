@@ -178,7 +178,14 @@
       "destination": "StrandiOSTests/BackfillerSessionTallyTests.swift",
       "target": "NOOPiOSTests",
       "changes": [
-        "Rename app module import from Strand to NOOP; preserve existing assertions."
+        "Rename app module import from Strand to NOOP.",
+        "Replace obsolete eight-field insert-count tuples with HistoricalStreamInsertCounts; preserve 25 biometric rows, five motion rows, and distinct-night assertions.",
+        "Return the complete HistoricalDataCommitReceipt from the commit fixture, retaining source scope, fingerprint, inserted rows, raw evidence, burst, timestamp heal, and finality; keep commit-failure/no-ACK and post-commit ACK-failure assertions.",
+        "Add a regression covering persisted steps, sleep state, PPG HR, and waveform row counts."
+      ],
+      "current_test_method_count": 23,
+      "added_test_methods": [
+        "testChunkTallyIncludesPersistedExtendedBiometricStreams"
       ]
     },
     {
@@ -207,8 +214,12 @@
       "destination": "StrandiOSTests/BackupSyncRoundTripTests.swift",
       "target": "NOOPiOSTests",
       "changes": [
-        "Rename app module import from Strand to NOOP; preserve existing assertions."
-      ]
+        "Rename app module import from Strand to NOOP.",
+        "Convert the three settings-aware restore cases to the async RestoreLifecycle API.",
+        "Use a real open SQLite writer fixture: close it during quiesce, reopen the installed file with READWRITE, and execute a real fixture schema migration before settings apply.",
+        "Assert quiesce/reopen/migrate order and that settings remain staged inside the migration callback; preserve original exact-row, restored-setting, legacy-no-setting, and rejected-restore assertions."
+      ],
+      "current_test_method_count": 13
     },
     {
       "original_path": "StrandTests/BackupSyncTests.swift",
@@ -596,8 +607,11 @@
       "destination": "StrandiOSTests/DisplayPerformanceTests.swift",
       "target": "NOOPiOSTests",
       "changes": [
-        "Rename app module import from Strand to NOOP; preserve existing assertions."
-      ]
+        "Rename app module import from Strand to NOOP.",
+        "Make display bundle assembly test async throws and await the actual TestBundleAssembler.assemble I/O barrier.",
+        "Append a unique pending log entry immediately before assembly and assert it is present in both report bytes and the durable persisted tail on return; retain report/meta and real PNG-signature assertions."
+      ],
+      "current_test_method_count": 11
     },
     {
       "original_path": "StrandTests/EmptyBankingClassifierTests.swift",
