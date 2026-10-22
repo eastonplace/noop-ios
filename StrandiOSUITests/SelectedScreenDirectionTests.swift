@@ -119,7 +119,7 @@ final class SelectedScreenDirectionTests: XCTestCase {
         XCTAssertTrue(["Breathe in…", "Breathe out…"].contains(initialPhase))
         let nextPhase = initialPhase == "Breathe in…" ? "Breathe out…" : "Breathe in…"
         // Resolve the expected phase in each native existence query. A retained element
-        // predicate repeatedly requested full snapshots and missed the short phase window.
+        // predicate repeatedly requested full snapshots and can miss the short phase window.
         let advancedPhase = app.staticTexts.matching(identifier: "breathe.phase")
             .matching(NSPredicate(format: "label == %@", nextPhase)).firstMatch
         XCTAssertTrue(advancedPhase.waitForExistence(timeout: 14), "Starting a session advances its inhale/exhale clock")
