@@ -121,7 +121,8 @@
       "destination": "StrandiOSTests/AlarmReadbackDecodeTests.swift",
       "target": "NOOPiOSTests",
       "changes": [
-        "Rename app module import from Strand to NOOP; preserve existing assertions."
+        "Rename app module import from Strand to NOOP; preserve existing assertions.",
+        "Keep all original dispatch diagnostic assertions; require parse/CRC-valid live frames and publish accepted pending log lines before inspecting the batched log. Readback ownership and evidence filters are unchanged."
       ]
     },
     {
@@ -288,7 +289,8 @@
       "destination": "StrandiOSTests/BatteryBankTraceTests.swift",
       "target": "NOOPiOSTests",
       "changes": [
-        "Rename app module import from Strand to NOOP; preserve existing assertions."
+        "Rename app module import from Strand to NOOP; preserve existing assertions.",
+        "Keep both active/off emitter assertions; publish pending lines for both paths so the negative assertion cannot pass on an unpublished buffer. Save/restore battery and master Test Centre preferences and force master off for a deterministic domain gate."
       ]
     },
     {
@@ -306,7 +308,8 @@
       "destination": "StrandiOSTests/BatteryEstimateTraceEmitTests.swift",
       "target": "NOOPiOSTests",
       "changes": [
-        "Rename app module import from Strand to NOOP; preserve existing assertions."
+        "Rename app module import from Strand to NOOP; preserve existing assertions.",
+        "Keep slope/gate text and mode-off assertions; publish pending lines for both paths. Save/restore battery and master preferences and force master off so the domain-off check cannot inherit master activation."
       ]
     },
     {
@@ -743,7 +746,8 @@
       "destination": "StrandiOSTests/GpsRouteMathTests.swift",
       "target": "NOOPiOSTests",
       "changes": [
-        "Rename app module import from Strand to NOOP; preserve existing assertions."
+        "Rename app module import from Strand to NOOP; preserve existing assertions.",
+        "Replace the invalid abc polyline in the cap fixture with a real two-point encoded route that passes hasDrawableSegment. Preserve count=400/oldest-absent/newest-present assertions and verify all 5 evictions plus all 400 surviving values; RouteStore has no date-retention cutoff."
       ]
     },
     {

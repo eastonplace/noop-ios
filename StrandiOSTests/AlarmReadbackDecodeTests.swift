@@ -129,7 +129,11 @@ final class AlarmReadbackDecodeTests: XCTestCase {
     /// helpers use.
     @MainActor
     private func alarmResponseFrame(cmd: UInt8 = 67, payload: [UInt8]) -> [UInt8] {
-        frameFromPayload([0x42, 0x01] + payload, type: 36, seq: 0x29, cmd: cmd)
+        let frame = frameFromPayload([0x42, 0x01] + payload, type: 36, seq: 0x29, cmd: cmd)
+        let parsed = parseFrame(frame, family: .whoop4)
+        XCTAssertTrue(parsed.ok, "dispatch fixture must pass envelope parsing")
+        XCTAssertEqual(parsed.crcOK, true, "dispatch fixture must pass the live CRC gate")
+        return frame
     }
 
     /// The dispatch regression the ship-blocker fixed: cmdName is "GET_ALARM_TIME(67)" (Schema.enumName
@@ -143,6 +147,7 @@ final class AlarmReadbackDecodeTests: XCTestCase {
         router.family = .whoop4
         // SET-mirror payload with the #535 capture epoch (1781912880 = LE 30 D5 35 6A).
         router.handle(frame: alarmResponseFrame(payload: [0x01, 0x30, 0xD5, 0x35, 0x6A, 0x00, 0x00, 0x00, 0x00]))
+        live.publishPendingLog() // Inspect accepted lines after the batched publication boundary.
         XCTAssertTrue(live.log.contains { $0.contains("strap reports armed") && $0.contains("1781912880") },
                       "GET_ALARM_TIME readback branch must fire via handle(): \(live.log)")
     }
@@ -155,6 +160,7 @@ final class AlarmReadbackDecodeTests: XCTestCase {
         let router = FrameRouter(state: live)
         router.family = .whoop4
         router.handle(frame: alarmResponseFrame(payload: [0x03, 0xAB]))
+        live.publishPendingLog() // Inspect accepted lines after the batched publication boundary.
         XCTAssertTrue(live.log.contains { $0.contains("unrecognised payload") && $0.contains("03 ab") },
                       "unrecognised readback must log raw hex via handle(): \(live.log)")
     }
@@ -167,6 +173,7 @@ final class AlarmReadbackDecodeTests: XCTestCase {
         let router = FrameRouter(state: live)
         router.family = .whoop4
         router.handle(frame: alarmResponseFrame(payload: [0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x20]))
+        live.publishPendingLog() // Inspect accepted lines after the batched publication boundary.
         XCTAssertTrue(live.log.contains { $0.contains("NO alarm currently stored") && $0.contains("did not persist") },
                       "epoch-0 readback must log the 'no alarm stored' line: \(live.log)")
         XCTAssertFalse(live.log.contains { $0.contains("unrecognised payload") },
@@ -182,7 +189,12 @@ final class AlarmReadbackDecodeTests: XCTestCase {
         let router = FrameRouter(state: live)
         router.family = .whoop4
         // frameFromPayload lays out [origin_seq, result, payload…] as `data`; result byte = 0x03 here.
-        router.handle(frame: frameFromPayload([0x42, 0x03], type: 36, seq: 0x29, cmd: 66))
+        let frame = frameFromPayload([0x42, 0x03], type: 36, seq: 0x29, cmd: 66)
+        let parsed = parseFrame(frame, family: .whoop4)
+        XCTAssertTrue(parsed.ok, "dispatch fixture must pass envelope parsing")
+        XCTAssertEqual(parsed.crcOK, true, "dispatch fixture must pass the live CRC gate")
+        router.handle(frame: frame)
+        live.publishPendingLog() // Inspect accepted lines after the batched publication boundary.
         XCTAssertTrue(live.log.contains { $0.contains("SET_ALARM_TIME") && $0.contains("result=0x03") },
                       "SET_ALARM_TIME response must log the raw result byte: \(live.log)")
     }

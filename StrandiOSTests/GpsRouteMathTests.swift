@@ -185,8 +185,11 @@ final class GpsRouteMathTests: XCTestCase {
         let defaults = freshDefaults()
         // Store cap + 5 routes; the oldest 5 (lowest startTs) must be evicted, newest kept.
         let total = RouteStore.maxRoutes + 5
+        let route = WorkoutRoute(polyline: RouteMath.encode([a, b]),
+                                 distanceM: RouteMath.totalMeters([a, b]))
+        XCTAssertTrue(route.hasDrawableSegment, "cap fixture must pass the route-admission gate")
         for i in 0..<total {
-            RouteStore.store(WorkoutRoute(polyline: "abc", distanceM: Double(i)),
+            RouteStore.store(route,
                              startTs: 1_000_000 + i, sport: "Running", into: defaults)
         }
         let map = RouteStore.loadMap(from: defaults)
@@ -194,6 +197,12 @@ final class GpsRouteMathTests: XCTestCase {
         // The 5 oldest are gone; a recent one survives.
         XCTAssertNil(map[RouteStore.key(startTs: 1_000_000, sport: "Running")])
         XCTAssertNotNil(map[RouteStore.key(startTs: 1_000_000 + total - 1, sport: "Running")])
+        for i in 0..<5 {
+            XCTAssertNil(map[RouteStore.key(startTs: 1_000_000 + i, sport: "Running")])
+        }
+        for i in 5..<total {
+            XCTAssertEqual(map[RouteStore.key(startTs: 1_000_000 + i, sport: "Running")], route)
+        }
     }
 
     // MARK: - Re-key on edit (#10)
