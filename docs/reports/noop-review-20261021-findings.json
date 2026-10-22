@@ -1,0 +1,936 @@
+{
+  "updated_at": "2026-10-22T04:56:27.618925+00:00",
+  "branch_head": "683287ff778535cd1cb2b36951abdb6f631c1271",
+  "draft_pr": 68,
+  "goal_status": "active",
+  "active_subagent_cap": 4,
+  "findings": [
+    {
+      "id": "BLE-01",
+      "title": "HR Broadcast OFF blocked and not replayed after offline change",
+      "disposition": "source_fixed",
+      "implementation": "Exact HR Broadcast OFF admission and strict persisted Boolean replay after secure proof.",
+      "verified": "Prior selected native preference cases and protocol package proof.",
+      "pending": "Final combined native/CI and physical 5/MG online/offline OFF delivery.",
+      "reason_for_unfinished_or_declined_work": "",
+      "evidence": {
+        "primary_report": "docs/reports/noop-reliability-battery-2026-10-21.md",
+        "original_finding_register": "package/noop-ios-review-2026-10-21/FINDINGS.md",
+        "specific": [
+          "StrandiOSTests/PuffinBroadcastPreferenceTests.swift"
+        ]
+      }
+    },
+    {
+      "id": "BLE-04",
+      "title": "Header-resync loss can bypass history completeness before trim ACK",
+      "disposition": "source_fixed",
+      "implementation": "Ordered reassembly loss remains attached to the admitted history pass; START cannot erase loss before trim ACK.",
+      "verified": "Prior selected native receipt cases and protocol package proof.",
+      "pending": "Final combined native/CI and physical history continuity.",
+      "reason_for_unfinished_or_declined_work": "",
+      "evidence": {
+        "primary_report": "docs/reports/noop-reliability-battery-2026-10-21.md",
+        "original_finding_register": "package/noop-ios-review-2026-10-21/FINDINGS.md",
+        "specific": [
+          "StrandiOSTests/BackfillerHistoricalCommitReceiptTests.swift"
+        ]
+      }
+    },
+    {
+      "id": "D1",
+      "title": "Durable source transition stops WHOOP without explicit restart",
+      "disposition": "source_fixed",
+      "implementation": "Explicit transition/rollback restart while preserving cold restoration without redundant reconnect.",
+      "verified": "Prior selected native source-transition cases.",
+      "pending": "Final combined native/CI and physical reconnect/restore.",
+      "reason_for_unfinished_or_declined_work": "",
+      "evidence": {
+        "primary_report": "docs/reports/noop-reliability-battery-2026-10-21.md",
+        "original_finding_register": "package/noop-ios-review-2026-10-21/FINDINGS.md",
+        "specific": [
+          "StrandiOSTests/SourceCoordinatorTransitionRegressionTests.swift"
+        ]
+      }
+    },
+    {
+      "id": "D2",
+      "title": "Returning to my-whoop leaves the secondary write identity",
+      "disposition": "source_fixed",
+      "implementation": "Restore my-whoop persistence identity when returning from a secondary WHOOP.",
+      "verified": "Prior selected native source-transition cases.",
+      "pending": "Final combined native/CI and real A-to-B-to-A acquisition.",
+      "reason_for_unfinished_or_declined_work": "",
+      "evidence": {
+        "primary_report": "docs/reports/noop-reliability-battery-2026-10-21.md",
+        "original_finding_register": "package/noop-ios-review-2026-10-21/FINDINGS.md",
+        "specific": [
+          "StrandiOSTests/SourceCoordinatorTransitionRegressionTests.swift"
+        ]
+      }
+    },
+    {
+      "id": "D3",
+      "title": "Collector batches and retries do not freeze source ownership",
+      "disposition": "source_fixed",
+      "implementation": "Freeze source, family, generation and clock for decoded/raw buffered batches and uncommitted retries.",
+      "verified": "Prior native Collector ownership and retry cases.",
+      "pending": "Final combined native/CI; no historical reassignment performed.",
+      "reason_for_unfinished_or_declined_work": "",
+      "evidence": {
+        "primary_report": "docs/reports/noop-reliability-battery-2026-10-21.md",
+        "original_finding_register": "package/noop-ios-review-2026-10-21/FINDINGS.md",
+        "specific": [
+          "StrandiOSTests/CollectorOwnershipTests.swift"
+        ]
+      }
+    },
+    {
+      "id": "APP-01",
+      "title": "Published HR sink ingests old value and can retain stale BPM on clear",
+      "disposition": "source_fixed",
+      "implementation": "Consume emitted Published HR value; clear smoothing once direct HR and RR are absent.",
+      "verified": "Prior selected incoming-HR native cases.",
+      "pending": "Final combined native/CI.",
+      "reason_for_unfinished_or_declined_work": "",
+      "evidence": {
+        "primary_report": "docs/reports/noop-reliability-battery-2026-10-21.md",
+        "original_finding_register": "package/noop-ios-review-2026-10-21/FINDINGS.md",
+        "specific": [
+          "StrandiOSTests/IncomingHeartRateRegressionTests.swift"
+        ]
+      }
+    },
+    {
+      "id": "APP-02",
+      "title": "Equal BPM suppression drops sample-arrival semantics",
+      "disposition": "source_fixed",
+      "implementation": "Observed receipts include retained generic provider sessions, matched cleanup and stale-deadline/adoption fences; integrated through rootc1f59cf7.",
+      "verified": "All13 ProviderHeartRateReceiptTests passed in the broad052474b7 native run; isolated81runtime/50source checks and root integration source review clear.",
+      "pending": "Final-source qualification and rendered acceptance as relevant; physical BLE/background behavior remains unverified.",
+      "reason_for_unfinished_or_declined_work": "",
+      "evidence": {
+        "primary_report": "docs/reports/noop-reliability-battery-2026-10-21.md",
+        "original_finding_register": "package/noop-ios-review-2026-10-21/FINDINGS.md",
+        "specific": [
+          "provider-receipts-evidence/README.md"
+        ]
+      }
+    },
+    {
+      "id": "APP-03",
+      "title": "Live Session timer refreshes cached HR as if newly observed",
+      "disposition": "source_fixed",
+      "implementation": "Live Session consumes observed receipts without cached timer replay; retained-provider compatibility fixes are integrated.",
+      "verified": "All13 ProviderHeartRateReceiptTests passed in the broad052474b7 native run; isolated81runtime/50source checks and root integration source review clear.",
+      "pending": "Final-source qualification and rendered acceptance as relevant; physical BLE/background behavior remains unverified.",
+      "reason_for_unfinished_or_declined_work": "",
+      "evidence": {
+        "primary_report": "docs/reports/noop-reliability-battery-2026-10-21.md",
+        "original_finding_register": "package/noop-ios-review-2026-10-21/FINDINGS.md",
+        "specific": [
+          "provider-receipts-evidence/README.md"
+        ]
+      }
+    },
+    {
+      "id": "PRIV-01",
+      "title": "Local Coach Markdown defaults to network image loading",
+      "disposition": "source_fixed",
+      "implementation": "Bundled asset providers for both block and inline Markdown images.",
+      "verified": "Source audits and app compilation.",
+      "pending": "Native renderer request interception remains unverified.",
+      "reason_for_unfinished_or_declined_work": "",
+      "evidence": {
+        "primary_report": "docs/reports/noop-reliability-battery-2026-10-21.md",
+        "original_finding_register": "package/noop-ios-review-2026-10-21/FINDINGS.md",
+        "specific": []
+      }
+    },
+    {
+      "id": "CI-01",
+      "title": "Main UI qualification fails 11 of 33 tests",
+      "disposition": "repairs_in_progress",
+      "implementation": "Required source/app/unit/package checks green on66head94c85aa7 and67head88a4de42; neither merged.",
+      "verified": "All8 packages plus source/app/unit checks green on both final heads; units2108/2158,0failures,3skips each.",
+      "pending": "Required66/67hostedUI repair/qualification then authorized merges; publish updated68draft now to start hosted finalD6/native/newUI, then final rebase/exact-headCI after66/67merge. No waiver.",
+      "reason_for_unfinished_or_declined_work": "Required hosted UI has not completed; no waiver or admin merge.",
+      "evidence": {
+        "primary_report": "docs/reports/noop-reliability-battery-2026-10-21.md",
+        "original_finding_register": "package/noop-ios-review-2026-10-21/FINDINGS.md",
+        "specific": []
+      }
+    },
+    {
+      "id": "HK-01",
+      "title": "HealthKit background-delivery entitlement missing",
+      "disposition": "source_fixed",
+      "implementation": "Background delivery entitlement declared in XcodeGen configuration and checked-in entitlements.",
+      "verified": "Project generation, source audits and unsigned Simulator compilation.",
+      "pending": "Signed entitlement/provisioning and actual background delivery require hardware.",
+      "reason_for_unfinished_or_declined_work": "",
+      "evidence": {
+        "primary_report": "docs/reports/noop-reliability-battery-2026-10-21.md",
+        "original_finding_register": "package/noop-ios-review-2026-10-21/FINDINGS.md",
+        "specific": []
+      }
+    },
+    {
+      "id": "D4",
+      "title": "Automatic Charge omits final skin-temperature deviation",
+      "disposition": "source_fixed",
+      "implementation": "Final temperature deviation feeds Charge, trace, drivers and persistence.",
+      "verified": "D4 and all selected full-rescore invariants passed in217 native wave; independent source review clear.",
+      "pending": "Final integrated affected checks.",
+      "reason_for_unfinished_or_declined_work": "",
+      "evidence": {
+        "primary_report": "docs/reports/noop-reliability-battery-2026-10-21.md",
+        "original_finding_register": "package/noop-ios-review-2026-10-21/FINDINGS.md",
+        "specific": []
+      }
+    },
+    {
+      "id": "D5",
+      "title": "Apple sleep stages split nights and overlapping sources inflate totals",
+      "disposition": "source_fixed",
+      "implementation": "Wake-day sleep interval arbitration and durable read-setup resume; guarded reads preserve absent banked values.",
+      "verified": "Affected native health/sleep integration suites passed in broad052474b7; package and source-review evidence retained.",
+      "pending": "Real HealthKit read-only/partial/revoked/locked behavior, signed background delivery and final-source qualification.",
+      "reason_for_unfinished_or_declined_work": "No guessed deletion reconciliation or automatic ambiguous historical row rewrite; contribution provenance is required.",
+      "evidence": {
+        "primary_report": "docs/reports/noop-reliability-battery-2026-10-21.md",
+        "original_finding_register": "package/noop-ios-review-2026-10-21/FINDINGS.md",
+        "specific": [
+          "health-sleep/HANDOFF.md"
+        ]
+      }
+    },
+    {
+      "id": "D6",
+      "title": "WHOOP4 analysis cache does not witness all relevant inputs",
+      "disposition": "source_fixed_native_pending",
+      "implementation": "Complete RAM witness and terminal-output ownership, followed by bounded all-source UTC-hour trusted append precision through949eec88; unknown/repair/schema/overflow fallbacks remain conservative.",
+      "verified": "Original baseline17cases:14failed/26assertions. Broad57 full-rescore cases passed. Strict active-ingest native red at41325eed:3bundle misses versus1required. Store681cases pass at949eec88.",
+      "pending": "Hosted exact-head final append/cold-parity/cost acceptance after local949compiled/linked but ran zero semantic cases due testmanager prelaunch dyld mapping stall. Source/package evidence does not substitute for native acceptance.",
+      "reason_for_unfinished_or_declined_work": "Final native evidence must show trusted appends retain raw-day precision while repairs and unknown writes still invalidate; bounded mutation bookkeeping has a cost and no phone energy benefit is measured.",
+      "evidence": {
+        "primary_report": "docs/reports/noop-reliability-battery-2026-10-21.md",
+        "original_finding_register": "package/noop-ios-review-2026-10-21/FINDINGS.md",
+        "specific": [
+          "derived-inputs/D6-complete-witness-design.md",
+          "derived-inputs/package-verification.json"
+        ]
+      }
+    },
+    {
+      "id": "HK-02",
+      "title": "Read-only grants fail automatic resume after relaunch",
+      "disposition": "source_fixed",
+      "implementation": "Wake-day sleep interval arbitration and durable read-setup resume; guarded reads preserve absent banked values.",
+      "verified": "Affected native health/sleep integration suites passed in broad052474b7; package and source-review evidence retained.",
+      "pending": "Real HealthKit read-only/partial/revoked/locked behavior, signed background delivery and final-source qualification.",
+      "reason_for_unfinished_or_declined_work": "No guessed deletion reconciliation or automatic ambiguous historical row rewrite; contribution provenance is required.",
+      "evidence": {
+        "primary_report": "docs/reports/noop-reliability-battery-2026-10-21.md",
+        "original_finding_register": "package/noop-ios-review-2026-10-21/FINDINGS.md",
+        "specific": [
+          "health-sleep/HANDOFF.md"
+        ]
+      }
+    },
+    {
+      "id": "BLE-02",
+      "title": "Background workout lease can keep WHOOP4 raw stream armed",
+      "disposition": "source_fixed",
+      "implementation": "Owned realtime demand distinguishes display, recording and continuous capture while retaining WHOOP4 fallback.",
+      "verified": "All13 ProviderHeartRateReceiptTests passed in the broad052474b7 native run; isolated81runtime/50source checks and root integration source review clear.",
+      "pending": "Final-source qualification and rendered acceptance as relevant; physical BLE/background behavior remains unverified.",
+      "reason_for_unfinished_or_declined_work": "",
+      "evidence": {
+        "primary_report": "docs/reports/noop-reliability-battery-2026-10-21.md",
+        "original_finding_register": "package/noop-ios-review-2026-10-21/FINDINGS.md",
+        "specific": [
+          "provider-receipts-evidence/README.md"
+        ]
+      }
+    },
+    {
+      "id": "BLE-03",
+      "title": "Productive events bypass low-power periodic sync floor",
+      "disposition": "source_fixed",
+      "implementation": "Productive events respect low-power periodic floor and adaptive empty backoff.",
+      "verified": "Policy source and focused regression evidence reviewed; no unlocated package-worker count is treated as verified.",
+      "pending": "Final combined source and native qualification.",
+      "reason_for_unfinished_or_declined_work": "",
+      "evidence": {
+        "primary_report": "docs/reports/noop-reliability-battery-2026-10-21.md",
+        "original_finding_register": "package/noop-ios-review-2026-10-21/FINDINGS.md",
+        "specific": []
+      }
+    },
+    {
+      "id": "BLE-05",
+      "title": "Live screen conditionally acquires but unconditionally releases realtime lease",
+      "disposition": "source_fixed",
+      "implementation": "Release only the caller-owned acquired realtime token.",
+      "verified": "All13 ProviderHeartRateReceiptTests passed in the broad052474b7 native run; isolated81runtime/50source checks and root integration source review clear.",
+      "pending": "Final-source qualification and rendered acceptance as relevant; physical BLE/background behavior remains unverified.",
+      "reason_for_unfinished_or_declined_work": "",
+      "evidence": {
+        "primary_report": "docs/reports/noop-reliability-battery-2026-10-21.md",
+        "original_finding_register": "package/noop-ios-review-2026-10-21/FINDINGS.md",
+        "specific": [
+          "provider-receipts-evidence/README.md"
+        ]
+      }
+    },
+    {
+      "id": "BLE-07",
+      "title": "Deep-data permission OFF does not undo persistent flags",
+      "disposition": "partial_protocol_limit",
+      "implementation": "Synchronous strict consent; generation-tagged confirmed queue revokes only unsent deep-data writes. UI describes permission accurately.",
+      "verified": "Native strict consent cases passed in broad052474b7;23 canonical queue checks and independent source review clear.",
+      "pending": "Rendered permission wording and qualified hardware restoration semantics.",
+      "reason_for_unfinished_or_declined_work": "Already-issued ATT cannot be recalled; prior persistent firmware values/inverse operations lack qualified readback. Guessing inverse bytes risks changing strap settings.",
+      "evidence": {
+        "primary_report": "docs/reports/noop-reliability-battery-2026-10-21.md",
+        "original_finding_register": "package/noop-ios-review-2026-10-21/FINDINGS.md",
+        "specific": [
+          "Tools/qa/deep_data_confirmed_queue_harness.py"
+        ]
+      }
+    },
+    {
+      "id": "GPS-01",
+      "title": "Universal 12m/s GPS cap loses valid faster route segments",
+      "disposition": "source_fixed",
+      "implementation": "Sport-specific speed/acceleration policy with checkpoint and journal propagation.",
+      "verified": "Ten native cases passed in217 wave;56 exact-source checks and review clear.",
+      "pending": "Final aggregate checks; real route fidelity unverified.",
+      "reason_for_unfinished_or_declined_work": "",
+      "evidence": {
+        "primary_report": "docs/reports/noop-reliability-battery-2026-10-21.md",
+        "original_finding_register": "package/noop-ios-review-2026-10-21/FINDINGS.md",
+        "specific": []
+      }
+    },
+    {
+      "id": "PERF-01",
+      "title": "Coach persistence performs synchronous IO/JSON on main actor",
+      "disposition": "source_fixed",
+      "implementation": "Serial Coach persistence, generation-aware hydration and ordered protected writes/flush barriers.",
+      "verified": "Affected native Coach/export/recorder IO suites passed in broad052474b7; exact-source ordering/ownership checks and source review clear.",
+      "pending": "Final-source qualification, actual OS background behavior and measured phone latency/memory.",
+      "reason_for_unfinished_or_declined_work": "Small weekly insight defaults and the existing macOS mutable-PDF copy remain synchronous for their current small/framework-bound contracts; no phone performance claim.",
+      "evidence": {
+        "primary_report": "docs/reports/noop-reliability-battery-2026-10-21.md",
+        "original_finding_register": "package/noop-ios-review-2026-10-21/FINDINGS.md",
+        "specific": [
+          "coach-io-evidence/evidence.json"
+        ]
+      }
+    },
+    {
+      "id": "PERF-02",
+      "title": "Diagnostic export makes whole-capture copies on main actor",
+      "disposition": "source_fixed",
+      "implementation": "Bounded redaction, owned staged files, atomic replacement, and serial diagnostic/recorder IO with finite background assertions.",
+      "verified": "Affected native Coach/export/recorder IO suites passed in broad052474b7; exact-source ordering/ownership checks and source review clear.",
+      "pending": "Final-source qualification, actual OS background behavior and measured phone latency/memory.",
+      "reason_for_unfinished_or_declined_work": "Small weekly insight defaults and the existing macOS mutable-PDF copy remain synchronous for their current small/framework-bound contracts; no phone performance claim.",
+      "evidence": {
+        "primary_report": "docs/reports/noop-reliability-battery-2026-10-21.md",
+        "original_finding_register": "package/noop-ios-review-2026-10-21/FINDINGS.md",
+        "specific": [
+          "coach-io-evidence/remaining-perf02.json"
+        ]
+      }
+    },
+    {
+      "id": "REM-01",
+      "title": "Remove non-WHOOP live enrollment, drivers and protocol edges",
+      "disposition": "phase_one_fixed",
+      "implementation": "WHOOP-only new enrollment picker, debug route and canonical registration guard. Existing pairs/history remain available.",
+      "verified": "All5 LiveDeviceEnrollmentPolicyTests passed in broad052474b7 plus14 exact-source checks after8 baseline rejection failures.",
+      "pending": "Rendered picker acceptance; full runtime retirement remains a separate compatibility migration.",
+      "reason_for_unfinished_or_declined_work": "Full driver retirement requires historical-only source eligibility and an upgrade/restore migration; removing enums/drivers first can reinterpret or strand existing source ownership.",
+      "evidence": {
+        "primary_report": "docs/reports/noop-reliability-battery-2026-10-21.md",
+        "original_finding_register": "package/noop-ios-review-2026-10-21/FINDINGS.md",
+        "specific": [
+          "rem01-enrollment-evidence/register-device-green.log"
+        ]
+      }
+    },
+    {
+      "id": "REM-02",
+      "title": "Retire new non-WHOOP file import ingress separately",
+      "disposition": "declined",
+      "implementation": "Preserve functioning offline non-WHOOP history imports.",
+      "verified": "Active parser/package coverage; source inspection confirms separate import ingress and fallback.",
+      "pending": "No removal planned.",
+      "reason_for_unfinished_or_declined_work": "Removing working history access has no established energy benefit. This is a separate product retirement, not a required correctness repair; import bugs found here are being fixed.",
+      "evidence": {
+        "primary_report": "docs/reports/noop-reliability-battery-2026-10-21.md",
+        "original_finding_register": "package/noop-ios-review-2026-10-21/FINDINGS.md",
+        "specific": []
+      }
+    },
+    {
+      "id": "TEST-01",
+      "title": "94 StrandTests files are outside configured test targets",
+      "disposition": "ports_native_qualified",
+      "implementation": "94 files classified: 88 native ports preserving 749 original methods, one parsed YAML audit port restoring five checks, five retirements removing 16 obsolete methods; blanket exemption removed.",
+      "verified": "All749 original methods in88 restored files have native results across broad052474b7 and the90-case repair retry at0fc10e34:0unexecuted/0remaining failed/1optional real-Xiaomi skip. Five YAML audit checks and per-file retirement reasons retained.",
+      "pending": "Final-source/hosted qualification; recovered-method coverage is a multi-run union, not a new full latest-head native pass.",
+      "reason_for_unfinished_or_declined_work": "Five obsolete or tautological files have item-specific reasons in Tools/qa/legacy_test_dispositions.json. Optional real Xiaomi fixture remains external; native compile/run is still required.",
+      "evidence": {
+        "primary_report": "docs/reports/noop-reliability-battery-2026-10-21.md",
+        "original_finding_register": "package/noop-ios-review-2026-10-21/FINDINGS.md",
+        "specific": [
+          "Tools/qa/legacy_test_dispositions.json",
+          "excluded-tests/validation.json"
+        ]
+      }
+    },
+    {
+      "id": "BATT-OPT-01",
+      "title": "Cache battery reads without breaking liveness",
+      "disposition": "declined",
+      "implementation": "Keep current battery cadence coupled to connection liveness.",
+      "verified": "Source: WHOOP4 watchdog120s and polling~60s; WHOOP5/MG watchdog600s.",
+      "pending": "No speculative TTL installed.",
+      "reason_for_unfinished_or_declined_work": "A blanket 2-5 minute TTL can exceed the WHOOP4 120-second watchdog and cause healthy quiet reconnects. Replacement probes may only move traffic; battery-alert latency and savings need hardware measurement.",
+      "evidence": {
+        "primary_report": "docs/reports/noop-reliability-battery-2026-10-21.md",
+        "original_finding_register": "package/noop-ios-review-2026-10-21/FINDINGS.md",
+        "specific": [
+          "package/noop-ios-review-2026-10-21/BATTERY_PLAN.md"
+        ]
+      }
+    },
+    {
+      "id": "ARCH-01",
+      "title": "Extract tested responsibilities from oversized shared files",
+      "disposition": "targeted_boundaries_only",
+      "implementation": "Receipt, source-transition, sleep-reduction, resume-policy, serial IO and output-witness boundaries extracted around actual fixes.",
+      "verified": "Focused source reviews and component regressions.",
+      "pending": "Broad monolith rewrite not planned in this repair.",
+      "reason_for_unfinished_or_declined_work": "File size alone is not a runtime defect. Relocating protocol/source ownership code would enlarge review risk while correctness changes are being qualified.",
+      "evidence": {
+        "primary_report": "docs/reports/noop-reliability-battery-2026-10-21.md",
+        "original_finding_register": "package/noop-ios-review-2026-10-21/FINDINGS.md",
+        "specific": []
+      }
+    },
+    {
+      "id": "PR-66-01",
+      "title": "Splash gates launch visibility on rendered animation time",
+      "disposition": "source_fixed",
+      "implementation": "First-render wall elapsed splash clock; preserve2.25s/.75s animation policy.",
+      "verified": "All5 SplashClockTests passed in broad052474b7; exact-source35 assertions pass after26 baseline failures.",
+      "pending": "Rendered acceptance and required hostedUI before66merge.",
+      "reason_for_unfinished_or_declined_work": "",
+      "evidence": {
+        "primary_report": "docs/reports/noop-reliability-battery-2026-10-21.md",
+        "original_finding_register": "package/noop-ios-review-2026-10-21/FINDINGS.md",
+        "specific": []
+      }
+    },
+    {
+      "id": "PR-67-01",
+      "title": "New release-version check skips comparison on fetch/diff failure",
+      "disposition": "source_fixed",
+      "implementation": "Exact-base release comparison fails closed on missing fetch/history/diff.",
+      "verified": "14 release audit fixtures pass; source/app/unit/package checks green at67head88a4de42.",
+      "pending": "Required hostedUI and merge.",
+      "reason_for_unfinished_or_declined_work": "",
+      "evidence": {
+        "primary_report": "docs/reports/noop-reliability-battery-2026-10-21.md",
+        "original_finding_register": "package/noop-ios-review-2026-10-21/FINDINGS.md",
+        "specific": [
+          "Tools/qa/test_whats_new_release_audit.py"
+        ]
+      }
+    }
+  ],
+  "snapshot_note": "Prepublication683287ff: diagnostic-family repair and UI selector/typecheck repairs integrated. Root diagnostic harness+3affected audits green. Local949native attempt canceled before semantic tests; hosted finalD6/native/UI pending. Updated68draft publication planned, not yet verified; no merges/releases/install.",
+  "planned_release": {
+    "version": "1.8.0",
+    "build": 240,
+    "metadata_alignment": "aligned in project.yml, currentVersion, nine-row showcase and CHANGELOG; rendered acceptance pending",
+    "phone_install": "not performed"
+  },
+  "draft_pr_published_head": "a5e9c5",
+  "pull_requests": {
+    "66": {
+      "head": "94c85aa7",
+      "required_ci": "All8 packages, source, app build and units green; required UI pending",
+      "merged": false,
+      "unit_tests": {
+        "tests": 2108,
+        "failures": 0,
+        "skips": 3
+      },
+      "required_ui": "DashboardSelectionPersists later reveal-target failure under investigation after earlier preference readbacks and cleanup; no waiver."
+    },
+    "67": {
+      "head": "88a4de42",
+      "required_ci": "All8 packages, source, app build and units green; required UI pending",
+      "merged": false,
+      "unit_tests": {
+        "tests": 2158,
+        "failures": 0,
+        "skips": 3
+      }
+    },
+    "68": {
+      "state": "draft",
+      "published_head": "a5e9c5",
+      "update_pending": true,
+      "publication_status": "Updated draft publication planned to start hosted native/UI qualification; not yet verified at this snapshot."
+    }
+  },
+  "verification_gates": {
+    "baseline": {
+      "cases": 16,
+      "failed_assertions": 22,
+      "scope": "Original HR/source and Collector/history defects; does not include D6 assertion-red."
+    },
+    "intermediate_native": {
+      "passed": 217,
+      "scope": "Selected suites before latest broad integration; not final union."
+    },
+    "current_native": "Local949attempt compiled/linked then blocked before any TestCase. Owned CLI interrupted, owned Simulator shutdown without erase; exit75 and one synthetic framework cancellation error, zero semantic cases. Hosted final acceptance pending.",
+    "worker_packages": {
+      "store": 653,
+      "analytics": 1512,
+      "import": 233,
+      "optional_import_skips": 1,
+      "scope": "Separate worker snapshots; final combined root package run pending. D6 own analytics record is1510."
+    },
+    "final_combined_packages": {
+      "source_commit": "052474b7",
+      "results": {
+        "WhoopStore": 674,
+        "StrandAnalytics": 1515,
+        "StrandImport": 243,
+        "WhoopProtocol": 533
+      },
+      "failures": 0,
+      "import_optional_skips": 1,
+      "evidence": "final-packages/results.json",
+      "qualification": "Later Store source949eec88 qualified separately below."
+    },
+    "final_native": "Broad052+90-case repair union qualified; hosted final append/cost/native acceptance pending after local prelaunch environment failure.",
+    "hosted_ci": "66/67packages/source/app/units green; requiredUI pending; no merges/releases.",
+    "rendered_ui": "Final selectors/role-independent feature/detail assertions integrated; entire ApprovedDashboardUITests file passes Swift6 SDK typecheck at683287ff. No semantic UI case or screenshot acceptance yet; hosted UI pending.",
+    "physical_build240": "pending; no phone install",
+    "measured_battery": "unverified",
+    "older_integrated_protocol": {
+      "passed": 530,
+      "evidence": "integrated-protocol.log",
+      "scope": "Earlier snapshot only; no verified separate worker count located."
+    },
+    "root_workflow_audits": {
+      "commands": 15,
+      "all_exit_zero": true,
+      "head": "6e118594",
+      "evidence": "final-audits/results.json"
+    },
+    "qa_capture_pytest": {
+      "passed": 176,
+      "deselected": 1,
+      "seconds": 7.17,
+      "exclusion": "Optional personal real-database case",
+      "evidence": "final-qa/pytest-v3.log"
+    },
+    "d6_native_baseline": {
+      "tested_source_commit": "4c4bb023",
+      "production_witness_present": false,
+      "tests": 17,
+      "passed_cases": 3,
+      "failed_cases": 14,
+      "failed_assertions": 26,
+      "elapsed_s": 45.238,
+      "failed": [
+        "-[NOOPiOSTests.IntelligenceAnalyzeRecentCacheTests testIdleTickCannotReuseACompletedPassForADifferentRequestWindow]",
+        "-[NOOPiOSTests.IntelligenceAnalyzeRecentCacheTests testIdleTickRunsAcrossFractionalOffsetMidnightWithinTheSameUTCHour]",
+        "-[NOOPiOSTests.IntelligenceAnalyzeRecentCacheTests testIdleTickRunsAfterAControlOnlyRecoveredSleepOverrideMutation]",
+        "-[NOOPiOSTests.IntelligenceAnalyzeRecentCacheTests testIdleTickRunsAfterPendingLiftLoadOrControlMutation]",
+        "-[NOOPiOSTests.IntelligenceAnalyzeRecentCacheTests testIdleTickRunsAfterProfileOrPhysicalIdentityChanges]",
+        "-[NOOPiOSTests.IntelligenceAnalyzeRecentCacheTests testIdleTickRunsAfterSameKeyHeartRateRepair]",
+        "-[NOOPiOSTests.IntelligenceAnalyzeRecentCacheTests testIdleTickRunsForLateNonHeartRateInputs]",
+        "-[NOOPiOSTests.IntelligenceFullRescoreInvariantTests testLateMotionReachesTheAutomaticPass]",
+        "-[NOOPiOSTests.IntelligenceFullRescoreInvariantTests testLateRespirationReachesTheAutomaticPass]",
+        "-[NOOPiOSTests.IntelligenceFullRescoreInvariantTests testLateSpO2ReachesTheAutomaticPass]",
+        "-[NOOPiOSTests.IntelligenceFullRescoreInvariantTests testLateStepsAndSleepStateReachTheAutomaticPass]",
+        "-[NOOPiOSTests.IntelligenceFullRescoreInvariantTests testLateTemperatureWithoutAnAnchorChangeReachesTheAutomaticPass]",
+        "-[NOOPiOSTests.IntelligenceFullRescoreInvariantTests testLateWearEventsReachTheAutomaticPass]",
+        "-[NOOPiOSTests.IntelligenceFullRescoreInvariantTests testSameKeyMotionAndHeartRateRepairsReachTheAutomaticPass]"
+      ],
+      "passed": [
+        "-[NOOPiOSTests.IntelligenceAnalyzeRecentCacheTests testColdRunReadsEveryBundleAndWarmRunReadsNone]",
+        "-[NOOPiOSTests.IntelligenceFullRescoreInvariantTests testNormalActiveInputCostKeepsSixtyDayMotionReuseAndColdParity]",
+        "-[NOOPiOSTests.IntelligenceFullRescoreInvariantTests testSameKeyRRQualityRepairsReachTheAutomaticPass]"
+      ],
+      "cost_line": "D6_ENGINE_COST warmSeconds=0.12388801574707031 warmCPUSeconds=0.131801 activeIngestAndAnalysisSeconds=0.30063092708587646 activeIngestAndAnalysisCPUSeconds=0.328055 days=60 scanDays=3 incomingRows=360 warmMotionHits=60 activeMotionHits=59",
+      "log": "d6-native-cache-red-v8.log",
+      "xcresult": "d6-native-cache-red-v8.xcresult",
+      "prior_attempts": "v1-v7 compiler failures only"
+    },
+    "independent_root_integration_reviews": {
+      "source_commit": "052474b7",
+      "D6_health_import_store": "clear",
+      "provider_workout_lift": "clear",
+      "scope": "source-only; no runtime claims"
+    },
+    "final_source_and_harnesses": {
+      "head": "052474b74bd67a7ea9f8b08a5ab3d0681f28e3aa",
+      "results": [
+        {
+          "script": "source_contract_audit.py",
+          "exit": 0,
+          "elapsed_s": 11.856
+        },
+        {
+          "script": "ui_unification_contract_audit.py",
+          "exit": 0,
+          "elapsed_s": 0.084
+        },
+        {
+          "script": "whoop_ui_contract_audit.py",
+          "exit": 0,
+          "elapsed_s": 0.668
+        },
+        {
+          "script": "workout_runtime_contract_audit.py",
+          "exit": 0,
+          "elapsed_s": 0.058
+        },
+        {
+          "script": "workout_persistence_contract_audit.py",
+          "exit": 0,
+          "elapsed_s": 0.066
+        },
+        {
+          "script": "trends_snapshot_contract_audit.py",
+          "exit": 0,
+          "elapsed_s": 0.079
+        },
+        {
+          "script": "accessibility_localization_contract_audit.py",
+          "exit": 0,
+          "elapsed_s": 0.089
+        },
+        {
+          "script": "healthkit_sync_contract_audit.py",
+          "exit": 0,
+          "elapsed_s": 0.391
+        },
+        {
+          "script": "privacy_artifact_contract_audit.py",
+          "exit": 0,
+          "elapsed_s": 0.23
+        },
+        {
+          "script": "paper_strings_contract_audit.py",
+          "exit": 0,
+          "elapsed_s": 0.13
+        },
+        {
+          "script": "project_hygiene_audit.py",
+          "exit": 0,
+          "elapsed_s": 0.667
+        },
+        {
+          "script": "test_project_hygiene_audit.py",
+          "exit": 0,
+          "elapsed_s": 6.985
+        },
+        {
+          "script": "test_bug_report_template.py",
+          "exit": 0,
+          "elapsed_s": 0.31
+        },
+        {
+          "script": "whats_new_release_audit.py",
+          "exit": 0,
+          "elapsed_s": 0.06
+        },
+        {
+          "script": "test_whats_new_release_audit.py",
+          "exit": 0,
+          "elapsed_s": 4.95
+        },
+        {
+          "script": "test_ble_clock_alarm_isolation.py",
+          "exit": 0,
+          "elapsed_s": 24.508
+        },
+        {
+          "script": "deep_data_confirmed_queue_harness.py",
+          "exit": 0,
+          "elapsed_s": 19.639
+        },
+        {
+          "script": "test_ble_data_range_integrity.py",
+          "exit": 0,
+          "elapsed_s": 19.551
+        },
+        {
+          "script": "test_ble_response_diagnostics.py",
+          "exit": 0,
+          "elapsed_s": 15.17
+        },
+        {
+          "script": "test_ble_connection_result_ownership.py",
+          "exit": 0,
+          "elapsed_s": 1.375
+        },
+        {
+          "script": "pending_intents_lifecycle_harness.py",
+          "exit": 0,
+          "elapsed_s": 3.449
+        },
+        {
+          "script": "widget_published_assignment_harness.py",
+          "exit": 0,
+          "elapsed_s": 3.442
+        }
+      ]
+    },
+    "fixture_owner_retry": {
+      "source_equivalence_head": "0fc10e34",
+      "cases": 90,
+      "failures": 0,
+      "test_elapsed_s": 22.687,
+      "evidence": "native-fixture-owner-retry-v1.log"
+    },
+    "restored_native_coverage": {
+      "files": 88,
+      "original_methods": 749,
+      "unexecuted": 0,
+      "failed_after_retry": 0,
+      "optional_skips": 1,
+      "qualification": "Union of broad052474b7 and repair retry0fc10e34; not a latest-head full rerun.",
+      "evidence": "excluded-tests/native-original-method-coverage-after-fixture-repair.json"
+    },
+    "broad_native_wave5": {
+      "source_commit": "052474b74bd67a7ea9f8b08a5ab3d0681f28e3aa",
+      "xctest_cases": 1203,
+      "xctest_passed_cases": 1189,
+      "xctest_failed_cases": [
+        "-[NOOPiOSTests.AlarmReadbackDecodeTests testHandle_alarmReadbackFrame_logsStrapReports]",
+        "-[NOOPiOSTests.AlarmReadbackDecodeTests testHandle_noAlarmStoredReadback_logsNoAlarm]",
+        "-[NOOPiOSTests.AlarmReadbackDecodeTests testHandle_setAlarmResponse_logsResultByte]",
+        "-[NOOPiOSTests.AlarmReadbackDecodeTests testHandle_unrecognisedReadbackPayload_logsRawHex]",
+        "-[NOOPiOSTests.BatteryBankTraceTests testBankEmitsTaggedSocLineWhenBatteryModeActive]",
+        "-[NOOPiOSTests.BatteryEstimateTraceEmitTests testEmitBatteryTraceWritesSlopeAndGateLines]",
+        "-[NOOPiOSTests.GpsRouteMathTests testRouteStoreEvictsOldestPastCap]",
+        "-[NOOPiOSTests.IntelligenceAnalyzeRecentCacheTests testOwnerChangeInvalidatesOnlyTheLockedDay]",
+        "-[NOOPiOSTests.LiveStateDomainTagTests testDataImportUsesWireId]",
+        "-[NOOPiOSTests.LiveStateDomainTagTests testDomainPrefixesCompactMarker]",
+        "-[NOOPiOSTests.LiveStateDomainTagTests testNilDomainLeavesLineUntagged]",
+        "-[NOOPiOSTests.LiveStateDomainTagTests testRedactionRunsAfterTagging]",
+        "-[NOOPiOSTests.ReadSpineActiveDeviceTests testAdoptIsNoOpForEmptyOrUnchangedId]"
+      ],
+      "xctest_failed_assertions": 15,
+      "xctest_skipped": 1,
+      "xctest_elapsed_s": 549.126,
+      "swift_testing_cases": 27,
+      "swift_testing_suites": 2,
+      "swift_testing_failures": 0,
+      "all749_original_ported_methods_executed": true,
+      "source_semantic_issue": "dayOwnership globally invalidates all raw-day bundles instead of effective owner and dependent-cycle days; reviewed repair integrated12e44302, native retry pending",
+      "fixture_repairs": [
+        "2ab9791e",
+        "e482fb0b"
+      ],
+      "new_core_acceptance": "57full-rescore cases including late-input/cadence/concurrent-output/cancel/60day parity pass; provider13, sleep/HK/IO/workout source cases pass. Run as a whole remains FAILED."
+    },
+    "final_store_append": {
+      "source_commit": "949eec886c061381e75a6c2d5ec9e95f70d20685",
+      "tests": 681,
+      "failures": 0,
+      "test_elapsed_s": 50.169,
+      "command_elapsed_s": 130.62149500846863,
+      "evidence": "final-packages/WhoopStore-append-final-result.json",
+      "log": "final-packages/WhoopStore-append-final.log"
+    },
+    "d6_strict_active_append": {
+      "red_source_commit": "41325eed",
+      "red_observed_bundle_misses": 3,
+      "required_bundle_misses": 1,
+      "red_active_wall_s": 0.554603099822998,
+      "red_active_cpu_s": 0.602452,
+      "red_evidence": "d6-native-active-cost-append-red-v1.log",
+      "candidate_source_commit": "949eec88",
+      "candidate_native_acceptance": "interrupted_before_semantic_test_execution; hosted_final_pending",
+      "candidate_evidence": "d6-native-active-cost-append-green-v1.log",
+      "limitation": "Local exit75/synthetic cancellation is not an assertion failure or pass. No final native cost timing or phone energy gain claimed."
+    },
+    "final_source_949": {
+      "head": "949eec886c061381e75a6c2d5ec9e95f70d20685",
+      "commands": 22,
+      "all_exit_zero": true,
+      "evidence": "final-source-949eec88/results.json"
+    },
+    "d6_append_final_local_attempt": {
+      "head": "949eec88",
+      "exit": 75,
+      "semantic_cases_executed": 0,
+      "result": "interrupted_before_test_execution",
+      "reason": "DedicatedSimulator testmanagerd xpcproxy_sim blocked in dyld shared-cache mmap; source/testbundle compiled and linked, no test semantics ran. xcresult records synthetic Testing was canceled error.",
+      "evidence": [
+        "d6-native-active-cost-append-green-v1-summary.json",
+        "dedicated-simulator-testmanager-prelaunch.sample.txt",
+        "native-cost-prelaunch-stop-v1.json"
+      ],
+      "remaining_gate": "hosted finalnative cold-parity/boundary/cost acceptance"
+    },
+    "package_tree_continuity": {
+      "head": "949eec88",
+      "unchanged_since_green_052": [
+        "StrandAnalytics",
+        "StrandImport",
+        "WhoopProtocol"
+      ],
+      "WhoopStore": "changed; separate681testsgreen949",
+      "evidence": "final-packages/tree-continuity-949eec88.json"
+    },
+    "ui_typecheck": {
+      "source_commit": "683287ff",
+      "exit": 0,
+      "swift_version": 6,
+      "scope": "Full ApprovedDashboardUITests file against installed iOS Simulator SDK",
+      "setup_failure": "Earlier command omitted XCTest Swift overlay -I path; corrected command passed without source repair for that setup error.",
+      "evidence": "release-ui-selector-final/result-overlay-green.json",
+      "runtime_acceptance": false
+    },
+    "debug_diagnostic_family": {
+      "source_commit": "683287ff",
+      "scenarios": 8,
+      "assertions": 29,
+      "baseline_failures": 5,
+      "root_failures": 0,
+      "source": "Strand/System/DebugDataDiagnostics.swift",
+      "harness": "Tools/qa/test_debug_diagnostic_family.py",
+      "root_harness_and_affected_audits": 4,
+      "all_exit_zero": true,
+      "evidence": "debug-diagnostic-family/root-verification.json",
+      "root_log": "debug-diagnostic-family/root-green.log",
+      "scope": "Exact production diagnostic/thermal source in hardware-free harness; not physical temperature validation."
+    },
+    "source_ci_surface": {
+      "commands": 23,
+      "existing22_green_source_commit": "949eec88",
+      "new_harness_and3affected_audits_green_source_commit": "683287ff",
+      "full23_at_prepublication_head": "pending",
+      "failure_gates_preserved": true
+    }
+  },
+  "beyond_zip": [
+    {
+      "id": "BZ-IMPORT-MERGE",
+      "disposition": "source_fixed",
+      "repair": "Preserve banked wearable daily fields across category fragments; project measured steps and observed zero.",
+      "evidence": "beyond-zip/storage/REVIEW.md"
+    },
+    {
+      "id": "BZ-IMPORT-NUMERIC",
+      "disposition": "source_fixed",
+      "repair": "Reject unsafe Oura integer conversion and Fitbit/Liftosaur sum overflow before publication; preserve valid observed zero.",
+      "evidence": "beyond-zip/import-bounds/evidence.json"
+    },
+    {
+      "id": "BZ-IMPORT-MALFORMED",
+      "disposition": "source_fixed",
+      "repair": "Reject JSON boolean/nonfinite CSV measurements and incomplete Fitbit daily totals across fragments; preserve previously banked valid values.",
+      "evidence": "beyond-zip/import-bounds/malformed-evidence.json"
+    },
+    {
+      "id": "BZ-LAB-OWNERSHIP",
+      "disposition": "source_fixed",
+      "repair": "Rebuild shared lab projections from surviving source-owned readings transactionally. No guessed legacy orphan cleanup.",
+      "evidence": "beyond-zip/storage/REVIEW.md"
+    },
+    {
+      "id": "BZ-SESSION-LIFT",
+      "disposition": "source_fixed",
+      "repair": "Reset Live Session acquisition-gap continuity; reject duplicate active Lift replacement before mutation.",
+      "evidence": "beyond-zip/workouts/REVIEW.md"
+    },
+    {
+      "id": "BZ-LIFT-SOURCE",
+      "disposition": "source_fixed",
+      "repair": "Freeze original store/read IDs across await and A-to-B-to-A; validate composite vitals after awaits.",
+      "evidence": "beyond-zip/workouts/FOLLOWUP-REVIEW.md"
+    },
+    {
+      "id": "BZ-WORKOUT-ENERGY",
+      "disposition": "source_fixed",
+      "repair": "Reconcile same-second and pause-boundary HR corrections with canonical strain/energy replay.",
+      "evidence": "beyond-zip/workouts/FOLLOWUP-REVIEW.md"
+    },
+    {
+      "id": "BZ-BLE-ADMISSION",
+      "disposition": "source_fixed",
+      "repair": "Verify data-range markers and current connection targets; use family-specific reboot diagnostics.",
+      "evidence_commits": [
+        "87d05fee",
+        "bf618193",
+        "c530b2e5"
+      ]
+    },
+    {
+      "id": "BZ-LIFECYCLE-WIDGET",
+      "disposition": "source_fixed",
+      "repair": "Wake/drain pending intents while already active; read composite widget fields after Published assignment.",
+      "evidence": "beyond-zip/lifecycle/review.md"
+    },
+    {
+      "id": "BZ-PROVIDER-OWNERSHIP",
+      "disposition": "source_fixed_native_qualified",
+      "repair": "Add retained-provider observation receipts and fence stale cleanup, callbacks, deadlines and bootstrap adoption.",
+      "candidate_commits": [
+        "5c0d001b",
+        "a7b33c85",
+        "a059a813"
+      ],
+      "evidence": "provider-receipts-evidence/README.md",
+      "independent_source_review": "clear",
+      "verified": "13native provider cases passed in broad052474b7; physical/radio behavior remains unverified.",
+      "integrated_commits": [
+        "77fc7e03",
+        "2121a7a7",
+        "c1f59cf7"
+      ],
+      "independent_root_integration_review": "clear at052474b7"
+    },
+    {
+      "id": "BZ-DEBUG-DIAGNOSTIC-FAMILY",
+      "disposition": "source_fixed_harness_qualified",
+      "repair": "Decode canonical persisted WHOOP model before retained legacy aliases for diagnostic thermal conversion and model display. Preserve nil/unknown WHOOP4 thermal fallback, unknown display and repo.deviceId sample ownership.",
+      "confirmed_baseline": "Canonical WHOOP5/MG raw fixture maps144.6C under wrong WHOOP4 conversion;0of300kept and unknown model label.",
+      "verified": "Exact production diagnostic/thermal harness:8scenarios/29assertions/5baselinefailures to0failures; repeated root green. Source-contract/project-hygiene/release-metadata audits green.",
+      "pending": "Hosted finalheadCI; physical temperature accuracy and native runtime not established by this harness.",
+      "source": "Strand/System/DebugDataDiagnostics.swift",
+      "harness": "Tools/qa/test_debug_diagnostic_family.py",
+      "worker_commits": [
+        "7a5ede68",
+        "89e24b31"
+      ],
+      "root_commits": [
+        "7746817b",
+        "683287ff"
+      ],
+      "evidence": "debug-diagnostic-family/root-verification.json"
+    }
+  ],
+  "repository_note": "Local artifacts are under the master-workspace outputs/noop-review-20261021 directory; source paths identify repository files. No device acceptance or zero-bug guarantee.",
+  "path_conventions": {
+    "repository_paths": "Source paths and docs/reports paths are relative to repository root.",
+    "local_artifacts": "Other evidence paths are relative to master-workspace outputs/noop-review-20261021 and are not claimed to ship in the repository."
+  }
+}

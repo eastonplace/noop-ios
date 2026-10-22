@@ -1,102 +1,85 @@
-# WHOOP reliability and battery control fixes
+# NOOP ZIP fixes and remaining qualification
 
-## Scope
+**Partial — source fixes are substantially integrated; final combined native tests, CI, rendered UI and physical qualification remain open.** This report accounts for all 29 findings in `NOOP-iOS-Review-2026-10-21.zip`, plus confirmed defects found during the follow-up review. It does not claim zero bugs, longer battery life or a completed release.
 
-This change implements the first reliability and battery batch from
-`NOOP-iOS-Review-2026-10-21.zip`, reviewed against main
-`6f49d855d6f747103f4dc2a60949cb933445c3c0`.
+Prepublication snapshot: root source `683287ff`, original review baseline `6f49d855`. PR [#68](https://github.com/eastonplace/noop-ios/pull/68) remains draft; its last verified published head `a5e9c5` does not contain all current local work. Root is preparing an updated draft to start hosted final native and UI qualification; publication is not yet verified in this snapshot. The draft release is **1.8.0 / build 240** because WHOOP-only new enrollment changes supported behavior. Version, fallback, nine-row showcase and CHANGELOG are aligned; rendered acceptance remains pending. No build 240 phone installation is claimed. Existing build 239 device/alarm receipts remain evidence only for that build and those operations.
 
-| Finding | Result |
+## All 29 ZIP findings
+
+“Source fixed” means the repair is integrated locally. It does not mean final native, CI or device acceptance. Repository links point to source tests. Local artifacts are retained under the workspace outputs directory and are not part of the GitHub source tree. The verification ledger states what actually ran.
+
+| ID | Local disposition and behavior | Evidence / remaining gate |
+| --- | --- | --- |
+| BLE-01 | Source fixed: exact Broadcast OFF is admitted after consent is false; explicit saved true/false is restored only after secure proof. | [Preference regressions](../../StrandiOSTests/PuffinBroadcastPreferenceTests.swift); physical 5/MG online/offline OFF and actual broadcast cessation remain unverified. |
+| BLE-04 | Source fixed: ordered reassembly loss follows the admitted history pass; START cannot erase missing evidence before trim ACK. | [Framing regressions](../../Packages/WhoopProtocol/Tests/WhoopProtocolTests/ReassemblyEventTests.swift), [history receipts](../../StrandiOSTests/BackfillerHistoricalCommitReceiptTests.swift); final combined native/CI pending. |
+| D1 | Source fixed: durable transitions and rollback explicitly resume WHOOP; cold restoration avoids redundant restart. | [Transition regressions](../../StrandiOSTests/SourceCoordinatorTransitionRegressionTests.swift); physical reconnect/restore pending. |
+| D2 | Source fixed: returning to `my-whoop` restores its persistence identity. | Same transition suite; real A→B→A acquisition pending. |
+| D3 | Source fixed: buffered decoded/raw batches and retries retain their original source, generation, family and clock. | [Collector ownership](../../StrandiOSTests/CollectorOwnershipTests.swift); historical rows are not reassigned. |
+| APP-01 | Source fixed: consume the emitted HR value and clear smoothing when direct HR and RR are absent. | [Incoming HR regressions](../../StrandiOSTests/IncomingHeartRateRegressionTests.swift); final combined native pending. |
+| APP-02 | Receipt path and retained-provider follow-up integrated with source clearance. Equal BPM arrivals retain observation time without unnecessary display changes. | HR evidence (local artifact `outputs/noop-review-20261021/hr-receipts-evidence/`), provider evidence (local artifact `outputs/noop-review-20261021/provider-receipts-evidence/README.md`); source through `a059a813` is integrated as `c1f59cf7`; independent root integration review is clear and all 13 provider native cases passed at `052474b7`. Physical-radio acceptance remains open. |
+| APP-03 | Source fixed: Live Session consumes observed receipts; its timer does not replay cached BPM as new acquisition. | Same receipt evidence; affected native suites passed at `052474b7`. Final-source acceptance and physical behavior remain separate gates. |
+| PRIV-01 | Source fixed: block and inline Coach Markdown images resolve bundled assets. | [Coach renderer](../../StrandiOS/Coach/CoachConversationView.swift); native request interception remains pending. |
+| CI-01 | Repairs made; required hosted UI qualification remains open. | PR [#66](https://github.com/eastonplace/noop-ios/pull/66) head `94c85aa7` and [#67](https://github.com/eastonplace/noop-ios/pull/67) head `88a4de42` have all eight package checks, source audits, app builds and units green. Required UI checks remain pending. Neither is merged. No failed-check waiver. |
+| HK-01 | Source fixed: background delivery declared in XcodeGen and checked-in entitlements. | [project.yml](../../project.yml), [entitlements](../../StrandiOS/Resources/NOOP.entitlements); signed provisioning and device delivery pending. |
+| D4 | Source fixed: final skin-temperature deviation feeds Charge score, trace, drivers and persisted derived output consistently. | [Rescore invariants](../../StrandiOSTests/IntelligenceFullRescoreInvariantTests.swift); selected native proof exists, final combined qualification pending. |
+| D5 | Source fixed: shared wake-day sleep reduction arbitrates overlap and retains unknown/missing evidence. | Sleep handoff (local artifact `outputs/noop-review-20261021/health-sleep/HANDOFF.md`); affected native integration cases passed in the broad run. Real HealthKit remains unverified. No guessed historical deletion or ambiguous row rewrite. |
+| D6 | Source integrated; native acceptance pending. Complete RAM mutation witness, motion reuse and commit-owned terminal-output receipts replace incomplete cache evidence. | Design and limits (local artifact `outputs/noop-review-20261021/derived-inputs/D6-complete-witness-design.md`), package proof (local artifact `outputs/noop-review-20261021/derived-inputs/package-verification.json`), integrated through root `949eec88`, including trusted append precision across all source IDs in UTC-hour regions. Original native baseline reproduces 14 failing cases and 26 failed assertions across 17 tests. A stricter active-ingest regression at `41325eed` reproduced three bundle misses where one was required; final native acceptance is pending hosted CI after a local Simulator prelaunch failure. |
+| HK-02 | Source fixed: persist request-flow completion, attempt permitted reads after relaunch, and preserve banked values when reads return no evidence. | Health/sleep evidence (local artifact `outputs/noop-review-20261021/health-sleep/verification.json`); read-only/partial/revoked/locked device behavior pending. Request completion is not treated as proof of a read grant. |
+| BLE-02 | Owned display/workout/continuous-capture demand replaces shared lease behavior, with WHOOP 4 raw fallback retained. | Receipt evidence (local artifact `outputs/noop-review-20261021/hr-receipts-evidence/`); all 13 retained-provider native cases passed. Locked/background physical strap coverage remains unverified. |
+| BLE-03 | Source fixed: productive automatic events respect the low-power floor and adaptive empty backoff; explicit manual sync remains available. | [Backfill policy tests](../../Packages/WhoopProtocol/Tests/WhoopProtocolTests/BackfillPolicyTests.swift); physical history completeness/energy pending. |
+| BLE-05 | Source fixed: release only an acquired, owned realtime token. | [Lease regressions](../../StrandiOSTests/WorkoutReceiptFreshnessTests.swift); owned provider/lease native coverage passed in the broad run; physical behavior remains unverified. |
+| BLE-07 | Partial: strict synchronous consent revokes unsent deep-data queue entries. OFF wording describes permission accurately. | [Queue regression harness](../../Tools/qa/deep_data_confirmed_queue_harness.py); an ATT write already sent cannot be recalled. Prior persistent firmware values and inverse writes lack qualified readback, so no guessed inverse is sent. |
+| GPS-01 | Source fixed: persisted sport-specific speed/acceleration bounds retain plausible fast travel and existing accuracy/gap protection. | [Sport policy tests](../../StrandiOSTests/GpsSportPolicyTests.swift); real route fidelity remains unverified. |
+| PERF-01 | Source fixed: serial Coach persistence with ordered writes, generation-aware hydration and owned flush barriers. | IO evidence (local artifact `outputs/noop-review-20261021/coach-io-evidence/evidence.json`); affected native IO cases passed in the broad run. Real background behavior and measured latency remain unverified. Small defaults payloads remain synchronous. |
+| PERF-02 | Source fixed: bounded capture redaction, staged export files, background export/recorder IO and atomic destination replacement. | Remaining-path evidence (local artifact `outputs/noop-review-20261021/coach-io-evidence/remaining-perf02.json`); affected native export/IO cases passed in the broad run. Final-source acceptance and measured peak memory remain open. Existing framework-bound macOS PDF copying remains outside this iPhone repair. |
+| REM-01 | Phase 1 fixed: new enrollment, alternate debug entry and canonical registration admit WHOOP only. Existing pairs and history remain usable. | Admission evidence (local artifact `outputs/noop-review-20261021/rem01-enrollment-evidence/`); all five native admission cases passed; rendered picker remains pending. Full driver deletion needs historical-only eligibility plus fenced upgrade/restore migration. Removing persisted enum cases first can reinterpret old rows as live BLE. |
+| REM-02 | Declined: retain functioning offline non-WHOOP history imports. | [Import regressions](../../Packages/StrandImport/Tests/StrandImportTests/); deletion removes useful history access without established energy benefit. Import correctness bugs found during review are repaired below. |
+| TEST-01 | All 94 excluded files have explicit dispositions: 88 native ports preserving 749 original methods; one bug-form audit port restores five checks; five obsolete files retire 16 methods. Blanket orphan exemption removed. | [Per-file ledger](../../Tools/qa/legacy_test_dispositions.json), validation (local artifact `outputs/noop-review-20261021/excluded-tests/validation.json`); all 749 original methods have result entries across the broad run and reviewed repair retry, with zero remaining failures and one optional real-Xiaomi skip. This coverage union is not a fresh final-head full-suite run. |
+| BATT-OPT-01 | Declined: retain current battery polling until independent liveness is qualified. | Battery plan (local artifact `outputs/noop-review-20261021/package/noop-ios-review-2026-10-21/BATTERY_PLAN.md`); a 2–5 minute TTL can exceed WHOOP 4's 120-second watchdog, causing healthy quiet reconnects. Replacement probes may only move traffic. Savings and acceptable alert latency require measurement. |
+| ARCH-01 | Targeted extraction only: receipts, source fences, sleep reduction, read-resume policy, serial IO and cache witness boundaries support actual repairs. | Broad relocation of protocol/source ownership increases review risk during correctness changes. File size alone does not establish a runtime defect; no broad rewrite or measured performance gain is claimed. |
+| PR-66-01 | Source fixed: splash uses elapsed wall time from its first rendered frame, preserving 2.25 seconds / Reduce Motion 0.75 seconds. | [Splash clock](../../StrandiOS/App/NoopSplashView.swift); exact-source 35 assertions pass after 26 baseline failures. All five native clock cases passed at `052474b7`; rendered acceptance remains pending. |
+| PR-67-01 | Source fixed: release comparison fails closed when exact-base history, fetch or diff fails. | [Release audit tests](../../Tools/qa/test_whats_new_release_audit.py); 14 fixtures/source checks passed; #67 source/app/unit/package checks are green. Required UI and merge remain pending. |
+
+The five TEST-01 retirements are specific: `DiagnosticSinkDomainTests` invokes its own assigned closure, `StrandSmokeTests` asserts true, and the old Lift editor, macOS sidebar and Settings disclosure APIs no longer exist. Their replacements and limits are recorded per file; current tests are not described as assertion-equivalent where they are not.
+
+## Confirmed defects beyond the ZIP
+
+These repairs are integrated in root source unless noted. Evidence comes from bounded source reviews and exact-source host/package regressions. Final combined native and runtime checks remain separate.
+
+| Confirmed defect and repair | Evidence |
 | --- | --- |
-| BLE-01 | Admit only the exact HR Broadcast OFF payload after the preference becomes false. ON still requires opt-in. Replay an explicitly persisted Boolean after secure session proof. |
-| APP-01 | Consume the emitted `@Published` HR value and clear smoothing once both HR and RR clear. |
-| D1 / D2 | Resume WHOOP after a durable transition or rollback and restore the default source's write identity. Preserve cold restoration without reconnect churn. |
-| D3 | Capture source, family, intake generation, and clock before buffering. Keep decoded and raw writes under that identity. Retry only uncommitted owned batches. |
-| BLE-04 | Carry discarded bytes and frames in their original order through the admitted history queue. A surviving START cannot erase missing evidence before a trim ACK. |
-| HK-01 | Declare background delivery in both XcodeGen and the checked-in HealthKit entitlements. |
-| PRIV-01 | Use bundled-asset providers for block and inline Coach Markdown images. |
+| Fragmented wearable category imports erased earlier daily fields; measured steps/zero were omitted. Merge only observed fields, preserve banked values and distinguish valid zero from malformed/subunit input. | Storage review (local artifact `outputs/noop-review-20261021/beyond-zip/storage/REVIEW.md`), root `6150f0c9`, `24afba2e`, `5acbd868`. |
+| Oura integer conversion could trap; Fitbit/Liftosaur sums could overflow. Reject unrepresentable integers and invalid complete records/daily totals. | Bounds evidence (local artifact `outputs/noop-review-20261021/beyond-zip/import-bounds/evidence.json`), root `fb75eb53`, `a4b6d0ff`. |
+| JSON booleans and nonfinite CSV values entered numeric paths; mixed valid/malformed Fitbit events published incomplete totals. Reject boolean/nonfinite measurements and keep day invalidation across fragments. | Malformed evidence (local artifact `outputs/noop-review-20261021/beyond-zip/import-bounds/malformed-evidence.json`), root `e40030cc`, `bfbd082d`; real importer tests preserve banked 8421 steps. |
+| Shared Lab Book projections survived source deletion or replaced another source's newer reading. Rebuild the affected projection from surviving source-owned evidence in the same transaction. | Storage review (local artifact `outputs/noop-review-20261021/beyond-zip/storage/REVIEW.md`), root `fde1010b`. No automatic attribution/deletion of old orphan projections without ownership evidence. |
+| Live Session carried continuity through acquisition gaps; duplicate Lift replacement could overwrite existing prescriptions. Reset gap continuity and reject duplicate active replacements before mutation. | Workout review (local artifact `outputs/noop-review-20261021/beyond-zip/workouts/REVIEW.md`), root `4ccd8cdb`. |
+| Lift vital reads could cross a source switch, including A→B→A during suspension. Freeze store/read IDs and validate the composite result after awaits. | Follow-up review (local artifact `outputs/noop-review-20261021/beyond-zip/workouts/FOLLOWUP-REVIEW.md`), root `f0d89cac`, `b7a6a449`. |
+| Same-second HR corrections left live energy inconsistent with canonical replay, including pause boundaries. Replace the current tail or rebuild from canonical samples when the pause retired it. | Same follow-up review, root `184275a4`, `b7a6a449`. |
+| Invalid/stale BLE ranges and connection results could enter current state; reboot diagnostics decoded another family's result format. Verify range/target ownership and report family-specific raw responses. | Root regressions `c148df6b`, `b9f0f42d`, `fd20572f`; fixes `87d05fee`, `bf618193`, `c530b2e5`. These are source/harness repairs, not physical-radio proof. |
+| Pending intents did not wake an already-active app; widget snapshots read pre-assignment Published values. Notify/drain pending actions while active and defer composite widget reads until assignment. | Lifecycle review (local artifact `outputs/noop-review-20261021/beyond-zip/lifecycle/review.md`), root `7db2f4a2`, `c401fc95`; seven intent and eight widget harness checks pass with fixture OS collaborators. |
+| Retained generic HR producers lacked the new receipt semantics; old provider cleanup/deadlines could overwrite a replacement provider. | Provider follow-up (local artifact `outputs/noop-review-20261021/provider-receipts-evidence/README.md`), candidates `5c0d001b` + `a7b33c85` + `a059a813`; integrated as `77fc7e03`, `2121a7a7`, `c1f59cf7`; all 13 provider native cases passed at `052474b7`. Physical-radio behavior remains unverified. |
+| Debug diagnostics decoded canonical WHOOP 5/MG as WHOOP 4: ordinary raw values mapped to 144.6°C, dropping all 300 fixture samples from the diagnostic funnel and displaying an unknown model. Decode the canonical persisted model first, then retained legacy aliases. Unknown/nil retain the WHOOP 4 thermal fallback and unknown display; sample ownership remains `repo.deviceId`. | [Exact diagnostic-family harness](../../Tools/qa/test_debug_diagnostic_family.py); worker tests/fix `7a5ede68` / `89e24b31`, root `7746817b` / `683287ff`. Actual production diagnostic/thermal source: eight scenarios, 29 assertions, five baseline failures → zero failures, repeated in root. Local evidence: `outputs/noop-review-20261021/debug-diagnostic-family/`. This does not rewrite sensor data or establish physical temperature accuracy. |
 
-The framing change preserves the legacy frame-only output and per-characteristic
-fragment windows. During an admitted offload, loss on a proprietary WHOOP channel
-conservatively invalidates the pass. Standard HR and battery characteristics do
-not use this route. Loss outside an admitted pass does not contaminate a later
-pass. Current connection/session tokens and secure admissions reject stale
-frames and stale loss markers. The existing failure and retry policy remains.
+## Verification ledger
 
-Collector retains existing caps and failure backoff. Pre-clock bytes from an old
-source stay unassigned and bounded; a new strap's clock cannot correlate them.
-Already acknowledged historical chunks retain their original receipt, source,
-cursor, and save-before-ACK protection. No database migration or historical
-reassignment is included.
+- **Original baseline:** initial HR/source and Collector/history suites ran 16 native cases with 22 failed assertions. D6 separately reproduced 14 failing cases and 26 assertions among 17 native cases before its witness repair.
+- **Broad native run at `052474b7`:** 1,203 XCTest cases completed: 1,189 passed, 13 failed and one optional real-Xiaomi fixture skipped; 27 Swift Testing cases also passed. The broad run itself remains recorded as failed. All 13 failures were repaired: stale diagnostic/route/owner fixtures plus overly broad day-owner invalidation. The reviewed 90-case retry passed with zero failures in 22.687 seconds. Evidence: local artifacts `native-integrated-wave5-summary.json` and `native-fixture-owner-retry-v1.log` under `outputs/noop-review-20261021/`.
+- **Recovered coverage:** every original method in the 88 restored files has a result entry. The broad-run/repair-retry union covers 749 original methods, with zero unexecuted and zero remaining failed methods; one external real-Xiaomi fixture is skipped. See local artifact `excluded-tests/native-original-method-coverage-after-fixture-repair.json`. This does not claim a second full-suite run at `949eec88`.
+- **D6 correctness and cost:** 57 full-rescore cases passed in the broad run, including late inputs, rolling clock, concurrent-output ownership, cancellation and 60-day motion/cold parity. The initial active-ingest implementation still reread three raw bundles. A stricter native test at `41325eed` failed on three misses versus one required; its measured active ingest/analysis was 0.554603 seconds wall and 0.602452 seconds CPU for that fixture. Source `949eec88` adds bounded trusted append regions for every source ID and UTC hour, retaining conservative fallback for unknown/repair/schema/overflow cases. Its strict native attempt compiled and linked but was interrupted before any test executed: the dedicated Simulator test manager blocked in dyld shared-cache mapping. Only the owned test CLI received SIGINT and the owned Simulator was shut down, without erasure. Exit 75 and the single synthetic “Testing was canceled” framework error represent zero executed semantic cases. Hosted final native acceptance remains pending; no final timing, passing cost acceptance or energy improvement is claimed.
+- **Packages:** at `052474b7`, WhoopStore 674, StrandAnalytics 1,515, StrandImport 243 (one optional fixture skip) and WhoopProtocol 533 passed with zero failures. After append precision changed Store source, its full suite passed **681 tests, zero failures**, at `949eec88`: 50.169 seconds test time and 130.621 seconds command elapsed. Source-aware records are local artifacts `final-packages/results.json`, `final-packages/WhoopStore-append-final-result.json` and `final-packages/WhoopStore-append-final.log`. `final-packages/tree-continuity-949eec88.json` confirms Analytics, Import and Protocol source trees are byte-identical to their green `052474b7` trees; Store was tested separately after its change. No newer all-package run is claimed.
+- **Independent source review:** both bounded root reviews are clear at `052474b7`: D6 ownership with HealthKit/import/lab writes, and provider admission/leases with Runner/Lift/workout corrections. These reviews predate final append precision and do not establish its native cost result.
+- **Source/QA:** all 22 existing workflow/source-harness commands passed at `949eec88`. The diagnostic-family harness is added to the same gated macOS CI loop, bringing it to 23 commands. The new harness and source-contract, project-hygiene and release-metadata audits all passed at `683287ff` (local artifact `debug-diagnostic-family/root-verification.json`); this is not a full 23-command rerun at that head. QA/capture pytest passed 176 tests with one optional personal real-database case deselected in 7.17 seconds. Evidence: local artifacts `final-source-949eec88/results.json` and `final-qa/pytest-v3.log`. These checks do not execute native suites.
+- **Hosted CI:** #66 `94c85aa7` and #67 `88a4de42` have all eight packages, source checks, app build and units green. Their app-unit runs passed 2,108 and 2,158 cases respectively, with zero failures and three skips each. Required hosted UI still gates both merges. #66 DashboardSelectionPersists currently fails at a later reveal target after its earlier preference readbacks and cleanup; the worker is isolating the actual control. No waiver is applied. Neither PR is merged or released; #68 remains draft at its older published head.
+- **Rendered UI:** new tests target the release screen bottom, WHOOP-only picker and actual Settings/Test Centre permission text. The first UI attempt aborted before fixture repair and the second stalled before launch. The inherited combined release-hero selector is repaired with a stable identifier and an exact singleton dotted-version assertion (`16a2cb3a`); the final 1.8.0 feature identifier uses a role-independent query and a detail assertion (`7bd4f0b0`). The full final UI test file passes Swift 6 typechecking against the installed iOS Simulator SDK (`release-ui-selector-final/result-overlay-green.json`). The earlier missing XCTest overlay import path was a harness setup failure. Typechecking does not prove rendering or test execution. A later native launch sample confirmed the dedicated Simulator test manager blocked in dyld shared-cache mapping. Only that Simulator was shut down; data remains retained. No completed UI acceptance or screenshots are claimed yet.
+- **Physical / energy:** native Markdown request interception, signed HealthKit background behavior, WHOOP 4/5/MG continuity, actual persistent setting changes and battery effects remain unverified for build 240. Existing build 239 receipts retain their original scope.
 
-## Baseline proof
+D6's cache precision adds bounded mutation bookkeeping in exchange for fewer unnecessary raw reads. Correctness requires conservative misses when ownership or schema evidence is incomplete. The strict append test measures that tradeoff; it is not evidence that the whole app is faster or the strap uses less battery.
 
-The unchanged production baseline compiled with Xcode 27.1 (27A9275).
+## Next gates
 
-1. HR/source regressions: 8 test cases, 7 failing cases and 8 failed assertions.
-   Initial cold activation passed; the other cases reproduced the reported HR,
-   restart, rollback, and default-identity defects.
-2. Collector/history regressions: 8 test cases, all failing, with 14 failed
-   assertions. These reproduced mixed ownership, retry ownership, raw/decoded
-   owner divergence, wrong clocks, and START clearing an existing loss marker.
-3. Twelve existing source-audit commands and 19 extracted-production-SQL tests
-   passed. The system Python lacks pytest; an isolated `uv run --with pytest`
-   run executed 131 capture tests successfully, excluding the existing real-DB
-   integration case.
+1. Publish the updated #68 draft to start exact-head hosted native append/cold-parity/cost and new UI acceptance. The local `949eec88` native attempt supplied no semantic result. Qualify final source without weakening assertions. Preserve the broad failed-run record and green repair retry separately.
+2. Keep source-specific green package/audit/harness evidence, qualify the complete 23-command CI surface at the published head, and finish rendered release/enrollment/permission acceptance. Keep package source heads explicit; verify aligned 1.8.0/build 240 metadata.
+3. Finish required exact-head #66/#67 CI and authorized merges, preserve their alarm changes, then rebase/update draft #68 and check its published head. Keep #68 draft for review.
+4. Qualify signed background behavior and physical WHOOP behavior through a separately controlled device pass. Do not install build 240 as part of this reporting task or infer new proof from build 239 receipts.
 
-## Candidate verification
-
-- WHOOP protocol: 520 tests passed, including nine new Broadcast and ordered-loss
-  cases. Legacy framing output, fragment isolation, and existing diagnostics
-  remain covered.
-- Affected native app suites: 51 tests passed on an isolated iOS Simulator.
-  These cover historical receipts (28), Collector ownership and partial retries
-  (10), incoming heart rate (4), source transitions and rollback (4), explicit
-  persisted Boolean preferences (4), and physical clock ownership policy (1).
-  Numeric preferences such as 0, 1, and 1.0 cannot become a device-write choice.
-- Independent source re-review found no blocking issues, including physical
-  clock fencing, strict Boolean replay, COMPLETE after loss, and retries after
-  an earlier owner has already committed.
-- WHOOP persistence: 635 tests passed. The default Swift build engine could not
-  sign generated bundles with iCloud Finder metadata. The same package passed
-  using the native SwiftPM engine with its scratch directory outside iCloud.
-- Final source audits and extracted-SQL checks passed. Isolated capture and QA
-  pytest: 161 passed, one real-database integration case excluded.
-- All eight hosted Swift package checks and hosted source audits passed for
-  the initial draft head. Its native workflow was cancelled to prioritize the
-  requested PR #66/#67 merge checks; it must run again on the integrated base.
-- The full app compiles. The broad local native run ended with 493 passing
-  entries and six failure entries: four existing background-grant cancellation
-  cases, a killed test, and a test-host error. It did not finish the full suite.
-  A sample placed cancelled tasks inside XCTest's Swift error observer; that
-  does not establish a product root cause. The isolated cancellation suite
-  passed 18 of 20 cases; the two cancelled-sleep cases still timed out. Both
-  source and tests are byte-identical to main. An empty UIKit scene host with
-  those exact baseline files and the app's Swift 6, complete concurrency, and
-  warnings-as-errors settings passed 15 of 20 tests. Five cancellation cases
-  failed with seven assertions, including both isolated app failures. This
-  reproduces local baseline failures without NOOP startup or these changes;
-  the precise framework or runtime root cause remains unverified.
-  No full-suite pass is claimed.
-
-## Remaining qualification
-
-Native tests do not establish physical strap behavior or energy improvement.
-
-1. Verify actual online/offline Broadcast OFF delivery and observable peripheral
-   behavior on WHOOP 5 and MG. An absent preference must send no configuration.
-2. Check source transitions, reconnects, and live/history continuity on WHOOP 4,
-   WHOOP 5, and MG using preserved user data.
-3. Verify signed HealthKit entitlements, provisioning, and background delivery
-   on a real device. An unsigned Simulator does not prove this capability.
-4. Intercept requests from the native Markdown renderer for block, inline, and
-   reference images. Compilation and provider source checks do not prove the
-   absence of every automatic network request.
-5. Measure battery under controlled conditions before claiming savings.
-
-Broad non-WHOOP removal, timestamped HR receipt events, realtime lease redesign,
-sleep episode arbitration, analysis-cache revisions, temperature rescoring,
-and performance work remain separate review items. This PR does not claim to
-resolve the complete 29-entry register.
-
-Merge and physical phone installation require Easton's separate review.
+The complete machine-readable disposition is [the portable findings JSON](noop-review-20261021-findings.json). Source changes, passing focused tests, hosted CI, rendered acceptance and device evidence remain separate gates.
