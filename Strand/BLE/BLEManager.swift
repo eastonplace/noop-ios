@@ -4496,6 +4496,15 @@ public final class BLEManager: NSObject, ObservableObject {
         requestNotify(heartRateCharacteristic, on: peripheral, reason: reason)
     }
 
+    nonisolated static func shouldAdoptRestoredCommandNotification(
+        family: DeviceFamily, isConnected: Bool,
+        isCurrentPeripheral: Bool, isCurrentCommandCharacteristic: Bool,
+        isNotifying: Bool
+    ) -> Bool {
+        family == .whoop4 && isConnected && isCurrentPeripheral
+            && isCurrentCommandCharacteristic && isNotifying
+    }
+
     private func requestNotify(_ c: CBCharacteristic, on p: CBPeripheral, reason: String) {
         guard c.properties.contains(.notify) || c.properties.contains(.indicate) else {
             log("Notify unavailable \(c.uuid) (\(reason))")
@@ -4503,6 +4512,18 @@ public final class BLEManager: NSObject, ObservableObject {
         }
         if c.isNotifying {
             log("Notify already active \(c.uuid) (\(reason))")
+            // A restored WHOOP 4 subscription produces no new notification-state callback. Adopt
+            // only this connection's retained command channel; the handshake still gates settling.
+            if Self.shouldAdoptRestoredCommandNotification(
+                family: selectedModel.deviceFamily,
+                isConnected: state.connected && p.state == .connected,
+                isCurrentPeripheral: p === peripheral && isCurrentPeripheralCallback(p),
+                isCurrentCommandCharacteristic: c === cmdNotifyCharacteristic
+                    && isCurrentCharacteristicCallback(c),
+                isNotifying: c.isNotifying) {
+                cmdNotifyConfirmedActive = true
+                maybeSignalConnectSettled()
+            }
             return
         }
         p.setNotifyValue(true, for: c)
