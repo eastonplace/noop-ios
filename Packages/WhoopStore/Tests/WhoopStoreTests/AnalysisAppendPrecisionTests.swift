@@ -183,7 +183,7 @@ final class AnalysisAppendPrecisionTests: XCTestCase {
 
     func testUnsafeAppendSchemasAndImplicitReplacementFallBackGlobally() async throws {
         let midnight = self.midnight
-        for variant in ["unique", "generated-rowid", "foreign-key", "trigger", "temp-trigger", "temp-shadow"] {
+        for variant in ["unique", "replace-unique", "without-rowid", "generated-rowid", "foreign-key", "trigger", "temp-trigger", "temp-shadow"] {
             let store = try await WhoopStore.inMemory()
             try await store.registryWriter.write { db in
                 switch variant {
@@ -192,14 +192,29 @@ final class AnalysisAppendPrecisionTests: XCTestCase {
                 case "foreign-key": try db.execute(sql: "ALTER TABLE hrSample ADD COLUMN witnessParent TEXT REFERENCES device(id)")
                 case "trigger": try db.execute(sql: "CREATE TRIGGER witnessHR AFTER INSERT ON hrSample BEGIN SELECT 1; END")
                 case "temp-trigger": try db.execute(sql: "CREATE TEMP TRIGGER witnessHR AFTER INSERT ON main.hrSample BEGIN SELECT 1; END")
-                default: try db.execute(sql: "CREATE TEMP TABLE hrSample(deviceId TEXT,ts INTEGER,bpm INTEGER,PRIMARY KEY(deviceId,ts))")
+                case "temp-shadow": try db.execute(sql: "CREATE TEMP TABLE hrSample(deviceId TEXT,ts INTEGER,bpm INTEGER,PRIMARY KEY(deviceId,ts))")
+                default:
+                    var definition = try XCTUnwrap(String.fetchOne(db,
+                        sql: "SELECT sql FROM sqlite_master WHERE type='table' AND name='hrSample'"))
+                    if variant == "replace-unique" {
+                        definition.insert(contentsOf: ", UNIQUE(bpm) ON CONFLICT REPLACE",
+                                          at: try XCTUnwrap(definition.lastIndex(of: ")")))
+                    } else { definition += " WITHOUT ROWID" }
+                    try db.execute(sql: "ALTER TABLE hrSample RENAME TO witnessOldRaw")
+                    try db.execute(sql: definition)
+                    try db.execute(sql: "DROP TABLE witnessOldRaw")
                 }
             }
+            if variant == "replace-unique" { try await append(store, table: "hrSample", ts: midnight - 1) }
             let before = try await store.analysisInputWitness()
             try await append(store, table: "hrSample", ts: midnight + 17 * 3_600)
             let after = try await store.analysisInputWitness()
             XCTAssertNotEqual(key(before, from: midnight - 3_600, to: midnight),
                               key(after, from: midnight - 3_600, to: midnight), variant)
+            if variant == "replace-unique" {
+                let oldRows = try await store.hrSamples(deviceId: "append-a", from: midnight - 3_600, to: midnight, limit: 10)
+                XCTAssertTrue(oldRows.isEmpty, "the trusted insert actually replaced a row in another hour")
+            }
             try await store.close()
         }
         let store = try await WhoopStore.inMemory()
