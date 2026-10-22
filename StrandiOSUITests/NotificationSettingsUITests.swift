@@ -1,7 +1,8 @@
 import XCTest
 
 /// Production Settings navigation and native controls, using only the simulator demo host.
-/// These tests do not change preferences, request notification permission, or start a session.
+/// No test requests notification permission or starts a session. The Picker probe
+/// temporarily selects Notify and restores the captured mode through the same native control.
 @MainActor
 final class NotificationSettingsUITests: XCTestCase {
     private enum TextSize: String {
@@ -38,8 +39,18 @@ final class NotificationSettingsUITests: XCTestCase {
         hierarchy.lifetime = .keepAlways
         add(hierarchy)
         // Exercise both vertical edges of a 44-point target, beyond the inner AX label's bounds.
-        // Open and dismiss without selecting a mode, so the saved preference stays unchanged.
         let originalValue = picker.label
+        guard let originalMode = ["Off", "In app", "Notify"].first(where: { originalValue == "Morning summary, \($0)" }) else {
+            fail("The native Picker must expose its saved delivery mode", in: app)
+            throw HarnessError.unreachable("Missing saved Picker mode")
+        }
+        var restoredOriginal = true
+        defer {
+            if !restoredOriginal {
+                do { try restorePickerMode(originalMode, originalValue: originalValue, picker: picker, in: app) }
+                catch { XCTFail("Could not restore the original delivery mode: \(error)") }
+            }
+        }
         for offset in [-22.0, 22.0] {
             let point = CGPoint(x: picker.frame.midX, y: picker.frame.midY + offset)
             XCTAssertTrue(row.frame.contains(point))
@@ -52,12 +63,50 @@ final class NotificationSettingsUITests: XCTestCase {
             try requireExists(option, in: app)
             try requireExists(button("Off", in: app), in: app)
             try requireExists(button("In app", in: app), in: app)
-            XCTAssertTrue(option.isHittable)
             capture(app, "notifications-native-picker-edge-\(offset)")
-            app.coordinate(withNormalizedOffset: CGVector(dx: 0.02, dy: 0.18)).tap()
+            // iOS 26 can report a visible native menu item as non-hittable. Deliver the
+            // actual touch and require its saved result rather than relying on that AX flag.
+            restoredOriginal = false
+            try activateMenuOption("Notify", in: app)
+            let applied = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@", "Morning summary, Notify"), object: picker)
+            let appliedResult = XCTWaiter.wait(for: [applied], timeout: 5)
             let dismissed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: option)
-            XCTAssertEqual(XCTWaiter.wait(for: [dismissed], timeout: 5), .completed)
-            XCTAssertEqual(picker.label, originalValue, "Dismissing the picker must preserve its saved value")
+            let dismissedResult = XCTWaiter.wait(for: [dismissed], timeout: 5)
+            try restorePickerMode(originalMode, originalValue: originalValue, picker: picker, in: app)
+            restoredOriginal = true
+            XCTAssertEqual(appliedResult, .completed, "The exact Notify option saves the selected delivery mode")
+            XCTAssertEqual(dismissedResult, .completed, "Activating Notify closes the native menu")
+            XCTAssertEqual(picker.label, originalValue, "The edge probe restores the original saved value")
+        }
+    }
+
+    private func activateMenuOption(_ mode: String, in app: XCUIApplication) throws {
+        let option = app.buttons.matching(NSPredicate(format: "label == %@", mode)).firstMatch
+        try requireExists(option, in: app)
+        let frame = option.frame
+        guard !frame.isEmpty, !frame.isNull, !frame.isInfinite,
+              frame.origin.x.isFinite, frame.origin.y.isFinite,
+              frame.width.isFinite, frame.height.isFinite, app.frame.contains(frame) else {
+            fail("The native \(mode) option must be fully visible before activation", in: app)
+            throw HarnessError.unreachable("Invalid native menu option frame")
+        }
+        XCTAssertTrue(option.isEnabled, "The native \(mode) option remains enabled")
+        option.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+    }
+
+    private func restorePickerMode(_ mode: String, originalValue: String, picker: XCUIElement,
+                                   in app: XCUIApplication) throws {
+        if !button(mode, in: app).exists {
+            try reveal(picker, in: app)
+            picker.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        }
+        let option = app.buttons.matching(NSPredicate(format: "label == %@", mode)).firstMatch
+        try activateMenuOption(mode, in: app)
+        let restored = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@", originalValue), object: picker)
+        let closed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: option)
+        guard XCTWaiter.wait(for: [restored, closed], timeout: 5) == .completed else {
+            fail("The native Picker did not restore its captured delivery mode", in: app)
+            throw HarnessError.unreachable("Delivery mode restoration failed")
         }
     }
 
@@ -82,9 +131,13 @@ final class NotificationSettingsUITests: XCTestCase {
             "Allowed", "Quiet delivery", "Temporary permission", "Off in system settings",
             "Not requested", "Unavailable",
         ]
-        let status = app.staticTexts.matching(NSPredicate(format: "label IN %@", permissionStates)).firstMatch
-        // LabeledContent can expose its title and value separately or as one accessibility label.
-        XCTAssertTrue(status.exists || permissionStates.contains(where: { permission.label.contains($0) }),
+        let permissionRow = app.cells.containing(.staticText, identifier: permission.label).firstMatch
+        try reveal(permissionRow, in: app, needsHitTarget: false)
+        let stateLabels = permissionStates + permissionStates.map { "Notification permission, \($0)" }
+        let status = permissionRow.staticTexts.matching(NSPredicate(format: "label IN %@", stateLabels)).firstMatch
+        // Native LabeledContent may expose a combined value as a sibling of the isolated title.
+        // Read only this permission row and require one complete, known system state.
+        XCTAssertTrue(status.exists || stateLabels.contains(permission.label) || stateLabels.contains(permissionRow.label),
                       "Delivery status must report the actual system authorization state")
         try assertButton("Open system notification settings", in: app)
         // Inspect the settings command, but never leave the app or request OS permission.

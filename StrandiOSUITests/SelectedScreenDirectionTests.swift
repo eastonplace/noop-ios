@@ -24,13 +24,13 @@ final class SelectedScreenDirectionTests: XCTestCase {
     func testQuickActionSettingsNormal() throws { try assertSettings(size: .normal) }
     func testQuickActionSettingsAccessibilityXXXL() throws { try assertSettings(size: .accessibilityXXXL) }
 
-    private func launch(_ app: XCUIApplication, route: String, size: TextSize) {
+    private func launch(_ app: XCUIApplication, route: String?, size: TextSize) {
         app.terminate()
         app.launchArguments = [
             // Use the existing simulator-only shell host so consent/onboarding overlays
             // cannot intercept taps on a QA-presented sheet. This records no acceptance.
             "--noop-coach-shell-qa",
-            "--demo-seed", "--noop-qa-route", route,
+            "--demo-seed", "--demo-tab", "today",
             // Load the existing simulator-only idle Lift fixture so a preceding routine
             // test's active session cannot resume over this route or disable Workout.
             "--noop-lift-demo", "fresh",
@@ -38,7 +38,27 @@ final class SelectedScreenDirectionTests: XCTestCase {
             "-AppleLanguages", "(en)", "-AppleLocale", "en_US",
             "-AppleInterfaceStyle", "Dark",
         ]
+        if let route { app.launchArguments += ["--noop-qa-route", route] }
         app.launch()
+    }
+
+    private func launchQuickActions(_ app: XCUIApplication, size: TextSize) throws {
+        // This phase tests real user dismissal/navigation. The automatic QA presenter can
+        // reopen a fan dismissed before its next retry observes it, so enter through the shell.
+        launch(app, route: nil, size: size)
+        let battery = app.buttons["app.battery"]
+        try requireExists(battery, timeout: 60)
+        let ready = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "label == %@", "Strap battery 68 percent"), object: battery)
+        guard XCTWaiter.wait(for: [ready], timeout: 60) == .completed else {
+            captureFailure(in: app)
+            XCTFail("The demo seed must finish before opening Quick Actions")
+            throw HarnessError.unreachable("Demo seed did not finish")
+        }
+        let plus = app.buttons["app.quickActions"]
+        try reveal(plus, in: app)
+        plus.tap()
+        try requireExists(app.buttons["quickActions.close"])
     }
 
     private func assertLiveHR(size: TextSize) throws {
@@ -162,7 +182,7 @@ final class SelectedScreenDirectionTests: XCTestCase {
         }
         capture(app, "settings-\(size)-persisted-hidden")
 
-        launch(app, route: "quick-actions", size: size)
+        try launchQuickActions(app, size: size)
         try requireExists(app.buttons["quickActions.close"], timeout: 60)
         XCTAssertFalse(app.buttons["quickActions.breathe"].exists, "The hidden Breathe shortcut is absent from the menu")
         XCTAssertFalse(app.buttons["quickActions.recentSport"].exists, "Disabling Recent prevents its offer even when a sport is eligible")
@@ -174,14 +194,14 @@ final class SelectedScreenDirectionTests: XCTestCase {
 
         launch(app, route: "settings-quickActions", size: size)
         try setSwitch("breathe", to: true, in: app)
-        launch(app, route: "quick-actions", size: size)
+        try launchQuickActions(app, size: size)
         try requireExists(app.buttons["quickActions.close"], timeout: 60)
         try reveal(app.buttons["quickActions.breathe"], in: app)
         capture(app, "quick-actions-\(size)-breathe-restored")
 
         launch(app, route: "settings-quickActions", size: size)
         for name in settingNames { try setSwitch(name, to: false, in: app) }
-        launch(app, route: "quick-actions", size: size)
+        try launchQuickActions(app, size: size)
         let choose = app.buttons["quickActions.choose"]
         try requireExists(choose, timeout: 60)
         // On the local runtime this custom modal reports a false isHittable value even
@@ -270,9 +290,11 @@ final class SelectedScreenDirectionTests: XCTestCase {
         let previous = try switchValue(toggle)
         XCTAssertEqual(try switchValue(control), previous, "Native control and row agree before activation")
         if previous != desired {
-            // Use XCTest's computed hittable point for the native control. A row can
-            // be hittable while a fixed normalized track coordinate is not actionable.
-            control.tap()
+            // The captured CI tap landed inside this native switch without changing its
+            // value. Send one deliberate touch, with no activation retry.
+            // Both the native value and its owning row must still reach the saved result.
+            control.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+                .press(forDuration: 0.2)
         }
         let changed = [control, toggle].map { element in
             XCTNSPredicateExpectation(
