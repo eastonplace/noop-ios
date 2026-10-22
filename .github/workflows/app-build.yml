@@ -1,51 +1,83 @@
-# iPhone-only compile and test verification.
-#
-# Cheap source-contract audits run independently on Linux so macOS runner allocation cannot hide static
-# regressions. The Xcode job starts only after every audit passes, then generates the project, builds the app
-# and WidgetKit/Live Activity extension, and runs the complete iOS and retained-package test suites.
-# `.gitignore` and `Tools/linux-capture/**` are watched so the hygiene audit's private-capture rule runs on
-# the changes it exists to catch.
+# Change-aware PR verification; the legacy required context names remain active.
+# Full validation calls this workflow once and the independent package workflow once.
 name: iOS build and tests
 
 on:
   pull_request:
-    paths:
-      - 'Strand/**'
-      - 'StrandiOS/**'
-      - 'StrandiOSShared/**'
-      - 'StrandiOSWidgets/**'
-      - 'StrandiOSTests/**'
-      - 'StrandiOSUITests/**'
-      - 'Packages/**'
-      - 'Tools/qa/**'
-      - 'Tools/linux-capture/**'
-      - '.gitignore'
-      - 'project.yml'
-      - '.github/workflows/app-build.yml'
-      - '.github/ISSUE_TEMPLATE/bug_report.yml'
-  push:
-    branches: [main]
-    paths:
-      - 'Strand/**'
-      - 'StrandiOS/**'
-      - 'StrandiOSShared/**'
-      - 'StrandiOSWidgets/**'
-      - 'StrandiOSTests/**'
-      - 'StrandiOSUITests/**'
-      - 'Packages/**'
-      - 'Tools/qa/**'
-      - 'Tools/linux-capture/**'
-      - '.gitignore'
-      - 'project.yml'
-      - '.github/workflows/app-build.yml'
-      - '.github/ISSUE_TEMPLATE/bug_report.yml'
+    types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      full:
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  actions: read
 
 concurrency:
-  group: ios-build-${{ github.ref }}
+  group: ios-build-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
+  change-plan:
+    runs-on: ubuntu-latest
+    outputs:
+      mode: ${{ steps.plan.outputs.mode }}
+      run_app: ${{ steps.plan.outputs.run_app }}
+      native_level: ${{ steps.plan.outputs.native_level }}
+      ui_tests: ${{ steps.plan.outputs.ui_tests }}
+      plan_hash: ${{ steps.plan.outputs.plan_hash }}
+      head_sha: ${{ steps.plan.outputs.head_sha }}
+      tested_sha: ${{ steps.plan.outputs.tested_sha }}
+    steps:
+      - name: Checkout exact tested source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Classify with protected-base policy
+        id: plan
+        shell: bash
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          FULL: ${{ inputs.full || github.event_name != 'pull_request' }}
+        run: |
+          set -euo pipefail
+          mkdir -p qa-artifacts
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          base=${PR_BASE_SHA:-$GITHUB_SHA}
+          head=${PR_HEAD_SHA:-$GITHUB_SHA}
+          args=(--repo "$PWD" --base "$base" --head "$head" --tested-sha "$GITHUB_SHA"
+                --event "$GITHUB_EVENT_NAME" --output qa-artifacts/change-plan.json --github-output "$GITHUB_OUTPUT")
+          if [[ "$FULL" == true ]]; then args+=(--full); fi
+          # A PR cannot replace an existing protected-base loader with its own reducer.
+          loader="$RUNNER_TEMP/noop-protected-load-plan.py"
+          if git cat-file -e "$base:Tools/ci/load_plan.py" 2>/dev/null; then
+            git show "$base:Tools/ci/load_plan.py" > "$loader"
+          else
+            # First deployment is conservative high risk; independent CI review is required.
+            cp Tools/ci/load_plan.py "$loader"
+          fi
+          python3 -I "$loader" "${args[@]}"
+          python3 - <<'PYTHON'
+          import json, os
+          plan = json.load(open("qa-artifacts/change-plan.json"))
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
+              summary.write(f"### Change plan: {plan['mode']}\n\n")
+              summary.write(f"Policy `{plan['policy_sha']}`, tested `{plan['tested_sha']}`.\n\n")
+              summary.write(f"Native: {plan['native_level']}; UI methods: {len(plan['ui_tests'])}; host packages: {len(plan['host_packages'])}.\n\n")
+              summary.write("\n".join(f"- {reason}" for reason in plan['reasons']) + "\n")
+          PYTHON
+      - name: Upload validated change plan
+        uses: actions/upload-artifact@v4
+        with:
+          name: noop-app-plan-${{ github.run_id }}-${{ github.run_attempt }}
+          path: qa-artifacts/change-plan.json
+          if-no-files-found: error
+          retention-days: 30
+
   source-audits:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -87,6 +119,11 @@ jobs:
             test_bug_report_template.py
             whats_new_release_audit.py
             test_whats_new_release_audit.py
+            test_ci_change_classifier.py
+            test_ci_gate.py
+            test_ci_packages_workflow.py
+            test_ci_workflow_contract.py
+            test_ci_timings.py
           )
           for audit in "${audits[@]}"; do
             echo "::group::$audit"
@@ -102,78 +139,98 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: source-audit-logs-${{ github.sha }}
+          name: source-audit-logs-${{ github.run_id }}-${{ github.run_attempt }}
           path: qa-artifacts/audits
           if-no-files-found: error
           retention-days: 30
 
   build-and-test:
-    needs: source-audits
-    runs-on: macos-26
-    # Full restored native coverage, UI captures and retained packages share this job.
-    # Keep enough time for every required gate and its result-bundle upload.
+    needs: [change-plan, source-audits]
+    # The required status is present on docs PRs without reserving a macOS runner.
+    if: ${{ always() && !cancelled() }}
+    runs-on: ${{ needs.change-plan.outputs.run_app == 'true' && 'macos-26' || 'ubuntu-latest' }}
     timeout-minutes: 180
+    outputs:
+      build: ${{ steps.build.outcome }}
+      native: ${{ steps.native.outcome }}
+      ui: ${{ steps.ui.outcome }}
+      safety: ${{ steps.safety.outcome }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
+      - name: Download validated change plan
+        uses: actions/download-artifact@v4
+        with:
+          name: noop-app-plan-${{ github.run_id }}-${{ github.run_attempt }}
+          path: qa-artifacts
+      - name: Validate app decision
+        shell: bash
+        env:
+          PLAN_RESULT: ${{ needs.change-plan.result }}
+          AUDIT_RESULT: ${{ needs.source-audits.result }}
+          EXPECTED_RUN_APP: ${{ needs.change-plan.outputs.run_app }}
+          EXPECTED_HASH: ${{ needs.change-plan.outputs.plan_hash }}
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python3 - <<'PYTHON'
+          import hashlib, json, os
+          from pathlib import Path
+          if os.environ['PLAN_RESULT'] != 'success' or os.environ['AUDIT_RESULT'] != 'success':
+              raise SystemExit('A plan or source audit did not pass')
+          plan = json.loads(Path('qa-artifacts/change-plan.json').read_text())
+          content = {key: value for key, value in plan.items() if key != 'plan_hash'}
+          digest = hashlib.sha256(json.dumps(content, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+          if digest != plan.get('plan_hash') or digest != os.environ['EXPECTED_HASH']:
+              raise SystemExit('Plan digest mismatch')
+          if plan.get('tested_sha') != os.environ['GITHUB_SHA'] or plan.get('head_sha') != os.environ['EXPECTED_HEAD']:
+              raise SystemExit('Plan source identity mismatch')
+          run_app = plan.get('run_app')
+          if type(run_app) is not bool or str(run_app).lower() != os.environ['EXPECTED_RUN_APP']:
+              raise SystemExit('Missing or inconsistent app decision')
+          if not run_app:
+              if (plan.get('mode') != 'docs' or plan.get('native_level') != 'none'
+                      or plan.get('native_tests') != [] or plan.get('ui_tests') != []):
+                  raise SystemExit('Only a validated docs plan can omit app testing')
+              print('Docs plan: app build, native, UI and native harnesses are inapplicable')
+          elif plan.get('native_level') not in ('smoke', 'full') or not plan.get('native_tests'):
+              raise SystemExit('App plan has no native coverage')
+          PYTHON
       - name: Record toolchain
+        if: needs.change-plan.outputs.run_app == 'true'
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p qa-artifacts
           xcodebuild -version | tee qa-artifacts/xcode-version.txt
           swift --version | tee qa-artifacts/swift-version.txt
-
       - name: Install XcodeGen
+        if: needs.change-plan.outputs.run_app == 'true'
         run: brew install xcodegen
-
       - name: Generate Xcode project
+        if: needs.change-plan.outputs.run_app == 'true'
         shell: bash
         run: |
-          set -o pipefail
+          set -euo pipefail
           xcodegen generate 2>&1 | tee qa-artifacts/xcodegen.txt
-
-      - name: Verify source adoption preserves same-strap alarms
-        shell: bash
-        run: |
-          set -o pipefail
-          python3 Tools/qa/test_ble_clock_alarm_isolation.py 2>&1 | tee qa-artifacts/clock-alarm-isolation.txt
-
-      - name: Verify confirmed deep-data queue leases
-        shell: bash
-        run: |
-          set -o pipefail
-          python3 Tools/qa/deep_data_confirmed_queue_harness.py 2>&1 | tee qa-artifacts/deep-data-confirmed-queue.txt
-
-      - name: Verify BLE, diagnostics and foreground ownership regressions
+      - name: Verify native safety harnesses
+        id: safety
+        if: needs.change-plan.outputs.run_app == 'true'
         shell: bash
         run: |
           set -uo pipefail
+          stage_start=$SECONDS
+          trap 'printf "safety\t%s\n" "$((SECONDS-stage_start))" >> qa-artifacts/timings.tsv' EXIT
           status=0
-          for regression in test_ble_data_range_integrity test_ble_response_diagnostics test_ble_connection_result_ownership pending_intents_lifecycle_harness widget_published_assignment_harness test_debug_diagnostic_family smart_alarm_backup_ownership_harness; do
+          for regression in test_ble_clock_alarm_isolation deep_data_confirmed_queue_harness test_ble_data_range_integrity test_ble_response_diagnostics test_ble_connection_result_ownership pending_intents_lifecycle_harness widget_published_assignment_harness test_debug_diagnostic_family smart_alarm_backup_ownership_harness; do
             echo "::group::$regression"
-            if ! python3 "Tools/qa/$regression.py" 2>&1 | tee "qa-artifacts/$regression.txt"; then
-              status=1
-            fi
+            if ! python3 "Tools/qa/$regression.py" 2>&1 | tee "qa-artifacts/$regression.txt"; then status=1; fi
             echo "::endgroup::"
           done
           exit "$status"
-
-      - name: Build iPhone app and extensions
-        shell: bash
-        run: |
-          set -o pipefail
-          xcodebuild \
-            -scheme NOOPiOS \
-            -configuration Debug \
-            -destination 'generic/platform=iOS Simulator' \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            build 2>&1 | tee qa-artifacts/xcodebuild-build.txt
-
       - name: Select an available iPhone simulator
         id: simulator
+        if: needs.change-plan.outputs.run_app == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -191,85 +248,213 @@ jobs:
           raise SystemExit("No available iPhone simulator found")
           ')
           echo "udid=$udid" >> "$GITHUB_OUTPUT"
-          xcrun simctl list devices | grep -F "$udid" | tee qa-artifacts/selected-simulator.txt
-
-      - name: Run NOOPiOSTests
+      - name: Build native app, extensions and test products
+        id: build
+        if: needs.change-plan.outputs.run_app == 'true'
         shell: bash
+        env:
+          SIMULATOR_UDID: ${{ steps.simulator.outputs.udid }}
         run: |
-          set -o pipefail
-          xcodebuild \
-            -scheme NOOPiOS \
-            -configuration Debug \
-            -destination 'platform=iOS Simulator,id=${{ steps.simulator.outputs.udid }}' \
-            -resultBundlePath qa-artifacts/native-tests.xcresult \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            test 2>&1 | tee qa-artifacts/xcodebuild-test.txt
-
-      - name: Run routine and selected-screen UI regressions
-        # Collect UI failures after a native-test failure; either still fails the job.
-        if: ${{ !cancelled() && steps.simulator.outcome == 'success' }}
+          set -euo pipefail
+          stage_start=$SECONDS
+          trap 'printf "build\t%s\n" "$((SECONDS-stage_start))" >> qa-artifacts/timings.tsv' EXIT
+          # NOOPiOS explicitly includes the WidgetKit/Live Activity extension.
+          xcodebuild -scheme NOOPiOS -configuration Debug \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_UDID" \
+            -derivedDataPath "$RUNNER_TEMP/noop-derived-data" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
+            build-for-testing 2>&1 | tee qa-artifacts/build-native.txt
+      - name: Run selected native tests
+        id: native
+        if: needs.change-plan.outputs.run_app == 'true'
         shell: bash
+        env:
+          SIMULATOR_UDID: ${{ steps.simulator.outputs.udid }}
         run: |
-          set -o pipefail
-          # PR/push checks run 10 focused methods; manual runs cover all 37 cases.
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            ui_scope=(
-              -only-testing:NOOPCoachUITests/LiftRoutineSelectionTests
-              -only-testing:NOOPCoachUITests/SelectedScreenDirectionTests
-              -only-testing:NOOPCoachUITests/CoachKeyboardLayoutTests
-              -only-testing:NOOPCoachUITests/NotificationSettingsUITests
-              -only-testing:NOOPCoachUITests/NotificationDestinationUITests
-              -only-testing:NOOPCoachUITests/ApprovedDashboardUITests
-            )
-          else
-            ui_scope=(
-              -only-testing:NOOPCoachUITests/LiftRoutineSelectionTests/testSwitchingSavedRoutinesPreviewsThenStartsTheSelectedRoutine
-              -only-testing:NOOPCoachUITests/LiftRoutineSelectionTests/testRoutineEditAndSaveRemainSeparateFromStarting
-              -only-testing:NOOPCoachUITests/ApprovedDashboardUITests/testTodayNormal
-              -only-testing:NOOPCoachUITests/ApprovedDashboardUITests/testDashboardSettingsSelectionPersists
-              -only-testing:NOOPCoachUITests/ApprovedDashboardUITests/testForkAboutAndWhatsNew
-              -only-testing:NOOPCoachUITests/ApprovedDashboardUITests/testNewLiveEnrollmentOffersOnlyWHOOP
-              -only-testing:NOOPCoachUITests/NotificationDestinationUITests/testWHOOPDeviceNormal
-              -only-testing:NOOPCoachUITests/NotificationDestinationUITests/testSettingsQueuedDismissalNormal
-              -only-testing:NOOPCoachUITests/SelectedScreenDirectionTests/testLiveHRNormal
-              -only-testing:NOOPCoachUITests/ApprovedDashboardUITests/testSharedBatteryHeaderAndRecentUpdatesAccessibilityXXXL
-            )
-          fi
-          xcodebuild \
-            -scheme NOOPCoachUI \
-            -configuration Debug \
-            -destination 'platform=iOS Simulator,id=${{ steps.simulator.outputs.udid }}' \
-            -parallel-testing-enabled NO \
-            -collect-test-diagnostics never \
-            "${ui_scope[@]}" \
-            -resultBundlePath qa-artifacts/selected-ui.xcresult \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            test 2>&1 | tee qa-artifacts/selected-ui.txt
-
-      - name: Run retained Swift package tests
+          set -euo pipefail
+          stage_start=$SECONDS
+          trap 'printf "native\t%s\n" "$((SECONDS-stage_start))" >> qa-artifacts/timings.tsv' EXIT
+          python3 - <<'PYTHON'
+          import json, os, re
+          from pathlib import Path
+          selectors = json.loads(Path('qa-artifacts/change-plan.json').read_text()).get('native_tests')
+          if not isinstance(selectors, list) or not selectors:
+              raise SystemExit('Missing selected native coverage')
+          if any(not isinstance(item, str) or not re.fullmatch(r'NOOPiOSTests(?:/[A-Za-z_][A-Za-z0-9_]*){0,2}', item) for item in selectors):
+              raise SystemExit('Invalid native selector')
+          Path(os.environ['RUNNER_TEMP'], 'noop-native-selectors.txt').write_text(''.join(item + '\n' for item in selectors))
+          PYTHON
+          native_scope=()
+          while IFS= read -r selector; do native_scope+=("-only-testing:$selector"); done < "$RUNNER_TEMP/noop-native-selectors.txt"
+          xcodebuild -scheme NOOPiOS -configuration Debug \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_UDID" \
+            -derivedDataPath "$RUNNER_TEMP/noop-derived-data" \
+            "${native_scope[@]}" -resultBundlePath qa-artifacts/native-tests.xcresult \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
+            test-without-building 2>&1 | tee qa-artifacts/native-tests.txt
+      - name: Build affected UI test products after native execution
+        id: ui_build
+        # This scheme relinks the shared app host with different package variants.
+        # Native tests must consume their matching host before this build replaces it.
+        if: ${{ !cancelled() && steps.native.outcome == 'success' && needs.change-plan.outputs.ui_tests != '[]' }}
+        shell: bash
+        env:
+          SIMULATOR_UDID: ${{ steps.simulator.outputs.udid }}
+        run: |
+          set -euo pipefail
+          stage_start=$SECONDS
+          trap 'printf "ui-build\t%s\n" "$((SECONDS-stage_start))" >> qa-artifacts/timings.tsv' EXIT
+          xcodebuild -scheme NOOPCoachUI -configuration Debug \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_UDID" \
+            -derivedDataPath "$RUNNER_TEMP/noop-derived-data" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
+            build-for-testing 2>&1 | tee qa-artifacts/build-ui.txt
+      - name: Run affected UI tests
+        id: ui
+        # Stop expensive downstream work after a required native failure; the gate stays red.
+        if: ${{ !cancelled() && steps.native.outcome == 'success' && steps.ui_build.outcome == 'success' && needs.change-plan.outputs.ui_tests != '[]' }}
+        shell: bash
+        env:
+          SIMULATOR_UDID: ${{ steps.simulator.outputs.udid }}
+        run: |
+          set -euo pipefail
+          stage_start=$SECONDS
+          trap 'printf "ui\t%s\n" "$((SECONDS-stage_start))" >> qa-artifacts/timings.tsv' EXIT
+          python3 - <<'PYTHON'
+          import json, os, re
+          from pathlib import Path
+          selectors = json.loads(Path('qa-artifacts/change-plan.json').read_text()).get('ui_tests')
+          if not isinstance(selectors, list) or not selectors:
+              raise SystemExit('Missing selected UI coverage')
+          if any(not isinstance(item, str) or not re.fullmatch(r'NOOPCoachUITests/[A-Za-z_][A-Za-z0-9_]*/test[A-Za-z0-9_]+', item) for item in selectors):
+              raise SystemExit('Invalid UI selector')
+          Path(os.environ['RUNNER_TEMP'], 'noop-ui-selectors.txt').write_text(''.join(item + '\n' for item in selectors))
+          PYTHON
+          ui_scope=()
+          while IFS= read -r selector; do ui_scope+=("-only-testing:$selector"); done < "$RUNNER_TEMP/noop-ui-selectors.txt"
+          xcodebuild -scheme NOOPCoachUI -configuration Debug \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_UDID" \
+            -derivedDataPath "$RUNNER_TEMP/noop-derived-data" \
+            -parallel-testing-enabled NO -collect-test-diagnostics never \
+            "${ui_scope[@]}" -resultBundlePath qa-artifacts/selected-ui.xcresult \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
+            test-without-building 2>&1 | tee qa-artifacts/selected-ui.txt
+      - name: Publish stage timings
         if: always()
         shell: bash
         run: |
-          set -uo pipefail
-          mkdir -p qa-artifacts/packages
-          status=0
-          for package in NoopPhase34Core WhoopProtocol OuraProtocol WhoopStore StrandAnalytics StrandImport StrandDesign NoopLocalAccess; do
-            echo "::group::$package"
-            # `shell: bash` runs with -e: a bare failing pipeline would end the step here and hide every later package.
-            if ! swift test --package-path "Packages/$package" 2>&1 | tee "qa-artifacts/packages/$package.txt"; then
-              status=1
-            fi
-            echo "::endgroup::"
-          done
-          exit "$status"
-
-      - name: Upload Xcode and package logs
+          if [[ -f qa-artifacts/timings.tsv ]]; then
+            { echo '### App stage seconds'; echo; echo '| Stage | Seconds |'; echo '| --- | ---: |';
+              while IFS=$'\t' read -r stage seconds; do printf '| %s | %s |\n' "$stage" "$seconds"; done < qa-artifacts/timings.tsv;
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Upload Xcode logs and result bundles
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ios-build-test-logs-${{ github.sha }}
+          name: ios-build-test-logs-${{ github.run_id }}-${{ github.run_attempt }}
+          path: qa-artifacts
+          if-no-files-found: warn
+          retention-days: 30
+
+  app-results:
+    needs: [change-plan, source-audits, build-and-test]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Record actual app job and stage results
+        shell: bash
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          PLAN_HASH: ${{ needs.change-plan.outputs.plan_hash }}
+          PLAN_RESULT: ${{ needs.change-plan.result }}
+          SOURCE_RESULT: ${{ needs.source-audits.result }}
+          APP_RESULT: ${{ needs.build-and-test.result }}
+          BUILD: ${{ needs.build-and-test.outputs.build }}
+          NATIVE: ${{ needs.build-and-test.outputs.native }}
+          UI: ${{ needs.build-and-test.outputs.ui }}
+          SAFETY: ${{ needs.build-and-test.outputs.safety }}
+        run: |
+          set -euo pipefail
+          mkdir -p qa-artifacts
+          python3 - <<'PYTHON'
+          import json, os
+          from pathlib import Path
+          result = {
+              "head_sha": os.environ['HEAD_SHA'], "tested_sha": os.environ['GITHUB_SHA'],
+              "event": os.environ['GITHUB_EVENT_NAME'], "plan_hash": os.environ['PLAN_HASH'],
+              "run_id": int(os.environ['GITHUB_RUN_ID']), "run_attempt": int(os.environ['GITHUB_RUN_ATTEMPT']),
+              "workflow_path": os.environ['GITHUB_WORKFLOW_REF'].split('/', 2)[2].split('@', 1)[0],
+              "jobs": {"change-plan": os.environ['PLAN_RESULT'], "source-audits": os.environ['SOURCE_RESULT'],
+                       "build-and-test": os.environ['APP_RESULT']},
+              "steps": {key: os.environ[key.upper()] or 'missing' for key in ('build', 'native', 'ui', 'safety')},
+          }
+          Path('qa-artifacts/app-results.json').write_text(json.dumps(result, sort_keys=True, indent=2) + '\n')
+          PYTHON
+      - name: Upload actual app results
+        uses: actions/upload-artifact@v4
+        with:
+          name: noop-app-results-${{ github.run_id }}-${{ github.run_attempt }}
+          path: qa-artifacts/app-results.json
+          if-no-files-found: error
+          retention-days: 30
+
+  ci-gate:
+    name: NOOP CI Gate
+    needs: [change-plan, source-audits, build-and-test, app-results]
+    # Shadow during rollout: branch protection retains all ten legacy contexts.
+    if: ${{ always() && github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout gate tools
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Download app plan
+        uses: actions/download-artifact@v4
+        with:
+          name: noop-app-plan-${{ github.run_id }}-${{ github.run_attempt }}
+          path: qa-artifacts
+      - name: Download actual app results
+        uses: actions/download-artifact@v4
+        with:
+          name: noop-app-results-${{ github.run_id }}-${{ github.run_attempt }}
+          path: qa-artifacts
+      - name: Verify actual package workflow and app outcomes
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          gate_policy_dir="$RUNNER_TEMP/noop-protected-gate"
+          mkdir -p "$gate_policy_dir"
+          if git cat-file -e "$BASE_SHA:Tools/ci/validate_gate.py" 2>/dev/null && git cat-file -e "$BASE_SHA:Tools/ci/wait_for_packages.py" 2>/dev/null; then
+            for script in validate_gate.py wait_for_packages.py; do
+              git show "$BASE_SHA:Tools/ci/$script" > "$gate_policy_dir/$script"
+            done
+          elif git cat-file -e "$BASE_SHA:Tools/ci/validate_gate.py" 2>/dev/null || git cat-file -e "$BASE_SHA:Tools/ci/wait_for_packages.py" 2>/dev/null; then
+            echo 'Incomplete protected gate policy; refusing PR-owned fallback' >&2
+            exit 1
+          else
+            # First deployment has no protected pair; independent CI review is required.
+            cp Tools/ci/validate_gate.py Tools/ci/wait_for_packages.py "$gate_policy_dir/"
+          fi
+          python3 -I "$gate_policy_dir/wait_for_packages.py" --plan qa-artifacts/change-plan.json \
+            --repository "$GITHUB_REPOSITORY" --base-sha "$BASE_SHA" --head-sha "$HEAD_SHA" --tested-sha "$GITHUB_SHA" \
+            --event "$GITHUB_EVENT_NAME" --output qa-artifacts/package-results.json --timeout-seconds 3300
+          python3 -I "$gate_policy_dir/validate_gate.py" --plan qa-artifacts/change-plan.json \
+            --packages qa-artifacts/package-results.json --app-results qa-artifacts/app-results.json \
+            --head-sha "$HEAD_SHA" --tested-sha "$GITHUB_SHA" --event "$GITHUB_EVENT_NAME" \
+            --repository "$GITHUB_REPOSITORY" --base-sha "$BASE_SHA" \
+            --app-run-id "$GITHUB_RUN_ID" --app-run-attempt "$GITHUB_RUN_ATTEMPT"
+      - name: Upload aggregate evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: noop-ci-gate-${{ github.run_id }}-${{ github.run_attempt }}
           path: qa-artifacts
           if-no-files-found: warn
           retention-days: 30
