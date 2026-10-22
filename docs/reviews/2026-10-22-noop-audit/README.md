@@ -94,6 +94,8 @@ Logs under [evidence](evidence/) are execution records from this environment; th
 
 Two new HealthKit helper tests prove failure/cancellation identity retention, but those helper tests alone would also pass with the original unjournaled caller. The exact production caller harness provides the red/green proof for that wiring change. Hardware delivery, restoration payloads and physical wrist effects remain untested.
 
+Hosted CI subsequently exposed one historical golden expectation that encoded MET-07's invalid-HR calorie bug. Exact base/head reproduction and valid-only comparison justified changing that single literal, while all 1,123 other golden entries and all bit-exact assertions remain unchanged. The [calorie follow-up](golden-calorie-followup.md) records the initial failing hosted run and the independent proof; current hosted status is linked from [validation status](validation-status.md).
+
 ## Architecture, dependencies, privacy and WHOOP-only scope
 
 The audit traced BLE admission through Collector/store ownership, raw retention, historical commit/ACK boundaries, metrics orchestration, repository/widget publication, HealthKit journals, and UI consumers. Migration/opening gates, cancellation, actor ownership, task retention, source deletion and credential/privacy surfaces received targeted review. Automated source-contract scanning covers the configured application/package tree; it is not a manual line-by-line proof for every source file.
@@ -106,6 +108,7 @@ Unrelated wearable code remains reachable, including device/source routing, impo
 
 - **PR68** (`a5e9c5c8ed050b5a476d5b6f15daa39cebb9b433` reviewed): only the Broadcast OFF/saved-choice fix is deliberately adapted here. Its source/clock ownership, failed-batch ownership, ordered framing-loss/history admission, smoothing-reset, HealthKit entitlement and bundled-image privacy changes remain separate. Those are meaningful remaining main-branch risks; this PR must not be described as having already integrated them. Reconcile overlapping `BLEManager` edits carefully and preserve both suites.
 - **PR67**, based on **PR66**: alarm readback/identity and update destination work is reviewed as existing work. This patch does not import their UI/version changes. Device-row edits can overlap; preserve active-removal context when integrating.
+- **UI CI follow-up:** main's latest completed native run has eleven pre-existing UI-test failures. A specialist mapped them to the Settings toolbar and harness repairs in the advanced PR66/67 heads (`94c85aa7` / `88a4de42`), with the first missing Lift routine still causally unresolved. See [the full mapping and exact-head qualification requirements](ui-ci-baseline-followup.md). These source repairs are not a claim that either open PR's final UI run passes.
 - **RyanBR/noop** at `8e4b0c16e7640607600fa6bde5424095eba6034e`: the upstream re-entered-bond fixes are already covered by this fork's stronger connection-generation/proof reset. Blindly copying the upstream ACK-only proof would weaken the fork. The output-equivalent HRV scratch-buffer change from `54196f03` is adapted with attribution and measured parity.
 
 No PR was merged, no release was published, and the default branch was not modified.

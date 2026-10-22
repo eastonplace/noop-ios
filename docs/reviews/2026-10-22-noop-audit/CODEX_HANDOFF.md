@@ -54,10 +54,12 @@ Do not silently discard the existing work:
 | Existing PR | Reviewed head | Required disposition |
 | --- | --- | --- |
 | #68 | `a5e9c5c8ed050b5a476d5b6f15daa39cebb9b433` | This patch adapts its Broadcast OFF admission/saved-choice fix only. Reconcile the remaining source/clock ownership, owned failed-batch rebuffering, ordered framing-loss/history admission, `@Published` smoothing/reset, HealthKit background entitlement and bundled-image privacy fixes in a separate reviewed integration step. Preserve both test sets and the arrival subject introduced here. |
-| #67 | `ff0ec0f72a611adf6b83aabe9f0754879c76e4f3` | Stacked on #66. Preserve WHOOP 4 alarm readback identity, zero-value confirmation, restoration and update destination fixes. Do not duplicate version/UI work. Recheck head before integrating because it can advance. |
-| #66 | `abe2918cb63166489c7d746c29bc880d9bea32fb` | UI work is outside this patch. Preserve the required active-device argument at the Devices removal call site during conflict resolution. |
+| #67 | Initial `ff0ec0f72a611adf6b83aabe9f0754879c76e4f3`; UI follow-up `88a4de42b8ffcedd260c0833802153fe49c80011` | Incorporates #66. Preserve WHOOP 4 alarm readback identity, zero-value confirmation, restoration and update destination fixes, plus the existing Settings/harness repairs. Do not duplicate version/UI work. Recheck head before integrating because it can advance. |
+| #66 | Initial `abe2918cb63166489c7d746c29bc880d9bea32fb`; UI follow-up `94c85aa7ead7e9ab2727a74dcdf370c8eddd51f2` | UI work is outside this patch. Preserve the required active-device argument at the Devices removal call site and the arrival event in QA fixture writers during conflict resolution. |
 
 These branches were inspected, not merged. Source/history ownership remains a material main-branch concern until its existing fix is integrated and validated. The review does not imply those issues are repaired by this branch.
+
+Main's latest completed native run already has eleven UI-test failures, despite passing its app build, app unit suite and retained packages. The [UI CI follow-up](ui-ci-baseline-followup.md) maps each case to the current #66/#67 repairs or remaining uncertainty. Four failures share a confirmed missing Settings Done toolbar already repaired there. Six involve identified or likely harness mismatches. The missing first Lift routine remains causally unresolved: inspect the immediate post-tap screenshot/hierarchy before proposing a production change. Do not waive any gate because the failure also exists on main, and do not infer final-head UI success from source repairs or unit/build results.
 
 ## Physical-device matrix
 
