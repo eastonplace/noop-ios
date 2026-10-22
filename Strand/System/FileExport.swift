@@ -61,9 +61,8 @@ enum FileExport {
         var pending = Data()
         var remaining = size
         let maximumRecordBytes = 1_024 * 1_024
-        func writeRecord(_ record: Data) throws {
-            guard record.count <= maximumRecordBytes else { throw CaptureError.recordTooLarge }
-            guard let text = String(data: record, encoding: .utf8) else {
+        func writeRecords(_ records: Data) throws {
+            guard let text = String(data: records, encoding: .utf8) else {
                 throw CocoaError(.fileReadInapplicableStringEncoding, userInfo: [NSFilePathErrorKey: source.path])
             }
             try output.write(contentsOf: Data(LiveState.redactPii(text).utf8))
@@ -77,13 +76,18 @@ enum FileExport {
             var start = pending.startIndex
             while let newline = pending[start...].firstIndex(of: 0x0A) {
                 let end = pending.index(after: newline)
-                try writeRecord(pending.subdata(in: start..<end))
+                guard end - start <= maximumRecordBytes else { throw CaptureError.recordTooLarge }
                 start = end
             }
-            if start != pending.startIndex { pending = Data(pending[start...]) }
+            if start != pending.startIndex {
+                // Scrub all complete records in this read together. The delimiter is retained, so
+                // batching changes neither regex boundaries nor the exact bytes written.
+                try writeRecords(pending.subdata(in: pending.startIndex..<start))
+                pending = Data(pending[start...])
+            }
             guard pending.count <= maximumRecordBytes else { throw CaptureError.recordTooLarge }
         }
-        if !pending.isEmpty { try writeRecord(pending) }
+        if !pending.isEmpty { try writeRecords(pending) }
         try Task.checkCancellation()
         try output.close()
         try FileManager.default.moveItem(at: partial, to: destination)
