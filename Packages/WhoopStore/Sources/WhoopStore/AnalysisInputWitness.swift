@@ -21,6 +21,26 @@ public struct AnalysisInputWitness: Sendable, Equatable {
         }
     }
 
+    /// Advance only exact contiguous output commits owned by this pass. Any unowned same-table commit
+    /// creates a revision gap; all raw/control/session/config/store fences remain the original START value.
+    public func acknowledgingOwnOutputs(_ ledger: AnalysisOutputWriteLedger) -> AnalysisInputWitness {
+        var acknowledged = tableRevisions
+        var blocked = Set<String>()
+        for transition in ledger.snapshot() where transition.generation == generation {
+            guard !blocked.contains(transition.table) else { continue }
+            guard acknowledged[transition.table, default: 0] == transition.before else {
+                blocked.insert(transition.table)
+                continue
+            }
+            acknowledged[transition.table] = transition.after
+        }
+        return AnalysisInputWitness(
+            generation: generation, externalVersion: externalVersion, schemaVersion: schemaVersion,
+            tempSchemaVersion: tempSchemaVersion, unknownRevision: unknownRevision,
+            tableRevisions: acknowledged, gravityGlobalRevision: gravityGlobalRevision,
+            gravityRevisions: gravityRevisions)
+    }
+
     /// Normal gravity inserts affect only intersecting owner/UTC-day buckets. Repairs and unknown writes
     /// use a global revision. Every physical/ownership mutation still invalidates all motion entries.
     public func motionSignature(deviceId: String, from: Int, to: Int) -> String {
@@ -49,6 +69,10 @@ struct AnalysisGravityBucket: Sendable, Hashable {
 /// All mutable state is confined to the shared GRDB writer queue. Pool handles share this instance.
 /// Count every event: early observation shutdown would hide mixed/unobserved changes from the total fence.
 final class AnalysisInputObservation: TransactionObserver, @unchecked Sendable {
+    private enum OutputOrigin {
+        case owned(AnalysisOutputWriteLedger)
+        case unowned
+    }
     private let generation = UUID().uuidString
     private var accountedTotal: Int64 = 0
     private var observedRows: Int64 = 0
@@ -63,6 +87,10 @@ final class AnalysisInputObservation: TransactionObserver, @unchecked Sendable {
     private var knownGravityAppend = false
     private var gravitySchemaKey: String?
     private var gravitySchemaAllowsAppendRegions = false
+    private var activeOutputLedger: AnalysisOutputWriteLedger?
+    private var outputSchemaKey: String?
+    private var outputSchemaAllowsReceipts = false
+    private var pendingOutputOrigins: [String: OutputOrigin] = [:]
     private static let regionLimit = 4_096
 
     static func install(on writer: any DatabaseWriter) -> AnalysisInputObservation {
@@ -82,6 +110,15 @@ final class AnalysisInputObservation: TransactionObserver, @unchecked Sendable {
         observedRows += 1
         let table = event.tableName.lowercased()
         pendingTables.insert(table)
+        if table == "dailymetric" || table == "metricseries" {
+            if let origin = pendingOutputOrigins[table] {
+                if case let .owned(owner) = origin, owner !== activeOutputLedger {
+                    pendingOutputOrigins[table] = .unowned
+                }
+            } else {
+                pendingOutputOrigins[table] = activeOutputLedger.map(OutputOrigin.owned) ?? .unowned
+            }
+        }
         guard table == "gravitysample", !pendingGravityGlobal else { return }
         guard knownGravityAppend, event.kind == .insert, pendingGravityRows.count < Self.regionLimit else {
             pendingGravityGlobal = true
@@ -93,6 +130,26 @@ final class AnalysisInputObservation: TransactionObserver, @unchecked Sendable {
 
     func databaseWillCommit() throws {}
     func databaseDidCommit(_ db: Database) { reconcile(db) }
+
+    func recordingOutputWrites<T>(
+        _ ledger: AnalysisOutputWriteLedger, in db: Database, _ body: () throws -> T
+    ) rethrows -> T {
+        let previous = activeOutputLedger
+        let totalBefore = sqlite3_total_changes64(db.sqliteConnection)
+        activeOutputLedger = outputReceiptsAreSafe(in: db) ? ledger : nil
+        defer { activeOutputLedger = previous }
+        let result = try body()
+        // These explicit APIs return their direct affected-row count. A trigger/FK side effect is
+        // input feedback, even when it lands in the same table. It must require a settling pass.
+        if let directChanges = result as? Int,
+           sqlite3_total_changes64(db.sqliteConnection) - totalBefore == Int64(directChanges) {
+            return result
+        }
+        for (table, origin) in pendingOutputOrigins {
+            if case let .owned(owner) = origin, owner === ledger { pendingOutputOrigins[table] = .unowned }
+        }
+        return result
+    }
 
     func databaseDidRollback(_ db: Database) {
         // A matched, fully observed rollback publishes no input change. Unaccounted changes may instead
@@ -137,7 +194,7 @@ final class AnalysisInputObservation: TransactionObserver, @unchecked Sendable {
             guard let main, let temp else { return false }
             let key = "\(main):\(temp)"
             if gravitySchemaKey == key { return gravitySchemaAllowsAppendRegions }
-            let columns = try Row.fetchAll(db, sql: "PRAGMA main.table_info(gravitySample)")
+            let columns = try Row.fetchAll(db, sql: "PRAGMA main.table_xinfo(gravitySample)")
             let shadowsRowID = columns.contains { ["rowid", "_rowid_", "oid"].contains(($0["name"] as String).lowercased()) }
             let primary = columns.filter { ($0["pk"] as Int) > 0 }
                 .sorted { ($0["pk"] as Int) < ($1["pk"] as Int) }.map { $0["name"] as String }
@@ -161,13 +218,52 @@ final class AnalysisInputObservation: TransactionObserver, @unchecked Sendable {
         }
     }
 
+    /// An unexpected unique constraint can REPLACE another fallback row without a delete event/count.
+    /// Disable acknowledgment under changed output schemas; ordinary invalidation remains complete.
+    private func outputReceiptsAreSafe(in db: Database) -> Bool {
+        do {
+            guard let main = try Int.fetchOne(db, sql: "PRAGMA schema_version"),
+                  let temp = try Int.fetchOne(db, sql: "PRAGMA temp.schema_version") else { return false }
+            let key = "\(main):\(temp)"
+            if outputSchemaKey == key { return outputSchemaAllowsReceipts }
+            var safe = true
+            for (table, expectedPK) in [("dailyMetric", ["deviceid", "day"]),
+                                         ("metricSeries", ["deviceid", "day", "key"])] {
+                let columns = try Row.fetchAll(db, sql: "PRAGMA main.table_xinfo(\(table))")
+                let primary = columns.filter { ($0["pk"] as Int) > 0 }
+                    .sorted { ($0["pk"] as Int) < ($1["pk"] as Int) }
+                    .map { ($0["name"] as String).lowercased() }
+                let rowid = try Int.fetchOne(db, sql:
+                    "SELECT wr FROM pragma_table_list WHERE schema='main' AND name=? COLLATE NOCASE",
+                    arguments: [table]) == 0
+                let extraUnique = try Row.fetchAll(db, sql: "PRAGMA main.index_list(\(table))")
+                    .contains { ($0["unique"] as Int) != 0 && ($0["origin"] as String) != "pk" }
+                let foreignKeys = try Row.fetchAll(db, sql: "PRAGMA main.foreign_key_list(\(table))")
+                let shadow = try Int.fetchOne(db, sql:
+                    "SELECT COUNT(*) FROM sqlite_temp_master WHERE name=? COLLATE NOCASE", arguments: [table]) ?? 1
+                safe = safe && primary == expectedPK && rowid && !extraUnique && foreignKeys.isEmpty && shadow == 0
+            }
+            outputSchemaKey = key
+            outputSchemaAllowsReceipts = safe
+            return safe
+        } catch {
+            return false
+        }
+    }
+
     private func reconcile(_ db: Database) {
         let total = sqlite3_total_changes64(db.sqliteConnection)
         // WITHOUT ROWID, direct SQLite calls outside GRDB statements, and savepoint rollbacks can be
         // absent from row callbacks. Never acknowledge their count as a known table-only mutation.
         let unknown = pendingUnknown || total - accountedTotal != observedRows
         if unknown { unknownRevision &+= 1 }
-        for table in pendingTables { tableRevisions[table, default: 0] &+= 1 }
+        for table in pendingTables {
+            let before = tableRevisions[table, default: 0]
+            tableRevisions[table] = before &+ 1
+            if !unknown, case let .owned(ledger) = pendingOutputOrigins[table] {
+                ledger.record(generation: generation, table: table, before: before, after: before &+ 1)
+            }
+        }
 
         var gravityGlobal = unknown || pendingGravityGlobal
         if !gravityGlobal, !pendingGravityRows.isEmpty {
@@ -210,6 +306,7 @@ final class AnalysisInputObservation: TransactionObserver, @unchecked Sendable {
         pendingUnknown = false
         pendingGravityRows.removeAll(keepingCapacity: true)
         pendingGravityGlobal = false
+        pendingOutputOrigins.removeAll(keepingCapacity: true)
     }
 }
 

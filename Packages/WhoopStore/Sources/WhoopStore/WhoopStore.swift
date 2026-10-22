@@ -199,8 +199,13 @@ public actor WhoopStore {
     }
 
     @inline(__always)
-    func syncWrite<T>(_ block: (Database) throws -> T) throws -> T {
-        try dbWriter.write(block)
+    func syncWrite<T>(outputWrites: AnalysisOutputWriteLedger? = nil, _ block: (Database) throws -> T) throws -> T {
+        try dbWriter.write { db in
+            if let outputWrites {
+                return try analysisInputObservation.recordingOutputWrites(outputWrites, in: db) { try block(db) }
+            }
+            return try block(db)
+        }
     }
 
     /// `syncWrite` whose commit is fsynced before it returns (`synchronous = FULL` for just this

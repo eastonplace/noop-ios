@@ -749,6 +749,9 @@ final class IntelligenceEngine: ObservableObject {
     /// Test seam: runs on the main actor right after the daily-row reconcile commits, before the rest of the
     /// persistence phase. A test cancels the pass from here to prove what a mid-write cancel leaves behind.
     var afterDailyReconcileForTesting: (() -> Void)?
+    /// Deterministic input-mutation/cancellation boundaries for real-engine witness tests.
+    /// Production leaves this nil. The callback runs outside the store transaction.
+    var analysisOutputBoundaryForTesting: ((String) async -> Void)?
 
     /// Only the engine `AppModel` owns applies Strength Strain and runs its one-time backfill. A transient engine
     /// (exact-day analysis) and the tests keep the default `false`, so they can never write a combined value.
@@ -1292,15 +1295,17 @@ final class IntelligenceEngine: ObservableObject {
         let inputWitness: AnalysisInputWitness?
         if sourceContext == nil { inputWitness = try? await store.analysisInputWitness() }
         else { inputWitness = nil }
-        let wmKey: String
-        if sourceContext == nil, let inputWitness, !force || startOffset == 0 {
-            wmKey = analyzeWatermark(
-                witness: inputWitness, reference: referenceNow, calendar: analysisCalendar,
+        let outputWrites = AnalysisOutputWriteLedger()
+        let wmConfiguration: String
+        if sourceContext == nil, inputWitness != nil, !force || startOffset == 0 {
+            wmConfiguration = analyzeWatermarkConfiguration(
+                reference: referenceNow, calendar: analysisCalendar,
                 maxDays: maxDays, startOffset: startOffset, refreshRepository: refreshRepository,
                 keepUnproducedHistory: keepUnproducedHistory)
         } else {
-            wmKey = ""
+            wmConfiguration = ""
         }
+        let wmKey = inputWitness.map { idleWitnessKey($0, configuration: wmConfiguration) } ?? ""
         if !force, !wmKey.isEmpty,
            lastCompletedAnalysisWitness == wmKey {
             performanceChangedRows = 0
@@ -2967,6 +2972,16 @@ final class IntelligenceEngine: ObservableObject {
         // no later pass rewrites those days until the same chunk replays. The write phase is short next to the scan.
         // Ordinary passes keep stopping at every checkpoint.
         let writesStopOnCancel = !keepUnproducedHistory
+        // Only an existing row's calorie total is terminal output. New/changed physiology, stages,
+        // provenance and skin-baseline series remain START inputs and require a settling pass.
+        let retainedDailyDays = Set(reconciledDailies.map(\.day))
+            .union(protectedDailyDays).union(historyKeepDays)
+        let caloriesOnly = reconciledDailies.allSatisfy { row in
+            storedComputedByDay[row.day].map { Self.sameIdleDailyInputs($0, row) } ?? false
+        } && storedComputedByDay.values.allSatisfy { row in
+            row.day < oldestDay || row.day > newestDay || retainedDailyDays.contains(row.day)
+        }
+        await analysisOutputBoundaryForTesting?("beforeDaily")
         do {
             guard !Task.isCancelled else { performanceChangedRows = persistedMutationCount; return false }
             persistedMutationCount += try await store.reconcileDailyMetrics(
@@ -2974,8 +2989,10 @@ final class IntelligenceEngine: ObservableObject {
                 deviceId: computedId,
                 from: oldestDay,
                 to: newestDay,
-                protectedDays: protectedDailyDays.union(historyKeepDays)
+                protectedDays: protectedDailyDays.union(historyKeepDays),
+                outputWrites: caloriesOnly ? outputWrites : nil
             )
+            await analysisOutputBoundaryForTesting?("afterDaily")
             // Review round 4 (4): the provenance marker covers exactly the rows reconciled above.
             let rowSourcePoints = Dictionary(reconciledDailies.compactMap { row -> (String, MetricPoint)? in
                 guard row.day >= oldestDay, row.day <= newestDay else { return nil }
@@ -3003,8 +3020,10 @@ final class IntelligenceEngine: ObservableObject {
                 keys: [Self.calorieFillEndMetricKey],
                 from: oldestDay,
                 to: newestDay,
-                protectedDays: historyKeepDays
+                protectedDays: historyKeepDays,
+                outputWrites: outputWrites
             )
+            await analysisOutputBoundaryForTesting?("afterFill")
             // Review round 4 (5): and how much of the day the strap covered.
             let wornPoints = Dictionary(reconciledDailies.compactMap { row -> (String, MetricPoint)? in
                 guard row.activeKcalEst != nil, civilDayByKey[row.day] != nil,
@@ -3682,8 +3701,8 @@ final class IntelligenceEngine: ObservableObject {
         }
         performanceChangedRows = persistedMutationCount
 
-        // Publish only the START witness after a completed run. Own output writes may require one
-        // settling pass; replacing it with an end witness could acknowledge concurrent unscored inputs.
+        // Publish START inputs plus exact contiguous terminal-output commit receipts. Unowned table
+        // mutations leave revision gaps, and physiology/fallback/session writes still require settlement.
         guard !(writesStopOnCancel && Task.isCancelled) else { performanceChangedRows = persistedMutationCount; return false }
         if sourceContext == nil {
             // Pruning happens only here, after the complete pass: `nextCache` contains exactly the eligible
@@ -3693,7 +3712,10 @@ final class IntelligenceEngine: ObservableObject {
         }
         diagnosticSink?("analyzeRecent dayCache reused=\(scanPass.reused)/\(scanPass.eligible) "
             + "size=\(sourceContext == nil ? dayScanCache.count : 0)", nil)
-        if !wmKey.isEmpty { lastCompletedAnalysisWitness = wmKey }
+        if !wmKey.isEmpty, let inputWitness {
+            lastCompletedAnalysisWitness = idleWitnessKey(
+                inputWitness.acknowledgingOwnOutputs(outputWrites), configuration: wmConfiguration)
+        }
         // No `await` follows, so the backfill task this spawns runs after `computing` resets.
         if isPrimary && sourceContext == nil { kickStrengthStrainBackfillIfNeeded() }
         analysisCompletionSerial += 1
@@ -3719,8 +3741,8 @@ final class IntelligenceEngine: ObservableObject {
     /// RAM-only idle identity. Database revisions cover every source and all fold/fallback/control rows;
     /// explicit profile, preferences, presentation source, request and clock inputs cover non-SQL changes.
     /// The hour retains the existing idle calorie-fill cadence. Forced passes still score the exact time.
-    private func analyzeWatermark(
-        witness: AnalysisInputWitness, reference: Date, calendar: Calendar,
+    private func analyzeWatermarkConfiguration(
+        reference: Date, calendar: Calendar,
         maxDays: Int, startOffset: Int, refreshRepository: Bool, keepUnproducedHistory: Bool
     ) -> String {
         func bits(_ value: Double) -> String { String(value.bitPattern) }
@@ -3733,7 +3755,7 @@ final class IntelligenceEngine: ObservableObject {
         let dismissed = defaults.stringArray(forKey: Repository.dismissedSleepDefaultsKey) ?? []
         let pauses = defaults.data(forKey: WorkoutPauseStore.defaultsKey)?.base64EncodedString() ?? ""
         var parts = [
-            witness.signature(tables: Self.wholePassInputTables), Self.analyzeScanVersion,
+            Self.analyzeScanVersion,
             StrandAnalytics.version, String(StrainScorerV2.version),
             deviceId, repo.deviceId, repo.notificationSourceContext, String(repo.loaded),
             strings(repo.importedReadIds), strings(repo.computedReadIds),
@@ -3760,6 +3782,18 @@ final class IntelligenceEngine: ObservableObject {
         parts.append(String(AppleDemoSeeder.requested))
         #endif
         return strings(parts)
+    }
+
+    private func idleWitnessKey(_ witness: AnalysisInputWitness, configuration: String) -> String {
+        guard !configuration.isEmpty else { return "" }
+        return witness.signature(tables: Self.wholePassInputTables) + ":" + configuration
+    }
+
+    /// The calorie total is not a scoring/baseline input. Every other daily field remains an input;
+    /// this conservative projection permits hourly fill acknowledgment only after physiology settles.
+    private nonisolated static func sameIdleDailyInputs(_ a: DailyMetric, _ b: DailyMetric) -> Bool {
+        a.activeKcalEst != nil && b.activeKcalEst != nil
+            && a.replacing(activeKcalEst: .some(nil)) == b.replacing(activeKcalEst: .some(nil))
     }
 
     /// How often an idle backstop tick re-scores today's calorie fill (review round 3, D).
