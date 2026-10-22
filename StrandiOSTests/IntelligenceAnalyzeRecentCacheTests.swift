@@ -930,6 +930,57 @@ final class IntelligenceAnalyzeRecentCacheTests: XCTestCase {
         XCTAssertEqual(ownerChangedBundleCalls, 1)
     }
 
+    func testOwnerLockRemovalInvalidatesOnlyThePreviouslyLockedDay() async throws {
+        let harness = try await makeHarness(addSecondWhoop4: true)
+        let targetDay = try XCTUnwrap(dayWindows(3).dropFirst().first?.day)
+        let registry = DeviceRegistryStore(dbQueue: harness.store.registryWriter)
+        try registry.setDayOwner(day: targetDay, deviceId: "whoop4-b", locked: true)
+        let coldCompleted = await run(harness, maxDays: 3)
+        XCTAssertTrue(coldCompleted)
+        await harness.probe.resetBundleCalls()
+
+        try await harness.store.registryWriter.write { db in
+            try db.execute(sql: "DELETE FROM dayOwnership WHERE day=?", arguments: [targetDay])
+        }
+        let changedCompleted = await run(harness, maxDays: 3)
+        let reads = await harness.probe.totalBundleCalls()
+        XCTAssertTrue(changedCompleted)
+        XCTAssertEqual(reads, 1, "removing one effective-owner override must preserve the other day scans")
+    }
+
+    func testOwnerLockWithTheSameEffectiveOwnerKeepsEveryDayWarm() async throws {
+        let harness = try await makeHarness(addSecondWhoop4: true)
+        let coldCompleted = await run(harness, maxDays: 3)
+        XCTAssertTrue(coldCompleted)
+        let targetDay = try XCTUnwrap(dayWindows(3).dropFirst().first?.day)
+        let registry = DeviceRegistryStore(dbQueue: harness.store.registryWriter)
+        for locked in [true, false] {
+            await harness.probe.resetBundleCalls()
+            try registry.setDayOwner(day: targetDay, deviceId: Repository.whoopSource, locked: locked)
+            let completed = await run(harness, maxDays: 3)
+            let reads = await harness.probe.totalBundleCalls()
+            XCTAssertTrue(completed)
+            XCTAssertEqual(reads, 0, "a lock edit with the same freshly resolved owner changes no scan input")
+        }
+    }
+
+    func testUnknownOwnershipMutationStillInvalidatesEveryDayScan() async throws {
+        let harness = try await makeHarness(addSecondWhoop4: true)
+        let coldCompleted = await run(harness, maxDays: 3)
+        XCTAssertTrue(coldCompleted)
+        await harness.probe.resetBundleCalls()
+        let targetDay = try XCTUnwrap(dayWindows(3).dropFirst().first?.day)
+        try await harness.store.registryWriter.write { db in
+            try db.execute(sql: "INSERT INTO dayOwnership(day,deviceId,locked) VALUES(?, 'whoop4-b', 1)",
+                           arguments: [targetDay])
+            try db.notifyChanges(in: .fullDatabase)
+        }
+        let completed = await run(harness, maxDays: 3)
+        let reads = await harness.probe.totalBundleCalls()
+        XCTAssertTrue(completed)
+        XCTAssertEqual(reads, 3, "an unknown mutation cannot be narrowed to the effective owner projection")
+    }
+
     func testExactSourceWorkBypassesCacheWithoutDestroyingNormalCache() async throws {
         let harness = try await makeHarness()
         let coldCompleted = await run(harness, maxDays: 1)

@@ -1376,6 +1376,45 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
         }
     }
 
+    func testOwnerChangeAlsoInvalidatesThePriorDayWhenItsCycleBoundaryChanges() async throws {
+        let harness = try await makeHarness(days: 8, whoop4SwapDay: 7)
+        let probe = DerivedInputBundleProbe()
+        harness.engine.setAnalyzeRecentCacheTestingSeamsForTesting(.init(
+            fingerprintLoader: { store, owner, from, to in
+                try await store.hrFingerprint(deviceId: owner, from: from, to: to)
+            },
+            bundleLoader: { store, owner, from, to, limit in
+                await probe.record()
+                return try await store.analysisDayBundle(deviceId: owner, from: from, to: to, limit: limit)
+            }))
+        for _ in 0..<3 { _ = await pass(harness, maxDays: 8) }
+        await probe.reset()
+        let unchanged = await pass(harness, maxDays: 8)
+        let unchangedReads = await probe.count
+        XCTAssertTrue(unchanged)
+        XCTAssertEqual(unchangedReads, 0, "the real two-strap fixture must first reach warm reuse")
+
+        let targetDay = harness.dayKeys[6]
+        let registry = DeviceRegistryStore(dbQueue: harness.store.registryWriter)
+        try registry.setDayOwner(day: targetDay, deviceId: secondWhoop4Id, locked: true)
+        await probe.reset()
+        let changed = await pass(harness, maxDays: 8)
+        let changedReads = await probe.count
+        XCTAssertTrue(changed)
+        XCTAssertEqual(changedReads, 2, "the changed owner and its prior day's changed Effort boundary must both reload")
+        let reusedRows = try await stored(harness)
+
+        let repository = Repository(deviceId: Repository.whoopSource)
+        repository.setStoreForTesting(harness.store)
+        let freshEngine = IntelligenceEngine(repo: repository, profile: ProfileStore(), deviceId: Repository.whoopSource)
+        let fresh = Harness(store: harness.store, engine: freshEngine, computedId: harness.computedId,
+                            reference: harness.reference, dayKeys: harness.dayKeys)
+        let coldCompleted = await pass(fresh, maxDays: 8)
+        let coldRows = try await stored(fresh)
+        XCTAssertTrue(coldCompleted)
+        XCTAssertEqual(reusedRows, coldRows, "owner and cycle-boundary reuse must match a cold engine")
+    }
+
     func testIdleTimeFillDoesNotTurnEverySameHourTickIntoAnotherPass() async throws {
         let harness = try await makeHarness(days: 8, whoop4: true)
         let offWristStart = firstDayStart + 7 * 86_400 + 18 * 3_600
