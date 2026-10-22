@@ -11,6 +11,44 @@ final class WearableImportPersistenceTests: XCTestCase {
         _ = try await WearableImporter.importExport(url: url, into: store)
     }
 
+    private func importNamedFiles(_ files: [String: String], into store: WhoopStore) async throws {
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("wearable-fragments-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        for (name, text) in files { try Data(text.utf8).write(to: folder.appendingPathComponent(name)) }
+        _ = try await WearableImporter.importExport(url: folder, into: store)
+    }
+
+    private func assertStepProjections(_ store: WhoopStore, source: String, expected: Int,
+                                       file: StaticString = #filePath, line: UInt = #line) async throws {
+        let days = try await store.dailyMetrics(deviceId: source, from: "2026-06-01", to: "2026-06-01")
+        let points = try await store.metricSeries(deviceId: source, key: "steps", from: "2026-06-01", to: "2026-06-01")
+        XCTAssertEqual(days.first?.steps, expected, file: file, line: line)
+        XCTAssertEqual(points.first?.value, Double(expected), file: file, line: line)
+    }
+
+    func testFitbitObservedZeroReplacesStepsWhileAbsentOrInvalidCountsPreservePriorProjections() async throws {
+        let store = try await WhoopStore.inMemory()
+        for field in [",\"value\":8421", "", ",\"value\":-1", ",\"value\":\"nan\"", ",\"value\":\"inf\"", ",\"value\":\"1e300\"", ",\"value\":0"] {
+            try await importNamedFiles([
+                "steps-2026.json": "[{\"dateTime\":\"2026-06-01\"\(field)}]",
+                "resting_heart_rate-2026.json": "[{\"dateTime\":\"2026-06-01\",\"value\":{\"value\":48}}]"
+            ], into: store)
+            try await assertStepProjections(store, source: "fitbit-import", expected: field.hasSuffix(":0") ? 0 : 8421)
+        }
+    }
+
+    func testGarminObservedZeroReplacesStepsWhileAbsentOrInvalidCountsPreservePriorProjections() async throws {
+        let store = try await WhoopStore.inMemory()
+        for field in [",\"steps\":8421", "", ",\"steps\":-1", ",\"steps\":\"nan\"", ",\"steps\":\"inf\"", ",\"steps\":\"1e300\"", ",\"steps\":0"] {
+            try await importNamedFiles([
+                "di_connect_daily.json": "[{\"calendarDate\":\"2026-06-01\",\"restingHeartRate\":48\(field)}]"
+            ], into: store)
+            try await assertStepProjections(store, source: "garmin-import", expected: field.hasSuffix(":0") ? 0 : 8421)
+        }
+    }
+
     func testSingleCategoryImportsPreservePreviouslyImportedDailyMeasurements() async throws {
         let store = try await WhoopStore.inMemory()
         try await importFile("""
