@@ -10,7 +10,7 @@ enum AppChangelog {
     /// MARKETING_VERSION) instead of a third hand-maintained copy that drifted; the literal is only the
     /// fallback outside an app bundle. Add the matching entry to `releases` when the version changes.
     static let currentVersion: String =
-        (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "1.8.0"
+        (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "1.8.1"
 
     struct Release: Identifiable {
         let version: String
@@ -48,6 +48,11 @@ enum AppChangelog {
 
     /// Newest first. This fork's releases come first; add one for every version bump (see AGENTS.md).
     static let releases: [Release] = [
+        .fork("1.8.1", "ⓘ on every score", "October 2026", [
+            Feature("info.circle", .accent, "ⓘ everywhere", "Tap it on a score or vital to see what it means."),
+            Feature("checkmark.seal", .sleep, "What good looks like", "Typical ranges, and what to do when yours is off."),
+            Feature("waveform.path.ecg", .hrv, "Vitals in plain words", "HRV, resting HR and breathing, against your baseline."),
+        ]),
         .fork("1.8.0", "A shorter Sleep page", "October 2026", [
             Feature("moon.fill", .sleep, "Sleep, trimmed", "Same night, about half the scrolling."),
             Feature("chart.bar.xaxis", .sleep, "Stages vs typical", "Each stage bar shows your usual. Hold for the exact time."),

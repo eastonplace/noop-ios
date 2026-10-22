@@ -19,6 +19,11 @@ approximate; downloads are on the [Releases](https://github.com/NoopApp/noop/rel
 
 ## This app's releases
 
+## 1.8.1
+
+- **ⓘ on every score.** Today (Recovery, HRV, Readiness), Trends (Scores, Weekly readout), Sleep (score, stages, Night detail, Tonight), the Recovery and Strain pages, Health (HRV, Resting HR, Respiratory, Vitality), Tomorrow's Recovery, Stress, the Training load page and two Insights sections now have a plain ⓘ that opens a short guide.
+- **What good looks like.** Each guide leads with what the number means for you and what a typical range is, then how to read a high, low or normal value and what to do about it, and ends with a short "how it's worked out". HRV and Readiness stay personal: compare with your own baseline, not other people.
+
 ## 1.8.0
 
 - **Sleep, trimmed.** The Sleep page covers the same night in about half the scrolling: a compact score header, a single-row wake alarm, a shorter stage chart with stages vs typical merged into it (hold a stage for its exact time), heart-rate sections folded into tappable rows, Night detail in the Trends Scores list style, and Tonight's need merged with Sleep balance.
