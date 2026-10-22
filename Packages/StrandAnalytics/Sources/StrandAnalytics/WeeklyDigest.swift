@@ -400,6 +400,83 @@ public enum WeeklyDigestEngine {
             + " (avg \(thisAvg) vs \(lastAvg))\(frame)."
     }
 
+    // MARK: - Highlights and insight (deterministic)
+
+    /// Minimum |vs-baseline| / typicalSpread before a baseline line is worth saying.
+    static let baselineThreshold: Double = 0.35
+
+    /// Up to `limit` highlight bullets: the focal points, plus (when there is room) one
+    /// vs-baseline observation so the list is not only week-over-week movers.
+    public static func highlightLines(for digest: WeeklyDigest, limit: Int = 3,
+                                      effortDisplayFactor: Double = 1.0) -> [String] {
+        var lines = Array(digest.focalPoints.prefix(limit))
+        if lines.isEmpty { lines = [digest.balance.sentence] }
+        if lines.count < limit,
+           let extra = baselineLines(digest, effortDisplayFactor: effortDisplayFactor).first,
+           !lines.contains(extra) {
+            lines.append(extra)
+        }
+        return Array(lines.prefix(limit))
+    }
+
+    /// vs-baseline observations, biggest normalised gap first. RHR and HRV win ties.
+    static func baselineLines(_ digest: WeeklyDigest, effortDisplayFactor: Double = 1.0) -> [String] {
+        let candidates = digest.metrics.compactMap { s -> (WeeklyMetricSummary, Double)? in
+            guard s.thisWeek.n >= 2, let delta = s.vsBaseline, delta.isFinite,
+                  s.metric.typicalSpread > 0 else { return nil }
+            let f = s.metric == .effort ? effortDisplayFactor : 1.0
+            guard let magnitude = StableStatistics.roundedInt(abs(delta) * f), magnitude >= 1 else { return nil }
+            let score = abs(delta) / s.metric.typicalSpread
+            return score >= baselineThreshold ? (s, score) : nil
+        }
+        let ranked = candidates.sorted { a, b in
+            let aVital = a.0.metric == .rhr || a.0.metric == .hrv
+            let bVital = b.0.metric == .rhr || b.0.metric == .hrv
+            if aVital != bVital { return aVital }
+            return a.1 > b.1
+        }
+        return ranked.map { baselineSentence($0.0, effortDisplayFactor: effortDisplayFactor) }
+    }
+
+    static func baselineSentence(_ s: WeeklyMetricSummary, effortDisplayFactor: Double = 1.0) -> String {
+        let f = s.metric == .effort ? effortDisplayFactor : 1.0
+        let delta = s.vsBaseline ?? 0
+        let amount = StableStatistics.roundedInt(abs(delta) * f) ?? 0
+        let unit = s.metric.unit.isEmpty ? (amount == 1 ? "point" : "points") : s.metric.unit
+        let side = delta >= 0 ? "above" : "below"
+        return "\(s.metric.label) is running \(amount) \(unit) \(side) your \(baselineWeeks)-week baseline."
+    }
+
+    /// One always-available insight sentence for the weekly readout. Never empty, never a
+    /// "keep logging" placeholder. Order: a vs-baseline observation not already in
+    /// `highlights`, then a sleep-consistency note, then the balance read, then a coverage line.
+    public static func insightLine(for digest: WeeklyDigest, highlights: [String],
+                                   effortDisplayFactor: Double = 1.0) -> String {
+        if let line = baselineLines(digest, effortDisplayFactor: effortDisplayFactor)
+            .first(where: { !highlights.contains($0) }) {
+            return line
+        }
+        let steadyShown = highlights.contains { $0.contains("Sleep held even") }
+        if let sd = digest.sleepConsistencySD, !steadyShown {
+            let pts = round1(sd)
+            if sd <= 6 {
+                return "Sleep was steady, varying only ±\(pts) points night to night."
+            } else if sd >= 12 {
+                return "Sleep was uneven: ±\(pts) points between nights. A regular bedtime tightens that."
+            }
+        }
+        if digest.balance != .insufficient, !highlights.contains(digest.balance.sentence) {
+            return digest.balance.sentence
+        }
+        let n = digest.daysWithData
+        if n == 0 { return "Nothing recorded for this week yet. Wear your strap and today fills this in." }
+        let steady = highlights.contains { $0.hasPrefix("A steady week") }
+        if steady {
+            return "Steady week: nothing moved past normal day-to-day noise across \(n) of 7 logged days."
+        }
+        return "Based on \(n) of 7 logged days this week; each extra day sharpens the read."
+    }
+
     // MARK: - Range extraction
 
     /// Collect the values of `series` whose day is within [start, end] inclusive

@@ -317,10 +317,7 @@ public struct StatusBadge: View {
                 .lineLimit(1)
         }
         .foregroundStyle(StrandPalette.textPrimary)
-        .padding(.horizontal, 9)
-        .frame(height: 24)
-        .background(Capsule(style: .continuous).fill(StrandPalette.pillFill))
-        .overlay(Capsule(style: .continuous).stroke(StrandPalette.pillStroke, lineWidth: 1))
+        .frame(minHeight: 22)
         .accessibilityElement(children: .combine)
     }
 }

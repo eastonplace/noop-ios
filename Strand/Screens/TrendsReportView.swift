@@ -325,7 +325,7 @@ struct TrendsReportPage: View {
         } else {
             let up = d > 0
             // Signed-deviation metric (skin-temp Δ): show the move, no good/bad verdict.
-            let color: Color = stat.metric.framesGoodBad
+            let color: Color = stat.metric.framesGoodBad && stat.metric != .strain
                 ? (up == stat.metric.higherIsBetter ? StrandPalette.statusPositive : StrandPalette.metricRose)
                 : StrandPalette.textTertiary
             let sign = up ? "+" : "−"

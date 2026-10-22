@@ -15,6 +15,33 @@ public final class FrameRouter {
     /// WHOOP 5 custom frames currently surface only their envelope (live HR/battery come from the
     /// standard 0x2A37/0x2A19 profiles instead).
     var family: DeviceFamily = .whoop4
+    private var alarmReadbackRequest: SmartAlarmReadbackRequest?
+    private var alarmReadbackSequences: [UInt8: SmartAlarmReadbackRequest] = [:]
+
+    func registerAlarmReadback(_ request: SmartAlarmReadbackRequest, sequence: UInt8) {
+        if alarmReadbackRequest?.id != request.id {
+            clearAlarmReadback()
+            alarmReadbackRequest = request
+            SmartAlarmEvidenceStore.beginReadback(request)
+        }
+        alarmReadbackSequences[sequence] = request
+    }
+
+    func clearAlarmReadback() {
+        if let request = alarmReadbackRequest {
+            SmartAlarmEvidenceStore.invalidateReadback(requestID: request.id)
+        }
+        alarmReadbackRequest = nil
+        alarmReadbackSequences.removeAll()
+    }
+
+    private func recordAlarmReadback(epoch: Int, frame: [UInt8]) -> Bool {
+        let origin = Self.whoop4InnerOffset + 3
+        guard origin < frame.count,
+              let request = alarmReadbackSequences.removeValue(forKey: frame[origin]),
+              request == alarmReadbackRequest else { return false }
+        return SmartAlarmEvidenceStore.recordReadback(epoch: epoch, request: request)
+    }
 
     public init(state: LiveState) {
         self.state = state
@@ -125,6 +152,13 @@ public final class FrameRouter {
                 } else if cmd.hasPrefix("SET_ADVERTISING_NAME_HARVARD") {
                     state.renameStatus = Self.renameAck(for: Self.commandResultByte(in: frame))
                 } else if cmd.hasPrefix("GET_ALARM_TIME") {
+                    let originIndex = Self.whoop4InnerOffset + 3
+                    let origin = originIndex < frame.count ? Int(frame[originIndex]) : -1
+                    let registered = origin >= 0
+                        && alarmReadbackSequences[UInt8(origin)] == alarmReadbackRequest
+                        && alarmReadbackRequest != nil
+                    let rawFrame = frame.map { String(format: "%02x", $0) }.joined(separator: " ")
+                    state.append(log: "Alarm readback: origin_seq=\(origin) registered=\(registered) frame=\(rawFrame)")
                     // Arm-readback diagnostic (#401 close-out): armStrapAlarm follows every WHOOP 4.0 arm
                     // with GET_ALARM_TIME (67) so the log proves what the STRAP believes is armed, not
                     // just what we sent. LOG-ONLY, never gates behaviour: the 4.0 response layout is
@@ -142,14 +176,13 @@ public final class FrameRouter {
                         state.append(log: "Alarm: strap reports armed for \(Self.alarmLocalTime(epoch: epoch)) (epoch \(epoch)) [raw \(raw)]")
                         // #34: persist what the strap reports so the debug export can show sent-vs-reported.
                         let d = UserDefaults.standard
-                        d.set(Int(epoch), forKey: "alarm.lastReportedEpoch")
-                        d.set(Date().timeIntervalSince1970, forKey: "alarm.lastReportedAt")
+                        let owned = recordAlarmReadback(epoch: Int(epoch), frame: frame)
                         // #34: count CONSECUTIVE rejections (reported ≠ what we last sent) — the signature of
                         // a corrupted strap alarm register. A matching readback resets it, so a transient
                         // (first read stale, then correct) never trips the warning; only a persistent refusal
                         // climbs. SmartAlarmView surfaces the warning at ≥2; the debug export shows the count.
                         // Observability only — never gates the BLE arm.
-                        if let sent = d.object(forKey: "alarm.lastArmSentEpoch") as? Int {
+                        if owned, let sent = d.object(forKey: "alarm.lastArmSentEpoch") as? Int {
                             d.set(abs(Int(epoch) - sent) > 120 ? d.integer(forKey: "alarm.rejectStreak") + 1 : 0,
                                   forKey: "alarm.rejectStreak")
                         }
@@ -161,6 +194,7 @@ public final class FrameRouter {
                         // "didn't buzz" report: SET went out, strap kept nothing. Name it plainly. Log-only.
                         let raw = Self.commandResponsePayloadHex(in: frame) ?? "empty"
                         state.append(log: "Alarm: strap reports NO alarm currently stored (epoch 0) — the arm did not persist on the strap (raw \(raw))")
+                        _ = recordAlarmReadback(epoch: 0, frame: frame)
                     } else {
                         state.append(log: "Alarm: strap answered the alarm readback with an unrecognised payload (raw \(Self.commandResponsePayloadHex(in: frame) ?? "empty")) - layout undocumented, log-only")
                     }
@@ -311,10 +345,10 @@ public final class FrameRouter {
     }
 
     /// Extract the armed-alarm epoch from a GET_ALARM_TIME (cmd 67) COMMAND_RESPONSE, defensively.
-    /// The WHOOP 4.0 response layout is UNDOCUMENTED, so this tries the two shapes the firmware could
-    /// plausibly answer with - the SET_ALARM_TIME mirror (`[form 0x01][u32 LE epoch]…`, matching the
-    /// 9-byte payload we arm with) first, then a bare leading u32 LE - and accepts a candidate only when
-    /// it passes `isPlausibleAlarmEpoch`. Anything else returns nil and the caller logs raw hex instead.
+    /// Firmware 41.17.4.0 hardware captures have an 11-byte body with revision 1, state 0/1, and
+    /// epoch at offset 2. Only the observed state-1/plausible-epoch combination confirms an arm;
+    /// unknown or contradictory states cannot fall through to a misaligned plausible epoch.
+    /// Other layouts retain the legacy SET mirror and bare-u32 reads, plausibility-gated.
     /// Pure and CoreBluetooth-free so golden tests pin it (AlarmReadbackDecodeTests).
     nonisolated static func armedAlarmEpoch(in frame: [UInt8]) -> UInt32? {
         guard let payload = commandResponsePayload(in: frame) else { return nil }
@@ -325,14 +359,20 @@ public final class FrameRouter {
                 | (UInt32(payload[i + 2]) << 16)
                 | (UInt32(payload[i + 3]) << 24)
         }
+        if payload.count == 11 {
+            guard payload.first == 0x01, payload[1] == 0x01,
+                  let e = u32le(at: 2), isPlausibleAlarmEpoch(e) else { return nil }
+            return e
+        }
         if payload.first == 0x01, let e = u32le(at: 1), isPlausibleAlarmEpoch(e) { return e }
         if let e = u32le(at: 0), isPlausibleAlarmEpoch(e) { return e }
         return nil
     }
 
     /// True when a GET_ALARM_TIME readback explicitly reports NO alarm stored — the epoch field decodes
-    /// to 0 in the same shapes `armedAlarmEpoch` reads (SET-mirror `[0x01][u32=0]` first, then a bare
-    /// leading `u32=0`). This is the strap's "nothing armed" sentinel, distinct from a genuinely
+    /// to 0 in the same shapes `armedAlarmEpoch` reads. The captured 11-byte revision-1 response
+    /// requires state 0 and epoch 0 at offset 2; other layouts retain the legacy mirror/bare reads.
+    /// This is the strap's "nothing armed" sentinel, distinct from a genuinely
     /// unparseable payload: an arm the strap silently dropped reads back as epoch 0, so labelling it
     /// "unrecognised" hid the real signal (#34). Only consulted AFTER `armedAlarmEpoch` returns nil, so a
     /// plausible armed epoch never reaches here. Pure/CoreBluetooth-free so AlarmReadbackDecodeTests pin it.
@@ -344,6 +384,9 @@ public final class FrameRouter {
                 | (UInt32(payload[i + 1]) << 8)
                 | (UInt32(payload[i + 2]) << 16)
                 | (UInt32(payload[i + 3]) << 24)
+        }
+        if payload.count == 11 {
+            return payload.first == 0x01 && payload[1] == 0 && u32le(at: 2) == 0
         }
         if payload.first == 0x01, let e = u32le(at: 1) { return e == 0 }
         if let e = u32le(at: 0) { return e == 0 }

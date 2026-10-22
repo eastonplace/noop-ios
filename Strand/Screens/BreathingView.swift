@@ -649,12 +649,6 @@ private struct BreathingContent: View {
                         .foregroundStyle(StrandPalette.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                .padding(.horizontal, NoopMetrics.space2)
-                .padding(.vertical, NoopMetrics.space1)
-                .background(StrandPalette.pillFill, in: Capsule(style: .continuous))
-                .overlay {
-                    Capsule(style: .continuous).strokeBorder(StrandPalette.pillStroke, lineWidth: 1)
-                }
                 .accessibilityElement(children: .combine)
             }
 

@@ -56,6 +56,8 @@ struct StrandiOSApp: App {
     /// The strap-went-quiet verdict the activity was last driven with, so the check below drives it only when it changes.
     @State private var activityHeartRateWasStale = false
     @State private var externalSurface: ExternalSurfaceProjection?
+    /// Cold-start splash. App-struct `@State` is created once per process, so warm starts never see it again.
+    @State private var splashActive = NoopSplashView.shouldShowOnLaunch
     @State private var externalPublicationWorker: ExternalPublicationWorker
     private let sourcePrivacyCleanupCoordinator: SourcePrivacyCleanupCoordinator
     @Environment(\.scenePhase) private var scenePhase
@@ -566,6 +568,9 @@ struct StrandiOSApp: App {
                 // UX-06: the quiet selection everywhere, including the shell's sheets and covers outside the tab view.
                 .segmentedPillSelectionStyle(.quiet)
                 .background(StrandPalette.appCanvas.ignoresSafeArea())
+                .overlay {
+                    if splashActive { NoopSplashView { splashActive = false } }
+                }
                 .personalHRZones(model.profile)
                 .environmentObject(model)
                 .environmentObject(model.ble)
@@ -740,6 +745,9 @@ struct StrandiOSApp: App {
                     await drainCommittedHealthScoring()
                     await externalPublicationWorker.signal()
                     #if DEBUG
+                    if CommandLine.arguments.contains("--noop-whoop4-alarm-test") {
+                        await DebugWhoop4AlarmProbe.run(model: model)
+                    }
                     if CommandLine.arguments.contains("--component41-live-qa") {
                         await liveActivity.startComponent41QA(
                             paused: CommandLine.arguments.contains("--component41-live-qa-paused"))

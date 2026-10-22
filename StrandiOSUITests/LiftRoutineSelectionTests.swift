@@ -89,8 +89,19 @@ final class LiftRoutineSelectionTests: XCTestCase {
     }
 
     private func visibleAction(_ label: String, in app: XCUIApplication) -> XCUIElement? {
-        app.buttons.matching(NSPredicate(format: "label == %@ OR identifier == %@", label, label))
-            .allElementsBoundByIndex.first { $0.isHittable }
+        let query = app.buttons.matching(NSPredicate(format: "label == %@ OR identifier == %@", label, label))
+        // Optional actions are absent on some valid pages. Avoid asking XCTest to resolve
+        // an empty matching snapshot before the per-element visibility checks can run.
+        guard query.firstMatch.exists else { return nil }
+        return query.allElementsBoundByIndex.first { element in
+                guard element.exists else { return false }
+                let frame = element.frame
+                guard !frame.isEmpty, !frame.isNull, !frame.isInfinite,
+                      frame.origin.x.isFinite, frame.origin.y.isFinite,
+                      frame.width.isFinite, frame.height.isFinite,
+                      app.frame.contains(frame) else { return false }
+                return element.isHittable
+            }
     }
 
     private func openRoutineEditor(in app: XCUIApplication) -> XCUIElement {
@@ -108,16 +119,24 @@ final class LiftRoutineSelectionTests: XCTestCase {
 
     private func readyAction(_ label: String, in app: XCUIApplication) -> XCUIElement {
         let query = app.buttons.matching(NSPredicate(format: "label == %@ OR identifier == %@", label, label))
-        XCTAssertTrue(query.firstMatch.waitForExistence(timeout: 15), "\(label) is available")
-        let action = visibleAction(label, in: app) ?? query.firstMatch
-        XCTAssertTrue(action.isHittable, "\(label) must be visible and ready to tap")
-        return action
+        let deadline = Date().addingTimeInterval(15)
+        repeat {
+            if let action = visibleAction(label, in: app) { return action }
+            _ = query.firstMatch.waitForExistence(timeout: 0.5)
+        } while Date() < deadline
+        XCTFail("\(label) must be visible and ready to tap")
+        return query.firstMatch
     }
 
     private func reveal(_ element: XCUIElement, in app: XCUIApplication) {
         for _ in 0..<10 {
-            if element.exists && element.isHittable { break }
-            app.swipeUp()
+            if element.exists, !element.frame.isEmpty, !element.frame.isInfinite,
+               app.frame.contains(element.frame), element.isHittable { break }
+            if element.exists, !element.frame.isEmpty, element.frame.maxY < app.frame.midY {
+                app.swipeDown()
+            } else {
+                app.swipeUp()
+            }
         }
         XCTAssertTrue(element.exists)
         XCTAssertTrue(element.isHittable)

@@ -419,7 +419,7 @@ struct WeeklyDigestContent: View {
 enum WeeklyDigestChipStyle {
     /// A rough comparison keeps its arrow + % but the chip stays grey regardless of direction, so it
     /// can't frame a green/rose verdict off 1-2 days (the #463 complaint).
-    static func neutralizesTone(_ s: WeeklyMetricSummary) -> Bool { s.isRoughComparison }
+    static func neutralizesTone(_ s: WeeklyMetricSummary) -> Bool { s.isRoughComparison || s.metric == .effort }
     /// A rough comparison also drops the ", a good sign."/", worth a look." VoiceOver frame so the
     /// spoken row matches the neutral chip.
     static func dropsVerdictFrame(_ s: WeeklyMetricSummary) -> Bool { s.isRoughComparison }

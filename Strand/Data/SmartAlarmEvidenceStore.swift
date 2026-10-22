@@ -1,6 +1,13 @@
 import Foundation
 import StrandAnalytics
 
+struct SmartAlarmReadbackRequest: Equatable, Sendable {
+    let id: UUID
+    let sourceID: String
+    let targetEpoch: Int
+    let sentAt: Date
+}
+
 /// Durable, local audit evidence for the last conditional evaluation and actuation.
 /// Values are never inferred: absent upstream data is recorded as nil plus the evaluator reason.
 struct SmartAlarmEvidence: Codable, Equatable, Sendable {
@@ -19,29 +26,156 @@ struct SmartAlarmEvidence: Codable, Equatable, Sendable {
     let sleepModelVersion: String?
     let forecastSource: String?
     let forecastModelVersion: String?
-    let requestedWakeAt: Date?
+    var requestedWakeAt: Date?
     /// The window's firmware fail-safe endpoint. Dedupe key: one early actuation per endpoint,
     /// even after an earlier re-arm rewrites `requestedWakeAt` to the earlier instant.
     let windowEndpoint: Date?
     /// Strap-armed readback (GET_ALARM_TIME) CORRELATED to this request: set only when the strap's
     /// reported epoch lands within the rejectStreak tolerance (±120 s) of `requestedWakeAt` AND the
     /// readback arrived after this arm was sent. An uncorrelated or stale readback stays nil.
-    let strapReportedArmedAt: Date?
-    let observedStrapWakeAt: Date?
-    let actuation: Actuation
+    var strapReportedArmedAt: Date?
+    var observedStrapWakeAt: Date?
+    var actuation: Actuation
     let evaluatorModelVersion: String
+    enum ReadbackStatus: String, Codable, Sendable {
+        case pending, confirmed, noAlarm, mismatch, unconfirmed
+    }
+    // Optional for compatibility with existing local evidence and backups. Legacy evidence cannot
+    // confirm a new arm without an owned response from the current physical strap.
+    var armRequestID: String? = nil
+    var armSourceID: String? = nil
+    var armSentAt: Date? = nil
+    var readbackStatus: ReadbackStatus? = nil
+    // An early wake can buzz successfully even if its separate firmware-alarm readback fails.
+    // Keep that attempted action independent from delivery confirmation to prevent another buzz.
+    var earlyWakeAttempted: Bool? = nil
+    var earlyWakeSourceID: String? = nil
+
+    var hasAttemptedEarlyWake: Bool {
+        if let earlyWakeAttempted { return earlyWakeAttempted }
+        guard mode != .exactTime, decision == .wakeNow else { return false }
+        if actuation == .sentToConnectedStrap { return true }
+        // Older records could already have been changed to failed before the independent marker
+        // existed. Infer only an actual early target inside this adaptive window, never an endpoint arm.
+        guard actuation == .failed, let requestedWakeAt, let windowEndpoint else { return false }
+        let lead = windowEndpoint.timeIntervalSince(requestedWakeAt)
+        return lead.isFinite && lead > 0
+            && lead <= Double(SmartAlarmEvaluator.adaptiveWindowMinutes * 60)
+    }
+
+    var attemptedEarlyWakeSourceID: String? {
+        hasAttemptedEarlyWake ? (earlyWakeSourceID ?? armSourceID) : nil
+    }
+
+    // Action history can suppress another buzz after delivery expires; it cannot confirm an alarm.
+    func matchesEarlyWakeAttempt(endpoint: Date, mode: SmartAlarmEvaluator.Mode, sourceID: String) -> Bool {
+        self.mode == mode && windowEndpoint == endpoint && hasAttemptedEarlyWake
+            && attemptedEarlyWakeSourceID == sourceID
+    }
 }
 
 @MainActor
 enum SmartAlarmEvidenceStore {
     private static let key = "smartAlarm.lastEvidence.v1"
+    static let readbackTimeout: TimeInterval = 10
+    static let readbackDidChange = Notification.Name("noop.smartAlarm.readbackDidChange")
+
+    static func beginReadback(_ request: SmartAlarmReadbackRequest) {
+        let d = UserDefaults.standard
+        guard d.string(forKey: "alarm.lastArmRequestID") != request.id.uuidString else { return }
+        d.set(request.id.uuidString, forKey: "alarm.lastArmRequestID")
+        d.set(request.sourceID, forKey: "alarm.lastArmDeviceID")
+        d.set(request.sentAt.timeIntervalSince1970, forKey: "alarm.lastArmAt")
+        d.set(request.targetEpoch, forKey: "alarm.lastArmSentEpoch")
+        for key in ["alarm.lastReportedEpoch", "alarm.lastReportedAt",
+                    "alarm.lastReportedRequestID", "alarm.lastReportedDeviceID"] {
+            d.removeObject(forKey: key)
+        }
+    }
+
+    static func invalidateReadback(requestID: UUID) {
+        let d = UserDefaults.standard
+        guard d.string(forKey: "alarm.lastArmRequestID") == requestID.uuidString else { return }
+        d.removeObject(forKey: "alarm.lastArmRequestID")
+        d.removeObject(forKey: "alarm.lastArmDeviceID")
+    }
+
+    @discardableResult
+    static func recordReadback(epoch: Int, request: SmartAlarmReadbackRequest,
+                               at now: Date = Date()) -> Bool {
+        let d = UserDefaults.standard
+        guard d.string(forKey: "alarm.lastArmRequestID") == request.id.uuidString,
+              d.string(forKey: "alarm.lastArmDeviceID") == request.sourceID,
+              now >= request.sentAt else { return false }
+        d.set(epoch, forKey: "alarm.lastReportedEpoch")
+        d.set(now.timeIntervalSince1970, forKey: "alarm.lastReportedAt")
+        d.set(request.id.uuidString, forKey: "alarm.lastReportedRequestID")
+        d.set(request.sourceID, forKey: "alarm.lastReportedDeviceID")
+        NotificationCenter.default.post(name: readbackDidChange, object: nil)
+        return true
+    }
 
     static var latest: SmartAlarmEvidence? {
         guard let data = UserDefaults.standard.data(forKey: key) else { return nil }
         return try? JSONDecoder().decode(SmartAlarmEvidence.self, from: data)
     }
 
+    static func isCurrentArm(_ evidence: SmartAlarmEvidence) -> Bool {
+        let d = UserDefaults.standard
+        return evidence.armRequestID != nil && evidence.armSourceID != nil
+            && evidence.armRequestID == d.string(forKey: "alarm.lastArmRequestID")
+            && evidence.armSourceID == d.string(forKey: "alarm.lastArmDeviceID")
+    }
+
     static func save(_ evidence: SmartAlarmEvidence) {
+        var evidence = evidence
+        let d = UserDefaults.standard
+        let previous = latest
+        if evidence.actuation == .notRequested,
+           let previous, previous.windowEndpoint != nil,
+           previous.windowEndpoint == evidence.windowEndpoint, previous.mode == evidence.mode,
+           isCurrentArm(previous) {
+            // A new evaluation updates its provenance, not the current physical delivery operation.
+            evidence.requestedWakeAt = previous.requestedWakeAt
+            evidence.strapReportedArmedAt = previous.strapReportedArmedAt
+            evidence.observedStrapWakeAt = previous.observedStrapWakeAt
+            evidence.actuation = previous.actuation
+            evidence.armRequestID = previous.armRequestID
+            evidence.armSourceID = previous.armSourceID
+            evidence.armSentAt = previous.armSentAt
+            evidence.readbackStatus = previous.readbackStatus
+            evidence.earlyWakeAttempted = previous.hasAttemptedEarlyWake ? true : nil
+            evidence.earlyWakeSourceID = previous.attemptedEarlyWakeSourceID
+        }
+        if evidence.armRequestID == nil,
+           evidence.actuation == .endpointArmed || evidence.actuation == .sentToConnectedStrap,
+           let requested = evidence.requestedWakeAt,
+           let sentAt = d.object(forKey: "alarm.lastArmAt") as? TimeInterval,
+           d.integer(forKey: "alarm.lastArmSentEpoch") == Int(requested.timeIntervalSince1970) {
+            // Evaluation precedes the BLE actuation in adaptive mode. Its timestamp is provenance,
+            // not an ordering fence for the exact-target request that is active when evidence is saved.
+            evidence.armRequestID = d.string(forKey: "alarm.lastArmRequestID")
+            evidence.armSourceID = d.string(forKey: "alarm.lastArmDeviceID")
+            evidence.armSentAt = Date(timeIntervalSince1970: sentAt)
+        }
+        if evidence.hasAttemptedEarlyWake {
+            evidence.earlyWakeAttempted = true
+            evidence.earlyWakeSourceID = evidence.attemptedEarlyWakeSourceID
+        }
+        if let previous, previous.hasAttemptedEarlyWake,
+           previous.windowEndpoint != nil, previous.windowEndpoint == evidence.windowEndpoint,
+           previous.mode == evidence.mode, let source = previous.attemptedEarlyWakeSourceID {
+            let sameSourceArm = isCurrentArm(evidence) && evidence.armSourceID == source
+            let waitingForDelivery = evidence.armRequestID == nil && evidence.armSourceID == nil
+                && (evidence.actuation == .queuedForReconnect || evidence.actuation == .notRequested)
+            if (sameSourceArm || waitingForDelivery),
+               !evidence.hasAttemptedEarlyWake || evidence.attemptedEarlyWakeSourceID == nil {
+                // An offline evaluation keeps only the source-scoped action history. A new owned
+                // delivery may reuse that history for the same strap, never its old confirmation.
+                evidence.earlyWakeAttempted = true
+                evidence.earlyWakeSourceID = source
+            }
+        }
         guard let data = try? JSONEncoder().encode(evidence) else { return }
         UserDefaults.standard.set(data, forKey: key)
     }
@@ -52,13 +186,26 @@ enum SmartAlarmEvidenceStore {
     static func refreshCorrelation(now: Date = Date()) {
         guard let e = latest, let requested = e.requestedWakeAt else { return }
         let d = UserDefaults.standard
-        var armed = e.strapReportedArmedAt
-        if armed == nil,
+        let scopeMatches = isCurrentArm(e)
+        let sentAt = e.armSentAt ?? e.evaluatedAt
+        var armed = scopeMatches ? e.strapReportedArmedAt : nil
+        var status = scopeMatches ? (e.readbackStatus ?? .pending) : .pending
+        if scopeMatches,
            let epoch = d.object(forKey: "alarm.lastReportedEpoch") as? Int,
            let reportedAt = d.object(forKey: "alarm.lastReportedAt") as? TimeInterval,
-           reportedAt >= e.evaluatedAt.timeIntervalSince1970 {
+           reportedAt >= sentAt.timeIntervalSince1970,
+           d.string(forKey: "alarm.lastReportedRequestID") == e.armRequestID,
+           d.string(forKey: "alarm.lastReportedDeviceID") == e.armSourceID {
             let reported = Date(timeIntervalSince1970: TimeInterval(epoch))
-            if abs(reported.timeIntervalSince(requested)) <= 120 { armed = reported }
+            if epoch > 0, abs(reported.timeIntervalSince(requested)) <= 120 {
+                armed = reported
+                status = .confirmed
+            } else {
+                armed = nil
+                status = epoch == 0 ? .noAlarm : .mismatch
+            }
+        } else if armed == nil, now.timeIntervalSince(sentAt) >= readbackTimeout {
+            status = .unconfirmed
         }
         var fired = e.observedStrapWakeAt
         if fired == nil,
@@ -69,13 +216,30 @@ enum SmartAlarmEvidenceStore {
                 fired = firedDate
             }
         }
-        guard armed != e.strapReportedArmedAt || fired != e.observedStrapWakeAt else { return }
-        save(.init(mode: e.mode, trigger: e.trigger, decision: e.decision, reason: e.reason,
+        let armRelated = e.actuation == .endpointArmed || e.actuation == .sentToConnectedStrap
+            || e.readbackStatus != nil
+        guard armRelated || fired != e.observedStrapWakeAt else { return }
+        let failed = status == .noAlarm || status == .mismatch || status == .unconfirmed
+        let confirmedActuation: SmartAlarmEvidence.Actuation =
+            e.hasAttemptedEarlyWake && e.requestedWakeAt != e.windowEndpoint
+                ? .sentToConnectedStrap : .endpointArmed
+        let actuation: SmartAlarmEvidence.Actuation = armRelated && failed ? .failed
+            : (status == .confirmed && e.actuation == .failed ? confirmedActuation : e.actuation)
+        var updated = SmartAlarmEvidence(mode: e.mode, trigger: e.trigger, decision: e.decision, reason: e.reason,
                    evaluatedAt: e.evaluatedAt, inputObservedAt: e.inputObservedAt,
                    sleepSource: e.sleepSource, sleepModelVersion: e.sleepModelVersion,
                    forecastSource: e.forecastSource, forecastModelVersion: e.forecastModelVersion,
                    requestedWakeAt: e.requestedWakeAt, windowEndpoint: e.windowEndpoint,
                    strapReportedArmedAt: armed, observedStrapWakeAt: fired,
-                   actuation: e.actuation, evaluatorModelVersion: e.evaluatorModelVersion))
+                   actuation: actuation,
+                   evaluatorModelVersion: e.evaluatorModelVersion)
+        updated.armRequestID = e.armRequestID
+        updated.armSourceID = e.armSourceID
+        updated.armSentAt = e.armSentAt
+        updated.readbackStatus = armRelated ? status : e.readbackStatus
+        updated.earlyWakeAttempted = e.hasAttemptedEarlyWake ? true : e.earlyWakeAttempted
+        updated.earlyWakeSourceID = e.attemptedEarlyWakeSourceID
+        guard updated != e else { return }
+        save(updated)
     }
 }

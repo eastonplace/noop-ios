@@ -359,6 +359,7 @@ public final class BLEManager: NSObject, ObservableObject {
         case clientHello
         case protocolProof
         case genericCommand
+        case alarmCommand
         case historicalAck
     }
 
@@ -373,6 +374,7 @@ public final class BLEManager: NSObject, ObservableObject {
         let command: UInt8
         let requestSequence: UInt8
         let historicalAck: HistoricalAckWriteIdentity?
+        let alarmOwner: Whoop4AlarmTransaction.Owner?
     }
     private struct QueuedWhoop5ConfirmedWrite {
         let owner: ConfirmedCommandWrite
@@ -515,6 +517,10 @@ public final class BLEManager: NSObject, ObservableObject {
     /// `===` identity check would NOT tell a healthy session apart from a later loop cycle. Named distinctly
     /// from Repository.swift's v7.0.3 refreshGen publish token so the two never get confused.
     private var connectGeneration = 0
+    private var whoop4AlarmTransaction: Whoop4AlarmTransaction?
+    private var whoop4AlarmRequest: SmartAlarmReadbackRequest?
+    private var whoop4AlarmTimer: DispatchWorkItem?
+    private var whoop4AlarmRetryCount = 0
     /// Source admission epoch for historical work. It advances on a new physical connection or active
     /// source switch, so a late completion cannot inherit a later source's identity.
     private var historicalSourceEpoch: Int64 = 0
@@ -2396,7 +2402,8 @@ public final class BLEManager: NSObject, ObservableObject {
             purpose: purpose,
             command: command,
             requestSequence: requestSequence,
-            historicalAck: historicalAck)
+            historicalAck: historicalAck,
+            alarmOwner: purpose == .alarmCommand ? whoop4AlarmTransaction?.owner : nil)
     }
 
     private func issueNextWhoop5ConfirmedWriteIfPossible() {
@@ -4489,6 +4496,15 @@ public final class BLEManager: NSObject, ObservableObject {
         requestNotify(heartRateCharacteristic, on: peripheral, reason: reason)
     }
 
+    nonisolated static func shouldAdoptRestoredCommandNotification(
+        family: DeviceFamily, isConnected: Bool,
+        isCurrentPeripheral: Bool, isCurrentCommandCharacteristic: Bool,
+        isNotifying: Bool
+    ) -> Bool {
+        family == .whoop4 && isConnected && isCurrentPeripheral
+            && isCurrentCommandCharacteristic && isNotifying
+    }
+
     private func requestNotify(_ c: CBCharacteristic, on p: CBPeripheral, reason: String) {
         guard c.properties.contains(.notify) || c.properties.contains(.indicate) else {
             log("Notify unavailable \(c.uuid) (\(reason))")
@@ -4496,6 +4512,18 @@ public final class BLEManager: NSObject, ObservableObject {
         }
         if c.isNotifying {
             log("Notify already active \(c.uuid) (\(reason))")
+            // A restored WHOOP 4 subscription produces no new notification-state callback. Adopt
+            // only this connection's retained command channel; the handshake still gates settling.
+            if Self.shouldAdoptRestoredCommandNotification(
+                family: selectedModel.deviceFamily,
+                isConnected: state.connected && p.state == .connected,
+                isCurrentPeripheral: p === peripheral && isCurrentPeripheralCallback(p),
+                isCurrentCommandCharacteristic: c === cmdNotifyCharacteristic
+                    && isCurrentCharacteristicCallback(c),
+                isNotifying: c.isNotifying) {
+                cmdNotifyConfirmedActive = true
+                maybeSignalConnectSettled()
+            }
             return
         }
         p.setNotifyValue(true, for: c)
@@ -4559,24 +4587,135 @@ public final class BLEManager: NSObject, ObservableObject {
         }
         // Clamp rather than trap: an out-of-range alarm date (pre-1970 / post-2106) must not crash.
         let epochSec = UInt32(clamping: Int64(date.timeIntervalSince1970))
-        sendSetClockBothForms()
-        send(.setAlarmTime, payload: WhoopCommand.setAlarmPayload(epochSec: epochSec))
-        recordAlarmArm(sentEpoch: Int(epochSec))
-        // #34: only claim "armed" when the strap is connected (the send actually went out); otherwise it's
-        // queued and re-sent on the next connect.
-        if connectedPeripheralUUID != nil {
-            log("Alarm: armed for \(localFmt.string(from: date)) — your local wake time (sent as UTC epoch \(epochSec))")
-        } else {
-            log("Alarm: queued for \(localFmt.string(from: date)) — strap not connected; will send on next connect")
+        cancelWhoop4AlarmTransaction()
+        guard state.connected, state.bonded, connectHandshakeDone,
+              let peripheral, peripheral.state == .connected, cmdCharacteristic != nil else {
+            log("Alarm: saved wake time is waiting for a fully paired WHOOP 4.0")
+            return .queuedForReconnect
         }
-        // Arm READBACK (#401 close-out): ask the strap what it now has armed (GET_ALARM_TIME, cmd 67) so
-        // the strap log carries armed + strap-reports + fired as one decidable sequence in any future
-        // "didn't buzz" report. WHOOP 4.0 ONLY: cmd 67 is allowlisted for 5/MG but its puffin readback
-        // semantics are unverified, and this lands unacknowledged in the arm burst (trivial airtime).
-        // Log-only: FrameRouter parses the cmd-67 COMMAND_RESPONSE defensively and NEVER gates behaviour
-        // on it (the 4.0 response layout is undocumented; unparseable replies log raw hex).
-        send(.getAlarmTime, payload: [0x01])
-        return connectedPeripheralUUID == nil ? .queuedForReconnect : .sentAwaitingReadback
+        let owner = Whoop4AlarmTransaction.Owner(
+            peripheralID: peripheral.identifier, connectGeneration: connectGeneration)
+        whoop4AlarmRequest = SmartAlarmReadbackRequest(
+            id: owner.id, sourceID: peripheral.identifier.uuidString,
+            targetEpoch: Int(epochSec), sentAt: Date())
+        whoop4AlarmTransaction = Whoop4AlarmTransaction(
+            owner: owner, clockEpoch: UInt32(clamping: Int64(Date().timeIntervalSince1970)),
+            wakeEpoch: epochSec)
+        whoop4AlarmRetryCount = 0
+        recordAlarmArm(sentEpoch: Int(epochSec))
+        if let request = whoop4AlarmRequest { SmartAlarmEvidenceStore.beginReadback(request) }
+        log("Alarm: sending confirmed WHOOP 4.0 arm for \(localFmt.string(from: date)); readback required")
+        issueWhoop4AlarmWrite(owner: owner)
+        return .sentAwaitingReadback
+    }
+
+    private func cancelWhoop4AlarmTransaction() {
+        whoop4AlarmTimer?.cancel()
+        whoop4AlarmTimer = nil
+        if let request = whoop4AlarmRequest {
+            SmartAlarmEvidenceStore.invalidateReadback(requestID: request.id)
+        }
+        whoop4AlarmTransaction = nil
+        whoop4AlarmRequest = nil
+        router.clearAlarmReadback()
+    }
+
+    private func isCurrentWhoop4Alarm(_ owner: Whoop4AlarmTransaction.Owner) -> Bool {
+        whoop4AlarmTransaction?.owner == owner
+            && selectedModel.deviceFamily == .whoop4
+            && peripheral?.identifier == owner.peripheralID
+            && peripheral?.state == .connected
+            && state.connected && state.bonded
+            && connectGeneration == owner.connectGeneration
+    }
+
+    private func scheduleWhoop4AlarmWork(
+        owner: Whoop4AlarmTransaction.Owner, delay: TimeInterval,
+        work: @escaping @MainActor () -> Void
+    ) {
+        whoop4AlarmTimer?.cancel()
+        let timer = DispatchWorkItem { [weak self] in
+            guard let self, self.isCurrentWhoop4Alarm(owner) else { return }
+            work()
+        }
+        whoop4AlarmTimer = timer
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: timer)
+    }
+
+    private func issueWhoop4AlarmWrite(owner: Whoop4AlarmTransaction.Owner) {
+        guard isCurrentWhoop4Alarm(owner), var transaction = whoop4AlarmTransaction,
+              let peripheral, let characteristic = cmdCharacteristic else { return }
+        let requestSequence = seq &+ 1
+        guard let write = transaction.issue(owner: owner, requestSequence: requestSequence) else { return }
+        seq = requestSequence
+        whoop4AlarmTransaction = transaction
+        if write.step == .readback, let request = whoop4AlarmRequest {
+            router.registerAlarmReadback(request, sequence: requestSequence)
+        }
+        writeValue(Data(write.command.frame(seq: requestSequence, payload: write.payload)),
+                   to: characteristic, on: peripheral, type: .withResponse,
+                   confirmedPurpose: .alarmCommand, command: write.command.rawValue,
+                   requestSequence: requestSequence)
+        log("Alarm transaction: \(write.step) sent seq=\(requestSequence) payload=\(hex(write.payload))")
+        scheduleWhoop4AlarmWork(owner: owner, delay: 3) { [weak self] in
+            guard let self, var current = self.whoop4AlarmTransaction,
+                  current.timeout(owner: owner, requestSequence: requestSequence) else { return }
+            self.whoop4AlarmTransaction = current
+            self.log("Alarm transaction: ATT confirmation timed out; alarm not confirmed")
+        }
+    }
+
+    private func completeWhoop4AlarmWrite(
+        owner: Whoop4AlarmTransaction.Owner, sequence: UInt8, succeeded: Bool
+    ) {
+        guard isCurrentWhoop4Alarm(owner), var transaction = whoop4AlarmTransaction,
+              transaction.acknowledge(owner: owner, requestSequence: sequence, succeeded: succeeded)
+        else { return }
+        whoop4AlarmTimer?.cancel()
+        whoop4AlarmTransaction = transaction
+        log("Alarm transaction: ATT \(succeeded ? "confirmed" : "failed") seq=\(sequence)")
+        switch transaction.state {
+        case .ready:
+            scheduleWhoop4AlarmWork(owner: owner, delay: 0.15) { [weak self] in
+                self?.issueWhoop4AlarmWrite(owner: owner)
+            }
+        case .waitingForReadbackDelay:
+            scheduleWhoop4AlarmWork(owner: owner, delay: 1) { [weak self] in
+                guard let self, var current = self.whoop4AlarmTransaction,
+                      current.releaseReadback(owner: owner) else { return }
+                self.whoop4AlarmTransaction = current
+                self.issueWhoop4AlarmWrite(owner: owner)
+            }
+        case .completed:
+            scheduleWhoop4AlarmWork(owner: owner, delay: 2) { [weak self] in
+                self?.checkWhoop4AlarmReadback(owner: owner)
+            }
+        case .aborted:
+            log("Alarm transaction: delivery failed; alarm not confirmed")
+        default: break
+        }
+    }
+
+    private func checkWhoop4AlarmReadback(owner: Whoop4AlarmTransaction.Owner) {
+        guard isCurrentWhoop4Alarm(owner), let request = whoop4AlarmRequest else { return }
+        let defaults = UserDefaults.standard
+        if defaults.string(forKey: "alarm.lastReportedRequestID") == request.id.uuidString,
+           defaults.string(forKey: "alarm.lastReportedDeviceID") == request.sourceID,
+           let epoch = defaults.object(forKey: "alarm.lastReportedEpoch") as? Int,
+           abs(epoch - request.targetEpoch) <= 120 {
+            log("Alarm transaction: matching strap readback confirmed epoch \(epoch)")
+            return
+        }
+        guard whoop4AlarmRetryCount == 0 else {
+            log("Alarm transaction: no matching readback after one retry; alarm not confirmed")
+            return
+        }
+        whoop4AlarmRetryCount += 1
+        whoop4AlarmTransaction = Whoop4AlarmTransaction(
+            owner: owner, clockEpoch: UInt32(clamping: Int64(Date().timeIntervalSince1970)),
+            wakeEpoch: UInt32(clamping: Int64(request.targetEpoch)))
+        log("Alarm transaction: retrying once after unconfirmed readback")
+        issueWhoop4AlarmWrite(owner: owner)
     }
 
     /// #34: persist the last alarm arm for the debug export's Alarm block (sent epoch + when + whether the
@@ -4602,6 +4741,7 @@ public final class BLEManager: NSObject, ObservableObject {
 
     /// Disarm the currently-armed firmware alarm.
     func disableStrapAlarm() {
+        cancelWhoop4AlarmTransaction()
         // #34: clear the "strap keeps rejecting the alarm" streak/warning — it's about an ACTIVE arm being
         // refused, and there's nothing armed to refuse once disarmed.
         UserDefaults.standard.set(0, forKey: "alarm.rejectStreak")
@@ -4626,7 +4766,10 @@ public final class BLEManager: NSObject, ObservableObject {
             log("Alarm: 5/MG secure session is not ready — request refused")
             return
         }
-        send(.getAlarmTime, payload: [0x01])
+        if selectedModel.deviceFamily == .whoop4, let request = whoop4AlarmRequest {
+            router.registerAlarmReadback(request, sequence: seq &+ 1)
+        }
+        send(.getAlarmTime, payload: [0x01], writeType: .withResponse)
         log("Alarm: requested current alarm time")
     }
 
@@ -6024,6 +6167,13 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
         // bookkeeping, then an authentication-loss result revokes the session without issuing B.
         let whoop5AuthenticationLost = isWhoop5CommandWrite
             && error.map(Self.isWhoop5TransportAuthorizationLoss) == true
+        if confirmedWrite.purpose == .alarmCommand {
+            if let owner = confirmedWrite.alarmOwner {
+                completeWhoop4AlarmWrite(owner: owner, sequence: confirmedWrite.requestSequence,
+                                        succeeded: error == nil)
+            }
+            return
+        }
         if confirmedWrite.purpose == .historicalAck, let historicalAck = confirmedWrite.historicalAck {
             if let pending = pendingHistoricalAck,
                pending.characteristicUUID == characteristic.uuid,
@@ -6501,6 +6651,7 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
     }
 
     private func resetClockRecoveryForConnection() {
+        cancelWhoop4AlarmTransaction()
         clockRecoveryTimeout?.cancel()
         clockRecoveryTimeout = nil
         clockRecovery.reset()
