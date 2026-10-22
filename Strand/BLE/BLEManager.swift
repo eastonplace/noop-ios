@@ -2515,6 +2515,19 @@ public final class BLEManager: NSObject, ObservableObject {
         eventPeripheralID == activePeripheralID && activePeripheralIsConnected
     }
 
+    /// Every connect request prepares its target before invoking CoreBluetooth. A delayed result from
+    /// a replaced target, a changed pin, or a user-canceled attempt cannot publish or retry a new link.
+    nonisolated static func shouldAcceptConnectionResult(
+        eventPeripheralID: UUID,
+        activePeripheralID: UUID?,
+        preferredPeripheralID: UUID?,
+        intentionalDisconnect: Bool
+    ) -> Bool {
+        !intentionalDisconnect
+            && eventPeripheralID == activePeripheralID
+            && (preferredPeripheralID == nil || preferredPeripheralID == eventPeripheralID)
+    }
+
     private func isCurrentPeripheralCallback(_ candidate: CBPeripheral) -> Bool {
         Self.shouldAcceptPeripheralCallback(
             eventPeripheralID: candidate.identifier,
@@ -5221,6 +5234,16 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
     }
 
     public func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
+        guard Self.shouldAcceptConnectionResult(
+            eventPeripheralID: peripheral.identifier,
+            activePeripheralID: self.peripheral?.identifier,
+            preferredPeripheralID: preferredPeripheralUUID,
+            intentionalDisconnect: intentionalDisconnect
+        ) else {
+            log("Ignored stale connect callback for \(peripheral.identifier)")
+            central.cancelPeripheralConnection(peripheral)
+            return
+        }
         cancelScanFallback()
         // BLE-9/CC-7: a link is up, so any pending automatic retry is stale. The ladder itself resets only
         // once this link proves healthy (see didDisconnect), not merely because it connected (#414).
@@ -5590,6 +5613,15 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
     public func centralManager(_ central: CBCentralManager,
                                didFailToConnect peripheral: CBPeripheral,
                                error: Error?) {
+        guard Self.shouldAcceptConnectionResult(
+            eventPeripheralID: peripheral.identifier,
+            activePeripheralID: self.peripheral?.identifier,
+            preferredPeripheralID: preferredPeripheralUUID,
+            intentionalDisconnect: intentionalDisconnect
+        ), self.peripheral?.state != .connected else {
+            log("Ignored stale failed-connect callback for \(peripheral.identifier)")
+            return
+        }
         log("Failed to connect\(error.map { " — \($0.localizedDescription)" } ?? "")")
         // The strap wiped its bond (a firmware update, or the official WHOOP app re-bonding it). macOS keeps
         // re-presenting the now-stale pairing key, so every reconnect loops on this same error with no
