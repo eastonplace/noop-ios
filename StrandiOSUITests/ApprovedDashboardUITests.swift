@@ -257,7 +257,9 @@ final class ApprovedDashboardUITests: XCTestCase {
         try waitFor(app.buttons["quickActions.close"], predicate: "exists == false", in: app)
 
         let title = element("today.health.title", in: app)
-        try reveal(title, in: app, needsHitTarget: false, viewport: app.scrollViews.firstMatch)
+        let viewport = app.scrollViews.firstMatch
+        let anchors = size == .normal ? todayScrollAnchors(in: app) : []
+        try reveal(title, in: app, needsHitTarget: false, viewport: viewport, scrollAnchors: anchors)
         XCTAssertEqual(title.label, "Health Monitor", "The M1 heading has no metric count")
         let health = element("today.health.monitor", in: app)
         XCTAssertEqual(health.buttons.matching(NSPredicate(format: "label CONTAINS[cd] 'custom' ")).count, 0,
@@ -265,9 +267,10 @@ final class ApprovedDashboardUITests: XCTestCase {
         capture(app, "today-\(size)-M1-health-top")
         assertPinnedHeader(device, initialY: headerY, in: app)
         let allMetrics = app.buttons["today.health.allMetrics"]
-        try reveal(allMetrics, in: app)
+        try reveal(allMetrics, in: app, viewport: size == .normal ? viewport : nil, scrollAnchors: anchors)
         XCTAssertGreaterThanOrEqual(allMetrics.frame.height + targetDimensionRoundingTolerance, 44)
-        try reveal(app.buttons["today.health.dataSources"], in: app)
+        try reveal(app.buttons["today.health.dataSources"], in: app,
+                   viewport: size == .normal ? viewport : nil, scrollAnchors: anchors)
         capture(app, "today-\(size)-M1-health-footer")
         assertPinnedHeader(device, initialY: headerY, in: app)
         // Prove the physical touch and its navigation outcome. The pinned SwiftUI
@@ -349,11 +352,8 @@ final class ApprovedDashboardUITests: XCTestCase {
         XCTAssertLessThan(strain.frame.midX, recovery.frame.midX, "Today follows the saved summary order")
         capture(app, "today-selected-summary-order")
         for name in changed.health {
-            // This lazy grid starts below the visible Today content. The outer 2% lane
-            // stayed at scroll zero in the captured normal layout; use an interior lane
-            // inside the scaffold's 16pt content margin for this persisted-selection proof.
             try reveal(element("today.health.tile.\(name)", in: app), in: app,
-                       needsHitTarget: false, viewport: viewport, horizontalGestureFraction: 0.10)
+                       needsHitTarget: false, viewport: viewport, scrollAnchors: todayScrollAnchors(in: app))
         }
         XCTAssertFalse(element("today.health.tile.sleep", in: app).exists)
         capture(app, "today-three-selected-health-metrics")
@@ -654,10 +654,16 @@ final class ApprovedDashboardUITests: XCTestCase {
 
     private enum ScrollDirection { case up, down }
 
+    private func todayScrollAnchors(in app: XCUIApplication) -> [XCUIElement] {
+        // These section headings sit outside both chart scrub regions. Resolve their actual
+        // frames each time: changing Stress copy can move its ribbon over a fixed drag point.
+        [element("today.health.title", in: app), app.staticTexts["Today’s Stress"]]
+    }
+
     private func reveal(_ element: XCUIElement, in app: XCUIApplication,
                         direction: ScrollDirection = .up, needsHitTarget: Bool = true,
                         viewport: XCUIElement? = nil,
-                        horizontalGestureFraction: CGFloat = 0.02) throws {
+                        scrollAnchors: [XCUIElement] = []) throws {
         if let viewport { try requireExists(viewport, in: app) }
         for attempt in 0..<20 {
             let appFrame = app.frame
@@ -707,8 +713,8 @@ final class ApprovedDashboardUITests: XCTestCase {
                 }
             }
             if surface.elementType == .scrollView || viewport != nil {
-                // Default to the gutter outside charts and native row controls. A caller
-                // can select an interior lane when the outer edge does not scroll its content.
+                // Default to the gutter outside charts and native row controls. For Today,
+                // a fully visible section heading provides a start outside chart gestures.
                 // Bound both endpoints to the visible intersection, including partially clipped views.
                 let surfaceFrame = surface.frame
                 guard usableScrollFrame(surfaceFrame) else {
@@ -724,9 +730,23 @@ final class ApprovedDashboardUITests: XCTestCase {
                     print("[health-gesture] attempt=\(attempt) explicitViewport=\(viewport != nil) surfaceType=\(surface.elementType.rawValue) surfaceID=\(surface.identifier) gestureFrame=\(gestureFrame)")
                 }
                 let origin = app.coordinate(withNormalizedOffset: .zero)
-                let x = gestureFrame.minX - appFrame.minX + gestureFrame.width * horizontalGestureFraction
-                let start = origin.withOffset(CGVector(dx: x, dy: gestureFrame.minY - appFrame.minY + gestureFrame.height * (scrollUp ? 0.8 : 0.2)))
-                let end = origin.withOffset(CGVector(dx: x, dy: gestureFrame.minY - appFrame.minY + gestureFrame.height * (scrollUp ? 0.2 : 0.8)))
+                let anchorFrames = scrollAnchors.compactMap { anchor -> CGRect? in
+                    guard anchor.exists else { return nil }
+                    let frame = anchor.frame
+                    guard usableScrollFrame(frame), gestureFrame.contains(frame),
+                          scrollUp ? frame.midY > gestureFrame.minY + 44 : frame.midY < gestureFrame.maxY - 44
+                    else { return nil }
+                    return frame
+                }
+                let anchor = scrollUp ? anchorFrames.max(by: { $0.midY < $1.midY })
+                    : anchorFrames.min(by: { $0.midY < $1.midY })
+                let x = (anchor?.midX ?? (gestureFrame.minX + gestureFrame.width * 0.02)) - appFrame.minX
+                let startY = anchor?.midY ?? (gestureFrame.minY + gestureFrame.height * (scrollUp ? 0.8 : 0.2))
+                let defaultEndY = gestureFrame.minY + gestureFrame.height * (scrollUp ? 0.2 : 0.8)
+                let endY = anchor == nil ? defaultEndY
+                    : (scrollUp ? min(defaultEndY, startY - 44) : max(defaultEndY, startY + 44))
+                let start = origin.withOffset(CGVector(dx: x, dy: startY - appFrame.minY))
+                let end = origin.withOffset(CGVector(dx: x, dy: endY - appFrame.minY))
                 start.press(forDuration: 0.05, thenDragTo: end)
             } else if scrollUp {
                 surface.swipeUp()
