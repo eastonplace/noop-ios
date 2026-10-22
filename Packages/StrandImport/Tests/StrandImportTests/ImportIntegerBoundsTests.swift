@@ -136,4 +136,103 @@ final class ImportIntegerBoundsTests: XCTestCase {
         XCTAssertEqual(result.sessions.first?.totalReps, Int.max)
         XCTAssertEqual(result.sessions.first?.setCount, 1)
     }
+
+    func testFitbitObservedZeroRemainsAnImportableDailyMeasurement() throws {
+        let data = try steps(["0", "0"])
+        let result = WearableExportImporter.parse(brand: .fitbit, files: ["steps-zero.json": data])
+        XCTAssertEqual(result.days.count, 1)
+        XCTAssertEqual(result.days.first?.steps, 0)
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("steps-zero-\(UUID()).json")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try data.write(to: url)
+        XCTAssertEqual(try WearableExportImporter().import(from: url).days.first?.steps, 0)
+    }
+
+    func testFitbitMissingNegativeAndNonFiniteEventsDoNotBecomeObservedZero() throws {
+        let rejected: [Any?] = [nil, NSNull(), "-1", "-0.5", "NaN", "inf", "1e300", String(Int.max), "0.5"]
+        for value in rejected {
+            var event: [String: Any] = ["dateTime": day + "T10:00:00Z"]
+            if let value { event["value"] = value }
+            let data = try JSONSerialization.data(withJSONObject: [event])
+            let result = WearableExportImporter.parse(brand: .fitbit, files: [
+                "steps-invalid.json": data, "resting_heart_rate-day.json": try restingHR(),
+            ])
+            XCTAssertNil(result.days.first?.steps, "\(String(describing: value))")
+            XCTAssertEqual(result.days.first?.restingHr, 61)
+        }
+    }
+
+    private func garmin(_ records: [[String: Any]]) throws -> WearableImportResult {
+        WearableExportImporter.parse(brand: .garmin, files: [
+            "di_connect/daily.json": try JSONSerialization.data(withJSONObject: records),
+        ])
+    }
+
+    func testGarminBothStepAliasesAcceptNumericAndStringObservedZero() throws {
+        for key in ["steps", "totalSteps"] {
+            for zero: Any in [0, "0"] {
+                let result = try garmin([["calendarDate": day, key: zero, "restingHeartRate": 0, "averageStressLevel": 0]])
+                XCTAssertEqual(result.days.first?.steps, 0, key)
+                XCTAssertNil(result.days.first?.restingHr)
+                XCTAssertNil(result.days.first?.avgStress)
+            }
+        }
+    }
+
+    func testGarminPrimaryObservedZeroWinsOverPositiveSecondaryAlias() throws {
+        let result = try garmin([["calendarDate": day, "totalSteps": 0, "steps": 8421]])
+        XCTAssertEqual(result.days.first?.steps, 0)
+        let fallback = try garmin([["calendarDate": day, "totalSteps": "-0.5", "steps": 0]])
+        XCTAssertEqual(fallback.days.first?.steps, 0, "an invalid primary alias still permits a valid secondary measurement")
+    }
+
+    func testGarminMissingNegativeAndNonFiniteStepsRemainUnknown() throws {
+        let rejected: [Any?] = [nil, NSNull(), -1, -0.5, "NaN", "inf", "1e300", Int.max, "0.5"]
+        for key in ["steps", "totalSteps"] {
+            for value in rejected {
+                var row: [String: Any] = ["calendarDate": day, "restingHeartRate": 61]
+                if let value { row[key] = value }
+                let result = try garmin([row])
+                XCTAssertNil(result.days.first?.steps, "\(key): \(String(describing: value))")
+                XCTAssertEqual(result.days.first?.restingHr, 61)
+            }
+        }
+    }
+
+    func testGarminObservedZeroReplacesEarlierSameFileStepsWithoutClearingHR() throws {
+        let result = try garmin([
+            ["calendarDate": day, "totalSteps": 8421, "restingHeartRate": 61],
+            ["calendarDate": day, "totalSteps": 0],
+        ])
+        XCTAssertEqual(result.days.first?.steps, 0)
+        XCTAssertEqual(result.days.first?.restingHr, 61)
+    }
+
+    func testGarminIntegerCoercionsStayRangeChecked() throws {
+        let largest = try garmin([["calendarDate": day, "totalSteps": large, "restingHeartRate": large, "averageStressLevel": large]])
+        XCTAssertEqual(largest.days.first?.steps, large)
+        XCTAssertEqual(largest.days.first?.restingHr, large)
+        XCTAssertEqual(largest.days.first?.avgStress, large)
+        for invalid: Any in [Int.max, 1e300, "1e300", "inf", "NaN"] {
+            let result = try garmin([["calendarDate": day, "totalSteps": invalid, "restingHeartRate": invalid, "averageStressLevel": invalid]])
+            XCTAssertNil(result.days.first?.steps)
+            XCTAssertNil(result.days.first?.restingHr)
+            XCTAssertNil(result.days.first?.avgStress)
+        }
+    }
+
+    func testGarminZeroHeartRateAndDirectAndNestedScoresRemainUnmeasured() throws {
+        for score: [String: Any] in [["overallSleepScore": 0], ["sleepScores": ["overall": ["value": 0]]]] {
+            var sleep: [String: Any] = ["calendarDate": day, "sleepStartTimestampGMT": 1_780_272_000_000,
+                                       "sleepEndTimestampGMT": 1_780_275_600_000, "deepSleepSeconds": 60, "restingHeartRate": 0]
+            sleep.merge(score) { _, new in new }
+            let result = WearableExportImporter.parse(brand: .garmin, files: [
+                "sleepdata.json": try JSONSerialization.data(withJSONObject: [sleep]),
+            ])
+            XCTAssertEqual(result.sleeps.count, 1)
+            XCTAssertNil(result.sleeps.first?.sleepScore)
+            XCTAssertNil(result.sleeps.first?.lowestHr)
+            XCTAssertNil(result.days.first?.restingHr)
+        }
+    }
 }
