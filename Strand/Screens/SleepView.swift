@@ -171,6 +171,9 @@ struct SleepView: View {
     /// which marks the session `userEdited` so a later strap sync can't revert the correction. (#318)
     @State private var wakeEdit: WakeEdit?
 
+    /// The ⓘ explainer open from a Sleep section header (score, stages, night detail, tonight), if any.
+    @State private var metricInfo: MetricInfo?
+
     /// Non-nil while the "Add nap" picker sheet is open (#508). Carries a seed bed/wake for the picker;
     /// saving routes through `repo.addManualNap`, which stages the chosen window from raw and writes it as
     /// its OWN separate session row (`userEdited = 1`) — never folded into the night's main sleep.
@@ -295,7 +298,8 @@ struct SleepView: View {
                         // balance, which is the evidence for it.
                         SleepNeedBreakdownSection(
                             wakeDay: SleepView.wakeDayKey(for: displayedNight.night),
-                            trailing: sleepBalanceTrailing(resolved)
+                            trailing: sleepBalanceTrailing(resolved),
+                            infoAction: { metricInfo = .sleepNeed }
                         ) {
                             sleepBalanceContent(resolved)
                         }
@@ -376,6 +380,7 @@ struct SleepView: View {
                 modelKey = dataKey
                 model = buildModel()
             }
+            .metricInfoSheet($metricInfo)
             .sheet(item: $wakeEdit) { edit in
                 // The night's RECORDED coverage for the #940 guards: from the immutable detected
                 // onset (where the strap actually saw the night; an earlier hand-set onset widens
@@ -612,7 +617,8 @@ struct SleepView: View {
                 FactStrip.Fact("Resting HR", value: restingHR.map { "\($0) bpm" } ?? "—"),
                 FactStrip.Fact("Respiratory", value: day?.respRateBpm.map { String(format: "%.1f", $0) } ?? "—"),
             ],
-            source: nightSource(night)
+            source: nightSource(night),
+            infoAction: { metricInfo = .sleepScore }
         )
     }
 
@@ -651,7 +657,9 @@ struct SleepView: View {
         )
 
         return FlatSection("Sleep stages", systemImage: "bed.double.fill", tint: .sleep,
-                            trailing: .custom(AnyView(windowChips(night)))) {
+                            trailing: .custom(AnyView(windowChips(night))),
+                            infoAction: { metricInfo = .sleepStages },
+                            infoAccessibilityLabel: MetricInfo.sleepStages.accessibilityLabel) {
             Text("\(night.onsetText) → \(night.wakeText) · \(presentation.inBedDuration) in bed")
                 .font(StrandFont.subhead)
                 .foregroundStyle(StrandPalette.textSecondary)
@@ -679,7 +687,7 @@ struct SleepView: View {
     private func windowChips(_ night: Night) -> some View {
         HStack(spacing: NoopMetrics.space2) {
             if let reason = mainSleepReasonText(night) {
-                WidgetChipButton(systemImage: "info.circle", accessibilityLabel: "Why this is your main sleep") {
+                InfoGlyphButton(accessibilityLabel: "Why this is your main sleep") {
                     showMainSleepWhy.toggle()
                 }
                 .popover(isPresented: $showMainSleepWhy, arrowEdge: .bottom) {
@@ -988,7 +996,9 @@ struct SleepView: View {
         let rowGap = TodaySectionSeparator(above: 5, below: 5)
 
         FlatSection("Night detail", systemImage: "moon.zzz.fill", tint: .sleep,
-                     trailing: .text(String(localized: "vs your typical"))) {
+                     trailing: .text(String(localized: "vs your typical")),
+                     infoAction: { metricInfo = .nightDetail },
+                     infoAccessibilityLabel: MetricInfo.nightDetail.accessibilityLabel) {
             VStack(alignment: .leading, spacing: 0) {
                 percentRow("gauge.medium", String(localized: "Efficiency"), latest: efficiency, typical: model.efficiency.typical,
                            series: model.efficiency.series, tint: .sleep)
@@ -1908,6 +1918,8 @@ private struct SleepSyncingNote: View {
 private struct SleepNeedBreakdownSection<Balance: View>: View {
     let wakeDay: String
     let trailing: EyebrowTrailing
+    /// Opens the Sleep need and balance explainer from the header's ⓘ.
+    let infoAction: () -> Void
     @ViewBuilder let balance: () -> Balance
     @EnvironmentObject private var repo: Repository
     @State private var breakdown: SleepNeedBreakdown?
@@ -1918,7 +1930,8 @@ private struct SleepNeedBreakdownSection<Balance: View>: View {
 
     var body: some View {
         let isVisible = SleepNeedBreakdownVisibility.isVisible(mode: SleepPerformanceV2Prefs.mode)
-        FlatSection("Tonight", systemImage: "moon.fill", tint: .sleep, trailing: trailing) {
+        FlatSection("Tonight", systemImage: "moon.fill", tint: .sleep, trailing: trailing,
+                    infoAction: infoAction, infoAccessibilityLabel: MetricInfo.sleepNeed.accessibilityLabel) {
             if isVisible {
                 if let breakdown, breakdown.day == wakeDay {
                     needBlock(breakdown)

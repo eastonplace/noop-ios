@@ -116,11 +116,15 @@ struct SleepHeroSection: View {
     let message: String
     let facts: [FactStrip.Fact]
     let source: String?
+    /// Opens the Sleep score explainer from the header's ⓘ. Absent, the header has no ⓘ.
+    var infoAction: (() -> Void)? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: WidgetMetrics.contentSpacing) {
             SectionEyebrow("Sleep score", systemImage: "moon.stars.fill", tint: .sleep,
-                           trailing: source.map { .text($0) } ?? .none)
+                           trailing: source.map { .text($0) } ?? .none,
+                           infoAction: infoAction,
+                           infoAccessibilityLabel: MetricInfo.sleepScore.accessibilityLabel)
             GaugeLayout {
                 SleepScoreDial(score: score, compact: true)
             } rows: {

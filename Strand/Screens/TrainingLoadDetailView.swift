@@ -296,7 +296,7 @@ struct TrainingLoadDetailView: View {
     // MARK: Tomorrow
 
     private func tomorrowSection(_ model: TrainingLoadPageModel) -> some View {
-        section("Where tomorrow could land", symbol: "sun.max", spacing: 6) {
+        section("Where tomorrow could land", symbol: "sun.max", spacing: 6, info: .loadProjection) {
             TrainingLoadTomorrow(projections: model.projections)
         }
         .accessibilityIdentifier("trends.trainingLoad.tomorrow")
@@ -308,7 +308,7 @@ struct TrainingLoadDetailView: View {
     private func loadSection(_ model: TrainingLoadPageModel, points: [TrainingLoadDay]) -> some View {
         let focus = focusDay(in: points)
         return section("Load over time", symbol: "chart.xyaxis.line", trailing: .text(String(localized: "Strain, 0–21")),
-                       spacing: 0) {
+                       spacing: 0, info: .loadHistory) {
             VStack(alignment: .leading, spacing: 0) {
                 readout(focus)
                     .padding(.top, 12)

@@ -28,7 +28,9 @@ extension TrendsView {
                 title: String(localized: "Weekly readout"),
                 systemImage: "chart.bar.doc.horizontal",
                 tint: .accent,
-                trailing: .pill("\(digest.daysWithData)/7 days", tone: .neutral)
+                trailing: .pill("\(digest.daysWithData)/7 days", tone: .neutral),
+                infoAction: { metricInfo = .weeklyReadout },
+                infoAccessibilityLabel: MetricInfo.weeklyReadout.accessibilityLabel
             )
 
             weekStepper

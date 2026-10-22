@@ -47,6 +47,8 @@ struct StressView: View {
     @State private var daytime: DaytimeStress.Result?
     /// Drives the Breathe sheet presented from the sustained-stress suggestion.
     @State private var showBreathe = false
+    /// The ⓘ explainer open from the hero's header, if any.
+    @State private var metricInfo: MetricInfo?
 
     /// ADDITIVE, on-demand advanced readouts, computed live from the SAME day's R-R the
     /// daytime timeline already reads. These do NOT feed the 0..3 score or the timeline; they
@@ -250,6 +252,7 @@ struct StressView: View {
             methodologySection(nil)
         }
         .sheet(isPresented: $showBreathe) { breatheSheet }
+        .metricInfoSheet($metricInfo)
     }
 
     @ViewBuilder
@@ -275,6 +278,7 @@ struct StressView: View {
         // The sustained-stress suggestion opens the existing Breathe trainer in a sheet: in-app and passive,
         // inheriting the app environment.
         .sheet(isPresented: $showBreathe) { breatheSheet }
+        .metricInfoSheet($metricInfo)
     }
 
     private var breatheSheet: some View {
@@ -313,7 +317,8 @@ struct StressView: View {
         headline: String? = nil,
         mode: StressPresentationMode
     ) -> some View {
-        StressHero(score: score, message: message, headline: headline, mode: mode, slots: stressRibbonSlots)
+        StressHero(score: score, message: message, headline: headline, mode: mode, slots: stressRibbonSlots,
+                   infoAction: { metricInfo = .stress })
     }
 
     // MARK: Sustained high
@@ -602,18 +607,22 @@ struct StressHero: View {
     /// Today's 24 hourly slots: a scored hour carries its 0-3 level, every other hour stays empty. The daily score never
     /// fabricates an hourly history.
     let slots: [Double?]
+    /// Opens the Stress explainer from the header's ⓘ. Absent, the header has no ⓘ.
+    var infoAction: (() -> Void)? = nil
 
     /// The hour of today under the finger on the ribbon (hold and drag, or VoiceOver stepping), nil when idle.
     @State private var scrubHour: Int?
     /// The app's locale, which carries the 12/24-hour setting, so the hours read the way the rest of the app reads them.
     @Environment(\.locale) private var locale
 
-    init(score: Double?, message: String, headline: String? = nil, mode: StressPresentationMode, slots: [Double?]) {
+    init(score: Double?, message: String, headline: String? = nil, mode: StressPresentationMode, slots: [Double?],
+         infoAction: (() -> Void)? = nil) {
         self.score = score
         self.message = message
         self.headline = headline
         self.mode = mode
         self.slots = slots
+        self.infoAction = infoAction
     }
 
     /// The band word for a 0-3 stress level: the one word on the hero pill, the marker tile and what VoiceOver speaks.
@@ -643,7 +652,9 @@ struct StressHero: View {
             SectionEyebrow(
                 title: String(localized: "Stress monitor"),
                 systemImage: "bolt.heart",
-                tint: .custom(tint)
+                tint: .custom(tint),
+                infoAction: infoAction,
+                infoAccessibilityLabel: MetricInfo.stress.accessibilityLabel
             )
             // At accessibility text sizes the pill drops under the number instead of squeezing it.
             let heroValue = HeroValue(
