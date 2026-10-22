@@ -40,6 +40,8 @@ final class TestCentreReport: ObservableObject {
     /// bound to it so a user who cannot attach the .zip can paste the <details> block straight into the
     /// issue. nil on macOS / when there is nothing to copy, so the button stays hidden.
     @Published var copyableReport: String?
+    private var buildTask: Task<Void, Never>?
+    private var buildID: UUID?
 
     /// Build the redacted bundle for `mode` and stage it for review. Nothing leaves the device yet.
     /// Async under the hood (#1002): the storage probe reads the store actor, so the bundle is staged a
@@ -47,17 +49,30 @@ final class TestCentreReport: ObservableObject {
     /// Repository for the row-count probe - nil (tests/previews) skips the store read and the meta keeps
     /// the honest zeroed block.
     func start(mode: TestMode, live: LiveState, repo: Repository? = nil) {
-        Task { @MainActor [weak self] in
+        buildTask?.cancel()
+        let id = UUID()
+        buildID = id
+        pending = nil
+        buildTask = Task { @MainActor [weak self] in
+            defer {
+                if self?.buildID == id { self?.buildTask = nil; self?.buildID = nil }
+            }
             let storage = await TestCentreReport.storageProbe(repo: repo, live: live)
             // #1002: the connected model. BLEManager persists the DETECTED family to this key on every
             // connect, so it reflects the strap that actually linked - nil before any strap ever did.
             // Read, never guessed.
             let model = UserDefaults.standard.string(forKey: "selectedWhoopModel")
-            let entries = TestBundleAssembler.assemble(profile: mode.domain, live: live,
-                                                       storage: storage, strapModel: model)
-            self?.pending = Pending(profile: mode.domain, title: mode.title,
-                                    gate: ReportReviewGate(entries: entries),
-                                    modeInactive: mode.domain != .master && !TestCentre.active(mode.domain))
+            do {
+                let entries = try await TestBundleAssembler.assemble(profile: mode.domain, live: live,
+                                                                    storage: storage, strapModel: model)
+                guard !Task.isCancelled, self?.buildID == id else { return }
+                self?.pending = Pending(profile: mode.domain, title: mode.title,
+                                        gate: ReportReviewGate(entries: entries),
+                                        modeInactive: mode.domain != .master && !TestCentre.active(mode.domain))
+            } catch {
+                guard !Task.isCancelled, self?.buildID == id else { return }
+                self?.lastStatus = error.localizedDescription
+            }
         }
     }
 
@@ -127,5 +142,10 @@ final class TestCentreReport: ObservableObject {
     }
 
     /// The user cancelled the review: nothing is shared.
-    func cancel() { pending = nil }
+    func cancel() {
+        buildTask?.cancel()
+        buildTask = nil
+        buildID = nil
+        pending = nil
+    }
 }

@@ -113,6 +113,34 @@ enum FileExport {
         func stage(_ source: URL, name: String) throws -> URL {
             try FileExport.stagedSanitizedCapture(at: source, suggestedName: name)
         }
+        func tail(_ source: URL, maximumBytes: Int?) throws -> (data: Data, truncated: Bool)? {
+            let staged: URL
+            do { staged = try FileExport.stagedSanitizedCapture(at: source, suggestedName: source.lastPathComponent) }
+            catch let error as CocoaError where error.code == .fileReadNoSuchFile || error.code == .fileNoSuchFile { return nil }
+            defer { FileExport.removeStaged(staged) }
+            let handle = try FileHandle(forReadingFrom: staged)
+            defer { try? handle.close() }
+            let count = try handle.seekToEnd()
+            let budget = UInt64(max(0, maximumBytes ?? Int.max))
+            let kept = min(count, budget)
+            try handle.seek(toOffset: count - kept)
+            var data = Data()
+            var remaining = kept
+            while remaining > 0 {
+                try Task.checkCancellation()
+                let part = try handle.read(upToCount: Int(min(65_536, remaining))) ?? Data()
+                guard !part.isEmpty else { throw CaptureError.changedWhileReading }
+                data.append(part)
+                remaining -= UInt64(part.count)
+            }
+            return (data, count > budget)
+        }
+        func redact(_ entries: [BundleEntry]) -> [BundleEntry] {
+            entries.map { entry in
+                guard let text = String(data: entry.data, encoding: .utf8) else { return entry }
+                return BundleEntry(name: entry.name, data: Data(LiveState.redactPii(text).utf8))
+            }
+        }
         func zip(_ entries: [BundleEntry], baseName: String) -> URL? {
             FileExport.zipData(entries: entries, baseName: baseName)
         }
@@ -128,6 +156,16 @@ enum FileExport {
             if fm.fileExists(atPath: destination.path) { try fm.removeItem(at: destination) }
             try fm.copyItem(at: source, to: destination)
         }
+    }
+
+    /// Keep only the already-scrubbed tail required by the existing bundle budget. The stream is
+    /// scrubbed before seeking, so a serial straddling the retained-tail boundary cannot leak.
+    static func sanitizedCaptureTail(at source: URL, maximumBytes: Int?) async throws -> (data: Data, truncated: Bool)? {
+        try await io.tail(source, maximumBytes: maximumBytes)
+    }
+
+    static func sanitizedEntries(_ entries: [BundleEntry]) async -> [BundleEntry] {
+        await io.redact(entries)
     }
 
     @MainActor
