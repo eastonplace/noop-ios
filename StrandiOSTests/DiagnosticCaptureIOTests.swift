@@ -90,6 +90,20 @@ final class DiagnosticCaptureIOTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: missingLog.path), "a missing optional capture must not discard the log")
     }
 
+    func testTextExportStagesExactBytesWithIndependentOwnership() async throws {
+        let text = "NOOP strap log\nUnicode é😴\nA safe line\n"
+        let first = try await FileExport.stagedText(text, suggestedName: "same-log.txt")
+        let second = try await FileExport.stagedText(text + "next", suggestedName: "same-log.txt")
+        defer {
+            try? FileManager.default.removeItem(at: first.deletingLastPathComponent())
+            try? FileManager.default.removeItem(at: second.deletingLastPathComponent())
+        }
+        XCTAssertEqual(first.lastPathComponent, "same-log.txt")
+        XCTAssertNotEqual(first, second)
+        XCTAssertEqual(try Data(contentsOf: first), Data(text.utf8))
+        XCTAssertEqual(try Data(contentsOf: second), Data((text + "next").utf8))
+    }
+
     func testCancelledScheduledDropDoesNotAcknowledgeOrReplaceExistingLog() async throws {
         let root = try directory()
         defer { try? FileManager.default.removeItem(at: root) }
