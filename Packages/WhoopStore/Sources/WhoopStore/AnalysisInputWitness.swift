@@ -16,7 +16,9 @@ public struct AnalysisInputWitness: Sendable, Equatable {
     /// All changes to a dependency table invalidate, including same-key value/quality repairs.
     public func signature(tables: [String]) -> String {
         let base = "\(generation):\(externalVersion):\(schemaVersion):\(tempSchemaVersion):\(unknownRevision)"
-        return tables.sorted().reduce(base) { $0 + ":\($1.utf8.count):\($1)=\(tableRevisions[$1, default: 0])" }
+        return tables.map { $0.lowercased() }.sorted().reduce(base) {
+            $0 + ":\($1.utf8.count):\($1)=\(tableRevisions[$1, default: 0])"
+        }
     }
 
     /// Normal gravity inserts affect only intersecting owner/UTC-day buckets. Repairs and unknown writes
@@ -27,7 +29,7 @@ public struct AnalysisInputWitness: Sendable, Equatable {
         let first = Self.utcDay(from), last = Self.utcDay(to)
         // Callers use one civil day. A wider/malformed request stays correct with the whole-table fence.
         guard last >= first, last - first <= 7 else {
-            return base + ":all\(tableRevisions["gravitySample", default: 0])"
+            return base + ":all\(tableRevisions["gravitysample", default: 0])"
         }
         return (first...last).reduce(base) { partial, day in
             partial + ":\(day)=\(gravityRevisions[.init(owner: deviceId, day: day), default: 0])"
@@ -78,9 +80,9 @@ final class AnalysisInputObservation: TransactionObserver, @unchecked Sendable {
 
     func databaseDidChange(with event: DatabaseEvent) {
         observedRows += 1
-        let table = event.tableName
+        let table = event.tableName.lowercased()
         pendingTables.insert(table)
-        guard table == "gravitySample", !pendingGravityGlobal else { return }
+        guard table == "gravitysample", !pendingGravityGlobal else { return }
         guard knownGravityAppend, event.kind == .insert, pendingGravityRows.count < Self.regionLimit else {
             pendingGravityGlobal = true
             pendingGravityRows.removeAll(keepingCapacity: true)
@@ -93,8 +95,15 @@ final class AnalysisInputObservation: TransactionObserver, @unchecked Sendable {
     func databaseDidCommit(_ db: Database) { reconcile(db) }
 
     func databaseDidRollback(_ db: Database) {
-        // SQLite total_changes includes rolled-back rows. A complete rollback publishes no input change.
-        accountedTotal = sqlite3_total_changes64(db.sqliteConnection)
+        // A matched, fully observed rollback publishes no input change. Unaccounted changes may instead
+        // be an earlier committed direct-SQL write; a later rollback must never acknowledge that drift.
+        let total = sqlite3_total_changes64(db.sqliteConnection)
+        if pendingUnknown || total - accountedTotal != observedRows {
+            unknownRevision &+= 1
+            gravityGlobalRevision &+= 1
+            gravityRevisions.removeAll(keepingCapacity: true)
+        }
+        accountedTotal = total
         resetPending()
     }
 
@@ -129,19 +138,21 @@ final class AnalysisInputObservation: TransactionObserver, @unchecked Sendable {
             let key = "\(main):\(temp)"
             if gravitySchemaKey == key { return gravitySchemaAllowsAppendRegions }
             let columns = try Row.fetchAll(db, sql: "PRAGMA main.table_info(gravitySample)")
+            let shadowsRowID = columns.contains { ["rowid", "_rowid_", "oid"].contains(($0["name"] as String).lowercased()) }
             let primary = columns.filter { ($0["pk"] as Int) > 0 }
                 .sorted { ($0["pk"] as Int) < ($1["pk"] as Int) }.map { $0["name"] as String }
             let rowid = try Int.fetchOne(db, sql:
-                "SELECT wr FROM pragma_table_list WHERE schema='main' AND name='gravitySample'") == 0
+                "SELECT wr FROM pragma_table_list WHERE schema='main' AND name='gravitySample' COLLATE NOCASE") == 0
             let extraUnique = try Row.fetchAll(db, sql: "PRAGMA main.index_list(gravitySample)")
                 .contains { ($0["unique"] as Int) != 0 && ($0["origin"] as String) != "pk" }
             let foreignKeys = try Row.fetchAll(db, sql: "PRAGMA main.foreign_key_list(gravitySample)")
             let triggers = try Int.fetchOne(db, sql: """
-                SELECT (SELECT COUNT(*) FROM sqlite_master WHERE type='trigger' AND tbl_name='gravitySample')
-                     + (SELECT COUNT(*) FROM sqlite_temp_master WHERE type='trigger' AND tbl_name='gravitySample')
-                     + (SELECT COUNT(*) FROM sqlite_temp_master WHERE name='gravitySample')
+                SELECT (SELECT COUNT(*) FROM sqlite_master WHERE type='trigger' AND tbl_name='gravitySample' COLLATE NOCASE)
+                     + (SELECT COUNT(*) FROM sqlite_temp_master WHERE type='trigger' AND tbl_name='gravitySample' COLLATE NOCASE)
+                     + (SELECT COUNT(*) FROM sqlite_temp_master WHERE name='gravitySample' COLLATE NOCASE)
                 """) ?? 1
-            gravitySchemaAllowsAppendRegions = primary == ["deviceId", "ts"] && rowid && !extraUnique
+            gravitySchemaAllowsAppendRegions = primary.map { $0.lowercased() } == ["deviceid", "ts"]
+                && rowid && !shadowsRowID && !extraUnique
                 && foreignKeys.isEmpty && triggers == 0
             gravitySchemaKey = key
             return gravitySchemaAllowsAppendRegions
