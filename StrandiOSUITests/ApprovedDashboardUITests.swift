@@ -175,6 +175,34 @@ final class ApprovedDashboardUITests: XCTestCase {
         capture(app, "preserved-sleep-stages-presentation")
     }
 
+    func testStrapStatusPanelAndCalendar() throws {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        launch(app)
+        defer { app.terminate() }
+        let status = app.buttons["app.deviceStatus"]
+        try requireExists(status, in: app, timeout: 60)
+        XCTAssertEqual(app.buttons.matching(identifier: "app.deviceStatus").count, 1)
+        XCTAssertEqual(app.buttons.matching(identifier: "today.dateButton").count, 1)
+        status.coordinate(withNormalizedOffset: CGVector(dx: 0.25, dy: 0.75)).tap()
+        try requireExists(element("app.statusPanel", in: app), in: app)
+        for title in ["Test vibration", "Sync now", "Device settings"] {
+            try requireExists(app.buttons[title], in: app)
+        }
+        capture(app, "strap-status-panel")
+        status.coordinate(withNormalizedOffset: CGVector(dx: 0.25, dy: 0.75)).tap()
+        try waitFor(element("app.statusPanel", in: app), predicate: "exists == false", in: app)
+        let date = app.buttons["today.dateButton"]
+        try requireExists(date, in: app)
+        date.tap()
+        try requireExists(element("today.calendar", in: app), in: app)
+        try requireExists(app.buttons["Previous month"], in: app)
+        capture(app, "today-month-calendar")
+        app.buttons["today.calendar.todayButton"].tap()
+        try waitFor(element("today.calendar", in: app), predicate: "exists == false", in: app)
+        capture(app, "today-returned-from-calendar")
+    }
+
     private func launch(_ app: XCUIApplication, route: String? = nil, size: TextSize = .normal,
                         preserveDemoPreferences: Bool = false) {
         app.terminate()

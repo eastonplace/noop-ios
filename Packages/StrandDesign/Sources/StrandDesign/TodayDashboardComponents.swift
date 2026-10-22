@@ -831,6 +831,12 @@ public struct HeaderChromeRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityHint(statusExpanded == nil ? "Opens device Settings, battery and sync controls"
+                                                 : "Shows strap status and quick actions")
+        .accessibilityValue(statusExpanded == nil ? deviceAccessibilityValue
+                            : "\(deviceAccessibilityValue), \(statusOpen ? "Expanded" : "Collapsed")")
+        .accessibilityIdentifier("app.deviceStatus")
+        // Keep the date button outside the status button's accessibility modifiers.
         // The accessory sits inline after the title, above the button, so it keeps its own tap target.
         // A hidden copy of the title reserves exactly the title's width.
         .overlay(alignment: .topLeading) {
@@ -842,11 +848,6 @@ public struct HeaderChromeRow: View {
                 .fixedSize()
             }
         }
-        .accessibilityHint(statusExpanded == nil ? "Opens device Settings, battery and sync controls"
-                                                 : "Shows strap status and quick actions")
-        .accessibilityValue(statusExpanded == nil ? deviceAccessibilityValue
-                            : "\(deviceAccessibilityValue), \(statusOpen ? "Expanded" : "Collapsed")")
-        .accessibilityIdentifier("app.deviceStatus")
     }
 
     private func statusTapped() {
