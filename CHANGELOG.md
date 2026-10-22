@@ -21,7 +21,7 @@ approximate; downloads are on the [Releases](https://github.com/NoopApp/noop/rel
 
 ## 2.0.0
 
-NOOP 2.0. A daily training target based on your recent load, with a preview before you commit. Lift suggests your next weights and shows what changed since your last session. Write or dictate a journal note and review how NOOP read it before saving. Workout suggestions you can save in one tap, with the type changed first if it guessed wrong.
+NOOP 2.0. A daily training target based on your recent load, with a preview before you commit. Lift suggests your next weights and shows what changed since your last session. Write or dictate a journal note and review how NOOP read it before saving. Workout suggestions you can save in one tap, with the type changed first if it guessed wrong. Journal in Coach: log your day, and see what affects your recovery.
 
 ## 1.7.1
 

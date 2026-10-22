@@ -53,6 +53,7 @@ enum AppChangelog {
             Feature("dumbbell.fill", .strain, "Lift suggests weights", "Your next weights, worked out for you."),
             Feature("mic.fill", .journal, "Journal notes", "Write or dictate a note, then review it."),
             Feature("figure.walk", .accent, "Workout suggestions", "Save a detected workout in one tap."),
+            Feature("book.closed.fill", .journal, "Journal in Coach", "Log your day and see what affects your recovery."),
         ]),
         .fork("1.7.1", "Clearer alarm confirmation", "October 2026", [
             Feature("alarm.fill", .sleep, "Ordered alarm delivery", "WHOOP 4.0 alarm commands wait for each write."),
