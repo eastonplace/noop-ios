@@ -1008,9 +1008,11 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
     /// An afternoon's wear on fixture day `k` from 14:00 to 23:00, with half an hour of exercise at 17:00.
     private func insertAfternoon(_ harness: Harness, day k: Int, deviceId: String) async throws {
         let start = firstDayStart + k * 86_400
+        let exerciseStart: Int = start + 17 * 3_600
+        let exerciseEnd: Int = exerciseStart + 1_800
         var streams = Streams()
         for ts in stride(from: start + 14 * 3_600, to: start + 23 * 3_600, by: 30) {
-            let exercising = ts >= start + 17 * 3_600 && ts < start + 17 * 3_600 + 1_800
+            let exercising: Bool = ts >= exerciseStart && ts < exerciseEnd
             streams.hr.append(HRSample(ts: ts, bpm: exercising ? 125 + ts % 9 : 80 + ts % 7))
             let wobble = Double(ts % 11) * 0.2
             streams.gravity.append(GravitySample(ts: ts, x: wobble, y: 0.3 - wobble, z: 0.8))
