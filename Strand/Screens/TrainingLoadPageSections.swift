@@ -1249,6 +1249,7 @@ struct LoadFocusCardRow: View {
                 Text("Load focus · last 4 weeks")
                     .font(StrandFont.caption.weight(.semibold))
                     .foregroundStyle(StrandPalette.textPrimary)
+                LoadInfoButton(topic: .loadFocus)
                 Spacer(minLength: 0)
                 Text("from heart-rate zones")
                     .font(StrandFont.micro)

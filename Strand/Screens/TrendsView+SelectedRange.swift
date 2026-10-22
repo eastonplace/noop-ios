@@ -37,10 +37,13 @@ extension TrendsView {
                 title: String(localized: "Training load"),
                 systemImage: "flame.fill",
                 tint: .strain,
-                trailing: .pill(
-                    LocalizedStringKey(load.map(trainingLoadStatus) ?? "Loading"),
-                    tone: load.map { TrainingLoadCopy.tone($0.state) } ?? .neutral
-                ),
+                trailing: .custom(AnyView(
+                    HStack(spacing: NoopMetrics.space2) {
+                        StatePill(LocalizedStringKey(load.map(trainingLoadStatus) ?? "Loading"),
+                                  tone: load.map { TrainingLoadCopy.tone($0.state) } ?? .neutral, showsDot: false)
+                        LoadInfoButton(topic: .trainingLoad)
+                    }
+                )),
                 showsChevron: true
             )
             trainingLoadBody(load)

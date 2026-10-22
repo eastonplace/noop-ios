@@ -270,7 +270,14 @@ struct TrainingLoadDetailView: View {
 
     private func heroSection(_ model: TrainingLoadPageModel, result: TrainingLoadEngine.Result) -> some View {
         VStack(alignment: .leading, spacing: WidgetMetrics.headerSpacing) {
-            SectionEyebrow(title: heroEyebrow, systemImage: "flame.fill", tint: .strain, trailing: eyebrowPill(result))
+            SectionEyebrow(title: heroEyebrow, systemImage: "flame.fill", tint: .strain,
+                           trailing: .custom(AnyView(
+                               HStack(spacing: NoopMetrics.space2) {
+                                   StatePill(LocalizedStringKey(TrainingLoadCopy.status(state: result.state, gap: gap, observedDays: result.contiguousDays)),
+                                             tone: TrainingLoadCopy.tone(result.state), showsDot: false)
+                                   LoadInfoButton(topic: .trainingLoad)
+                               }
+                           )))
             TrainingLoadHero(model: model)
         }
     }
@@ -597,7 +604,13 @@ struct TrainingLoadDetailView: View {
             }
         }()
         return section("Where the load came from", symbol: "square.grid.2x2",
-                       trailing: .text(mode == .intensity ? String(localized: "last 4 weeks") : String(localized: "last 6 weeks")),
+                       trailing: .custom(AnyView(
+                           HStack(spacing: NoopMetrics.space2) {
+                               Text(mode == .intensity ? String(localized: "last 4 weeks") : String(localized: "last 6 weeks"))
+                                   .font(StrandFont.micro).foregroundStyle(StrandPalette.textTertiary)
+                               if mode == .intensity { LoadInfoButton(topic: .loadFocus) }
+                           }
+                       )),
                        spacing: 16) {
             if slices != nil, loadFocus != nil {
                 SegmentedPillControl(LoadMixView.allCases, selection: Binding(get: { mode }, set: { mixView = $0 })) { $0.title }
