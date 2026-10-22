@@ -1374,6 +1374,7 @@ final class IntelligenceFullRescoreInvariantTests: XCTestCase {
             XCTAssertTrue(activeCompleted)
             XCTAssertEqual(harness.engine.stepMotionCacheHits - beforeActiveHits, 59)
             let activeBundles = await bundleProbe.snapshot()
+            XCTAssertEqual(activeBundles.misses, 1, "a trusted current-day append must preserve both untouched day scans")
             let reusedOutput = try await stored(harness)
 
             let repository = Repository(deviceId: Repository.whoopSource)
