@@ -2289,7 +2289,8 @@ final class AppModel: ObservableObject {
         if activeWorkoutIsGps {
             gpsRecorder.start(
                 sessionID: activeWorkout!.sessionID,
-                startMs: Int64(started.timeIntervalSince1970 * 1000)
+                startMs: Int64(started.timeIntervalSince1970 * 1000),
+                sport: resolved
             )
             if let checkpoint = gpsRecorder.persistenceCheckpoint() {
                 _ = persistActiveGpsWorkout(checkpoint, synchronously: true)
@@ -2759,7 +2760,7 @@ final class AppModel: ObservableObject {
         acquireWorkoutRealtimeHR()
         if let gps = ActiveGpsWorkoutPersistence.load(), gps.sessionID == snap.sessionID {
             activeWorkoutIsGps = true
-            gpsRecorder.restore(gps)
+            gpsRecorder.restore(gps, sport: snap.sport)
             // A workout that was paused when the app closed is still paused: location stays open, no fix counts.
             if pauses.isPaused { gpsRecorder.setPaused(true) }
             if gps.recordingWasActive {
