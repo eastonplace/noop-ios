@@ -33,7 +33,7 @@ October 2026: More reliable daily data.
 - **Complete Charge inputs.** Late readings and final night temperatures reach Charge.
 - **WHOOP pairing.** New live connections focus on WHOOP straps.
 
-Also repairs sport-specific GPS filtering, import and Lab Book ownership, live workout energy corrections, Coach/export persistence, foreground actions, widgets and stale Bluetooth callbacks. Existing paired devices and offline history imports remain available. No historical data migration or measured battery improvement is claimed.
+Also repairs sport-specific GPS filtering, import and Lab Book ownership, live workout energy corrections, Coach/export persistence, foreground actions, widgets, stale Bluetooth callbacks and alarm backup notification ownership. Existing paired devices and offline history imports remain available. No historical data migration or measured battery improvement is claimed.
 
 ## 1.7.1
 
