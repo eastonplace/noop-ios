@@ -1,5 +1,10 @@
 import Foundation
 import ZIPFoundation
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 
 #if canImport(AppKit)
 import AppKit
@@ -116,6 +121,26 @@ enum FileExport {
         } else { try? FileManager.default.removeItem(at: url) }
     }
 
+    /// Stage beside the chosen destination, then rename on that same volume. No existing user file
+    /// is removed until the complete copy is ready; a failed copy or rename leaves it intact.
+    static func copyAtomically(_ source: URL, to destination: URL) throws {
+        let fm = FileManager.default
+        let staged = destination.deletingLastPathComponent()
+            .appendingPathComponent(".noop-export-" + UUID().uuidString)
+        defer { try? fm.removeItem(at: staged) }
+        try fm.copyItem(at: source, to: staged)
+        let status = staged.withUnsafeFileSystemRepresentation { sourcePath in
+            destination.withUnsafeFileSystemRepresentation { destinationPath in
+                guard let sourcePath, let destinationPath else { errno = EINVAL; return Int32(-1) }
+                return rename(sourcePath, destinationPath)
+            }
+        }
+        guard status == 0 else {
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno),
+                          userInfo: [NSFilePathErrorKey: destination.path])
+        }
+    }
+
     private static let io = ExportIO()
     private actor ExportIO {
         func stage(_ source: URL, name: String) throws -> URL {
@@ -160,9 +185,7 @@ enum FileExport {
             return FileExport.zip(entries: entries, baseName: baseName)
         }
         func copy(_ source: URL, to destination: URL) throws {
-            let fm = FileManager.default
-            if fm.fileExists(atPath: destination.path) { try fm.removeItem(at: destination) }
-            try fm.copyItem(at: source, to: destination)
+            try FileExport.copyAtomically(source, to: destination)
         }
     }
 
