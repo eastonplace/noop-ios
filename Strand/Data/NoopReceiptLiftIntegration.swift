@@ -200,24 +200,40 @@ final class NoopReceiptLiftIntegration: ObservableObject {
     func consumeRestoredSession() { restoredSessionPending = false }
 
     /// What Lift shows for Strain: the app's stored values, or (DEBUG) the simulator QA scenarios.
-    private static func strainProvider(model: AppModel, store: WhoopStore) -> any LiftStrainProviding {
+    static func strainProvider(model: AppModel, store: WhoopStore) -> any LiftStrainProviding {
         #if DEBUG
         if let demo = DemoLiftStrainProvider.requested() { return demo }
         #endif
+        let repository = model.repo
+        let source = repository.deviceId
+        let sourceContext = repository.notificationSourceContext
+        // An active workout can outlive a source selection. Its saved summaries keep their original
+        // owner, while live values must stop until that exact repository/source context is current.
+        let isCurrentSource: @MainActor @Sendable () -> Bool = { [weak model, weak repository] in
+            guard let model, let repository else { return false }
+            return model.repo === repository && repository.deviceId == source
+                && repository.notificationSourceContext == sourceContext
+        }
         let heartRateOwner = RealtimeHRLeaseOwner(model: model, consumer: .lift)
         return AppLiftStrainProvider(
             store: store,
-            deviceId: { [weak model] in model?.repo.deviceId ?? "" },
-            bpm: { [weak model] in model?.bpm },
-            startHR: { heartRateOwner.begin() },
+            deviceId: { source },
+            bpm: { [weak model] in isCurrentSource() ? model?.bpm : nil },
+            startHR: { if isCurrentSource() { heartRateOwner.begin() } },
             stopHR: { heartRateOwner.end() },
             maxHR: { [weak model] in Double(model?.profile.hrMax ?? 190) },
             restingHR: { [weak model] in
+                guard isCurrentSource() else { return StrainScorerV2.defaultRestingHR }
                 let today = Repository.logicalDayKey(Date())
                 return model?.repo.days.last(where: { $0.day == today })?.restingHr.map(Double.init)
                     ?? StrainScorerV2.defaultRestingHR
             },
-            hrSamples: { [weak model] from, to in await model?.repo.hrSamples(from: from, to: to) ?? [] })
+            hrSamples: { [weak repository] from, to in
+                guard let repository, await isCurrentSource() else { return [] }
+                let samples = await repository.hrSamples(from: from, to: to)
+                guard await isCurrentSource() else { return [] }
+                return samples
+            })
     }
 
     /// Simulator QA only: `--demo-seed --noop-lift-demo <variant>` loads generated Lift data instead of the database's.

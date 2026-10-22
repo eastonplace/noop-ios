@@ -368,7 +368,7 @@ enum LiftStrainStoredReader {
 
 struct AppLiftStrainProvider: LiftStrainProviding {
     let store: WhoopStore
-    /// The lift owner, re-read on every call so a re-pair is followed.
+    /// The lift's owner. A host pins this while an active session outlives a source selection.
     let deviceId: @Sendable @MainActor () -> String
     let bpm: @Sendable @MainActor () -> Int?
     let startHR: @Sendable @MainActor () -> Void
