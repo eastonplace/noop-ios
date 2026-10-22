@@ -1975,12 +1975,13 @@ struct SettingsDetailHost: View {
         // Suggest a friendly, timestamped name so a reporter saving several captures gets sortable,
         // non-colliding files (#510) — e.g. noop-raw-capture-260617-1042.json.
         let suggested = FileExport.timestampedName("noop-raw-capture", ext: "json")
-        do {
-            try FileExport.exportSanitizedCapture(at: src, suggestedName: suggested)
-        } catch {
-            backupAlertTitle = String(localized: "Export failed")
-            backupAlertMessage = error.localizedDescription
-            showBackupAlert = true
+        Task {
+            do { try await FileExport.exportSanitizedCapture(at: src, suggestedName: suggested) }
+            catch {
+                backupAlertTitle = String(localized: "Export failed")
+                backupAlertMessage = error.localizedDescription
+                showBackupAlert = true
+            }
         }
     }
 
@@ -1997,9 +1998,12 @@ struct SettingsDetailHost: View {
             return
         }
         let stamp = FileExport.timestamp()
-        FileExport.exportPair(
-            file: capture, fileSuggestedName: "noop-raw-capture-\(stamp).json",
-            text: live.exportableLogText(), textSuggestedName: "noop-strap-log-\(stamp).txt")
+        Task {
+            let text = await live.exportableLogTextFlushing()
+            await FileExport.exportPair(
+                file: capture, fileSuggestedName: "noop-raw-capture-\(stamp).json",
+                text: text, textSuggestedName: "noop-strap-log-\(stamp).txt")
+        }
     }
 
     #if os(macOS)
@@ -2007,16 +2011,18 @@ struct SettingsDetailHost: View {
     private func revealPuffinCaptures() {
         model.ble.flushPuffinCaptures()
         guard let source = live.puffinCaptureURL else { return }
-        do {
-            let suggested = FileExport.timestampedName("noop-raw-capture", ext: "json")
-            let redacted = try FileExport.stagedSanitizedCapture(
-                at: source, suggestedName: suggested
-            )
-            NSWorkspace.shared.activateFileViewerSelecting([redacted])
-        } catch {
-            backupAlertTitle = String(localized: "Export failed")
-            backupAlertMessage = error.localizedDescription
-            showBackupAlert = true
+        Task {
+            do {
+                let suggested = FileExport.timestampedName("noop-raw-capture", ext: "json")
+                let redacted = try await Task.detached(priority: .utility) {
+                    try FileExport.stagedSanitizedCapture(at: source, suggestedName: suggested)
+                }.value
+                NSWorkspace.shared.activateFileViewerSelecting([redacted])
+            } catch {
+                backupAlertTitle = String(localized: "Export failed")
+                backupAlertMessage = error.localizedDescription
+                showBackupAlert = true
+            }
         }
     }
     #endif

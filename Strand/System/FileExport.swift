@@ -16,38 +16,132 @@ import UniformTypeIdentifiers
 ///   to Files, AirDrop it, or send it on — the idiomatic iOS way to get a file out of the sandbox.
 enum FileExport {
 
-    /// Read a private raw capture and return the exact text that is safe to leave the app. The local raw
-    /// file remains unchanged for protocol research; every user-facing export calls this boundary first.
+    /// Compatibility for consumers that require owned bytes. The production share paths use the staged
+    /// file directly; this reads only the scrubbed result, never a whole raw Data + String + Data trio.
     static func sanitizedCaptureData(at source: URL) throws -> Data {
-        let data = try Data(contentsOf: source)
-        guard let text = String(data: data, encoding: .utf8) else {
-            throw CocoaError(.fileReadInapplicableStringEncoding, userInfo: [
-                NSFilePathErrorKey: source.path,
-            ])
-        }
-        return Data(LiveState.redactPii(text).utf8)
+        let staged = try stagedSanitizedCapture(at: source, suggestedName: source.lastPathComponent)
+        defer { removeStaged(staged) }
+        return try Data(contentsOf: staged)
     }
 
+    enum CaptureError: LocalizedError {
+        case recordTooLarge, changedWhileReading
+        var errorDescription: String? {
+            switch self {
+            case .recordTooLarge: "A capture record exceeds the safe export limit. The original file was kept."
+            case .changedWhileReading: "The capture changed while it was being exported. Try again."
+            }
+        }
+    }
+
+    /// Raw captures are JSON/JSONL: none of the scrub's patterns cross a newline. Retain a complete
+    /// record across 64 KiB reads so MACs, UUIDs, WHOOP serials, hex runs and UTF-8 scalars cannot split.
+    /// PuffinCapture.encodedJSON pretty-prints each field; the 16-bit frame length bounds a valid hex
+    /// field near 128 KiB. A record over 1 MiB fails closed instead of retaining an unbounded token.
+    /// The open descriptor plus initial length owns the snapshot; the recorder's atomic rewrites cannot
+    /// replace it mid-export. There is no truncation and the original file is never modified.
     static func stagedSanitizedCapture(at source: URL, suggestedName: String) throws -> URL {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("noop-sanitized-captures", isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let destination = directory.appendingPathComponent(suggestedName)
-        try sanitizedCaptureData(at: source).write(to: destination, options: .atomic)
+        let input = try FileHandle(forReadingFrom: source)
+        defer { try? input.close() }
+        let size = try input.seekToEnd()
+        try input.seek(toOffset: 0)
+        let directory = try stagingDirectory()
+        let destination = directory.appendingPathComponent(URL(fileURLWithPath: suggestedName).lastPathComponent)
+        let partial = directory.appendingPathComponent(".partial")
+        var succeeded = false
+        defer { if !succeeded { try? FileManager.default.removeItem(at: directory) } }
+        guard FileManager.default.createFile(atPath: partial.path, contents: nil) else {
+            throw CocoaError(.fileWriteUnknown)
+        }
+        #if os(iOS)
+        try FileManager.default.setAttributes([.protectionKey: FileProtectionType.complete], ofItemAtPath: partial.path)
+        #endif
+        let output = try FileHandle(forWritingTo: partial)
+        defer { try? output.close() }
+        var pending = Data()
+        var remaining = size
+        let maximumRecordBytes = 1_024 * 1_024
+        func writeRecord(_ record: Data) throws {
+            guard record.count <= maximumRecordBytes else { throw CaptureError.recordTooLarge }
+            guard let text = String(data: record, encoding: .utf8) else {
+                throw CocoaError(.fileReadInapplicableStringEncoding, userInfo: [NSFilePathErrorKey: source.path])
+            }
+            try output.write(contentsOf: Data(LiveState.redactPii(text).utf8))
+        }
+        while remaining > 0 {
+            try Task.checkCancellation()
+            let bytes = try input.read(upToCount: Int(min(65_536, remaining))) ?? Data()
+            guard !bytes.isEmpty else { throw CaptureError.changedWhileReading }
+            remaining -= UInt64(bytes.count)
+            pending.append(bytes)
+            var start = pending.startIndex
+            while let newline = pending[start...].firstIndex(of: 0x0A) {
+                let end = pending.index(after: newline)
+                try writeRecord(pending.subdata(in: start..<end))
+                start = end
+            }
+            if start != pending.startIndex { pending = Data(pending[start...]) }
+            guard pending.count <= maximumRecordBytes else { throw CaptureError.recordTooLarge }
+        }
+        if !pending.isEmpty { try writeRecord(pending) }
+        try Task.checkCancellation()
+        try output.close()
+        try FileManager.default.moveItem(at: partial, to: destination)
+        succeeded = true
         return destination
     }
 
+    private static func stagingDirectory() throws -> URL {
+        var directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("noop-export-" + UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        try directory.setResourceValues(values)
+        return directory
+    }
+
+    private static func removeStaged(_ url: URL) {
+        let directory = url.deletingLastPathComponent()
+        if directory.lastPathComponent.hasPrefix("noop-export-") {
+            try? FileManager.default.removeItem(at: directory)
+        } else { try? FileManager.default.removeItem(at: url) }
+    }
+
+    private static let io = ExportIO()
+    private actor ExportIO {
+        func stage(_ source: URL, name: String) throws -> URL {
+            try FileExport.stagedSanitizedCapture(at: source, suggestedName: name)
+        }
+        func zip(_ entries: [BundleEntry], baseName: String) -> URL? {
+            FileExport.zipData(entries: entries, baseName: baseName)
+        }
+        func pair(_ source: URL, fileName: String, text: String, textName: String, baseName: String) -> URL? {
+            let staged = try? FileExport.stagedSanitizedCapture(at: source, suggestedName: fileName)
+            defer { if let staged { FileExport.removeStaged(staged) } }
+            var entries = [ZipEntry(name: textName, contents: .bytes(Data(text.utf8)))]
+            if let staged { entries.insert(ZipEntry(name: fileName, contents: .file(staged)), at: 0) }
+            return FileExport.zip(entries: entries, baseName: baseName)
+        }
+        func copy(_ source: URL, to destination: URL) throws {
+            let fm = FileManager.default
+            if fm.fileExists(atPath: destination.path) { try fm.removeItem(at: destination) }
+            try fm.copyItem(at: source, to: destination)
+        }
+    }
+
     @MainActor
-    static func exportSanitizedCapture(at source: URL, suggestedName: String) throws {
-        let staged = try stagedSanitizedCapture(at: source, suggestedName: suggestedName)
+    static func exportSanitizedCapture(at source: URL, suggestedName: String) async throws {
+        let staged = try await io.stage(source, name: suggestedName)
+        if Task.isCancelled { removeStaged(staged); throw CancellationError() }
         #if os(macOS)
+        defer { removeStaged(staged) }
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.json]
         panel.nameFieldStringValue = suggestedName
         panel.canCreateDirectories = true
         guard panel.runModal() == .OK, let destination = panel.url else { return }
-        let data = try Data(contentsOf: staged)
-        try data.write(to: destination, options: .atomic)
+        try await io.copy(staged, to: destination)
         #else
         present(activityItems: [staged], cleanup: [staged])
         #endif
@@ -132,14 +226,13 @@ enum FileExport {
     /// single-entry bundle (just the text) so the tap is never a dead end.
     @MainActor
     static func exportPair(file src: URL, fileSuggestedName: String,
-                           text: String, textSuggestedName: String) {
-        var entries: [BundleEntry] = [BundleEntry(name: textSuggestedName, data: Data(text.utf8))]
-        if FileManager.default.fileExists(atPath: src.path),
-           let fileData = try? sanitizedCaptureData(at: src) {
-            entries.insert(BundleEntry(name: fileSuggestedName, data: fileData), at: 0)
-        }
+                           text: String, textSuggestedName: String) async {
         let zipName = timestampedName("noop-export", ext: "zip")
-        _ = exportBundle(entries: entries, suggestedName: zipName)
+        let base = String(zipName.dropLast(4))
+        guard let staged = await io.pair(src, fileName: fileSuggestedName, text: text,
+                                        textName: textSuggestedName, baseName: base) else { return }
+        if Task.isCancelled { removeStaged(staged); return }
+        await presentBundle(staged, suggestedName: zipName)
     }
 
     #if os(iOS)
@@ -152,7 +245,11 @@ enum FileExport {
                 .first(where: { $0.activationState == .foregroundActive }) ?? UIApplication.shared
                 .connectedScenes.compactMap({ $0 as? UIWindowScene }).first,
               let root = scene.windows.first(where: { $0.isKeyWindow })?.rootViewController
-                ?? scene.windows.first?.rootViewController else { completion?(); return }
+                ?? scene.windows.first?.rootViewController else {
+            for url in cleanup { removeStaged(url) }
+            completion?()
+            return
+        }
         // Present from the TOP-MOST controller, not the root (#455). When the caller is itself inside a
         // SwiftUI sheet — e.g. the Trends report is shown via `.sheet` — root already has that sheet
         // presented, so `root.present(...)` is a no-op ("already presenting…") and the share sheet never
@@ -166,10 +263,7 @@ enum FileExport {
             // then run `completion` (M1/#812: the Test Centre report opens its prefilled issue here, once
             // the share sheet is gone, so the in-app SafariVC presents with nothing else on screen).
             vc.completionWithItemsHandler = { _, _, _, _ in
-                let fm = FileManager.default
-                for url in cleanup where fm.fileExists(atPath: url.path) {
-                    try? fm.removeItem(at: url)
-                }
+                for url in cleanup { removeStaged(url) }
                 completion?()
             }
         }
@@ -189,25 +283,48 @@ enum FileExport {
     /// meta.json) are produced by the assembler; existing on-disk files (raw-capture, screenshot) are
     /// read into Data by the assembler. EVERY entry must already be redacted by the caller (section 5.3).
     /// Equatable so the assembler cap can assert an undersized bundle is returned untouched (section 5.4).
-    struct BundleEntry: Equatable { let name: String; let data: Data }
+    struct BundleEntry: Equatable, Sendable { let name: String; let data: Data }
+
+    private struct ZipEntry {
+        enum Contents { case bytes(Data), file(URL) }
+        let name: String
+        let contents: Contents
+    }
 
     /// Zip `entries` into a single staged `.zip` under the temporary directory and return its URL, or nil
     /// if there are no entries. Pure file IO, no UI, so it is unit-testable. Uses ZIPFoundation's `Archive`
     /// which is available on macOS and iOS without shelling out. The caller presents the URL (NSSavePanel
     /// on macOS, share sheet on iOS) and cleans it up.
     static func zipData(entries: [BundleEntry], baseName: String) -> URL? {
-        guard !entries.isEmpty else { return nil }
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("\(baseName).zip")
-        try? FileManager.default.removeItem(at: url)
-        guard let archive = try? Archive(url: url, accessMode: .create, pathEncoding: nil) else { return nil }
-        for entry in entries {
-            try? archive.addEntry(with: entry.name, type: .file, uncompressedSize: Int64(entry.data.count)) { position, size in
-                let start = Int(position)
-                let end = min(start + size, entry.data.count)
-                return entry.data.subdata(in: start..<end)
+        zip(entries: entries.map { ZipEntry(name: $0.name, contents: .bytes($0.data)) }, baseName: baseName)
+    }
+
+    private static func zip(entries: [ZipEntry], baseName: String) -> URL? {
+        guard !entries.isEmpty, let directory = try? stagingDirectory() else { return nil }
+        let name = URL(fileURLWithPath: baseName).lastPathComponent + ".zip"
+        let url = directory.appendingPathComponent(name)
+        do {
+            let archive = try Archive(url: url, accessMode: .create, pathEncoding: nil)
+            for entry in entries {
+                try Task.checkCancellation()
+                switch entry.contents {
+                case .bytes(let data):
+                    try archive.addEntry(with: entry.name, type: .file, uncompressedSize: Int64(data.count)) { position, size in
+                        let start = Int(position)
+                        return data.subdata(in: start..<min(start + size, data.count))
+                    }
+                case .file(let source):
+                    let handle = try FileHandle(forReadingFrom: source)
+                    defer { try? handle.close() }
+                    let count = try handle.seekToEnd()
+                    try archive.addEntry(with: entry.name, type: .file, uncompressedSize: Int64(count)) { position, size in
+                        try handle.seek(toOffset: UInt64(position))
+                        return try handle.read(upToCount: size) ?? Data()
+                    }
+                }
             }
-        }
-        return FileManager.default.fileExists(atPath: url.path) ? url : nil
+            return url
+        } catch { removeStaged(url); return nil }
     }
 
     /// Zip `entries` into one `.zip` and hand it to the user (NSSavePanel on macOS, share sheet on iOS).
@@ -215,26 +332,24 @@ enum FileExport {
     /// assembler's job before it calls here. Returns the staged / saved zip URL, nil on cancel or failure.
     @MainActor @discardableResult
     static func exportBundle(entries: [BundleEntry], suggestedName: String,
-                             completion: (() -> Void)? = nil) -> URL? {
+                             completion: (() -> Void)? = nil) async -> URL? {
         let base = suggestedName.hasSuffix(".zip") ? String(suggestedName.dropLast(4)) : suggestedName
-        guard let staged = zipData(entries: entries, baseName: base) else { completion?(); return nil }
+        guard let staged = await io.zip(entries, baseName: base) else { completion?(); return nil }
+        if Task.isCancelled { removeStaged(staged); return nil }
+        return await presentBundle(staged, suggestedName: suggestedName, completion: completion)
+    }
+
+    @MainActor @discardableResult
+    private static func presentBundle(_ staged: URL, suggestedName: String,
+                                      completion: (() -> Void)? = nil) async -> URL? {
         #if os(macOS)
+        defer { removeStaged(staged) }
         let panel = NSSavePanel()
         panel.nameFieldStringValue = suggestedName
         panel.canCreateDirectories = true
-        guard panel.runModal() == .OK, let dest = panel.url else {
-            try? FileManager.default.removeItem(at: staged)
-            return nil
-        }
-        let fm = FileManager.default
-        do {
-            if fm.fileExists(atPath: dest.path) { try fm.removeItem(at: dest) }
-            try fm.copyItem(at: staged, to: dest)
-        } catch {
-            try? fm.removeItem(at: staged)
-            return nil
-        }
-        try? fm.removeItem(at: staged)
+        guard panel.runModal() == .OK, let dest = panel.url else { return nil }
+        do { try await io.copy(staged, to: dest) }
+        catch { return nil }
         return dest
         #else
         present(activityItems: [staged], cleanup: [staged], completion: completion)

@@ -111,7 +111,8 @@ final class TestCentreReport: ObservableObject {
         let seed = TestModeRegistry.mode(p.profile).flatMap {
             TestReportLink.whatHappensSeed(questionnaire: $0.questionnaire, answers: TestCentre.answers(p.profile))
         }
-        TestReportFlow.run(
+        Task {
+            await TestReportFlow.run(
             profile: p.profile, title: p.title,
             version: version, platform: platform, osVersion: osVersion,
             gate: p.gate,
@@ -121,6 +122,7 @@ final class TestCentreReport: ObservableObject {
             // documented mobile fallback is reachable, not just silently on the pasteboard.
             copyToPasteboard: { [weak self] text in PlatformPasteboard.copy(text); self?.copyableReport = text },
             whatHappensSeed: seed)
+        }
         pending = nil
     }
 
