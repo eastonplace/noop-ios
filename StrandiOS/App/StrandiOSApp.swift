@@ -702,6 +702,10 @@ struct StrandiOSApp: App {
                     guard WidgetSnapshot.HRPublishThrottle.admit() else { return }
                     WidgetSnapshot.publishLive(from: model)
                 }
+                .onReceive(NotificationCenter.default.publisher(for: PendingIntents.didAppend)) { _ in
+                    guard scenePhase == .active else { return }
+                    model.drainPendingIntents()
+                }
                 .onOpenURL { url in
                     if url.host == "import-health" {
                         model.handleHealthImportURL(url)
@@ -731,6 +735,7 @@ struct StrandiOSApp: App {
                     TodayDayBoundaryScheduler.shared.setActive(
                         scenePhase == .active,
                         repository: model.repo)
+                    if scenePhase == .active { model.drainPendingIntents() }
                     refreshExternalSurface()
                     alarmRuntime.start()
                     await health.refreshAuthIfPreviouslyGranted(
