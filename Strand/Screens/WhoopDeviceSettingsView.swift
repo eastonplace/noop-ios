@@ -214,6 +214,9 @@ private struct WhoopDeviceSettingsContent: View {
             }
             NavigationLink("Manage Devices") {
                 DevicesView().environment(\.screenScaffoldNavigationRole, .detail)
+                    #if os(iOS)
+                    .modifier(SettingsSheetDoneToolbar())
+                    #endif
             }
             .accessibilityIdentifier("settings.whoop.manageDevices")
         } header: {

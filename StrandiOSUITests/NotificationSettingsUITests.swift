@@ -21,6 +21,46 @@ final class NotificationSettingsUITests: XCTestCase {
         try assertNotifications(size: .accessibilityXXXL)
     }
 
+    func testNativePickerRetains44PointTouchTarget() throws {
+        #if !targetEnvironment(simulator)
+        throw XCTSkip("Notification demo UI qualification runs only on Simulator")
+        #endif
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        launchNotifications(app, size: .normal)
+        defer { app.terminate() }
+        try requireExists(app.navigationBars["Notifications"], in: app, timeout: 60)
+        let picker = button("Morning summary", in: app)
+        try reveal(picker, in: app)
+        let row = try pickerRow(containing: picker, in: app)
+        let hierarchy = XCTAttachment(string: app.debugDescription)
+        hierarchy.name = "notifications-native-picker-row-accessibility"
+        hierarchy.lifetime = .keepAlways
+        add(hierarchy)
+        // Exercise both vertical edges of a 44-point target, beyond the inner AX label's bounds.
+        // Open and dismiss without selecting a mode, so the saved preference stays unchanged.
+        let originalValue = picker.label
+        for offset in [-22.0, 22.0] {
+            let point = CGPoint(x: picker.frame.midX, y: picker.frame.midY + offset)
+            XCTAssertTrue(row.frame.contains(point))
+            if picker.frame.height < 44 {
+                XCTAssertFalse(picker.frame.contains(point), "The probe reaches beyond the inner AX label")
+            }
+            app.coordinate(withNormalizedOffset: .zero)
+                .withOffset(CGVector(dx: point.x - app.frame.minX, dy: point.y - app.frame.minY)).tap()
+            let option = app.buttons["Notify"]
+            try requireExists(option, in: app)
+            try requireExists(button("Off", in: app), in: app)
+            try requireExists(button("In app", in: app), in: app)
+            XCTAssertTrue(option.isHittable)
+            capture(app, "notifications-native-picker-edge-\(offset)")
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.02, dy: 0.18)).tap()
+            let dismissed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: option)
+            XCTAssertEqual(XCTWaiter.wait(for: [dismissed], timeout: 5), .completed)
+            XCTAssertEqual(picker.label, originalValue, "Dismissing the picker must preserve its saved value")
+        }
+    }
+
     private func assertNotifications(size: TextSize) throws {
         #if targetEnvironment(simulator)
         let isSimulator = true
@@ -30,17 +70,7 @@ final class NotificationSettingsUITests: XCTestCase {
         try XCTSkipUnless(isSimulator, "Notification demo UI qualification runs only on Simulator")
         continueAfterFailure = false
         let app = XCUIApplication()
-        app.terminate()
-        app.launchArguments = [
-            // This existing simulator-only host bypasses overlays without recording consent.
-            "--noop-coach-shell-qa", "--demo-seed",
-            "--noop-qa-route", "settings-notificationsAlerts",
-            "--noop-lift-demo", "fresh",
-            "-UIPreferredContentSizeCategoryName", size.rawValue,
-            "-AppleLanguages", "(en)", "-AppleLocale", "en_US",
-            "-AppleInterfaceStyle", "Dark",
-        ]
-        app.launch()
+        launchNotifications(app, size: size)
         defer { app.terminate() }
 
         let notificationsBar = app.navigationBars["Notifications"]
@@ -82,19 +112,19 @@ final class NotificationSettingsUITests: XCTestCase {
         XCTAssertTrue(notificationsBar.exists)
 
         try assertHeader("Sleep", in: app)
-        try assertButton("Morning summary", in: app)
+        try assertPicker("Morning summary", in: app)
         try assertSwitch("Wind-down reminder", in: app)
         try assertButton("Wake alarm", in: app)
         capture(app, "notifications-\(size)-sleep")
 
         try assertHeader("Training", in: app)
         for name in ["Scheduled workout", "Workout summary", "Daily strain target"] {
-            try assertButton(name, in: app)
+            try assertPicker(name, in: app)
         }
         capture(app, "notifications-\(size)-training")
 
         try assertHeader("Habits", in: app)
-        try assertButton("Journal check-in", in: app)
+        try assertPicker("Journal check-in", in: app)
         let checkInTime = app.datePickers["Check-in time"]
         try reveal(checkInTime, in: app)
         XCTAssertTrue(checkInTime.isEnabled, "The saved check-in time remains editable")
@@ -107,8 +137,8 @@ final class NotificationSettingsUITests: XCTestCase {
         capture(app, "notifications-\(size)-middle-battery")
 
         try assertHeader("Reviews", in: app)
-        try assertButton("Weekly review", in: app)
-        try assertButton("Review day", in: app)
+        try assertPicker("Weekly review", in: app)
+        try assertPicker("Review day", in: app)
         let reviewTime = app.datePickers["Review time"]
         try reveal(reviewTime, in: app)
         XCTAssertTrue(reviewTime.isEnabled, "The saved weekly review time remains editable")
@@ -140,6 +170,10 @@ final class NotificationSettingsUITests: XCTestCase {
         let wristBar = app.navigationBars["Wrist alerts & actions"]
         try requireExists(wristBar, in: app)
         try assertSwitch("Enable wrist alerts", in: app)
+        let nestedDone = app.buttons["settings.done"]
+        try requireExists(nestedDone, in: app)
+        XCTAssertTrue(nestedDone.isHittable)
+        XCTAssertGreaterThanOrEqual(nestedDone.frame.height, 44)
         capture(app, "notifications-\(size)-wrist-editor")
         let back = wristBar.buttons["Notifications"]
         try requireExists(back, in: app)
@@ -149,6 +183,28 @@ final class NotificationSettingsUITests: XCTestCase {
         try reveal(button("Wrist alerts & actions", in: app), in: app)
         XCTAssertFalse(wristBar.exists, "Back returns to Notifications rather than dismissing Settings")
         capture(app, "notifications-\(size)-returned-from-wrist")
+        try reveal(button("Wrist alerts & actions", in: app), in: app)
+        button("Wrist alerts & actions", in: app).tap()
+        try requireExists(wristBar, in: app)
+        let close = app.buttons["settings.done"]
+        try requireExists(close, in: app)
+        close.tap()
+        try requireExists(app.buttons["app.deviceStatus"], in: app)
+        XCTAssertFalse(wristBar.exists, "Done closes Settings from a nested destination")
+    }
+
+    private func launchNotifications(_ app: XCUIApplication, size: TextSize) {
+        app.terminate()
+        app.launchArguments = [
+            // This existing simulator-only host bypasses overlays without recording consent.
+            "--noop-coach-shell-qa", "--demo-seed",
+            "--noop-qa-route", "settings-notificationsAlerts",
+            "--noop-lift-demo", "fresh",
+            "-UIPreferredContentSizeCategoryName", size.rawValue,
+            "-AppleLanguages", "(en)", "-AppleLocale", "en_US",
+            "-AppleInterfaceStyle", "Dark",
+        ]
+        app.launch()
     }
 
     private func text(_ label: String, in app: XCUIApplication) -> XCUIElement {
@@ -171,6 +227,37 @@ final class NotificationSettingsUITests: XCTestCase {
         XCTAssertTrue(control.isEnabled, "\(label) remains enabled")
         XCTAssertGreaterThanOrEqual(control.frame.height, 44, "\(label) keeps a usable native row touch target")
         return control
+    }
+
+    @discardableResult
+    private func assertPicker(_ label: String, in app: XCUIApplication) throws -> XCUIElement {
+        let control = button(label, in: app)
+        try reveal(control, in: app)
+        XCTAssertTrue(control.isEnabled, "\(label) remains enabled")
+        _ = try pickerRow(containing: control, in: app)
+        return control
+    }
+
+    private func pickerRow(containing control: XCUIElement, in app: XCUIApplication) throws -> XCUIElement {
+        // Native List owns the menu Picker's tap target; its AX Button can describe only the inner label.
+        // The separate edge-touch test verifies that this larger row actually opens the same control.
+        let rows = app.cells.containing(.button, identifier: control.label).allElementsBoundByIndex
+        let finiteRows = rows.filter { row in
+            guard row.exists else { return false }
+            let frame = row.frame
+            return !frame.isEmpty && !frame.isNull && !frame.isInfinite
+                && frame.origin.x.isFinite && frame.origin.y.isFinite
+                && frame.width.isFinite && frame.height.isFinite
+        }
+        guard let row = finiteRows.min(by: { $0.frame.height < $1.frame.height }) else {
+            fail("The native Picker has no containing list row", in: app)
+            throw HarnessError.unreachable("Missing native Picker row")
+        }
+        try reveal(row, in: app, needsHitTarget: false)
+        XCTAssertGreaterThanOrEqual(row.frame.height, 44, "The native Picker row keeps a 44-point touch target")
+        XCTAssertTrue(app.frame.contains(row.frame), "The complete native Picker row is visible")
+        XCTAssertTrue(row.frame.contains(control.frame), "The measured row owns this exact Picker")
+        return row
     }
 
     private func assertSwitch(_ label: String, in app: XCUIApplication) throws {

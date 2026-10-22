@@ -48,7 +48,12 @@ struct NotificationSettingsView: View {
                     Text("One reminder each evening, calculated from the next wake time, current Sleep Need and your chosen lead.")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
-                NavigationLink("Wake alarm") { SmartAlarmView().environment(\.screenScaffoldPresentation, .settingsDetail) }
+                NavigationLink("Wake alarm") {
+                    SmartAlarmView().environment(\.screenScaffoldPresentation, .settingsDetail)
+                        #if os(iOS)
+                        .modifier(SettingsSheetDoneToolbar())
+                        #endif
+                }
             } header: { Text("Sleep") } footer: {
                 Text("Your morning summary choice is saved. Delivery waits for current-data and sleep verification. Wind-down reminders use generic copy and your chosen schedule.")
             }
@@ -106,7 +111,12 @@ struct NotificationSettingsView: View {
                 Text("Proactive advice is limited to 2 notices per day, 10 per rolling week and 3 hours between notices. Turn it off to pause advice while keeping chosen reminders and wake alarms. Preview mode records new advice locally without sending it. Private previews are the default; sensitive journal details are never included. iOS preview settings still apply.")
             }
             Section {
-                NavigationLink("Wrist alerts & actions") { AutomationsView().environment(\.screenScaffoldPresentation, .settingsDetail) }
+                NavigationLink("Wrist alerts & actions") {
+                    AutomationsView().environment(\.screenScaffoldPresentation, .settingsDetail)
+                        #if os(iOS)
+                        .modifier(SettingsSheetDoneToolbar())
+                        #endif
+                }
             } footer: {
                 Text("Manage inactivity reminders, stress check-ins, coaching and physical strap actions.")
             }
@@ -149,6 +159,9 @@ struct NotificationSettingsView: View {
                 }
             }
         }.navigationTitle("Wake time by weekday")
+        #if os(iOS)
+        .modifier(SettingsSheetDoneToolbar())
+        #endif
     }
     private var journalDays: some View {
         List {
@@ -160,6 +173,9 @@ struct NotificationSettingsView: View {
                 }))
             }
         }.navigationTitle("Check-in days")
+        #if os(iOS)
+        .modifier(SettingsSheetDoneToolbar())
+        #endif
     }
     private func modePicker(_ title: LocalizedStringKey, group: NotificationGroup, allowsInApp: Bool = true) -> some View {
         Picker(title, selection: Binding(get: { preferences.mode(for: group) }, set: { preferences.setMode($0, for: group) })) {

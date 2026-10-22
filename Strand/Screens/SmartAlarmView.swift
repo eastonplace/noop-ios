@@ -112,6 +112,9 @@ struct SmartAlarmView: View {
     private var notificationsLink: some View {
         NavigationLink("Notifications") {
             NotificationSettingsView()
+                #if os(iOS)
+                .modifier(SettingsSheetDoneToolbar())
+                #endif
                 .environment(\.screenScaffoldPresentation, .settingsDetail)
         }
     }
