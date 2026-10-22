@@ -51,13 +51,19 @@ final class WorkoutHrReduceTests: XCTestCase {
     func testReduceRunsOffMainActor() async {
         let input = samples((0..<8000).map { 60 + ($0 % 40) })
         let result: (offMain: Bool, avg: Int, peak: Int) = await Task.detached {
-            let onMain = Thread.isMainThread
-            let (avg, peak) = Repository.reduceWorkoutHr(input)
-            return (offMain: !onMain, avg: avg, peak: peak)
+            Self.reduceAndObserveThread(input)
         }.value
         XCTAssertTrue(result.offMain, "reduceWorkoutHr must run off the main thread (freeze fix)")
         XCTAssertEqual(result.peak, 99)            // 60 + 39
         XCTAssertGreaterThanOrEqual(result.avg, 60)
         XCTAssertLessThanOrEqual(result.avg, 99)
+    }
+
+    // Foundation makes isMainThread unavailable directly in async bodies. Observe the
+    // synchronous reduction on the detached task's executor, with no intervening await.
+    private static func reduceAndObserveThread(_ input: [HRSample]) -> (offMain: Bool, avg: Int, peak: Int) {
+        let onMain = Thread.isMainThread
+        let (avg, peak) = Repository.reduceWorkoutHr(input)
+        return (offMain: !onMain, avg: avg, peak: peak)
     }
 }
