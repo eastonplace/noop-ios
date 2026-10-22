@@ -1,4 +1,5 @@
 import XCTest
+import WhoopProtocol
 @testable import NOOP
 
 /// Pins `BLEManager.classifyCompletedOffload` — the pure classification exitBackfilling runs on a

@@ -127,15 +127,19 @@ final class ExperimentalDriversTests: XCTestCase {
         // Real in-memory store + registry, matching how `AppModel.wireSourceCoordinator` builds them.
         let store = try await WhoopStore.inMemory()
         let registry = DeviceRegistry(store: DeviceRegistryStore(dbQueue: store.registryWriter))
-        registry.reload()   // seeds 'my-whoop' active from migration v15
+        try registry.reload()   // seeds 'my-whoop' active from migration v15
 
         // Register the Apple Watch exactly as `AppleWatchDevice.device(...)` would: HealthKit source,
         // nil peripheralId, `.liveAppleWatch`.
-        registry.add(PairedDevice(
+        try registry.add(PairedDevice(
             id: "apple-health", brand: "Apple", model: "Apple Watch",
             peripheralId: nil, sourceKind: .liveAppleWatch,
             capabilities: [.hr, .hrv, .sleep], status: .paired, addedAt: 0, lastSeenAt: 0))
-        registry.setActive("apple-health")
+        try registry.setActive("apple-health")
+        XCTAssertEqual(registry.activeDeviceId, "apple-health")
+        let activeWatch = try XCTUnwrap(registry.devices.first { $0.id == "apple-health" })
+        XCTAssertEqual(activeWatch.sourceKind, .liveAppleWatch)
+        XCTAssertNil(activeWatch.peripheralId)
 
         var stopWhoopCalls = 0
         var startWhoopCalls = 0

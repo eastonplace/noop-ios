@@ -634,7 +634,9 @@
       "destination": "StrandiOSTests/EmptyBankingClassifierTests.swift",
       "target": "NOOPiOSTests",
       "changes": [
-        "Rename app module import from Strand to NOOP; preserve existing assertions."
+        "Rename app module import from Strand to NOOP.",
+        "Import WhoopProtocol, which owns the still-current public EmptySyncTracker; no policy replacement or assertion retirement is needed.",
+        "Retain all eight classifier and integrated streak/reset cases unchanged."
       ]
     },
     {
@@ -665,7 +667,10 @@
       "destination": "StrandiOSTests/ExperimentalDriversTests.swift",
       "target": "NOOPiOSTests",
       "changes": [
-        "Rename app module import from Strand to NOOP; preserve existing assertions."
+        "Rename app module import from Strand to NOOP.",
+        "Use explicit try for DeviceRegistry.reload/add/setActive so unexpected registry read/write failures fail the async throws test.",
+        "Verify the activated registry row is the Apple Watch HealthKit source with no BLE peripheral before testing that SourceCoordinator starts/stops no BLE source.",
+        "Retain all parser, persisted-source compatibility, and coordinator side-effect assertions."
       ]
     },
     {
