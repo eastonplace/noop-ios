@@ -255,6 +255,12 @@ final class SmartAlarmReadbackEvidenceTests: XCTestCase {
         return record["earlyWakeAttempted"] as? Bool
     }
 
+    private func persistedEarlyWakeSourceID() throws -> String? {
+        let data = try XCTUnwrap(UserDefaults.standard.data(forKey: "smartAlarm.lastEvidence.v1"))
+        let record = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        return record["earlyWakeSourceID"] as? String
+    }
+
     func testMissingReadbackPreservesEarlyWakeAttemptWithoutClaimingArmed() throws {
         try withEvidence {
             SmartAlarmEvidenceStore.save(adaptiveEvidence(evaluatedAt: sentAt))
@@ -522,6 +528,80 @@ final class SmartAlarmReadbackEvidenceTests: XCTestCase {
                 SmartAlarmEvidenceStore.refreshCorrelation(now: sentAt.addingTimeInterval(10))
                 XCTAssertNotEqual(try persistedEarlyWakeAttempted(), true)
             }
+        }
+    }
+
+    private func saveDisconnectedQueuedEvaluation(decision: SmartAlarmEvaluator.Decision) throws {
+        let request = SmartAlarmReadbackRequest(id: UUID(), sourceID: "strap-A",
+            targetEpoch: 1_792_666_800, sentAt: sentAt)
+        SmartAlarmEvidenceStore.beginReadback(request)
+        SmartAlarmEvidenceStore.save(adaptiveEvidence(evaluatedAt: sentAt))
+        XCTAssertTrue(SmartAlarmEvidenceStore.recordReadback(epoch: 0, request: request,
+            at: sentAt.addingTimeInterval(1)))
+        SmartAlarmEvidenceStore.refreshCorrelation(now: sentAt.addingTimeInterval(2))
+        SmartAlarmEvidenceStore.invalidateReadback(requestID: request.id)
+        SmartAlarmEvidenceStore.save(endpointEvaluation(
+            mode: .sleepGoal, decision: decision, actuation: .queuedForReconnect,
+            evaluatedAt: sentAt.addingTimeInterval(3), endpoint: wakeAt.addingTimeInterval(60)))
+    }
+
+    func testOfflineQueuedEvaluationRetainsAttemptSourceWithoutOldDelivery() throws {
+        for decision in [SmartAlarmEvaluator.Decision.wait, .wakeNow] {
+            try withEvidence {
+                try saveDisconnectedQueuedEvaluation(decision: decision)
+                let queued = try XCTUnwrap(SmartAlarmEvidenceStore.latest)
+                XCTAssertTrue(queued.hasAttemptedEarlyWake)
+                XCTAssertEqual(try persistedEarlyWakeSourceID(), "strap-A")
+                XCTAssertEqual(queued.actuation, .queuedForReconnect)
+                XCTAssertNil(queued.armRequestID)
+                XCTAssertNil(queued.armSourceID)
+                XCTAssertNil(queued.readbackStatus)
+                XCTAssertNil(queued.strapReportedArmedAt)
+            }
+        }
+    }
+
+    func testSameSourceReconnectAfterQueuedEvaluationRetainsAttemptOnly() throws {
+        for decision in [SmartAlarmEvaluator.Decision.wait, .wakeNow] {
+            try withEvidence {
+                try saveDisconnectedQueuedEvaluation(decision: decision)
+                let endpoint = wakeAt.addingTimeInterval(60)
+                let request = SmartAlarmReadbackRequest(id: UUID(), sourceID: "strap-A",
+                    targetEpoch: Int(endpoint.timeIntervalSince1970), sentAt: sentAt.addingTimeInterval(4))
+                SmartAlarmEvidenceStore.beginReadback(request)
+                SmartAlarmEvidenceStore.save(endpointEvaluation(
+                    mode: .sleepGoal, decision: .wait, actuation: .endpointArmed,
+                    evaluatedAt: request.sentAt, endpoint: endpoint))
+                SmartAlarmEvidenceStore.refreshCorrelation(now: sentAt.addingTimeInterval(5))
+                let reconnected = try XCTUnwrap(SmartAlarmEvidenceStore.latest)
+                XCTAssertTrue(reconnected.hasAttemptedEarlyWake)
+                XCTAssertEqual(try persistedEarlyWakeSourceID(), "strap-A")
+                XCTAssertEqual(reconnected.armRequestID, request.id.uuidString)
+                XCTAssertEqual(reconnected.armSourceID, "strap-A")
+                XCTAssertEqual(reconnected.actuation, .endpointArmed)
+                XCTAssertEqual(reconnected.readbackStatus, .pending)
+                XCTAssertNil(reconnected.strapReportedArmedAt)
+            }
+        }
+    }
+
+    func testDifferentSourceReconnectAfterQueuedEvaluationDoesNotInheritAttempt() throws {
+        try withEvidence {
+            try saveDisconnectedQueuedEvaluation(decision: .wakeNow)
+            let endpoint = wakeAt.addingTimeInterval(60)
+            let request = SmartAlarmReadbackRequest(id: UUID(), sourceID: "strap-B",
+                targetEpoch: Int(endpoint.timeIntervalSince1970), sentAt: sentAt.addingTimeInterval(4))
+            SmartAlarmEvidenceStore.beginReadback(request)
+            SmartAlarmEvidenceStore.save(endpointEvaluation(
+                mode: .sleepGoal, decision: .wait, actuation: .endpointArmed,
+                evaluatedAt: request.sentAt, endpoint: endpoint))
+            SmartAlarmEvidenceStore.refreshCorrelation(now: sentAt.addingTimeInterval(5))
+            let reconnected = try XCTUnwrap(SmartAlarmEvidenceStore.latest)
+            XCTAssertFalse(reconnected.hasAttemptedEarlyWake)
+            XCTAssertNil(try persistedEarlyWakeSourceID())
+            XCTAssertEqual(reconnected.armRequestID, request.id.uuidString)
+            XCTAssertEqual(reconnected.armSourceID, "strap-B")
+            XCTAssertNil(reconnected.strapReportedArmedAt)
         }
     }
 
