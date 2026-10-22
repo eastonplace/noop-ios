@@ -457,6 +457,8 @@ final class AppModel: ObservableObject {
                     countZone(sample)
                     guard strainAccumulator.replaceCurrentSecond(with: sample),
                           chartAccumulator.ingest(sample) else { return false }
+                    energy?.replaceCurrentSecond(with: sample)
+                    publishEnergy()
                 } else {
                     samples.append(sample)
                     countZone(sample)
