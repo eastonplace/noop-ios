@@ -2314,5 +2314,5 @@
       ]
     }
   ],
-  "validation_status": "88 native suite ports require root-owned iOS compile/run; five parsed issue-form source-audit tests pass. Five retired files have item-specific reasons. No orphan folder exemption remains."
+  "validation_status": "Hosted native run 39731059227 at 7a61e3da covers all 88 ported files and 749 original methods: 748 passed, one optional external Xiaomi fixture skipped, none missing or failed. The parsed issue-form audit retains five checks; five obsolete files retire 16 methods with individual reasons. No orphan exemption remains. This records source 7a61, not later alarm or UI changes."
 }
