@@ -58,7 +58,8 @@ enum FitbitExportParser {
                 // unknown; keep its other metrics, but never publish a partial/capped step total.
                 for e in WearableJSON.array(data)?.compactMap({ $0 as? [String: Any] }) ?? [] {
                     guard let key = dayKey(WearableJSON.str(e, "dateTime")),
-                          let v = WearableJSON.int(e, "value"), v >= 0,
+                          let raw = WearableJSON.dbl(e, "value"), raw >= 0,
+                          let v = WearableJSON.int(e, "value"), v > 0 || raw == 0,
                           !invalidStepDays.contains(key) else { continue }
                     let (total, overflow) = stepTotals[key, default: 0].addingReportingOverflow(v)
                     if overflow {
@@ -68,7 +69,8 @@ enum FitbitExportParser {
                 }
             }
         }
-        for (key, total) in stepTotals where total > 0 {
+        // Zero from actual zero-count events is measured; absent/invalid events never create a key.
+        for (key, total) in stepTotals {
             var row = day(key)
             row.steps = total
             byDay[key] = row
