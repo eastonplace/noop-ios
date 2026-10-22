@@ -1,0 +1,2261 @@
+{
+  "finding": "TEST-01",
+  "baseline_commit": "737be526370b6f9b532388849f4b0088a1f64af7",
+  "review_baseline_commit": "6f49d855d6f747103f4dc2a60949cb933445c3c0",
+  "original_file_count": 94,
+  "original_line_count": 10067,
+  "original_test_method_count": 770,
+  "entries": [
+    {
+      "original_path": "StrandTests/AICoachPromptAndStressTests.swift",
+      "original_sha256": "5bfe77ce818b41a4cb242d5548a78a02bf80e10c48d84f0779d1ab25513b6bdf",
+      "original_lines": 95,
+      "test_methods": [
+        "testDefaultsToBuiltInPromptWhenNothingStored",
+        "testEditPersistsAndIsReadFreshOnNextSend",
+        "testResetRestoresDefaultAndClearsTheKey",
+        "testBlankOverrideNeverSendsAnEmptyPrompt",
+        "testStressIndexSummaryFormatsOneRoundedNumber",
+        "testSummaryNumberMatchesStressViewComputation"
+      ],
+      "test_method_count": 6,
+      "disposition": "ported",
+      "reason_code": "current_contract_missing_from_active_targets",
+      "reason": "system prompt override persistence/reset and derived stress summary",
+      "destination": "StrandiOSTests/AICoachPromptAndStressTests.swift",
+      "target": "NOOPiOSTests",
+      "changes": [
+        "Rename app module import from Strand to NOOP; preserve existing assertions."
+      ]
+    },
+    {
+      "original_path": "StrandTests/AICoachRefreshModelsRaceTests.swift",
+      "original_sha256": "8aaeac01f3aa9e4ec29bd610e9c9ef19d5103d48346245f9a4ddaa1bd9d4b1ef",
+      "original_lines": 91,
+      "test_methods": [
+        "testProviderSwitchMidFetchDropsStaleOldProviderIds",
+        "testNoSwitchStillMergesFetchedIds"
+      ],
+      "test_method_count": 2,
+      "disposition": "ported",
+      "reason_code": "current_contract_missing_from_active_targets",
+      "reason": "provider-switch snapshot guard while model refresh is suspended",
+      "destination": "StrandiOSTests/AICoachRefreshModelsRaceTests.swift",
+      "target": "NOOPiOSTests",
+      "changes": [
+        "Rename app module import from Strand to NOOP; preserve existing assertions."
+      ]
+    },
+    {
+      "original_path": "StrandTests/AIProviderModelListTests.swift",
+      "original_sha256": "e432c35c7e22d0701201ab8587794148fa17f20142dc15bde6e52d8a918e2215",
+      "original_lines": 99,
+      "test_methods": [
+        "testGeminiStripsModelsPrefixAndKeepsChatModels",
+        "testGeminiToleratesNameWithoutModelsPrefix",
+        "testGeminiDropsEmptyAndMalformedRows",
+        "testGeminiWrongEnvelopeKeyYieldsEmpty",
+        "testOpenAIFiltersToGptAndOFamilies",
+        "testAnthropicKeepsAllNonEmptyIds",
+        "testCustomKeepsAllNonEmptyIdsUnfiltered",
+        "testCustomWrongEnvelopeKeyYieldsEmpty"
+      ],
+      "test_method_count": 8,
+      "disposition": "ported",
+      "reason_code": "current_contract_missing_from_active_targets",
+      "reason": "per-provider model-list wire envelopes and malformed-row filtering",
+      "destination": "StrandiOSTests/AIProviderModelListTests.swift",
+      "target": "NOOPiOSTests",
+      "changes": [
+        "Rename app module import from Strand to NOOP; preserve existing assertions."
+      ]
+    },
+    {
+      "original_path": "StrandTests/ActiveWorkoutIndicatorTests.swift",
+      "original_sha256": "1eb048db9fb1bce3aea8b769456bd9ea16bfe3f036384bf512b9f6a44028058d",
+      "original_lines": 90,
+      "test_methods": [
+        "testModelMakeReflectsActiveWorkoutVisibility",
+        "testActiveWorkoutRoutingContract",
+        "testClearingRouteAndWorkoutStateLeavesNoStaleRequest",
+        "testElapsedFormatting",
+        "testElapsedFormattingPastOneHour"
+      ],
+      "test_method_count": 5,
+      "disposition": "ported",
+      "reason_code": "current_contract_missing_from_active_targets",
+      "reason": "active workout route, visibility, and elapsed clock formatting",
+      "destination": "StrandiOSTests/ActiveWorkoutIndicatorTests.swift",
+      "target": "NOOPiOSTests",
+      "changes": [
+        "Rename app module import from Strand to NOOP; preserve existing assertions."
+      ]
+    },
+    {
+      "original_path": "StrandTests/AlarmReadbackDecodeTests.swift",
+      "original_sha256": "e44dec8cfbd10508ad3378f04c31cd49a4c62f7c0ce04a0c00a3d1edb579c00c",
+      "original_lines": 189,
+      "test_methods": [
+        "testSetMirrorPayload_decodesCaptureEpoch",
+        "testBareU32Payload_decodesCaptureEpoch",
+        "testSetMirrorForm_takesPrecedenceOverBareRead",
+        "testShortGarbagePayload_decodesNil",
+        "testImplausibleEpoch_decodesNil",
+        "testFieldReportPayload_reportsNoAlarm",
+        "testBareZeroU32_reportsNoAlarm",
+        "testArmedEpoch_isNotReportedAsNoAlarm",
+        "testShortGarbage_isNotReportedAsNoAlarm",
+        "testEmptyPayload_decodesNilAndNoHex",
+        "testTruncatedFrame_decodesNil",
+        "testPayloadHexFallback_rendersPayloadBytes",
+        "testPlausibilityBounds",
+        "testHandle_alarmReadbackFrame_logsStrapReports",
+        "testHandle_unrecognisedReadbackPayload_logsRawHex",
+        "testHandle_noAlarmStoredReadback_logsNoAlarm",
+        "testHandle_setAlarmResponse_logsResultByte"
+      ],
+      "test_method_count": 17,
+      "disposition": "ported",
+      "reason_code": "current_contract_missing_from_active_targets",
+      "reason": "WHOOP alarm response layouts and rejected malformed response payloads",
+      "destination": "StrandiOSTests/AlarmReadbackDecodeTests.swift",
+      "target": "NOOPiOSTests",
+      "changes": [
+        "Rename app module import from Strand to NOOP; preserve existing assertions."
+      ]
+    },
+    {
+      "original_path": "StrandTests/AppleHealthCacheTests.swift",
+      "original_sha256": "0a3066c8176b308753b36ddda13a58ad5cf1fb1e70fa1c0fe1b773ee8e3ef200",
+      "original_lines": 104,
+      "test_methods": [
+        "testSecondLoadAtUnchangedSeqShortCircuitsFromCache",
+        "testDirectLoadAlwaysReReadsRegardlessOfCache",
+        "testNulledCacheForcesReReadEvenAtUnchangedSeq"
+      ],
+      "test_method_count": 3,
+      "disposition": "ported",
+      "reason_code": "current_contract_missing_from_active_targets",
+      "reason": "repository Apple Health load cache reuse and invalidation",
+      "destination": "StrandiOSTests/AppleHealthCacheTests.swift",
+      "target": "NOOPiOSTests",
+      "changes": [
+        "Rename app module import from Strand to NOOP; preserve existing assertions."
+      ]
+    },
+    {
+      "original_path": "StrandTests/BackfillerSessionTallyTests.swift",
+      "original_sha256": "ac6c4a501d1d98f6ee516c833c6f3c32ee89fee159b0b180838621c99721c0b7",
+      "original_lines": 355,
+      "test_methods": [
+        "testChunkTallySumsBiometricRowsAndGravityOnly",
+        "testChunkTallyNightsAreDistinctDayKeys",
+        "testSessionSummaryNilWhenNoRows",
+        "testSessionSummaryFormat",
+        "testSessionSummaryShowsZeroSkinTemp",
+        "testClockDiagNilWhenNoNights",
+        "testClockDiagIdentityFallbackShowsPastDateAndCorrectionOff",
+        "testClockDiagCorrelatedStaleRefReportsCorrectionEngaged",
+        "testClockDiagInSyncSingleDay",
+        "testClockDiagMultiNightRange",
+        "testClockDiagHasNoEmDash",
+        "testNoCursorLineNoRowsGivesNoHistoryGuidance",
+        "testNoCursorLineAfterRowsGivesCaughtUpLine",
+        "testNoCursorLineHasNoEmDash",
+        "testFutureRtcNotFlaggedForPastDate",
+        "testFutureRtcToleratesSmallSkew",
+        "testFutureRtcFlaggedForFarFutureDate",
+        "testFutureRtcLineWording",
+        "testRecordsBearingNoCursorEndDoesNotFalseAlarm",
+        "testTrulyEmptyNoCursorEndStillWarnsNoHistory",
+        "testCommitFailureReportsTypedFailureAndStopsSessionWithoutAck",
+        "testAckFailureReportsTypedFailureAfterDurableCommit"
+      ],
+      "test_method_count": 22,
+      "disposition": "ported",
+      "reason_code": "current_contract_missing_from_active_targets",
+      "reason": "durable history insert tally, cursor diagnostics, and completion summary",
+      "destination": "StrandiOSTests/BackfillerSessionTallyTests.swift",
+      "target": "NOOPiOSTests",
+      "changes": [
+        "Rename app module import from Strand to NOOP; preserve existing assertions."
+      ]
+    },
+    {
+      "original_path": "StrandTests/BackupSyncRoundTripTests.swift",
+      "original_sha256": "8b87e3636d536d9bb14e92198710477725c97b835f523cd084dcdf791e4398f4",
+      "original_lines": 420,
+      "test_methods": [
+        "testBackupThenRestoreReturnsTheSameRows",
+        "testBackupWithSettingsRestoresSettingsAfterDbSwap",
+        "testLegacySingleEntryZipStillRestoresAndAppliesNoSettings",
+        "testSettingsAreNotAppliedWhenTheRestoreIsRejected",
+        "testForeignSqliteIsRejectedAndLiveDbIntact",
+        "testCorruptFileIsRejectedAndLiveDbIntact",
+        "testGarbageBehindSqliteMagicInsideZipIsRejectedAndLiveDbIntact",
+        "testTruncatedNoopBackupIsRejectedAndLiveDbIntact",
+        "testRollbackSnapshotIncludesCommittedRowsStillInWal",
+        "testPostSwapFailureRollsBackExactRows",
+        "testSuccessfulRestoreAcceptsImmediateWriteWithoutRelaunch",
+        "testMigrationReopenFailureRollsBackAndReopensPreviousDatabase",
+        "testPruneDeletesOldestRealFilesPastKeepN"
+      ],
+      "test_method_count": 13,
+      "disposition": "ported",
+      "reason_code": "current_contract_missing_from_active_targets",
+      "reason": "real SQLite backup/restore round trip and restore lifecycle failure handling",
+      "destination": "StrandiOSTests/BackupSyncRoundTripTests.swift",
+      "target": "NOOPiOSTests",
+      "changes": [
+        "Rename app module import from Strand to NOOP; preserve existing assertions."
+      ]
+    },
+    {
+      "original_path": "StrandTests/BackupSyncTests.swift",
+      "original_sha256": "d190972018406924ff54221009ce3b3f08a64b31882bc5a37ddb6b199e4e7119",
+      "original_lines": 123,
+      "test_methods": [
+        "testNameRoundTripsToUtcSecond",
+        "testIsSnapshotRejectsNonBackups",
+        "testLatestPicksNewest",
+        "testSnapshotsNewestFirstSortsAndDropsNonSnapshots",
+        "testPruneKeepsNewestN",
+        "testPruneNoOpWithinBudget",
+        "testIsBackupFileAcceptsAnyNoopbakExtension",
+        "testRestorablesIncludeDateOnlyNamesAndOrderNewestFirst",
+        "testRestorablesDoNotWidenPrune",
+        "testICloudPlaceholderRealName",
+        "testRestorablesResolveICloudPlaceholders",
+        "testRestorablesTieBreakOnNameWhenTimesEqual"
+      ],
+      "test_method_count": 12,
+      "disposition": "ported",
+      "reason_code": "current_contract_missing_from_active_targets",
+      "reason": "backup preference defaults, scheduling, and source filename resolution",
+      "destination": "StrandiOSTests/BackupSyncTests.swift",
+      "target": "NOOPiOSTests",
+      "changes": [
+        "Rename app module import from Strand to NOOP; preserve existing assertions."
+      ]
+    },
+    {
+      "original_path": "StrandTests/BatteryAlertPolicyTests.swift",
+      "original_sha256": "2e1724d3ca21286145e566d14faf0b7d85c65c519c2fdab654e0bf5d6ca02d51",
+      "original_lines": 128,
+      "test_methods": [
+        "testCrossDownFiresOnceNoReFire",
+        "testJitterFiresLowOnlyOnce",
+        "testRechargeReArmsThenFiresAgain",
+        "testChargingSuppressesLowWithoutReArming",
+        "testChargeBitFlickerToNilDoesNotReFireLow",
+        "testFullFiresOnceThenReArmsBelow100",
+        "testDropBelowFullClearsStaleFullNote",
+        "testHoldingAtFullDoesNotClear"
+      ],
+      "test_method_count": 8,
+      "disposition": "ported",
+      "reason_code": "current_contract_missing_from_active_targets",
+      "reason": "low/full battery crossings, hysteresis, charge-bit flicker, and stale alert clearing",
+      "destination": "StrandiOSTests/BatteryAlertPolicyTests.swift",
+      "target": "NOOPiOSTests",
+      "changes": [
+        "Rename app module import from Strand to NOOP; preserve existing assertions."
+      ]
+    },
+    {
+      "original_path": "StrandTests/BatteryBankTraceTests.swift",
+      "original_sha256": "5a3b7b5196a474188d02f8f4bd70b9a2db5827d3b5c163e865d85f7d67d8ca66",
+      "original_lines": 33,
+      "test_methods": [
+        "testBankEmitsTaggedSocLineWhenBatteryModeActive",
+        "testBankEmitsNothingWhenBatteryModeOff"
+      ],
+      "test_method_count": 2,
+      "disposition": "ported",
+      "reason_code": "current_contract_missing_from_active_targets",
+      "reason": "banked battery trace emission and domain tagging",
+      "destination": "StrandiOSTests/BatteryBankTraceTests.swift",
+      "target": "NOOPiOSTests",
+      "changes": [
+        "Rename app module import from Strand to NOOP; preserve existing assertions."
+      ]
+    },
+    {
+      "original_path": "StrandTests/BatteryEstimateTraceEmitTests.swift",
+      "original_sha256": "87a447c6e2de5ea562c28184e7965816f9fd1dc5140b26204c3a5a04622508d1",
+      "original_lines": 40,
+      "test_methods": [
+        "testEmitBatteryTraceWritesSlopeAndGateLines",
+        "testEmitBatteryTraceIsNoOpWhenModeOff"
+      ],
+      "test_method_count": 2,
+      "disposition": "ported",
+      "reason_code": "current_contract_missing_from_active_targets",
+      "reason": "battery estimate trace emission gates",
+      "destination": "StrandiOSTests/BatteryEstimateTraceEmitTests.swift",
+      "target": "NOOPiOSTests",
+      "changes": [
+        "Rename app module import from Strand to NOOP; preserve existing assertions."
+      ]
+    },
+    {
+      "original_path": "StrandTests/BatteryGuidedCaptureTests.swift",
+      "original_sha256": "93f62f677cd6dc1d0e8cdc5cfc7bb570b43390c565cb8755bc7f5946d611123e",
+      "original_lines": 28,
+      "test_methods": [
+        "testStatusCountsElapsedDaysAgainstTarget",
+        "testStatusNilStartIsNotStarted"
+      ],
+      "test_method_count": 2,
+      "disposition": "ported",
+      "reason_code": "current_contract_missing_from_active_targets",
+      "reason": "battery guided capture phase and progress behavior",
+      "destination": "StrandiOSTests/BatteryGuidedCaptureTests.swift",
+      "target": "NOOPiOSTests",
+      "changes": [
+        "Rename app module import from Strand to NOOP; preserve existing assertions."
+      ]
+    },
+    {
+      "original_path": "StrandTests/BatteryReadoutTests.swift",
+      "original_sha256": "af1853b76c76974dfd930ae94581a19892ab7e2673ffeb46a7e8399907295603",
+      "original_lines": 26,
+      "test_methods": [
+        "testReadoutResolvesCurrentSocDaysLeftAndSlopeSource",
+        "testReadoutUnknownIdIsDash"
+      ],
+      "test_method_count": 2,
+      "disposition": "ported",
+      "reason_code": "current_contract_missing_from_active_targets",
+      "reason": "battery live readout from measured slope and missing-value display",
+      "destination": "StrandiOSTests/BatteryReadoutTests.swift",
+      "target": "NOOPiOSTests",
+      "changes": [
+        "Rename app module import from Strand to NOOP; preserve existing assertions."
+      ]
+    },
+    {
+      "original_path": "StrandTests/BugReportTemplateTests.swift",
+      "original_sha256": "b4293d635147cefdde0214c07b5e9e9570e3afa102b12f550b54fc926faa0fba",
+      "original_lines": 54,
+      "test_methods": [
+        "testHasTestProfileDropdownWithId",
+        "testTestProfileOptionsCoverAllProfilesPlusEscapes",
+        "testSourceDropdownGainsImporters",
+        "testLogTextareaTellsToAttachZipNotPaste",
+        "testAttachZipCheckboxPresent"
+      ],
+      "test_method_count": 5,
+      "disposition": "retired",
+      "reason_code": "obsolete_source_text_check",
+      "reason": "Reads .github/ISSUE_TEMPLATE/bug_report.yml text and requires old Oura/Fitbit/Garmin/Xiaomi importer labels; it executes no application behavior and does not validate issue-form parsing. The active app tests cover TestReportLink URL behavior.",
+      "destination": null
+    },
+    {
+      "original_path": "StrandTests/CaffeineDecayTests.swift",
+      "original_sha256": "4363a6bea928bb5feec39e946aabfa38c96b89e95dfa0bb7bac683f22a9609f4",
+      "original_lines": 195,
+      "test_methods": [
+        "testFractionAtZeroIsFull",
+        "testFractionAtOneHalfLifeIsHalf",
+        "testFractionAtTwoHalfLivesIsQuarter",
+        "testNegativeElapsedClampsToFull",
+        "testZeroHalfLifeYieldsZero",
+        "testRemainingMgHalvesEachHalfLife",
+        "testTotalRemainingMgSumsDoses",
+        "testHoursUntilQuarterIsTwoHalfLives",
+        "testIsStillActiveThreshold",
+        "testEstimateSumsOnlyKnownDoses",
+        "testEstimateNoKnownDoseYieldsNilMg",
+        "testEstimateExcludesClearedAndFutureIntakes",
+        "testEstimateEmptyIntakesIsInactive",
+        "testMostRecentActiveHoursPicksClosest",
+        "testStoreStartsEmptyAndLogs",
+        "testStoreSanitisesBadMgToUnknown",
+        "testStorePrunesOldIntakesOnLoad",
+        "testStoreEstimateReflectsLoggedIntakes",
+        "testCutoffLeadIsTwoHalfLivesForQuarterResidual",
+        "testCutoffIsBedtimeMinusLead",
+        "testEarlyBedtimeWrapsToPreviousEvening",
+        "testMorningCoffeeIsNotLateAndAfternoonIs",
+        "testIntakeExactlyAtCutoffIsNotLate"
+      ],
+      "test_method_count": 23,
+      "disposition": "ported",
+      "reason_code": "current_contract_missing_from_active_targets",
+      "reason": "caffeine half-life decay, unknown doses, future logs, and persisted intake sanitation",
+      "destination": "StrandiOSTests/CaffeineDecayTests.swift",
+      "target": "NOOPiOSTests",
+      "changes": [
+        "Rename app module import from Strand to NOOP; preserve existing assertions."
+      ]
+    },
+    {
+      "original_path": "StrandTests/ChargeBreakdownFormatTests.swift",
+      "original_sha256": "c00120dc98408d4519be9b5d7d2ab33bb4c4a9282a40c966353d2a39e475999c",
+      "original_lines": 148,
+      "test_methods": [
+        "testChipLabelCarriesExplicitSignAndPluralizes",
+        "testChipColorUsesRecoveryRampEndpoints",
+        "testDriverAccessibilityLabelReadsRowVerbatim",
+        "testDriverAccessibilityLabelOmitsEmptyBaselineAndHandlesNegativeAndZero",
+        "testDriverAccessibilityLabelResolvesLabelAndVerdictThroughLocalization",
+        "testTierTagMapsConfidenceToShortTag",
+        "testTierStateDotColorAgreesAndMapsLifecycleHues",
+        "testCanonicalConfidencePillKeepsExistingVoiceOverCopy",
+        "testCalibrationCountdownPluralizes",
+        "testCalibrationUnlockCopyNamesTheScore",
+        "testCalibrationProgressReadsBankedOfSeed",
+        "testSkinTempDeviationLabelSignsAndRoundsToOneDecimal",
+        "testSkinTempTierWord"
+      ],
+      "test_method_count": 13,
+      "disposition": "ported",
+      "reason_code": "current_contract_missing_from_active_targets",
+      "reason": "Charge driver labels, confidence state, and relative temperature presentation",
+      "destination": "StrandiOSTests/ChargeBreakdownFormatTests.swift",
+      "target": "NOOPiOSTests",
+      "changes": [
+        "Rename app module import from Strand to NOOP; preserve existing assertions."
+      ]
+    },
+    {
+      "original_path": "StrandTests/ConnectionTestModeEmissionTests.swift",
+      "original_sha256": "edc8a664ff7a395e71a62f3805e41728ae053ef25afcc1c017d8983c18526526",
+      "original_lines": 67,
+      "test_methods": [
+        "testModeOffEmitsZeroConnectionLines",
+        "testModeOnEmitsAFrameTimingLine",
+        "testRepeatedSameTypeDoesNotReEmit"
+      ],
+      "test_method_count": 3,
+      "disposition": "ported",
+      "reason_code": "current_contract_missing_from_active_targets",
+      "reason": "frame timing diagnostic gate and repeated-type throttling",
+      "destination": "StrandiOSTests/ConnectionTestModeEmissionTests.swift",
+      "target": "NOOPiOSTests",
+      "changes": [
+        "Rename app module import from Strand to NOOP; preserve existing assertions."
+      ]
+    },
+    {
+      "original_path": "StrandTests/CycleAwarenessGateTests.swift",
+      "original_sha256": "f95981c65c1c9075612f2dca008ca1d5c77ff6f1d0ce1fcbf5fdefd559368848",
+      "original_lines": 48,
+      "test_methods": [
+        "testMaleProfileIsExcluded",
+        "testFemaleAndNonbinaryAreIncluded",
+        "testGateNormalisesCaseAndWhitespace",
+        "testUnknownValueDefaultsToShowingTheOptIn",
+        "testInstanceAccessorTracksTheStoredSex"
+      ],
+      "test_method_count": 5,
+      "disposition": "ported",
+      "reason_code": "current_contract_missing_from_active_targets",
+      "reason": "cycle tracking opt-in gate and profile preference combinations",
+      "destination": "StrandiOSTests/CycleAwarenessGateTests.swift",
+      "target": "NOOPiOSTests",
+      "changes": [
+        "Rename app module import from Strand to NOOP; preserve existing assertions."
+      ]
+    },
+    {
+      "original_path": "StrandTests/DataBackupOriginTests.swift",
+      "original_sha256": "e8445974ea596967ba4c0e73d4e2464d040ca5e349b0c51cc6e88e03fa986b5e",
+      "original_lines": 35,
+      "test_methods": [
+        "testClassifiesByMigratorBookkeepingTable",
+        "testThisPlatformWinsWhenBothMarkersPresent",
+        "testOlderRoomLayoutDetectedByAndroidMetadataPair"
+      ],
+      "test_method_count": 3,
+      "disposition": "ported",
+      "reason_code": "current_contract_missing_from_active_targets",
+      "reason": "SQLite backup origin classification and foreign-database rejection",
+      "destination": "StrandiOSTests/DataBackupOriginTests.swift",
+      "target": "NOOPiOSTests",
+      "changes": [
+        "Rename app module import from Strand to NOOP; preserve existing assertions."
+      ]
+    },
+    {
+      "original_path": "StrandTests/DesignLabEngineFreezeTests.swift",
+      "original_sha256": "0853b03b8e94215422ff5b399162e6477db89110549eb82878c5de4656401dac",
+      "original_lines": 101,
+      "test_methods": [
+        "testStandardFixtureKeepsSleepStressTotalsAndTrendOutputsFrozen"
+      ],
+      "test_method_count": 1,
+      "disposition": "ported",
+      "reason_code": "current_contract_missing_from_active_targets",
+      "reason": "golden analytics sleep composite, sleep debt, and daytime stress outputs",
+      "destination": "StrandiOSTests/DesignLabEngineFreezeTests.swift",
+      "target": "NOOPiOSTests",
+      "changes": [
+        "Rename app module import from Strand to NOOP; preserve existing assertions."
+      ]
+    },
+    {
+      "original_path": "StrandTests/DesignLabStatePresentationTests.swift",
+      "original_sha256": "0a619803a547aa72043117068a1e7eb4261e9f8b2d6779e4e977919a09011f05",
+      "original_lines": 86,
+      "test_methods": [
+        "testSleepUndoDismissalCancelsExistingOwnerTask",
+        "testLiveVitalPresentationUsesArrivalFreshnessAndOnlyLivePulses",
+        "testLiveVitalArrivalPolicyIgnoresCachedReplayButKeepsRepeatedPackets",
+        "testOperationFailureKeepsExactMessageAndRetryGrammar"
+      ],
+      "test_method_count": 4,
+      "disposition": "ported",
+      "reason_code": "current_contract_missing_from_active_targets",
+      "reason": "live vital freshness, operation state, and sleep undo task control",
+      "destination": "StrandiOSTests/DesignLabStatePresentationTests.swift",
+      "target": "NOOPiOSTests",
+      "changes": [
+        "Rename app module import from Strand to NOOP; preserve existing assertions."
+      ]
+    },
+    {
+      "original_path": "StrandTests/DeviceCommandCenterStatusTests.swift",
+      "original_sha256": "b8cfb8a2f24052e7da9cd2ae42142d31ce6c89b39f172c9b76c0df69f4ccf6e2",
+      "original_lines": 135,
+      "test_methods": [
+        "testHealthyFullBond",
+        "testLiveHROnlyIsWarningAndBlocksEncryptedCommands",
+        "testHealthPriorityUsesReconnectBeforeClockAndSync",
+        "testExperimentalHistoryIsInformational",
+        "testSyncUsesChunkCountNotPercentage",
+        "testHandshakeIncompleteWithOldSyncNeverClaimsCaughtUp",
+        "testHandshakeIncompleteKeepsSavedHistorySeparate",
+        "testHistoryCompleteAllowsCurrentHistorySynced",
+        "testFailedHandshakeProducesVisibleNonSuccessState",
+        "testNonWhoopOmitsBondAndR22",
+        "testWhoopFourOmitsUnsupportedR22",
+        "testR22States",
+        "testConnectReconnectDisconnectTransitions"
+      ],
+      "test_method_count": 13,
+      "disposition": "ported",
+      "reason_code": "current_contract_missing_from_active_targets",
+      "reason": "WHOOP bond, history currentness, command availability, and connection uptime",
+      "destination": "StrandiOSTests/DeviceCommandCenterStatusTests.swift",
+      "target": "NOOPiOSTests",
+      "changes": [
+        "Rename app module import from Strand to NOOP; preserve existing assertions."
+      ]
+    },
+    {
+      "original_path": "StrandTests/DiagnosticSinkDomainTests.swift",
+      "original_sha256": "26cc3630db269e00736e42503f6429565067f49e92e9b4926f2e27fbe0e7c153",
+      "original_lines": 21,
+      "test_methods": [
+        "testSinkForwardsDomain"
+      ],
+      "test_method_count": 1,
+      "disposition": "retired",
+      "reason_code": "tautological_test_double",
+      "reason": "Assigns a closure to IntelligenceEngine.diagnosticSink and invokes that same closure directly, so it only verifies the assigned test closure. It never triggers the engine diagnostic emission path.",
+      "destination": null
+    },
+    {
+      "original_path": "StrandTests/DisplayPerformanceTests.swift",
+      "original_sha256": "001b0158d62000bb1b169ce08c96ca816fa4f69550ac19727d0cb6e8ae8a70e4",
+      "original_lines": 167,
+      "test_methods": [
+        "testMonitorNotRunningWhenModeOff",
+        "testModeOffEmitsZeroDisplayLines",
+        "testStopWhileNotStartedIsInertAndEmitsNothing",
+        "testStartEmitsADeviceMetricsLineAndStopEmitsHighWater",
+        "testStartEmitsDataVolumeLineWhenProviderWired",
+        "testNoProviderEmitsNoDataVolumeLine",
+        "testDoubleStartIsIdempotent",
+        "testWindowStatsMeanAndP95",
+        "testWindowStatsEmptyIsZero",
+        "testAssembleAddsScreenshotForDisplayProfile",
+        "testReviewGateNamesAttachedScreenshot"
+      ],
+      "test_method_count": 11,
+      "disposition": "ported",
+      "reason_code": "current_contract_missing_from_active_targets",
+      "reason": "bounded display performance traces and export redaction",
+      "destination": "StrandiOSTests/DisplayPerformanceTests.swift",
+      "target": "NOOPiOSTests",
+      "changes": [
+        "Rename app module import from Strand to NOOP; preserve existing assertions."
+      ]
+    },
+    {
+      "original_path": "StrandTests/EmptyBankingClassifierTests.swift",
+      "original_sha256": "1d1ecde1ef1cdd897c87ab2288b6a5037aaea4e7ec1759fba01799f67dfb6644",
+      "original_lines": 93,
+      "test_methods": [
+        "testDecodedChunksAreBanking",
+        "testArchivedFramesAreBanking",
+        "testConsoleOnlyAcrossManyChunksIsBankedNothing",
+        "testMetadataOnlyZeroRowsIsBankedNothing",
+        "testFewConsoleFramesZeroRowsIsBankedNothing",
+        "testRowsPersistedIsNotBankedNothing",
+        "testMetadataOnlyTripsBannerOnlyWhenSustained",
+        "testBankingCycleResetsTheMetadataOnlyStreak"
+      ],
+      "test_method_count": 8,
+      "disposition": "ported",
+      "reason_code": "current_contract_missing_from_active_targets",
+      "reason": "empty offload classification and sustained empty-sync guidance",
+      "destination": "StrandiOSTests/EmptyBankingClassifierTests.swift",
+      "target": "NOOPiOSTests",
+      "changes": [
+        "Rename app module import from Strand to NOOP; preserve existing assertions."
+      ]
+    },
+    {
+      "original_path": "StrandTests/ExperimentalDriversTests.swift",
+      "original_sha256": "6654a1af43da5a423f3820eb4b6bb09b5594269715224f6d199cfa95dfa1cf26",
+      "original_lines": 163,
+      "test_methods": [
+        "testHuamiTwoByteStatusHr",
+        "testHuamiOneByteHr",
+        "testHuamiNoReadingSentinelsAreNil",
+        "testHuamiEmptyIsNil",
+        "testHuamiHighValueParses",
+        "testRecogniseAmazfitFamily",
+        "testRecogniseMiBand",
+        "testRecogniseGarmin",
+        "testRecogniseOura",
+        "testUnknownNameIsNil",
+        "testOnlyOuraCannotStreamLive",
+        "testGarminUsesStandardRecognitionHelper",
+        "testHuamiSourceKindIsNotWhoop",
+        "testGarminSourceKindIsLiveBLENonWhoop",
+        "testActivatingAppleWatchDoesNotStopWhoopOrStartABLESource"
+      ],
+      "test_method_count": 15,
+      "disposition": "ported",
+      "reason_code": "current_contract_missing_from_active_targets",
+      "reason": "retained historic Huami/Garmin parser contracts and source isolation",
+      "destination": "StrandiOSTests/ExperimentalDriversTests.swift",
+      "target": "NOOPiOSTests",
+      "changes": [
+        "Rename app module import from Strand to NOOP; preserve existing assertions."
+      ]
+    },
+    {
+      "original_path": "StrandTests/FileExportNameTests.swift",
+      "original_sha256": "513e9d49e765e0e39de3aa8c42ff61e3ce41443f98bb37a75ac9778e70f9c80f",
+      "original_lines": 28,
+      "test_methods": [
+        "testBundleNamePattern",
+        "testTimestampedNameStillTwoArg"
+      ],
+      "test_method_count": 2,
+      "disposition": "ported",
+      "reason_code": "current_contract_missing_from_active_targets",
+      "reason": "timestamped export filenames",
+      "destination": "StrandiOSTests/FileExportNameTests.swift",
+      "target": "NOOPiOSTests",
+      "changes": [
+        "Rename app module import from Strand to NOOP; preserve existing assertions."
+      ]
+    },
+    {
+      "original_path": "StrandTests/FileExportZipTests.swift",
+      "original_sha256": "6b85060d39e0a35052addaaaf6a4dd1db3c9f61d6fb98fffbe6912fdf0e52410",
+      "original_lines": 32,
+      "test_methods": [
+        "testZipDataRoundTripsTwoEntries",
+        "testZipDataEmptyEntriesReturnsNil"
+      ],
+      "test_method_count": 2,
+      "disposition": "ported",
+      "reason_code": "current_contract_missing_from_active_targets",
+      "reason": "real ZIP bundle entries and archive paths",
+      "destination": "StrandiOSTests/FileExportZipTests.swift",
+      "target": "NOOPiOSTests",
+      "changes": [
+        "Rename app module import from Strand to NOOP; preserve existing assertions."
+      ]
+    },
+    {
+      "original_path": "StrandTests/GpsRouteMathTests.swift",
+      "original_sha256": "33f81e35708202ca679de9831748e8dd67c0e4d606ab6e9598352e61a13789fb",
+      "original_lines": 235,
+      "test_methods": [
+        "testHaversineKnownDistance",
+        "testTotalDistanceSumsSegments",
+        "testTotalDistanceEmptyOrSingleIsZero",
+        "testDistanceAccumulatesAcrossGrowingTrack",
+        "testPaceSecPerKm",
+        "testPolylineRoundTrips",
+        "testEncodeEmptyIsEmptyString",
+        "testPolylineMatchesGoogleReferenceGolden",
+        "testDecodeTruncatedStopsCleanly",
+        "testDecodeGarbageDoesNotCrash",
+        "testFilterDropsLowAccuracyFixes",
+        "testFilterDropsInvalidNegativeAccuracy",
+        "testFilterDropsTeleportJumps",
+        "testFilterRejectsOutOfRangeCoordinates",
+        "testRouteStoreRoundTrip",
+        "testRouteStoreKeysBySportAndStart",
+        "testRouteStoreRejectsEmptyPolyline",
+        "testRouteStoreDropsNonFiniteDistanceOnDecode",
+        "testRouteStoreEvictsOldestPastCap",
+        "testRouteStoreReKeyOnNaturalKeyChangePreservesRoute",
+        "testRouteStoreReKeyNoRouteIsNoOp"
+      ],
+      "test_method_count": 21,
+      "disposition": "ported",
+      "reason_code": "current_contract_missing_from_active_targets",
+      "reason": "GPS filtering, route geometry, splits, and route-store round trips",
+      "destination": "StrandiOSTests/GpsRouteMathTests.swift",
+      "target": "NOOPiOSTests",
+      "changes": [
+        "Rename app module import from Strand to NOOP; preserve existing assertions."
+      ]
+    },
+    {
+      "original_path": "StrandTests/HRVSnapshotViewTests.swift",
+      "original_sha256": "1679c0d3b794f9df9dba6bd950d1ce6b28a675ad92bed455a382d7d1cdd42e48",
+      "original_lines": 45,
+      "test_methods": [
+        "testMeanHRConvertsMeanNNToBPM",
+        "testMeanHRIsNilForMissingOrNonPositiveNN",
+        "testFormatRendersEmDashForNil",
+        "testFormatRoundsToTheGivenPrecision",
+        "testSnapshotKeyAndSourceAreStable"
+      ],
+      "test_method_count": 5,
+      "disposition": "ported",
+      "reason_code": "current_contract_missing_from_active_targets",
+      "reason": "HRV snapshot range and missing-reading presentation",
+      "destination": "StrandiOSTests/HRVSnapshotViewTests.swift",
+      "target": "NOOPiOSTests",
+      "changes": [
+        "Rename app module import from Strand to NOOP; preserve existing assertions."
+      ]
+    },
+    {
+      "original_path": "StrandTests/HrBroadcasterEncodeTests.swift",
+      "original_sha256": "4fb44888dcbadcb9a998efe0307f57338fd859ba30f5c48a0faf880e09ac3eb9",
+      "original_lines": 67,
+      "test_methods": [
+        "testU8FlagsAndValue",
+        "testU8FlagBit0IsClearBelow256",
+        "testU16AtBoundary",
+        "testU16FlagAndLittleEndian",
+        "testNegativeClampsToZero",
+        "testHugeValueClampsToU16Max",
+        "testRoundTripThroughParser"
+      ],
+      "test_method_count": 7,
+      "disposition": "ported",
+      "reason_code": "current_contract_missing_from_active_targets",
+      "reason": "standard BLE heart-rate encoding and R-R payload bounds",
+      "destination": "StrandiOSTests/HrBroadcasterEncodeTests.swift",
+      "target": "NOOPiOSTests",
+      "changes": [
+        "Rename app module import from Strand to NOOP; preserve existing assertions."
+      ]
+    },
+    {
+      "original_path": "StrandTests/HugeImportFirstPaintStressTests.swift",
+      "original_sha256": "6dd8465c039489d3568e8b7b7aa5d491a43eacae2566e4e1f3b34d64781779ed",
+      "original_lines": 110,
+      "test_methods": [
+        "testFirstPaintWorkoutWindowIsBounded",
+        "testTodayHrFirstPaintReadIsBoundedByWindow",
+        "testLatestDataLookupResolvesWithoutLoadingHistory"
+      ],
+      "test_method_count": 3,
+      "disposition": "ported",
+      "reason_code": "current_contract_missing_from_active_targets",
+      "reason": "bounded first-paint history windows for a large imported store",
+      "destination": "StrandiOSTests/HugeImportFirstPaintStressTests.swift",
+      "target": "NOOPiOSTests",
+      "changes": [
+        "Rename app module import from Strand to NOOP; preserve existing assertions."
+      ]
+    },
+    {
+      "original_path": "StrandTests/HydrationEntriesTests.swift",
+      "original_sha256": "3a062a9acbcfc9d851e8e7fb35184fc838bba3404c110028e8e27e60475512e0",
+      "original_lines": 76,
+      "test_methods": [
+        "testAddingAppendsPositiveAmount",
+        "testAddingRejectsNonPositive",
+        "testTotalSumsAmounts",
+        "testTotalOfEmptyIsZero",
+        "testRemovingDropsTheTargetAndRederivesTotal",
+        "testRemovingUnknownIdIsNoOp",
+        "testUpdatingSetsNewAmountAndKeepsIdentity",
+        "testUpdatingToNonPositiveDeletesTheEntry",
+        "testUpdatingUnknownIdIsNoOp"
+      ],
+      "test_method_count": 9,
+      "disposition": "ported",
+      "reason_code": "current_contract_missing_from_active_targets",
+      "reason": "hydration entry sanitation, totals, edits, and persisted decoding",
+      "destination": "StrandiOSTests/HydrationEntriesTests.swift",
+      "target": "NOOPiOSTests",
+      "changes": [
+        "Rename app module import from Strand to NOOP; preserve existing assertions."
+      ]
+    },
+    {
+      "original_path": "StrandTests/ImportInboxCleanupTests.swift",
+      "original_sha256": "1d24937e00f75ee219df06d89ed40ccfd93109df93c6a6d646ee2d4179022d56",
+      "original_lines": 98,
+      "test_methods": [
+        "testInboxFileIsRecognised",
+        "testFileOutsideInboxIsNotATarget",
+        "testCleanupDeletesInboxOriginalAndTemp",
+        "testCleanupLeavesAUserFileOutsideInboxUntouched",
+        "testPurgeRemovesStaleInboxDropsButKeepsFreshOnes"
+      ],
+      "test_method_count": 5,
+      "disposition": "ported",
+      "reason_code": "current_contract_missing_from_active_targets",
+      "reason": "inbox import copy lifecycle and source-file deletion protection",
+      "destination": "StrandiOSTests/ImportInboxCleanupTests.swift",
+      "target": "NOOPiOSTests",
+      "changes": [
+        "Rename app module import from Strand to NOOP; preserve existing assertions."
+      ]
+    },
+    {
+      "original_path": "StrandTests/ImportTraceEmitTests.swift",
+      "original_sha256": "6eb915d5823b4258a3d91ae319c22c4771b8aa18eb4105cbccd2976e4c97ad57",
+      "original_lines": 79,
+      "test_methods": [
+        "testImporterEmitsTraceLinesWhenSinkProvided",
+        "testImporterEmitsNothingAndSavesIdenticallyWhenSinkNil"
+      ],
+      "test_method_count": 2,
+      "disposition": "ported",
+      "reason_code": "current_contract_missing_from_active_targets",
+      "reason": "WHOOP import diagnostics and unchanged persisted results when trace is off",
+      "destination": "StrandiOSTests/ImportTraceEmitTests.swift",
+      "target": "NOOPiOSTests",
+      "changes": [
+        "Rename app module import from Strand to NOOP; preserve existing assertions."
+      ]
+    },
+    {
+      "original_path": "StrandTests/JournalLogicTests.swift",
+      "original_sha256": "a43f48941b97a4656c6d9182f18ef3485d43a60fc66b814192cc0c8669631665",
+      "original_lines": 188,
+      "test_methods": [
+        "testNativeWinsOnCollision",
+        "testDisjointKeysUnionAndSort",
+        "testCatalogAdoptsImportedCasing",
+        "testCustomsAppendAndBlanksDrop",
+        "testImportedMagnesiumWithTrailingWhitespaceDoesNotDoublePrompt",
+        "testHiddenQuestionsFilteredOutCaseInsensitively",
+        "testLegacyMigrationFoldsTwoArraysIntoItems",
+        "testRenameKeepsCanonicalStableSoHistorySurvives",
+        "testSetGroupAndKindPreserveCanonical",
+        "testResolvedItemsGroupStartersByDefaultAndDropHidden",
+        "testAddCustomNumericItem",
+        "testNumericJournalKeyIsNamespaced"
+      ],
+      "test_method_count": 12,
+      "disposition": "ported",
+      "reason_code": "current_contract_missing_from_active_targets",
+      "reason": "journal catalog merging and insight day mapping",
+      "destination": "StrandiOSTests/JournalLogicTests.swift",
+      "target": "NOOPiOSTests",
+      "changes": [
+        "Rename app module import from Strand to NOOP; preserve existing assertions."
+      ]
+    },
+    {
+      "original_path": "StrandTests/LiftSessionEditTests.swift",
+      "original_sha256": "2c0fe649c888d3f4800b8d68264a4619b1d825324353d72203dccd21205d2c40",
+      "original_lines": 50,
+      "test_methods": [
+        "testAnUntouchedFieldIsNotWrittenBack",
+        "testAChangedWeightIsReadInTheDisplayUnit",
+        "testADecimalCommaAndAClearedFieldAreHonoured",
+        "testMarkingAWarmUpAfterTheFactApplies"
+      ],
+      "test_method_count": 4,
+      "disposition": "retired",
+      "reason_code": "removed_type",
+      "reason": "All four cases call LiftSessionEditSheet.form/applying. No LiftSessionEditSheet declaration exists in current Strand or StrandiOS source; the receipt-based Lift feature replaced that editor. Active ReceiptLiftFeature tests own receipt edits and workout-detail Lift tests own app integration.",
+      "destination": null
+    },
+    {
+      "original_path": "StrandTests/LiftSessionEngineTests.swift",
+      "original_sha256": "426db29b4d1a9b3d775d780a28fe38b5a3c3d362ff363f3131e5842707ef26ca",
+      "original_lines": 651,
+      "test_methods": [
+        "testTheSheetListsEverySetOfEveryExercise",
+        "testASessionStartsInTheWarmUpWithNothingCompleted",
+        "testFinishingASetStaysOnTheSameExerciseEvenWithAnEarlierOneSkipped",
+        "testTheSkippedExerciseIsWhatComesNextOnceTheCurrentOneIsDone",
+        "testSlotAfterPrefersTheSameExerciseThenFallsBackToPlanOrder",
+        "testFinishingASetWithoutTypingLeavesItsNumbersGrey",
+        "testGreyNumbersFollowWhatTheExerciseDidEarlierInTheSession",
+        "testCorrectingAnEarlierSetMovesTheGreyNumbersAfterIt",
+        "testLastSessionIsUsedWhenTheSessionHasNoEarlierSetForTheExercise",
+        "testRpeIsNeverCarried",
+        "testASetWithNothingToCarryStaysEmpty",
+        "testTypingZeroOverAGreyValueSticks",
+        "testUnenteredSlotsAreTheOnesNobodyTypedInto",
+        "testTheFullTapThroughRecordsEverySetInOrder",
+        "testFinishClosesTheRunningRestSoItsDurationIsNotLost",
+        "testAnyPendingSetCanBeStartedWhenAMachineIsBusy",
+        "testAdvancingFromRestGoesToTheFirstOUTSTANDINGSetNotTheNextInLine",
+        "testStartingAnAlreadyCompletedSetRedoesItRatherThanDoubleCounting",
+        "testStartingAnotherSetMidSetRecordsNothingForTheAbandonedOne",
+        "testAdvancingWhenEverythingIsDoneDoesNotInventASet",
+        "testRestIsAnchoredToAnAbsoluteInstantNotACountdown",
+        "testAnOverrunRestFloorsAtZeroAndNeverAutoAdvances",
+        "testRestRecordedIsWhatWasActuallyTakenNotWhatWasPlanned",
+        "testASetCarriesTheDurationItWasPerformedOver",
+        "testASetIsRecordedWithItsTimingBeforeAnyNumbersAreTyped",
+        "testTypingEditsTheSetRatherThanAddingOne",
+        "testTypingIntoASetThatWasNeverPerformedInventsNothing",
+        "testAWarmUpSetIsRecordedButDoesNotCountAsAWorkingSet",
+        "testAWarmUpMarkedBeforeTheSetIsPerformedSurvivesOntoIt",
+        "testAWarmUpCanBeUnmarkedBackToAWorkingSet",
+        "testAWarmUpStillCarriesItsWeightAndRepsForTheRecord",
+        "testThePreviousSetInThisSessionIsWhatASetGhostsFrom",
+        "testTheFirstSetOfAnExerciseHasNothingToGhostFrom",
+        "testUndoRestoresTheStageAndRemovesTheRecordedSet",
+        "testUndoWalksAllTheWayBackToTheWarmUp",
+        "testUndoIsGlobalAndWalksBackACROSSExercises",
+        "testUndoHasNoDepthLimit",
+        "testUndoOnAFreshSessionIsHarmless",
+        "testUndoTakesBackARedoRestoringTheSetItDropped",
+        "testAnAddedSetBecomesATappableRowAndCountsTowardThePlan",
+        "testAnExtraSetIsWhereTheSessionGoesNextAndRecordsWhatItWasDoing",
+        "testAddingSetsStopsAtTheBound",
+        "testAddingASetToALineThatIsNotThereDoesNothing",
+        "testDroppingTheLastSetTakesItOffTheSheet",
+        "testACompletedSetIsNeverDroppedByTheMinus",
+        "testTheSetTheSessionIsStandingOnIsNeverDropped",
+        "testTheLastRemainingSetIsNeverDropped",
+        "testUndoTakesBackAnAddedSet",
+        "testUndoPutsADroppedSetBack",
+        "testUndoingPastADroppedSetCannotStrandTheSessionOnASlotThatIsGone",
+        "testALineWithNoTargetStillGetsOneTappableSet",
+        "testAMissingRestFallsBackToTheDefault",
+        "testAnEmptyPlanHasNothingToStartAndCannotTrap",
+        "testStartingASlotOutsideThePlanIsIgnored"
+      ],
+      "test_method_count": 54,
+      "disposition": "ported",
+      "reason_code": "current_contract_missing_from_active_targets",
+      "reason": "legacy session engine sequencing, supersets, warmups, carry, pause, and finish",
+      "destination": "StrandiOSTests/LiftSessionEngineTests.swift",
+      "target": "NOOPiOSTests",
+      "changes": [
+        "Rename app module import from Strand to NOOP; preserve existing assertions."
+      ]
+    },
+    {
+      "original_path": "StrandTests/LiftSessionFinishTests.swift",
+      "original_sha256": "bca080b34090e6b75daa5a76359e0a78688213c2c010866273b81e7e7676a19e",
+      "original_lines": 178,
+      "test_methods": [
+        "testAFaceDownSessionDiscardingSavesNothingAtAll",
+        "testUnfinishedSetsAreTheUntypedAndTheNeverStarted",
+        "testATypedSetSavesEitherWayWithItsBlanksFilled",
+        "testDiscardingLeavesEveryUnfinishedSetOut",
+        "testCompletingSavesThemWithTheirGreyNumbers",
+        "testCompletingUsesWhatWasTypedAndMarkedInAdvance",
+        "testAFullyTypedSessionHasNothingUnfinished",
+        "testTheBarShowsGreyNumbersForAnUntypedSet",
+        "testOnlyLinesWhoseCountMovedAreOffered",
+        "testAMissingCountIsOneAndADeletedLineIsSkipped",
+        "testApplyingMovesOnlyTheSetCount",
+        "testSavingASessionIsAnnouncedButDiscardingIsNot"
+      ],
+      "test_method_count": 12,
+      "disposition": "ported",
+      "reason_code": "current_contract_missing_from_active_targets",
+      "reason": "legacy session save transaction, terminal state, and program advancement",
+      "destination": "StrandiOSTests/LiftSessionFinishTests.swift",
+      "target": "NOOPiOSTests",
+      "changes": [
+        "Rename app module import from Strand to NOOP; preserve existing assertions."
+      ]
+    },
+    {
+      "original_path": "StrandTests/LiftSessionPendingInputTests.swift",
+      "original_sha256": "6515d75b8f3e9615f06f99633968183dd8fc94fee4da51f4f3e43a777312ea5b",
+      "original_lines": 180,
+      "test_methods": [
+        "testTypingIntoAnotherSetWhileOneIsActiveIsKept",
+        "testWhatWasTypedInAdvanceIsWhatTheSetRecords",
+        "testAFieldLeftAloneStillCarries",
+        "testClearingTheFieldDropsTheHeldEntry",
+        "testACompletedSetIsStillEditedInPlace",
+        "testTypingNeverInventsASet",
+        "testTypingIntoASlotOutsideThePlanIsIgnored",
+        "testAWarmUpMarkedInAdvanceStillApplies",
+        "testARedoDoesNotResurrectTheConsumedEntry",
+        "testRemovingASetDropsWhatWasEnteredForIt"
+      ],
+      "test_method_count": 10,
+      "disposition": "ported",
+      "reason_code": "current_contract_missing_from_active_targets",
+      "reason": "pending Lift input retention and normalized set parsing",
+      "destination": "StrandiOSTests/LiftSessionPendingInputTests.swift",
+      "target": "NOOPiOSTests",
+      "changes": [
+        "Rename app module import from Strand to NOOP; preserve existing assertions."
+      ]
+    },
+    {
+      "original_path": "StrandTests/LiftSessionPersistenceTests.swift",
+      "original_sha256": "9299bd5b56e40962ead0327611ecf3c106a1ad912aa4651920a538df2bbfab4b",
+      "original_lines": 119,
+      "test_methods": [
+        "testASessionWrittenByThePreviousBuildStillResumes",
+        "testAResumedOldSessionCarriesNoProgramLineAndIsStillFullyUsable",
+        "testNumbersTypedForASetNotYetPerformedSurviveARelaunch",
+        "testAnOldSnapshotResumesWithNothingPending",
+        "testTodaysSnapshotRoundTripsWithTheProgramLine"
+      ],
+      "test_method_count": 5,
+      "disposition": "ported",
+      "reason_code": "current_contract_missing_from_active_targets",
+      "reason": "legacy Lift active-state restore and saved-set persistence",
+      "destination": "StrandiOSTests/LiftSessionPersistenceTests.swift",
+      "target": "NOOPiOSTests",
+      "changes": [
+        "Rename app module import from Strand to NOOP; preserve existing assertions."
+      ]
+    },
+    {
+      "original_path": "StrandTests/LiveStateDomainTagTests.swift",
+      "original_sha256": "c98c86c9c28715fca9a61feb12f140620694d0e8fbc20d21df3051c948411c43",
+      "original_lines": 36,
+      "test_methods": [
+        "testNilDomainLeavesLineUntagged",
+        "testDomainPrefixesCompactMarker",
+        "testDataImportUsesWireId",
+        "testRedactionRunsAfterTagging"
+      ],
+      "test_method_count": 4,
+      "disposition": "ported",
+      "reason_code": "current_contract_missing_from_active_targets",
+      "reason": "tagged diagnostic ring isolation and bounded tails",
+      "destination": "StrandiOSTests/LiveStateDomainTagTests.swift",
+      "target": "NOOPiOSTests",
+      "changes": [
+        "Rename app module import from Strand to NOOP; preserve existing assertions."
+      ]
+    },
+    {
+      "original_path": "StrandTests/MoreListParityTests.swift",
+      "original_sha256": "3ea25469a0bc0da634e340e89094c63a65088d10a5581b36489820245c903132",
+      "original_lines": 88,
+      "test_methods": [
+        "testSidebarExposesAlarms",
+        "testAlarmsIconMatchesTheRestorediPhoneRow",
+        "testNotificationsRemainsAMacOSSidebarDestination",
+        "testEveryNavItemIsReachableInExactlyOneGroup",
+        "testSmartAlarmResolvesToAGroupAfterGrouping",
+        "testInsightSurfacesShareOneGroup",
+        "testInitialExpansionShowsActiveGroupPlusSingletons"
+      ],
+      "test_method_count": 7,
+      "disposition": "retired",
+      "reason_code": "removed_macos_contract",
+      "reason": "All seven cases require NavItem, NavGroup, or RootView, which are absent from current app source. They describe the retired macOS sidebar; current iPhone shell destinations are exercised by active navigation/route tests.",
+      "destination": null
+    },
+    {
+      "original_path": "StrandTests/MoreSectionPrefsTests.swift",
+      "original_sha256": "fd0181db6efaa4aabe552cf5c9673dccda519b3e067b4dc4e6bda353f608008a",
+      "original_lines": 67,
+      "test_methods": [
+        "testFreshInstallDefaultsToInsightsAndBody",
+        "testKeyMatchesAndroidSuffix",
+        "testEncodeIsSortedAndDeterministic",
+        "testEncodeDecodeRoundTrips",
+        "testEmptyStringDecodesToEmptySetNotTheSeed",
+        "testDecodeIgnoresBlankAndStrayTokens",
+        "testCollapsedChoicePersistsThroughUserDefaults"
+      ],
+      "test_method_count": 7,
+      "disposition": "ported",
+      "reason_code": "current_contract_missing_from_active_targets",
+      "reason": "retained More section preference encoding and collapsed-state persistence",
+      "destination": "StrandiOSTests/MoreSectionPrefsTests.swift",
+      "target": "NOOPiOSTests",
+      "changes": [
+        "Rename app module import from Strand to NOOP; preserve existing assertions."
+      ]
+    },
+    {
+      "original_path": "StrandTests/OnboardingUnitsPickerTests.swift",
+      "original_sha256": "f9f90981a17c6b7b67486647c3751f6a771e28d6415d63c82cad13cc2811fe7e",
+      "original_lines": 46,
+      "test_methods": [
+        "testUnitSystemKeyIsTheSharedAppStorageKey",
+        "testRawValuesRoundTripThroughInitializer",
+        "testUnknownRawDefaultsToMetric",
+        "testPickingImperialChangesTheDisplayedWeightAndHeight"
+      ],
+      "test_method_count": 4,
+      "disposition": "ported",
+      "reason_code": "current_contract_missing_from_active_targets",
+      "reason": "onboarding unit preference compatibility and unit-sensitive display",
+      "destination": "StrandiOSTests/OnboardingUnitsPickerTests.swift",
+      "target": "NOOPiOSTests",
+      "changes": [
+        "Rename app module import from Strand to NOOP; preserve existing assertions."
+      ]
+    },
+    {
+      "original_path": "StrandTests/ReadSpineActiveDeviceTests.swift",
+      "original_sha256": "c19a0e2bfef2b141e5b1ea6ae6d0de4d80e900ba19d59bf929384eea64d75dd2",
+      "original_lines": 227,
+      "test_methods": [
+        "testReadFollowsActiveIdAfterReAdd",
+        "testHrFacadesUnionActiveAndCanonicalAfterReAdd",
+        "testAdoptIsNoOpForEmptyOrUnchangedId",
+        "testComputedRowsUnionAfterReAdd",
+        "testImportedHistoryUnderCanonicalSurvivesReAddWithLiveData",
+        "testLatestActivityClassUnionPickAndTieBreak",
+        "testStepActivityClassUnionSurfacesReAddedStrapClass"
+      ],
+      "test_method_count": 7,
+      "disposition": "ported",
+      "reason_code": "current_contract_missing_from_active_targets",
+      "reason": "read model union across canonical imported and active strap source identities",
+      "destination": "StrandiOSTests/ReadSpineActiveDeviceTests.swift",
+      "target": "NOOPiOSTests",
+      "changes": [
+        "Rename app module import from Strand to NOOP; preserve existing assertions."
+      ]
+    },
+    {
+      "original_path": "StrandTests/RelativeAgoTests.swift",
+      "original_sha256": "8ce863ad31788691eb2627dce14370fbd77a34e90be65c5eeaa99fa747a1cbc8",
+      "original_lines": 38,
+      "test_methods": [
+        "testUnderAMinuteIsJustNow",
+        "testMinutes",
+        "testHours",
+        "testDays",
+        "testFutureTimestampClampsToJustNow"
+      ],
+      "test_method_count": 5,
+      "disposition": "ported",
+      "reason_code": "current_contract_missing_from_active_targets",
+      "reason": "future clock clamping and minute/hour/day sync age buckets",
+      "destination": "StrandiOSTests/RelativeAgoTests.swift",
+      "target": "NOOPiOSTests",
+      "changes": [
+        "Rename app module import from Strand to NOOP; preserve existing assertions."
+      ]
+    },
+    {
+      "original_path": "StrandTests/ReportReviewGateTests.swift",
+      "original_sha256": "776bfb34f9546fc1ab5715b700e79408d44508348b836f7db6d065c9ffd0ee4e",
+      "original_lines": 33,
+      "test_methods": [
+        "testFreshGateIsNotCleared",
+        "testPreviewShowsTheReportTextUserWillShare",
+        "testConfirmClearsAndCancelDoesNot"
+      ],
+      "test_method_count": 3,
+      "disposition": "ported",
+      "reason_code": "current_contract_missing_from_active_targets",
+      "reason": "report preview and explicit confirmation before sharing",
+      "destination": "StrandiOSTests/ReportReviewGateTests.swift",
+      "target": "NOOPiOSTests",
+      "changes": [
+        "Rename app module import from Strand to NOOP; preserve existing assertions."
+      ]
+    },
+    {
+      "original_path": "StrandTests/RestFreshnessTests.swift",
+      "original_sha256": "bb39f30f6a9805379d26b839a7bcebeecba849d4cf6da8beafcb2c7ec79bfa12",
+      "original_lines": 60,
+      "test_methods": [
+        "testTodaysOwnRow_wins_regardlessOfTail",
+        "testFreshTail_carries_whenNoTodayRow",
+        "testStaleTail_doesNotCarry_readsNoData",
+        "testPastDaySelected_neverTailFalls",
+        "testNoTailAtAll_readsNoData"
+      ],
+      "test_method_count": 5,
+      "disposition": "ported",
+      "reason_code": "current_contract_missing_from_active_targets",
+      "reason": "fresh-only Rest fallback and no stale score for missing current evidence",
+      "destination": "StrandiOSTests/RestFreshnessTests.swift",
+      "target": "NOOPiOSTests",
+      "changes": [
+        "Rename app module import from Strand to NOOP; preserve existing assertions."
+      ]
+    },
+    {
+      "original_path": "StrandTests/SettingsDisclosureDefaultsTests.swift",
+      "original_sha256": "9a1f847986ee689baf1fd6d1644db8cf996b46484c32005f3248d331c3ead12f",
+      "original_lines": 32,
+      "test_methods": [
+        "testFreshInstallDefaultsCollapsed",
+        "testKeyMatchesAndroidSuffix",
+        "testDefaultRoundTripsThroughUserDefaults"
+      ],
+      "test_method_count": 3,
+      "disposition": "retired",
+      "reason_code": "removed_type",
+      "reason": "All three cases require SettingsDisclosureDefaults. No production declaration or settingsAdvancedOpen storage use remains; the current settings screen no longer exposes that disclosure contract.",
+      "destination": null
+    },
+    {
+      "original_path": "StrandTests/ShortcutHealthExportTests.swift",
+      "original_sha256": "dec62ff5ea4163dce6029d78b77b431d7e85bb71855a86380e4260be548de9c4",
+      "original_lines": 284,
+      "test_methods": [
+        "testLineAllFields",
+        "testEmptyFieldsKeepCommas",
+        "testHRVOneDecimal",
+        "testTimestampUsesGivenZone",
+        "testRenderJoinsWithoutHeaderOrTrailingNewline",
+        "testAggregateBucketsHRIntoWindowsAscending",
+        "testAggregateSkipsEmptyWindows",
+        "testAggregateExcludesOpenWindow",
+        "testAggregateRMSSDPerWindow",
+        "testAggregateInsufficientBeatsEmitNothing",
+        "testAggregateRMSSDSplitsAcrossWindows",
+        "testStepWrapAddsU16Modulus",
+        "testStepResetDeltaDropped",
+        "testStepZeroDeltaIgnored",
+        "testStepDeltaLandsInLaterSamplesWindow",
+        "testCoverageSpanExcludesOpenWindow",
+        "testCoverageSpanStartsAtWatermark",
+        "testCoverageSpanClampsToSevenDays",
+        "testExportWritesFileAndAdvancesWatermark",
+        "testExportReadFailureLeavesWatermarkAndFile",
+        "testExportWriteFailureLeavesWatermark",
+        "testExportNothingNewWhenWatermarkCoversNow",
+        "testNothingNewTruncatesStaleFileSoShortcutCannotReimport",
+        "testExportReplacesWholeFile",
+        "testResetWatermark"
+      ],
+      "test_method_count": 25,
+      "disposition": "ported",
+      "reason_code": "current_contract_missing_from_active_targets",
+      "reason": "bounded health export windows, intervals, and per-source read failures",
+      "destination": "StrandiOSTests/ShortcutHealthExportTests.swift",
+      "target": "NOOPiOSTests",
+      "changes": [
+        "Rename app module import from Strand to NOOP; preserve existing assertions."
+      ]
+    },
+    {
+      "original_path": "StrandTests/ShortcutHealthImportTests.swift",
+      "original_sha256": "b4fb85e0181e36455424598bdb9aa0999137c58758bf4b1db56ba239e0e5b6f4",
+      "original_lines": 179,
+      "test_methods": [
+        "testDecodesValidPayload",
+        "testRejectsForeignScheme",
+        "testRejectsWrongHost",
+        "testRejectsUnsupportedVersion",
+        "testAcceptsURLSafeBase64WithoutPadding",
+        "testParsesDayAllFields",
+        "testEmptyFieldsStayNil",
+        "testDayWithNoMetricIsDropped",
+        "testInvalidDayKeyRejected",
+        "testParsesWorkout",
+        "testWorkoutDurationDefaultsToSpan",
+        "testUnknownRecordKindIgnored",
+        "testMixedRecordsAndBlankLines",
+        "testRejectsStrapTarget",
+        "testIngestWritesOnlyToAppleSourceNotStrap",
+        "testEmptyPayloadIsNothingToImport",
+        "testTargetSourceIsTheAppleSource"
+      ],
+      "test_method_count": 17,
+      "disposition": "ported",
+      "reason_code": "current_contract_missing_from_active_targets",
+      "reason": "shortcut health import decoding, source keys, and duplicate handling",
+      "destination": "StrandiOSTests/ShortcutHealthImportTests.swift",
+      "target": "NOOPiOSTests",
+      "changes": [
+        "Rename app module import from Strand to NOOP; preserve existing assertions."
+      ]
+    },
+    {
+      "original_path": "StrandTests/SleepMarkTests.swift",
+      "original_sha256": "79077502950bbc7c9c6a8a411c2615b937da91923848bc932265844ee7ae3423",
+      "original_lines": 96,
+      "test_methods": [
+        "testTypeEncodesToZeroAndOne",
+        "testTypeDecodeIsTolerant",
+        "testMetricPointCarriesKeyDayAndValue",
+        "testLogLineIsHumanReadableAndTyped",
+        "testMarkPersistenceRoundTrip",
+        "testSameDayUpsertReplacesValueInPlace"
+      ],
+      "test_method_count": 6,
+      "disposition": "ported",
+      "reason_code": "current_contract_missing_from_active_targets",
+      "reason": "manual sleep mark storage, source identity, and replacement behavior",
+      "destination": "StrandiOSTests/SleepMarkTests.swift",
+      "target": "NOOPiOSTests",
+      "changes": [
+        "Rename app module import from Strand to NOOP; preserve existing assertions."
+      ]
+    },
+    {
+      "original_path": "StrandTests/SleepOnsetDecodeTests.swift",
+      "original_sha256": "63c2cca5cd770807cdc384a092b678dfd6b4ccc38c90e4071c7eec10d5f90e40",
+      "original_lines": 91,
+      "test_methods": [
+        "testSegmentArrayFormatDecodesRealAsleepMinutes",
+        "testDictFormatStillDecodes",
+        "testDegenerateInputsAreZero",
+        "testSegmentDecodeTrimsPreOnset",
+        "testRealNightOnsetIndexIsTheFirstSleepFragment"
+      ],
+      "test_method_count": 5,
+      "disposition": "ported",
+      "reason_code": "current_contract_missing_from_active_targets",
+      "reason": "sleep stage dict/segment decoding and real night onset selection",
+      "destination": "StrandiOSTests/SleepOnsetDecodeTests.swift",
+      "target": "NOOPiOSTests",
+      "changes": [
+        "Rename app module import from Strand to NOOP; preserve existing assertions."
+      ]
+    },
+    {
+      "original_path": "StrandTests/SleepOnsetStubTests.swift",
+      "original_sha256": "aba172cc7b8cdb0abc056c403d0d75bd50c3f05ddef3adb8191600faa87a894b",
+      "original_lines": 138,
+      "test_methods": [
+        "testBriefAllAwakeIsStub",
+        "testShortButAsleepIsNotStub",
+        "testLongAllAwakePreSleepBlockIsStub",
+        "testBeyondCapIsNotStub",
+        "testAtThresholdsIsStub",
+        "testJustOverAsleepThresholdIsNotStub",
+        "testMinorRelativeLeadingFragmentIsStub",
+        "testSubstantialBiphasicFragmentIsNotStubEvenWithRef",
+        "testMinorLeadingSleepFragmentSkippedByOnsetIndex",
+        "testTwoFragmentNightWithLeadingAwakeStubPicksSecondFragment",
+        "testSingleBlockNightUnchanged",
+        "testGenuineBiphasicNightKeepsFirstFragment",
+        "testTwoLeadingStubsWalkToFirstRealSleep",
+        "testAllStubGroupFallsBackToZero",
+        "testRealFirstSleepFragmentIsTheDisplayedOnset",
+        "testRealFirstSleepFragmentIsNotStub",
+        "testAtMinorAsleepFloorIsNotStub",
+        "testTinyStrayLeadStillStubUnderFloor"
+      ],
+      "test_method_count": 18,
+      "disposition": "ported",
+      "reason_code": "current_contract_missing_from_active_targets",
+      "reason": "sleep onset stub thresholds, biphasic fragments, and onset walk",
+      "destination": "StrandiOSTests/SleepOnsetStubTests.swift",
+      "target": "NOOPiOSTests",
+      "changes": [
+        "Rename app module import from Strand to NOOP; preserve existing assertions."
+      ]
+    },
+    {
+      "original_path": "StrandTests/SleepPresentationMapperTests.swift",
+      "original_sha256": "42e2fd15240e492cc7209cc5d9f26a6625ed736f8bbaa2485b6ad7c1883cff8c",
+      "original_lines": 115,
+      "test_methods": [
+        "testStageRowMapsResolvedTotalsToFractionPercentAndExistingDurationFormat",
+        "testStageRowClampsInvalidFractionsWithoutFabricatingDuration",
+        "testStageDeltaToneMatchesExplicitLabDirectionOnly",
+        "testMissingTypicalKeepsDeltaNeutralAndAbsent",
+        "testStageLessWindowUsesRecordedCoverageInsteadOfZeroStageTotal",
+        "testStagedWindowKeepsExistingStageTotalSemantics"
+      ],
+      "test_method_count": 6,
+      "disposition": "ported",
+      "reason_code": "current_contract_missing_from_active_targets",
+      "reason": "sleep stage row and sleep-window presentation from recorded values",
+      "destination": "StrandiOSTests/SleepPresentationMapperTests.swift",
+      "target": "NOOPiOSTests",
+      "changes": [
+        "Rename app module import from Strand to NOOP; preserve existing assertions."
+      ]
+    },
+    {
+      "original_path": "StrandTests/SmartAlarmWeekdayTests.swift",
+      "original_sha256": "e9a8e64a371d263f77008f05110822784cb8b0ec0eef0dbcdf5e3f2ac978e3a5",
+      "original_lines": 141,
+      "test_methods": [
+        "testEveryDay_emptySet_picksTodayWhenTimeStillAhead",
+        "testEveryDay_emptySet_rollsToTomorrowWhenTimePassed",
+        "testSingleWeekday_today_beforeTime_firesToday",
+        "testSingleWeekday_today_afterTime_firesNextWeek",
+        "testWeekendsOnly_fromWednesday_firesSaturday",
+        "testWeekdaysOnly_fromSaturday_firesMonday",
+        "testInvalidWeekdayNumbers_areIgnored_andFallBackToNil",
+        "testInvalidMixedWithValid_keepsOnlyValid",
+        "testFireIsAlwaysStrictlyInTheFuture",
+        "testWeekdayIsSelected_emptyMeansEveryDay",
+        "testToggle_fromEveryDay_deselectsJustOne",
+        "testToggle_reselectingSeventh_collapsesBackToEveryDay",
+        "testToggle_addAndRemoveWithinExplicitSet",
+        "testSummary_labels",
+        "testWindDownLabelUsesLocaleAwareAlarmClockFormatter"
+      ],
+      "test_method_count": 15,
+      "disposition": "ported",
+      "reason_code": "current_contract_missing_from_active_targets",
+      "reason": "future alarm date scheduling and selected-weekday toggle behavior",
+      "destination": "StrandiOSTests/SmartAlarmWeekdayTests.swift",
+      "target": "NOOPiOSTests",
+      "changes": [
+        "Rename app module import from Strand to NOOP; preserve existing assertions."
+      ]
+    },
+    {
+      "original_path": "StrandTests/StandardHRNoteTests.swift",
+      "original_sha256": "724080b3966318a21ca3d1eb7cd29cb5c9be87a5ac13db67f08b17c9462a9c7d",
+      "original_lines": 37,
+      "test_methods": [
+        "testNonEmptyNoteShows",
+        "testNilNoteHidden",
+        "testEmptyNoteHidden",
+        "testWhitespaceOnlyNoteHidden",
+        "testPaddedRealContentShows"
+      ],
+      "test_method_count": 5,
+      "disposition": "ported",
+      "reason_code": "current_contract_missing_from_active_targets",
+      "reason": "nonempty-only standard HR fallback explanation",
+      "destination": "StrandiOSTests/StandardHRNoteTests.swift",
+      "target": "NOOPiOSTests",
+      "changes": [
+        "Rename app module import from Strand to NOOP; preserve existing assertions."
+      ]
+    },
+    {
+      "original_path": "StrandTests/StrandSmokeTests.swift",
+      "original_sha256": "f57552c03a9b60e8f72d6343f2a9d3adbad12f907d97325fb4004b482db673d9",
+      "original_lines": 8,
+      "test_methods": [
+        "testItRuns"
+      ],
+      "test_method_count": 1,
+      "disposition": "retired",
+      "reason_code": "tautological_assertion",
+      "reason": "The sole test asserts XCTAssertTrue(true), independent of app behavior. Active hosted tests and the native app build already prove the test host can load.",
+      "destination": null
+    },
+    {
+      "original_path": "StrandTests/TestBundleAssemblerTests.swift",
+      "original_sha256": "294e309029f0f4e6f0b93cd4f5a4e5d01d83115055deba0c0c407110f0e76d4b",
+      "original_lines": 55,
+      "test_methods": [
+        "testReScrubsEveryFileIncludingRawCapture",
+        "testMetaJsonIsNotMangledButStillPasses",
+        "testStampsRedactionV2",
+        "testCapTruncatesRawCaptureTailAndFlags",
+        "testCapLeavesUndersizedBundleUntouched"
+      ],
+      "test_method_count": 5,
+      "disposition": "ported",
+      "reason_code": "current_contract_missing_from_active_targets",
+      "reason": "bounded diagnostics bundle contents and redaction",
+      "destination": "StrandiOSTests/TestBundleAssemblerTests.swift",
+      "target": "NOOPiOSTests",
+      "changes": [
+        "Rename app module import from Strand to NOOP; preserve existing assertions."
+      ]
+    },
+    {
+      "original_path": "StrandTests/TestBundleMetaTests.swift",
+      "original_sha256": "18d67608ae139c3a83a2f5f92c61ca6ca252dc4d5890d7c668599081b4349e5a",
+      "original_lines": 54,
+      "test_methods": [
+        "testEncodesSnakeCaseWireKeys",
+        "testEncodesBuildAndStorageBlocks",
+        "testRedactionAndSchemaStamps",
+        "testSortedKeysAreStableForParity"
+      ],
+      "test_method_count": 4,
+      "disposition": "ported",
+      "reason_code": "current_contract_missing_from_active_targets",
+      "reason": "test bundle metadata JSON and omitted unknown values",
+      "destination": "StrandiOSTests/TestBundleMetaTests.swift",
+      "target": "NOOPiOSTests",
+      "changes": [
+        "Rename app module import from Strand to NOOP; preserve existing assertions."
+      ]
+    },
+    {
+      "original_path": "StrandTests/TestBundleRobustnessTests.swift",
+      "original_sha256": "66159c3cab5b3e335dae40e4e8d5d9820b9fd274b5343c7f37cf2a3040c41ebc",
+      "original_lines": 92,
+      "test_methods": [
+        "testFileEntryReadsAnExistingFile",
+        "testFileEntryReturnsNilForMissingFile",
+        "testRawCaptureAndCrashAreRedactedThroughTheWholeBundlePass",
+        "testCrashLogURLLivesInCaches",
+        "testUniversalClockDriftLineFromSnapshot",
+        "testUniversalClockDriftNilWhenNoRange",
+        "testUniversalClockDriftNilForFirmwareOnlySnapshot",
+        "testActiveDomainsIncludesUniversalOnlyWhenAModeIsOn"
+      ],
+      "test_method_count": 8,
+      "disposition": "ported",
+      "reason_code": "current_contract_missing_from_active_targets",
+      "reason": "file/crash gather, whole-bundle redaction, and clock drift diagnostics",
+      "destination": "StrandiOSTests/TestBundleRobustnessTests.swift",
+      "target": "NOOPiOSTests",
+      "changes": [
+        "Rename app module import from Strand to NOOP; preserve existing assertions."
+      ]
+    },
+    {
+      "original_path": "StrandTests/TestCentreActivationTests.swift",
+      "original_sha256": "bbcbe0f9d4adb48447652bd3db6144763ddcca63ee03214224bf2380c5bceaec",
+      "original_lines": 72,
+      "test_methods": [
+        "testActivateThenActiveThenDeactivate",
+        "testMasterImpliesAll",
+        "testUniversalRidesAnyActiveMode",
+        "testStartedAtStampedOnActivate",
+        "testAnswersRoundTrip",
+        "testMigrationIsIdempotentAndPreservesLegacyKeys"
+      ],
+      "test_method_count": 6,
+      "disposition": "ported",
+      "reason_code": "current_contract_missing_from_active_targets",
+      "reason": "diagnostic activation, master/universal modes, answer persistence, and migration",
+      "destination": "StrandiOSTests/TestCentreActivationTests.swift",
+      "target": "NOOPiOSTests",
+      "changes": [
+        "Rename app module import from Strand to NOOP; preserve existing assertions."
+      ]
+    },
+    {
+      "original_path": "StrandTests/TestReportFlowGatedTests.swift",
+      "original_sha256": "d069b11ef034c213d721ba8ace490fdd88b7c531abec806962db0cefbe2f5ae8",
+      "original_lines": 21,
+      "test_methods": [
+        "testUnclearedGateBlocksProceed",
+        "testClearedGateAllowsProceed"
+      ],
+      "test_method_count": 2,
+      "disposition": "ported",
+      "reason_code": "current_contract_missing_from_active_targets",
+      "reason": "explicit review gate blocks report proceed until confirmed",
+      "destination": "StrandiOSTests/TestReportFlowGatedTests.swift",
+      "target": "NOOPiOSTests",
+      "changes": [
+        "Rename app module import from Strand to NOOP; preserve existing assertions."
+      ]
+    },
+    {
+      "original_path": "StrandTests/TestReportFlowTests.swift",
+      "original_sha256": "7993c1d5c798618d0171c1df42f3b12c78e922bd7dfb73ee7c2e7e98a67967ab",
+      "original_lines": 31,
+      "test_methods": [
+        "testBundleNameFollowsProfilePlatformVersionPattern",
+        "testAttachToastNamesTheSavedFile",
+        "testCopyFallbackOfferedOnMobileOnly"
+      ],
+      "test_method_count": 3,
+      "disposition": "ported",
+      "reason_code": "current_contract_missing_from_active_targets",
+      "reason": "report bundle naming and platform copy fallback",
+      "destination": "StrandiOSTests/TestReportFlowTests.swift",
+      "target": "NOOPiOSTests",
+      "changes": [
+        "Rename app module import from Strand to NOOP; preserve existing assertions."
+      ]
+    },
+    {
+      "original_path": "StrandTests/TestReportLinkTests.swift",
+      "original_sha256": "588e6e9d700c8cda6de9e52c5b2aba70104b6bec6b0cf8d291a4f556b0f6ece4",
+      "original_lines": 113,
+      "test_methods": [
+        "testSleepProfileURLEncodesEveryFieldAndLabel",
+        "testDataImportProfileUsesImportWireIdNotRawValue",
+        "testMasterProfileLabelIsTestAll",
+        "testNoReportTextOmitsLogAndWhatHappensParams",
+        "testReportTextPrefillsLogFieldWithDetailsTail",
+        "testOversizedLogIsDroppedNotTruncated",
+        "testLogDetailsBlockEmptyTextYieldsNil",
+        "testWhatHappensSeedJoinsAnsweredPromptsInOrder"
+      ],
+      "test_method_count": 8,
+      "disposition": "ported",
+      "reason_code": "current_contract_missing_from_active_targets",
+      "reason": "encoded GitHub report URLs and privacy-safe title/body metadata",
+      "destination": "StrandiOSTests/TestReportLinkTests.swift",
+      "target": "NOOPiOSTests",
+      "changes": [
+        "Rename app module import from Strand to NOOP; preserve existing assertions."
+      ]
+    },
+    {
+      "original_path": "StrandTests/TodayBuildingHintTests.swift",
+      "original_sha256": "8ef3d60641d66319b2d102a02fc8edcfc7ad6fc7cb6fd594521358aeb9dd2b32",
+      "original_lines": 42,
+      "test_methods": [
+        "testRest_today_isTheWearItTonightCopy",
+        "testEffort_today_isTheMovesAsYouDoCopy",
+        "testPastDay_isNil_soAnUnscoredOldDayStaysABareDash",
+        "testOtherMetrics_nil_onlyEffortAndRestGetTheHint",
+        "testCopy_hasNoEmDash"
+      ],
+      "test_method_count": 5,
+      "disposition": "ported",
+      "reason_code": "current_contract_missing_from_active_targets",
+      "reason": "data-building hint decisions for insufficient evidence",
+      "destination": "StrandiOSTests/TodayBuildingHintTests.swift",
+      "target": "NOOPiOSTests",
+      "changes": [
+        "Rename app module import from Strand to NOOP; preserve existing assertions."
+      ]
+    },
+    {
+      "original_path": "StrandTests/TodayCarryOverTests.swift",
+      "original_sha256": "6ab01e7599445ea0776d9767b67f0423f2b354d6c3c070633b61132e714d226b",
+      "original_lines": 162,
+      "test_methods": [
+        "testCarriesTheFreshestScoredPriorDay_whenTodayUnscoredAndPastCalibration",
+        "testNothingCarried_whenTodayIsAlreadyScored",
+        "testNothingCarried_whileCalibrating",
+        "testNothingCarried_onANavigatedPastDay",
+        "testExcludesTodaysOwnKey_soItNeverEchoesToday",
+        "testNil_whenNoPriorDayWasEverScored",
+        "testNeverCarriesAFutureDatedRow",
+        "testNothingCarried_whenOnlyFutureRowsExistBesidesToday",
+        "testCarriedRow_keepsItsOwnMissingMetricsAsNil_neverFabricated",
+        "testCarryWithinTwoDays_readsLastNight",
+        "testCarryAtExactlyTwoDays_stillReadsLastNight",
+        "testCarryOlderThanTwoDays_relabelsLatestSleep",
+        "testCarryJustBeyondCap_relabelsLatestSleep",
+        "testStaleness_unparseableKeyReadsFresh_neverOverClaims"
+      ],
+      "test_method_count": 14,
+      "disposition": "ported",
+      "reason_code": "current_contract_missing_from_active_targets",
+      "reason": "bounded prior-day metric carry without fabricated current-day provenance",
+      "destination": "StrandiOSTests/TodayCarryOverTests.swift",
+      "target": "NOOPiOSTests",
+      "changes": [
+        "Rename app module import from Strand to NOOP; preserve existing assertions."
+      ]
+    },
+    {
+      "original_path": "StrandTests/TodayChargeTapCollapseTests.swift",
+      "original_sha256": "91068948f76830721dee909a6201a3c00671898af541957f6eb611d9918a5da8",
+      "original_lines": 73,
+      "test_methods": [
+        "testReadinessWord_mapsEveryLevel",
+        "testReadinessWord_insufficientHasNoWord",
+        "testSyncedFromSummary_listsOnlySourcesWithData",
+        "testSyncedFromSummary_appleHealthReadsAsAppleWatch",
+        "testSyncedFromSummary_noSourcesIsHonest",
+        "testMetricsCollapsedCap_isSixTilesThreeRows",
+        "testMetricsCollapse_keepsLeadingTilesInOrder",
+        "testMetricsCollapse_underCapShowsAll"
+      ],
+      "test_method_count": 8,
+      "disposition": "ported",
+      "reason_code": "current_contract_missing_from_active_targets",
+      "reason": "readiness word and source summary presentation with metric collapse limit",
+      "destination": "StrandiOSTests/TodayChargeTapCollapseTests.swift",
+      "target": "NOOPiOSTests",
+      "changes": [
+        "Rename app module import from Strand to NOOP; preserve existing assertions."
+      ]
+    },
+    {
+      "original_path": "StrandTests/TodayDayNavClampTests.swift",
+      "original_sha256": "3e1aac4529b642e92e68fa1afc28fae3926b7210a0f8af72c16a7b874e369262",
+      "original_lines": 96,
+      "test_methods": [
+        "testStepOlderIncrementsOffsetWithinBounds",
+        "testStepNewerDecrementsOffset",
+        "testCannotGoNewerThanToday",
+        "testCannotGoOlderThanEarliestDay",
+        "testZeroMaxOffsetPinsToToday",
+        "testNegativeMaxOffsetTreatedAsZero",
+        "testMaxDayOffsetCountsWholeDaysBackToEarliest",
+        "testMaxDayOffsetZeroWhenEarliestIsToday",
+        "testMaxDayOffsetZeroWhenNoData",
+        "testMaxDayOffsetZeroForUnparseableKey",
+        "testMaxDayOffsetClampsFutureEarliestToZero",
+        "testPickedDayOffsetSameLogicalDayIsZero",
+        "testPickedDayOffsetInRolloverWindowAnchorsToLogicalDay",
+        "testPickedDayOffsetCountsWholeDaysBack"
+      ],
+      "test_method_count": 14,
+      "disposition": "ported",
+      "reason_code": "current_contract_missing_from_active_targets",
+      "reason": "day navigation boundaries and invalid offset clamping",
+      "destination": "StrandiOSTests/TodayDayNavClampTests.swift",
+      "target": "NOOPiOSTests",
+      "changes": [
+        "Rename app module import from Strand to NOOP; preserve existing assertions."
+      ]
+    },
+    {
+      "original_path": "StrandTests/TodayEmptyVitalCaptionTests.swift",
+      "original_sha256": "8768e5417d948d88facc8e895c3ff76aba23f24393ddd0f0e4d9fb24edcd72ac",
+      "original_lines": 28,
+      "test_methods": [
+        "testToday_isTheAfterTonightCopy",
+        "testToday_copyIsUnitIndependent",
+        "testPastDay_isNil_soAnEmptyOldDayKeepsThePlainUnit"
+      ],
+      "test_method_count": 3,
+      "disposition": "ported",
+      "reason_code": "current_contract_missing_from_active_targets",
+      "reason": "missing vital captions without fabricated readings",
+      "destination": "StrandiOSTests/TodayEmptyVitalCaptionTests.swift",
+      "target": "NOOPiOSTests",
+      "changes": [
+        "Rename app module import from Strand to NOOP; preserve existing assertions."
+      ]
+    },
+    {
+      "original_path": "StrandTests/TodayExplainabilityTests.swift",
+      "original_sha256": "014ac296ecdd6ef83efa986cc7e5b9ded70715c68539a2973c72f70b21a4edf7",
+      "original_lines": 295,
+      "test_methods": [
+        "testScoreState_todayValueWins_isScored",
+        "testScoreState_noValueButCalibrating_isCalibratingWithRemaining",
+        "testScoreState_noValueNoCalibrationButCarry_isCarriedLastNight",
+        "testScoreState_carryWithinCap_isFreshLastNight",
+        "testScoreState_staleCarry_relabelsLatestSleep",
+        "testScoreState_nothingBanked_isNeedsStrap",
+        "testScoreState_calibratingRemainingClampsToAtLeastOne",
+        "testScoreState_calibratingClampedValueDrivesSingularNightCopy",
+        "testScoreState_calibratingDetail_pluralisesNights",
+        "testScoreState_calibratingDetail_singularNight",
+        "testScoreState_carriedLastNight_stampsDate",
+        "testScoreState_needsStrap_copy",
+        "testScoreState_scored_hasNoStateText",
+        "testScoreState_honesty_calibratingAndNeedsStrapShowNoNumber",
+        "testScoreState_copy_hasNoEmDash",
+        "testRecordingState_connectedWithLiveHR_isRecording",
+        "testRecordingState_connectedButNoLiveHR_isNotRecording",
+        "testRecordingState_connectedNoLiveHR_noSync_isNotRecording",
+        "testRecordingState_notConnectedWithStaleHR_isNotRecording",
+        "testRecordingState_notConnectedButRecentlySynced_isLastSynced",
+        "testRecordingState_subMinuteSync_roundsUpToOneMinute",
+        "testRecordingState_exactMinuteSync_isNotRoundedUp",
+        "testRecordingState_clockSkewFutureSync_clampsToZeroMinutes",
+        "testRecordingState_neverSynced_isNotRecording",
+        "testRecordingState_recording_copy",
+        "testRecordingState_lastSynced_copy",
+        "testRecordingState_notRecording_copy",
+        "testRecordingState_liveOnly_copyNamesHistoryWait",
+        "testRecordingState_copy_hasNoEmDash",
+        "testProvenance_computedStrapSibling_isOnDevice",
+        "testProvenance_importedStrapSource_isWhoop",
+        "testProvenance_appleHealthSource_isAppleHealth",
+        "testProvenance_nonDefaultDeviceId_stillMapsComputedAndImported",
+        "testProvenance_otherKnownSource_keepsItsDisplayName",
+        "testIsWatchSource_appleHealthSource_isTrue",
+        "testIsWatchSource_strapOrNil_isFalse",
+        "testTodayChipLabel_appleHealthSource_readsAppleWatch",
+        "testTodayChipLabel_nonWatchSources_deferToSharedLabel"
+      ],
+      "test_method_count": 38,
+      "disposition": "ported",
+      "reason_code": "current_contract_missing_from_active_targets",
+      "reason": "metric tile explanation, data provenance, and recording-state decisions",
+      "destination": "StrandiOSTests/TodayExplainabilityTests.swift",
+      "target": "NOOPiOSTests",
+      "changes": [
+        "Rename app module import from Strand to NOOP; preserve existing assertions."
+      ]
+    },
+    {
+      "original_path": "StrandTests/TodayHeroRingLayoutTests.swift",
+      "original_sha256": "da34e2b9ba16bdcd481a1a2f0e46b3929a70ba5101bc04a3896bf5c1797b4551",
+      "original_lines": 43,
+      "test_methods": [
+        "testNarrowPhoneWidth_clampsToMinimumDiameter",
+        "testWideTabletWidth_clampsToMaximumDiameter",
+        "testTypicalPhoneWidth_scalesWithinBounds",
+        "testDiameterIsMonotonicInWidth"
+      ],
+      "test_method_count": 4,
+      "disposition": "ported",
+      "reason_code": "current_contract_missing_from_active_targets",
+      "reason": "ring diameter width scaling and lower/upper clamps",
+      "destination": "StrandiOSTests/TodayHeroRingLayoutTests.swift",
+      "target": "NOOPiOSTests",
+      "changes": [
+        "Rename app module import from Strand to NOOP; preserve existing assertions."
+      ]
+    },
+    {
+      "original_path": "StrandTests/TodayHrZoomReclampTests.swift",
+      "original_sha256": "154fd9b1d0c32ace4b035878dc5aa3a181f545efd74a3ae94edab98063c41220",
+      "original_lines": 58,
+      "test_methods": [
+        "testNilZoomStaysNil",
+        "testDayStepDropsZoom",
+        "testSameDayEndExtensionKeepsZoomWhenStillInBounds",
+        "testSameDayKeepsSpanWhenReclamped",
+        "testFirstLoadReclampsIntoBounds"
+      ],
+      "test_method_count": 5,
+      "disposition": "ported",
+      "reason_code": "current_contract_missing_from_active_targets",
+      "reason": "heart-rate chart window reclamping on changed data domains",
+      "destination": "StrandiOSTests/TodayHrZoomReclampTests.swift",
+      "target": "NOOPiOSTests",
+      "changes": [
+        "Rename app module import from Strand to NOOP; preserve existing assertions."
+      ]
+    },
+    {
+      "original_path": "StrandTests/TodayHrvBaselineDeltaTests.swift",
+      "original_sha256": "e81ff355dcffabf6e039aa45464626d5f2331aa10c3c0162bc1402061133f10a",
+      "original_lines": 87,
+      "test_methods": [
+        "testImplausiblyLargeDelta_isSuppressed_returnsNil",
+        "testThreeTimesBaseline_isSuppressed_returnsNil",
+        "testSuppressedDeltaNeverRendersTripleDigitHeadline",
+        "testBelowBaselineNegativeDelta_isAlsoSuppressed_whenImplausible",
+        "testPlausiblePositiveDelta_isReported",
+        "testPlausibleNegativeDelta_isReported",
+        "testExactlyAtThreshold_isReported",
+        "testNotEnoughPriorNights_returnsNil",
+        "testNonPositiveToday_returnsNil"
+      ],
+      "test_method_count": 9,
+      "disposition": "ported",
+      "reason_code": "current_contract_missing_from_active_targets",
+      "reason": "HRV relative baseline delta and missing baseline behavior",
+      "destination": "StrandiOSTests/TodayHrvBaselineDeltaTests.swift",
+      "target": "NOOPiOSTests",
+      "changes": [
+        "Rename app module import from Strand to NOOP; preserve existing assertions."
+      ]
+    },
+    {
+      "original_path": "StrandTests/TodayLaunchLandTests.swift",
+      "original_sha256": "60f52ca05f9fb3dc7f665e4955b10069fefc07ecb3acb96e1bea3c48f50417b4",
+      "original_lines": 68,
+      "test_methods": [
+        "testFreshLaunchLandsOnTodayEvenWithOnlyOldData",
+        "testFreshLaunchWithTodayDataLandsOnToday",
+        "testFreshLaunchIgnoresAnyStaleSavedOffset",
+        "testInSessionPreservesNavigatedDay",
+        "testInSessionOnTodayStaysOnToday"
+      ],
+      "test_method_count": 5,
+      "disposition": "ported",
+      "reason_code": "current_contract_missing_from_active_targets",
+      "reason": "fresh-launch landing on today and in-session day preservation",
+      "destination": "StrandiOSTests/TodayLaunchLandTests.swift",
+      "target": "NOOPiOSTests",
+      "changes": [
+        "Rename app module import from Strand to NOOP; preserve existing assertions."
+      ]
+    },
+    {
+      "original_path": "StrandTests/TodayResolverEffortScaleTests.swift",
+      "original_sha256": "d22e1ed73e28ad32eb06716e6bf2f0b3582479472dc471eee2a2b6947996ecb6",
+      "original_lines": 115,
+      "test_methods": [
+        "testPreFourAMPrefersBankedLocalDayRow",
+        "testPreFourAMNoBankedNightDefersToLogicalNeverBlank",
+        "testPreFourAMNoLocalRowDefersToLogical",
+        "testDaytimeLocalEqualsLogicalUsesLogicalRow",
+        "testLegacyHundredPreferenceStillUsesCanonicalTwentyOneScale",
+        "testEffortGaugeValueWhoopScale",
+        "testEffortGaugeFractionConsistentAcrossLegacyPreferences",
+        "testWhoopFormatterUsesCanonicalStrainScale",
+        "testCanonicalStrainAndRecoveryBoundaries"
+      ],
+      "test_method_count": 9,
+      "disposition": "ported",
+      "reason_code": "current_contract_missing_from_active_targets",
+      "reason": "stored strain conversion across Today resolver and display boundaries",
+      "destination": "StrandiOSTests/TodayResolverEffortScaleTests.swift",
+      "target": "NOOPiOSTests",
+      "changes": [
+        "Rename app module import from Strand to NOOP; preserve existing assertions."
+      ]
+    },
+    {
+      "original_path": "StrandTests/TodaySleepSourceBadgeTests.swift",
+      "original_sha256": "b4d7d886c1db76d43e56e1d43642173c86ec05508ed75daa1ffe164bd9bc3a78",
+      "original_lines": 61,
+      "test_methods": [
+        "testWhoopBadgeUsesExactDisplayedPoint",
+        "testWhoopBadgeRejectsDifferentDayOrValue",
+        "testShadowModeNeverLabelsComputedLegacyScoreAsV2",
+        "testAuthoritativeV2BadgeUsesExactV2Point",
+        "testMissingDisplayedValueOrProvenanceHasNoBadge"
+      ],
+      "test_method_count": 5,
+      "disposition": "ported",
+      "reason_code": "current_contract_missing_from_active_targets",
+      "reason": "sleep provenance badge from on-device/imported score sources",
+      "destination": "StrandiOSTests/TodaySleepSourceBadgeTests.swift",
+      "target": "NOOPiOSTests",
+      "changes": [
+        "Rename app module import from Strand to NOOP; preserve existing assertions."
+      ]
+    },
+    {
+      "original_path": "StrandTests/TrendSummaryPresentationTests.swift",
+      "original_sha256": "26d4339754bc9b8ff5a66844fb0abfa562a666a5ab11fff266dd639a3288890b",
+      "original_lines": 89,
+      "test_methods": [
+        "testLatestDeltaAndSparkUseExactChartedSeries",
+        "testStrainDeltaStaysNeutralRegardlessOfSign",
+        "testSparseSeriesNeverFabricatesDeltaOrSparkPoints",
+        "testEmptySeriesNeverFabricatesSummaryValues",
+        "testChartSeriesBuilderUsesConfiguredStrainDisplayValue"
+      ],
+      "test_method_count": 5,
+      "disposition": "ported",
+      "reason_code": "current_contract_missing_from_active_targets",
+      "reason": "summary and sparkline from the exact charted metric series",
+      "destination": "StrandiOSTests/TrendSummaryPresentationTests.swift",
+      "target": "NOOPiOSTests",
+      "changes": [
+        "Rename app module import from Strand to NOOP; preserve existing assertions."
+      ]
+    },
+    {
+      "original_path": "StrandTests/UnitFormatterTests.swift",
+      "original_sha256": "a3ff5b3bec143c6f7274f8e99e0bdd9a80f8811ca018d8abc547bf5c4e10ff3e",
+      "original_lines": 125,
+      "test_methods": [
+        "testDistanceFactorIsExact",
+        "testMassFactorIsExact",
+        "testHeightFactorIsExact",
+        "testTemperatureFactorIsExact",
+        "testDistanceFromMetersMetric",
+        "testDistanceFromMetersImperial",
+        "testDistanceFromKilometers",
+        "testMassFromKilograms",
+        "testHeightFromCentimetersMetric",
+        "testHeightFromCentimetersImperial",
+        "testHeightRoundingCarriesInchesIntoFeet",
+        "testAbsoluteTemperature",
+        "testTemperatureDeltaHasNoOffset",
+        "testTemperatureOverrideResolution",
+        "testUnitLabels"
+      ],
+      "test_method_count": 15,
+      "disposition": "ported",
+      "reason_code": "current_contract_missing_from_active_targets",
+      "reason": "SI conversion, imperial/metric formatting, temperature delta, and preference persistence",
+      "destination": "StrandiOSTests/UnitFormatterTests.swift",
+      "target": "NOOPiOSTests",
+      "changes": [
+        "Rename app module import from Strand to NOOP; preserve existing assertions."
+      ]
+    },
+    {
+      "original_path": "StrandTests/UpdateInboxDedupTests.swift",
+      "original_sha256": "9d7b4b973d06f8e86a17766d3b2e2789873144920b872ac2ee0650824ce960bb",
+      "original_lines": 89,
+      "test_methods": [
+        "testRepeatedIdenticalReadingCollapsesToOne",
+        "testInWindowReadingUpdatesExistingRow",
+        "testOutOfWindowReadingAppendsNewRow",
+        "testInformationalBacklogIsCapped",
+        "testActionableRowsSurviveEviction"
+      ],
+      "test_method_count": 5,
+      "disposition": "ported",
+      "reason_code": "current_contract_missing_from_active_targets",
+      "reason": "update inbox identity deduplication and routed destination resolution",
+      "destination": "StrandiOSTests/UpdateInboxDedupTests.swift",
+      "target": "NOOPiOSTests",
+      "changes": [
+        "Rename app module import from Strand to NOOP; preserve existing assertions."
+      ]
+    },
+    {
+      "original_path": "StrandTests/VitalSourceResolutionTests.swift",
+      "original_sha256": "fad037d837df9b3f2cb7be79c4a740485f24718936ec28ba84791a171943ecd8",
+      "original_lines": 156,
+      "test_methods": [
+        "testMergeDailyFillsOnlyMissingImportedFields",
+        "testAppleHealthCanFillBloodOxygenWhenStrapSourcesAreMissing",
+        "testWhoopBloodOxygenWinsOverAppleHealthForSameDay",
+        "testAppleHealthDoesNotFillSkinTemperature",
+        "testComputedSkinTemperatureShowsComputedCaption",
+        "testVitalsFallBackToLatestHistoricalDayWhenTodayHasNoValue"
+      ],
+      "test_method_count": 6,
+      "disposition": "ported",
+      "reason_code": "current_contract_missing_from_active_targets",
+      "reason": "per-field body vital source precedence without fabricated unknown fields",
+      "destination": "StrandiOSTests/VitalSourceResolutionTests.swift",
+      "target": "NOOPiOSTests",
+      "changes": [
+        "Rename app module import from Strand to NOOP; preserve existing assertions."
+      ]
+    },
+    {
+      "original_path": "StrandTests/WeeklyDigestChipStyleTests.swift",
+      "original_sha256": "2ca45962a7d8657c5d27e9b1ff3a1b0a43680c4320babe0090abdb7e7a6d38bb",
+      "original_lines": 63,
+      "test_methods": [
+        "testFullWeeksAreNotNeutralized",
+        "testSparsePreviousWeekIsNeutralized",
+        "testSparseCurrentWeekIsNeutralized",
+        "testMissingSideIsNotNeutralized"
+      ],
+      "test_method_count": 4,
+      "disposition": "ported",
+      "reason_code": "current_contract_missing_from_active_targets",
+      "reason": "weekly summary delta tone and metric-specific direction",
+      "destination": "StrandiOSTests/WeeklyDigestChipStyleTests.swift",
+      "target": "NOOPiOSTests",
+      "changes": [
+        "Rename app module import from Strand to NOOP; preserve existing assertions."
+      ]
+    },
+    {
+      "original_path": "StrandTests/WidgetAnchorTests.swift",
+      "original_sha256": "94d01833d6ae6f400e34c4c88e13666f86c119205bb4d081a02e83b3098ee7b4",
+      "original_lines": 101,
+      "test_methods": [
+        "testTodayScored_anchorsOnTodaysRow",
+        "testTodayUnscored_carriesFreshestPriorScoredDay",
+        "testTodayUnscoredPartialRow_isNotEchoed",
+        "testPre0400CarveOut_prefersLocalBankedRow_notASameDayLaterRow",
+        "testPre0400CarveOut_localBankedRowScored_isItsOwnAnchor",
+        "testNeverAnchorsAFutureDatedRow",
+        "testFutureOnlyBesidesToday_returnsNil",
+        "testNoData_returnsNil",
+        "testNoPriorEverScored_returnsNil"
+      ],
+      "test_method_count": 9,
+      "disposition": "ported",
+      "reason_code": "current_contract_missing_from_active_targets",
+      "reason": "widget selected-day anchoring and stale metric carry boundaries",
+      "destination": "StrandiOSTests/WidgetAnchorTests.swift",
+      "target": "NOOPiOSTests",
+      "changes": [
+        "Rename app module import from Strand to NOOP; preserve existing assertions."
+      ]
+    },
+    {
+      "original_path": "StrandTests/WindDownPerDayOverrideTests.swift",
+      "original_sha256": "3f2e008a314805e735c02b3e48f4b7cc36024f2db023cefdcaf7c9d53900f4da",
+      "original_lines": 99,
+      "test_methods": [
+        "testNoOverrides_everyDayUsesDefaultWake",
+        "testSetOverride_appliesToThatDayOnly",
+        "testClearOverride_revertsDayToDefault",
+        "testPerDayNudgeMinute_followsTheOverride",
+        "testNudgeWeekday_wrapsToPreviousEveningWhenNudgeCrossesMidnight",
+        "testOverrideMinutesAreClamped",
+        "testInvalidWeekday_isIgnored"
+      ],
+      "test_method_count": 7,
+      "disposition": "ported",
+      "reason_code": "current_contract_missing_from_active_targets",
+      "reason": "per-day wind-down override identity and reset behavior",
+      "destination": "StrandiOSTests/WindDownPerDayOverrideTests.swift",
+      "target": "NOOPiOSTests",
+      "changes": [
+        "Rename app module import from Strand to NOOP; preserve existing assertions."
+      ]
+    },
+    {
+      "original_path": "StrandTests/WorkoutCatalogTests.swift",
+      "original_sha256": "e21928483640f1c9417b3b4e86e2b83076de4b4639e070f8e215e0cf90d395ea",
+      "original_lines": 74,
+      "test_methods": [
+        "testTreadmillWalkPresetExistsWithGpsOff",
+        "testBodybuildingPresetExistsWithGpsOff",
+        "testLookupIsCaseInsensitive",
+        "testNewPresetsExistWithCorrectGpsDefaults",
+        "testExtrasPrecedeOther",
+        "testBowlingPresetExistsWithGpsOff"
+      ],
+      "test_method_count": 6,
+      "disposition": "ported",
+      "reason_code": "current_contract_missing_from_active_targets",
+      "reason": "workout sport catalog matching and canonical titles",
+      "destination": "StrandiOSTests/WorkoutCatalogTests.swift",
+      "target": "NOOPiOSTests",
+      "changes": [
+        "Rename app module import from Strand to NOOP; preserve existing assertions."
+      ]
+    },
+    {
+      "original_path": "StrandTests/WorkoutEffortCellTests.swift",
+      "original_sha256": "fc9b29f767bcbe2a4f576f2bb7a5c93a66871a357ababf671c2620193971091e",
+      "original_lines": 30,
+      "test_methods": [
+        "testStrainLabelIgnoresLegacyHundredPreference",
+        "testEffortLabelOnWhoopScale",
+        "testMissingStrainShowsDash",
+        "testZeroStrainRendersZeroNotDash"
+      ],
+      "test_method_count": 4,
+      "disposition": "ported",
+      "reason_code": "current_contract_missing_from_active_targets",
+      "reason": "stored strain display and honest missing/zero effort values",
+      "destination": "StrandiOSTests/WorkoutEffortCellTests.swift",
+      "target": "NOOPiOSTests",
+      "changes": [
+        "Rename app module import from Strand to NOOP; preserve existing assertions."
+      ]
+    },
+    {
+      "original_path": "StrandTests/WorkoutHrDeviceKeyTests.swift",
+      "original_sha256": "2574a8806ccee5d9b631504517cae40f03784909f0f9ec9b3cd806a1e1331887",
+      "original_lines": 49,
+      "test_methods": [
+        "testDetectedReadsItsOwnBaseStrap_notActive",
+        "testDetectedCanonicalIsByteIdenticalToActive",
+        "testManualReadsActiveStrap",
+        "testImportedReadsActiveStrap"
+      ],
+      "test_method_count": 4,
+      "disposition": "ported",
+      "reason_code": "current_contract_missing_from_active_targets",
+      "reason": "workout heart-rate source selection across canonical and active device identities",
+      "destination": "StrandiOSTests/WorkoutHrDeviceKeyTests.swift",
+      "target": "NOOPiOSTests",
+      "changes": [
+        "Rename app module import from Strand to NOOP; preserve existing assertions."
+      ]
+    },
+    {
+      "original_path": "StrandTests/WorkoutHrReduceTests.swift",
+      "original_sha256": "dc8ed6af913be0cd76e255fce44e4dec9ba6b9781f750fe789e516105a9b1bbb",
+      "original_lines": 63,
+      "test_methods": [
+        "testReduceComputesRoundedMeanAndPeak",
+        "testReduceMeanRoundsHalfUp",
+        "testReduceFlatTrace",
+        "testReduceSingleSample",
+        "testReduceRunsOffMainActor"
+      ],
+      "test_method_count": 5,
+      "disposition": "ported",
+      "reason_code": "current_contract_missing_from_active_targets",
+      "reason": "bounded heart-rate chart point reduction and extrema retention",
+      "destination": "StrandiOSTests/WorkoutHrReduceTests.swift",
+      "target": "NOOPiOSTests",
+      "changes": [
+        "Rename app module import from Strand to NOOP; preserve existing assertions."
+      ]
+    },
+    {
+      "original_path": "StrandTests/WorkoutSourceTests.swift",
+      "original_sha256": "488ec98f00febd13744e1a17f67d71cd99f0166b75a69d902e09a98ab8fc8246",
+      "original_lines": 429,
+      "test_methods": [
+        "testClassifyOrdersNoopBeforeWhoop",
+        "testAppleHealthSourceAcceptsCanonicalAndLegacySpellings",
+        "testDisplaySportRenamesDetectedToken",
+        "testParseDismissedSpansDropsMalformed",
+        "testIsDismissedOnlyHidesOverlappingDetectedRows",
+        "testIsDismissedSurvivesStartTsDrift",
+        "testDismissedTokenRoundTrips",
+        "testSportKeyFoldsCamelCaseAndSpacing",
+        "testSameActivityRequiresSportAndMajorityOverlap",
+        "testDedupCollapsesLiveAndImportKeepingRicher",
+        "testDedupTraceKeptIsByteIdenticalAndNamesThePair",
+        "testDedupTraceEmitsNothingForDistinctSessions",
+        "testDedupKeepsNonImportOnRichnessTie",
+        "testDedupLeavesDistinctSessionsAndIsStable",
+        "testDetectedShadowIsDroppedWhenItOverlapsAManualSession",
+        "testDetectedBoutKeptWhenItDoesNotOverlapAnyReal",
+        "testDetectedShadowNotDroppedForBriefTouchingOverlap",
+        "testDedupTraceEmitsDroppedShadowLineAndStaysByteIdentical",
+        "testTraceSportKeyWhitelistsCatalogAndFoldsFreeTextToCustom",
+        "testDedupTraceLabelsKeptDroppedOnSameStartSameSourcePair",
+        "testBuildManualRowHappyPath",
+        "testBuildManualRowRejectsBadInput",
+        "testPreservingCapturedCarriesUnexposedFieldsOnEdit",
+        "testPreservingCapturedCarriesStrainVersionOnEdit",
+        "testPreservingCapturedIsNoOpForFreshAdd",
+        "testFilterInactiveWhenEmptyPassesEverythingUntouched",
+        "testFilterSportSourceAndSearchCompose",
+        "testMergeEligibilityGatesOnManualOrDetected",
+        "testMergeTwoManualSumsAndSpansAndWeightsHr",
+        "testMergeWeightsOnlyRowsWithHr",
+        "testMergeSportResolutionPrefersRealLabelOverDetected",
+        "testMergeRejectsFewerThanTwo",
+        "testMergeJoinsNotesAndOmitsAbsentSums"
+      ],
+      "test_method_count": 33,
+      "disposition": "ported",
+      "reason_code": "current_contract_missing_from_active_targets",
+      "reason": "historic workout source classification, filtering, and overlap deduplication",
+      "destination": "StrandiOSTests/WorkoutSourceTests.swift",
+      "target": "NOOPiOSTests",
+      "changes": [
+        "Rename app module import from Strand to NOOP; preserve existing assertions."
+      ]
+    },
+    {
+      "original_path": "StrandTests/WorkoutZonesTests.swift",
+      "original_sha256": "93bbbf18e247606d3ea34b5a02c7c59543e4636c673e2f05c7580cacae8e9819",
+      "original_lines": 43,
+      "test_methods": [
+        "testParsesMacKeyShape",
+        "testParsesAndroidKeyShape",
+        "testRejectsNilEmptyAndAllZero",
+        "testSummaryIsDurationWeighted"
+      ],
+      "test_method_count": 4,
+      "disposition": "ported",
+      "reason_code": "current_contract_missing_from_active_targets",
+      "reason": "workout zone-minute interpretation and missing-zone behavior",
+      "destination": "StrandiOSTests/WorkoutZonesTests.swift",
+      "target": "NOOPiOSTests",
+      "changes": [
+        "Rename app module import from Strand to NOOP; preserve existing assertions."
+      ]
+    },
+    {
+      "original_path": "StrandTests/WorkoutsTestModeEmissionTests.swift",
+      "original_sha256": "e9c88221988c18d74f34de422e75529bab0f654aeb5df39fdbab83c9538fc87a",
+      "original_lines": 59,
+      "test_methods": [
+        "testModeOffEmitsZeroWorkoutsLines",
+        "testModeOnEmitsAGpsFixLine"
+      ],
+      "test_method_count": 2,
+      "disposition": "ported",
+      "reason_code": "current_contract_missing_from_active_targets",
+      "reason": "workout/GPS diagnostic domain gates",
+      "destination": "StrandiOSTests/WorkoutsTestModeEmissionTests.swift",
+      "target": "NOOPiOSTests",
+      "changes": [
+        "Rename app module import from Strand to NOOP; preserve existing assertions."
+      ]
+    },
+    {
+      "original_path": "StrandTests/XiaomiImporterIntegrationTests.swift",
+      "original_sha256": "84b807d907f1f9f8660693f97c800eb6a4d799fdf0b96f98586b2d1f26250f98",
+      "original_lines": 46,
+      "test_methods": [
+        "testRealExportRoundTripsIntoStore"
+      ],
+      "test_method_count": 1,
+      "disposition": "ported",
+      "reason_code": "current_contract_missing_from_active_targets",
+      "reason": "retained historic Xiaomi SQLite importer end-to-end with explicit XIAOMI_REAL_DB fixture prerequisite",
+      "destination": "StrandiOSTests/XiaomiImporterIntegrationTests.swift",
+      "target": "NOOPiOSTests",
+      "changes": [
+        "Rename app module import from Strand to NOOP; preserve existing assertions."
+      ]
+    }
+  ],
+  "validation_status": "Ports require root-owned native compile/run. Retirement and target membership are source verified."
+}
