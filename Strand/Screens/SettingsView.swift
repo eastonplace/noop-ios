@@ -2201,6 +2201,39 @@ struct SettingsDetailHost: View {
             }
 
             Section {
+                Link(destination: URL(string: "https://github.com/eastonplace")!) {
+                    aboutRowLabel(
+                        "Easton Place",
+                        detail: "Built by Easton Place. Design and direction are the intellectual property of Easton Place.",
+                        trailingSymbol: "arrow.up.right"
+                    )
+                }
+                .foregroundStyle(.primary)
+                .accessibilityLabel("Built by Easton Place. Opens Easton Place on GitHub")
+                Link(destination: URL(string: "https://github.com/eastonplace/noop-ios")!) {
+                    aboutRowLabel(
+                        "Source code",
+                        detail: "GitHub: this app's code, pull requests and releases.",
+                        trailingSymbol: "arrow.up.right"
+                    )
+                }
+                .foregroundStyle(.primary)
+                .accessibilityLabel("Source code on GitHub")
+            } header: {
+                Text("Made by")
+            }
+
+            Section {
+                attribution(repo: "johnmiddleton12/my-whoop", note: String(localized: "WHOOP 4.0 protocol"))
+                attribution(repo: "b-nnett/goose", note: String(localized: "WHOOP 5.0 protocol"))
+                attribution(repo: "NoopApp/noop", note: String(localized: "Forked from 9.0.1"))
+            } header: {
+                Text("Background formulas built on")
+            } footer: {
+                Text("Open-source reverse-engineering and scoring work this app started from. Thank you.")
+            }
+
+            Section {
                 aboutLinkRow(
                     "How NOOP works",
                     detail: "Sleep sorting, scores, recording, and where your numbers come from."
@@ -2235,40 +2268,7 @@ struct SettingsDetailHost: View {
             updateSection
 
             Section {
-                Link(destination: URL(string: "https://github.com/NoopApp/noop")!) {
-                    aboutRowLabel(
-                        "Project home & source",
-                        detail: "GitHub: code, releases, issues and the wiki.",
-                        trailingSymbol: "arrow.up.right"
-                    )
-                }
-                .foregroundStyle(.primary)
-                .accessibilityLabel("Project home and source code on GitHub")
-                // noop.fans carries every release alongside GitHub, a fallback if GitHub is ever unreachable (#606).
-                Link(destination: URL(string: "https://noop.fans")!) {
-                    aboutRowLabel(
-                        "Mirror: noop.fans",
-                        detail: "Every release, mirrored. A fallback if GitHub is ever down.",
-                        trailingSymbol: "arrow.up.right"
-                    )
-                }
-                .foregroundStyle(.primary)
-                .accessibilityLabel("Mirror at noop dot fans, a fallback if GitHub is down")
-            } header: {
-                Text("Project")
-            }
-
-            Section {
-                attribution(repo: "johnmiddleton12/my-whoop", note: String(localized: "WHOOP 4.0 protocol"))
-                attribution(repo: "b-nnett/goose", note: String(localized: "WHOOP 5.0 protocol"))
-            } header: {
-                Text("Built on")
-            } footer: {
-                Text("Open-source BLE reverse-engineering work. Thank you.")
-            }
-
-            Section {
-                Text("A standalone companion for your WHOOP. Everything stays on this device: your history, your live stream, your numbers. Nothing is uploaded. NOOP is an independent, experimental project, not the WHOOP app.")
+                Text("A standalone companion for your WHOOP, built by Easton Place. Everything stays on this device: your history, your live stream, your numbers. Nothing is uploaded. NOOP is an independent project, not the WHOOP app.")
             } footer: {
                 Text("NOOP is not a medical device. It is for informational and personal-insight purposes only and is not intended to diagnose, treat, cure or prevent any condition. Talk to a clinician for medical advice.")
             }

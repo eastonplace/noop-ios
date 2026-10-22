@@ -20,6 +20,9 @@ that covers it. "Builds and unit tests pass" alone is not enough for BLE work.
 
 ## Checklist
 
+- [ ] User-facing change: bumped `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` in `project.yml` and added a
+      `.fork(...)` What's New entry at the top of `AppChangelog.releases` (see [`AGENTS.md`](../AGENTS.md))
+
 - [ ] Swift package tests pass for any package I touched (`swift test` in `Packages/<name>`)
 - [ ] No new build warnings introduced
 - [ ] UI changes use only `StrandDesign` tokens — no hardcoded colors, fonts, or spacing

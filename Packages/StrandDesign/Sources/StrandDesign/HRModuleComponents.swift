@@ -64,8 +64,19 @@ public struct HRLiveModuleCard: View {
         Button(action: onOpen) {
             VStack(alignment: .leading, spacing: 10) {
                 header
-                heroRow
-                trace
+                if samples.count >= 2 {
+                    // The trace fills the card's body and the reading sits on top of it; the trace fades out
+                    // under the number so the figure stays the hero.
+                    ZStack(alignment: .topLeading) {
+                        trace
+                            .mask(Self.traceFade)
+                        heroRow
+                            .allowsHitTesting(false)
+                    }
+                } else {
+                    heroRow
+                    trace
+                }
                 footerStrip
             }
             .padding(surfaceStyle == .card ? 14 : 0)
@@ -160,32 +171,33 @@ public struct HRLiveModuleCard: View {
                          pulses: !samples.isEmpty)
     }
 
-    /// The number is the hero — production-sized, zone word beside it, live context under it.
+    /// The number is the hero — production-sized, with the zone word stacked over the unit and live context beside it.
     private var heroRow: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 5) {
+        HStack(alignment: .lastTextBaseline, spacing: 5) {
             Text(displayed.map { "\(Int($0.bpm.rounded()))" } ?? "—")
                 .font(StrandFont.number(38, weight: .bold))
                 .monospacedDigit()
                 .foregroundStyle(displayed == nil ? StrandPalette.textTertiary : StrandPalette.textPrimary)
                 .contentTransition(.numericText())
-            HStack(spacing: 0) {
-                // The app's string table carries the translations ("ppm" in Spanish).
-                Text("bpm")
-                    .foregroundStyle(StrandPalette.textSecondary)
-                if !heroContext.isEmpty {
-                    Text(verbatim: " \(heroContext)")
-                        .monospacedDigit()
-                        .foregroundStyle(StrandPalette.textTertiary)
+            VStack(alignment: .leading, spacing: 1) {
+                // The zone word is a small coloured label over the reading's unit, not a pill in the header.
+                if displayed != nil {
+                    Text(verbatim: zoneWord)
+                        .font(StrandFont.micro.weight(.semibold))
+                        .foregroundStyle(HRModuleTint.live)
+                        .contentTransition(.opacity)
                 }
-            }
-            .font(StrandFont.micro)
-            // The zone word is a small coloured label beside the reading, not a pill in the header.
-            if displayed != nil {
-                Text(verbatim: zoneWord)
-                    .font(StrandFont.micro.weight(.semibold))
-                    .foregroundStyle(HRModuleTint.live)
-                    .contentTransition(.opacity)
-                    .padding(.leading, 6)
+                HStack(spacing: 0) {
+                    // The app's string table carries the translations ("ppm" in Spanish).
+                    Text("bpm")
+                        .foregroundStyle(StrandPalette.textSecondary)
+                    if !heroContext.isEmpty {
+                        Text(verbatim: " \(heroContext)")
+                            .monospacedDigit()
+                            .foregroundStyle(StrandPalette.textTertiary)
+                    }
+                }
+                .font(StrandFont.micro)
             }
             Spacer(minLength: 0)
         }
@@ -209,6 +221,19 @@ public struct HRLiveModuleCard: View {
     // MARK: Trace
 
     private static let traceHeight: CGFloat = 54
+    /// The live trace's height when it runs behind the reading: the hero row plus the old strip.
+    private static let fullTraceHeight: CGFloat = 112
+
+    /// Fades the trace to a whisper under the reading at the top-left, full strength everywhere else.
+    private static var traceFade: some View { ZStack {
+        LinearGradient(stops: [.init(color: .black.opacity(0.3), location: 0),
+                               .init(color: .black.opacity(0.3), location: 0.3),
+                               .init(color: .black, location: 0.5)],
+                       startPoint: .leading, endPoint: .trailing)
+        LinearGradient(stops: [.init(color: .clear, location: 0.5),
+                               .init(color: .black, location: 0.7)],
+                       startPoint: .top, endPoint: .bottom)
+    } }
 
     private var yRange: ClosedRange<Double> {
         let values = samples.map(\.bpm) + [restingHR ?? 60]
@@ -228,7 +253,7 @@ public struct HRLiveModuleCard: View {
                     .onAppear { plotWidth = size.width }
                     .onChangeCompat(of: size.width) { plotWidth = $0 }
             }
-            .frame(height: Self.traceHeight)
+            .frame(height: Self.fullTraceHeight)
         } else {
             // Waiting state: a dimmed flat rail, never a fabricated trace.
             VStack(alignment: .leading, spacing: 6) {

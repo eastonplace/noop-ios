@@ -126,7 +126,7 @@ def newest_changelog_version(swift_text: str) -> str | None:
     marker = swift_text.find("static let releases")
     if marker < 0:
         return None
-    match = re.search(r'version:\s*"([^"]+)"', swift_text[marker:])
+    match = re.search(r'(?:\.fork\("|version:\s*")([^"]+)"', swift_text[marker:])
     return match.group(1) if match else None
 
 

@@ -204,6 +204,33 @@ final class ApprovedDashboardUITests: XCTestCase {
         capture(app, "today-returned-from-calendar")
     }
 
+    func testForkAboutAndWhatsNew() throws {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        launch(app, route: "settings-about")
+        defer { app.terminate() }
+        try requireExists(app.buttons["What's new"], in: app, timeout: 60)
+        let version = app.staticTexts.matching(NSPredicate(format: "label MATCHES %@", "Version, [0-9]+[.][0-9]+[.][0-9]+")).firstMatch
+        try requireExists(version, in: app)
+        let displayedVersion = String(version.label.dropFirst("Version, ".count))
+        let source = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Source code on GitHub")).firstMatch
+        try requireExists(source, in: app)
+        capture(app, "fork-about")
+        app.buttons["What's new"].tap()
+        let hero = element("whatsNew.hero", in: app)
+        try requireExists(hero, in: app)
+        // The hero intentionally combines its heading, version, title and date into
+        // one accessibility element. Verify the exact dotted version in that label.
+        let heroVersions = hero.label.split { !$0.isNumber && $0 != "." }
+            .filter { $0.range(of: #"^[0-9]+\.[0-9]+\.[0-9]+$"#, options: .regularExpression) != nil }
+            .map(String.init)
+        XCTAssertEqual(heroVersions, [displayedVersion], "What's New shows the running version from About")
+        try requireExists(app.buttons["Continue"], in: app)
+        capture(app, "fork-whats-new")
+        app.buttons["Continue"].tap()
+        try requireExists(app.buttons["What's new"], in: app)
+    }
+
     private func launch(_ app: XCUIApplication, route: String? = nil, size: TextSize = .normal,
                         preserveDemoPreferences: Bool = false) {
         app.terminate()
