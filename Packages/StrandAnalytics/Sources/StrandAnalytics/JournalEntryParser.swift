@@ -126,6 +126,12 @@ public enum JournalEntryParser {
                matches(normalized, #"^(?:i )?(?:ran|cycled|swam|walked|worked out|exercised|lifted weights) for \d+(?:\.\d+)? (?:minutes?|hours?)(?: in zone [1-5])?$"#) {
                 return Candidate(suggestion: .init(canonical: field.canonical, value: .boolean(true), excerpt: clause), hasUnmatchedDetails: true)
             }
+            // Natural phrasing ("Took magnesium before bed"): a keyword for the behaviour anywhere in the clause.
+            if let yes = looseBoolean(normalized, concept: concept) {
+                // A number in the clause (a dose, a duration) has no place in a yes/no answer; keep the clause visible.
+                let hasNumber = matches(normalized, #"\d"#)
+                return Candidate(suggestion: .init(canonical: field.canonical, value: .boolean(yes), excerpt: clause), hasUnmatchedDetails: hasNumber)
+            }
             return nil
         }
     }
@@ -200,6 +206,94 @@ public enum JournalEntryParser {
         return nil
     }
 
+    // MARK: Natural phrasing
+
+    /// What counts as evidence of one behaviour inside a clause. Stems and aliases only, never fuzzy matching.
+    private struct LooseRule {
+        /// Any one of these (regex, lowercase) names the behaviour.
+        var evidence: [String]
+        /// Evidence that is too common to trust on its own; ignored when `weakBlockedBy` also appears.
+        var weak: [String] = []
+        var weakBlockedBy: String?
+        /// The clause must also match this (a screen only counts in bed, a book only before bed).
+        var requires: String?
+        /// The clause must not match this (plain caffeine is not the late-caffeine question).
+        var excludes: String?
+        /// Another person's name in the clause normally disqualifies it; sharing a bed is about exactly that.
+        var allowsOtherPeople = false
+    }
+
+    private static func looseRule(for concept: Concept) -> LooseRule {
+        let late = #"\b(?:late|evening|night|tonight|bedtime|after dinner)\b"#
+        let bed = #"\b(?:bed|bedtime|night|sleep|late)\b"#
+        switch concept {
+        case .caffeine:
+            return LooseRule(evidence: [#"\bcaffein\w*"#, #"\bcoffees?\b"#, #"\bespresso\b"#, #"\blatte\b"#, #"\bcappuccino\b"#],
+                             excludes: late)
+        case .lateCaffeine:
+            return LooseRule(evidence: [#"\bcaffein\w*"#, #"\bcoffees?\b"#, #"\bespresso\b"#, #"\blatte\b"#, #"\bcappuccino\b"#],
+                             requires: late)
+        case .creatine: return LooseRule(evidence: [#"\bcreatine\b"#])
+        case .magnesium: return LooseRule(evidence: [#"\bmagnesium\b"#])
+        case .alcohol:
+            return LooseRule(
+                evidence: [#"\balcohol\w*"#, #"\bbeers?\b"#, #"\bwine\b"#, #"\bcocktails?\b"#, #"\bliquor\b"#,
+                           #"\bvodka\b"#, #"\bwhisk(?:e)?y\b"#, #"\bchampagne\b"#, #"\btequila\b"#, #"\bbourbon\b"#],
+                weak: [#"\bdrinks?\b"#, #"\bdrinking\b"#, #"\bdrank\b"#, #"\bdrunk\b"#, #"\bhangover\b"#],
+                weakBlockedBy: #"\b(?:coffees?|tea|water|juice|soda|smoothie|milk|caffein\w*|energy|kombucha|shake|electrolytes?)\b"#)
+        case .workout:
+            return LooseRule(evidence: [#"\bworkouts?\b"#, #"\bwork(?:ed|ing)? out\b"#, #"\bexercis\w*"#, #"\bgym\b"#,
+                                        #"\blift(?:ed|ing)? weights\b"#, #"\btrain(?:ed|ing)\b"#, #"\bjog\w*"#, #"\bhiit\b"#])
+        case .stress: return LooseRule(evidence: [#"\bstress\w*"#])
+        case .sauna: return LooseRule(evidence: [#"\bsaunas?\b"#])
+        case .screenInBed: return LooseRule(evidence: [#"\bscreens?\b"#], requires: bed)
+        case .lateMeal:
+            return LooseRule(evidence: [#"\bate (?:\w+ ){0,2}(?:late|close to bed\w*|right before bed|before bed)\b"#,
+                                        #"\blate (?:meal|dinner|supper|snack)\b"#,
+                                        #"\b(?:meal|dinner|supper|snack\w*) (?:very |too )?(?:late|close to bed\w*|right before bed|before bed)\b"#])
+        case .sharedBed:
+            return LooseRule(evidence: [#"\bshar\w* (?:\w+ ){0,2}bed\b"#], allowsOtherPeople: true)
+        case .sick: return LooseRule(evidence: [#"\bsick\b"#, #"\bill\b"#, #"\bunwell\b"#, #"\bfever\w*"#, #"\bflu\b"#, #"\bunder the weather\b"#])
+        case .reading: return LooseRule(evidence: [#"\bread(?:ing)?\b"#, #"\bbook\b"#], requires: #"\b(?:bed|bedtime|night|sleep)\b"#)
+        }
+    }
+
+    /// Future, hypothetical or unsure statements are not answers.
+    private static let uncertainPattern =
+        #"\b(?:might|may|maybe|perhaps|probably|will|would|could|should|gonna|going to|plan(?:ning)? to|want to|need to|hope|wish|forgot|whether|if|thinking (?:about|of))\b"#
+    private static let otherPeoplePattern =
+        #"\b(?:he|she|they|someone|everyone|(?:my|his|her|their) (?:partner|wife|husband|girlfriend|boyfriend|friends?|colleagues?|co-?workers?|boss|kids?|son|daughter|mom|dad|mother|father|brother|sister|roommate|dog|cat))\b"#
+    private static let negationBefore =
+        #"(?:^|\W)(?:no|not|never|without|skipped|skip|skipping|avoided|avoid|avoiding|zero|none|gave up|cut out)(?:\s+\w+){0,2}\s*$"#
+    private static let negationAfter = #"^(?:[\s-]*free\b|\s+(?:\w+\s+){0,1}(?:skipped|missed)\b)"#
+
+    /// One behaviour per clause: a keyword (stem or alias) anywhere in the clause answers it, and simple negation
+    /// ("no alcohol", "didn't drink", "skipped coffee") answers no. Anything unsure returns nil and stays unmatched.
+    private static func looseBoolean(_ text: String, concept: Concept) -> Bool? {
+        guard !text.contains("?"), !matches(text, uncertainPattern) else { return nil }
+        let rule = looseRule(for: concept)
+        if !rule.allowsOtherPeople, matches(text, otherPeoplePattern) { return nil }
+        if let requires = rule.requires, !matches(text, requires) { return nil }
+        if let excludes = rule.excludes, matches(text, excludes) { return nil }
+        var patterns = rule.evidence
+        if let blocked = rule.weakBlockedBy {
+            if !matches(text, blocked) { patterns += rule.weak }
+        } else {
+            patterns += rule.weak
+        }
+        var hit: Range<String.Index>?
+        for pattern in patterns {
+            if let range = text.range(of: pattern, options: .regularExpression),
+               hit == nil || range.lowerBound < hit!.lowerBound {
+                hit = range
+            }
+        }
+        guard let hit else { return nil }
+        let before = String(text[..<hit.lowerBound])
+        let after = String(text[hit.upperBound...])
+        return matches(before, negationBefore) || matches(after, negationAfter) ? false : true
+    }
+
     private static func narrativeQuantity(_ text: String, concept: Concept) -> String? {
         let substance: String
         let action: String
@@ -270,6 +364,11 @@ public enum JournalEntryParser {
         text.lowercased().replacingOccurrences(of: "’", with: "'")
             .replacingOccurrences(of: "didn't", with: "did not")
             .replacingOccurrences(of: "wasn't", with: "was not")
+            .replacingOccurrences(of: "haven't", with: "have not")
+            .replacingOccurrences(of: "hadn't", with: "had not")
+            .replacingOccurrences(of: "don't", with: "do not")
+            .replacingOccurrences(of: "doesn't", with: "does not")
+            .replacingOccurrences(of: "won't", with: "will not")
             .components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }.joined(separator: " ")
     }
 
