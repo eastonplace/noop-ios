@@ -9,6 +9,36 @@ struct JournalEntryPresentation: Identifiable {
     let sourceIdentity: String
 }
 
+/// The one way into the composer from a journal screen: a plain row with a glyph, no capsule.
+struct JournalComposeRow: View {
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: NoopMetrics.space3) {
+                Image(systemName: "mic")
+                    .font(StrandFont.body)
+                    .foregroundStyle(StrandPalette.journalAccent)
+                    .frame(width: 24)
+                    .accessibilityHidden(true)
+                Text("Write or dictate a note")
+                    .font(StrandFont.body)
+                    .foregroundStyle(StrandPalette.textPrimary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: NoopMetrics.space2)
+                Image(systemName: "chevron.right")
+                    .font(StrandFont.caption)
+                    .foregroundStyle(StrandPalette.textTertiary)
+                    .accessibilityHidden(true)
+            }
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("journal-compose-entry")
+    }
+}
+
 /// Transient text and review state belong to this sheet. Typing/dictating/parsing never saves; the
 /// repository receives only the explicitly included, edited values from the visible Save action.
 struct JournalEntryComposer: View {
@@ -52,62 +82,70 @@ struct JournalEntryComposer: View {
         return values.count == included.count ? values : nil
     }
 
-    var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: NoopMetrics.sectionGap) {
-                    VStack(alignment: .leading, spacing: 5) {
-                        Text("Wake day: \(presentation.day)")
-                            .font(StrandFont.headline)
-                        Text("Describe the night and day leading into this morning. Review the suggested answers before saving.")
-                            .font(StrandFont.subhead)
-                            .foregroundStyle(StrandPalette.textSecondary)
-                    }
-                    entryEditor
-                    PaperCard { dictationSection }
-                    if let message {
-                        Text(message)
-                            .font(StrandFont.subhead)
-                            .foregroundStyle(sourceChanged ? StrandPalette.error : StrandPalette.textSecondary)
-                            .accessibilityIdentifier("journal-entry-message")
-                    }
-                    Button(action: prepareReview) {
-                        HStack {
-                            if preparing { ProgressView() }
-                            Text(review == nil ? "Review entries" : "Review again")
-                        }.frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(NoopButtonStyle(review == nil ? .primary : .secondary, fullWidth: true))
-                    .disabled(!canReview)
-                    .accessibilityIdentifier("journal-entry-review")
+    private var dayLabel: String {
+        FriendlyDayLabel.label(forDayKey: presentation.day)
+    }
 
-                    if let parsed { unmatchedSection(parsed) }
-                    if let review { reviewSection(review) }
+    private var includedCount: Int { edits.filter(\.included).count }
+
+    private var saveTitle: String {
+        includedCount == 1
+            ? String(localized: "Save answer")
+            : String(localized: "Save \(includedCount) answers")
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            header
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: NoopMetrics.sectionGap) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Journal note")
+                                .font(StrandFont.title2)
+                                .foregroundStyle(StrandPalette.textPrimary)
+                            Text(dayLabel)
+                                .font(StrandFont.subhead)
+                                .foregroundStyle(StrandPalette.textSecondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .accessibilityIdentifier("journal-entry-day")
+                        }
+                        .accessibilityElement(children: .combine)
+                        .accessibilityAddTraits(.isHeader)
+                        entryEditor
+                        if let message {
+                            Text(message)
+                                .font(StrandFont.subhead)
+                                .foregroundStyle(sourceChanged ? StrandPalette.error : StrandPalette.textSecondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .accessibilityIdentifier("journal-entry-message")
+                        }
+                        if let parsed { unmatchedSection(parsed) }
+                        if let review { reviewSection(review).id(Self.reviewAnchor) }
+                    }
+                    .padding(NoopMetrics.screenPadding)
                 }
-                .padding(NoopMetrics.screenPadding)
-            }
-            .background(StrandPalette.canvas)
-            .navigationTitle("Journal entry")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                        .disabled(saving)
+                .scrollDismissesKeyboard(.interactively)
+                .onChange(of: review != nil) { _, hasReview in
+                    if hasReview { withAnimation { proxy.scrollTo(Self.reviewAnchor, anchor: .top) } }
                 }
             }
-            .interactiveDismissDisabled(saving)
+            footer
         }
+        .background(StrandPalette.appCanvas.ignoresSafeArea())
+        .interactiveDismissDisabled(saving)
         .tint(StrandPalette.accent)
         .font(StrandFont.body)
         .onAppear { presented = true }
         .onChange(of: entryText) { _, _ in
             guard !saving else { return }
             invalidateReview()
+            if !sourceChanged { message = nil }
         }
         .onChange(of: fields) { _, _ in
             invalidateReview()
             cancelDictation()
-            message = "Your journal catalog changed. Review the entry again with the current items."
+            message = String(localized: "Your journal items changed. Review your note again.")
         }
         .onChange(of: currentDay) { _, day in
             if day != presentation.day { invalidateContext() }
@@ -126,117 +164,205 @@ struct JournalEntryComposer: View {
         }
     }
 
-    private var entryEditor: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Your entry").font(StrandFont.headline)
-            PaperCard(padding: 8) {
-                TextEditor(text: $entryText)
-                    .frame(minHeight: 150)
-                    .scrollContentBackground(.hidden)
-                    .disabled(saving)
-                    .accessibilityLabel("Journal entry text")
-                    .accessibilityIdentifier("journal-entry-text")
+    private static let reviewAnchor = "journal-entry-review-section"
+
+    /// A plain-text Cancel, not a navigation-bar item: iOS 26 would wrap a toolbar button in glass.
+    private var header: some View {
+        HStack {
+            textAction("Cancel", tint: StrandPalette.textSecondary) { dismiss() }
+                .disabled(saving)
+                .accessibilityIdentifier("journal-entry-cancel")
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, NoopMetrics.screenPadding)
+        .padding(.top, NoopMetrics.space2)
+    }
+
+    /// The one primary action: Review first, then Save once there are answers to save.
+    private var footer: some View {
+        Group {
+            if review == nil {
+                Button(action: prepareReview) {
+                    HStack {
+                        if preparing { ProgressView() }
+                        Text("Review")
+                    }.frame(maxWidth: .infinity)
+                }
+                .buttonStyle(NoopButtonStyle(.primary, fullWidth: true))
+                .disabled(!canReview)
+                .accessibilityIdentifier("journal-entry-review")
+            } else {
+                Button(action: save) {
+                    HStack {
+                        if saving { ProgressView() }
+                        Text(verbatim: saveTitle).lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                    }.frame(maxWidth: .infinity)
+                }
+                .buttonStyle(NoopButtonStyle(.primary, fullWidth: true))
+                .disabled(selectedValues == nil || saving || preparing || voice.isBusy || sourceChanged)
+                .accessibilityIdentifier("journal-entry-save")
             }
-            Text("For example: “I took magnesium and felt stressed.” For quantities, include a unit and an existing journal item, such as “Caffeine: 200 mg.”")
+        }
+        .sheetFooterBar()
+    }
+
+    private func textAction(_ title: LocalizedStringKey, tint: Color = StrandPalette.accent,
+                            action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(StrandFont.subhead.weight(.semibold))
+                .foregroundStyle(tint)
+                .frame(minHeight: 44)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var entryEditor: some View {
+        VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+            TextEditor(text: $entryText)
+                .font(StrandFont.body)
+                .foregroundStyle(StrandPalette.textPrimary)
+                .scrollContentBackground(.hidden)
+                .frame(minHeight: 180)
+                .overlay(alignment: .topLeading) {
+                    if entryText.isEmpty {
+                        Text("Write or dictate a note")
+                            .font(StrandFont.body)
+                            .foregroundStyle(StrandPalette.textTertiary)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 8)
+                            .allowsHitTesting(false)
+                            .accessibilityHidden(true)
+                    }
+                }
+                .disabled(saving)
+                .journalFieldSurface()
+                .accessibilityLabel("Journal entry text")
+                .accessibilityIdentifier("journal-entry-text")
+            dictationRow
+            if !voice.transcript.isEmpty { transcriptBlock }
+            if let error = voice.errorText {
+                Text(error).font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Text("Try “I took magnesium” or “I felt stressed”.")
                 .font(StrandFont.caption)
                 .foregroundStyle(StrandPalette.textTertiary)
             if entryText.utf8.count > JournalEntryParser.maximumInputBytes {
-                Text("This entry is too long. Shorten it before reviewing.")
+                Text("This note is too long. Shorten it before reviewing.")
                     .font(StrandFont.caption).foregroundStyle(StrandPalette.error)
             }
         }
     }
 
-    private var dictationSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            VStack(alignment: .leading, spacing: 8) {
+    /// One mic glyph. It sits in a filled circle only while recording, so the live state is visible at a glance.
+    private var dictationRow: some View {
+        HStack(spacing: NoopMetrics.space3) {
+            Button {
                 switch voice.phase {
-                case .idle:
-                    Button {
-                        voiceOperation = Task { await voice.start() }
-                    } label: { Label(voice.transcript.isEmpty ? "Dictate" : "Dictate again", systemImage: "mic") }
-                        .buttonStyle(NoopButtonStyle(.secondary, fullWidth: true))
-                        .disabled(saving || sourceChanged)
-                        .accessibilityIdentifier("journal-entry-dictate")
-                case .requestingPermission:
-                    HStack { ProgressView(); Text("Preparing dictation…") }
-                    Button("Cancel dictation", action: cancelDictation)
-                        .buttonStyle(NoopButtonStyle(.tertiary, fullWidth: true))
-                case .recording:
-                    Label("Listening…", systemImage: "mic.fill")
-                    Button("Finish dictation") { voice.finish() }
-                        .buttonStyle(NoopButtonStyle(.secondary, fullWidth: true))
-                case .finishing:
-                    HStack { ProgressView(); Text("Finishing transcript…") }
-                    Button("Cancel dictation", action: cancelDictation)
-                        .buttonStyle(NoopButtonStyle(.tertiary, fullWidth: true))
+                case .idle: voiceOperation = Task { await voice.start() }
+                case .recording: voice.finish()
+                case .requestingPermission, .finishing: cancelDictation()
                 }
-            }
-            Text("Dictation runs on this iPhone when your language and device support it. Typing is always available.")
-                .font(StrandFont.caption)
-                .foregroundStyle(StrandPalette.textTertiary)
-            if !voice.transcript.isEmpty {
-                Text(voice.transcript)
-                    .font(StrandFont.body)
-                    .textSelection(.enabled)
-                    .accessibilityIdentifier("journal-entry-transcript")
-                if !voice.isBusy {
-                    VStack(spacing: 8) {
-                        Button("Use captured text", action: useTranscript)
-                            .buttonStyle(NoopButtonStyle(.secondary, fullWidth: true))
-                        Button("Discard dictation", action: cancelDictation)
-                            .buttonStyle(NoopButtonStyle(.tertiary, fullWidth: true))
+            } label: {
+                ZStack {
+                    if voice.phase == .recording {
+                        Circle().fill(StrandPalette.error).frame(width: 40, height: 40)
+                    }
+                    switch voice.phase {
+                    case .requestingPermission, .finishing:
+                        ProgressView()
+                    case .recording:
+                        Image(systemName: "mic.fill").foregroundStyle(StrandPalette.onInk)
+                    case .idle:
+                        Image(systemName: "mic").foregroundStyle(StrandPalette.accent)
                     }
                 }
+                .font(StrandFont.title2)
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
             }
-            if let error = voice.errorText {
-                Text(error).font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
+            .buttonStyle(.plain)
+            .disabled(voice.phase == .idle && (saving || sourceChanged))
+            .accessibilityLabel(micLabel)
+            .accessibilityHint("Dictation stays on this iPhone.")
+            .accessibilityIdentifier("journal-entry-dictate")
+            if let status = dictationStatus {
+                Text(status).font(StrandFont.subhead).foregroundStyle(StrandPalette.textSecondary)
+            }
+            Spacer(minLength: 0)
+            if voice.phase != .idle {
+                textAction("Cancel", tint: StrandPalette.textSecondary, action: cancelDictation)
             }
         }
         .disabled(saving)
     }
 
+    private var micLabel: LocalizedStringKey {
+        switch voice.phase {
+        case .idle: voice.transcript.isEmpty ? "Dictate" : "Dictate again"
+        case .recording: "Finish dictation"
+        case .requestingPermission, .finishing: "Cancel dictation"
+        }
+    }
+
+    private var dictationStatus: String? {
+        switch voice.phase {
+        case .idle: nil
+        case .requestingPermission: String(localized: "Getting ready…")
+        case .recording: String(localized: "Listening…")
+        case .finishing: String(localized: "Finishing…")
+        }
+    }
+
+    private var transcriptBlock: some View {
+        VStack(alignment: .leading, spacing: NoopMetrics.space1) {
+            Text(voice.transcript)
+                .font(StrandFont.body)
+                .foregroundStyle(StrandPalette.textPrimary)
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("journal-entry-transcript")
+            if !voice.isBusy {
+                HStack(spacing: NoopMetrics.space5) {
+                    textAction("Add to note", action: useTranscript)
+                        .accessibilityIdentifier("journal-entry-use-transcript")
+                    textAction("Discard", tint: StrandPalette.textSecondary, action: cancelDictation)
+                    Spacer(minLength: 0)
+                }
+                .disabled(saving)
+            }
+        }
+    }
+
     @ViewBuilder private func unmatchedSection(_ draft: JournalEntryParser.Draft) -> some View {
         if !draft.unmatched.isEmpty {
-            PaperCard {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Unmatched details").font(StrandFont.headline)
-                    Text("These words remain in this draft. Saving adds only the checked journal answers below.")
-                        .font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
-                    ForEach(Array(draft.unmatched.enumerated()), id: \.offset) { _, text in
-                        Text(text).font(StrandFont.subhead).textSelection(.enabled)
-                    }
-                    if !draft.conflictingFields.isEmpty {
-                        Text("Some statements disagree. Edit those statements and review again.")
-                            .font(StrandFont.caption).foregroundStyle(StrandPalette.warning)
-                    }
-                    if draft.suggestions.isEmpty {
-                        Text("No answers matched yet. Use a journal item's name followed by an explicit value, such as “Magnesium: yes”.")
-                            .font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
-                    }
+            VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+                Text("Not matched").font(StrandFont.headline)
+                Text("These won’t be saved.")
+                    .font(StrandFont.caption).foregroundStyle(StrandPalette.textTertiary)
+                ForEach(Array(draft.unmatched.enumerated()), id: \.offset) { _, text in
+                    Text(text).font(StrandFont.subhead).textSelection(.enabled)
+                        .foregroundStyle(StrandPalette.textSecondary)
+                }
+                if !draft.conflictingFields.isEmpty {
+                    Text("Some lines disagree. Edit them and review again.")
+                        .font(StrandFont.caption).foregroundStyle(StrandPalette.warning)
                 }
             }
         }
     }
 
     private func reviewSection(_ review: JournalEntryReview) -> some View {
-        VStack(alignment: .leading, spacing: NoopMetrics.gap) {
+        VStack(alignment: .leading, spacing: NoopMetrics.space2) {
             Text("Review answers").font(StrandFont.title2)
-            Text("Edit each value or uncheck an item to leave its saved answer as it is. Quantities use the unit shown in your journal.")
+            Text("Edit a value, or uncheck it to keep your saved answer.")
                 .font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
             ForEach($edits) { $edit in
+                if edit.id != edits.first?.id { Divider().overlay(StrandPalette.hairline) }
                 JournalEntryReviewRow(edit: $edit, existing: review.existing[edit.id])
                     .disabled(saving)
             }
-            Button(action: save) {
-                HStack {
-                    if saving { ProgressView() }
-                    Text("Save \(edits.filter(\.included).count) answers to \(review.day)")
-                }.frame(maxWidth: .infinity)
-            }
-            .buttonStyle(NoopButtonStyle(.primary, fullWidth: true))
-            .disabled(selectedValues == nil || saving || preparing || voice.isBusy || sourceChanged)
-            .accessibilityIdentifier("journal-entry-save")
         }
     }
 
@@ -251,10 +377,13 @@ struct JournalEntryComposer: View {
         edits = []
         message = nil
         guard !draft.exceedsLimit else {
-            message = "Shorten this entry or reduce the journal catalog before reviewing it."
+            message = String(localized: "Shorten this note or reduce your journal items before reviewing.")
             return
         }
-        guard !draft.suggestions.isEmpty else { return }
+        guard !draft.suggestions.isEmpty else {
+            message = String(localized: "Nothing matched your journal questions. Try “I took magnesium” or “I felt stressed”.")
+            return
+        }
         operation?.cancel()
         let token = UUID()
         operationID = token
@@ -308,7 +437,7 @@ struct JournalEntryComposer: View {
                 onSaved()
                 guard isCurrent(token), currentDay == presentation.day, fields == snapshot,
                       repo.journalEntrySourceContext == review.sourceContext else {
-                    message = "Saved \(values.count) answers to \(review.day). The journal context changed; open a new entry to continue."
+                    message = String(localized: "Saved. Your journal changed in the meantime; open a new note to continue.")
                     return
                 }
                 dismiss()
@@ -327,7 +456,7 @@ struct JournalEntryComposer: View {
         let prefix = entryText.trimmingCharacters(in: .whitespacesAndNewlines)
         let combined = prefix.isEmpty ? voice.transcript : prefix + "\n" + voice.transcript
         guard combined.utf8.count <= JournalEntryParser.maximumInputBytes else {
-            message = "The captured text would exceed the entry limit. Shorten your entry before adding it."
+            message = String(localized: "That would make the note too long. Shorten it first.")
             return
         }
         entryText = combined
@@ -360,7 +489,7 @@ struct JournalEntryComposer: View {
         saving = false
         invalidateReview()
         cancelDictation()
-        message = "The journal date or data source changed. Copy any text you want to keep, then open a new entry for the current context."
+        message = String(localized: "Your journal date or data source changed. Copy anything you want to keep, then open a new note.")
     }
 }
 
@@ -369,10 +498,11 @@ private struct JournalEntryReviewRow: View {
     let existing: JournalEntry?
 
     var body: some View {
-        PaperCard {
-          VStack(alignment: .leading, spacing: 8) {
-            Toggle(isOn: $edit.included) { Text(edit.field.display).font(StrandFont.headline) }
-                .accessibilityLabel("Include \(edit.field.display) in save")
+        VStack(alignment: .leading, spacing: NoopMetrics.space2) {
+            Toggle(isOn: $edit.included) {
+                Text(edit.field.display).font(StrandFont.headline).fixedSize(horizontal: false, vertical: true)
+            }
+            .accessibilityLabel("Include \(edit.field.display) in save")
             switch edit.field.kind {
             case .boolean:
                 Picker("Answer", selection: $edit.boolean) {
@@ -383,33 +513,46 @@ private struct JournalEntryReviewRow: View {
                 HStack {
                     TextField("Quantity", text: $edit.quantity)
                         .keyboardType(.decimalPad)
-                        .textFieldStyle(.roundedBorder)
+                        .textFieldStyle(.plain)
+                        .font(StrandFont.body)
+                        .frame(minHeight: 24)
+                        .journalFieldSurface()
                         .accessibilityLabel("\(edit.field.display) quantity")
                     if let unit, !unit.isEmpty { Text(unit).font(StrandFont.subhead) }
                 }.disabled(!edit.included)
                 if edit.included && edit.suggestion == nil {
-                    Text("Enter a nonnegative number in the unit shown.")
+                    Text("Enter a number, zero or more.")
                         .font(StrandFont.caption).foregroundStyle(StrandPalette.error)
                 }
             }
             Text(existingDescription)
                 .font(StrandFont.caption)
-                .foregroundStyle(StrandPalette.textSecondary)
-            Text("From: \(edit.excerpt)")
-                .font(StrandFont.caption).foregroundStyle(StrandPalette.textTertiary)
-          }
+                .foregroundStyle(StrandPalette.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
         }
+        .padding(.vertical, NoopMetrics.space2)
     }
 
     private var existingDescription: String {
-        guard let existing else { return "Currently unanswered. This adds a new answer." }
+        guard let existing else { return String(localized: "Not logged yet. This adds a new answer.") }
         let value: String
         if let number = existing.numericValue {
             let unit: String
             if case .quantity(let label) = edit.field.kind { unit = label.map { " " + $0 } ?? "" }
             else { unit = "" }
             value = number.formatted(.number.precision(.significantDigits(1...17))) + unit
-        } else { value = existing.answeredYes ? "Yes" : "No" }
-        return "Currently saved: \(value). Saving replaces this answer and keeps its notes."
+        } else { value = existing.answeredYes ? String(localized: "Yes") : String(localized: "No") }
+        return String(localized: "Saved as \(value). Saving replaces it.")
+    }
+}
+
+private extension View {
+    /// The app's field surface: an inset fill with a hairline edge, as the other sheets' text fields wear.
+    func journalFieldSurface() -> some View {
+        let shape = RoundedRectangle(cornerRadius: NoopMetrics.radius2, style: .continuous)
+        return padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(StrandPalette.surfaceInset, in: shape)
+            .overlay(shape.strokeBorder(StrandPalette.hairline, lineWidth: 1))
     }
 }

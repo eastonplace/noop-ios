@@ -18,9 +18,9 @@ enum JournalEntryReviewError: Error, LocalizedError, Equatable {
 
     var errorDescription: String? {
         switch self {
-        case .contextChanged: return "The journal date, catalog, or data source changed. Open a new entry and review it before saving."
-        case .unavailable: return "The journal store is unavailable. Your entry is still here; try reviewing it again."
-        case .invalidValues: return "Choose at least one answer and check each quantity before saving."
+        case .contextChanged: return String(localized: "The journal date, catalog, or data source changed. Open a new entry and review it before saving.")
+        case .unavailable: return String(localized: "The journal store is unavailable. Your entry is still here; try reviewing it again.")
+        case .invalidValues: return String(localized: "Choose at least one answer and check each quantity before saving.")
         }
     }
 }

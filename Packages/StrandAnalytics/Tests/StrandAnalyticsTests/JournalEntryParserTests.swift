@@ -21,6 +21,18 @@ final class JournalEntryParserTests: XCTestCase {
         XCTAssertTrue(draft.unmatched.isEmpty)
     }
 
+    /// The composer's hint offers these two phrases; they must work against the starter catalog as shipped.
+    func testComposerHintExamplesMatchTheStarterCatalog() {
+        let fields = ["Did you take magnesium?", "Did you feel stressed?", "Did you drink any alcohol?"].map {
+            JournalEntryParser.Field(canonical: $0, display: $0, kind: .boolean)
+        }
+        let draft = JournalEntryParser.parse("I took magnesium and I felt stressed.", fields: fields)
+
+        XCTAssertEqual(draft.suggestions.map(\.canonical), ["Did you take magnesium?", "Did you feel stressed?"])
+        XCTAssertEqual(draft.suggestions.map(\.value), [.boolean(true), .boolean(true)])
+        XCTAssertTrue(draft.unmatched.isEmpty)
+    }
+
     func testAbsenceRemainsUnansweredAndExplicitNegationIsNo() {
         let draft = JournalEntryParser.parse("I did not take creatine.", fields: [creatine, caffeine, workout])
 
