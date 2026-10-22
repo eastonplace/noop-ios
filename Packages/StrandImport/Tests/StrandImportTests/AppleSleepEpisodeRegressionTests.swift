@@ -198,6 +198,8 @@ final class AppleSleepEpisodeRegressionTests: XCTestCase {
             XCTAssertNil(row.deepMin)
             XCTAssertNil(row.remMin)
             XCTAssertNil(row.coreMin)
+            if stage == .inBed { XCTAssertNil(row.awakeMin) }
+            if stage == .awake { XCTAssertNil(row.inBedMin) }
         }
         let observed = try aggregate([
             interval(.asleepUnspecified, "2024-03-10T00:00:00Z", "2024-03-10T08:00:00Z", source: "Summary"),

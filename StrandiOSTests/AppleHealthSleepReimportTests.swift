@@ -46,7 +46,9 @@ final class AppleHealthSleepReimportTests: XCTestCase {
                 _ = try await store.upsertAppleDaily([AppleDaily(day: day, steps: 8000, activeKcal: nil,
                     basalKcal: nil, vo2max: nil, avgHr: nil, maxHr: nil, walkingHr: nil, weightKg: 80)], deviceId: owner)
                 _ = try await store.upsertMetricSeries([MetricPoint(day: day, key: "asleep_min", value: 480),
-                    MetricPoint(day: day, key: "deep_min", value: 90)], deviceId: owner)
+                    MetricPoint(day: day, key: "deep_min", value: 90),
+                    MetricPoint(day: day, key: "awake_min", value: 30),
+                    MetricPoint(day: day, key: "in_bed_min", value: 600)], deviceId: owner)
             }
             let url = FileManager.default.temporaryDirectory.appendingPathComponent("sleep-fragment-\(UUID().uuidString).xml")
             defer { try? FileManager.default.removeItem(at: url) }
@@ -68,6 +70,9 @@ final class AppleHealthSleepReimportTests: XCTestCase {
             XCTAssertEqual(activity.first?.weightKg, 80)
             let points = try await store.metricSeries(deviceId: "apple-health", key: "asleep_min", from: day, to: day)
             XCTAssertEqual(points.first?.value, 480)
+            let companionKey = stage == "InBed" ? "awake_min" : "in_bed_min"
+            let companion = try await store.metricSeries(deviceId: "apple-health", key: companionKey, from: day, to: day)
+            XCTAssertEqual(companion.first?.value, stage == "InBed" ? 30 : 600)
             let other = try await store.dailyMetrics(deviceId: "whoop", from: day, to: day)
             XCTAssertEqual(other.first?.totalSleepMin, 480)
             XCTAssertEqual(other.first?.avgHrv, 65)
