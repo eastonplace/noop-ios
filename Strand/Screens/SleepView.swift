@@ -21,6 +21,8 @@ struct SleepStageRowPresentation: Equatable {
     let minutes: Double
     let duration: String
     let delta: String?
+    /// The same difference without the "vs typ" tail ("+7m", "−12m"), for rows that say what it is against.
+    let shortDelta: String?
     let deltaTone: DeltaTone?
     /// Within half a minute of the personal typical, whatever the language the delta text is in.
     let isOnTypical: Bool
@@ -36,6 +38,7 @@ struct SleepStageRowPresentation: Equatable {
 
         guard let typical, typical > 0 else {
             delta = nil
+            shortDelta = nil
             deltaTone = nil
             isOnTypical = false
             return
@@ -45,6 +48,7 @@ struct SleepStageRowPresentation: Equatable {
         isOnTypical = abs(difference) < 0.5
         let sign = difference >= 0 ? "+" : "−"
         delta = String(localized: "\(sign)\(Self.durationText(abs(difference))) vs typ")
+        shortDelta = "\(sign)\(Self.durationText(abs(difference)))"
 
         // Design-lab parity: more Awake is the unfavorable direction; more REM,
         // Deep, or Light is favorable. This is presentation tinting only.
@@ -113,8 +117,6 @@ struct SleepView: View {
     @EnvironmentObject var intelligence: IntelligenceEngine
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-    /// The one-line stage row's content height; its 44pt tap target leaves half of the difference above and below.
-    @ScaledMetric(relativeTo: .body) private var stageRowContentHeight: CGFloat = 22
 
     /// Memoized snapshot of every expensive derivation (latest Night with its intervals
     /// resolved once, the seven metric series, the trend points, the typical means). Rebuilt
@@ -257,58 +259,55 @@ struct SleepView: View {
                             .staggeredAppear(index: 2)
                         FlatSectionSeparator.sleep
                         paperSleepStages(
+                            resolved,
                             night: displayedNight.night,
                             hasStageData: displayedNight.hasStageData
                         )
                         .staggeredAppear(index: 2)
                         FlatSectionSeparator.sleep
-                        SleepHeartRateContrastSection(
-                            sleepStart: displayedNight.night.session.effectiveStartTs,
-                            sleepEnd: displayedNight.night.session.endTs,
-                            sessions: navSessions,
-                            habitualMidsleepSec: habitualMidsleepSec,
-                            sessionsRevision: sleepHistoryRevision
-                        )
+                        // Sleep vs awake and Pre-sleep HR: two collapsed rows in one section. Each is an async
+                        // leaf (own fetch, own loading state), so the memoized model never waits on them.
+                        VStack(alignment: .leading, spacing: 0) {
+                            SleepHeartRateContrastSection(
+                                sleepStart: displayedNight.night.session.effectiveStartTs,
+                                sleepEnd: displayedNight.night.session.endTs,
+                                sessions: navSessions,
+                                habitualMidsleepSec: habitualMidsleepSec,
+                                sessionsRevision: sleepHistoryRevision
+                            )
+                            TodaySectionSeparator(above: 0, below: 0)
+                            PreSleepHeartRateFeedbackSection(
+                                wakeDay: SleepView.wakeDayKey(for: displayedNight.night),
+                                sleepStart: displayedNight.night.session.effectiveStartTs,
+                                sleepEnd: displayedNight.night.session.endTs,
+                                sessions: navSessions,
+                                habitualMidsleepSec: habitualMidsleepSec,
+                                sessionsRevision: sleepHistoryRevision
+                            )
+                        }
                         .staggeredAppear(index: 4)
                         FlatSectionSeparator.sleep
-                        PreSleepHeartRateFeedbackSection(
-                            wakeDay: SleepView.wakeDayKey(for: displayedNight.night),
-                            sleepStart: displayedNight.night.session.effectiveStartTs,
-                            sleepEnd: displayedNight.night.session.endTs,
-                            sessions: navSessions,
-                            habitualMidsleepSec: habitualMidsleepSec,
-                            sessionsRevision: sleepHistoryRevision
-                        )
-                        .staggeredAppear(index: 5)
+                        nightDetail(resolved, night: displayedNight.night).staggeredAppear(index: 5)
                         FlatSectionSeparator.sleep
-                        sleepRhythmEntry.staggeredAppear(index: 6)
+                        // Tonight: the V2 need (its own leaf: own EnvironmentObject + async fetch, so it never
+                        // blocks this screen's memoized model on a store round trip; nothing extra when V2 is off,
+                        // an honest Calibrating line when V2 hasn't scored this exact night yet) over the 14-night
+                        // balance, which is the evidence for it.
+                        SleepNeedBreakdownSection(
+                            wakeDay: SleepView.wakeDayKey(for: displayedNight.night),
+                            trailing: sleepBalanceTrailing(resolved)
+                        ) {
+                            sleepBalanceContent(resolved)
+                        }
+                        .staggeredAppear(index: 6)
+                        FlatSectionSeparator.sleep
+                        sleepRhythmEntry.staggeredAppear(index: 7)
                         FlatSectionSeparator.sleep
                         napSection(
                             displayedNight.night,
                             hasStageData: displayedNight.hasStageData
                         )
-                        .staggeredAppear(index: 6)
-                        FlatSectionSeparator.sleep
-                        metricGrid(resolved, night: displayedNight.night).staggeredAppear(index: 7)
-                        FlatSectionSeparator.sleep
-                        sleepDebtLedger(resolved)
-                            .staggeredAppear(index: 8)
-                        // T702 / plan doc G2: the real V2 need breakdown for the DISPLAYED wake day.
-                        // Its own leaf (own EnvironmentObject + async fetch) so it never blocks this
-                        // screen's memoized model on a store round trip; shows nothing extra when V2
-                        // is off, an honest Building/Calibrating card when V2 hasn't scored this
-                        // exact night yet.
-                        SleepNeedBreakdownSection(wakeDay: SleepView.wakeDayKey(for: displayedNight.night))
-                            .staggeredAppear(index: 9)
-                        if displayedNight.hasStageData {
-                            VStack(alignment: .leading, spacing: 0) {
-                                FlatSectionSeparator.sleep
-                                stagesVsTypical(resolved, night: displayedNight.night)
-                            }
-                            .staggeredAppear(index: 10)
-                        }
-                        FlatSectionSeparator.sleep
-                        durationTrend(resolved).staggeredAppear(index: 11)
+                        .staggeredAppear(index: 8)
                     }
                 } else {
                     // Nothing recorded yet: the explanation comes first, then the tools that still work.
@@ -608,9 +607,10 @@ struct SleepView: View {
             headline: score.map { "\(sleepScoreWord($0)) Sleep" } ?? String(localized: "Calibrating"),
             message: sleepScoreMessage(score),
             facts: [
-                FactStrip.Fact("Duration", value: hasStageData ? durationText(night.stages.asleep) : "—"),
+                FactStrip.Fact("Asleep", value: hasStageData ? durationText(night.stages.asleep) : "—"),
                 FactStrip.Fact("Efficiency", value: paperEfficiencyText(night, day: day)),
                 FactStrip.Fact("Resting HR", value: restingHR.map { "\($0) bpm" } ?? "—"),
+                FactStrip.Fact("Respiratory", value: day?.respRateBpm.map { String(format: "%.1f", $0) } ?? "—"),
             ],
             source: nightSource(night)
         )
@@ -640,8 +640,8 @@ struct SleepView: View {
     /// The night as one section: when you slept (asleep, woke, in bed) with the provenance and edit chips at the
     /// header, the hypnogram in the stage palette, and a row per stage. Hypnogram smoothing remains display-only
     /// and does not alter stored stage totals. This is the old window card folded in: its duration repeated the
-    /// hero's, and its times belong with the timeline they describe.
-    private func paperSleepStages(night: Night, hasStageData: Bool) -> some View {
+    /// hero's, so the times are one line over the timeline they describe, and the stage rows carry the typical.
+    private func paperSleepStages(_ model: SleepModel, night: Night, hasStageData: Bool) -> some View {
         let presentation = SleepWindowPresentation(
             hasStageData: hasStageData,
             asleepMinutes: night.stages.asleep,
@@ -652,11 +652,10 @@ struct SleepView: View {
 
         return FlatSection("Sleep stages", systemImage: "bed.double.fill", tint: .sleep,
                             trailing: .custom(AnyView(windowChips(night)))) {
-            FactStrip(facts: [
-                FactStrip.Fact("Asleep", value: night.onsetText),
-                FactStrip.Fact("Woke", value: night.wakeText),
-                FactStrip.Fact("In bed", value: presentation.inBedDuration),
-            ])
+            Text("\(night.onsetText) → \(night.wakeText) · \(presentation.inBedDuration) in bed")
+                .font(StrandFont.subhead)
+                .foregroundStyle(StrandPalette.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
             if night.stageTimeline.isEmpty {
                 Text("No stage timeline was recorded for this night.")
                     .font(StrandFont.subhead)
@@ -664,7 +663,7 @@ struct SleepView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             } else {
                 SleepStageChart(timeline: night.stageTimeline, start: night.onsetDate, highlighted: selectedStage)
-                stageBreakdownRows(night.stages)
+                stageTypicalRows(model, stages: night.stages)
             }
             // Keep the existing H9 honesty note mounted under the stage section.
             if stageStagingIsLowConfidence(night) {
@@ -919,151 +918,210 @@ struct SleepView: View {
             .frame(width: max(0, w))
     }
 
-    // MARK: - Stage rows (dot + stage + share bar + duration)
+    // MARK: - Stage rows (dot + stage + bar with typical tick + delta)
 
-    /// The four stage rows under the hypnogram: a dot in the stage colour, the stage, a slim bar of its share of the
-    /// night, the share and the duration. Same data as the prior footer (`s.rem` / `s.deep` / `s.light` / `s.awake`
-    /// over `s.total`) — no new numbers.
+    /// The four stage rows under the hypnogram, each tonight's minutes against the user's typical for that stage
+    /// (computed once in the model build). Holding a row lights its stage up on the chart and shows the exact time
+    /// and share in place of the delta. Shares are shared out so the four rows add up to 100%.
     @ViewBuilder
-    private func stageBreakdownRows(_ s: Stages) -> some View {
-        // Shares are shared out so the four rows add up to 100%, not 99% or 101%.
-        let shares = SleepStageShares.percents(minutes: [s.rem, s.deep, s.light, s.awake])
+    private func stageTypicalRows(_ model: SleepModel, stages s: Stages) -> some View {
+        let order: [(stage: SleepStage, minutes: Double, typical: Double?)] = [
+            (.rem, s.rem, model.typicalRemMin), (.deep, s.deep, model.typicalDeepMin),
+            (.light, s.light, model.typicalLightMin), (.awake, s.awake, nil),  // no per-day awake column to take a typical from
+        ]
+        let shares = SleepStageShares.percents(minutes: order.map(\.minutes))
+        // One scale for all four bars (with headroom) so they compare with one another and the ticks stay on it.
+        let scaleMax = order.map { Swift.max($0.minutes, $0.typical ?? 0) }.max().map { $0 * 1.15 } ?? 1
         VStack(alignment: .leading, spacing: 0) {
-            stageBreakdownRow(.rem,   minutes: s.rem,   total: s.total, percent: shares[0])
-            stageBreakdownRow(.deep,  minutes: s.deep,  total: s.total, percent: shares[1])
-            stageBreakdownRow(.light, minutes: s.light, total: s.total, percent: shares[2])
-            stageBreakdownRow(.awake, minutes: s.awake, total: s.total, percent: shares[3])
-        }
-        // Each row is a 44pt tap target; its spare height would otherwise sit between the last value and the
-        // hairline below. The spare shrinks as the text grows and is gone once the rows stack (accessibility sizes).
-        .padding(.bottom, -(dynamicTypeSize.isAccessibilitySize ? 0 : max(0, 15 - (stageRowContentHeight - 22) / 2)))
-    }
-
-    /// One stage row. `fraction = minutes / total` sets both the % and the bar fill. Tappable (WHOOP, ryanAtriumAi
-    /// #988): selecting a row highlights that stage on the chart and recedes the rest; tapping it again clears.
-    @ViewBuilder
-    private func stageBreakdownRow(_ stage: SleepStage, minutes: Double, total: Double, percent: Int) -> some View {
-        let isSelected = selectedStage == stage
-        SleepStageBreakdownRow(
-            stage: stage,
-            presentation: SleepStageRowPresentation(stage: stage, minutes: minutes, total: total, percent: percent),
-            isSelected: isSelected,
-            othersSelected: selectedStage != nil && !isSelected
-        ) {
-            let nextSelection: SleepStage? = isSelected ? nil : stage
-            if reduceMotion {
-                selectedStage = nextSelection
-            } else {
-                withAnimation(StrandMotion.press) {
-                    selectedStage = nextSelection
+            ForEach(Array(order.enumerated()), id: \.offset) { index, row in
+                let presentation = SleepStageRowPresentation(
+                    stage: row.stage, minutes: row.minutes, total: s.total, typical: row.typical, percent: shares[index])
+                SleepStageTypicalRow(
+                    stage: row.stage,
+                    presentation: presentation,
+                    typical: row.typical,
+                    scaleMaximum: scaleMax > 0 ? scaleMax : 1,
+                    isHeld: selectedStage == row.stage,
+                    accessibilityLabel: stageRowAccessibilityLabel(
+                        label: row.stage.label, last: row.minutes, sharePct: presentation.percent, typical: row.typical)
+                ) { holding in
+                    if reduceMotion {
+                        selectedStage = holding ? row.stage : nil
+                    } else {
+                        withAnimation(StrandMotion.press) { selectedStage = holding ? row.stage : nil }
+                    }
                 }
             }
         }
+        HStack(spacing: NoopMetrics.space3) {
+            HStack(spacing: 4) {
+                Capsule(style: .continuous).fill(StrandPalette.textPrimary.opacity(0.85)).frame(width: 2, height: 10)
+                    .accessibilityHidden(true)
+                Text("your typical night")
+            }
+            Text("Hold a row for time and %")
+        }
+        .font(StrandFont.micro)
+        .foregroundStyle(StrandPalette.textTertiary)
+        .fixedSize(horizontal: false, vertical: true)
+        .accessibilityHidden(true)
     }
 
-    // MARK: - 2. Night detail (tile grid, one tile per metric of the displayed night)
+    // MARK: - 2. Night detail (Scores-style rows, one per metric of the displayed night)
 
-    /// The displayed night's numbers as a grid of `SleepMetricTile`: a domain symbol and tint per metric, the
-    /// value with its unit muted, "typical" as the caption, and the metric's own history as a sparkline where it
-    /// has one. The Sleep score itself is the hero's dial, so it is not repeated here. Same values as the list
-    /// this replaces, none hidden behind a disclosure.
+    /// The displayed night's numbers as `TrendsSummaryRow`s, the same row Trends' Scores list uses: a domain symbol,
+    /// the metric over how it sits against the user's typical, its own history as a sparkline and the value. The
+    /// Sleep score is the hero's ring and Asleep / Sleep need are in the hero and Tonight, so none repeats here.
+    /// Duration opens the 30-night duration trend.
     @ViewBuilder
-    private func metricGrid(_ model: SleepModel, night: Night) -> some View {
+    private func nightDetail(_ model: SleepModel, night: Night) -> some View {
         let day = Self.wakeDayKey(for: night)
         let daily = repo.days.first { $0.day == day }
         let asleep = night.stages.asleep
         let need = presentationNeeds[day]?.totalMinutes ?? repo.importedSleep[day]?.needMin
-        let needFromImport = presentationNeeds[day] == nil && need != nil
         let restorative = asleep > 0 ? (night.stages.deep + night.stages.rem) / asleep * 100 : nil
         let consistency = repo.importedSleep[day]?.consistencyPct ?? (day == repo.days.last?.day ? model.consistency.latest : nil)
         let hoursVsNeed = need.flatMap { $0 > 0 && asleep > 0 ? asleep / $0 * 100 : nil }
-        let balance = presentationNeeds[day]?.ledgerMinutes.flatMap { target in
-            daily?.totalSleepMin.map { debtSigned($0 - target) }
-        }
+        let efficiency = efficiencyPct(night)
         let rest = DomainTint.custom(StrandPalette.sleepREM)
         let breath = DomainTint.custom(StrandPalette.metricCyan)
+        let rowGap = TodaySectionSeparator(above: 5, below: 5)
 
-        FlatSection("Night detail", systemImage: "moon.zzz.fill", tint: .sleep) {
-            SleepMetricGrid(tiles: [
-                SleepMetricTile(label: "Asleep", value: asleep > 0 ? durationText(asleep) : "—",
-                                caption: model.typicalTotalMin.map { String(localized: "Typical \(durationText($0))") },
-                                systemImage: "bed.double.fill", series: spark(model.trendPoints.map(\.value))),
-                SleepMetricTile(label: "Sleep need",
-                                value: need.map(durationText) ?? (needsLoading ? "Loading…" : "Unavailable"),
-                                // The need's provenance, named like the hero's source: the imported figure is Whoop's,
-                                // the rest is NOOP's own computation on this device.
-                                caption: need == nil ? nil
-                                    : (needFromImport ? String(localized: "Whoop") : String(localized: "On-device")),
-                                systemImage: "target"),
-                SleepMetricTile(label: "Efficiency", value: pctValue(efficiencyPct(night)),
-                                caption: model.efficiency.typical.map { String(localized: "Typical \(pctValue($0))") },
-                                systemImage: "gauge.medium", series: spark(model.efficiency.series)),
-                SleepMetricTile(label: "Hours vs Needed", value: pctValue(hoursVsNeed),
-                                caption: model.hoursVsNeeded.typical.map { String(localized: "Typical \(pctValue($0))") },
-                                systemImage: "scalemass.fill", series: spark(model.hoursVsNeeded.series)),
-                SleepMetricTile(label: "Restorative", value: restorative.map { pctValue($0) } ?? "—",
-                                caption: model.restorative.typical.map { String(localized: "Typical \(pctValue($0))") },
-                                systemImage: "sparkles", tint: rest, series: spark(model.restorative.series)),
-                SleepMetricTile(label: "Consistency", value: pctValue(consistency),
-                                caption: model.consistency.typical.map { String(localized: "Typical \(pctValue($0))") },
-                                systemImage: "clock.arrow.2.circlepath", series: spark(model.consistency.series)),
-                SleepMetricTile(label: "Respiratory", value: daily?.respRateBpm.map { String(format: "%.1f rpm", $0) } ?? "—",
-                                caption: model.respiratory.typical.map { String(localized: "Typical \(String(format: "%.1f", $0)) rpm") },
-                                systemImage: "lungs.fill", tint: breath, series: spark(model.respiratory.series)),
-                SleepMetricTile(label: "Night balance", value: balance ?? "—",
-                                caption: balance == nil ? String(localized: "No target for this night")
-                                                        : String(localized: "vs this night's target"),
-                                systemImage: "plusminus.circle.fill"),
-            ])
+        FlatSection("Night detail", systemImage: "moon.zzz.fill", tint: .sleep,
+                     trailing: .text(String(localized: "vs your typical"))) {
+            VStack(alignment: .leading, spacing: 0) {
+                percentRow("gauge.medium", String(localized: "Efficiency"), latest: efficiency, typical: model.efficiency.typical,
+                           series: model.efficiency.series, tint: .sleep)
+                rowGap
+                percentRow("scalemass.fill", String(localized: "Hours vs needed"), latest: hoursVsNeed, typical: model.hoursVsNeeded.typical,
+                           series: model.hoursVsNeeded.series, tint: .sleep)
+                rowGap
+                percentRow("sparkles", String(localized: "Restorative"), latest: restorative, typical: model.restorative.typical,
+                           series: model.restorative.series, tint: rest)
+                rowGap
+                percentRow("clock.arrow.2.circlepath", String(localized: "Consistency"), latest: consistency, typical: model.consistency.typical,
+                           series: model.consistency.series, tint: .sleep)
+                rowGap
+                let resp = daily?.respRateBpm
+                let respDelta = resp.flatMap { latest in model.respiratory.typical.map { latest - $0 } }
+                TrendsSummaryRow(
+                    systemImage: "lungs.fill", label: String(localized: "Respiratory rate"),
+                    values: spark(model.respiratory.series) ?? [],
+                    latest: resp.map { String(format: "%.1f rpm", $0) } ?? "—",
+                    delta: respDelta.map { abs($0) < 0.15 ? String(localized: "steady") : Self.vsTypical(signed: $0, digits: 1) }
+                        ?? String(localized: "No typical yet"),
+                    tone: .neutral, tint: breath)
+                rowGap
+                durationRow(model, asleepMin: asleep)
+            }
         }
     }
 
-    // MARK: - 2b. Sleep balance (rolling 14-night running balance)
+    /// One percent metric against its typical: "+2% vs typical" (positive), "−6% vs typical" (negative) or "steady".
+    private func percentRow(_ systemImage: String, _ label: String, latest: Double?, typical: Double?,
+                            series: [Double], tint: DomainTint) -> some View {
+        let diff = latest.flatMap { latest in typical.map { latest - $0 } }
+        return TrendsSummaryRow(
+            systemImage: systemImage, label: label, values: spark(series) ?? [],
+            latest: pctValue(latest),
+            delta: diff.map { abs($0) < 0.5 ? String(localized: "steady") : Self.vsTypical(signed: $0, digits: 0, suffix: "%") }
+                ?? String(localized: "No typical yet"),
+            tone: diff.map { abs($0) < 0.5 ? .neutral : ($0 > 0 ? .positive : .negative) } ?? .neutral,
+            tint: tint)
+    }
 
-    /// A running balance of (slept − personal need) across the recent fortnight, surfaced as one section: the net
-    /// debt/surplus headline with its state pill, a plain-English read, and a diverging bar of each night's delta
-    /// (surplus above the line, deficit below). Honest: a simple accumulator — a surplus night offsets a deficit
-    /// one — capped at 14 nights, no-data nights skipped. (#242)
-    @ViewBuilder
-    private func sleepDebtLedger(_ model: SleepModel) -> some View {
-        let ledger = model.sleepDebtLedger
-        let hasLedger = !needsLoading && !needsFailed && ledger.nightCount > 0
-        FlatSection("Sleep balance", systemImage: "hourglass", tint: .sleep,
-                     trailing: hasLedger ? .pill(LocalizedStringKey(debtTag(ledger)), tone: debtTone(ledger))
-                                         : .text(String(localized: "Last 14 nights"))) {
-            if needsLoading {
-                HStack(spacing: NoopMetrics.space2) {
-                    ProgressView().tint(StrandPalette.restColor).accessibilityHidden(true)
-                    Text("Loading sleep balance…").font(StrandFont.subhead).foregroundStyle(StrandPalette.textSecondary)
-                }
-            } else if needsFailed {
-                Text("Sleep balance could not load. Pull to refresh and try again.")
-                    .font(StrandFont.subhead)
-                    .foregroundStyle(StrandPalette.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            } else if ledger.nightCount == 0 {
-                Text("Sleep balance needs recorded sleep and a computed nightly target. Missing nights are not counted as debt.")
-                    .font(StrandFont.subhead)
-                    .foregroundStyle(StrandPalette.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            } else {
-                HeroValue(value: debtHeadline(ledger), caption: String(localized: "last 14 nights · running balance"))
-                Text(debtRead(ledger))
-                    .font(StrandFont.subhead)
-                    .foregroundStyle(StrandPalette.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                debtDeltaBars(ledger)
-                FactStrip(facts: [
-                    FactStrip.Fact("Balance", value: debtSigned(ledger.balanceMin)),
-                    FactStrip.Fact("Avg target", value: durationText(ledger.needMin)),
-                    FactStrip.Fact("Nights", value: "\(ledger.nightCount)"),
-                ])
-                Text("Counts nights with a computed target. Repayment is excluded from the target so existing debt is not counted twice.")
-                    .font(StrandFont.micro)
+    /// "+2% vs typical" / "−0.3 vs typical": the sign as a real plus or minus, the size rounded to `digits`.
+    private static func vsTypical(signed value: Double, digits: Int, suffix: String = "") -> String {
+        let amount = String(format: "%.\(digits)f", abs(value))
+        return String(localized: "\(value > 0 ? "+" : "−")\(amount)\(suffix) vs typical")
+    }
+
+    /// The Duration row: asleep time against the typical night, with a chevron because it opens the 30-night chart.
+    private func durationRow(_ model: SleepModel, asleepMin: Double) -> some View {
+        let diff = model.typicalTotalMin.map { asleepMin - $0 }
+        let row = TrendsSummaryRow(
+            systemImage: "timer", label: String(localized: "Duration"),
+            values: spark(model.trendPoints.map(\.value)) ?? [],
+            latest: asleepMin > 0 ? durationText(asleepMin) : "—",
+            delta: asleepMin > 0 ? diff.map { abs($0) < 1 ? String(localized: "steady")
+                : String(localized: "\(debtSigned($0)) vs typical") } ?? String(localized: "No typical yet")
+                : String(localized: "No stage data"),
+            tone: asleepMin > 0 ? diff.map { abs($0) < 1 ? .neutral : ($0 > 0 ? .positive : .negative) } ?? .neutral : .neutral,
+            tint: .sleep)
+        return NavigationLink {
+            SleepDurationTrendDetail(points: model.trendPoints)
+                .environment(\.screenScaffoldNavigationRole, .detail)
+        } label: {
+            HStack(spacing: NoopMetrics.space2) {
+                row
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(StrandPalette.textTertiary)
-                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityHidden(true)
             }
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+        .accessibilityHint("Opens the 30-night sleep duration trend")
+    }
+
+    // MARK: - 2b. Sleep balance (rolling 14-night running balance, the evidence under Tonight's need)
+
+    /// The Tonight eyebrow's trailing: the balance's state pill (debt is amber, a surplus positive, a balanced
+    /// fortnight neutral), or the window's name until there is a ledger.
+    private func sleepBalanceTrailing(_ model: SleepModel) -> EyebrowTrailing {
+        let ledger = model.sleepDebtLedger
+        guard !needsLoading, !needsFailed, ledger.nightCount > 0 else { return .text(String(localized: "14-night balance")) }
+        return .pill(LocalizedStringKey(debtTag(ledger)), tone: debtTone(ledger))
+    }
+
+    /// A running balance of (slept − personal need) across the recent fortnight as a diverging bar of each night's
+    /// delta (surplus above the line, deficit below) with its first date, running total and "Last night" under it.
+    /// Honest: a simple accumulator — a surplus night offsets a deficit one — capped at 14 nights, no-data nights
+    /// skipped. (#242)
+    @ViewBuilder
+    private func sleepBalanceContent(_ model: SleepModel) -> some View {
+        let ledger = model.sleepDebtLedger
+        if needsLoading {
+            HStack(spacing: NoopMetrics.space2) {
+                ProgressView().tint(StrandPalette.restColor).accessibilityHidden(true)
+                Text("Loading sleep balance…").font(StrandFont.subhead).foregroundStyle(StrandPalette.textSecondary)
+            }
+        } else if needsFailed {
+            Text("Sleep balance could not load. Pull to refresh and try again.")
+                .font(StrandFont.subhead)
+                .foregroundStyle(StrandPalette.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+        } else if ledger.nightCount == 0 {
+            Text("Sleep balance needs recorded sleep and a computed nightly target. Missing nights are not counted as debt.")
+                .font(StrandFont.subhead)
+                .foregroundStyle(StrandPalette.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+        } else {
+            debtDeltaBars(ledger)
+            HStack {
+                Text(ledger.nights.first.map { Self.shortDay($0.day) } ?? "")
+                Spacer(minLength: NoopMetrics.space2)
+                Text("Running total \(debtSigned(ledger.balanceMin))")
+                Spacer(minLength: NoopMetrics.space2)
+                Text("Last night")
+            }
+            .font(StrandFont.micro)
+            .foregroundStyle(StrandPalette.textTertiary)
+            .lineLimit(1)
+            .minimumScaleFactor(0.7)
+            .accessibilityHidden(true)
+            Text("Counts nights with a computed target. Repayment is excluded from the target so existing debt is not counted twice.")
+                .font(StrandFont.micro)
+                .foregroundStyle(StrandPalette.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    /// "9 Oct" for a `yyyy-MM-dd` day key (the keys are UTC calendar days, so format them in UTC).
+    private static func shortDay(_ key: String) -> String {
+        guard let date = dayParser.date(from: key) else { return key }
+        return date.formatted(Date.FormatStyle(timeZone: TimeZone(identifier: "UTC") ?? .gmt).day().month(.abbreviated))
     }
 
     /// The state pill's tone for the balance: debt is the warning amber (the deficit bars' colour), a surplus is
@@ -1085,60 +1143,6 @@ struct SleepView: View {
         )
     }
 
-    // MARK: - 3. Stages vs typical
-
-    @ViewBuilder
-    private func stagesVsTypical(_ model: SleepModel, night: Night) -> some View {
-        let s = night.stages
-        // Per-stage typical means are computed ONCE in the model build (each a full pass
-        // over repo.days) and read here.
-        FlatSection("Stages vs typical", systemImage: "chart.bar.doc.horizontal", tint: .sleep,
-                     trailing: .text(nightOffset == 0 ? String(localized: "Last night") : String(localized: "Selected night"))) {
-            // The same shared-out shares as the legend above, so a stage reads the same percent in both places.
-            let shares = SleepStageShares.percents(minutes: [s.deep, s.rem, s.light, s.awake])
-            VStack(alignment: .leading, spacing: NoopMetrics.space4) {
-                stageRow(stage: .deep, last: s.deep, typical: model.typicalDeepMin, nightTotal: s.total, percent: shares[0])
-                stageRow(stage: .rem, last: s.rem, typical: model.typicalRemMin, nightTotal: s.total, percent: shares[1])
-                stageRow(stage: .light, last: s.light, typical: model.typicalLightMin, nightTotal: s.total, percent: shares[2])
-            }
-            Text("The tick marks your typical for each stage.")
-                .font(StrandFont.micro)
-                .foregroundStyle(StrandPalette.textTertiary)
-        }
-    }
-
-    /// One stage against the user's typical. Same data as before (`last` minutes, `typical` personal mean).
-    @ViewBuilder
-    private func stageRow(stage: SleepStage, last: Double, typical: Double?, nightTotal: Double, percent: Int) -> some View {
-        let presentation = SleepStageRowPresentation(
-            stage: stage,
-            minutes: last,
-            total: nightTotal,
-            typical: typical,
-            percent: percent
-        )
-        // Scale both values against a shared per-row max so the typical tick is meaningful.
-        let scaleMax = max(last, typical ?? 0) * 1.18
-        let max = scaleMax > 0 ? scaleMax : 1
-        SleepTypicalRow(
-            stage: stage,
-            value: last,
-            typical: typical,
-            scaleMaximum: max,
-            percent: presentation.percent,
-            duration: presentation.duration,
-            delta: presentation.delta,
-            deltaIsGood: presentation.deltaTone.map { $0 == .positive },
-            isOnTypical: presentation.isOnTypical
-        )
-        .accessibilityLabel(stageRowAccessibilityLabel(
-            label: stage.label,
-            last: last,
-            sharePct: presentation.percent,
-            typical: typical
-        ))
-    }
-
     /// Whole-string VoiceOver label for a stage row: one key per variant, never a stitched tail fragment.
     private func stageRowAccessibilityLabel(label: String, last: Double, sharePct: Int, typical: Double?) -> String {
         let spokenLast = SleepSpokenDuration.text(minutes: last)
@@ -1146,45 +1150,6 @@ struct SleepView: View {
             return String(localized: "\(label): \(spokenLast) last night, \(sharePct) percent of the night, typical \(SleepSpokenDuration.text(minutes: typical))")
         }
         return String(localized: "\(label): \(spokenLast) last night, \(sharePct) percent of the night")
-    }
-
-    // MARK: - 4. 30-day asleep-hours trend
-
-    @ViewBuilder
-    private func durationTrend(_ model: SleepModel) -> some View {
-        // Trailing-30 trend points and the typical total are precomputed in the model build
-        // (full passes over repo.days) — read here, not recomputed per render.
-        let pts = model.trendPoints
-        let values = pts.map(\.value)
-        let avg = values.isEmpty ? nil : values.reduce(0, +) / Double(values.count)
-        let domain = trendRange(pts)
-        let tint = DomainTint.sleep
-        FlatSection("Sleep duration", systemImage: "chart.line.uptrend.xyaxis", tint: tint,
-                     trailing: .text(String(localized: "Last 30 days"))) {
-            if pts.count > 1 {
-                HeroValue(value: avg.map { String(format: "%.1f", $0) } ?? "—", unit: String(localized: "h avg"),
-                          caption: String(localized: "\(pts.count) recorded nights"))
-                // The Coach trend recipe: the tint's line, a wash fading to clear, at most four evenly spaced
-                // dates, the axis fitted to the data with headroom.
-                TrendChart(points: pts,
-                           gradient: Gradient(colors: [tint.accent.opacity(0.55), tint.accent]),
-                           valueRange: domain,
-                           showsArea: true,
-                           height: WidgetMetrics.chartHeight,
-                           showsHover: false,
-                           valueFormat: { String(format: "%.1f h", $0) },
-                           accessibilityLabel: String(localized: "Hours asleep trend"),
-                           yDomain: domain,
-                           xAxisLabelCount: dynamicTypeSize >= .xxLarge ? 3 : WidgetMetrics.maxXAxisLabels)
-                FactStrip(facts: [
-                    FactStrip.Fact("Low", value: values.min().map { String(format: "%.1f h", $0) } ?? "—"),
-                    FactStrip.Fact("Latest", value: values.last.map { String(format: "%.1f h", $0) } ?? "—"),
-                    FactStrip.Fact("High", value: values.max().map { String(format: "%.1f h", $0) } ?? "—"),
-                ])
-            } else {
-                sparsePlaceholder
-            }
-        }
     }
 
     // MARK: - Memoization plumbing
@@ -1780,15 +1745,6 @@ struct SleepView: View {
         }
     }
 
-    /// The axis fitted to the observed range with headroom, so a steady series is not drawn as a flat line
-    /// (the Coach trend card's rule).
-    private func trendRange(_ pts: [TrendPoint]) -> ClosedRange<Double> {
-        let vals = pts.map(\.value)
-        guard let low = vals.min(), let high = vals.max() else { return 0...1 }
-        let pad = Swift.max((high - low) * 0.2, 0.5)
-        return Swift.max(0, low - pad)...(high + pad)
-    }
-
     // MARK: - Empty / sparse states
 
     @ViewBuilder
@@ -1806,13 +1762,6 @@ struct SleepView: View {
         }
     }
 
-    private var sparsePlaceholder: some View {
-        Text("Not enough nights yet.")
-            .font(StrandFont.subhead)
-            .foregroundStyle(StrandPalette.textSecondary)
-            .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
     // MARK: - Formatting helpers
 
     private func pctValue(_ v: Double?) -> String {
@@ -1821,41 +1770,10 @@ struct SleepView: View {
 
     // MARK: - Sleep-debt ledger formatting
 
-    /// "≈2h 10m" magnitude headline — leading "≈" because it's an accumulated estimate.
-    /// Reads "On target" inside the deadband so a few stray minutes don't show as debt.
-    private func debtHeadline(_ ledger: SleepDebtLedger) -> String {
-        debtHeadline(forMagnitudeMin: ledger.magnitudeMin, ledger: ledger)
-    }
-
-    /// The same headline formatter, but for an arbitrary (interpolated) magnitude so `CountUpText` can
-    /// render a coherent string on every frame as the number ticks up. The on-target deadband check
-    /// uses the LIVE magnitude `m` so the headline crosses from "On target" to "≈…" mid-count exactly
-    /// once, matching the final reading. Final-value identical to `debtHeadline(_:)`.
-    private func debtHeadline(forMagnitudeMin m: Double, ledger: SleepDebtLedger) -> String {
-        if m < SleepDebt.onTargetBandMin { return String(localized: "On target") }
-        return "≈\(durationText(m))"
-    }
-
     /// Short tag under/beside the headline: DEBT / SURPLUS / ON TARGET.
     private func debtTag(_ ledger: SleepDebtLedger) -> String {
         if ledger.magnitudeMin < SleepDebt.onTargetBandMin { return String(localized: "Balanced") }
         return ledger.isDebt ? String(localized: "Sleep debt") : String(localized: "Surplus")
-    }
-
-    /// Plain-English read of the running balance over the window.
-    private func debtRead(_ ledger: SleepDebtLedger) -> String {
-        let nights = ledger.nightCount
-        let span = nights == 1
-            ? String(localized: "the last night")
-            : String(localized: "the last \(nights) nights")
-        if ledger.magnitudeMin < SleepDebt.onTargetBandMin {
-            return String(localized: "You're roughly on top of your sleep across \(span). Slept minutes balance out against your need.")
-        }
-        let mag = durationText(ledger.magnitudeMin)
-        if ledger.isDebt {
-            return String(localized: "You've banked about \(mag) of sleep debt over \(span). Surplus nights count back against it. An earlier night or two would clear it.")
-        }
-        return String(localized: "You're carrying about \(mag) of surplus over \(span). You've slept past your need on balance. Nicely ahead.")
     }
 
     /// Signed "+1h 20m" / "−2h 10m" / "0m" balance string.
@@ -1980,14 +1898,17 @@ private struct SleepSyncingNote: View {
     }
 }
 
-/// T702 / plan doc G2: the real V2 Sleep Need breakdown for one exact wake day — baseline + yesterday's
-/// Effort + debt repayment − nap credit. Owns its own `Repository` fetch (mirrors the `SleepMarkCard` /
-/// `SleepSyncingNote` leaf idiom above) so the async store round trip never blocks SleepView's own
-/// memoized model. Renders nothing while `SleepPerformanceV2Prefs` is off (legacy stays authoritative
-/// with no V2 UI at all); an honest Building/Calibrating card when V2 is shadow/on but hasn't scored
-/// this exact night; the real `SleepNeedBreakdownCard` once it has. Never fabricates a component.
-private struct SleepNeedBreakdownSection: View {
+/// T702 / plan doc G2 + the 14-night balance, as one "Tonight" section: the real V2 Sleep Need for one exact wake
+/// day (the total as the hero value, its baseline / Effort / debt repayment / nap credit as chips), then the
+/// caller's `balance` content under it as the evidence. Owns its own `Repository` fetch (mirrors the
+/// `SleepMarkCard` / `SleepSyncingNote` leaf idiom above) so the async store round trip never blocks SleepView's
+/// own memoized model. The need part is absent while `SleepPerformanceV2Prefs` is off (legacy stays authoritative
+/// with no V2 UI at all); an honest Calibrating line when V2 is shadow/on but hasn't scored this exact night;
+/// the real components once it has. Never fabricates a component.
+private struct SleepNeedBreakdownSection<Balance: View>: View {
     let wakeDay: String
+    let trailing: EyebrowTrailing
+    @ViewBuilder let balance: () -> Balance
     @EnvironmentObject private var repo: Repository
     @State private var breakdown: SleepNeedBreakdown?
     /// The wake day `breakdown` was last loaded for. The section only draws a breakdown whose own `day` is the
@@ -1997,21 +1918,18 @@ private struct SleepNeedBreakdownSection: View {
 
     var body: some View {
         let isVisible = SleepNeedBreakdownVisibility.isVisible(mode: SleepPerformanceV2Prefs.mode)
-        // The section brings its own leading hairline: with the V2 need off it draws nothing at all, and the
-        // page must not be left with a stray separator.
-        VStack(alignment: .leading, spacing: 0) {
-            // A zero-height anchor: while there is nothing to show the section is otherwise an empty view, and an
-            // empty view in the lazy stack never appears, so its load task would never run.
-            Color.clear.frame(height: 0).accessibilityHidden(true)
+        FlatSection("Tonight", systemImage: "moon.fill", tint: .sleep, trailing: trailing) {
             if isVisible {
                 if let breakdown, breakdown.day == wakeDay {
-                    FlatSectionSeparator.sleep
-                    needSection(breakdown)
+                    needBlock(breakdown)
                 } else if loadedDay == wakeDay {
-                    FlatSectionSeparator.sleep
-                    calibratingSection
+                    Text("NOOP hasn't computed this night's dynamic Sleep Need breakdown yet — it needs enough scored history first.")
+                        .font(StrandFont.subhead)
+                        .foregroundStyle(StrandPalette.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
+            balance()
         }
         .task(id: "\(wakeDay)-\(repo.refreshSeq)-\(repo.canonicalHealth.presentationRevision)") {
             // Off: legacy stays authoritative with no V2 UI, so there is nothing to read from the store.
@@ -2028,41 +1946,33 @@ private struct SleepNeedBreakdownSection: View {
         }
     }
 
-    /// Where tonight's need comes from: the total as the hero value, then each signed contribution as a row in
-    /// its own colour. Every line is a real stored component; nothing here is invented.
-    private func needSection(_ breakdown: SleepNeedBreakdown) -> some View {
-        let lines = Self.lines(for: breakdown)
-        return FlatSection("Tonight's need", systemImage: "target", tint: .sleep) {
-            HeroValue(value: SleepAlarmTime.hoursMinutes(breakdown.totalMinutes), unit: "h",
-                      caption: String(localized: "Sleep need"), captionPlacement: .below)
-            VStack(alignment: .leading, spacing: NoopMetrics.space3) {
+    /// Where tonight's need comes from: the total as the hero value, then each non-zero contribution as a chip.
+    /// Every chip is a real stored component; nothing here is invented.
+    private func needBlock(_ breakdown: SleepNeedBreakdown) -> some View {
+        let unused: Set<String> = Set([("effort", breakdown.strainAdjustmentMinutes),
+                                       ("debt", breakdown.debtRepaymentMinutes),
+                                       ("nap", breakdown.napCreditMinutes)]
+            .filter { abs($0.1) < 0.5 }.map(\.0))
+        let lines = Self.lines(for: breakdown).filter { !unused.contains($0.id) }
+        return VStack(alignment: .leading, spacing: NoopMetrics.space3) {
+            HeroValue(value: SleepStageRowPresentation.durationText(breakdown.totalMinutes),
+                      caption: String(localized: "Sleep need"))
+            SleepChipFlow(spacing: NoopMetrics.space2) {
                 ForEach(lines) { line in
-                    MetricValueRow(systemImage: Self.symbol(for: line.id), label: line.title, value: line.value,
-                                   tint: .custom(line.tone))
+                    HStack(spacing: 4) {
+                        Text(line.title).foregroundStyle(StrandPalette.textSecondary)
+                        Text(line.value).foregroundStyle(StrandPalette.textPrimary).fontWeight(.semibold)
+                    }
+                    .font(StrandFont.micro)
+                    .monospacedDigit()
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(Capsule(style: .continuous).fill(StrandPalette.surfaceInset))
                 }
             }
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Self.accessibilitySummary(breakdown))
-    }
-
-    private var calibratingSection: some View {
-        FlatSection("Tonight's need", systemImage: "target", tint: .sleep,
-                     trailing: .pill("Calibrating", tone: .neutral)) {
-            Text("NOOP hasn't computed this night's dynamic Sleep Need breakdown yet — it needs enough scored history first.")
-                .font(StrandFont.subhead)
-                .foregroundStyle(StrandPalette.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-    }
-
-    private static func symbol(for lineID: String) -> String {
-        switch lineID {
-        case "baseline": return "moon.zzz.fill"
-        case "effort": return "flame.fill"
-        case "debt": return "hourglass"
-        default: return "powersleep"
-        }
     }
 
     /// Baseline unsigned; Effort/debt-repayment/nap-credit signed, matching the promoted card's lab
@@ -2083,6 +1993,61 @@ private struct SleepNeedBreakdownSection: View {
 
     private static func accessibilitySummary(_ b: SleepNeedBreakdown) -> String {
         String(localized: "Tonight's sleep need \(SleepAlarmTime.duration(Int(b.totalMinutes.rounded()))): baseline \(SleepAlarmTime.hoursMinutes(b.baselineMinutes)), yesterday's Effort \(SleepAlarmTime.hoursMinutes(b.strainAdjustmentMinutes, signed: true)), sleep debt repayment \(SleepAlarmTime.hoursMinutes(b.debtRepaymentMinutes, signed: true)), nap credit \(SleepAlarmTime.hoursMinutes(-b.napCreditMinutes, signed: true))")
+    }
+}
+
+/// The 30-night sleep duration chart, the page the Night detail "Duration" row opens: the average as the hero
+/// value, the trend with its wash, and the low / latest / high underneath. Same content the main page carried
+/// before the trim.
+private struct SleepDurationTrendDetail: View {
+    let points: [TrendPoint]
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    /// The axis fitted to the observed range with headroom, so a steady series is not drawn as a flat line
+    /// (the Coach trend card's rule).
+    private var domain: ClosedRange<Double> {
+        let vals = points.map(\.value)
+        guard let low = vals.min(), let high = vals.max() else { return 0...1 }
+        let pad = Swift.max((high - low) * 0.2, 0.5)
+        return Swift.max(0, low - pad)...(high + pad)
+    }
+
+    var body: some View {
+        // Trailing-30 trend points are precomputed in the model build; read here, not recomputed.
+        let values = points.map(\.value)
+        let avg = values.isEmpty ? nil : values.reduce(0, +) / Double(values.count)
+        let tint = DomainTint.sleep
+        ScreenScaffold(title: "Sleep duration", subtitle: "Last 30 days") {
+            FlatSection("Sleep duration", systemImage: "chart.line.uptrend.xyaxis", tint: tint,
+                         trailing: .text(String(localized: "Last 30 days"))) {
+                if points.count > 1 {
+                    HeroValue(value: avg.map { String(format: "%.1f", $0) } ?? "—", unit: String(localized: "h avg"),
+                              caption: String(localized: "\(points.count) recorded nights"))
+                    // The Coach trend recipe: the tint's line, a wash fading to clear, at most four evenly spaced
+                    // dates, the axis fitted to the data with headroom.
+                    TrendChart(points: points,
+                               gradient: Gradient(colors: [tint.accent.opacity(0.55), tint.accent]),
+                               valueRange: domain,
+                               showsArea: true,
+                               height: WidgetMetrics.chartHeight,
+                               showsHover: false,
+                               valueFormat: { String(format: "%.1f h", $0) },
+                               accessibilityLabel: String(localized: "Hours asleep trend"),
+                               yDomain: domain,
+                               xAxisLabelCount: dynamicTypeSize >= .xxLarge ? 3 : WidgetMetrics.maxXAxisLabels)
+                    FactStrip(facts: [
+                        FactStrip.Fact("Low", value: values.min().map { String(format: "%.1f h", $0) } ?? "—"),
+                        FactStrip.Fact("Latest", value: values.last.map { String(format: "%.1f h", $0) } ?? "—"),
+                        FactStrip.Fact("High", value: values.max().map { String(format: "%.1f h", $0) } ?? "—"),
+                    ])
+                } else {
+                    Text("Not enough nights yet.")
+                        .font(StrandFont.subhead)
+                        .foregroundStyle(StrandPalette.textSecondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+        }
     }
 }
 

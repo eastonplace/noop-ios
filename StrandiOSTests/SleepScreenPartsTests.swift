@@ -48,6 +48,15 @@ final class SleepScreenPartsTests: XCTestCase {
         XCTAssertFalse(presentation(90, typical: 0).isOnTypical)
     }
 
+    func testShortDeltaIsSignedAndAbsentWithoutATypical() {
+        func delta(_ minutes: Double, typical: Double?) -> String? {
+            SleepStageRowPresentation(stage: .rem, minutes: minutes, total: 400, typical: typical).shortDelta
+        }
+        XCTAssertEqual(delta(97, typical: 90), "+7m")
+        XCTAssertEqual(delta(78, typical: 90), "−12m")
+        XCTAssertNil(delta(90, typical: nil))
+    }
+
     // MARK: Shares of the night
 
     func testStageSharesAlwaysAddUpToOneHundred() {
