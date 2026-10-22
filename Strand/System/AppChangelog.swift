@@ -57,7 +57,7 @@ enum AppChangelog {
             Feature("heart.text.square.fill", .heart, "Apple Health continuity", "Read setup resumes and hidden reads keep saved data."),
             Feature("bed.double.fill", .sleep, "Apple sleep totals", "Stages share a wake day without double counting."),
             Feature("thermometer.medium", .sleep, "Complete Charge inputs", "Late readings and final night temperatures reach Charge."),
-            Feature("applewatch.radiowaves.left.and.right", .accent, "WHOOP pairing", "New live connections focus on WHOOP straps."),
+            Feature("link.circle.fill", .accent, "WHOOP pairing", "New live connections focus on WHOOP straps."),
         ]),
         .fork("1.7.1", "Clearer alarm confirmation", "October 2026", [
             Feature("alarm.fill", .sleep, "Ordered alarm delivery", "WHOOP 4.0 alarm commands wait for each write."),
