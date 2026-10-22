@@ -3730,11 +3730,14 @@ final class IntelligenceEngine: ObservableObject {
         "hrSample", "rrInterval", "respSample", "gravitySample", "stepSample", "skinTempSample",
         "spo2Sample", "event", "sleepStateSample", "ppgHrSample",
         // Computed legacy band-state fallback is a real input when the raw sleep-state stream is absent.
-        "sleepSession", "device", "pairedDevice", "dayOwnership"
+        "sleepSession", "device", "pairedDevice"
+        // dayOwnership is read again for each day before lookup. The complete effective input is the
+        // resolved owner in that day's key; a changed successor onset also changes cycleFingerprint.
     ]
 
     private static let wholePassInputTables = dayScanInputTables + [
-        "dailyMetric", "metricSeries", "workout", "appleDaily",
+        // The idle gate does not resolve individual owners, so any override mutation must wake it.
+        "dayOwnership", "dailyMetric", "metricSeries", "workout", "appleDaily",
         "liftStrain", "liftStrainTarget", "liftStrainControl", "liftStrainJob", "sleepRecoveryDailyOverride"
     ]
 
