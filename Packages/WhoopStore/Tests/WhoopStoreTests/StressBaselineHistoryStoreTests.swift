@@ -32,6 +32,27 @@ final class StressBaselineHistoryStoreTests: XCTestCase {
         XCTAssertEqual(result, [.init(startTs: 100, sampleCount: 2, meanHR: 70)])
     }
 
+    func testMultipleHourFragmentsAndQuotedSourceIDsUseBoundArguments() async throws {
+        let store = try await WhoopStore.inMemory()
+        let active = "active' strap"
+        _ = try await store.insert(Streams(hr: [
+            .init(ts: 100, bpm: 60), .init(ts: 3_699, bpm: 80),
+            .init(ts: 3_700, bpm: 90), .init(ts: 7_299, bpm: 110),
+        ]), deviceId: active)
+        _ = try await store.insert(Streams(hr: [.init(ts: 100, bpm: 200)]), deviceId: "canonical")
+
+        let result = try await store.stressBaselineHourSummaries(
+            deviceIds: [active, "canonical"], windows: [
+                window,
+                .init(startTs: 3_700, endTs: 7_300),
+                .init(startTs: 7_300, endTs: 10_900),
+            ])
+        XCTAssertEqual(result, [
+            .init(startTs: 100, sampleCount: 2, meanHR: 70),
+            .init(startTs: 3_700, sampleCount: 2, meanHR: 100),
+        ])
+    }
+
     func testInsertCorrectionAndDeletionAreReadWithoutAStaleHistoryCache() async throws {
         let store = try await WhoopStore.inMemory()
         _ = try await store.insert(Streams(hr: [.init(ts: 100, bpm: 60), .init(ts: 101, bpm: 80)]), deviceId: "active")

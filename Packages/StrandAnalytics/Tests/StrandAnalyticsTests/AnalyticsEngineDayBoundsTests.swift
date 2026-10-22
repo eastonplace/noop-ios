@@ -345,9 +345,19 @@ final class AnalyticsEngineDSTDayBoundsTests: XCTestCase {
             let civil = try interval(day, id)
             let dayOffset = AnalyticsEngine.civilDayClockOffset(civil, timeZone: tz)
             let night = stillNight(start: civil.lowerBound - 2 * 3_600, end: civil.lowerBound + 2 * 3_600)
-            // Day streams cover exactly the civil day, so an hour-shifted bucket visibly loses an hour.
+            // Day streams cover exactly the civil day. The first hour is inside the detected night,
+            // so sparse minute-counter changes there are now correctly sleep-filtered. Include a short
+            // sustained walk (2 ticks/s) so a bucket losing that hour still loses retained movement.
             let hr = heartRate(from: civil.lowerBound, to: civil.upperBound)
-            let counter = steps(from: civil.lowerBound, to: civil.upperBound)
+            let minuteCounter = steps(from: civil.lowerBound, to: civil.upperBound)
+            let firstCounter = try XCTUnwrap(minuteCounter.first)
+            let walkStart = civil.lowerBound + 30
+            let walk = (0..<10).map {
+                StepSample(ts: walkStart + $0, counter: firstCounter.counter + ($0 + 1) * 2)
+            }
+            let counter = (minuteCounter.map { sample in
+                StepSample(ts: sample.ts, counter: (sample.counter + (sample.ts >= walkStart ? 20 : 0)) & 0xFFFF)
+            } + walk).sorted { $0.ts < $1.ts }
             func score(dayInterval: Range<Int>?, offset: Int) -> AnalyticsEngine.DayResult {
                 AnalyticsEngine.analyzeDay(day: day, hr: night.hr, rr: night.rr, gravity: night.gravity,
                                            dayHr: hr, daySteps: counter, profile: profile,
@@ -361,6 +371,9 @@ final class AnalyticsEngineDSTDayBoundsTests: XCTestCase {
             XCTAssertEqual(rescoredAfter.sleepSessions, scoredBefore.sleepSessions, "\(day) \(id)")
             XCTAssertNotNil(rescoredAfter.daily.steps)
             XCTAssertNotNil(rescoredAfter.daily.totalSleepMin)
+            XCTAssertEqual(SleepAwareStepCounter.stepsInWindow(
+                [firstCounter] + walk, sleepSessions: scoredBefore.sleepSessions), 20,
+                "\(day) \(id): the boundary-hour walk must survive sleep filtering")
 
             // The old engine re-scored it under the other side's offset and lost an hour.
             let otherSideOffset = dayOffset + (tz.isDaylightSavingTime(

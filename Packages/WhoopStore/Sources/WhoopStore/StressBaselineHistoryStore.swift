@@ -63,7 +63,9 @@ extension WhoopStore {
                 "minBPM": plausibleBPM.lowerBound.databaseValue,
                 "maxBPM": plausibleBPM.upperBound.databaseValue,
             ]
-            let bounds = windows.enumerated().map { index, window in
+            // Keep raw fragments typed as String: GRDB also offers SQL interpolation and joined(),
+            // whose inferred SQL value would become debug text inside the final String query.
+            let bounds: String = windows.enumerated().map { index, window -> String in
                 arguments["start\(index)"] = window.startTs.databaseValue
                 arguments["end\(index)"] = window.endTs.databaseValue
                 return "(\(index), :start\(index), :end\(index))"
@@ -71,7 +73,9 @@ extension WhoopStore {
             var arms: [String] = []
             for (index, id) in ids.enumerated() {
                 arguments["device\(index)"] = id.databaseValue
-                let higherPriority = (0..<index).map { ":device\($0)" }.joined(separator: ", ")
+                let higherPriority: String = (0..<index).map { priority -> String in
+                    ":device\(priority)"
+                }.joined(separator: ", ")
                 func excludesHigherPriority(_ alias: String) -> String {
                     guard index > 0 else { return "" }
                     return """

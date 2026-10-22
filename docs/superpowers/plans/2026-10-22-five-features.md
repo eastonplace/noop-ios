@@ -67,7 +67,7 @@ Feature workers edit only assigned areas and do not commit or push concurrently.
 
 - [x] Run all 12 source audit commands and portable/component Swift suites; record native platform limits in `docs/five-features-review.md`.
 - [x] Review the entire diff independently and resolve confirmed import/GPS cancellation and step-context defects.
-- [ ] Commit and push only the new branch through GitHub; open one draft PR targeting main.
+- [x] Commit and push only the new branch through GitHub; open one draft PR targeting main (#70).
 - [ ] Inspect native GitHub CI and fix attributable compilation/test failures where feasible.
 - [ ] Update PR with exact results, remaining verification and pending-branch overlap.
 
@@ -78,3 +78,17 @@ On the completed feature tree: 142 portable/component tests passed (28 core, 44 
 all 12 static audit commands and syntax parsing of 64 changed Swift files passed.
 Native Apple SDK typechecking, full database integration and simulator UI checks remain
 assigned to the PR workflows and subsequent review.
+
+## Native CI follow-up
+
+The first full store run exposed GRDB overload inference producing SQL debug text inside
+the personal-history query. Explicit String fragment types fix the query while retaining
+bound values. The exact repository helper and six tests were executed against real
+GRDB/SQLite: the original code reproduced the failure, and the corrected code passes all
+six tests. Native full-suite reruns remain the authority for Apple-platform integration.
+
+The first analytics run also exposed a DST fixture that depended on isolated movement
+during detected sleep. It now includes a realistic retained walking bout in the boundary
+hour, keeps the existing correct/incorrect-offset assertions, and pins the retained ticks.
+The original failure was reproduced; all 17 exact-source day-boundary tests then passed.
+The initial PR head compiled the complete iPhone app and extensions successfully in Xcode.

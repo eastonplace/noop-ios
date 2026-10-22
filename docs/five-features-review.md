@@ -91,7 +91,7 @@ share GPX or FIT through the native share sheet. **Export Workout Route** is als
 discoverable Shortcuts action for the latest exportable saved route. Existing Siri
 shortcut phrases are retained.
 
-New recordings preserve measured timestamps, available altitude/accuracy, and segment
+New recordings preserve measured timestamps, available horizontal accuracy, and segment
 breaks across pause, resume and relaunch. GPX and FIT use those measurements. FIT exports
 route/distance/timer information without an invented heart-rate or calorie summary.
 
@@ -108,8 +108,10 @@ require macOS/Xcode CI; a Linux source parse is not a native build.
 - The full `NoopPhase34Core` package suite passes (28 tests), including seven new brief
   payload tests for source/epoch/day/expiry isolation, malformed versions, Unicode bounds,
   missing metrics and non-finite values.
-- Focused exact-source stress analytics tests pass (44 tests). Database integration
-  and iOS view ownership tests are committed for native CI.
+- Focused exact-source stress analytics tests pass (44 tests). A real GRDB/SQLite
+  harness also passes all six exact-source history-query tests, including a regression
+  that reproduced the first native CI run's SQL-fragment interpolation failure before
+  its correction. Full store integration and iOS view ownership run in native CI.
 - The focused routine parser suite passes (14 tests), including CSV and real XLSX
   paths. ReceiptLift persistence/source/preview tests are committed for iOS CI.
 - The GPS writer package passes (10 tests); the exact-source persistence/service harness
@@ -120,6 +122,9 @@ require macOS/Xcode CI; a Linux source parse is not a native build.
   movement, overlapping awake spans, sustained bouts and successor-sleep cache
   invalidation. Native daily/cycle, diagnostic-parity and repair integration tests
   are included for macOS/iOS CI; they were not executed in the Linux harness.
+- The complete exact-source day-boundary test file passes (17 tests). Its DST fixture
+  includes sustained boundary-hour walking so the wrong-offset regression remains
+  observable after isolated sleep movement is correctly filtered.
 - All 12 existing static audit commands pass, including UI conventions, accessibility,
   privacy, HealthKit, workout persistence, and project hygiene.
 
@@ -127,6 +132,10 @@ The temporary component harnesses compile the repository's exact source and test
 excluding unrelated Apple-only modules; they are not substitutes for the complete
 macOS package or iOS suites. Native build/test results belong to the PR checks. The
 new GPS package is included in both package CI and the app workflow's retained tests.
+
+The initial PR head compiled the full iPhone app and extensions in Xcode. Native tests
+remain a separate gate; successful app compilation does not imply that the test suites
+or device interaction checks have passed.
 
 ## Integration with pending work
 
