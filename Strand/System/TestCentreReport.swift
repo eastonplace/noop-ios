@@ -126,7 +126,7 @@ final class TestCentreReport: ObservableObject {
         let seed = TestModeRegistry.mode(p.profile).flatMap {
             TestReportLink.whatHappensSeed(questionnaire: $0.questionnaire, answers: TestCentre.answers(p.profile))
         }
-        Task {
+        Task { [weak self] in
             await TestReportFlow.run(
             profile: p.profile, title: p.title,
             version: version, platform: platform, osVersion: osVersion,
