@@ -160,7 +160,7 @@ extension WhoopStore {
         toTimestamp: Int,
         workoutSource: String = "apple-health",
         preserveUnprovenEmptyReads: Bool = false,
-        projectionDeletions: [HealthKitProjectionDeletion] = []
+        projectionDeletions _: [HealthKitProjectionDeletion] = []
     ) async throws {
         try syncWrite { db in
             let protected = preserveUnprovenEmptyReads
@@ -182,34 +182,10 @@ extension WhoopStore {
                     DELETE FROM workout
                     WHERE deviceId = ? AND source = ? AND startTs >= ? AND startTs <= ?
                     """, arguments: [deviceId, workoutSource, fromTimestamp, toTimestamp])
-            } else {
-                for deletion in projectionDeletions where deletion.sampleType == "HKWorkoutTypeIdentifier"
-                    && deletion.fromTimestamp >= fromTimestamp && deletion.fromTimestamp <= toTimestamp {
-                    // A tombstone owns an object, not every workout that overlaps its duration.
-                    // Retraction requires one banked projection and one matching indexed owner.
-                    // Corrected unions, unindexed imports, and same-start collisions remain ambiguous.
-                    let candidates = try Row.fetchAll(db, sql: """
-                        SELECT endTs FROM healthKitObjectIndex
-                        WHERE deviceId = ? AND sampleType = ? AND startTs = ? LIMIT 2
-                        """, arguments: [deviceId, deletion.sampleType, deletion.fromTimestamp])
-                    guard candidates.count == 1 else { continue }
-                    let indexedEnd: Int = candidates[0]["endTs"]
-                    guard indexedEnd == deletion.toTimestamp else { continue }
-                    let projections = try Row.fetchAll(db, sql: """
-                        SELECT endTs, sport FROM workout
-                        WHERE deviceId = ? AND source = ? AND startTs = ? LIMIT 2
-                        """, arguments: [deviceId, workoutSource, deletion.fromTimestamp])
-                    guard projections.count == 1 else { continue }
-                    let projectedEnd: Int = projections[0]["endTs"]
-                    let projectedSport: String = projections[0]["sport"]
-                    guard projectedEnd == deletion.toTimestamp else { continue }
-                    try db.execute(sql: """
-                        DELETE FROM workout
-                        WHERE deviceId = ? AND source = ? AND startTs = ? AND endTs = ? AND sport = ?
-                        """, arguments: [deviceId, workoutSource, deletion.fromTimestamp, deletion.toTimestamp,
-                                           projectedSport])
-                }
             }
+            // Guarded reads retain missing workouts too. Indexed timestamps identify the
+            // removed HealthKit object, but cannot prove which projected workout it owned.
+            // Even unique matching windows can belong to an independent XML import.
 
             // Reuse prepared INSERTs across history rows. Recompiling each row
             // dominated the device profile during a multi-year Health catch-up.
