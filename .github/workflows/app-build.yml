@@ -248,13 +248,12 @@ jobs:
           raise SystemExit("No available iPhone simulator found")
           ')
           echo "udid=$udid" >> "$GITHUB_OUTPUT"
-      - name: Build app, extensions and test products once per scheme
+      - name: Build native app, extensions and test products
         id: build
         if: needs.change-plan.outputs.run_app == 'true'
         shell: bash
         env:
           SIMULATOR_UDID: ${{ steps.simulator.outputs.udid }}
-          UI_TESTS: ${{ needs.change-plan.outputs.ui_tests }}
         run: |
           set -euo pipefail
           stage_start=$SECONDS
@@ -265,13 +264,6 @@ jobs:
             -derivedDataPath "$RUNNER_TEMP/noop-derived-data" \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
             build-for-testing 2>&1 | tee qa-artifacts/build-native.txt
-          if [[ "$UI_TESTS" != '[]' ]]; then
-            xcodebuild -scheme NOOPCoachUI -configuration Debug \
-              -destination "platform=iOS Simulator,id=$SIMULATOR_UDID" \
-              -derivedDataPath "$RUNNER_TEMP/noop-derived-data" \
-              CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
-              build-for-testing 2>&1 | tee qa-artifacts/build-ui.txt
-          fi
       - name: Run selected native tests
         id: native
         if: needs.change-plan.outputs.run_app == 'true'
@@ -300,10 +292,27 @@ jobs:
             "${native_scope[@]}" -resultBundlePath qa-artifacts/native-tests.xcresult \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
             test-without-building 2>&1 | tee qa-artifacts/native-tests.txt
+      - name: Build affected UI test products after native execution
+        id: ui_build
+        # This scheme relinks the shared app host with different package variants.
+        # Native tests must consume their matching host before this build replaces it.
+        if: ${{ !cancelled() && steps.native.outcome == 'success' && needs.change-plan.outputs.ui_tests != '[]' }}
+        shell: bash
+        env:
+          SIMULATOR_UDID: ${{ steps.simulator.outputs.udid }}
+        run: |
+          set -euo pipefail
+          stage_start=$SECONDS
+          trap 'printf "ui-build\t%s\n" "$((SECONDS-stage_start))" >> qa-artifacts/timings.tsv' EXIT
+          xcodebuild -scheme NOOPCoachUI -configuration Debug \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_UDID" \
+            -derivedDataPath "$RUNNER_TEMP/noop-derived-data" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
+            build-for-testing 2>&1 | tee qa-artifacts/build-ui.txt
       - name: Run affected UI tests
         id: ui
         # Stop expensive downstream work after a required native failure; the gate stays red.
-        if: ${{ !cancelled() && steps.native.outcome == 'success' && steps.build.outcome == 'success' && steps.simulator.outcome == 'success' && needs.change-plan.outputs.ui_tests != '[]' }}
+        if: ${{ !cancelled() && steps.native.outcome == 'success' && steps.ui_build.outcome == 'success' && needs.change-plan.outputs.ui_tests != '[]' }}
         shell: bash
         env:
           SIMULATOR_UDID: ${{ steps.simulator.outputs.udid }}

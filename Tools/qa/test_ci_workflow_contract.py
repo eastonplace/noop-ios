@@ -52,10 +52,12 @@ class CIWorkflowContractTests(unittest.TestCase):
 
     def test_build_products_are_reused_on_one_runner(self) -> None:
         build = step("build")["run"]
-        self.assertEqual(build.count("build-for-testing"), 2)
+        ui_build = step("ui_build")["run"]
+        self.assertEqual(build.count("build-for-testing"), 1)
+        self.assertEqual(ui_build.count("build-for-testing"), 1)
         self.assertIn("-scheme NOOPiOS", build)
-        self.assertIn("-scheme NOOPCoachUI", build)
-        for identity in ("build", "native", "ui"):
+        self.assertIn("-scheme NOOPCoachUI", ui_build)
+        for identity in ("build", "native", "ui_build", "ui"):
             script = step(identity)["run"]
             self.assertIn('-derivedDataPath "$RUNNER_TEMP/noop-derived-data"', script)
         self.assertIn("test-without-building", step("native")["run"])
@@ -173,6 +175,53 @@ class CIWorkflowContractTests(unittest.TestCase):
 
     def test_native_failure_stops_expensive_ui_work(self) -> None:
         self.assertIn("steps.native.outcome == 'success'", step("ui")["if"])
+        self.assertIn("steps.native.outcome == 'success'", step("ui_build")["if"])
+        self.assertIn("steps.ui_build.outcome == 'success'", step("ui")["if"])
+
+    def test_each_scheme_executes_before_another_build_can_replace_its_host(self) -> None:
+        """The UI scheme changes static/dynamic package linkage in the shared app host."""
+        with tempfile.TemporaryDirectory() as directory:
+            temporary = Path(directory)
+            (temporary / "qa-artifacts").mkdir()
+            (temporary / "qa-artifacts/change-plan.json").write_text(json.dumps({
+                "native_tests": ["NOOPiOSTests"],
+                "ui_tests": ["NOOPCoachUITests/ApprovedDashboardUITests/testTodayNormal"],
+            }))
+            binary = temporary / "xcodebuild"
+            binary.write_text('''#!/bin/bash
+set -euo pipefail
+scheme=''
+action=''
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -scheme) scheme=$2; shift ;;
+    build-for-testing|test-without-building) action=$1 ;;
+  esac
+  shift
+done
+printf '%s %s\\n' "$scheme" "$action" >> "$RUNNER_TEMP/commands"
+if [[ "$action" == build-for-testing ]]; then
+  printf '%s' "$scheme" > "$RUNNER_TEMP/host-built-for"
+elif [[ "$(cat "$RUNNER_TEMP/host-built-for")" != "$scheme" ]]; then
+  echo 'The shared test host was overwritten by another scheme' >&2
+  exit 77
+fi
+''')
+            binary.chmod(0o755)
+            environment = dict(os.environ, RUNNER_TEMP=directory, SIMULATOR_UDID="fixture-phone",
+                               UI_TESTS='["NOOPCoachUITests/ApprovedDashboardUITests/testTodayNormal"]',
+                               PATH=f"{directory}:{os.environ['PATH']}")
+            steps = workflow("app-build.yml")["jobs"]["build-and-test"]["steps"]
+            for item in steps:
+                if item.get("id") not in {"build", "native", "ui_build", "ui"}:
+                    continue
+                process = subprocess.run(["bash", "-euo", "pipefail", "-c", item["run"]], cwd=directory,
+                                         env=environment, text=True, capture_output=True)
+                self.assertEqual(process.returncode, 0, f"{item['id']}: {process.stderr}")
+            self.assertEqual((temporary / "commands").read_text().splitlines(), [
+                "NOOPiOS build-for-testing", "NOOPiOS test-without-building",
+                "NOOPCoachUI build-for-testing", "NOOPCoachUI test-without-building",
+            ])
 
     def test_gate_executes_protected_pair_and_rejects_partial_policy(self) -> None:
         gate_steps = workflow("app-build.yml")["jobs"]["ci-gate"]["steps"]

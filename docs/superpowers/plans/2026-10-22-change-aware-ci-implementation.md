@@ -50,3 +50,7 @@ Record existing run timings and exact UI identities; compare planned normal/high
 ## Pre-publication evidence
 
 Frozen combined implementation passed 75 CI-policy tests, all 15 existing source/policy audits, actionlint1.7.12 for the three workflows, and whitespace checks. Fresh independent combined review found no blocking issue. Classifier evidence covers actual Git histories, bootstrap10/full42 UI selection, all eleven package lanes and conservative historical replay. These checks do not establish hosted execution or measured speed gains. Final-head CI and main merge readback remain task6.
+
+## First hosted qualification and bounded repair
+
+Headffb4bd73 passed source audits, safety harnesses, app/test-product builds and all eight package suites. Native execution failed because the later UI scheme build had replaced the native host with a different package linkage graph. Duplicate package classes and GRDB queue-key failures followed; UI was skipped and the real aggregate gate correctly failed. Link commands confirmed the overwrite. Repair only workflow sequencing: native build, native execution, UI build, UI execution. Keep one build per scheme and all assertions. Add an extracted-command order regression and independently review the repair before the next exact-head qualification. Do not treat the failed run as merge-ready timing evidence.
